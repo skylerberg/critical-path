@@ -3,6 +3,17 @@
 Backend for "Critical Path" (rename via `src/config/constants.ts`). Plain
 Postgres + Kysely — no Supabase, no Docker, no OpenTelemetry.
 
+# Local data — do not destroy
+
+The local `game_dev` Postgres database holds real, non-disposable data (the
+owner's actual projects and tasks, e.g. the "Colori" board). Never run
+destructive commands against it: no `DROP DATABASE` / `dropdb game_dev`, no
+`TRUNCATE`, no bulk `DELETE`, and no `migrate:down` that drops a data-bearing
+column. Only the test databases (`game_dev_test`, `game_dev_test_*`) may be
+truncated or reset — the test suite does this by design. When clearing leftover
+test accounts, scope the query narrowly (e.g. `email LIKE 'agent-%'`) and never
+touch `gamedev@skylerberg.com` or its rows.
+
 # Conventions
 
 1. All POST/PUT/PATCH/DELETE handlers run inside a database transaction via
