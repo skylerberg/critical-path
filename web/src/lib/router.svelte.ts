@@ -1,12 +1,12 @@
 import type { Action } from 'svelte/action';
 
+export type ProjectView = 'board' | 'graph';
+
 export type Route =
   | { name: 'projects' }
   | { name: 'login' }
   | { name: 'signup' }
-  | { name: 'board'; params: { id: string } }
-  | { name: 'graph'; params: { id: string } }
-  | { name: 'task'; params: { id: string; taskId: string } }
+  | { name: 'project'; params: { id: string; view: ProjectView; taskId?: string } }
   | { name: 'not-found'; path: string };
 
 export type BeforeNavigate = (to: Route, path: string) => string | undefined | void;
@@ -37,11 +37,17 @@ export function matchRoute(pathname: string): Route {
   if (path === '/login') return { name: 'login' };
   if (path === '/signup') return { name: 'signup' };
   let params = matchPattern('/projects/:id', path);
-  if (params) return { name: 'board', params: { id: params.id! } };
+  if (params) return { name: 'project', params: { id: params.id!, view: 'board' } };
   params = matchPattern('/projects/:id/graph', path);
-  if (params) return { name: 'graph', params: { id: params.id! } };
+  if (params) return { name: 'project', params: { id: params.id!, view: 'graph' } };
   params = matchPattern('/projects/:id/tasks/:taskId', path);
-  if (params) return { name: 'task', params: { id: params.id!, taskId: params.taskId! } };
+  if (params) {
+    return { name: 'project', params: { id: params.id!, view: 'board', taskId: params.taskId! } };
+  }
+  params = matchPattern('/projects/:id/graph/tasks/:taskId', path);
+  if (params) {
+    return { name: 'project', params: { id: params.id!, view: 'graph', taskId: params.taskId! } };
+  }
   return { name: 'not-found', path: pathname };
 }
 

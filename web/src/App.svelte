@@ -8,8 +8,7 @@
   import Login from './routes/Login.svelte';
   import Signup from './routes/Signup.svelte';
   import Projects from './routes/Projects.svelte';
-  import Board from './routes/Board.svelte';
-  import Graph from './routes/Graph.svelte';
+  import Project from './routes/Project.svelte';
   import NotFound from './routes/NotFound.svelte';
   import Nav from './components/Nav.svelte';
   import Toasts from './components/Toasts.svelte';
@@ -57,14 +56,8 @@
       <Signup />
     {:else if route.name === 'projects'}
       <Projects />
-    {:else if route.name === 'board' || route.name === 'task'}
-      <!-- One branch for both routes so opening/closing the task overlay never remounts the board. -->
-      <Board
-        projectId={route.params.id}
-        taskId={route.name === 'task' ? route.params.taskId : undefined}
-      />
-    {:else if route.name === 'graph'}
-      <Graph projectId={route.params.id} />
+    {:else if route.name === 'project'}
+      <Project projectId={route.params.id} view={route.params.view} taskId={route.params.taskId} />
     {:else}
       <NotFound path={route.path} />
     {/if}

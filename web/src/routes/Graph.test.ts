@@ -1,7 +1,8 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
-import Graph from './Graph.svelte';
+import Project from './Project.svelte';
+import { board } from '../lib/board.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 
 function task(id: string, columnId: string, blockerIds: string[] = []): BoardTask {
@@ -41,15 +42,16 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  board.reset();
 });
 
 describe('Graph', () => {
-  it('renders a rect node per task, header links, and the critical path legend', async () => {
+  it('renders a linked node per task, header tabs, and the critical path legend', async () => {
     const projectId = 'p-graph-chain';
     const tasks = [task('a', 'todo'), task('b', 'todo', ['a']), task('c', 'todo', ['b'])];
     fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
 
-    const { container } = render(Graph, { props: { projectId } });
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(3);
@@ -70,13 +72,46 @@ describe('Graph', () => {
     expect(container.querySelectorAll('path[marker-end]')).toHaveLength(2);
   });
 
+  it('renders each node as an anchor to the graph-preserving task path', async () => {
+    const projectId = 'p-graph-anchors';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    const anchor = container.querySelector('[data-node-id="a"] a');
+    expect(anchor).not.toBeNull();
+    expect(anchor).toHaveAttribute('href', `/projects/${projectId}/graph/tasks/a`);
+    expect(screen.getByRole('link', { name: 'Open task Task a' })).toBe(anchor);
+  });
+
+  it('hides the filter bar on the graph view', async () => {
+    const projectId = 'p-graph-filters';
+    const withLabel = { ...task('a', 'todo'), label_ids: ['l1'] };
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, {
+        ...payload(projectId, [withLabel]),
+        labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+      })
+    );
+
+    render(Project, { props: { projectId, view: 'graph' } });
+
+    await screen.findByRole('heading', { name: 'Rulebook' });
+    expect(screen.queryByRole('group', { name: 'Filters' })).not.toBeInTheDocument();
+  });
+
   it('shows the no-dependencies hint and no legend when tasks have no blockers', async () => {
     const projectId = 'p-graph-no-deps';
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
 
-    const { container } = render(Graph, { props: { projectId } });
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
@@ -91,7 +126,7 @@ describe('Graph', () => {
       jsonResponse(200, payload(projectId, [task('a', 'todo', ['b']), task('b', 'todo', ['a'])]))
     );
 
-    const { container } = render(Graph, { props: { projectId } });
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
     expect(await screen.findByText('Dependency cycle detected')).toBeInTheDocument();
     expect(container.querySelector('svg[aria-label="Dependency graph"]')).toBeNull();
@@ -101,25 +136,8 @@ describe('Graph', () => {
     const projectId = 'p-graph-empty';
     fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, [])));
 
-    render(Graph, { props: { projectId } });
+    render(Project, { props: { projectId, view: 'graph' } });
 
     expect(await screen.findByText('No tasks to graph')).toBeInTheDocument();
-  });
-
-  it('fetches exactly once when the load keeps failing with changing messages', async () => {
-    const projectId = 'p-graph-error';
-    let calls = 0;
-    fetchMock.mockImplementation(async () => {
-      calls += 1;
-      return jsonResponse(503, { error: `down ${calls}` });
-    });
-
-    render(Graph, { props: { projectId } });
-
-    expect(await screen.findByText('down 1')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
-
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

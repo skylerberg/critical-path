@@ -14,11 +14,11 @@
   type TiptapDoc = NonNullable<BoardTask['description']>;
 
   interface Props {
-    projectId: string;
     taskId: string;
+    closePath: string;
   }
 
-  let { projectId, taskId }: Props = $props();
+  let { taskId, closePath }: Props = $props();
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const images = $derived(board.taskImages[taskId]);
@@ -56,8 +56,9 @@
     }
   });
 
+  // replaceState so Back skips the closed overlay instead of re-opening it.
   function close(): void {
-    router.navigate(`/projects/${projectId}`);
+    router.redirect(closePath);
   }
 
   function commitTitle(): void {

@@ -86,7 +86,7 @@ beforeEach(() => {
 
 describe('TaskDetail', () => {
   it('renders title, labels, assignees, blockers, timestamps, and fetched images', async () => {
-    render(TaskDetail, { projectId: 'p1', taskId: 't1' });
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
 
     expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
 
@@ -112,7 +112,7 @@ describe('TaskDetail', () => {
   });
 
   it('shows a fallback when the task is not in the store', () => {
-    render(TaskDetail, { projectId: 'p1', taskId: 'missing' });
+    render(TaskDetail, { taskId: 'missing', closePath: '/projects/p1' });
 
     expect(screen.getByText('Task not found')).toBeInTheDocument();
   });

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { matchRoute, router } from './router.svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { link, matchRoute, router } from './router.svelte';
 
 describe('matchRoute', () => {
   it('matches the root path to projects', () => {
@@ -11,37 +11,47 @@ describe('matchRoute', () => {
     expect(matchRoute('/signup')).toEqual({ name: 'signup' });
   });
 
-  it('extracts the project id for the board', () => {
+  it('matches the project board view', () => {
     expect(matchRoute('/projects/abc-123')).toEqual({
-      name: 'board',
-      params: { id: 'abc-123' },
+      name: 'project',
+      params: { id: 'abc-123', view: 'board' },
     });
   });
 
-  it('matches the graph view', () => {
+  it('matches the project graph view', () => {
     expect(matchRoute('/projects/p1/graph')).toEqual({
-      name: 'graph',
-      params: { id: 'p1' },
+      name: 'project',
+      params: { id: 'p1', view: 'graph' },
     });
   });
 
-  it('extracts both params for the task detail route', () => {
+  it('matches a task overlay on the board view', () => {
     expect(matchRoute('/projects/p1/tasks/t9')).toEqual({
-      name: 'task',
-      params: { id: 'p1', taskId: 't9' },
+      name: 'project',
+      params: { id: 'p1', view: 'board', taskId: 't9' },
+    });
+  });
+
+  it('matches a task overlay on the graph view', () => {
+    expect(matchRoute('/projects/p1/graph/tasks/t9')).toEqual({
+      name: 'project',
+      params: { id: 'p1', view: 'graph', taskId: 't9' },
     });
   });
 
   it('decodes URI-encoded params', () => {
     expect(matchRoute('/projects/a%20b')).toEqual({
-      name: 'board',
-      params: { id: 'a b' },
+      name: 'project',
+      params: { id: 'a b', view: 'board' },
     });
   });
 
   it('tolerates trailing slashes', () => {
     expect(matchRoute('/login/')).toEqual({ name: 'login' });
-    expect(matchRoute('/projects/p1/')).toEqual({ name: 'board', params: { id: 'p1' } });
+    expect(matchRoute('/projects/p1/')).toEqual({
+      name: 'project',
+      params: { id: 'p1', view: 'board' },
+    });
   });
 
   it('returns not-found for malformed percent-encoding instead of throwing', () => {
@@ -58,6 +68,10 @@ describe('matchRoute', () => {
       name: 'not-found',
       path: '/projects/p1/tasks',
     });
+    expect(matchRoute('/projects/p1/graph/tasks')).toEqual({
+      name: 'not-found',
+      path: '/projects/p1/graph/tasks',
+    });
     expect(matchRoute('/projects/p1/graph/extra')).toEqual({
       name: 'not-found',
       path: '/projects/p1/graph/extra',
@@ -69,13 +83,13 @@ describe('router', () => {
   it('navigates with pushState and updates current', () => {
     router.navigate('/projects/p1');
     expect(window.location.pathname).toBe('/projects/p1');
-    expect(router.current).toEqual({ name: 'board', params: { id: 'p1' } });
+    expect(router.current).toEqual({ name: 'project', params: { id: 'p1', view: 'board' } });
     expect(router.path).toBe('/projects/p1');
   });
 
   it('follows a beforeNavigate redirect', () => {
     router.beforeNavigate = (to) => {
-      if (to.name === 'board') return '/login';
+      if (to.name === 'project') return '/login';
       return undefined;
     };
     try {
@@ -100,7 +114,7 @@ describe('router', () => {
     const lengthBefore = window.history.length;
     router.navigate('/projects/same');
     expect(window.history.length).toBe(lengthBefore);
-    expect(router.current).toEqual({ name: 'board', params: { id: 'same' } });
+    expect(router.current).toEqual({ name: 'project', params: { id: 'same', view: 'board' } });
     expect(window.location.pathname).toBe('/projects/same');
   });
 
@@ -116,5 +130,71 @@ describe('router', () => {
     } finally {
       router.beforeNavigate = undefined;
     }
+  });
+});
+
+describe('link action', () => {
+  let cleanup: (() => void) | undefined;
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = undefined;
+    vi.restoreAllMocks();
+  });
+
+  function setup(href: string): HTMLAnchorElement {
+    const container = document.createElement('div');
+    const anchor = document.createElement('a');
+    anchor.setAttribute('href', href);
+    anchor.textContent = 'go';
+    container.appendChild(anchor);
+    document.body.appendChild(container);
+    const action = link(container);
+    cleanup = () => {
+      action?.destroy?.();
+      container.remove();
+    };
+    return anchor;
+  }
+
+  // Fires after use:link (document is above the container), records whether
+  // use:link prevented the click, then swallows it so jsdom never navigates.
+  function dispatchClick(anchor: HTMLAnchorElement, init: MouseEventInit): boolean {
+    let prevented = false;
+    const observer = (event: Event): void => {
+      prevented = event.defaultPrevented;
+      event.preventDefault();
+    };
+    document.addEventListener('click', observer);
+    try {
+      anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...init }));
+    } finally {
+      document.removeEventListener('click', observer);
+    }
+    return prevented;
+  }
+
+  it('handles plain left-clicks by navigating in-app', () => {
+    const anchor = setup('/projects/link-target');
+    const pushState = vi.spyOn(window.history, 'pushState');
+    expect(dispatchClick(anchor, { button: 0 })).toBe(true);
+    expect(pushState).toHaveBeenCalledTimes(1);
+    expect(router.path).toBe('/projects/link-target');
+  });
+
+  it.each([
+    ['shift', { shiftKey: true }],
+    ['ctrl', { ctrlKey: true }],
+    ['meta', { metaKey: true }],
+    ['alt', { altKey: true }],
+    ['middle-click', { button: 1 }],
+  ])('leaves %s clicks to the browser', (_name, init: MouseEventInit) => {
+    const anchor = setup('/projects/modifier-target');
+    const pushState = vi.spyOn(window.history, 'pushState');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    expect(dispatchClick(anchor, { button: 0, ...init })).toBe(false);
+    expect(pushState).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(router.path).not.toBe('/projects/modifier-target');
   });
 });

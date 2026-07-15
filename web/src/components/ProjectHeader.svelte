@@ -1,19 +1,20 @@
 <script lang="ts">
   import { board } from '../lib/board.svelte';
-  import { link, router } from '../lib/router.svelte';
+  import { link, type ProjectView } from '../lib/router.svelte';
   import FilterBar from './FilterBar.svelte';
   import LabelManager from './LabelManager.svelte';
 
   interface Props {
     projectId: string;
+    view: ProjectView;
   }
 
-  let { projectId }: Props = $props();
+  let { projectId, view }: Props = $props();
 
   let labelsOpen = $state(false);
 
-  const boardActive = $derived(router.current.name === 'board' || router.current.name === 'task');
-  const graphActive = $derived(router.current.name === 'graph');
+  const boardActive = $derived(view === 'board');
+  const graphActive = $derived(view === 'graph');
 </script>
 
 <header class="shrink-0 border-b border-edge bg-surface px-3 py-2 lg:px-4">
@@ -60,7 +61,9 @@
       Labels
     </button>
   </div>
-  <FilterBar />
+  {#if view !== 'graph'}
+    <FilterBar />
+  {/if}
 </header>
 
 {#if labelsOpen}

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
   import { flip } from 'svelte/animate';
   import {
     dndzone,
@@ -11,19 +10,15 @@
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import ColumnHeader from '../components/ColumnHeader.svelte';
-  import ProjectHeader from '../components/ProjectHeader.svelte';
   import QuickAddTask from '../components/QuickAddTask.svelte';
   import TaskCard from '../components/TaskCard.svelte';
-  import TaskDetail from '../components/TaskDetail.svelte';
   import Button from '../components/ui/Button.svelte';
-  import Spinner from '../components/ui/Spinner.svelte';
 
   interface Props {
     projectId: string;
-    taskId?: string;
   }
 
-  let { projectId, taskId }: Props = $props();
+  let { projectId }: Props = $props();
 
   const FLIP_MS = 150;
   const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
@@ -34,11 +29,6 @@
   let taskDragging = $state(false);
   let addingColumn = $state(false);
   let newColumnName = $state('');
-
-  $effect(() => {
-    const id = projectId;
-    untrack(() => void board.load(id));
-  });
 
   $effect(() => {
     if (!columnDragging) {
@@ -125,113 +115,96 @@
   };
 </script>
 
-{#if board.loading}
-  <div class="flex h-[calc(100dvh-4rem)] items-center justify-center lg:h-dvh">
-    <Spinner size="lg" />
-  </div>
-{:else if board.error !== null}
-  <div class="flex h-[calc(100dvh-4rem)] flex-col items-center justify-center gap-4 p-4 lg:h-dvh">
-    <p class="text-muted">{board.error}</p>
-    <Button variant="secondary" onclick={() => void board.refetch()}>Try again</Button>
-  </div>
-{:else if board.project !== null}
-  <div class="flex h-[calc(100dvh-4rem)] flex-col lg:h-dvh">
-    <ProjectHeader {projectId} />
-    <div class="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto lg:snap-none">
-      <div class="flex h-full items-stretch gap-3 p-3 lg:gap-4 lg:p-4">
-        <div
-          class="flex items-stretch gap-3 empty:hidden lg:gap-4"
-          use:dragHandleZone={{
-            items: localColumns,
-            type: 'column',
-            flipDurationMs: FLIP_MS,
-            dropTargetStyle,
-            delayTouchStart: true,
-          }}
-          onconsider={handleColumnConsider}
-          onfinalize={handleColumnFinalize}
+<div class="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto lg:snap-none">
+  <div class="flex h-full items-stretch gap-3 p-3 lg:gap-4 lg:p-4">
+    <div
+      class="flex items-stretch gap-3 empty:hidden lg:gap-4"
+      use:dragHandleZone={{
+        items: localColumns,
+        type: 'column',
+        flipDurationMs: FLIP_MS,
+        dropTargetStyle,
+        delayTouchStart: true,
+      }}
+      onconsider={handleColumnConsider}
+      onfinalize={handleColumnFinalize}
+    >
+      {#each localColumns as column (column.id)}
+        <section
+          animate:flip={{ duration: FLIP_MS }}
+          aria-label={column.name}
+          class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-start flex-col rounded-lg border border-edge bg-surface"
         >
-          {#each localColumns as column (column.id)}
-            <section
-              animate:flip={{ duration: FLIP_MS }}
-              aria-label={column.name}
-              class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-start flex-col rounded-lg border border-edge bg-surface"
-            >
-              <ColumnHeader {column} count={board.tasksInColumn(column.id).length} />
-              <div
-                class="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2"
-                use:dndzone={{
-                  items: localTasks[column.id] ?? [],
-                  type: 'task',
-                  flipDurationMs: FLIP_MS,
-                  dropTargetStyle,
-                  delayTouchStart: true,
-                }}
-                onconsider={(event) => handleTaskConsider(column.id, event)}
-                onfinalize={(event) => handleTaskFinalize(column.id, event)}
-              >
-                {#each localTasks[column.id] ?? [] as task (task.id)}
-                  <div animate:flip={{ duration: FLIP_MS }}>
-                    <TaskCard
-                      {task}
-                      {projectId}
-                      labels={labelsFor(task)}
-                      blockedCount={openBlockerCount(task)}
-                      dimmed={board.hasActiveFilters && !board.taskMatchesFilters(task)}
-                    />
-                  </div>
-                {/each}
+          <ColumnHeader {column} count={board.tasksInColumn(column.id).length} />
+          <div
+            class="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2"
+            use:dndzone={{
+              items: localTasks[column.id] ?? [],
+              type: 'task',
+              flipDurationMs: FLIP_MS,
+              dropTargetStyle,
+              delayTouchStart: true,
+            }}
+            onconsider={(event) => handleTaskConsider(column.id, event)}
+            onfinalize={(event) => handleTaskFinalize(column.id, event)}
+          >
+            {#each localTasks[column.id] ?? [] as task (task.id)}
+              <div animate:flip={{ duration: FLIP_MS }}>
+                <TaskCard
+                  {task}
+                  {projectId}
+                  labels={labelsFor(task)}
+                  blockedCount={openBlockerCount(task)}
+                  dimmed={board.hasActiveFilters && !board.taskMatchesFilters(task)}
+                />
               </div>
-              <QuickAddTask columnId={column.id} />
-            </section>
-          {/each}
-        </div>
-        <div class="w-[85vw] max-w-72 shrink-0 snap-start">
-          {#if addingColumn}
-            <form
-              onsubmit={submitNewColumn}
-              class="flex flex-col gap-2 rounded-lg border border-edge bg-surface p-2"
+            {/each}
+          </div>
+          <QuickAddTask columnId={column.id} />
+        </section>
+      {/each}
+    </div>
+    <div class="w-[85vw] max-w-72 shrink-0 snap-start">
+      {#if addingColumn}
+        <form
+          onsubmit={submitNewColumn}
+          class="flex flex-col gap-2 rounded-lg border border-edge bg-surface p-2"
+        >
+          <input
+            bind:value={newColumnName}
+            use:focusOnMount
+            aria-label="Column name"
+            placeholder="Column name"
+            onkeydown={(event) => {
+              if (event.key === 'Escape') {
+                addingColumn = false;
+                newColumnName = '';
+              }
+            }}
+            class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
+          />
+          <div class="flex gap-2">
+            <Button type="submit" class="flex-1">Add column</Button>
+            <Button
+              variant="ghost"
+              onclick={() => {
+                addingColumn = false;
+                newColumnName = '';
+              }}
             >
-              <input
-                bind:value={newColumnName}
-                use:focusOnMount
-                aria-label="Column name"
-                placeholder="Column name"
-                onkeydown={(event) => {
-                  if (event.key === 'Escape') {
-                    addingColumn = false;
-                    newColumnName = '';
-                  }
-                }}
-                class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
-              />
-              <div class="flex gap-2">
-                <Button type="submit" class="flex-1">Add column</Button>
-                <Button
-                  variant="ghost"
-                  onclick={() => {
-                    addingColumn = false;
-                    newColumnName = '';
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          {:else}
-            <button
-              type="button"
-              onclick={() => (addingColumn = true)}
-              class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-edge px-3 text-sm font-medium text-muted hover:border-accent hover:text-ink"
-            >
-              + Add column
-            </button>
-          {/if}
-        </div>
-      </div>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      {:else}
+        <button
+          type="button"
+          onclick={() => (addingColumn = true)}
+          class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-edge px-3 text-sm font-medium text-muted hover:border-accent hover:text-ink"
+        >
+          + Add column
+        </button>
+      {/if}
     </div>
   </div>
-  {#if taskId !== undefined}
-    <TaskDetail {projectId} {taskId} />
-  {/if}
-{/if}
+</div>
