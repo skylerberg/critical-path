@@ -1,0 +1,112 @@
+<script lang="ts">
+  import { APP_NAME } from '../lib/constants';
+  import { link, router } from '../lib/router.svelte';
+  import { session } from '../lib/session.svelte';
+  import Avatar from './ui/Avatar.svelte';
+
+  const projectsActive = $derived(router.current.name === 'projects');
+
+  function logout(): void {
+    void session.logout();
+  }
+</script>
+
+{#snippet projectsIcon()}
+  <svg
+    class="size-5"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <rect x="14" y="14" width="7" height="7" rx="1" />
+  </svg>
+{/snippet}
+
+{#snippet logoutIcon()}
+  <svg
+    class="size-5"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </svg>
+{/snippet}
+
+<nav
+  aria-label="Primary"
+  use:link
+  class="fixed inset-y-0 left-0 z-20 hidden w-56 flex-col border-r border-edge bg-surface lg:flex"
+>
+  <a href="/" class="px-4 py-5 text-lg font-semibold">{APP_NAME}</a>
+  <a
+    href="/"
+    aria-current={projectsActive ? 'page' : undefined}
+    class="mx-2 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium {projectsActive
+      ? 'bg-accent-soft text-accent'
+      : 'text-muted hover:bg-accent-soft hover:text-ink'}"
+  >
+    {@render projectsIcon()}
+    Projects
+  </a>
+  <div class="mt-auto flex flex-col gap-1 border-t border-edge p-2">
+    {#if session.user}
+      <div class="flex min-h-11 items-center gap-2 px-3">
+        <Avatar name={session.user.name} size="sm" />
+        <span class="min-w-0 truncate text-sm font-medium">{session.user.name}</span>
+      </div>
+    {/if}
+    <button
+      type="button"
+      onclick={logout}
+      class="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink"
+    >
+      {@render logoutIcon()}
+      Log out
+    </button>
+  </div>
+</nav>
+
+<nav
+  aria-label="Primary"
+  use:link
+  class="fixed inset-x-0 bottom-0 z-20 flex items-stretch border-t border-edge bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
+>
+  <a
+    href="/"
+    aria-current={projectsActive ? 'page' : undefined}
+    class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium {projectsActive
+      ? 'text-accent'
+      : 'text-muted'}"
+  >
+    {@render projectsIcon()}
+    Projects
+  </a>
+  <div class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs text-muted">
+    {#if session.user}
+      <Avatar name={session.user.name} size="sm" />
+      <span class="max-w-24 truncate">{session.user.name}</span>
+    {/if}
+  </div>
+  <button
+    type="button"
+    onclick={logout}
+    class="flex min-h-14 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 text-xs font-medium text-muted"
+  >
+    {@render logoutIcon()}
+    Log out
+  </button>
+</nav>
