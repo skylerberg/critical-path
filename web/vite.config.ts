@@ -56,6 +56,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:3001',
+      '/ws': { target: 'http://localhost:3001', ws: true },
     },
     fs: {
       // node_modules may be a symlink into the main checkout when running from a

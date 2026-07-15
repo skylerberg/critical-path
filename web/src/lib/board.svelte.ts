@@ -2,6 +2,7 @@ import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import type { BoardColumn, BoardLabel, BoardProject, BoardTask } from './board-types';
 import { newId } from './ids';
+import type { RealtimeEvent } from './realtime-types';
 import { append, positionForIndex } from './positions';
 import { toasts } from './toasts.svelte';
 
@@ -481,6 +482,104 @@ class BoardStore {
     } catch (error) {
       await this.#mutationFailed(error);
       await this.loadTaskImages(taskId);
+    }
+  }
+
+  // Idempotent direct patches from realtime events; an echo of our own mutation
+  // re-applies the same values and is a no-op.
+  applyRealtime(event: RealtimeEvent): void {
+    if (event.project_id !== this.currentProjectId) {
+      return;
+    }
+    switch (event.type) {
+      case 'task_created':
+      case 'task_updated': {
+        const task = event.data as BoardTask;
+        this.tasks = this.tasks.some((t) => t.id === task.id)
+          ? this.tasks.map((t) => (t.id === task.id ? task : t))
+          : [...this.tasks, task];
+        break;
+      }
+      case 'task_deleted': {
+        const { id } = event.data as { id: string };
+        this.tasks = this.tasks
+          .filter((t) => t.id !== id)
+          .map((t) =>
+            t.blocker_ids.includes(id)
+              ? { ...t, blocker_ids: t.blocker_ids.filter((b) => b !== id) }
+              : t
+          );
+        break;
+      }
+      case 'task_relations_set': {
+        const d = event.data as {
+          task_id: string;
+          label_ids: string[];
+          assignee_ids: string[];
+          blocker_ids: string[];
+        };
+        this.tasks = this.tasks.map((t) =>
+          t.id === d.task_id
+            ? {
+                ...t,
+                label_ids: d.label_ids,
+                assignee_ids: d.assignee_ids,
+                blocker_ids: d.blocker_ids,
+              }
+            : t
+        );
+        break;
+      }
+      case 'column_created':
+      case 'column_updated': {
+        const column = event.data as BoardColumn;
+        this.columns = (
+          this.columns.some((c) => c.id === column.id)
+            ? this.columns.map((c) => (c.id === column.id ? column : c))
+            : [...this.columns, column]
+        ).sort((a, b) => a.position - b.position);
+        break;
+      }
+      case 'column_deleted': {
+        const d = event.data as {
+          id: string;
+          moved_tasks: { id: string; column_id: string; position: number }[];
+        };
+        this.columns = this.columns.filter((c) => c.id !== d.id);
+        const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
+        this.tasks = this.tasks
+          .map((t) => {
+            const m = moved.get(t.id);
+            return m === undefined ? t : { ...t, column_id: m.column_id, position: m.position };
+          })
+          .filter((t) => t.column_id !== d.id);
+        break;
+      }
+      case 'label_created':
+      case 'label_updated': {
+        const label = event.data as BoardLabel;
+        this.labels = this.labels.some((l) => l.id === label.id)
+          ? this.labels.map((l) => (l.id === label.id ? label : l))
+          : [...this.labels, label];
+        break;
+      }
+      case 'label_deleted': {
+        const { id } = event.data as { id: string };
+        this.labels = this.labels.filter((l) => l.id !== id);
+        this.tasks = this.tasks.map((t) =>
+          t.label_ids.includes(id) ? { ...t, label_ids: t.label_ids.filter((l) => l !== id) } : t
+        );
+        this.filterLabelIds = this.filterLabelIds.filter((l) => l !== id);
+        break;
+      }
+      case 'image_created':
+      case 'image_deleted': {
+        const d = event.data as { task_id: string; image_count: number };
+        this.tasks = this.tasks.map((t) =>
+          t.id === d.task_id ? { ...t, image_count: d.image_count } : t
+        );
+        break;
+      }
     }
   }
 

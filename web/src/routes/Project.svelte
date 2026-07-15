@@ -2,7 +2,12 @@
   import { untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
   import type { ProjectView } from '../lib/router.svelte';
+  import { selection } from '../lib/selection.svelte';
+  import { shortcuts } from '../lib/shortcuts.svelte';
   import ProjectHeader from '../components/ProjectHeader.svelte';
+  import QuickAssigneeMenu from '../components/QuickAssigneeMenu.svelte';
+  import QuickLabelMenu from '../components/QuickLabelMenu.svelte';
+  import ShortcutHelp from '../components/ShortcutHelp.svelte';
   import TaskDetail from '../components/TaskDetail.svelte';
   import Button from '../components/ui/Button.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
@@ -20,6 +25,19 @@
   $effect(() => {
     const id = projectId;
     untrack(() => void board.load(id));
+  });
+
+  // The shell owns the keymap so l/a/?/g and the quick menus reach both views and the
+  // task overlay; the shortcut layer gates board-only nav keys by the route view.
+  $effect(() => {
+    window.addEventListener('keydown', shortcuts.handleKeydown);
+    return () => window.removeEventListener('keydown', shortcuts.handleKeydown);
+  });
+
+  $effect(() => {
+    if (projectId) {
+      untrack(() => selection.clear());
+    }
   });
 
   const ready = $derived(
@@ -53,5 +71,17 @@
   </div>
   {#if taskId !== undefined}
     <TaskDetail {taskId} closePath={viewBasePath} />
+  {/if}
+  {#if shortcuts.labelMenu !== null}
+    <QuickLabelMenu taskId={shortcuts.labelMenu} onclose={() => (shortcuts.labelMenu = null)} />
+  {/if}
+  {#if shortcuts.assigneeMenu !== null}
+    <QuickAssigneeMenu
+      taskId={shortcuts.assigneeMenu}
+      onclose={() => (shortcuts.assigneeMenu = null)}
+    />
+  {/if}
+  {#if shortcuts.helpOpen}
+    <ShortcutHelp onclose={() => (shortcuts.helpOpen = false)} />
   {/if}
 {/if}

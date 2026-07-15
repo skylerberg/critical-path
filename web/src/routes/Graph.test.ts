@@ -21,14 +21,19 @@ function task(id: string, columnId: string, blockerIds: string[] = []): BoardTas
   };
 }
 
-function payload(projectId: string, tasks: BoardTask[]): BoardPayload {
+// Extra `users` lets one mock answer both the board fetch and the project-scoped
+// users fetch the rendered view fires on load.
+function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users: [] } {
   return {
+    users: [],
     project: {
       id: projectId,
       name: 'Rulebook',
       description: '',
       is_template: false,
       archived_at: null,
+      created_by: null,
+      workspace_id: null,
       created_at: '2026-07-15T00:00:00Z',
     },
     columns: [

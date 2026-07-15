@@ -17,7 +17,7 @@
 
   let { task, projectId, labels = [], blockedCount = 0, dimmed = false }: Props = $props();
 
-  const assignees = $derived(task.assignee_ids.flatMap((id) => users.byId(id) ?? []));
+  const assignees = $derived(task.assignee_ids.map((id) => users.displayFor(id)));
   const selected = $derived(selection.selectedTaskId === task.id);
 </script>
 

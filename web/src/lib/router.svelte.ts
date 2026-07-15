@@ -6,6 +6,9 @@ export type Route =
   | { name: 'projects' }
   | { name: 'login' }
   | { name: 'signup' }
+  | { name: 'account' }
+  | { name: 'forgot-password' }
+  | { name: 'reset-password'; params: { token?: string } }
   | { name: 'project'; params: { id: string; view: ProjectView; taskId?: string } }
   | { name: 'not-found'; path: string };
 
@@ -31,11 +34,18 @@ function matchPattern(pattern: string, pathname: string): Record<string, string>
   return params;
 }
 
-export function matchRoute(pathname: string): Route {
+export function matchRoute(pathname: string, search = ''): Route {
   const path = pathname !== '/' ? pathname.replace(/\/+$/, '') : pathname;
   if (path === '/' || path === '') return { name: 'projects' };
   if (path === '/login') return { name: 'login' };
   if (path === '/signup') return { name: 'signup' };
+  if (path === '/account') return { name: 'account' };
+  if (path === '/forgot-password') return { name: 'forgot-password' };
+  if (path === '/reset-password') {
+    const match = /[?&]token=([^&]*)/.exec(search);
+    const token = match ? decodeURIComponent(match[1]!) : null;
+    return { name: 'reset-password', params: token === null ? {} : { token } };
+  }
   let params = matchPattern('/projects/:id', path);
   if (params) return { name: 'project', params: { id: params.id!, view: 'board' } };
   params = matchPattern('/projects/:id/graph', path);
@@ -60,7 +70,7 @@ export class Router {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      this.current = matchRoute(window.location.pathname);
+      this.current = matchRoute(window.location.pathname, window.location.search);
       this.path = window.location.pathname + window.location.search + window.location.hash;
       window.addEventListener('popstate', () => {
         this.#apply(window.location.pathname + window.location.search + window.location.hash, {
@@ -94,7 +104,11 @@ export class Router {
   }
 
   #parse(path: string): Route {
-    return matchRoute(path.split(/[?#]/, 1)[0]!);
+    const withoutHash = path.split('#', 1)[0]!;
+    const queryAt = withoutHash.indexOf('?');
+    const pathname = queryAt === -1 ? withoutHash : withoutHash.slice(0, queryAt);
+    const search = queryAt === -1 ? '' : withoutHash.slice(queryAt);
+    return matchRoute(pathname, search);
   }
 }
 

@@ -1,12 +1,17 @@
 <script lang="ts">
   import { router } from './lib/router.svelte';
-  import { session } from './lib/session.svelte';
+  import { isPublicRoute, session } from './lib/session.svelte';
   import { users } from './lib/users.svelte';
   import { board } from './lib/board.svelte';
   import { projects } from './lib/projects.svelte';
+  import { workspaces } from './lib/workspaces.svelte';
+  import { realtime } from './lib/realtime.svelte';
   import { toasts } from './lib/toasts.svelte';
   import Login from './routes/Login.svelte';
   import Signup from './routes/Signup.svelte';
+  import Account from './routes/Account.svelte';
+  import ForgotPassword from './routes/ForgotPassword.svelte';
+  import ResetPassword from './routes/ResetPassword.svelte';
   import Projects from './routes/Projects.svelte';
   import Project from './routes/Project.svelte';
   import NotFound from './routes/NotFound.svelte';
@@ -15,7 +20,7 @@
   import Spinner from './components/ui/Spinner.svelte';
 
   const route = $derived(router.current);
-  const showNav = $derived(route.name !== 'login' && route.name !== 'signup');
+  const showNav = $derived(!isPublicRoute(route.name));
 
   router.beforeNavigate = session.guardRoute;
 
@@ -33,11 +38,22 @@
       users.reset();
       board.reset();
       projects.reset();
+      workspaces.reset();
+      realtime.disconnect();
     }
     if (session.status !== 'authed') {
       return undefined;
     }
-    return users.loadWithRetry(() => toasts.error('Failed to load users'));
+    const cancelUsers = users.loadWithRetry(() => toasts.error('Failed to load users'));
+    const cancelWorkspaces = workspaces.loadWithRetry(() =>
+      toasts.error('Failed to load workspaces')
+    );
+    void projects.load();
+    realtime.connect();
+    return () => {
+      cancelUsers();
+      cancelWorkspaces();
+    };
   });
 </script>
 
@@ -54,6 +70,12 @@
       <Login />
     {:else if route.name === 'signup'}
       <Signup />
+    {:else if route.name === 'forgot-password'}
+      <ForgotPassword />
+    {:else if route.name === 'reset-password'}
+      <ResetPassword token={route.params.token} />
+    {:else if route.name === 'account'}
+      <Account />
     {:else if route.name === 'projects'}
       <Projects />
     {:else if route.name === 'project'}

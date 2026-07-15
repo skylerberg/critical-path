@@ -14,12 +14,21 @@
   let dialog = $state<HTMLDialogElement>();
 
   // Native <dialog> showModal gives focus trapping, Escape (via cancel), and focus restore.
+  // jsdom implements neither showModal nor close, so fall back to the open attribute there.
   $effect(() => {
     if (!dialog) return;
     if (open && !dialog.open) {
-      dialog.showModal();
+      if (typeof dialog.showModal === 'function') {
+        dialog.showModal();
+      } else {
+        dialog.open = true;
+      }
     } else if (!open && dialog.open) {
-      dialog.close();
+      if (typeof dialog.close === 'function') {
+        dialog.close();
+      } else {
+        dialog.open = false;
+      }
     }
   });
 </script>

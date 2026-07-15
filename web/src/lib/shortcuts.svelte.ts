@@ -60,6 +60,7 @@ class ShortcutController {
 
     const route = router.current;
     const projectId = route.name === 'project' ? route.params.id : null;
+    const view = route.name === 'project' ? route.params.view : null;
     const overlayTaskId = route.name === 'project' ? route.params.taskId : undefined;
 
     if (this.#gPending) {
@@ -71,12 +72,16 @@ class ShortcutController {
       }
     }
 
-    if (overlayTaskId !== undefined) {
-      this.#handleOverlayKey(event, overlayTaskId);
+    // Selection nav and card-scoped actions are live only on the board view with no
+    // overlay: the graph has no card list, and an open task owns its own keymap.
+    const selectionActive = view === 'board' && overlayTaskId === undefined;
+    if (selectionActive && this.#handleSelectionKey(event, projectId)) {
       return;
     }
 
-    this.#handleBoardKey(event, projectId);
+    // l/a target the open overlay task first, else the board selection (null on the
+    // graph, so they no-op there without an overlay).
+    this.#handleCommonKey(event, overlayTaskId, selectionActive);
   };
 
   #completeChord(key: string, projectId: string | null): boolean {
@@ -98,36 +103,9 @@ class ShortcutController {
     return false;
   }
 
-  #handleOverlayKey(event: KeyboardEvent, taskId: string): void {
-    switch (event.key) {
-      case 'l':
-        this.labelMenu = taskId;
-        event.preventDefault();
-        break;
-      case 'a':
-        this.assigneeMenu = taskId;
-        event.preventDefault();
-        break;
-      case '?':
-        this.helpOpen = true;
-        event.preventDefault();
-        break;
-      // Escape yields to the dialog's own cancel handler.
-    }
-  }
-
-  #handleBoardKey(event: KeyboardEvent, projectId: string | null): void {
+  #handleSelectionKey(event: KeyboardEvent, projectId: string | null): boolean {
     const selectedId = selection.selectedTaskId;
     switch (event.key) {
-      case '?':
-        this.helpOpen = true;
-        break;
-      case 'Escape':
-        if (selectedId === null) {
-          return;
-        }
-        selection.clear();
-        break;
       case 'j':
       case 'ArrowDown':
         selection.move('down');
@@ -146,37 +124,25 @@ class ShortcutController {
       case 'o':
       case 'e':
         if (selectedId === null || projectId === null) {
-          return;
+          return false;
         }
         router.navigate(`/projects/${projectId}/tasks/${selectedId}`);
         break;
       case 'n': {
         const columnId = selection.selectedColumnId ?? board.columns[0]?.id ?? null;
         if (columnId === null) {
-          return;
+          return false;
         }
         this.quickAddColumn = columnId;
         break;
       }
-      case 'l':
-        if (selectedId === null) {
-          return;
-        }
-        this.labelMenu = selectedId;
-        break;
-      case 'a':
-        if (selectedId === null) {
-          return;
-        }
-        this.assigneeMenu = selectedId;
-        break;
       case 'd': {
         if (selectedId === null) {
-          return;
+          return false;
         }
         const doneColumn = board.columns.find((column) => column.is_done);
         if (doneColumn === undefined) {
-          return;
+          return false;
         }
         void board.moveTask(
           selectedId,
@@ -185,8 +151,45 @@ class ShortcutController {
         );
         break;
       }
+      default:
+        return false;
+    }
+    event.preventDefault();
+    return true;
+  }
+
+  #handleCommonKey(
+    event: KeyboardEvent,
+    overlayTaskId: string | undefined,
+    selectionActive: boolean
+  ): void {
+    const target = overlayTaskId ?? (selectionActive ? selection.selectedTaskId : null);
+    switch (event.key) {
+      case '?':
+        this.helpOpen = true;
+        break;
+      case 'l':
+        if (target === null) {
+          return;
+        }
+        this.labelMenu = target;
+        break;
+      case 'a':
+        if (target === null) {
+          return;
+        }
+        this.assigneeMenu = target;
+        break;
       case 'g':
         this.#armChord();
+        break;
+      case 'Escape':
+        // In the overlay the dialog's own cancel owns Escape; on the graph there is no
+        // selection to clear. Only the board view clears the selection here.
+        if (!selectionActive || selection.selectedTaskId === null) {
+          return;
+        }
+        selection.clear();
         break;
       default:
         return;

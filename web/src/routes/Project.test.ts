@@ -3,7 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
+import { router } from '../lib/router.svelte';
+import { selection } from '../lib/selection.svelte';
+import { shortcuts } from '../lib/shortcuts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
+import type { ProjectView } from '../lib/router.svelte';
+
+// The shortcut layer reads the live route, so the shell keymap tests must drive the
+// router to the same view/overlay the component is rendered with.
+function pressKey(key: string, id: string, view: ProjectView, taskId?: string): void {
+  router.current = { name: 'project', params: { id, view, taskId } };
+  window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true }));
+}
 
 function task(id: string, columnId: string, title: string): BoardTask {
   return {
@@ -21,14 +32,19 @@ function task(id: string, columnId: string, title: string): BoardTask {
   };
 }
 
-function payload(projectId: string, tasks: BoardTask[]): BoardPayload {
+// Extra `users` lets one mock answer both the board fetch and the project-scoped
+// users fetch the rendered view fires on load.
+function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users: [] } {
   return {
+    users: [],
     project: {
       id: projectId,
       name: 'Rulebook',
       description: '',
       is_template: false,
       archived_at: null,
+      created_by: null,
+      workspace_id: null,
       created_at: '2026-07-15T00:00:00Z',
     },
     columns: [
@@ -56,6 +72,8 @@ function mockProjectApi(projectId: string, tasks: BoardTask[]): void {
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  selection.clear();
+  shortcuts.reset();
 });
 
 describe('Project', () => {
@@ -135,5 +153,31 @@ describe('Project', () => {
     await screen.findByLabelText('Task title');
     await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(window.location.pathname).toBe(`/projects/${projectId}`);
+  });
+
+  it('runs the keymap from the shell on the board view', async () => {
+    const projectId = 'p-shell-board-keys';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'board' } });
+
+    await screen.findByRole('heading', { name: 'Rulebook' });
+    pressKey('?', projectId, 'board');
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Keyboard shortcuts' })
+    ).toBeInTheDocument();
+  });
+
+  it('opens the label menu for the open task from the graph overlay', async () => {
+    const projectId = 'p-shell-graph-keys';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'graph', taskId: 't1' } });
+
+    await screen.findByLabelText('Task title');
+    pressKey('l', projectId, 'graph', 't1');
+    // The open task detail shares the same filter input, so assert the menu's own dialog.
+    expect(await screen.findByRole('heading', { level: 2, name: 'Labels' })).toBeInTheDocument();
+    expect(shortcuts.labelMenu).toBe('t1');
   });
 });

@@ -53,6 +53,8 @@ beforeEach(() => {
     description: '',
     is_template: false,
     archived_at: null,
+    created_by: null,
+    workspace_id: null,
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [
@@ -85,6 +87,9 @@ beforeEach(() => {
         images: [image],
       });
     }
+    if (request.method === 'GET' && url.pathname === '/api/users') {
+      return jsonResponse(200, { users: users.users });
+    }
     return jsonResponse(204);
   });
 });
@@ -97,7 +102,7 @@ describe('TaskDetail', () => {
 
     expect(screen.getByRole('button', { name: 'art' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'rules' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: /Ada Lovelace/ })).toHaveAttribute(
+    expect(await screen.findByRole('button', { name: /Ada Lovelace/ })).toHaveAttribute(
       'aria-pressed',
       'true'
     );

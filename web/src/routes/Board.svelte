@@ -10,13 +10,10 @@
   } from 'svelte-dnd-action';
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
-  import { selection } from '../lib/selection.svelte';
+  import { users } from '../lib/users.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import ColumnHeader from '../components/ColumnHeader.svelte';
   import QuickAddTask from '../components/QuickAddTask.svelte';
-  import QuickAssigneeMenu from '../components/QuickAssigneeMenu.svelte';
-  import QuickLabelMenu from '../components/QuickLabelMenu.svelte';
-  import ShortcutHelp from '../components/ShortcutHelp.svelte';
   import TaskCard from '../components/TaskCard.svelte';
   import Button from '../components/ui/Button.svelte';
 
@@ -41,14 +38,7 @@
   });
 
   $effect(() => {
-    if (projectId) {
-      untrack(() => selection.clear());
-    }
-  });
-
-  $effect(() => {
-    window.addEventListener('keydown', shortcuts.handleKeydown);
-    return () => window.removeEventListener('keydown', shortcuts.handleKeydown);
+    void users.loadForProject(projectId);
   });
 
   // QuickAddTask encapsulates its open/focus state, so the shortcut opens it via its trigger.
@@ -251,16 +241,3 @@
     </div>
   </div>
 </div>
-
-{#if shortcuts.labelMenu !== null}
-  <QuickLabelMenu taskId={shortcuts.labelMenu} onclose={() => (shortcuts.labelMenu = null)} />
-{/if}
-{#if shortcuts.assigneeMenu !== null}
-  <QuickAssigneeMenu
-    taskId={shortcuts.assigneeMenu}
-    onclose={() => (shortcuts.assigneeMenu = null)}
-  />
-{/if}
-{#if shortcuts.helpOpen}
-  <ShortcutHelp onclose={() => (shortcuts.helpOpen = false)} />
-{/if}

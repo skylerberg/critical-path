@@ -24,6 +24,10 @@ export function setAuthHooks(hooks: AuthHooks): void {
   authHooks = hooks;
 }
 
+// A wrong current password answers 401 without invalidating the session, so it
+// must not trip the global logout handler.
+const SESSION_SAFE_401 = new Set(['/api/auth/change-password']);
+
 const bearerAuth: Middleware = {
   onRequest({ request }) {
     const token = authHooks?.getToken();
@@ -32,7 +36,11 @@ const bearerAuth: Middleware = {
     }
   },
   onResponse({ request, response }) {
-    if (response.status === 401 && request.headers.has('Authorization')) {
+    if (
+      response.status === 401 &&
+      request.headers.has('Authorization') &&
+      !SESSION_SAFE_401.has(new URL(request.url).pathname)
+    ) {
       authHooks?.onUnauthorized();
     }
   },

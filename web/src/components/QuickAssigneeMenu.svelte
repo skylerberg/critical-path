@@ -14,10 +14,18 @@
   let query = $state('');
   let highlighted = $state(0);
 
+  const projectId = $derived(board.currentProjectId);
+  $effect(() => {
+    if (projectId !== null) {
+      void users.loadForProject(projectId);
+    }
+  });
+
+  const list = $derived(projectId === null ? [] : users.forProject(projectId));
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const selectedIds = $derived(new Set(task?.assignee_ids ?? []));
   const filtered = $derived(
-    users.users.filter((user) => user.name.toLowerCase().includes(query.trim().toLowerCase()))
+    list.filter((user) => user.name.toLowerCase().includes(query.trim().toLowerCase()))
   );
 
   function toggle(userId: string): void {

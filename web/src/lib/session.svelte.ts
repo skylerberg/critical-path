@@ -9,6 +9,17 @@ export type SessionStatus = 'unknown' | 'authed' | 'anon';
 const TOKEN_KEY = 'cp.token';
 const INTENDED_PATH_KEY = 'cp.intendedPath';
 
+const PUBLIC_ROUTES = new Set<Route['name']>([
+  'login',
+  'signup',
+  'forgot-password',
+  'reset-password',
+]);
+
+export function isPublicRoute(name: Route['name']): boolean {
+  return PUBLIC_ROUTES.has(name);
+}
+
 export function rememberIntendedPath(path: string): void {
   sessionStorage.setItem(INTENDED_PATH_KEY, path);
 }
@@ -82,16 +93,22 @@ class SessionStore {
   }
 
   guardRoute = (to: Route, path: string): string | undefined => {
-    const isAuthPage = to.name === 'login' || to.name === 'signup';
-    if (this.status === 'authed' && isAuthPage) {
+    const isPublic = isPublicRoute(to.name);
+    if (this.status === 'authed' && isPublic) {
       return '/';
     }
-    if (this.status === 'anon' && !isAuthPage) {
+    if (this.status === 'anon' && !isPublic) {
       rememberIntendedPath(path);
       return '/login';
     }
     return undefined;
   };
+
+  // No logout call: a password change/reset already revoked every session server-side.
+  forget(): void {
+    this.#clear();
+    sessionStorage.removeItem(INTENDED_PATH_KEY);
+  }
 
   #setSession(token: string, user: SessionUser): void {
     this.#token = token;
@@ -112,8 +129,7 @@ class SessionStore {
       return;
     }
     this.#clear();
-    const route = router.current;
-    if (route.name !== 'login' && route.name !== 'signup') {
+    if (!isPublicRoute(router.current.name)) {
       rememberIntendedPath(router.path);
       router.redirect('/login');
     }

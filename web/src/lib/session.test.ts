@@ -170,15 +170,27 @@ describe('session.guardRoute', () => {
     expect(consumeIntendedPath()).toBe('/projects/p1');
   });
 
-  it('lets anon users reach login and signup', () => {
+  it('lets anon users reach every public route', () => {
     expect(session.guardRoute(matchRoute('/login'), '/login')).toBeUndefined();
     expect(session.guardRoute(matchRoute('/signup'), '/signup')).toBeUndefined();
+    expect(session.guardRoute(matchRoute('/forgot-password'), '/forgot-password')).toBeUndefined();
+    expect(
+      session.guardRoute(matchRoute('/reset-password', '?token=t'), '/reset-password?token=t')
+    ).toBeUndefined();
   });
 
-  it('redirects authed users away from login and signup', async () => {
+  it('redirects anon users off the account page', () => {
+    expect(session.guardRoute(matchRoute('/account'), '/account')).toBe('/login');
+    expect(consumeIntendedPath()).toBe('/account');
+  });
+
+  it('redirects authed users away from every public route', async () => {
     await loginAs();
     expect(session.guardRoute(matchRoute('/login'), '/login')).toBe('/');
     expect(session.guardRoute(matchRoute('/signup'), '/signup')).toBe('/');
+    expect(session.guardRoute(matchRoute('/forgot-password'), '/forgot-password')).toBe('/');
+    expect(session.guardRoute(matchRoute('/reset-password'), '/reset-password')).toBe('/');
+    expect(session.guardRoute(matchRoute('/account'), '/account')).toBeUndefined();
     expect(session.guardRoute(matchRoute('/projects/p1'), '/projects/p1')).toBeUndefined();
   });
 

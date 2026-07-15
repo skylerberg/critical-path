@@ -72,6 +72,11 @@
       {/if}
       <Button type="submit" disabled={submitting} class="w-full">Log in</Button>
     </form>
+    <p class="mt-4 text-center text-sm">
+      <a use:link href="/forgot-password" class="font-medium text-accent hover:underline">
+        Forgot password?
+      </a>
+    </p>
     <p class="mt-4 text-center text-sm text-muted">
       No account?
       <a use:link href="/signup" class="font-medium text-accent hover:underline">Sign up</a>

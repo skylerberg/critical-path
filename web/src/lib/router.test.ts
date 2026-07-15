@@ -9,6 +9,16 @@ describe('matchRoute', () => {
   it('matches static routes', () => {
     expect(matchRoute('/login')).toEqual({ name: 'login' });
     expect(matchRoute('/signup')).toEqual({ name: 'signup' });
+    expect(matchRoute('/account')).toEqual({ name: 'account' });
+    expect(matchRoute('/forgot-password')).toEqual({ name: 'forgot-password' });
+  });
+
+  it('reads the reset-password token from the query string', () => {
+    expect(matchRoute('/reset-password')).toEqual({ name: 'reset-password', params: {} });
+    expect(matchRoute('/reset-password', '?token=abc123')).toEqual({
+      name: 'reset-password',
+      params: { token: 'abc123' },
+    });
   });
 
   it('matches the project board view', () => {
@@ -85,6 +95,12 @@ describe('router', () => {
     expect(window.location.pathname).toBe('/projects/p1');
     expect(router.current).toEqual({ name: 'project', params: { id: 'p1', view: 'board' } });
     expect(router.path).toBe('/projects/p1');
+  });
+
+  it('parses the reset-password token when navigating with a query string', () => {
+    router.navigate('/reset-password?token=xyz');
+    expect(router.current).toEqual({ name: 'reset-password', params: { token: 'xyz' } });
+    expect(router.path).toBe('/reset-password?token=xyz');
   });
 
   it('follows a beforeNavigate redirect', () => {

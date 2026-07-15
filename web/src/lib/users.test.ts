@@ -114,3 +114,62 @@ describe('users store', () => {
     }
   });
 });
+
+describe('users loadForProject', () => {
+  it('fetches the project-scoped list, caches per project, and exposes it', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { users: [brin, ada] }));
+
+    await users.loadForProject('p-1');
+    await users.loadForProject('p-1');
+
+    const request = requestAt(0);
+    const url = new URL(request.url);
+    expect(url.pathname).toBe('/api/users');
+    expect(url.searchParams.get('project_id')).toBe('p-1');
+    expect(users.forProject('p-1').map((u) => u.name)).toEqual(['Ada', 'Brin']);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves byId from the project cache even without a global load', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { users: [zed] }));
+
+    await users.loadForProject('p-9');
+
+    expect(users.byId('u-zed')).toEqual(zed);
+  });
+
+  it('stays retryable after a failed project load', async () => {
+    fetchMock.mockImplementationOnce(async () => jsonResponse(503, { error: 'down' }));
+    await users.loadForProject('p-2');
+    expect(users.forProject('p-2')).toEqual([]);
+
+    fetchMock.mockImplementation(async () => jsonResponse(200, { users: [ada] }));
+    await users.loadForProject('p-2');
+
+    expect(users.forProject('p-2')).toEqual([ada]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('users displayFor', () => {
+  it('returns a neutral placeholder for an unknown id', () => {
+    const placeholder = users.displayFor('ghost');
+    expect(placeholder).toEqual({ id: 'ghost', name: '', email: '' });
+  });
+
+  it('returns the real user when known', async () => {
+    await users.load();
+    expect(users.displayFor('u-ada')).toEqual(ada);
+  });
+});
+
+describe('users upsert', () => {
+  it('adds a new user in sorted order and replaces an existing one', async () => {
+    await users.load();
+    users.upsert({ id: 'u-mel', email: 'mel@example.com', name: 'Mel' });
+    expect(users.users.map((u) => u.name)).toEqual(['Ada', 'Brin', 'Mel', 'Zed']);
+
+    users.upsert({ id: 'u-ada', email: 'ada@new.com', name: 'Ada' });
+    expect(users.byId('u-ada')?.email).toBe('ada@new.com');
+  });
+});

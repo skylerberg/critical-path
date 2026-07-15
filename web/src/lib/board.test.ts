@@ -28,6 +28,8 @@ function payload(): BoardPayload {
       description: '',
       is_template: false,
       archived_at: null,
+      created_by: null,
+      workspace_id: null,
       created_at: '2026-01-01T00:00:00Z',
     },
     columns: [

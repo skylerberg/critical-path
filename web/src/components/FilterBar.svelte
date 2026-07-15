@@ -17,11 +17,10 @@
   // Selected users stay listed even when they vanish from every task, so an
   // active filter always has a visible, toggleable chip.
   const assignees = $derived.by(() => {
-    const ids = new Set([
-      ...board.tasks.flatMap((task) => task.assignee_ids),
-      ...board.filterAssigneeIds,
-    ]);
-    return users.users.filter((user) => ids.has(user.id));
+    const ids = [
+      ...new Set([...board.tasks.flatMap((task) => task.assignee_ids), ...board.filterAssigneeIds]),
+    ];
+    return ids.map((id) => users.displayFor(id));
   });
 </script>
 

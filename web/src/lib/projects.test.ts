@@ -10,6 +10,8 @@ function project(overrides: Partial<Project> = {}): Project {
     description: '',
     is_template: false,
     archived_at: null,
+    created_by: null,
+    workspace_id: null,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -24,6 +26,8 @@ function projectRow(item: Project): Omit<Project, 'open_task_count' | 'done_task
     description: item.description,
     is_template: item.is_template,
     archived_at: item.archived_at,
+    created_by: item.created_by,
+    workspace_id: item.workspace_id,
     created_at: item.created_at,
   };
 }
@@ -272,5 +276,77 @@ describe('projects store', () => {
     expect(projects.projects).toEqual([]);
     expect(projects.loaded).toBe(false);
     expect(projects.loadError).toBeNull();
+  });
+
+  it('moves a project to a workspace via PATCH workspace_id', async () => {
+    const item = project();
+    await loadWith([item]);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { ...projectRow(item), workspace_id: 'w-1' })
+    );
+
+    const pending = projects.moveToWorkspace('p-1', 'w-1');
+    expect(projects.projects[0]!.workspace_id).toBe('w-1');
+
+    await pending;
+
+    expect(requestAt(1).method).toBe('PATCH');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1');
+    expect(await bodyOf(requestAt(1))).toEqual({ workspace_id: 'w-1' });
+  });
+
+  it('moves a project to Personal with a null workspace_id', async () => {
+    const item = project({ workspace_id: 'w-1' });
+    await loadWith([item]);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { ...projectRow(item), workspace_id: null })
+    );
+
+    await projects.moveToWorkspace('p-1', null);
+
+    expect(await bodyOf(requestAt(1))).toEqual({ workspace_id: null });
+    expect(projects.projects[0]!.workspace_id).toBeNull();
+  });
+
+  it('creates a project in a workspace by following the create with a move', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.method === 'POST') {
+        const body = (await request.clone().json()) as { id: string; name: string };
+        return jsonResponse(201, boardPayload(body.id, body.name));
+      }
+      const body = (await request.clone().json()) as { workspace_id: string | null };
+      const patchedId = new URL(request.url).pathname.split('/').pop()!;
+      return jsonResponse(200, {
+        id: patchedId,
+        name: 'Scoped',
+        description: '',
+        is_template: false,
+        archived_at: null,
+        created_by: null,
+        workspace_id: body.workspace_id,
+        created_at: '2026-03-01T00:00:00.000Z',
+      });
+    });
+
+    const id = await projects.create('Scoped', 'w-7');
+
+    expect(id).not.toBeNull();
+    expect(requestAt(0).method).toBe('POST');
+    expect(requestAt(1).method).toBe('PATCH');
+    expect(await bodyOf(requestAt(1))).toEqual({ workspace_id: 'w-7' });
+    expect(projects.projects.find((p) => p.id === id)!.workspace_id).toBe('w-7');
+  });
+
+  it('clearWorkspace resets matching projects to personal locally', async () => {
+    await loadWith([
+      project({ id: 'p-a', workspace_id: 'w-1' }),
+      project({ id: 'p-b', workspace_id: 'w-2' }),
+    ]);
+
+    projects.clearWorkspace('w-1');
+
+    expect(projects.projects.find((p) => p.id === 'p-a')!.workspace_id).toBeNull();
+    expect(projects.projects.find((p) => p.id === 'p-b')!.workspace_id).toBe('w-2');
   });
 });

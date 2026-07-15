@@ -175,3 +175,55 @@ describe('overlay context', () => {
     expect(shortcuts.helpOpen).toBe(true);
   });
 });
+
+describe('graph view', () => {
+  beforeEach(() => {
+    router.current = { name: 'project', params: { id: 'p1', view: 'graph' } };
+  });
+
+  it('does not run selection nav (the graph has no card list)', () => {
+    const event = press('j');
+    expect(selection.selectedTaskId).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does nothing for l without an overlay (no selection to target)', () => {
+    selection.set('t1');
+    const event = press('l');
+    expect(shortcuts.labelMenu).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('opens the help overlay with ?', () => {
+    press('?');
+    expect(shortcuts.helpOpen).toBe(true);
+  });
+
+  it('navigates with g then b back to the board', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    press('g');
+    press('b');
+    expect(navigate).toHaveBeenLastCalledWith('/projects/p1');
+  });
+});
+
+describe('graph overlay context', () => {
+  beforeEach(() => {
+    router.current = { name: 'project', params: { id: 'p1', view: 'graph', taskId: 't1' } };
+  });
+
+  it('targets the open task with l and a', () => {
+    press('l');
+    expect(shortcuts.labelMenu).toBe('t1');
+    shortcuts.reset();
+    press('a');
+    expect(shortcuts.assigneeMenu).toBe('t1');
+  });
+
+  it('navigates with g then g to the graph base', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    press('g');
+    press('g');
+    expect(navigate).toHaveBeenLastCalledWith('/projects/p1/graph');
+  });
+});

@@ -1,6 +1,7 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import { newId } from './ids';
+import type { RealtimeEvent } from './realtime-types';
 import { toasts } from './toasts.svelte';
 
 export type Project = components['schemas']['ProjectListItem'];
@@ -44,16 +45,31 @@ class ProjectsStore {
     this.loadError = null;
   }
 
-  async create(name: string): Promise<string | null> {
-    return this.#create({ id: newId(), name });
+  async create(name: string, workspaceId: string | null = null): Promise<string | null> {
+    return this.#create({ id: newId(), name }, workspaceId);
   }
 
-  async createFromTemplate(sourceProjectId: string, name: string): Promise<string | null> {
-    return this.#create({ id: newId(), name, source_project_id: sourceProjectId });
+  async createFromTemplate(
+    sourceProjectId: string,
+    name: string,
+    workspaceId: string | null = null
+  ): Promise<string | null> {
+    return this.#create({ id: newId(), name, source_project_id: sourceProjectId }, workspaceId);
   }
 
   async rename(id: string, name: string): Promise<void> {
     await this.#patch(id, { name }, 'Failed to rename project');
+  }
+
+  async moveToWorkspace(id: string, workspaceId: string | null): Promise<void> {
+    await this.#patch(id, { workspace_id: workspaceId }, 'Failed to move project');
+  }
+
+  // A deleted workspace reverts its projects to personal server-side; mirror it locally.
+  clearWorkspace(workspaceId: string): void {
+    this.projects = this.projects.map((p) =>
+      p.workspace_id === workspaceId ? { ...p, workspace_id: null } : p
+    );
   }
 
   async archive(id: string): Promise<void> {
@@ -77,13 +93,43 @@ class ProjectsStore {
     }
   }
 
-  async #create(body: CreateProject): Promise<string | null> {
+  applyRealtime(event: RealtimeEvent): void {
+    if (event.type === 'project_deleted') {
+      const { id } = event.data as { id: string };
+      this.projects = this.projects.filter((p) => p.id !== id);
+      return;
+    }
+    if (event.type === 'project_created' || event.type === 'project_updated') {
+      const incoming = event.data as Partial<Project> & { id: string };
+      const existing = this.projects.find((p) => p.id === incoming.id);
+      const base: Project = existing ?? {
+        id: incoming.id,
+        name: '',
+        description: '',
+        is_template: false,
+        archived_at: null,
+        created_by: null,
+        workspace_id: null,
+        created_at: new Date().toISOString(),
+        open_task_count: 0,
+        done_task_count: 0,
+      };
+      const merged = { ...base, ...incoming };
+      this.projects = existing
+        ? this.projects.map((p) => (p.id === incoming.id ? merged : p))
+        : [...this.projects, merged];
+    }
+  }
+
+  async #create(body: CreateProject, workspaceId: string | null): Promise<string | null> {
     const optimistic: Project = {
       id: body.id,
       name: body.name,
       description: body.description ?? '',
       is_template: body.is_template ?? false,
       archived_at: null,
+      created_by: null,
+      workspace_id: workspaceId,
       created_at: new Date().toISOString(),
       open_task_count: 0,
       done_task_count: 0,
@@ -92,6 +138,10 @@ class ProjectsStore {
     try {
       const payload = assertOk(await api.POST('/api/projects', { body }));
       this.#applyPayload(payload);
+      // Create has no workspace field; a chosen workspace is applied as a follow-up move.
+      if (workspaceId !== null) {
+        await this.moveToWorkspace(body.id, workspaceId);
+      }
       return body.id;
     } catch (error) {
       await this.#mutationFailed(error, 'Failed to create project');

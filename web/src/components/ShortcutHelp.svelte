@@ -57,7 +57,7 @@
             <li class="flex items-center justify-between gap-4">
               <span class="text-sm text-ink">{binding.label}</span>
               <span class="flex shrink-0 items-center gap-1">
-                {#each binding.keys as key, i (key)}
+                {#each binding.keys as key, i (i)}
                   {#if i > 0}
                     <span class="text-xs text-muted">{binding.chord ? 'then' : 'or'}</span>
                   {/if}

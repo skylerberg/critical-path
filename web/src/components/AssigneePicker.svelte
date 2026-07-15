@@ -9,6 +9,14 @@
 
   let { taskId }: Props = $props();
 
+  const projectId = $derived(board.currentProjectId);
+  $effect(() => {
+    if (projectId !== null) {
+      void users.loadForProject(projectId);
+    }
+  });
+
+  const list = $derived(projectId === null ? [] : users.forProject(projectId));
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const selected = $derived(new Set(task?.assignee_ids ?? []));
 
@@ -21,11 +29,11 @@
   }
 </script>
 
-{#if users.users.length === 0}
+{#if list.length === 0}
   <p class="text-sm text-muted">No users available.</p>
 {:else}
   <div class="flex flex-wrap gap-2" role="group" aria-label="Assignees">
-    {#each users.users as user (user.id)}
+    {#each list as user (user.id)}
       <button
         type="button"
         aria-pressed={selected.has(user.id)}
