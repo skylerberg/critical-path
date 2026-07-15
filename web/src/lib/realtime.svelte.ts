@@ -10,6 +10,8 @@ export type RealtimeStatus = 'online' | 'offline' | 'connecting';
 const WS_OPEN = 1;
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
+// The server closes with 4401 when a token is rejected or its session revoked.
+const AUTH_CLOSE_CODE = 4401;
 
 const BOARD_EVENTS = new Set([
   'task_created',
@@ -110,7 +112,7 @@ class RealtimeClient {
     this.#socket = socket;
     socket.onopen = () => this.#send({ type: 'auth', token });
     socket.onmessage = (event: MessageEvent) => this.#onMessage(event.data);
-    socket.onclose = () => this.#onClose(socket);
+    socket.onclose = (event: CloseEvent) => this.#onClose(socket, event);
     socket.onerror = () => {};
   }
 
@@ -166,7 +168,7 @@ class RealtimeClient {
     this.#hasSyncedOnce = true;
   }
 
-  #onClose(socket: WebSocket): void {
+  #onClose(socket: WebSocket, event: CloseEvent): void {
     if (socket !== this.#socket) {
       return;
     }
@@ -174,7 +176,21 @@ class RealtimeClient {
     this.#authed = false;
     this.#subscribedProjectId = null;
     this.status = 'offline';
+    if (event.code === AUTH_CLOSE_CODE) {
+      void this.#revalidateSession();
+      return;
+    }
     this.#scheduleReconnect();
+  }
+
+  // A 4401 can be a real revocation or a transient auth-protocol close, so let an
+  // HTTP round-trip decide rather than blindly logging out: a revoked token clears
+  // the session via the existing 401 path, a still-valid one just reconnects.
+  async #revalidateSession(): Promise<void> {
+    await session.init();
+    if (session.token !== null && !this.#stopped) {
+      this.#scheduleReconnect();
+    }
   }
 
   #scheduleReconnect(): void {

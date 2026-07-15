@@ -43,9 +43,14 @@
 
   let cycleToastedFor: string | null = null;
   $effect(() => {
-    if (result.kind === 'cycle' && cycleToastedFor !== projectId) {
-      cycleToastedFor = projectId;
-      toasts.error('Dependency cycle detected — the graph cannot be drawn.');
+    if (result.kind === 'cycle') {
+      if (cycleToastedFor !== projectId) {
+        cycleToastedFor = projectId;
+        toasts.error('Dependency cycle detected — the graph cannot be drawn.');
+      }
+    } else if (cycleToastedFor === projectId) {
+      // Re-arm so a genuine cycle that appears later still toasts.
+      cycleToastedFor = null;
     }
   });
 
@@ -291,10 +296,20 @@
     const rect = svgEl?.getBoundingClientRect();
     if (!rect) return;
     connectPoint = svgPoint(vb, rect, e.clientX, e.clientY);
+    resolveConnectTarget(e);
+  }
+
+  // Touch/pen capture the pointer on the handle, suppressing pointerover on the
+  // node under the finger, so the target is read from the point instead.
+  function resolveConnectTarget(e: PointerEvent): void {
+    const group = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-node-id]');
+    const id = group?.getAttribute('data-node-id') ?? null;
+    connectTarget = id !== null && id !== connectSource ? id : null;
   }
 
   function onConnectEnd(e: PointerEvent): void {
     if (e.pointerId !== connectPointerId) return;
+    resolveConnectTarget(e);
     const source = connectSource;
     const target = connectTarget;
     cancelConnect();

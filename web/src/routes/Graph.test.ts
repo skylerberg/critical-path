@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
+import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 
 function task(id: string, columnId: string, blockerIds: string[] = []): BoardTask {
@@ -48,6 +49,9 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  for (const toast of [...toasts.toasts]) {
+    toasts.dismiss(toast.id);
+  }
 });
 
 describe('Graph', () => {
@@ -148,11 +152,20 @@ describe('Graph', () => {
 });
 
 describe('Graph dependency editing', () => {
+  // jsdom implements no layout, so elementFromPoint is absent; stand in the node
+  // the pointer is over so the point-based target detection has something to hit.
+  function stubElementFromPoint(el: Element | null): void {
+    document.elementFromPoint = (() => el) as typeof document.elementFromPoint;
+  }
+
   afterEach(() => {
     vi.restoreAllMocks();
+    Reflect.deleteProperty(document, 'elementFromPoint');
   });
 
-  it('drags from a node handle to a target and adds the dependency in the drop direction', async () => {
+  // Touch/pen capture the pointer on the handle, so pointerover never fires on the
+  // node under the finger; the target must come from the point under the pointer.
+  it('resolves the drop target from the point under the pointer and adds the dependency', async () => {
     const projectId = 'p-graph-connect';
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
@@ -168,10 +181,11 @@ describe('Graph dependency editing', () => {
     const targetNode = container.querySelector('[data-node-id="b"]');
     expect(handle).not.toBeNull();
     expect(targetNode).not.toBeNull();
+    stubElementFromPoint(targetNode);
 
     await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
-    await fireEvent.pointerOver(targetNode!, { pointerId: 1 });
-    await fireEvent.pointerUp(window, { pointerId: 1 });
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 200, clientY: 60 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 60 });
 
     expect(spy).toHaveBeenCalledWith('b', 'a');
   });
@@ -190,12 +204,41 @@ describe('Graph dependency editing', () => {
     });
     const handle = container.querySelector('[data-connect-handle="a"]');
     const sourceNode = container.querySelector('[data-node-id="a"]');
+    stubElementFromPoint(sourceNode);
 
     await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
-    await fireEvent.pointerOver(sourceNode!, { pointerId: 1 });
-    await fireEvent.pointerUp(window, { pointerId: 1 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 10, clientY: 10 });
 
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('guards a cycle-forming drop: toasts once and keeps the graph drawn', async () => {
+    const projectId = 'p-graph-cycle-guard';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(
+        200,
+        payload(projectId, [task('a', 'todo'), task('b', 'todo', ['a']), task('c', 'todo', ['b'])])
+      )
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(3);
+    });
+    const handle = container.querySelector('[data-connect-handle="c"]');
+    const targetNode = container.querySelector('[data-node-id="a"]');
+    stubElementFromPoint(targetNode);
+
+    await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 10, clientY: 10 });
+
+    expect(container.querySelector('svg[aria-label="Dependency graph"]')).not.toBeNull();
+    expect(screen.queryByText('Dependency cycle detected')).not.toBeInTheDocument();
+    expect(toasts.toasts.map((t) => t.message)).toEqual([
+      'Adding this blocker would create a dependency cycle',
+    ]);
+    expect(board.tasks.find((t) => t.id === 'a')?.blocker_ids).toEqual([]);
   });
 
   it('selects an edge and removes the dependency via the delete chip', async () => {

@@ -45,25 +45,33 @@
     void board.setTaskLabels(taskId, next);
   }
 
-  function createAndApply(): void {
+  async function createAndApply(): Promise<void> {
     const name = trimmed;
     if (name === '') {
       return;
     }
     const existing = new Set(board.labels.map((label) => label.id));
-    void board.createLabel(name, PALETTE[board.labels.length % PALETTE.length]!);
+    const color = PALETTE[board.labels.length % PALETTE.length]!;
     query = '';
     highlighted = 0;
+    const create = board.createLabel(name, color);
     const created = board.labels.find((label) => !existing.has(label.id));
+    // Applying the label PUTs its id; wait for the create's POST to commit first,
+    // or the PUT can arrive before the label row exists and be rejected with a 422.
+    try {
+      await create;
+    } catch {
+      return;
+    }
     if (created === undefined) {
       return;
     }
-    void board.setTaskLabels(taskId, [...(task?.label_ids ?? []), created.id]);
+    await board.setTaskLabels(taskId, [...(task?.label_ids ?? []), created.id]);
   }
 
   function activate(index: number): void {
     if (showCreate && index === 0) {
-      createAndApply();
+      void createAndApply();
       return;
     }
     const label = filtered[index - (showCreate ? 1 : 0)];

@@ -125,6 +125,7 @@ class WorkspacesStore {
           body: { user_ids: userIds },
         })
       );
+      users.invalidateAll();
     } catch (error) {
       await this.#mutationFailed(error, 'Failed to update members');
     }
@@ -142,6 +143,7 @@ class WorkspacesStore {
       this.#update(id, (w) =>
         w.member_ids.includes(user.id) ? w : { ...w, member_ids: [...w.member_ids, user.id] }
       );
+      users.invalidateAll();
       return { ok: true };
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
@@ -156,6 +158,8 @@ class WorkspacesStore {
     if (event.type === 'workspace_deleted') {
       const { id } = event.data as { id: string };
       this.workspaces = this.workspaces.filter((w) => w.id !== id);
+      // Resync projects so none linger pointing at the now-gone workspace.
+      void projects.load();
       return;
     }
     if (
@@ -169,14 +173,23 @@ class WorkspacesStore {
       if (event.type === 'workspace_members_set' && session.user !== null) {
         if (!incoming.member_ids.includes(session.user.id)) {
           this.workspaces = this.workspaces.filter((w) => w.id !== incoming.id);
+          // Reload, not local-clear: clearing leaves the lost projects under
+          // Personal where they 404 on open.
+          void projects.load();
           return;
         }
       }
+      const existed = this.workspaces.some((w) => w.id === incoming.id);
       this.workspaces = (
-        this.workspaces.some((w) => w.id === incoming.id)
+        existed
           ? this.workspaces.map((w) => (w.id === incoming.id ? incoming : w))
           : [...this.workspaces, incoming]
       ).sort(byName);
+      // A newly gained workspace brings unloaded projects; skip the refetch when
+      // the caller already had it (a rename or membership tweak).
+      if (!existed) {
+        void projects.load();
+      }
     }
   }
 

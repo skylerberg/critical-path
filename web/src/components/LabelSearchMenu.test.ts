@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import LabelSearchMenu from './LabelSearchMenu.svelte';
 import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -31,6 +31,10 @@ beforeEach(() => {
   board.tasks = [{ ...task }];
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('LabelSearchMenu', () => {
   it('filters labels by the query', async () => {
     render(LabelSearchMenu, { taskId: 't1' });
@@ -50,7 +54,9 @@ describe('LabelSearchMenu', () => {
     expect(created).toBeDefined();
     // Auto color cycles the 10-colour palette by existing-label count (2 => index 2).
     expect(created?.color).toBe('#eab308');
-    expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toContain(created!.id);
+    await waitFor(() => {
+      expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toContain(created!.id);
+    });
     expect(screen.getByRole('button', { name: 'shaders' })).toHaveAttribute('aria-pressed', 'true');
 
     const posted = fetchMock.mock.calls.some((call) => {
@@ -58,6 +64,32 @@ describe('LabelSearchMenu', () => {
       return request.method === 'POST' && new URL(request.url).pathname === '/api/labels';
     });
     expect(posted).toBe(true);
+  });
+
+  it('waits for the label to be created before applying it to the task', async () => {
+    let releaseCreate: () => void = () => {};
+    const createSpy = vi.spyOn(board, 'createLabel').mockImplementation((name, color) => {
+      board.labels = [...board.labels, { id: 'l-new', name, color }];
+      return new Promise<void>((resolve) => {
+        releaseCreate = resolve;
+      });
+    });
+    const setSpy = vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
+
+    render(LabelSearchMenu, { taskId: 't1' });
+    const input = screen.getByLabelText('Filter labels');
+    await fireEvent.input(input, { target: { value: 'shaders' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(createSpy).toHaveBeenCalledWith('shaders', expect.any(String));
+    // The PUT that applies the label must not fire until the POST resolves.
+    await Promise.resolve();
+    expect(setSpy).not.toHaveBeenCalled();
+
+    releaseCreate();
+    await waitFor(() => {
+      expect(setSpy).toHaveBeenCalledWith('t1', ['l-new']);
+    });
   });
 
   it('creates via Enter on the highlighted Create row', async () => {

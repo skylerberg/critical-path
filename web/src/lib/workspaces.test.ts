@@ -1,7 +1,7 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { workspaces, type Workspace } from './workspaces.svelte';
-import { projects } from './projects.svelte';
+import { projects, type Project } from './projects.svelte';
 import { session } from './session.svelte';
 import { users } from './users.svelte';
 import { toasts } from './toasts.svelte';
@@ -196,6 +196,21 @@ describe('workspaces store', () => {
     expect(workspaces.byId('w-1')?.member_ids).toEqual([me.id]);
   });
 
+  it('invalidates the project-scoped user cache after adding a member so pickers refetch', async () => {
+    await loadWith([workspace({ id: 'w-1', member_ids: [me.id] })]);
+    fetchMock.mockImplementationOnce(async () => jsonResponse(200, { users: [me] }));
+    await users.loadForProject('p-1');
+    expect(users.forProject('p-1').map((u) => u.id)).toEqual([me.id]);
+
+    const bob = { id: 'u-bob', email: 'bob@example.com', name: 'Bob' };
+    fetchMock.mockImplementationOnce(async () => jsonResponse(200, { user: bob }));
+    expect(await workspaces.addMemberByEmail('w-1', 'bob@example.com')).toEqual({ ok: true });
+
+    fetchMock.mockImplementationOnce(async () => jsonResponse(200, { users: [me, bob] }));
+    await users.loadForProject('p-1');
+    expect(users.forProject('p-1').map((u) => u.id)).toContain('u-bob');
+  });
+
   it('reset clears the list and allows a fresh load', async () => {
     await loadWith([workspace()]);
     workspaces.reset();
@@ -204,5 +219,79 @@ describe('workspaces store', () => {
     fetchMock.mockImplementation(async () => jsonResponse(200, { workspaces: [] }));
     await workspaces.load();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('workspaces realtime projects reconciliation', () => {
+  function projectItem(id: string, workspaceId: string | null): Project {
+    return {
+      id,
+      name: id,
+      description: '',
+      is_template: false,
+      archived_at: null,
+      created_by: 'someone-else',
+      workspace_id: workspaceId,
+      created_at: '2026-01-01T00:00:00.000Z',
+      open_task_count: 0,
+      done_task_count: 0,
+    };
+  }
+
+  it('resyncs projects when a members_set removes the caller', async () => {
+    workspaces.workspaces = [workspace({ id: 'w-1', member_ids: [me.id] })];
+    projects.projects = [projectItem('p-ghost', 'w-1')];
+    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [] }));
+
+    workspaces.applyRealtime({
+      type: 'workspace_members_set',
+      project_id: null,
+      data: workspace({ id: 'w-1', member_ids: ['someone-else'] }),
+    });
+
+    expect(workspaces.workspaces).toEqual([]);
+    await vi.waitFor(() => expect(projects.projects).toEqual([]));
+  });
+
+  it('resyncs projects when the workspace is deleted', async () => {
+    workspaces.workspaces = [workspace({ id: 'w-1', member_ids: [me.id] })];
+    projects.projects = [projectItem('p-ghost', 'w-1')];
+    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [] }));
+
+    workspaces.applyRealtime({ type: 'workspace_deleted', project_id: null, data: { id: 'w-1' } });
+
+    expect(workspaces.workspaces).toEqual([]);
+    await vi.waitFor(() => expect(projects.projects).toEqual([]));
+  });
+
+  it('loads projects when a members_set adds the caller to a newly gained workspace', async () => {
+    workspaces.workspaces = [];
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { projects: [projectItem('p-new', 'w-new')] })
+    );
+
+    workspaces.applyRealtime({
+      type: 'workspace_members_set',
+      project_id: null,
+      data: workspace({ id: 'w-new', member_ids: [me.id] }),
+    });
+
+    expect(workspaces.byId('w-new')).toBeDefined();
+    await vi.waitFor(() => expect(projects.projects.map((p) => p.id)).toContain('p-new'));
+  });
+
+  it('does not refetch projects when a members_set only tweaks a workspace the caller keeps', async () => {
+    workspaces.workspaces = [workspace({ id: 'w-1', member_ids: [me.id] })];
+    fetchMock.mockClear();
+
+    workspaces.applyRealtime({
+      type: 'workspace_members_set',
+      project_id: null,
+      data: workspace({ id: 'w-1', member_ids: [me.id, 'u-2'] }),
+    });
+
+    await Promise.resolve();
+    expect(workspaces.byId('w-1')?.member_ids).toEqual([me.id, 'u-2']);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -149,6 +149,21 @@ describe('users loadForProject', () => {
     expect(users.forProject('p-2')).toEqual([ada]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('invalidateAll drops the project cache so the next load refetches', async () => {
+    fetchMock.mockImplementationOnce(async () => jsonResponse(200, { users: [ada] }));
+    await users.loadForProject('p-3');
+    expect(users.forProject('p-3')).toEqual([ada]);
+
+    users.invalidateAll();
+    expect(users.forProject('p-3')).toEqual([]);
+
+    fetchMock.mockImplementationOnce(async () => jsonResponse(200, { users: [ada, brin] }));
+    await users.loadForProject('p-3');
+
+    expect(users.forProject('p-3').map((u) => u.id)).toEqual(['u-ada', 'u-brin']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('users displayFor', () => {

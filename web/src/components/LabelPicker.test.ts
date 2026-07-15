@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import LabelPicker from './LabelPicker.svelte';
 import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -62,6 +62,8 @@ describe('LabelPicker', () => {
 
     const created = board.labels.find((label) => label.name === 'audio');
     expect(created).toBeDefined();
-    expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toContain(created!.id);
+    await waitFor(() => {
+      expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toContain(created!.id);
+    });
   });
 });

@@ -1,6 +1,7 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import type { BoardColumn, BoardLabel, BoardProject, BoardTask } from './board-types';
+import { buildGraph, detectCycle } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
 import { append, positionForIndex } from './positions';
@@ -366,11 +367,19 @@ class BoardStore {
   }
 
   async addBlocker(taskId: string, blockerTaskId: string): Promise<void> {
-    this.tasks = this.tasks.map((task) =>
+    const next = this.tasks.map((task) =>
       task.id === taskId && !task.blocker_ids.includes(blockerTaskId)
         ? { ...task, blocker_ids: [...task.blocker_ids, blockerTaskId] }
         : task
     );
+    // Reject a cycle-forming edge before applying it, so the graph never flashes
+    // its full-screen cycle state and the backend 409 toast never stacks on ours.
+    const { nodes, edges } = buildGraph(next, this.columns);
+    if (detectCycle(nodes, edges)) {
+      toasts.error('Adding this blocker would create a dependency cycle');
+      return;
+    }
+    this.tasks = next;
     try {
       assertOk(
         await api.POST('/api/tasks/{id}/blockers', {
@@ -572,12 +581,37 @@ class BoardStore {
         this.filterLabelIds = this.filterLabelIds.filter((l) => l !== id);
         break;
       }
-      case 'image_created':
+      case 'image_created': {
+        const d = event.data as TaskImage & { task_id: string; image_count: number };
+        this.tasks = this.tasks.map((t) =>
+          t.id === d.task_id ? { ...t, image_count: d.image_count } : t
+        );
+        const cached = this.taskImages[d.task_id];
+        // Append to an open grid, skipping the uploader's own echo (already added
+        // optimistically) so it does not show a duplicate thumbnail.
+        if (cached !== undefined && !cached.some((img) => img.id === d.id)) {
+          const image: TaskImage = {
+            id: d.id,
+            url: d.url,
+            filename: d.filename,
+            content_type: d.content_type,
+            size_bytes: d.size_bytes,
+            created_at: d.created_at,
+          };
+          this.taskImages = { ...this.taskImages, [d.task_id]: [...cached, image] };
+        }
+        break;
+      }
       case 'image_deleted': {
         const d = event.data as { task_id: string; image_count: number };
         this.tasks = this.tasks.map((t) =>
           t.id === d.task_id ? { ...t, image_count: d.image_count } : t
         );
+        // The event carries no image id, so re-fetch the grid; clearing the cache
+        // entry instead would strand an open detail view on its loading spinner.
+        if (this.taskImages[d.task_id] !== undefined) {
+          void this.loadTaskImages(d.task_id);
+        }
         break;
       }
     }

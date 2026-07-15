@@ -15,7 +15,7 @@ class FakeWebSocket {
   sent: string[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
 
   constructor(url: string) {
@@ -27,12 +27,12 @@ class FakeWebSocket {
     this.sent.push(data);
   }
 
-  close(): void {
+  close(code = 1000): void {
     if (this.readyState === 3) {
       return;
     }
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.({ code });
   }
 
   open(): void {
@@ -44,9 +44,9 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(message) });
   }
 
-  serverClose(): void {
+  serverClose(code = 1006): void {
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.({ code });
   }
 
   messages(): { type: string; [key: string]: unknown }[] {
@@ -69,6 +69,17 @@ function task(id: string, columnId = 'c1', position = 1000) {
     assignee_ids: [] as string[],
     blocker_ids: [] as string[],
     image_count: 0,
+  };
+}
+
+function image(id: string) {
+  return {
+    id,
+    url: `/api/images/${id}`,
+    filename: `${id}.png`,
+    content_type: 'image/png',
+    size_bytes: 10,
+    created_at: '2026-01-01T00:00:00Z',
   };
 }
 
@@ -289,6 +300,44 @@ describe('board event application', () => {
     expect(board.tasks[0]!.image_count).toBe(2);
   });
 
+  it('appends the image row to an open grid on image_created and dedups the echo', () => {
+    board.tasks = [task('t1')];
+    board.taskImages = { t1: [image('img1')] };
+    const created = { ...image('img2'), task_id: 't1', image_count: 2 };
+
+    board.applyRealtime({ type: 'image_created', project_id: 'p1', data: created });
+    expect(board.taskImages['t1']!.map((i) => i.id)).toEqual(['img1', 'img2']);
+    expect(board.tasks[0]!.image_count).toBe(2);
+
+    board.applyRealtime({ type: 'image_created', project_id: 'p1', data: created });
+    expect(board.taskImages['t1']!.map((i) => i.id)).toEqual(['img1', 'img2']);
+  });
+
+  it('leaves an uncached grid untouched on image_created', () => {
+    board.tasks = [task('t1')];
+    board.applyRealtime({
+      type: 'image_created',
+      project_id: 'p1',
+      data: { ...image('imgX'), task_id: 't1', image_count: 1 },
+    });
+    expect(board.taskImages['t1']).toBeUndefined();
+    expect(board.tasks[0]!.image_count).toBe(1);
+  });
+
+  it('refetches an open grid on image_deleted', async () => {
+    board.tasks = [{ ...task('t1'), image_count: 2 }];
+    board.taskImages = { t1: [image('img1'), image('img2')] };
+    fetchMock.mockImplementation(async () => jsonResponse(200, { images: [image('img1')] }));
+
+    board.applyRealtime({
+      type: 'image_deleted',
+      project_id: 'p1',
+      data: { task_id: 't1', image_count: 1 },
+    });
+    expect(board.tasks[0]!.image_count).toBe(1);
+    await vi.waitFor(() => expect(board.taskImages['t1']!.map((i) => i.id)).toEqual(['img1']));
+  });
+
   it('ignores board events for a different project', async () => {
     const socket = await connectAndAuth('p1');
     socket.receive({ type: 'task_created', project_id: 'p-other', data: task('tx') });
@@ -389,6 +438,40 @@ describe('reconnect', () => {
     await connectAndAuth('p1');
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
     expect(paths).not.toContain('/api/projects');
+  });
+});
+
+describe('session revoked (4401)', () => {
+  it('revalidates and clears the session on a 4401 close without reconnecting', async () => {
+    const socket = await connectAndAuth('p1');
+    expect(session.status).toBe('authed');
+    fetchMock.mockImplementation(async () => jsonResponse(401, { error: 'revoked' }));
+
+    vi.useFakeTimers();
+    socket.serverClose(4401);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(session.status).toBe('anon');
+    expect(session.token).toBeNull();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('reconnects on a 4401 when the token still validates', async () => {
+    const socket = await connectAndAuth('p1');
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname === '/api/auth/me') {
+        return jsonResponse(200, { id: 'u1', name: 'Me', email: 'm@e.com' });
+      }
+      return jsonResponse(200, { projects: [] });
+    });
+
+    vi.useFakeTimers();
+    socket.serverClose(4401);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(session.status).toBe('authed');
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(1);
   });
 });
 

@@ -66,6 +66,11 @@ class UsersStore {
     await this.#fetch();
   }
 
+  // Drop the project-scoped cache so pickers refetch after a membership change.
+  invalidateAll(): void {
+    this.#projectUsers = {};
+  }
+
   upsert(user: User): void {
     this.users = this.users.some((u) => u.id === user.id)
       ? this.users.map((u) => (u.id === user.id ? user : u))
