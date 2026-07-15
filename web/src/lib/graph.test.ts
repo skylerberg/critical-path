@@ -1,0 +1,249 @@
+import { describe, expect, it } from 'vitest';
+import type { BoardColumn, BoardTask } from './board-types';
+import {
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  buildGraph,
+  computeGraph,
+  criticalPath,
+  detectCycle,
+  edgeId,
+  edgePath,
+  layoutGraph,
+  type GraphEdge,
+  type GraphNode,
+} from './graph';
+
+function column(id: string, name: string, isDone = false): BoardColumn {
+  return { id, name, position: 1000, is_done: isDone };
+}
+
+function task(id: string, columnId: string, blockerIds: string[] = []): BoardTask {
+  return {
+    id,
+    column_id: columnId,
+    title: `Task ${id}`,
+    description: null,
+    position: 1000,
+    created_at: '2026-07-15T00:00:00Z',
+    updated_at: '2026-07-15T00:00:00Z',
+    label_ids: [],
+    assignee_ids: [],
+    blocker_ids: blockerIds,
+    image_count: 0,
+  };
+}
+
+const columns = [column('todo', 'To Do'), column('done', 'Done', true)];
+
+function node(id: string, isDone = false): GraphNode {
+  return { id, title: `Task ${id}`, columnName: isDone ? 'Done' : 'To Do', isDone };
+}
+
+function edge(from: string, to: string): GraphEdge {
+  return { id: edgeId(from, to), from, to };
+}
+
+describe('buildGraph', () => {
+  it('maps tasks to nodes with column name and done flag', () => {
+    const { nodes } = buildGraph([task('a', 'todo'), task('b', 'done')], columns);
+
+    expect(nodes).toEqual([
+      { id: 'a', title: 'Task a', columnName: 'To Do', isDone: false },
+      { id: 'b', title: 'Task b', columnName: 'Done', isDone: true },
+    ]);
+  });
+
+  it('creates blocker -> blocked edges from blocker_ids', () => {
+    const { edges } = buildGraph([task('a', 'todo'), task('b', 'todo', ['a'])], columns);
+
+    expect(edges).toEqual([{ id: 'a->b', from: 'a', to: 'b' }]);
+  });
+
+  it('skips blockers that are not in the task set and duplicate blocker ids', () => {
+    const { edges } = buildGraph(
+      [task('a', 'todo'), task('b', 'todo', ['a', 'a', 'missing'])],
+      columns
+    );
+
+    expect(edges).toEqual([{ id: 'a->b', from: 'a', to: 'b' }]);
+  });
+
+  it('handles tasks whose column is unknown', () => {
+    const { nodes } = buildGraph([task('a', 'gone')], columns);
+
+    expect(nodes).toEqual([{ id: 'a', title: 'Task a', columnName: '', isDone: false }]);
+  });
+});
+
+describe('detectCycle', () => {
+  it('accepts a chain', () => {
+    const nodes = [node('a'), node('b'), node('c')];
+    expect(detectCycle(nodes, [edge('a', 'b'), edge('b', 'c')])).toBe(false);
+  });
+
+  it('accepts a diamond', () => {
+    const nodes = [node('a'), node('b'), node('c'), node('d')];
+    const edges = [edge('a', 'b'), edge('a', 'c'), edge('b', 'd'), edge('c', 'd')];
+    expect(detectCycle(nodes, edges)).toBe(false);
+  });
+
+  it('flags a two-node cycle and terminates', () => {
+    const nodes = [node('a'), node('b')];
+    expect(detectCycle(nodes, [edge('a', 'b'), edge('b', 'a')])).toBe(true);
+  });
+
+  it('flags a self-loop', () => {
+    expect(detectCycle([node('a')], [edge('a', 'a')])).toBe(true);
+  });
+
+  it('flags a cycle reachable only from part of the graph', () => {
+    const nodes = [node('a'), node('b'), node('c'), node('d')];
+    const edges = [edge('a', 'b'), edge('b', 'c'), edge('c', 'b'), edge('a', 'd')];
+    expect(detectCycle(nodes, edges)).toBe(true);
+  });
+});
+
+describe('layoutGraph', () => {
+  it('returns an empty layout for no nodes', () => {
+    expect(layoutGraph([], [])).toEqual({ nodes: [], edges: [], width: 0, height: 0 });
+  });
+
+  it('positions every node with finite coordinates', () => {
+    const nodes = [node('a'), node('b'), node('c'), node('d')];
+    const edges = [edge('a', 'b'), edge('a', 'c'), edge('b', 'd'), edge('c', 'd')];
+
+    const layout = layoutGraph(nodes, edges);
+
+    expect(layout.nodes).toHaveLength(4);
+    for (const positioned of layout.nodes) {
+      expect(Number.isFinite(positioned.x)).toBe(true);
+      expect(Number.isFinite(positioned.y)).toBe(true);
+    }
+    expect(layout.width).toBeGreaterThanOrEqual(NODE_WIDTH);
+    expect(layout.height).toBeGreaterThanOrEqual(NODE_HEIGHT);
+  });
+
+  it('flows left to right along dependencies', () => {
+    const layout = layoutGraph([node('a'), node('b')], [edge('a', 'b')]);
+
+    const a = layout.nodes.find((n) => n.id === 'a')!;
+    const b = layout.nodes.find((n) => n.id === 'b')!;
+    expect(a.x).toBeLessThan(b.x);
+  });
+
+  it('returns edge waypoints with finite coordinates', () => {
+    const layout = layoutGraph([node('a'), node('b')], [edge('a', 'b')]);
+
+    expect(layout.edges).toHaveLength(1);
+    const points = layout.edges[0]!.points;
+    expect(points.length).toBeGreaterThanOrEqual(2);
+    for (const point of points) {
+      expect(Number.isFinite(point.x)).toBe(true);
+      expect(Number.isFinite(point.y)).toBe(true);
+    }
+  });
+});
+
+describe('criticalPath', () => {
+  it('picks the full chain a -> b -> c', () => {
+    const nodes = [node('a'), node('b'), node('c')];
+    const result = criticalPath(nodes, [edge('a', 'b'), edge('b', 'c')]);
+
+    expect(result.nodeIds).toEqual(['a', 'b', 'c']);
+    expect(result.edgeIds).toEqual(['a->b', 'b->c']);
+  });
+
+  it('picks one longest branch of a diamond', () => {
+    const nodes = [node('a'), node('b'), node('c'), node('d')];
+    const edges = [edge('a', 'b'), edge('a', 'c'), edge('b', 'd'), edge('c', 'd')];
+
+    const result = criticalPath(nodes, edges);
+
+    expect(result.nodeIds).toHaveLength(3);
+    expect(result.nodeIds[0]).toBe('a');
+    expect(result.nodeIds[2]).toBe('d');
+    expect(['b', 'c']).toContain(result.nodeIds[1]);
+    expect(result.edgeIds).toEqual([
+      edgeId('a', result.nodeIds[1]!),
+      edgeId(result.nodeIds[1]!, 'd'),
+    ]);
+  });
+
+  it('is broken by done tasks', () => {
+    const nodes = [node('a'), node('b'), node('c', true), node('d')];
+    const edges = [edge('a', 'b'), edge('b', 'c'), edge('c', 'd')];
+
+    const result = criticalPath(nodes, edges);
+
+    expect(result.nodeIds).toEqual(['a', 'b']);
+    expect(result.edgeIds).toEqual(['a->b']);
+  });
+
+  it('returns nothing when every chain is a single task', () => {
+    const nodes = [node('a'), node('b', true), node('c')];
+    expect(criticalPath(nodes, [edge('a', 'b'), edge('b', 'c')])).toEqual({
+      nodeIds: [],
+      edgeIds: [],
+    });
+  });
+
+  it('returns nothing for empty edges', () => {
+    expect(criticalPath([node('a'), node('b')], [])).toEqual({ nodeIds: [], edgeIds: [] });
+  });
+
+  it('returns nothing instead of hanging on cyclic input', () => {
+    const nodes = [node('a'), node('b')];
+    expect(criticalPath(nodes, [edge('a', 'b'), edge('b', 'a')])).toEqual({
+      nodeIds: [],
+      edgeIds: [],
+    });
+  });
+});
+
+describe('computeGraph', () => {
+  it('returns a cycle marker without layout on cyclic data', () => {
+    const tasks = [task('a', 'todo', ['b']), task('b', 'todo', ['a'])];
+    expect(computeGraph(tasks, columns)).toEqual({ kind: 'cycle' });
+  });
+
+  it('returns layout and critical path for a DAG', () => {
+    const tasks = [task('a', 'todo'), task('b', 'todo', ['a']), task('c', 'done', ['b'])];
+
+    const result = computeGraph(tasks, columns);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.layout.nodes).toHaveLength(3);
+    expect(result.layout.edges).toHaveLength(2);
+    expect(result.critical.nodeIds).toEqual(['a', 'b']);
+  });
+});
+
+describe('edgePath', () => {
+  it('returns an empty string for no points', () => {
+    expect(edgePath([])).toBe('');
+  });
+
+  it('builds a single cubic segment between two points', () => {
+    const d = edgePath([
+      { x: 0, y: 0 },
+      { x: 100, y: 50 },
+    ]);
+
+    expect(d).toBe('M 0 0 C 16.67 8.33 83.33 41.67 100 50');
+  });
+
+  it('builds one cubic segment per span with finite numbers', () => {
+    const d = edgePath([
+      { x: 0, y: 0 },
+      { x: 50, y: 80 },
+      { x: 120, y: 20 },
+      { x: 200, y: 60 },
+    ]);
+
+    expect(d.startsWith('M 0 0')).toBe(true);
+    expect(d.match(/C /g)).toHaveLength(3);
+    expect(d).not.toMatch(/NaN|Infinity/);
+  });
+});
