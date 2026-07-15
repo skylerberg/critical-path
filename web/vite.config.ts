@@ -54,6 +54,9 @@ export default defineConfig({
     }),
   ],
   server: {
+    // Allow Tailscale MagicDNS hosts so `tailscale serve` (which forwards the
+    // ts.net Host header to this localhost-bound server) isn't rejected.
+    allowedHosts: ['.ts.net'],
     proxy: {
       '/api': 'http://localhost:3001',
       '/ws': { target: 'http://localhost:3001', ws: true },
@@ -63,6 +66,15 @@ export default defineConfig({
       // git worktree; the svelteTesting() setup file resolves to its realpath,
       // which vite's default allow-list (the worktree root) would deny.
       allow: ['.', realpathSync('node_modules')],
+    },
+  },
+  preview: {
+    port: 4173,
+    strictPort: true,
+    allowedHosts: ['.ts.net'],
+    proxy: {
+      '/api': 'http://localhost:3001',
+      '/ws': { target: 'http://localhost:3001', ws: true },
     },
   },
   test: {
