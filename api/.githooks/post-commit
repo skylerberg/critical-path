@@ -1,0 +1,45 @@
+#!/bin/sh
+# Auto-fix lintable issues in the files just committed, then amend the commit.
+
+if [ -n "$SKIP_POST_COMMIT" ]; then
+  exit 0
+fi
+
+files=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -E '\.(ts|svelte|mjs)$' || true)
+if [ -z "$files" ]; then
+  exit 0
+fi
+
+unstaged=$(git diff --name-only)
+
+candidates=""
+for f in $files; do
+  if [ ! -f "$f" ]; then
+    continue
+  fi
+  if printf '%s\n' "$unstaged" | grep -qFx "$f"; then
+    continue
+  fi
+  candidates="$candidates $f"
+done
+
+if [ -z "$candidates" ]; then
+  exit 0
+fi
+
+npx eslint --fix $candidates || true
+npx prettier --write $candidates || true
+
+changed=""
+for f in $candidates; do
+  if ! git diff --quiet -- "$f"; then
+    changed="$changed $f"
+  fi
+done
+
+if [ -z "$changed" ]; then
+  exit 0
+fi
+
+git add $changed
+SKIP_POST_COMMIT=1 git commit --amend --no-edit --no-verify

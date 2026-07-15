@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: game_dev_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      # Node's --env-file hard-errors when the file is missing, so write it.
+      - name: Write .env.test
+        run: |
+          cat > .env.test <<'EOF'
+          DB_HOSTNAME=127.0.0.1
+          DB_PORT=5432
+          DB_USER=postgres
+          DB_PASSWORD=postgres
+          DB_DATABASE=game_dev_test
+          STORAGE_DISK_ROOT=./data/test-uploads
+          ENVIRONMENT=test
+          EOF
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run type-check
+      - run: npm test
