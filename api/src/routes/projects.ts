@@ -104,6 +104,36 @@ async function fetchTaskCounts(
   };
 }
 
+// The delivery layer's per-event access re-check would drop exactly these
+// now-excluded users, so their removal event needs a snapshotted recipient list.
+async function membersLosingAccess(
+  db: Kysely<DB>,
+  oldWorkspaceId: string,
+  newWorkspaceId: string | null,
+  createdBy: string | null
+): Promise<string[]> {
+  const oldMembers = await db
+    .selectFrom('workspace_member')
+    .select('user_id')
+    .where('workspace_id', '=', oldWorkspaceId)
+    .execute();
+  const losing = new Set(oldMembers.map((member) => member.user_id));
+  if (createdBy !== null) {
+    losing.delete(createdBy);
+  }
+  if (newWorkspaceId !== null) {
+    const newMembers = await db
+      .selectFrom('workspace_member')
+      .select('user_id')
+      .where('workspace_id', '=', newWorkspaceId)
+      .execute();
+    for (const member of newMembers) {
+      losing.delete(member.user_id);
+    }
+  }
+  return [...losing];
+}
+
 const router: AppHono = new Hono();
 
 router.get(
@@ -401,6 +431,18 @@ router.patch(
       );
       const strippedTaskIds = [...new Set(stripped.map((entry) => entry.task_id))];
       publishTaskRelationsSet(c, await fetchTaskRelations(db, strippedTaskIds));
+
+      if (project.workspace_id !== null) {
+        const losing = await membersLosingAccess(
+          db,
+          project.workspace_id,
+          row.workspace_id,
+          row.created_by
+        );
+        if (losing.length > 0) {
+          publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: losing });
+        }
+      }
     }
 
     publishAfterCommit(

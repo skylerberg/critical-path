@@ -421,6 +421,38 @@ describe('Realtime end to end', () => {
     expect(clientC.events).toEqual([]);
   });
 
+  it('sends project_deleted to members who lose access when a project leaves the workspace', async () => {
+    const movedProjectId = newId();
+    const createRes = await ctx
+      .request(userA.token)
+      .post('/api/projects', { id: movedProjectId, name: 'leaving project' });
+    expect(createRes.status).toBe(201);
+
+    const intoRes = await ctx
+      .request(userA.token)
+      .patch(`/api/projects/${movedProjectId}`, { workspace_id: workspaceId });
+    expect(intoRes.status).toBe(200);
+    await clientB2.waitForEvent(
+      (e) => e.type === 'project_updated' && e.data.id === movedProjectId
+    );
+
+    const outRes = await ctx
+      .request(userA.token)
+      .patch(`/api/projects/${movedProjectId}`, { workspace_id: null });
+    expect(outRes.status).toBe(200);
+
+    const event = await clientB2.waitForEvent(
+      (e) => e.type === 'project_deleted' && e.data.id === movedProjectId
+    );
+    expect(event).toMatchObject({
+      type: 'project_deleted',
+      project_id: movedProjectId,
+      data: { id: movedProjectId },
+    });
+    await settle();
+    expect(clientC.events).toEqual([]);
+  });
+
   it('delivers workspace_updated to members on rename', async () => {
     const res = await ctx
       .request(userA.token)

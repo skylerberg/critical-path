@@ -106,6 +106,14 @@ describe('Tasks CRUD', () => {
       expect(second.status).toBe(409);
     });
 
+    it('returns 404 when the project does not exist, matching an inaccessible project', async () => {
+      const res = await ctx
+        .request(user.token)
+        .post('/api/tasks', taskBody({ project_id: newId(), column_id: newId() }));
+      expect(res.status).toBe(404);
+      expect((await res.json()).error).toBe('Project not found');
+    });
+
     it('rejects a column from another project with 422', async () => {
       const otherProject = await fixtures.createProject('other project', { createdBy: user.id });
       const otherColumn = await fixtures.createColumn(otherProject);

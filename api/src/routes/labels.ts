@@ -29,7 +29,8 @@ router.post(
     tags: ['Labels'],
     summary: 'Create label',
     description:
-      'Create a label in a project. The client supplies the label id. Label names are unique per project.',
+      'Create a label in a project. The client supplies the label id. Label names are unique per ' +
+      'project. Returns 404 when the referenced project is unknown or inaccessible.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {
@@ -59,10 +60,7 @@ router.post(
       .select(['created_by', 'workspace_id'])
       .where('id', '=', project_id)
       .executeTakeFirst();
-    if (!project) {
-      throw new AppError(422, 'Project does not exist');
-    }
-    if (!(await canAccessProject(db, user.id, project))) {
+    if (!project || !(await canAccessProject(db, user.id, project))) {
       throw new AppError(404, 'Project not found');
     }
 

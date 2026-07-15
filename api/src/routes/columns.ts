@@ -48,7 +48,7 @@ router.post(
     summary: 'Create column',
     description:
       'Create a board column in a project. The client supplies the column id. ' +
-      'Returns 422 when the referenced project does not exist and 409 on a duplicate id.',
+      'Returns 404 when the referenced project is unknown or inaccessible and 409 on a duplicate id.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {
@@ -78,10 +78,7 @@ router.post(
       .select(['created_by', 'workspace_id'])
       .where('id', '=', project_id)
       .executeTakeFirst();
-    if (!project) {
-      throw new AppError(422, 'Project does not exist');
-    }
-    if (!(await canAccessProject(db, user.id, project))) {
+    if (!project || !(await canAccessProject(db, user.id, project))) {
       throw new AppError(404, 'Project not found');
     }
 

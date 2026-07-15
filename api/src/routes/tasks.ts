@@ -187,9 +187,10 @@ router.post(
     tags: ['Tasks'],
     summary: 'Create a task',
     description:
-      'Create a task in a column. The client supplies the task id. The column must belong to ' +
-      'the project, labels must belong to the project, and assignees must be users with ' +
-      'access to the project; violations return 422 with a plain error body.',
+      'Create a task in a column. The client supplies the task id. An unknown or inaccessible ' +
+      'project returns 404. The column must belong to the project, labels must belong to the ' +
+      'project, and assignees must be users with access to the project; those violations return ' +
+      '422 with a plain error body.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {
@@ -219,10 +220,7 @@ router.post(
       .select(['id', 'created_by', 'workspace_id'])
       .where('id', '=', body.project_id)
       .executeTakeFirst();
-    if (!project) {
-      throw new AppError(422, 'Project does not exist');
-    }
-    if (!(await canAccessProject(db, user.id, project))) {
+    if (!project || !(await canAccessProject(db, user.id, project))) {
       throw new AppError(404, 'Project not found');
     }
 

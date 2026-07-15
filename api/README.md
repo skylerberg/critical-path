@@ -96,10 +96,11 @@ Delivery: project-scoped events go to sockets subscribed to that project whose
 user can access it (re-checked per event). `project_created` /
 `project_updated` are broadcast to every authenticated socket, filtered by the
 same access check, so project lists stay current without a room.
-`project_deleted`, `workspace_members_set` (which also reaches the removed
-members), and `workspace_deleted` are sent to a recipient list snapshotted
-inside the deleting transaction, since access cannot be recomputed once the
-rows cascade away.
+`project_deleted` (also sent to workspace members who lose access when a
+project moves out of their workspace), `workspace_members_set` (which also
+reaches the removed members), and `workspace_deleted` are sent to a recipient
+list snapshotted inside the transaction, since the delivery access re-check
+would otherwise exclude exactly the users who need the event.
 
 ### Email
 
