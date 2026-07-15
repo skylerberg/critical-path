@@ -3,6 +3,14 @@
 Critical Path frontend: Svelte 5 (runes) + Vite SPA/PWA. No SvelteKit. Tailwind CSS v4.
 TypeScript strict. The app name lives in `src/lib/constants.ts` (`APP_NAME`).
 
+## Local data — do not destroy
+
+Live checks run against the real API on `:3001`, backed by the local `game_dev`
+database, which holds the owner's real projects and tasks. Create your own
+throwaway data for testing and delete only what you created; never wipe or
+bulk-delete `game_dev`, and never touch `gamedev@skylerberg.com`'s data. See
+`game-dev-api/CLAUDE.md` for the full rule.
+
 ## Checks (run all before finishing)
 
 ```sh
