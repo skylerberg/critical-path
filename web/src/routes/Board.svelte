@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { flip } from 'svelte/animate';
   import {
     dndzone,
@@ -9,8 +10,13 @@
   } from 'svelte-dnd-action';
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
+  import { selection } from '../lib/selection.svelte';
+  import { shortcuts } from '../lib/shortcuts.svelte';
   import ColumnHeader from '../components/ColumnHeader.svelte';
   import QuickAddTask from '../components/QuickAddTask.svelte';
+  import QuickAssigneeMenu from '../components/QuickAssigneeMenu.svelte';
+  import QuickLabelMenu from '../components/QuickLabelMenu.svelte';
+  import ShortcutHelp from '../components/ShortcutHelp.svelte';
   import TaskCard from '../components/TaskCard.svelte';
   import Button from '../components/ui/Button.svelte';
 
@@ -29,6 +35,39 @@
   let taskDragging = $state(false);
   let addingColumn = $state(false);
   let newColumnName = $state('');
+
+  $effect(() => {
+    board.dragging = columnDragging || taskDragging;
+  });
+
+  $effect(() => {
+    if (projectId) {
+      untrack(() => selection.clear());
+    }
+  });
+
+  $effect(() => {
+    window.addEventListener('keydown', shortcuts.handleKeydown);
+    return () => window.removeEventListener('keydown', shortcuts.handleKeydown);
+  });
+
+  // QuickAddTask encapsulates its open/focus state, so the shortcut opens it via its trigger.
+  $effect(() => {
+    const columnId = shortcuts.quickAddColumn;
+    if (columnId === null) {
+      return;
+    }
+    untrack(() => {
+      shortcuts.quickAddColumn = null;
+      const host = document.querySelector(`[data-quick-add="${columnId}"]`);
+      const input = host?.querySelector('input');
+      if (input instanceof HTMLInputElement) {
+        input.focus();
+      } else {
+        host?.querySelector('button')?.click();
+      }
+    });
+  });
 
   $effect(() => {
     if (!columnDragging) {
@@ -125,6 +164,7 @@
         flipDurationMs: FLIP_MS,
         dropTargetStyle,
         delayTouchStart: true,
+        zoneItemTabIndex: -1,
       }}
       onconsider={handleColumnConsider}
       onfinalize={handleColumnFinalize}
@@ -144,6 +184,7 @@
               flipDurationMs: FLIP_MS,
               dropTargetStyle,
               delayTouchStart: true,
+              zoneItemTabIndex: -1,
             }}
             onconsider={(event) => handleTaskConsider(column.id, event)}
             onfinalize={(event) => handleTaskFinalize(column.id, event)}
@@ -160,7 +201,9 @@
               </div>
             {/each}
           </div>
-          <QuickAddTask columnId={column.id} />
+          <div data-quick-add={column.id}>
+            <QuickAddTask columnId={column.id} />
+          </div>
         </section>
       {/each}
     </div>
@@ -208,3 +251,16 @@
     </div>
   </div>
 </div>
+
+{#if shortcuts.labelMenu !== null}
+  <QuickLabelMenu taskId={shortcuts.labelMenu} onclose={() => (shortcuts.labelMenu = null)} />
+{/if}
+{#if shortcuts.assigneeMenu !== null}
+  <QuickAssigneeMenu
+    taskId={shortcuts.assigneeMenu}
+    onclose={() => (shortcuts.assigneeMenu = null)}
+  />
+{/if}
+{#if shortcuts.helpOpen}
+  <ShortcutHelp onclose={() => (shortcuts.helpOpen = false)} />
+{/if}

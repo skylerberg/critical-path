@@ -1,4 +1,4 @@
-import '../api/testUtils';
+import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import LabelPicker from './LabelPicker.svelte';
@@ -50,5 +50,18 @@ describe('LabelPicker', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'art' }));
     expect(spy).toHaveBeenCalledWith('t1', []);
+  });
+
+  it('offers the shared Create affordance from the filter input', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, {}));
+    board.currentProjectId = 'p1';
+    render(LabelPicker, { taskId: 't1' });
+
+    await fireEvent.input(screen.getByLabelText('Filter labels'), { target: { value: 'audio' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Create "audio"' }));
+
+    const created = board.labels.find((label) => label.name === 'audio');
+    expect(created).toBeDefined();
+    expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toContain(created!.id);
   });
 });

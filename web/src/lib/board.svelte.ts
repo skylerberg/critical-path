@@ -24,6 +24,8 @@ class BoardStore {
   loading = $state(false);
   error = $state<string | null>(null);
   currentProjectId = $state<string | null>(null);
+  // Read-only signal for the shortcut layer; nothing in this store reacts to it.
+  dragging = $state(false);
   filterLabelIds = $state<string[]>([]);
   filterAssigneeIds = $state<string[]>([]);
 
@@ -88,6 +90,7 @@ class BoardStore {
     this.taskImages = {};
     this.loading = false;
     this.error = null;
+    this.dragging = false;
     this.currentProjectId = null;
     this.filterLabelIds = [];
     this.filterAssigneeIds = [];

@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { board } from '../lib/board.svelte';
   import type { BoardLabel, BoardTask } from '../lib/board-types';
   import { link } from '../lib/router.svelte';
+  import { selection } from '../lib/selection.svelte';
   import { users } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
   import ColorDot from './ui/ColorDot.svelte';
@@ -16,15 +18,21 @@
   let { task, projectId, labels = [], blockedCount = 0, dimmed = false }: Props = $props();
 
   const assignees = $derived(task.assignee_ids.flatMap((id) => users.byId(id) ?? []));
+  const selected = $derived(selection.selectedTaskId === task.id);
 </script>
 
 <a
   use:link
   href={`/projects/${projectId}/tasks/${task.id}`}
   draggable="false"
-  class="block min-h-11 rounded-md border border-edge bg-canvas p-3 transition-opacity hover:border-accent {dimmed
-    ? 'opacity-30'
-    : ''}"
+  onpointerenter={() => {
+    if (!board.dragging) {
+      selection.set(task.id);
+    }
+  }}
+  class="block min-h-11 rounded-md border bg-canvas p-3 transition-opacity hover:border-accent {selected
+    ? 'border-accent ring-2 ring-accent'
+    : 'border-edge'} {dimmed ? 'opacity-30' : ''}"
 >
   {#if labels.length > 0}
     <div class="mb-1.5 flex flex-wrap gap-1">
