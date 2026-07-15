@@ -31,3 +31,22 @@ export const authResponseSchema = type({
 });
 
 export type AuthResponse = typeof authResponseSchema.infer;
+
+export const patchMeSchema = type({
+  'name?': stringWithLength(1, 200),
+  'email?': email,
+});
+
+export const changePasswordSchema = type({
+  current_password: 'string',
+  new_password: password,
+});
+
+export const forgotPasswordSchema = type({
+  email,
+});
+
+export const resetPasswordSchema = type({
+  token: 'string',
+  new_password: password,
+});

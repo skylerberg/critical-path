@@ -4,6 +4,8 @@ import { describeRoute, resolver } from 'hono-openapi';
 import { authMiddleware } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
+import { assertTaskAccess } from '../services/authorization';
+import { publishAfterCommit } from '../services/realtime/index';
 import { sniffImageContentType } from '../services/imageSniff';
 import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
@@ -80,14 +82,7 @@ router.post(
     const db = c.get('db');
     const { id: taskId } = c.req.valid('param');
 
-    const task = await db
-      .selectFrom('task')
-      .select('id')
-      .where('id', '=', taskId)
-      .executeTakeFirst();
-    if (!task) {
-      throw new AppError(404, 'Task not found');
-    }
+    const project = await assertTaskAccess(db, c.get('user').id, taskId);
 
     const body = await c.req.parseBody();
     const file = body['file'];
@@ -148,17 +143,26 @@ router.post(
       throw err;
     }
 
-    return c.json(
-      {
-        id: imageId,
-        url: `/api/images/${imageId}`,
-        filename,
-        content_type: contentType,
-        size_bytes: data.length,
-        created_at: createdAt.toISOString(),
-      },
-      201
-    );
+    const { count } = await db
+      .selectFrom('task_image')
+      .select((eb) => eb.fn.countAll<string>().as('count'))
+      .where('task_id', '=', taskId)
+      .executeTakeFirstOrThrow();
+
+    const image = {
+      id: imageId,
+      url: `/api/images/${imageId}`,
+      filename,
+      content_type: contentType,
+      size_bytes: data.length,
+      created_at: createdAt.toISOString(),
+    };
+    publishAfterCommit(c, 'image_created', project.id, {
+      ...image,
+      task_id: taskId,
+      image_count: Number(count),
+    });
+    return c.json(image, 201);
   }
 );
 

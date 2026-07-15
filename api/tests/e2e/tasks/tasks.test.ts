@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
+import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { ProjectFixtures, validDescription, descriptionWithLink } from './taskFixtures';
@@ -13,7 +14,7 @@ describe('Tasks CRUD', () => {
 
   beforeAll(async () => {
     user = await ctx.createUser('tasks-crud');
-    projectId = await fixtures.createProject();
+    projectId = await fixtures.createProject('tasks e2e project', { createdBy: user.id });
     columnId = await fixtures.createColumn(projectId);
   });
 
@@ -40,11 +41,30 @@ describe('Tasks CRUD', () => {
     });
 
     it('creates a task with labels and assignees in board-payload shape', async () => {
-      const labelA = await fixtures.createLabel(projectId, `label-a-${newId()}`);
-      const labelB = await fixtures.createLabel(projectId, `label-b-${newId()}`);
       const assignee = await ctx.createUser('tasks-crud-assignee');
+      const workspaceId = newId();
+      await db
+        .insertInto('workspace')
+        .values({ id: workspaceId, name: 'tasks crud ws', created_by: user.id })
+        .execute();
+      await db
+        .insertInto('workspace_member')
+        .values([
+          { workspace_id: workspaceId, user_id: user.id },
+          { workspace_id: workspaceId, user_id: assignee.id },
+        ])
+        .execute();
+      const sharedProjectId = await fixtures.createProject('tasks crud shared', {
+        createdBy: user.id,
+        workspaceId,
+      });
+      const sharedColumnId = await fixtures.createColumn(sharedProjectId);
+      const labelA = await fixtures.createLabel(sharedProjectId, `label-a-${newId()}`);
+      const labelB = await fixtures.createLabel(sharedProjectId, `label-b-${newId()}`);
 
       const body = taskBody({
+        project_id: sharedProjectId,
+        column_id: sharedColumnId,
         description: validDescription(),
         label_ids: [labelA, labelB, labelA],
         assignee_ids: [user.id, assignee.id],
@@ -55,7 +75,7 @@ describe('Tasks CRUD', () => {
       const task = await res.json();
       expect(task).toMatchObject({
         id: body.id,
-        column_id: columnId,
+        column_id: sharedColumnId,
         title: 'A task',
         description: validDescription(),
         position: 1000,
@@ -87,7 +107,7 @@ describe('Tasks CRUD', () => {
     });
 
     it('rejects a column from another project with 422', async () => {
-      const otherProject = await fixtures.createProject('other project');
+      const otherProject = await fixtures.createProject('other project', { createdBy: user.id });
       const otherColumn = await fixtures.createColumn(otherProject);
       const res = await ctx
         .request(user.token)
@@ -105,7 +125,9 @@ describe('Tasks CRUD', () => {
     });
 
     it('rejects a label from another project with 422', async () => {
-      const otherProject = await fixtures.createProject('other label project');
+      const otherProject = await fixtures.createProject('other label project', {
+        createdBy: user.id,
+      });
       const otherLabel = await fixtures.createLabel(otherProject, `foreign-${newId()}`);
       const res = await ctx
         .request(user.token)
@@ -256,7 +278,9 @@ describe('Tasks CRUD', () => {
     });
 
     it('rejects moving to a column of another project with 422', async () => {
-      const otherProject = await fixtures.createProject('patch cross project');
+      const otherProject = await fixtures.createProject('patch cross project', {
+        createdBy: user.id,
+      });
       const otherColumn = await fixtures.createColumn(otherProject);
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const { id } = await created.json();

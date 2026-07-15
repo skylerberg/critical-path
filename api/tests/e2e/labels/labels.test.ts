@@ -10,7 +10,7 @@ describe('Labels API', () => {
 
   async function createProject(name: string): Promise<string> {
     const id = newId();
-    await db.insertInto('project').values({ id, name }).execute();
+    await db.insertInto('project').values({ id, name, created_by: user.id }).execute();
     projectIds.push(id);
     return id;
   }

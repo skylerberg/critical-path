@@ -1,14 +1,23 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import type { Selectable, Updateable } from 'kysely';
+import type { Kysely, Selectable, Updateable } from 'kysely';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
+import {
+  accessibleProjectsFilter,
+  assertProjectAccess,
+  canAccessProject,
+  isWorkspaceMember,
+} from '../services/authorization';
+import { stripAssigneesForProjectScope } from '../services/assigneeStrip';
 import { getBoardPayload } from '../services/boardPayload';
 import { copyProject } from '../services/projectCopy';
+import { publishAfterCommit } from '../services/realtime/index';
+import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import { storage } from '../services/storage/index';
-import type { Project } from '../db/types';
+import type { DB, Project } from '../db/types';
 import {
   idSchema,
   projectSchema,
@@ -20,7 +29,6 @@ import {
   unauthorizedErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
-  validationErrorResponse,
   validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
@@ -35,8 +43,26 @@ const DEFAULT_COLUMNS = [
 
 type ProjectRow = Pick<
   Selectable<Project>,
-  'id' | 'name' | 'description' | 'is_template' | 'archived_at' | 'created_at'
+  | 'id'
+  | 'name'
+  | 'description'
+  | 'is_template'
+  | 'archived_at'
+  | 'created_at'
+  | 'created_by'
+  | 'workspace_id'
 >;
+
+const PROJECT_COLUMNS = [
+  'id',
+  'name',
+  'description',
+  'is_template',
+  'archived_at',
+  'created_at',
+  'created_by',
+  'workspace_id',
+] as const;
 
 function toProjectResponse(row: ProjectRow) {
   return {
@@ -46,6 +72,35 @@ function toProjectResponse(row: ProjectRow) {
     is_template: row.is_template,
     archived_at: row.archived_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),
+    created_by: row.created_by,
+    workspace_id: row.workspace_id,
+  };
+}
+
+// project_created/project_updated carry the projects-list item shape so a
+// client that just gained visibility can upsert without a refetch.
+async function fetchTaskCounts(
+  db: Kysely<DB>,
+  projectId: string
+): Promise<{ open_task_count: number; done_task_count: number }> {
+  const row = await db
+    .selectFrom('task')
+    .leftJoin('board_column', 'board_column.id', 'task.column_id')
+    .select((eb) => [
+      eb.fn
+        .count<string>('task.id')
+        .filterWhere(eb.not(eb.fn.coalesce('board_column.is_done', eb.val(false))))
+        .as('open_task_count'),
+      eb.fn
+        .count<string>('task.id')
+        .filterWhere('board_column.is_done', '=', true)
+        .as('done_task_count'),
+    ])
+    .where('task.project_id', '=', projectId)
+    .executeTakeFirstOrThrow();
+  return {
+    open_task_count: Number(row.open_task_count),
+    done_task_count: Number(row.done_task_count),
   };
 }
 
@@ -56,11 +111,13 @@ router.get(
   describeRoute({
     tags: ['Projects'],
     summary: 'List projects',
-    description: 'List all projects with open and done task counts.',
+    description:
+      'List projects the caller can access (created by them or shared via a workspace they ' +
+      'belong to) with open and done task counts.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
-        description: 'All projects with task counts',
+        description: 'Accessible projects with task counts',
         content: {
           'application/json': {
             schema: resolver(projectsListResponseSchema),
@@ -73,6 +130,7 @@ router.get(
   }),
   authMiddleware,
   async (c) => {
+    const user = c.get('user');
     const rows = await c
       .get('db')
       .selectFrom('project')
@@ -85,6 +143,8 @@ router.get(
         'project.is_template',
         'project.archived_at',
         'project.created_at',
+        'project.created_by',
+        'project.workspace_id',
         eb.fn
           .count<string>('task.id')
           .filterWhere(eb.not(eb.fn.coalesce('board_column.is_done', eb.val(false))))
@@ -94,6 +154,7 @@ router.get(
           .filterWhere('board_column.is_done', '=', true)
           .as('done_task_count'),
       ])
+      .where(accessibleProjectsFilter(user.id))
       .groupBy('project.id')
       .orderBy('project.created_at')
       .orderBy('project.id')
@@ -121,7 +182,8 @@ router.post(
       'Create a project with the default Backlog / To Do / In Progress / Done columns, or ' +
       'deep-copy an existing project by passing source_project_id (copies columns, labels, ' +
       'tasks, task labels, dependencies, and images — not assignees or archived state). ' +
-      'Returns 422 when source_project_id does not reference an existing project.',
+      'Returns 422 when source_project_id does not reference an existing project and 404 ' +
+      'when it references a project the caller cannot access.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {
@@ -133,6 +195,7 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -143,15 +206,26 @@ router.post(
   async (c) => {
     const body = c.req.valid('json');
     const db = c.get('db');
+    const user = c.get('user');
 
     try {
       if (body.source_project_id !== undefined) {
+        const source = await db
+          .selectFrom('project')
+          .select(['created_by', 'workspace_id'])
+          .where('id', '=', body.source_project_id)
+          .executeTakeFirst();
+        if (source && !(await canAccessProject(db, user.id, source))) {
+          throw new AppError(404, 'Project not found');
+        }
+
         await copyProject(db, {
           id: body.id,
           name: body.name,
           description: body.description,
           isTemplate: body.is_template ?? false,
           sourceProjectId: body.source_project_id,
+          createdBy: user.id,
         });
       } else {
         await db
@@ -161,6 +235,7 @@ router.post(
             name: body.name,
             description: body.description ?? '',
             is_template: body.is_template ?? false,
+            created_by: user.id,
           })
           .execute();
 
@@ -188,6 +263,21 @@ router.post(
     if (!payload) {
       throw new AppError(500, 'Failed to load created project');
     }
+    const doneColumnIds = new Set(
+      payload.columns.filter((column) => column.is_done).map((column) => column.id)
+    );
+    const doneCount = payload.tasks.filter((task) => doneColumnIds.has(task.column_id)).length;
+    publishAfterCommit(
+      c,
+      'project_created',
+      body.id,
+      {
+        ...payload.project,
+        open_task_count: payload.tasks.length - doneCount,
+        done_task_count: doneCount,
+      },
+      { broadcast: true }
+    );
     return c.json(payload, 201);
   }
 );
@@ -220,9 +310,11 @@ router.get(
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
+    const db = c.get('db');
+    const user = c.get('user');
 
-    const payload = await getBoardPayload(c.get('db'), id);
-    if (!payload) {
+    const payload = await getBoardPayload(db, id);
+    if (!payload || !(await canAccessProject(db, user.id, payload.project))) {
       throw new AppError(404, 'Project not found');
     }
     return c.json(payload, 200);
@@ -235,7 +327,10 @@ router.patch(
     tags: ['Projects'],
     summary: 'Update project',
     description:
-      'Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive.',
+      'Update project fields. Set archived_at to an ISO timestamp to archive or null to ' +
+      'unarchive. Set workspace_id to share the project with a workspace the caller belongs ' +
+      'to (422 otherwise) or null to make it personal; assignees who lose access under the ' +
+      'new scope are removed from its tasks.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -249,7 +344,7 @@ router.patch(
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
-      ...validationErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -260,34 +355,61 @@ router.patch(
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
+    const user = c.get('user');
+
+    const project = await assertProjectAccess(db, user.id, id);
+
+    const workspaceChanged =
+      body.workspace_id !== undefined && body.workspace_id !== project.workspace_id;
+    if (workspaceChanged && body.workspace_id !== null && body.workspace_id !== undefined) {
+      if (!(await isWorkspaceMember(db, body.workspace_id, user.id))) {
+        throw new AppError(422, 'workspace_id must reference a workspace you are a member of');
+      }
+    }
 
     const updates: Updateable<Project> = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
     if (body.is_template !== undefined) updates.is_template = body.is_template;
     if (body.archived_at !== undefined) updates.archived_at = body.archived_at;
+    if (workspaceChanged) updates.workspace_id = body.workspace_id;
 
-    const columns = [
-      'id',
-      'name',
-      'description',
-      'is_template',
-      'archived_at',
-      'created_at',
-    ] as const;
     const row =
       Object.keys(updates).length > 0
         ? await db
             .updateTable('project')
             .set(updates)
             .where('id', '=', id)
-            .returning(columns)
+            .returning(PROJECT_COLUMNS)
             .executeTakeFirst()
-        : await db.selectFrom('project').select(columns).where('id', '=', id).executeTakeFirst();
+        : await db
+            .selectFrom('project')
+            .select(PROJECT_COLUMNS)
+            .where('id', '=', id)
+            .executeTakeFirst();
 
     if (!row) {
       throw new AppError(404, 'Project not found');
     }
+
+    if (workspaceChanged) {
+      const stripped = await stripAssigneesForProjectScope(
+        db,
+        id,
+        row.created_by,
+        row.workspace_id
+      );
+      const strippedTaskIds = [...new Set(stripped.map((entry) => entry.task_id))];
+      publishTaskRelationsSet(c, await fetchTaskRelations(db, strippedTaskIds));
+    }
+
+    publishAfterCommit(
+      c,
+      'project_updated',
+      id,
+      { ...toProjectResponse(row), ...(await fetchTaskCounts(db, id)) },
+      { broadcast: true }
+    );
     return c.json(toProjectResponse(row), 200);
   }
 );
@@ -315,6 +437,26 @@ router.delete(
   async (c) => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
+    const user = c.get('user');
+
+    const project = await assertProjectAccess(db, user.id, id);
+
+    // Snapshot who can see the project now; post-commit the rows backing the
+    // access check are gone.
+    const recipients = new Set<string>();
+    if (project.created_by !== null) {
+      recipients.add(project.created_by);
+    }
+    if (project.workspace_id !== null) {
+      const members = await db
+        .selectFrom('workspace_member')
+        .select('user_id')
+        .where('workspace_id', '=', project.workspace_id)
+        .execute();
+      for (const member of members) {
+        recipients.add(member.user_id);
+      }
+    }
 
     const imageRows = await db
       .selectFrom('task_image')
@@ -335,6 +477,7 @@ router.delete(
       });
     }
 
+    publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: [...recipients] });
     return c.body(null, 204);
   }
 );

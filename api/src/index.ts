@@ -32,10 +32,12 @@ import { errorHandler } from './middleware/errorHandler';
 import { transactionMiddleware } from './middleware/transaction';
 import { Variables } from './types/index';
 import { db } from './db/index';
+import { attachRealtime } from './services/realtime/index';
 import { logger } from './utils/logger';
 
 import authRouter from './routes/auth';
 import usersRouter from './routes/users';
+import workspacesRouter from './routes/workspaces';
 import projectsRouter from './routes/projects';
 import columnsRouter from './routes/columns';
 import tasksRouter from './routes/tasks';
@@ -105,6 +107,7 @@ const openAPIOptions = {
     tags: [
       { name: 'Auth', description: 'Signup, login, and session management' },
       { name: 'Users', description: 'Workspace users' },
+      { name: 'Workspaces', description: 'Workspaces and their members' },
       { name: 'Projects', description: 'Projects and board payloads' },
       { name: 'Columns', description: 'Kanban board columns' },
       { name: 'Tasks', description: 'Tasks, dependencies, labels, and assignees' },
@@ -134,6 +137,7 @@ app.get('/api/docs', swaggerUI({ url: '/api/openapi.json' }));
 
 app.route('/api/auth', authRouter);
 app.route('/api/users', usersRouter);
+app.route('/api/workspaces', workspacesRouter);
 app.route('/api/projects', projectsRouter);
 app.route('/api/columns', columnsRouter);
 app.route('/api/tasks', tasksRouter);
@@ -176,9 +180,12 @@ if (isEntrypoint) {
     }
   );
 
+  const realtime = attachRealtime(server);
+
   const shutdown = async (signal: string) => {
     logger.info({ msg: `${signal} signal received: closing HTTP server` });
     setTimeout(() => process.exit(1), 10_000).unref();
+    realtime.close();
     server.close();
     await db.destroy();
     process.exit(0);

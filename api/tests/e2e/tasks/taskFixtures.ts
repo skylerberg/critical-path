@@ -1,12 +1,35 @@
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, uniqueEmail } from '../../helpers/fixtures';
 
 export class ProjectFixtures {
   private projectIds: string[] = [];
+  private ownedUserIds: string[] = [];
 
-  async createProject(name = 'tasks e2e project'): Promise<string> {
+  private async fallbackOwner(): Promise<string> {
     const id = newId();
-    await db.insertInto('project').values({ id, name }).execute();
+    await db
+      .insertInto('app_user')
+      .values({
+        id,
+        email: uniqueEmail('fixture-owner'),
+        password_hash: 'x',
+        name: 'fixture owner',
+      })
+      .execute();
+    this.ownedUserIds.push(id);
+    return id;
+  }
+
+  async createProject(
+    name = 'tasks e2e project',
+    options: { createdBy?: string; workspaceId?: string } = {}
+  ): Promise<string> {
+    const id = newId();
+    const createdBy = options.createdBy ?? (await this.fallbackOwner());
+    await db
+      .insertInto('project')
+      .values({ id, name, created_by: createdBy, workspace_id: options.workspaceId ?? null })
+      .execute();
     this.projectIds.push(id);
     return id;
   }
@@ -75,6 +98,10 @@ export class ProjectFixtures {
       await db.deleteFrom('project').where('id', 'in', this.projectIds).execute();
     }
     this.projectIds = [];
+    if (this.ownedUserIds.length > 0) {
+      await db.deleteFrom('app_user').where('id', 'in', this.ownedUserIds).execute();
+    }
+    this.ownedUserIds = [];
   }
 }
 

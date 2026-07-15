@@ -4,6 +4,8 @@ import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
+import { assertProjectAccess, canAccessProject } from '../services/authorization';
+import { publishAfterCommit } from '../services/realtime/index';
 import {
   createLabelSchema,
   patchLabelSchema,
@@ -39,6 +41,7 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -49,14 +52,18 @@ router.post(
   async (c) => {
     const { id, project_id, name, color } = c.req.valid('json');
     const db = c.get('db');
+    const user = c.get('user');
 
     const project = await db
       .selectFrom('project')
-      .select('id')
+      .select(['created_by', 'workspace_id'])
       .where('id', '=', project_id)
       .executeTakeFirst();
     if (!project) {
       throw new AppError(422, 'Project does not exist');
+    }
+    if (!(await canAccessProject(db, user.id, project))) {
+      throw new AppError(404, 'Project not found');
     }
 
     try {
@@ -65,6 +72,7 @@ router.post(
         .values({ id, project_id, name, color })
         .returningAll()
         .executeTakeFirstOrThrow();
+      publishAfterCommit(c, 'label_created', project_id, label);
       return c.json(label, 201);
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -106,21 +114,24 @@ router.patch(
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
+    const user = c.get('user');
+
+    const existing = await db
+      .selectFrom('label')
+      .selectAll()
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!existing) {
+      throw new AppError(404, 'Label not found');
+    }
+    await assertProjectAccess(db, user.id, existing.project_id, 'Label not found');
 
     const updates: { name?: string; color?: string } = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.color !== undefined) updates.color = body.color;
 
     if (Object.keys(updates).length === 0) {
-      const label = await db
-        .selectFrom('label')
-        .selectAll()
-        .where('id', '=', id)
-        .executeTakeFirst();
-      if (!label) {
-        throw new AppError(404, 'Label not found');
-      }
-      return c.json(label, 200);
+      return c.json(existing, 200);
     }
 
     try {
@@ -133,6 +144,7 @@ router.patch(
       if (!label) {
         throw new AppError(404, 'Label not found');
       }
+      publishAfterCommit(c, 'label_updated', label.project_id, label);
       return c.json(label, 200);
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -164,17 +176,22 @@ router.delete(
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
+    const db = c.get('db');
+    const user = c.get('user');
 
-    const deleted = await c
-      .get('db')
-      .deleteFrom('label')
+    const label = await db
+      .selectFrom('label')
+      .select('project_id')
       .where('id', '=', id)
-      .returning('id')
       .executeTakeFirst();
-    if (!deleted) {
+    if (!label) {
       throw new AppError(404, 'Label not found');
     }
+    await assertProjectAccess(db, user.id, label.project_id, 'Label not found');
 
+    await db.deleteFrom('label').where('id', '=', id).execute();
+
+    publishAfterCommit(c, 'label_deleted', label.project_id, { id });
     return c.body(null, 204);
   }
 );
