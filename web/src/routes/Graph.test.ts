@@ -105,4 +105,21 @@ describe('Graph', () => {
 
     expect(await screen.findByText('No tasks to graph')).toBeInTheDocument();
   });
+
+  it('fetches exactly once when the load keeps failing with changing messages', async () => {
+    const projectId = 'p-graph-error';
+    let calls = 0;
+    fetchMock.mockImplementation(async () => {
+      calls += 1;
+      return jsonResponse(503, { error: `down ${calls}` });
+    });
+
+    render(Graph, { props: { projectId } });
+
+    expect(await screen.findByText('down 1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

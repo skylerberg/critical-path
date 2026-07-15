@@ -27,6 +27,31 @@ class UsersStore {
     await this.#fetch();
   }
 
+  loadWithRetry(onFirstError: () => void): () => void {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = 2000;
+    let errored = false;
+    const attempt = (): void => {
+      void this.load().catch(() => {
+        if (cancelled) {
+          return;
+        }
+        if (!errored) {
+          errored = true;
+          onFirstError();
+        }
+        timer = setTimeout(attempt, delay);
+        delay = Math.min(delay * 2, 30_000);
+      });
+    };
+    attempt();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }
+
   reset(): void {
     this.users = [];
     this.#loaded = false;

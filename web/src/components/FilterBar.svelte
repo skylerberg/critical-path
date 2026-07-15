@@ -14,13 +14,18 @@
     return counts;
   });
 
+  // Selected users stay listed even when they vanish from every task, so an
+  // active filter always has a visible, toggleable chip.
   const assignees = $derived.by(() => {
-    const ids = new Set(board.tasks.flatMap((task) => task.assignee_ids));
+    const ids = new Set([
+      ...board.tasks.flatMap((task) => task.assignee_ids),
+      ...board.filterAssigneeIds,
+    ]);
     return users.users.filter((user) => ids.has(user.id));
   });
 </script>
 
-{#if board.labels.length > 0 || assignees.length > 0}
+{#if board.labels.length > 0 || assignees.length > 0 || board.hasActiveFilters}
   <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1" role="group" aria-label="Filters">
     {#each board.labels as label (label.id)}
       {@const selected = board.filterLabelIds.includes(label.id)}

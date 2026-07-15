@@ -19,7 +19,11 @@ function matchPattern(pattern: string, pathname: string): Record<string, string>
   for (let i = 0; i < patternParts.length; i++) {
     const part = patternParts[i]!;
     if (part.startsWith(':')) {
-      params[part.slice(1)] = decodeURIComponent(pathParts[i]!);
+      try {
+        params[part.slice(1)] = decodeURIComponent(pathParts[i]!);
+      } catch {
+        return null;
+      }
     } else if (part !== pathParts[i]) {
       return null;
     }
@@ -77,7 +81,7 @@ export class Router {
       target = redirected;
       route = this.#parse(target);
     }
-    const method = options.replace ? 'replaceState' : 'pushState';
+    const method = options.replace || target === this.path ? 'replaceState' : 'pushState';
     window.history[method](null, '', target);
     this.current = route;
     this.path = target;

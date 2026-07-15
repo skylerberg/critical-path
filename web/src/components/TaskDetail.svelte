@@ -69,8 +69,8 @@
     }
   }
 
-  function saveDescription(doc: TiptapDoc | null): void {
-    void board.updateTask(taskId, { description: doc });
+  function saveDescription(doc: TiptapDoc | null): Promise<boolean> {
+    return board.updateTask(taskId, { description: doc });
   }
 
   async function uploadImage(file: File): Promise<string | null> {

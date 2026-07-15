@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import { board } from '../lib/board.svelte';
   import { link, router } from '../lib/router.svelte';
@@ -25,7 +26,8 @@
   const FIT_MIN_WIDTH = 640;
 
   $effect(() => {
-    void board.load(projectId);
+    const id = projectId;
+    untrack(() => void board.load(id));
   });
 
   const ready = $derived(

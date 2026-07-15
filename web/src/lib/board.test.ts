@@ -1,5 +1,5 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { board, positionAfterDrop } from './board.svelte';
 import type { BoardPayload } from './board-types';
 import { toasts } from './toasts.svelte';
@@ -77,7 +77,28 @@ describe('board store load', () => {
     expect(board.error).toBeNull();
   });
 
-  it('skips refetch for the same project but fetches a different one', async () => {
+  it('revalidates the same project in the background without a loading flicker', async () => {
+    await board.load('p1');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === '/api/projects/p1'
+        ? jsonResponse(200, { ...payload(), project: { ...payload().project, name: 'Renamed' } })
+        : undefined
+    );
+
+    await board.load('p1');
+    expect(board.loading).toBe(false);
+    expect(board.project?.name).toBe('Game');
+
+    await vi.waitFor(() => {
+      expect(board.project?.name).toBe('Renamed');
+    });
+    expect(board.loading).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('fetches and swaps to a different project', async () => {
     mockRoutes((request, url) =>
       request.method === 'GET' && url.pathname === '/api/projects/p2'
         ? jsonResponse(200, { ...payload(), project: { ...payload().project, id: 'p2' } })
@@ -85,12 +106,95 @@ describe('board store load', () => {
     );
 
     await board.load('p1');
-    await board.load('p1');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
     await board.load('p2');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(board.currentProjectId).toBe('p2');
+    expect(board.project?.id).toBe('p2');
+  });
+
+  it('keeps loading when a superseded load settles before the newer fetch', async () => {
+    const pending = new Map<string, (response: Response) => void>();
+    fetchMock.mockImplementation((input) => {
+      const url = new URL((input as Request).url);
+      return new Promise((resolve) => {
+        pending.set(url.pathname, resolve);
+      });
+    });
+
+    const first = board.load('p1');
+    await vi.waitFor(() => expect(pending.has('/api/projects/p1')).toBe(true));
+    const second = board.load('p2');
+    await vi.waitFor(() => expect(pending.has('/api/projects/p2')).toBe(true));
+
+    pending.get('/api/projects/p1')!(jsonResponse(200, payload()));
+    await first;
+
+    expect(board.loading).toBe(true);
+    expect(board.project).toBeNull();
+
+    pending.get('/api/projects/p2')!(
+      jsonResponse(200, { ...payload(), project: { ...payload().project, id: 'p2' } })
+    );
+    await second;
+
+    expect(board.loading).toBe(false);
+    expect(board.project?.id).toBe('p2');
+  });
+
+  it('ignores a stale response arriving after a newer load of the same project', async () => {
+    const pending: ((response: Response) => void)[] = [];
+    fetchMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pending.push(resolve);
+        })
+    );
+
+    const first = board.load('p1');
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    const second = board.load('p2');
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    const third = board.load('p1');
+    await vi.waitFor(() => expect(pending).toHaveLength(3));
+
+    pending[1]!(jsonResponse(200, { ...payload(), project: { ...payload().project, id: 'p2' } }));
+    await second;
+    pending[2]!(
+      jsonResponse(200, { ...payload(), project: { ...payload().project, name: 'Fresh' } })
+    );
+    await third;
+
+    expect(board.project?.name).toBe('Fresh');
+    expect(board.loading).toBe(false);
+
+    pending[0]!(
+      jsonResponse(200, { ...payload(), project: { ...payload().project, name: 'Stale' } })
+    );
+    await first;
+
+    expect(board.project?.name).toBe('Fresh');
+    expect(board.loading).toBe(false);
+  });
+
+  it('discards an in-flight response after reset', async () => {
+    const pending: ((response: Response) => void)[] = [];
+    fetchMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pending.push(resolve);
+        })
+    );
+
+    const first = board.load('p1');
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    board.reset();
+
+    pending[0]!(jsonResponse(200, payload()));
+    await first;
+
+    expect(board.project).toBeNull();
+    expect(board.currentProjectId).toBeNull();
+    expect(board.loading).toBe(false);
   });
 
   it('retries after a failed load', async () => {

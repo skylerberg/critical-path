@@ -25,6 +25,48 @@ describe('RichTextEditor', () => {
     expect(marks.some((mark) => mark.type === 'bold')).toBe(true);
   });
 
+  it('retries a failed save on the next flush', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSave = vi.fn().mockResolvedValue(false);
+      const { component, unmount } = render(RichTextEditor, { content: null, onSave });
+      await tick();
+
+      component.getEditor()!.commands.insertContent('hello');
+      await vi.advanceTimersByTimeAsync(800);
+      expect(onSave).toHaveBeenCalledTimes(1);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      unmount();
+      expect(onSave).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not re-save on teardown after a successful save', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSave = vi.fn().mockResolvedValue(true);
+      const { component, unmount } = render(RichTextEditor, { content: null, onSave });
+      await tick();
+
+      component.getEditor()!.commands.insertContent('hello');
+      await vi.advanceTimersByTimeAsync(800);
+      expect(onSave).toHaveBeenCalledTimes(1);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      unmount();
+      expect(onSave).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('starts from the provided doc and renders the toolbar', async () => {
     const onSave = vi.fn();
     const { component, getByRole } = render(RichTextEditor, {

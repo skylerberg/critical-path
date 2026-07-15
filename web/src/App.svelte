@@ -2,6 +2,8 @@
   import { router } from './lib/router.svelte';
   import { session } from './lib/session.svelte';
   import { users } from './lib/users.svelte';
+  import { board } from './lib/board.svelte';
+  import { projects } from './lib/projects.svelte';
   import { toasts } from './lib/toasts.svelte';
   import Login from './routes/Login.svelte';
   import Signup from './routes/Signup.svelte';
@@ -27,11 +29,16 @@
   });
 
   $effect(() => {
-    if (session.status === 'authed') {
-      users.load().catch(() => toasts.error('Failed to load users'));
-    } else if (session.status === 'anon') {
+    if (session.status === 'anon') {
+      // Per-account caches must not survive into the next session in this tab.
       users.reset();
+      board.reset();
+      projects.reset();
     }
+    if (session.status !== 'authed') {
+      return undefined;
+    }
+    return users.loadWithRetry(() => toasts.error('Failed to load users'));
   });
 </script>
 
@@ -50,12 +57,14 @@
       <Signup />
     {:else if route.name === 'projects'}
       <Projects />
-    {:else if route.name === 'board'}
-      <Board projectId={route.params.id} />
+    {:else if route.name === 'board' || route.name === 'task'}
+      <!-- One branch for both routes so opening/closing the task overlay never remounts the board. -->
+      <Board
+        projectId={route.params.id}
+        taskId={route.name === 'task' ? route.params.taskId : undefined}
+      />
     {:else if route.name === 'graph'}
       <Graph projectId={route.params.id} />
-    {:else if route.name === 'task'}
-      <Board projectId={route.params.id} taskId={route.params.taskId} />
     {:else}
       <NotFound path={route.path} />
     {/if}

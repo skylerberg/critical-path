@@ -1,5 +1,5 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { users } from './users.svelte';
 
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada' };
@@ -61,5 +61,56 @@ describe('users store', () => {
 
     await users.load();
     expect(users.users).toEqual([ada, brin, zed]);
+  });
+
+  it('loadWithRetry retries with backoff until a load succeeds, reporting one error', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      fetchMock.mockImplementation(async () => {
+        calls += 1;
+        return calls < 3
+          ? jsonResponse(503, { error: 'down' })
+          : jsonResponse(200, { users: [ada] });
+      });
+      const onFirstError = vi.fn();
+
+      const cancel = users.loadWithRetry(onFirstError);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(onFirstError).toHaveBeenCalledTimes(1);
+      expect(users.users).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(onFirstError).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(users.users).toEqual([ada]);
+
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      cancel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('loadWithRetry stops retrying once cancelled', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockImplementation(async () => jsonResponse(503, { error: 'down' }));
+
+      const cancel = users.loadWithRetry(() => {});
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      cancel();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

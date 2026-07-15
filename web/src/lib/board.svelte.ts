@@ -27,8 +27,17 @@ class BoardStore {
   filterLabelIds = $state<string[]>([]);
   filterAssigneeIds = $state<string[]>([]);
 
+  // Monotonic tokens rather than project-id checks: ids cannot tell a stale
+  // request apart from a fresh one across a P1->P2->P1 flip.
+  #loadToken = 0;
+  #fetchToken = 0;
+
   async load(projectId: string): Promise<void> {
     if (this.currentProjectId === projectId && this.error === null) {
+      // Stale-while-revalidate: serve the cached board flicker-free.
+      if (!this.loading) {
+        void this.refetch();
+      }
       return;
     }
     if (this.currentProjectId !== projectId) {
@@ -36,8 +45,11 @@ class BoardStore {
     }
     this.currentProjectId = projectId;
     this.loading = true;
+    const token = ++this.#loadToken;
     await this.refetch();
-    this.loading = false;
+    if (token === this.#loadToken) {
+      this.loading = false;
+    }
   }
 
   async refetch(): Promise<void> {
@@ -45,11 +57,12 @@ class BoardStore {
     if (projectId === null) {
       return;
     }
+    const token = ++this.#fetchToken;
     try {
       const data = assertOk(
         await api.GET('/api/projects/{id}', { params: { path: { id: projectId } } })
       );
-      if (this.currentProjectId !== projectId) {
+      if (token !== this.#fetchToken) {
         return;
       }
       this.project = data.project;
@@ -58,7 +71,7 @@ class BoardStore {
       this.labels = data.labels;
       this.error = null;
     } catch (error) {
-      if (this.currentProjectId !== projectId) {
+      if (token !== this.#fetchToken) {
         return;
       }
       this.error = error instanceof ApiError ? error.message : 'Failed to load board';
@@ -66,10 +79,13 @@ class BoardStore {
   }
 
   reset(): void {
+    this.#loadToken += 1;
+    this.#fetchToken += 1;
     this.project = null;
     this.columns = [];
     this.tasks = [];
     this.labels = [];
+    this.taskImages = {};
     this.loading = false;
     this.error = null;
     this.currentProjectId = null;
@@ -137,14 +153,16 @@ class BoardStore {
   async updateTask(
     taskId: string,
     patch: { title?: string; description?: BoardTask['description'] }
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.tasks = this.tasks.map((task) => (task.id === taskId ? { ...task, ...patch } : task));
     try {
       assertOk(
         await api.PATCH('/api/tasks/{id}', { params: { path: { id: taskId } }, body: patch })
       );
+      return true;
     } catch (error) {
       await this.#mutationFailed(error);
+      return false;
     }
   }
 

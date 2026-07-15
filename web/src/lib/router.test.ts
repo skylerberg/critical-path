@@ -44,6 +44,14 @@ describe('matchRoute', () => {
     expect(matchRoute('/projects/p1/')).toEqual({ name: 'board', params: { id: 'p1' } });
   });
 
+  it('returns not-found for malformed percent-encoding instead of throwing', () => {
+    expect(matchRoute('/projects/50%')).toEqual({ name: 'not-found', path: '/projects/50%' });
+    expect(matchRoute('/projects/abc%zz')).toEqual({
+      name: 'not-found',
+      path: '/projects/abc%zz',
+    });
+  });
+
   it('returns not-found for unknown paths', () => {
     expect(matchRoute('/nope')).toEqual({ name: 'not-found', path: '/nope' });
     expect(matchRoute('/projects/p1/tasks')).toEqual({
@@ -85,5 +93,28 @@ describe('router', () => {
     router.redirect('/login');
     expect(window.history.length).toBe(lengthBefore);
     expect(router.current).toEqual({ name: 'login' });
+  });
+
+  it('re-navigating to the current path does not push a history entry', () => {
+    router.navigate('/projects/same');
+    const lengthBefore = window.history.length;
+    router.navigate('/projects/same');
+    expect(window.history.length).toBe(lengthBefore);
+    expect(router.current).toEqual({ name: 'board', params: { id: 'same' } });
+    expect(window.location.pathname).toBe('/projects/same');
+  });
+
+  it('a redirect resolving to the current path replaces instead of pushing', () => {
+    router.navigate('/login');
+    router.beforeNavigate = () => '/login';
+    try {
+      const lengthBefore = window.history.length;
+      router.navigate('/projects/p9');
+      expect(window.history.length).toBe(lengthBefore);
+      expect(router.current).toEqual({ name: 'login' });
+      expect(window.location.pathname).toBe('/login');
+    } finally {
+      router.beforeNavigate = undefined;
+    }
   });
 });

@@ -11,7 +11,7 @@
 
   interface Props {
     content: TiptapDoc | null;
-    onSave: (doc: TiptapDoc | null) => void;
+    onSave: (doc: TiptapDoc | null) => void | Promise<boolean | void>;
     uploadImage?: (file: File) => Promise<string | null>;
     placeholder?: string;
   }
@@ -51,8 +51,18 @@
     const doc = currentDoc(e);
     const serialized = JSON.stringify(doc);
     if (serialized === lastSaved) return;
+    const committed = serialized;
     lastSaved = serialized;
-    onSave(doc);
+    // On failure, reset lastSaved to a value no doc serializes to so the next
+    // flush retries — unless a newer save has already superseded this one.
+    const markFailed = (): void => {
+      if (lastSaved === committed) {
+        lastSaved = '';
+      }
+    };
+    void Promise.resolve(onSave(doc)).then((ok) => {
+      if (ok === false) markFailed();
+    }, markFailed);
   }
 
   function insertImageFiles(files: FileList | null | undefined): boolean {

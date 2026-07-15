@@ -419,6 +419,28 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ValidationOrUnprocessableError: {
+            details: {
+                message: string;
+                path: string;
+            }[];
+            /** @constant */
+            error: "Validation failed";
+        } | {
+            error: string;
+        };
+        ValidationError: {
+            details: components["schemas"]["ValidationOrUnprocessableErrorDetails"][];
+            /** @constant */
+            error: "Validation failed";
+        };
+        ValidationOrUnprocessableErrorDetails: {
+            message: string;
+            path: string;
+        };
+        Error: {
+            error: string;
+        };
         AuthResponse: {
             token: string;
             user: components["schemas"]["User"];
@@ -427,18 +449,6 @@ export interface components {
             email: string;
             id: string;
             name: string;
-        };
-        Error: {
-            error: string;
-        };
-        ValidationError: {
-            details: components["schemas"]["PostDetails"][];
-            /** @constant */
-            error: "Validation failed";
-        };
-        PostDetails: {
-            message: string;
-            path: string;
         };
         SignupRequest: {
             email: string;
@@ -956,13 +966,13 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation error */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationError"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
@@ -1201,13 +1211,13 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation error */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationError"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
@@ -1417,13 +1427,13 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation error */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationError"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
@@ -1602,13 +1612,13 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation error */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationError"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
@@ -1671,13 +1681,13 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Unprocessable request */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Error"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
@@ -1740,13 +1750,13 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Unprocessable request */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Error"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
@@ -1818,13 +1828,13 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Unprocessable request */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Error"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
@@ -2023,13 +2033,13 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation error */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationError"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
