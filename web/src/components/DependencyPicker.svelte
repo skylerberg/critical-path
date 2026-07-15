@@ -2,36 +2,51 @@
   import { board } from '../lib/board.svelte';
   import Input from './ui/Input.svelte';
 
+  type Direction = 'blocker' | 'blocked';
+
   interface Props {
     taskId: string;
+    direction: Direction;
   }
 
-  let { taskId }: Props = $props();
+  let { taskId, direction }: Props = $props();
 
   let query = $state('');
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
+
+  const excludedIds = $derived.by(() => {
+    if (direction === 'blocker') {
+      return new Set<string>([taskId, ...(task?.blocker_ids ?? [])]);
+    }
+    const dependentIds = board.tasks.filter((t) => t.blocker_ids.includes(taskId)).map((t) => t.id);
+    return new Set<string>([taskId, ...dependentIds]);
+  });
+
   const candidates = $derived.by(() => {
     const q = query.trim().toLowerCase();
     if (q === '') return [];
-    const excluded = new Set([taskId, ...(task?.blocker_ids ?? [])]);
     return board.tasks
-      .filter((t) => !excluded.has(t.id) && t.title.toLowerCase().includes(q))
+      .filter((t) => !excludedIds.has(t.id) && t.title.toLowerCase().includes(q))
       .slice(0, 8);
   });
 
-  function add(blockerId: string): void {
-    void board.addBlocker(taskId, blockerId);
+  const label = $derived(
+    direction === 'blocker' ? 'Search tasks to add as blockers' : 'Search tasks this one blocks'
+  );
+
+  function add(otherId: string): void {
+    if (direction === 'blocker') {
+      void board.addBlocker(taskId, otherId);
+    } else {
+      void board.addBlocker(otherId, taskId);
+    }
     query = '';
   }
 </script>
 
 <div class="flex flex-col gap-2">
-  <Input
-    bind:value={query}
-    aria-label="Search tasks to add as blockers"
-    placeholder="Search tasks to add as blockers…"
-  />
+  <Input bind:value={query} aria-label={label} placeholder="{label}…" />
   {#if query.trim() !== ''}
     {#if candidates.length === 0}
       <p class="text-sm text-muted">No matching tasks.</p>

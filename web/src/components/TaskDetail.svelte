@@ -4,7 +4,7 @@
   import type { BoardTask } from '../lib/board-types';
   import { router } from '../lib/router.svelte';
   import AssigneePicker from './AssigneePicker.svelte';
-  import BlockerPicker from './BlockerPicker.svelte';
+  import DependencyPicker from './DependencyPicker.svelte';
   import LabelPicker from './LabelPicker.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
   import Badge from './ui/Badge.svelte';
@@ -30,6 +30,7 @@
   const openBlockerCount = $derived(
     blockers.filter((blocker) => !doneColumnIds.has(blocker.column_id)).length
   );
+  const dependents = $derived(board.tasks.filter((t) => t.blocker_ids.includes(taskId)));
 
   let dialog = $state<HTMLDialogElement>();
   let uploadInput = $state<HTMLInputElement>();
@@ -180,7 +181,35 @@
             {/each}
           </ul>
         {/if}
-        <BlockerPicker {taskId} />
+        <DependencyPicker {taskId} direction="blocker" />
+      </section>
+
+      <section class="flex flex-col gap-2">
+        <h3 class="text-sm font-semibold text-muted">Blocks</h3>
+        {#if dependents.length > 0}
+          <ul class="flex flex-col">
+            {#each dependents as dependent (dependent.id)}
+              <li class="flex min-h-11 items-center gap-2">
+                <span
+                  class="min-w-0 flex-1 truncate text-sm {doneColumnIds.has(dependent.column_id)
+                    ? 'text-muted line-through'
+                    : ''}"
+                >
+                  {dependent.title}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Remove blocked task {dependent.title}"
+                  onclick={() => void board.removeBlocker(dependent.id, taskId)}
+                  class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger"
+                >
+                  Remove
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <DependencyPicker {taskId} direction="blocked" />
       </section>
 
       <section class="flex flex-col gap-2">
