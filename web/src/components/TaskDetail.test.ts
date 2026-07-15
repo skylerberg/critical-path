@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import TaskDetail from './TaskDetail.svelte';
 import { board } from '../lib/board.svelte';
 import { users } from '../lib/users.svelte';
@@ -37,6 +37,10 @@ const image = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
@@ -64,6 +68,7 @@ beforeEach(() => {
     }),
     task('t2', 'c1', 'Cut prototype'),
     task('t3', 'c2', 'Buy sleeves'),
+    task('t4', 'c1', 'Playtest session', { blocker_ids: ['t1'] }),
   ];
   board.labels = [
     { id: 'l1', name: 'art', color: '#ff0000' },
@@ -115,5 +120,16 @@ describe('TaskDetail', () => {
     render(TaskDetail, { taskId: 'missing', closePath: '/projects/p1' });
 
     expect(screen.getByText('Task not found')).toBeInTheDocument();
+  });
+
+  it('lists tasks that depend on this one and removes the reverse relation', async () => {
+    const spy = vi.spyOn(board, 'removeBlocker').mockResolvedValue(undefined);
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    expect(screen.getByRole('heading', { name: 'Blocks' })).toBeInTheDocument();
+    const remove = screen.getByRole('button', { name: 'Remove blocked task Playtest session' });
+    await fireEvent.click(remove);
+
+    expect(spy).toHaveBeenCalledWith('t4', 't1');
   });
 });

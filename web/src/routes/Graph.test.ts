@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
@@ -139,5 +139,79 @@ describe('Graph', () => {
     render(Project, { props: { projectId, view: 'graph' } });
 
     expect(await screen.findByText('No tasks to graph')).toBeInTheDocument();
+  });
+});
+
+describe('Graph dependency editing', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('drags from a node handle to a target and adds the dependency in the drop direction', async () => {
+    const projectId = 'p-graph-connect';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    const handle = container.querySelector('[data-connect-handle="a"]');
+    const targetNode = container.querySelector('[data-node-id="b"]');
+    expect(handle).not.toBeNull();
+    expect(targetNode).not.toBeNull();
+
+    await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerOver(targetNode!, { pointerId: 1 });
+    await fireEvent.pointerUp(window, { pointerId: 1 });
+
+    expect(spy).toHaveBeenCalledWith('b', 'a');
+  });
+
+  it('ignores a connect drop back onto the source node', async () => {
+    const projectId = 'p-graph-self';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    const handle = container.querySelector('[data-connect-handle="a"]');
+    const sourceNode = container.querySelector('[data-node-id="a"]');
+
+    await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerOver(sourceNode!, { pointerId: 1 });
+    await fireEvent.pointerUp(window, { pointerId: 1 });
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('selects an edge and removes the dependency via the delete chip', async () => {
+    const projectId = 'p-graph-delete';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo', ['a'])]))
+    );
+    const spy = vi.spyOn(board, 'removeBlocker').mockResolvedValue(undefined);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    const edge = await waitFor(() => {
+      const found = container.querySelector('[data-edge-id="a->b"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+
+    await fireEvent.click(edge);
+    const chip = await screen.findByRole('button', { name: 'Remove dependency' });
+    await fireEvent.click(chip);
+
+    expect(spy).toHaveBeenCalledWith('b', 'a');
   });
 });

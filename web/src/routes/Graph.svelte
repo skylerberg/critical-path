@@ -3,7 +3,15 @@
   import { board } from '../lib/board.svelte';
   import { link } from '../lib/router.svelte';
   import { toasts } from '../lib/toasts.svelte';
-  import { NODE_HEIGHT, NODE_WIDTH, computeGraph, edgePath, type GraphResult } from '../lib/graph';
+  import {
+    NODE_HEIGHT,
+    NODE_WIDTH,
+    computeGraph,
+    edgePath,
+    type GraphResult,
+    type LayoutEdge,
+    type LayoutPoint,
+  } from '../lib/graph';
 
   interface Props {
     projectId: string;
@@ -64,6 +72,44 @@
   let pinchOrigin: { vb: ViewBox; dist: number; midX: number; midY: number } | null = null;
   let didDrag = false;
   let listenersAttached = false;
+
+  let connectSource = $state<string | null>(null);
+  let connectTarget = $state<string | null>(null);
+  let connectPoint = $state<LayoutPoint | null>(null);
+  let connectPointerId: number | null = null;
+  let selectedEdgeId = $state<string | null>(null);
+  let coarsePointer = $state(false);
+
+  const connectSourceNode = $derived(
+    connectSource === null ? null : (layout?.nodes.find((n) => n.id === connectSource) ?? null)
+  );
+  const selectedEdge = $derived(
+    selectedEdgeId === null ? null : (layout?.edges.find((e) => e.id === selectedEdgeId) ?? null)
+  );
+
+  $effect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(hover: none)');
+    coarsePointer = mq.matches;
+    const update = (e: MediaQueryListEvent): void => {
+      coarsePointer = e.matches;
+    };
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  });
+
+  $effect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key !== 'Escape') return;
+      if (connectSource !== null) {
+        cancelConnect();
+      } else if (selectedEdgeId !== null) {
+        selectedEdgeId = null;
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   function attachWindowListeners(): void {
     if (listenersAttached) return;
@@ -136,7 +182,9 @@
   }
 
   function onPointerDown(e: PointerEvent): void {
+    if (connectSource !== null) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    selectedEdgeId = null;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     attachWindowListeners();
     didDrag = false;
@@ -158,6 +206,10 @@
   }
 
   function onPointerMove(e: PointerEvent): void {
+    if (connectSource !== null) {
+      onConnectMove(e);
+      return;
+    }
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const rect = svgEl?.getBoundingClientRect();
@@ -183,6 +235,10 @@
   }
 
   function onPointerEnd(e: PointerEvent): void {
+    if (connectSource !== null) {
+      onConnectEnd(e);
+      return;
+    }
     if (!pointers.delete(e.pointerId)) return;
     if (pointers.size === 1) {
       const [remaining] = [...pointers.values()];
@@ -200,6 +256,7 @@
 
   function onWheel(e: WheelEvent): void {
     e.preventDefault();
+    if (connectSource !== null) return;
     pinchOrigin = null;
     const factor = Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.002));
     zoomTo(vb.w * factor, e.clientX, e.clientY);
@@ -211,6 +268,77 @@
     if (didDrag && e.detail > 0) {
       e.preventDefault();
     }
+  }
+
+  function startConnect(e: PointerEvent, sourceId: string): void {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    connectSource = sourceId;
+    connectTarget = null;
+    connectPointerId = e.pointerId;
+    selectedEdgeId = null;
+    // The node anchor's capture-phase suppressor keys on didDrag, so the release
+    // ending a connect never navigates even when it lands on a node.
+    didDrag = true;
+    const rect = svgEl?.getBoundingClientRect();
+    connectPoint = rect ? svgPoint(vb, rect, e.clientX, e.clientY) : null;
+    attachWindowListeners();
+  }
+
+  function onConnectMove(e: PointerEvent): void {
+    if (e.pointerId !== connectPointerId) return;
+    const rect = svgEl?.getBoundingClientRect();
+    if (!rect) return;
+    connectPoint = svgPoint(vb, rect, e.clientX, e.clientY);
+  }
+
+  function onConnectEnd(e: PointerEvent): void {
+    if (e.pointerId !== connectPointerId) return;
+    const source = connectSource;
+    const target = connectTarget;
+    cancelConnect();
+    if (source !== null && target !== null && target !== source) {
+      void board.addBlocker(target, source);
+    }
+  }
+
+  function cancelConnect(): void {
+    connectSource = null;
+    connectTarget = null;
+    connectPoint = null;
+    connectPointerId = null;
+    detachWindowListeners();
+  }
+
+  function onConnectOver(e: PointerEvent): void {
+    if (connectSource === null) return;
+    const group = (e.target as Element | null)?.closest('[data-node-id]');
+    const id = group?.getAttribute('data-node-id') ?? null;
+    connectTarget = id !== null && id !== connectSource ? id : null;
+  }
+
+  function selectEdge(event: MouseEvent, id: string): void {
+    if (event.defaultPrevented) return;
+    event.stopPropagation();
+    selectedEdgeId = id;
+  }
+
+  function onEdgeKeydown(event: KeyboardEvent, id: string): void {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectedEdgeId = id;
+    }
+  }
+
+  function deleteEdge(event: MouseEvent, edge: LayoutEdge): void {
+    event.stopPropagation();
+    void board.removeBlocker(edge.to, edge.from);
+    selectedEdgeId = null;
+  }
+
+  function edgeMidpoint(points: readonly LayoutPoint[]): LayoutPoint {
+    return points[Math.floor(points.length / 2)] ?? { x: 0, y: 0 };
   }
 </script>
 
@@ -241,6 +369,7 @@
       preserveAspectRatio="xMidYMid meet"
       class="h-full w-full touch-none select-none {panning ? 'cursor-grabbing' : 'cursor-grab'}"
       onpointerdown={onPointerDown}
+      onpointerover={onConnectOver}
       onclickcapture={suppressClickAfterDrag}
     >
       <defs>
@@ -273,8 +402,8 @@
         <path
           d={edgePath(e.points)}
           fill="none"
-          class="stroke-muted opacity-50"
-          stroke-width="1.5"
+          class="stroke-muted {selectedEdgeId === e.id ? 'opacity-100' : 'opacity-50'}"
+          stroke-width={selectedEdgeId === e.id ? 3.5 : 1.5}
           marker-end="url(#cp-graph-arrow)"
         />
       {/each}
@@ -283,23 +412,52 @@
           d={edgePath(e.points)}
           fill="none"
           class="stroke-accent"
-          stroke-width="2.5"
+          stroke-width={selectedEdgeId === e.id ? 4 : 2.5}
           marker-end="url(#cp-graph-arrow-critical)"
         />
       {/each}
+      {#each layout.edges as e (e.id)}
+        <path
+          d={edgePath(e.points)}
+          data-edge-id={e.id}
+          fill="none"
+          stroke="transparent"
+          stroke-width="16"
+          pointer-events="stroke"
+          role="button"
+          tabindex="0"
+          aria-label="Dependency edge"
+          class="cursor-pointer outline-none"
+          onclick={(event) => selectEdge(event, e.id)}
+          onkeydown={(event) => onEdgeKeydown(event, e.id)}
+        />
+      {/each}
+      {#if connectSourceNode && connectPoint}
+        <path
+          d="M {connectSourceNode.x +
+            NODE_WIDTH / 2} {connectSourceNode.y} L {connectPoint.x} {connectPoint.y}"
+          fill="none"
+          class="stroke-accent"
+          stroke-width="2"
+          stroke-dasharray="6 5"
+          marker-end="url(#cp-graph-arrow-critical)"
+          pointer-events="none"
+        />
+      {/if}
       {#each layout.nodes as n (n.id)}
         {@const critical = criticalNodeIds.has(n.id)}
+        {@const isTarget = connectSource !== null && connectTarget === n.id}
         <g
           transform="translate({n.x - NODE_WIDTH / 2} {n.y - NODE_HEIGHT / 2})"
           data-node-id={n.id}
-          class={n.isDone ? 'opacity-60' : ''}
+          class="group {n.isDone ? 'opacity-60' : ''}"
         >
           <rect
             width={NODE_WIDTH}
             height={NODE_HEIGHT}
             rx="10"
-            class="fill-surface {critical ? 'stroke-accent' : 'stroke-edge'}"
-            stroke-width={critical ? 2.5 : 1}
+            class="fill-surface {critical || isTarget ? 'stroke-accent' : 'stroke-edge'}"
+            stroke-width={isTarget ? 3 : critical ? 2.5 : 1}
           />
           <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
             <a
@@ -319,8 +477,52 @@
               </span>
             </a>
           </foreignObject>
+          <circle
+            data-connect-handle={n.id}
+            cx={NODE_WIDTH}
+            cy={NODE_HEIGHT / 2}
+            r="11"
+            fill="transparent"
+            role="button"
+            tabindex="0"
+            aria-label="Drag to add a dependency from {n.title}"
+            class="cursor-crosshair {coarsePointer
+              ? ''
+              : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
+            onpointerdown={(event) => startConnect(event, n.id)}
+          />
+          <circle
+            cx={NODE_WIDTH}
+            cy={NODE_HEIGHT / 2}
+            r="5"
+            class="fill-accent stroke-surface {coarsePointer
+              ? ''
+              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}"
+            stroke-width="1.5"
+            pointer-events="none"
+          />
         </g>
       {/each}
+      {#if selectedEdge}
+        {@const mid = edgeMidpoint(selectedEdge.points)}
+        <foreignObject
+          x={mid.x - 16}
+          y={mid.y - 16}
+          width="32"
+          height="32"
+          class="overflow-visible"
+        >
+          <button
+            type="button"
+            aria-label="Remove dependency"
+            onpointerdown={(event) => event.stopPropagation()}
+            onclick={(event) => deleteEdge(event, selectedEdge)}
+            class="flex size-8 cursor-pointer items-center justify-center rounded-full border border-edge bg-danger text-xs text-white shadow"
+          >
+            ✕
+          </button>
+        </foreignObject>
+      {/if}
     </svg>
     {#if layout.edges.length === 0}
       <div class="pointer-events-none absolute inset-x-0 top-3 flex justify-center px-4">
