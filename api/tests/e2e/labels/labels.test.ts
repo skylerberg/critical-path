@@ -69,14 +69,14 @@ describe('Labels API', () => {
       });
     });
 
-    it('returns 404 when the project does not exist', async () => {
+    it('returns 422 when the project does not exist', async () => {
       const res = await ctx.request(user.token).post('/api/labels', {
         id: newId(),
         project_id: newId(),
         name: 'Orphan',
         color: '#ff0000',
       });
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(422);
     });
 
     it('returns 409 for a duplicate id', async () => {

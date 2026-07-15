@@ -11,6 +11,7 @@ import {
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
+  unprocessableErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
   internalServerErrorResponse,
@@ -37,7 +38,7 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
-      ...notFoundErrorResponse,
+      ...unprocessableErrorResponse,
       ...conflictErrorResponse,
       ...validationErrorResponse,
       ...internalServerErrorResponse,
@@ -55,7 +56,7 @@ router.post(
       .where('id', '=', project_id)
       .executeTakeFirst();
     if (!project) {
-      throw new AppError(404, 'Project not found');
+      throw new AppError(422, 'Project does not exist');
     }
 
     try {
