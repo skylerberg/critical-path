@@ -3,6 +3,8 @@ import { describeRoute } from 'hono-openapi';
 import { authMiddleware } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
+import { assertProjectAccess } from '../services/authorization';
+import { publishAfterCommit } from '../services/realtime/index';
 import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
 import {
@@ -92,15 +94,27 @@ router.delete(
 
     const row = await db
       .selectFrom('task_image')
-      .select('storage_key')
-      .where('id', '=', id)
+      .innerJoin('task', 'task.id', 'task_image.task_id')
+      .select(['task_image.storage_key', 'task_image.task_id', 'task.project_id'])
+      .where('task_image.id', '=', id)
       .executeTakeFirst();
     if (!row) {
       throw new AppError(404, 'Image not found');
     }
+    await assertProjectAccess(db, c.get('user').id, row.project_id, 'Image not found');
 
-    await db.deleteFrom('task_image').where('id', '=', id).execute();
+    await db.deleteFrom('task_image').where('task_image.id', '=', id).execute();
     c.get('postCommitHooks').push(() => storage.delete(row.storage_key));
+
+    const { count } = await db
+      .selectFrom('task_image')
+      .select((eb) => eb.fn.countAll<string>().as('count'))
+      .where('task_id', '=', row.task_id)
+      .executeTakeFirstOrThrow();
+    publishAfterCommit(c, 'image_deleted', row.project_id, {
+      task_id: row.task_id,
+      image_count: Number(count),
+    });
 
     return c.body(null, 204);
   }

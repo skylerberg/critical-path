@@ -71,6 +71,30 @@ function clientIp(c: Context): string {
   return socketAddress(c) ?? 'unknown';
 }
 
+export const RESET_IP_WINDOW_MS = 60 * 60_000;
+export const RESET_IP_MAX_ATTEMPTS = 5;
+export const RESET_EMAIL_WINDOW_MS = 60 * 60_000;
+export const RESET_EMAIL_MAX_ATTEMPTS = 3;
+
+// Returns shouldSend instead of throwing 429: a visible throttle status would
+// leak which emails exist, so callers respond identically either way.
+export function enforceResetRateLimit(c: Context, email: string): boolean {
+  const now = Date.now();
+  const ipAllowed = consumeRateLimit(
+    `reset-ip:${clientIp(c)}`,
+    now,
+    RESET_IP_MAX_ATTEMPTS,
+    RESET_IP_WINDOW_MS
+  );
+  const emailAllowed = consumeRateLimit(
+    `reset-email:${email.toLowerCase()}`,
+    now,
+    RESET_EMAIL_MAX_ATTEMPTS,
+    RESET_EMAIL_WINDOW_MS
+  );
+  return ipAllowed && emailAllowed;
+}
+
 export function enforceAuthRateLimit(c: Context, email: string): void {
   const normalizedEmail = email.toLowerCase();
   const ipAllowed = consumeRateLimit(`ip:${clientIp(c)}:${normalizedEmail}`);

@@ -9,7 +9,16 @@ export async function getBoardPayload(
 ): Promise<BoardPayload | null> {
   const project = await db
     .selectFrom('project')
-    .select(['id', 'name', 'description', 'is_template', 'archived_at', 'created_at'])
+    .select([
+      'id',
+      'name',
+      'description',
+      'is_template',
+      'archived_at',
+      'created_at',
+      'created_by',
+      'workspace_id',
+    ])
     .where('id', '=', projectId)
     .executeTakeFirst();
 
@@ -83,6 +92,8 @@ export async function getBoardPayload(
       is_template: project.is_template,
       archived_at: project.archived_at?.toISOString() ?? null,
       created_at: project.created_at.toISOString(),
+      created_by: project.created_by,
+      workspace_id: project.workspace_id,
     },
     columns,
     tasks: tasks.map((task) => ({

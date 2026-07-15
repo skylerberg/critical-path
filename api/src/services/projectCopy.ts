@@ -12,6 +12,7 @@ export interface CopyProjectInput {
   description?: string;
   isTemplate: boolean;
   sourceProjectId: string;
+  createdBy: string;
 }
 
 function rewriteImageSrcs(node: TiptapNode, imageIdMap: Map<string, string>): TiptapNode {
@@ -56,6 +57,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
       name: input.name,
       description: input.description ?? source.description,
       is_template: input.isTemplate,
+      created_by: input.createdBy,
     })
     .execute();
 

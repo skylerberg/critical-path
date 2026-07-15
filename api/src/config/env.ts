@@ -48,4 +48,29 @@ export const env = {
   get trustProxy(): boolean {
     return process.env.TRUST_PROXY?.trim().toLowerCase() === 'true';
   },
+
+  get passwordResetSecret(): string {
+    const secret = process.env.PASSWORD_RESET_SECRET;
+    if (secret) return secret;
+    if (environment === 'production') {
+      throw new Error('PASSWORD_RESET_SECRET is required in production');
+    }
+    return 'dev-only-password-reset-secret';
+  },
+
+  get resetUrlBase(): string {
+    return process.env.RESET_URL_BASE || 'http://localhost:5173/reset-password';
+  },
+
+  get emailDriver(): string {
+    return process.env.EMAIL_DRIVER || 'console';
+  },
+
+  get sesRegion(): string | undefined {
+    return process.env.SES_REGION;
+  },
+
+  get sesFromAddress(): string | undefined {
+    return process.env.SES_FROM_ADDRESS;
+  },
 };

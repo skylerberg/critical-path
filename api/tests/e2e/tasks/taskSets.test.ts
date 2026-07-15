@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
+import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
 
@@ -12,7 +13,7 @@ describe('Task label and assignee sets', () => {
 
   beforeAll(async () => {
     user = await ctx.createUser('task-sets');
-    projectId = await fixtures.createProject('task sets project');
+    projectId = await fixtures.createProject('task sets project', { createdBy: user.id });
     columnId = await fixtures.createColumn(projectId);
   });
 
@@ -80,7 +81,9 @@ describe('Task label and assignee sets', () => {
 
     it('rejects labels from another project with 422', async () => {
       const taskId = await createTask();
-      const otherProject = await fixtures.createProject('label set cross project');
+      const otherProject = await fixtures.createProject('label set cross project', {
+        createdBy: user.id,
+      });
       const foreignLabel = await fixtures.createLabel(otherProject, `foreign-${newId()}`);
 
       const res = await ctx.request(user.token).put(`/api/tasks/${taskId}/labels`, {
@@ -105,8 +108,33 @@ describe('Task label and assignee sets', () => {
     });
 
     it('replaces the assignee set as a diff', async () => {
-      const taskId = await createTask();
       const other = await ctx.createUser('task-sets-other');
+      const workspaceId = newId();
+      await db
+        .insertInto('workspace')
+        .values({ id: workspaceId, name: 'task sets ws', created_by: user.id })
+        .execute();
+      await db
+        .insertInto('workspace_member')
+        .values([
+          { workspace_id: workspaceId, user_id: user.id },
+          { workspace_id: workspaceId, user_id: other.id },
+        ])
+        .execute();
+      const sharedProjectId = await fixtures.createProject('task sets shared', {
+        createdBy: user.id,
+        workspaceId,
+      });
+      const sharedColumnId = await fixtures.createColumn(sharedProjectId);
+      const createRes = await ctx.request(user.token).post('/api/tasks', {
+        id: newId(),
+        project_id: sharedProjectId,
+        column_id: sharedColumnId,
+        title: 'assignee diff target',
+        position: 1000,
+      });
+      expect(createRes.status).toBe(201);
+      const taskId = ((await createRes.json()) as { id: string }).id;
 
       const first = await ctx.request(user.token).put(`/api/tasks/${taskId}/assignees`, {
         user_ids: [user.id, other.id],

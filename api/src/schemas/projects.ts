@@ -9,6 +9,8 @@ export const projectSchema = type({
   is_template: 'boolean',
   archived_at: 'string | null',
   created_at: 'string',
+  created_by: 'string | null',
+  workspace_id: 'string | null',
 });
 
 export type ProjectResponse = typeof projectSchema.infer;
@@ -39,6 +41,7 @@ export const patchProjectSchema = type({
   'description?': stringWithLength(0, 10000),
   'is_template?': 'boolean',
   'archived_at?': isoDateString.or('null'),
+  'workspace_id?': uuid.or('null'),
 });
 
 export const boardPayloadSchema = type({

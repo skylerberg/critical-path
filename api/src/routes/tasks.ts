@@ -7,8 +7,11 @@ import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
+import { assertProjectAccess, assertTaskAccess, canAccessProject } from '../services/authorization';
 import { storage } from '../services/storage/index';
 import { lockProjectDependencies, wouldCreateDependencyCycle } from '../services/dependencies';
+import { publishAfterCommit } from '../services/realtime/index';
+import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import {
   idSchema,
   createTaskSchema,
@@ -133,7 +136,11 @@ async function assertLabelsInProject(
   }
 }
 
-async function assertUsersExist(db: Kysely<DB>, userIds: string[]): Promise<void> {
+async function assertAssigneesHaveProjectAccess(
+  db: Kysely<DB>,
+  userIds: string[],
+  project: { id: string; created_by: string | null; workspace_id: string | null }
+): Promise<void> {
   if (userIds.length === 0) {
     return;
   }
@@ -141,9 +148,25 @@ async function assertUsersExist(db: Kysely<DB>, userIds: string[]): Promise<void
     .selectFrom('app_user')
     .select('app_user.id')
     .where('app_user.id', 'in', userIds)
+    .where((eb) =>
+      eb.or([
+        ...(project.created_by === null ? [] : [eb('app_user.id', '=', project.created_by)]),
+        ...(project.workspace_id === null
+          ? []
+          : [
+              eb.exists(
+                eb
+                  .selectFrom('workspace_member')
+                  .select('workspace_member.user_id')
+                  .where('workspace_member.workspace_id', '=', project.workspace_id)
+                  .whereRef('workspace_member.user_id', '=', 'app_user.id')
+              ),
+            ]),
+      ])
+    )
     .execute();
   if (rows.length !== userIds.length) {
-    throw new AppError(422, 'assignee user ids must reference existing users');
+    throw new AppError(422, 'assignee user ids must reference users with access to the project');
   }
 }
 
@@ -165,8 +188,8 @@ router.post(
     summary: 'Create a task',
     description:
       'Create a task in a column. The client supplies the task id. The column must belong to ' +
-      'the project, labels must belong to the project, and assignees must be existing users; ' +
-      'violations return 422 with a plain error body.',
+      'the project, labels must belong to the project, and assignees must be users with ' +
+      'access to the project; violations return 422 with a plain error body.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {
@@ -178,6 +201,7 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -188,13 +212,26 @@ router.post(
   async (c) => {
     const body = c.req.valid('json');
     const db = c.get('db');
+    const user = c.get('user');
+
+    const project = await db
+      .selectFrom('project')
+      .select(['id', 'created_by', 'workspace_id'])
+      .where('id', '=', body.project_id)
+      .executeTakeFirst();
+    if (!project) {
+      throw new AppError(422, 'Project does not exist');
+    }
+    if (!(await canAccessProject(db, user.id, project))) {
+      throw new AppError(404, 'Project not found');
+    }
 
     await assertColumnInProject(db, body.column_id, body.project_id);
 
     const labelIds = dedupe(body.label_ids ?? []);
     const assigneeIds = dedupe(body.assignee_ids ?? []);
     await assertLabelsInProject(db, labelIds, body.project_id);
-    await assertUsersExist(db, assigneeIds);
+    await assertAssigneesHaveProjectAccess(db, assigneeIds, project);
 
     try {
       await db
@@ -232,6 +269,7 @@ router.post(
     if (!created) {
       throw new AppError(500, 'Failed to load created task');
     }
+    publishAfterCommit(c, 'task_created', body.project_id, created.task);
     return c.json(created.task, 201);
   }
 );
@@ -263,11 +301,13 @@ router.get(
   async (c) => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
+    const user = c.get('user');
 
     const result = await fetchBoardTask(db, id);
     if (!result) {
       throw new AppError(404, 'Task not found');
     }
+    await assertProjectAccess(db, user.id, result.project_id, 'Task not found');
 
     const imageRows = await db
       .selectFrom('task_image')
@@ -330,17 +370,10 @@ router.patch(
     const body = c.req.valid('json');
     const db = c.get('db');
 
-    const task = await db
-      .selectFrom('task')
-      .select('task.project_id')
-      .where('task.id', '=', id)
-      .executeTakeFirst();
-    if (!task) {
-      throw new AppError(404, 'Task not found');
-    }
+    const project = await assertTaskAccess(db, c.get('user').id, id);
 
     if (body.column_id !== undefined) {
-      await assertColumnInProject(db, body.column_id, task.project_id);
+      await assertColumnInProject(db, body.column_id, project.id);
     }
 
     await db
@@ -359,6 +392,7 @@ router.patch(
     if (!updated) {
       throw new AppError(500, 'Failed to load updated task');
     }
+    publishAfterCommit(c, 'task_updated', project.id, updated.task);
     return c.json(updated.task, 200);
   }
 );
@@ -388,6 +422,8 @@ router.delete(
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
+    const project = await assertTaskAccess(db, c.get('user').id, id);
+
     const images = await db
       .selectFrom('task_image')
       .select('task_image.storage_key')
@@ -410,6 +446,7 @@ router.delete(
       });
     }
 
+    publishAfterCommit(c, 'task_deleted', project.id, { id });
     return c.body(null, 204);
   }
 );
@@ -442,17 +479,10 @@ router.put(
     const { label_ids } = c.req.valid('json');
     const db = c.get('db');
 
-    const task = await db
-      .selectFrom('task')
-      .select('task.project_id')
-      .where('task.id', '=', id)
-      .executeTakeFirst();
-    if (!task) {
-      throw new AppError(404, 'Task not found');
-    }
+    const project = await assertTaskAccess(db, c.get('user').id, id);
 
     const desired = dedupe(label_ids);
-    await assertLabelsInProject(db, desired, task.project_id);
+    await assertLabelsInProject(db, desired, project.id);
 
     let removal = db.deleteFrom('task_label').where('task_label.task_id', '=', id);
     if (desired.length > 0) {
@@ -468,6 +498,7 @@ router.put(
         .execute();
     }
 
+    publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);
   }
 );
@@ -478,8 +509,9 @@ router.put(
     tags: ['Tasks'],
     summary: 'Set task assignees',
     description:
-      'Replace the full set of assignees on a task. All user ids must reference existing ' +
-      'users; violations return 422 with a plain error body.',
+      'Replace the full set of assignees on a task. Newly added user ids must reference ' +
+      'users with access to the project (422 with a plain error body otherwise); ids already ' +
+      'assigned are never re-validated, so echoing the current set always succeeds.',
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
@@ -500,17 +532,17 @@ router.put(
     const { user_ids } = c.req.valid('json');
     const db = c.get('db');
 
-    const task = await db
-      .selectFrom('task')
-      .select('task.id')
-      .where('task.id', '=', id)
-      .executeTakeFirst();
-    if (!task) {
-      throw new AppError(404, 'Task not found');
-    }
+    const project = await assertTaskAccess(db, c.get('user').id, id);
 
     const desired = dedupe(user_ids);
-    await assertUsersExist(db, desired);
+    const currentRows = await db
+      .selectFrom('task_assignee')
+      .select('task_assignee.user_id')
+      .where('task_assignee.task_id', '=', id)
+      .execute();
+    const current = new Set(currentRows.map((row) => row.user_id));
+    const added = desired.filter((userId) => !current.has(userId));
+    await assertAssigneesHaveProjectAccess(db, added, project);
 
     let removal = db.deleteFrom('task_assignee').where('task_assignee.task_id', '=', id);
     if (desired.length > 0) {
@@ -526,6 +558,7 @@ router.put(
         .execute();
     }
 
+    publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);
   }
 );
@@ -560,14 +593,7 @@ router.post(
     const { blocker_task_id } = c.req.valid('json');
     const db = c.get('db');
 
-    const task = await db
-      .selectFrom('task')
-      .select('task.project_id')
-      .where('task.id', '=', id)
-      .executeTakeFirst();
-    if (!task) {
-      throw new AppError(404, 'Task not found');
-    }
+    const project = await assertTaskAccess(db, c.get('user').id, id);
 
     if (blocker_task_id === id) {
       throw new AppError(422, 'A task cannot block itself');
@@ -578,11 +604,11 @@ router.post(
       .select('task.project_id')
       .where('task.id', '=', blocker_task_id)
       .executeTakeFirst();
-    if (!blocker || blocker.project_id !== task.project_id) {
+    if (!blocker || blocker.project_id !== project.id) {
       throw new AppError(422, 'blocker_task_id must reference a task in the same project');
     }
 
-    await lockProjectDependencies(db, task.project_id);
+    await lockProjectDependencies(db, project.id);
     if (await wouldCreateDependencyCycle(db, id, blocker_task_id)) {
       throw new AppError(409, 'Adding this blocker would create a dependency cycle');
     }
@@ -593,6 +619,7 @@ router.post(
       .onConflict((oc) => oc.columns(['blocker_task_id', 'blocked_task_id']).doNothing())
       .execute();
 
+    publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);
   }
 );
@@ -610,6 +637,7 @@ router.delete(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -619,12 +647,15 @@ router.delete(
     const { id, blockerTaskId } = c.req.valid('param');
     const db = c.get('db');
 
+    await assertTaskAccess(db, c.get('user').id, id);
+
     await db
       .deleteFrom('task_dependency')
       .where('task_dependency.blocked_task_id', '=', id)
       .where('task_dependency.blocker_task_id', '=', blockerTaskId)
       .execute();
 
+    publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);
   }
 );

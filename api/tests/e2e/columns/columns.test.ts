@@ -5,13 +5,14 @@ import { newId } from '../../helpers/fixtures';
 
 const ctx = new TestContext();
 let token: string;
+let userId: string;
 const projectIds: string[] = [];
 
 async function createProject(): Promise<string> {
   const id = newId();
   await db
     .insertInto('project')
-    .values({ id, name: `columns-e2e ${id.slice(0, 8)}` })
+    .values({ id, name: `columns-e2e ${id.slice(0, 8)}`, created_by: userId })
     .execute();
   projectIds.push(id);
   return id;
@@ -56,6 +57,7 @@ function tasksInColumn(columnId: string) {
 beforeAll(async () => {
   const user = await ctx.createUser('columns');
   token = user.token;
+  userId = user.id;
 });
 
 afterAll(async () => {

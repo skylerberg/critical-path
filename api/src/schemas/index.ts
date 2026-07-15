@@ -7,6 +7,7 @@ export * from './users';
 export * from './tiptap';
 export * from './board';
 export * from './projects';
+export * from './workspaces';
 export * from './columns';
 export * from './tasks';
 export * from './labels';

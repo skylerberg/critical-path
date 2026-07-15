@@ -5,6 +5,8 @@ import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
+import { assertProjectAccess, canAccessProject } from '../services/authorization';
+import { publishAfterCommit } from '../services/realtime/index';
 import {
   idSchema,
   createColumnSchema,
@@ -58,6 +60,7 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -68,14 +71,18 @@ router.post(
   async (c) => {
     const { id, project_id, name, position, is_done } = c.req.valid('json');
     const db = c.get('db');
+    const user = c.get('user');
 
     const project = await db
       .selectFrom('project')
-      .select('id')
+      .select(['created_by', 'workspace_id'])
       .where('id', '=', project_id)
       .executeTakeFirst();
     if (!project) {
       throw new AppError(422, 'Project does not exist');
+    }
+    if (!(await canAccessProject(db, user.id, project))) {
+      throw new AppError(404, 'Project not found');
     }
 
     try {
@@ -84,6 +91,7 @@ router.post(
         .values({ id, project_id, name, position, is_done: is_done ?? false })
         .returning(COLUMN_COLUMNS)
         .executeTakeFirstOrThrow();
+      publishAfterCommit(c, 'column_created', project_id, serializeColumn(column));
       return c.json(serializeColumn(column), 201);
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -124,6 +132,17 @@ router.patch(
     const { id } = c.req.valid('param');
     const { name, position, is_done } = c.req.valid('json');
     const db = c.get('db');
+    const user = c.get('user');
+
+    const existing = await db
+      .selectFrom('board_column')
+      .select(COLUMN_COLUMNS)
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!existing) {
+      throw new AppError(404, 'Column not found');
+    }
+    await assertProjectAccess(db, user.id, existing.project_id, 'Column not found');
 
     const updates: Partial<{ name: string; position: number; is_done: boolean }> = {};
     if (name !== undefined) updates.name = name;
@@ -132,11 +151,7 @@ router.patch(
 
     const column =
       Object.keys(updates).length === 0
-        ? await db
-            .selectFrom('board_column')
-            .select(COLUMN_COLUMNS)
-            .where('id', '=', id)
-            .executeTakeFirst()
+        ? existing
         : await db
             .updateTable('board_column')
             .set(updates)
@@ -148,6 +163,7 @@ router.patch(
       throw new AppError(404, 'Column not found');
     }
 
+    publishAfterCommit(c, 'column_updated', column.project_id, serializeColumn(column));
     return c.json(serializeColumn(column), 200);
   }
 );
@@ -192,6 +208,7 @@ router.delete(
     const { id } = c.req.valid('param');
     const { move_tasks_to } = c.req.valid('query');
     const db = c.get('db');
+    const user = c.get('user');
 
     const column = await db
       .selectFrom('board_column')
@@ -201,6 +218,7 @@ router.delete(
     if (!column) {
       throw new AppError(404, 'Column not found');
     }
+    await assertProjectAccess(db, user.id, column.project_id, 'Column not found');
 
     if (move_tasks_to !== undefined) {
       if (move_tasks_to === id) {
@@ -256,11 +274,13 @@ router.delete(
 
       await db.deleteFrom('board_column').where('id', '=', id).execute();
 
+      publishAfterCommit(c, 'column_deleted', column.project_id, { id, moved_tasks: movedTasks });
       return c.json({ moved_tasks: movedTasks }, 200);
     }
 
     await db.deleteFrom('board_column').where('id', '=', id).execute();
 
+    publishAfterCommit(c, 'column_deleted', column.project_id, { id, moved_tasks: [] });
     return c.body(null, 204);
   }
 );

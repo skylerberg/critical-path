@@ -3,6 +3,17 @@
 Backend for "Critical Path" (rename via `src/config/constants.ts`). Plain
 Postgres + Kysely — no Supabase, no Docker, no OpenTelemetry.
 
+# Local data — do not destroy
+
+The local `game_dev` Postgres database holds real, non-disposable data (the
+owner's actual projects and tasks, e.g. the "Colori" board). Never run
+destructive commands against it: no `DROP DATABASE` / `dropdb game_dev`, no
+`TRUNCATE`, no bulk `DELETE`, and no `migrate:down` that drops a data-bearing
+column. Only the test databases (`game_dev_test`, `game_dev_test_*`) may be
+truncated or reset — the test suite does this by design. When clearing leftover
+test accounts, scope the query narrowly (e.g. `email LIKE 'agent-%'`) and never
+touch `gamedev@skylerberg.com` or its rows.
+
 # Conventions
 
 1. All POST/PUT/PATCH/DELETE handlers run inside a database transaction via
@@ -29,6 +40,31 @@ Postgres + Kysely — no Supabase, no Docker, no OpenTelemetry.
    subqueries) per screen-sized read.
 9. Mutations with no useful body return `c.body(null, 204)`.
 10. Comments: absolute minimum, only non-obvious why.
+11. Project access is strict and centralized in `src/services/authorization.ts`:
+    a project is visible to its creator and, when it has a `workspace_id`, to
+    that workspace's members. Every project-scoped handler asserts access and
+    answers 404 (never 403) for inaccessible rows.
+12. Every mutation emits a realtime event via `publishAfterCommit` from
+    `src/services/realtime` (runs as a post-commit hook, so nothing is
+    published on rollback). Events about rows that are gone post-commit
+    (`project_deleted`, `workspace_deleted`, `workspace_members_set`) must
+    snapshot `recipientUserIds` inside the transaction; events about live rows
+    rely on the delivery layer's per-event access re-check. Event catalog and
+    envelope are in README.md.
+
+# Realtime, email, and password reset
+
+- WebSockets are served at `/ws` on the raw HTTP upgrade (see
+  `src/services/realtime/transport.ts`); `/ws` is never part of the OpenAPI
+  spec. Handshake: `{ type: 'auth', token }` within 10s, then
+  `subscribe`/`unsubscribe` with a `project_id`; ping/pong heartbeat every 30s.
+  Session revocation publishes `sessions_revoked` on the in-process bus, which
+  closes that user's sockets with code 4401.
+- Password-reset emails go through `src/services/email` (`EMAIL_DRIVER`:
+  `console` default, `ses` loads the AWS SDK on first send). Reset tokens are
+  stateless HMAC (`PASSWORD_RESET_SECRET`, required in production), 15-minute
+  TTL, links built from `RESET_URL_BASE`. `POST /api/auth/forgot-password`
+  always answers 204 and enqueues the send as a post-commit hook.
 
 # Running things
 

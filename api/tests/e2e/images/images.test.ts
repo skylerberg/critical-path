@@ -30,12 +30,15 @@ describe('Images', () => {
   const ctx = new TestContext();
   const createdProjectIds: string[] = [];
 
-  async function createTaskFixture(): Promise<string> {
+  async function createTaskFixture(ownerId: string): Promise<string> {
     const projectId = newId();
     const columnId = newId();
     const taskId = newId();
 
-    await db.insertInto('project').values({ id: projectId, name: 'images test project' }).execute();
+    await db
+      .insertInto('project')
+      .values({ id: projectId, name: 'images test project', created_by: ownerId })
+      .execute();
     await db
       .insertInto('board_column')
       .values({ id: columnId, project_id: projectId, name: 'To Do', position: 1000 })
@@ -74,7 +77,7 @@ describe('Images', () => {
   describe('POST /api/tasks/:id/images', () => {
     it('uploads a PNG and sniffs image/png', async () => {
       const user = await ctx.createUser('img-png');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
       const imageId = newId();
 
       const res = await ctx
@@ -98,7 +101,7 @@ describe('Images', () => {
 
     it('uploads a JPEG and sniffs image/jpeg', async () => {
       const user = await ctx.createUser('img-jpeg');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const res = await ctx
         .request(user.token)
@@ -116,7 +119,7 @@ describe('Images', () => {
 
     it('uploads a GIF and sniffs image/gif', async () => {
       const user = await ctx.createUser('img-gif');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const res = await ctx
         .request(user.token)
@@ -127,7 +130,7 @@ describe('Images', () => {
 
     it('uploads a WebP and sniffs image/webp', async () => {
       const user = await ctx.createUser('img-webp');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const res = await ctx
         .request(user.token)
@@ -141,7 +144,7 @@ describe('Images', () => {
 
     it('stores the sniffed type for a GIF/HTML polyglot, never the declared text/html', async () => {
       const user = await ctx.createUser('img-polyglot');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const polyglot = Buffer.concat([
         Buffer.from('GIF89a', 'latin1'),
@@ -168,7 +171,7 @@ describe('Images', () => {
 
     it('rejects bytes that match no supported format with 422', async () => {
       const user = await ctx.createUser('img-garbage');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const res = await ctx
         .request(user.token)
@@ -182,7 +185,7 @@ describe('Images', () => {
 
     it('rejects files over 10 MB with 413', async () => {
       const user = await ctx.createUser('img-toobig');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const oversized = Buffer.alloc(10 * 1024 * 1024 + 1);
       PNG_1X1.copy(oversized);
@@ -194,7 +197,7 @@ describe('Images', () => {
 
     it('rejects request bodies over the 11 MB route limit with 413', async () => {
       const user = await ctx.createUser('img-body-limit');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const oversized = Buffer.alloc(11 * 1024 * 1024 + 1024);
       const res = await ctx
@@ -219,7 +222,8 @@ describe('Images', () => {
     });
 
     it('requires auth', async () => {
-      const taskId = await createTaskFixture();
+      const user = await ctx.createUser('img-upload-anon');
+      const taskId = await createTaskFixture(user.id);
 
       const res = await ctx
         .request()
@@ -229,7 +233,7 @@ describe('Images', () => {
 
     it('returns 400 when the file field is missing', async () => {
       const user = await ctx.createUser('img-no-file');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const form = new FormData();
       form.append('id', newId());
@@ -239,7 +243,7 @@ describe('Images', () => {
 
     it('returns 422 for a malformed id field', async () => {
       const user = await ctx.createUser('img-bad-id');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const res = await ctx
         .request(user.token)
@@ -252,7 +256,7 @@ describe('Images', () => {
 
     it('returns 409 for a duplicate image id', async () => {
       const user = await ctx.createUser('img-dup');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
       const imageId = newId();
 
       const first = await ctx
@@ -276,7 +280,7 @@ describe('Images', () => {
   describe('GET /api/images/:id', () => {
     it('serves the uploaded bytes without auth, with stored Content-Type and immutable Cache-Control', async () => {
       const user = await ctx.createUser('img-get');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const upload = await ctx
         .request(user.token)
@@ -293,7 +297,7 @@ describe('Images', () => {
 
     it('serves the sniffed Content-Type for spoofed uploads', async () => {
       const user = await ctx.createUser('img-get-spoof');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const polyglot = Buffer.concat([
         Buffer.from('GIF89a', 'latin1'),
@@ -322,7 +326,7 @@ describe('Images', () => {
   describe('DELETE /api/images/:id', () => {
     it('deletes the row and removes the stored file', async () => {
       const user = await ctx.createUser('img-delete');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const upload = await ctx
         .request(user.token)
@@ -360,7 +364,7 @@ describe('Images', () => {
 
     it('requires auth', async () => {
       const user = await ctx.createUser('img-delete-auth');
-      const taskId = await createTaskFixture();
+      const taskId = await createTaskFixture(user.id);
 
       const upload = await ctx
         .request(user.token)

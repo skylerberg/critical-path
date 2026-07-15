@@ -12,7 +12,7 @@ describe('Task blockers', () => {
 
   beforeAll(async () => {
     user = await ctx.createUser('task-blockers');
-    projectId = await fixtures.createProject('blockers project');
+    projectId = await fixtures.createProject('blockers project', { createdBy: user.id });
     columnId = await fixtures.createColumn(projectId);
   });
 
@@ -84,7 +84,9 @@ describe('Task blockers', () => {
 
     it('rejects a blocker from another project with 422', async () => {
       const task = await createTask('cross project blocked');
-      const otherProject = await fixtures.createProject('blockers other project');
+      const otherProject = await fixtures.createProject('blockers other project', {
+        createdBy: user.id,
+      });
       const otherColumn = await fixtures.createColumn(otherProject);
       const foreignTask = await createTask('foreign', otherProject, otherColumn);
 
