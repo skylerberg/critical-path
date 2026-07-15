@@ -318,7 +318,7 @@ export interface paths {
         put?: never;
         /**
          * Create column
-         * @description Create a board column in a project. The client supplies the column id. Returns 422 when the referenced project does not exist and 409 on a duplicate id.
+         * @description Create a board column in a project. The client supplies the column id. Returns 404 when the referenced project is unknown or inaccessible and 409 on a duplicate id.
          */
         post: operations["postApiColumns"];
         delete?: never;
@@ -362,7 +362,7 @@ export interface paths {
         put?: never;
         /**
          * Create a task
-         * @description Create a task in a column. The client supplies the task id. The column must belong to the project, labels must belong to the project, and assignees must be users with access to the project; violations return 422 with a plain error body.
+         * @description Create a task in a column. The client supplies the task id. An unknown or inaccessible project returns 404. The column must belong to the project, labels must belong to the project, and assignees must be users with access to the project; those violations return 422 with a plain error body.
          */
         post: operations["postApiTasks"];
         delete?: never;
@@ -510,7 +510,7 @@ export interface paths {
         put?: never;
         /**
          * Create label
-         * @description Create a label in a project. The client supplies the label id. Label names are unique per project.
+         * @description Create a label in a project. The client supplies the label id. Label names are unique per project. Returns 404 when the referenced project is unknown or inaccessible.
          */
         post: operations["postApiLabels"];
         delete?: never;
