@@ -1,0 +1,30 @@
+#!/bin/sh
+# Auto-fix lintable issues in the files just committed, then amend.
+
+if [ -n "$SKIP_POST_COMMIT" ]; then
+  exit 0
+fi
+
+files=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -E '\.(ts|svelte|mjs)$')
+[ -z "$files" ] && exit 0
+
+targets=""
+for f in $files; do
+  [ -f "$f" ] || continue
+  # Leave files with unstaged WIP alone so the amend doesn't swallow it.
+  git diff --quiet -- "$f" || continue
+  targets="$targets $f"
+done
+[ -z "$targets" ] && exit 0
+
+npx eslint --fix $targets || true
+npx prettier --write $targets || true
+
+changed=""
+for f in $targets; do
+  git diff --quiet -- "$f" || changed="$changed $f"
+done
+[ -z "$changed" ] && exit 0
+
+git add $changed
+SKIP_POST_COMMIT=1 git commit --amend --no-edit --no-verify

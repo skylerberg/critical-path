@@ -1,0 +1,53 @@
+@import 'tailwindcss';
+
+:root {
+  --cp-canvas: #fafafa;
+  --cp-surface: #ffffff;
+  --cp-edge: #e5e5e5;
+  --cp-ink: #171717;
+  --cp-muted: #737373;
+  --cp-accent: #4f46e5;
+  --cp-accent-strong: #4338ca;
+  --cp-accent-soft: #eef2ff;
+  --cp-on-accent: #ffffff;
+  --cp-danger: #dc2626;
+  --cp-success: #16a34a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cp-canvas: #0a0a0a;
+    --cp-surface: #171717;
+    --cp-edge: #2e2e2e;
+    --cp-ink: #f5f5f5;
+    --cp-muted: #a3a3a3;
+    --cp-accent: #6366f1;
+    --cp-accent-strong: #818cf8;
+    --cp-accent-soft: #27274d;
+    --cp-on-accent: #ffffff;
+    --cp-danger: #ef4444;
+    --cp-success: #22c55e;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--cp-canvas);
+  --color-surface: var(--cp-surface);
+  --color-edge: var(--cp-edge);
+  --color-ink: var(--cp-ink);
+  --color-muted: var(--cp-muted);
+  --color-accent: var(--cp-accent);
+  --color-accent-strong: var(--cp-accent-strong);
+  --color-accent-soft: var(--cp-accent-soft);
+  --color-on-accent: var(--cp-on-accent);
+  --color-danger: var(--cp-danger);
+  --color-success: var(--cp-success);
+}
+
+@layer base {
+  html {
+    background-color: var(--cp-canvas);
+    color: var(--cp-ink);
+    -webkit-font-smoothing: antialiased;
+  }
+}
