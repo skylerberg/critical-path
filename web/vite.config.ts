@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { realpathSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
@@ -55,6 +56,12 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:3001',
+    },
+    fs: {
+      // node_modules may be a symlink into the main checkout when running from a
+      // git worktree; the svelteTesting() setup file resolves to its realpath,
+      // which vite's default allow-list (the worktree root) would deny.
+      allow: ['.', realpathSync('node_modules')],
     },
   },
   test: {
