@@ -80,6 +80,70 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * Update current user
+         * @description Update the name and/or email of the authenticated user. Changing the email address invalidates any outstanding password-reset tokens.
+         */
+        patch: operations["patchApiAuthMe"];
+        trace?: never;
+    };
+    "/api/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change password
+         * @description Change the password of the authenticated user. Requires the current password; on success every session is revoked and the client must log in again.
+         */
+        post: operations["postApiAuthChangePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/forgot-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request password reset
+         * @description Email a password-reset link if an account with that address exists. Always responds 204 so the response never reveals whether the email is registered.
+         */
+        post: operations["postApiAuthForgotPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset password
+         * @description Set a new password using a token from a password-reset email. On success every session is revoked and outstanding reset tokens are invalidated.
+         */
+        post: operations["postApiAuthResetPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -91,12 +155,100 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List users
-         * @description List all users in the workspace, ordered by name.
+         * List visible users
+         * @description Without project_id, list the caller and every user sharing at least one workspace with them. With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks. Ordered by name.
          */
         get: operations["getApiUsers"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workspaces
+         * @description List the workspaces the caller belongs to, including member ids.
+         */
+        get: operations["getApiWorkspaces"];
+        put?: never;
+        /**
+         * Create workspace
+         * @description Create a workspace. The client supplies the workspace id; the creator is added as its first member.
+         */
+        post: operations["postApiWorkspaces"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete workspace
+         * @description Delete a workspace. Members only; non-members get 404. Its projects become personal (creator-only).
+         */
+        delete: operations["deleteApiWorkspacesById"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename workspace
+         * @description Rename a workspace. Members only; non-members get 404.
+         */
+        patch: operations["patchApiWorkspacesById"];
+        trace?: never;
+    };
+    "/api/workspaces/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set workspace members
+         * @description Replace the full member set of a workspace. Members only; non-members get 404. The set must include the caller and every id must reference an existing user (422 with a plain error body otherwise). Removed members lose their task assignments in the workspace’s projects unless they created the project.
+         */
+        put: operations["putApiWorkspacesByIdMembers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{id}/members/by-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add workspace member by email
+         * @description Add a user to a workspace by their exact email (case-insensitive). Members only; non-members get 404. An unknown email returns 404. Adding an existing member is idempotent.
+         */
+        post: operations["postApiWorkspacesByIdMembersByEmail"];
         delete?: never;
         options?: never;
         head?: never;
@@ -112,13 +264,13 @@ export interface paths {
         };
         /**
          * List projects
-         * @description List all projects with open and done task counts.
+         * @description List projects the caller can access (created by them or shared via a workspace they belong to) with open and done task counts.
          */
         get: operations["getApiProjects"];
         put?: never;
         /**
          * Create project
-         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not assignees or archived state). Returns 422 when source_project_id does not reference an existing project.
+         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not assignees or archived state). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
          */
         post: operations["postApiProjects"];
         delete?: never;
@@ -150,7 +302,7 @@ export interface paths {
         head?: never;
         /**
          * Update project
-         * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive.
+         * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive. Set workspace_id to share the project with a workspace the caller belongs to (422 otherwise) or null to make it personal; assignees who lose access under the new scope are removed from its tasks.
          */
         patch: operations["patchApiProjectsById"];
         trace?: never;
@@ -210,7 +362,7 @@ export interface paths {
         put?: never;
         /**
          * Create a task
-         * @description Create a task in a column. The client supplies the task id. The column must belong to the project, labels must belong to the project, and assignees must be existing users; violations return 422 with a plain error body.
+         * @description Create a task in a column. The client supplies the task id. The column must belong to the project, labels must belong to the project, and assignees must be users with access to the project; violations return 422 with a plain error body.
          */
         post: operations["postApiTasks"];
         delete?: never;
@@ -277,7 +429,7 @@ export interface paths {
         get?: never;
         /**
          * Set task assignees
-         * @description Replace the full set of assignees on a task. All user ids must reference existing users; violations return 422 with a plain error body.
+         * @description Replace the full set of assignees on a task. Newly added user ids must reference users with access to the project (422 with a plain error body otherwise); ids already assigned are never re-validated, so echoing the current set always succeeds.
          */
         put: operations["putApiTasksByIdAssignees"];
         post?: never;
@@ -461,8 +613,47 @@ export interface components {
             email: string;
             password: string;
         };
+        PatchMe: {
+            email?: string;
+            name?: string;
+        };
+        ChangePassword: {
+            current_password: string;
+            new_password: string;
+        };
+        ForgotPassword: {
+            email: string;
+        };
+        ResetPassword: {
+            new_password: string;
+            token: string;
+        };
         UsersResponse: {
             users: components["schemas"]["User"][];
+        };
+        WorkspacesListResponse: {
+            workspaces: components["schemas"]["Workspace"][];
+        };
+        Workspace: {
+            created_at: string;
+            created_by: string;
+            id: string;
+            member_ids: string[];
+            name: string;
+        };
+        CreateWorkspace: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        PatchWorkspace: {
+            name?: string;
+        };
+        SetWorkspaceMembers: {
+            user_ids: string[];
+        };
+        WorkspaceMemberUserResponse: {
+            user: components["schemas"]["User"];
         };
         ProjectsListResponse: {
             projects: components["schemas"]["ProjectListItem"][];
@@ -470,12 +661,14 @@ export interface components {
         ProjectListItem: {
             archived_at: components["schemas"]["ProjectsArchivedat"];
             created_at: string;
+            created_by: components["schemas"]["ProjectsArchivedat"];
             description: string;
             done_task_count: number;
             id: string;
             is_template: boolean;
             name: string;
             open_task_count: number;
+            workspace_id: components["schemas"]["ProjectsArchivedat"];
         };
         ProjectsArchivedat: string | null;
         BoardPayload: {
@@ -498,10 +691,12 @@ export interface components {
         Project: {
             archived_at: components["schemas"]["ProjectsArchivedat"];
             created_at: string;
+            created_by: components["schemas"]["ProjectsArchivedat"];
             description: string;
             id: string;
             is_template: boolean;
             name: string;
+            workspace_id: components["schemas"]["ProjectsArchivedat"];
         };
         BoardTask: {
             assignee_ids: string[];
@@ -536,6 +731,7 @@ export interface components {
             description?: string;
             is_template?: boolean;
             name?: string;
+            workspace_id?: string | null;
         };
         Column: {
             created_at: string;
@@ -850,7 +1046,254 @@ export interface operations {
             };
         };
     };
+    patchApiAuthMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchMe"];
+            };
+        };
+        responses: {
+            /** @description Updated user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiAuthChangePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePassword"];
+            };
+        };
+        responses: {
+            /** @description Password changed and all sessions revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiAuthForgotPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPassword"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiAuthResetPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPassword"];
+            };
+        };
+        responses: {
+            /** @description Password reset and all sessions revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getApiUsers: {
+        parameters: {
+            query?: {
+                project_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Visible users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsersResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiWorkspaces: {
         parameters: {
             query?: never;
             header?: never;
@@ -859,13 +1302,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description All users */
+            /** @description Workspaces the caller belongs to */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UsersResponse"];
+                    "application/json": components["schemas"]["WorkspacesListResponse"];
                 };
             };
             /** @description Authentication required or failed */
@@ -888,6 +1331,333 @@ export interface operations {
             };
         };
     };
+    postApiWorkspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspace"];
+            };
+        };
+        responses: {
+            /** @description Created workspace */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workspace"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiWorkspacesById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    patchApiWorkspacesById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchWorkspace"];
+            };
+        };
+        responses: {
+            /** @description Updated workspace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workspace"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putApiWorkspacesByIdMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetWorkspaceMembers"];
+            };
+        };
+        responses: {
+            /** @description Members set */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiWorkspacesByIdMembersByEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPassword"];
+            };
+        };
+        responses: {
+            /** @description The added (or already present) member */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMemberUserResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getApiProjects: {
         parameters: {
             query?: never;
@@ -897,7 +1667,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description All projects with task counts */
+            /** @description Accessible projects with task counts */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -950,6 +1720,15 @@ export interface operations {
             };
             /** @description Authentication required or failed */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1151,13 +1930,13 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation error */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationError"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
@@ -1195,6 +1974,15 @@ export interface operations {
             };
             /** @description Authentication required or failed */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1411,6 +2199,15 @@ export interface operations {
             };
             /** @description Authentication required or failed */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1885,6 +2682,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Internal Server Error */
             500: {
                 headers: {
@@ -2017,6 +2823,15 @@ export interface operations {
             };
             /** @description Authentication required or failed */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
