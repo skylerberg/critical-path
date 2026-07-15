@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
-import { describeRoute, validator } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { authMiddleware } from '../middleware/auth';
+import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
 import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
@@ -36,7 +37,7 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  validator('param', idSchema),
+  paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
 
@@ -84,7 +85,7 @@ router.delete(
     },
   }),
   authMiddleware,
-  validator('param', idSchema),
+  paramValidator(idSchema),
   async (c) => {
     const db = c.get('db');
     const { id } = c.req.valid('param');

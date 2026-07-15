@@ -151,9 +151,13 @@ describe('Tasks CRUD', () => {
       expect(res.status).toBe(404);
     });
 
-    it('returns 400 for a malformed id', async () => {
+    it('returns 400 with a plain error body for a malformed id', async () => {
       const res = await ctx.request(user.token).get('/api/tasks/not-a-uuid');
       expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(typeof body.error).toBe('string');
+      expect(body.data).toBeUndefined();
+      expect(body.success).toBeUndefined();
     });
 
     it('returns task detail with project_id and an images array', async () => {

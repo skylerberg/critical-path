@@ -77,6 +77,20 @@ describe('Auth', () => {
       }
     });
 
+    it('returns a generic body for unexpected errors instead of the internal message', async () => {
+      const res = await ctx.request().post('/api/auth/signup', {
+        id: newId(),
+        email: uniqueEmail('null-byte'),
+        password: 'password-123',
+        name: 'null\u0000byte',
+      });
+
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({
+        error: 'An internal server error occurred. Please try again later.',
+      });
+    });
+
     it('returns 403 when signup is disabled', async () => {
       process.env.SIGNUP_ENABLED = 'false';
       try {

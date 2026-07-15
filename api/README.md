@@ -40,6 +40,11 @@ Swagger UI at `http://localhost:3001/api/docs`, spec at `/api/openapi.json`.
 `npm run openapi:dump` writes the post-processed spec to `./openapi.json`
 without starting a server.
 
+The auth rate limiter identifies clients by socket address. When deploying
+behind a reverse proxy that appends the client IP to `X-Forwarded-For`, set
+`TRUST_PROXY=true` so the rightmost forwarded entry is used instead; leave it
+unset otherwise, since the header is client-forgeable.
+
 ## Database workflow
 
 Migrations live in `src/db/migrations/` (Kysely `Migrator`, numbered

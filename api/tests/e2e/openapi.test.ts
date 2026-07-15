@@ -26,6 +26,24 @@ describe('GET /api/openapi.json', () => {
     });
   });
 
+  it('documents both 422 body shapes on routes with body validation plus domain rules', async () => {
+    const res = await app.request('/api/openapi.json');
+    expect(res.status).toBe(200);
+
+    const spec = await res.json();
+    const ref = '#/components/schemas/ValidationOrUnprocessableError';
+    expect(
+      spec.paths['/api/tasks'].post.responses['422'].content['application/json'].schema
+    ).toEqual({ $ref: ref });
+    expect(
+      spec.paths['/api/projects'].post.responses['422'].content['application/json'].schema
+    ).toEqual({ $ref: ref });
+
+    const union = spec.components.schemas.ValidationOrUnprocessableError;
+    expect(Array.isArray(union.anyOf)).toBe(true);
+    expect(union.anyOf).toHaveLength(2);
+  });
+
   it('has unique operationIds across all operations', async () => {
     const res = await app.request('/api/openapi.json');
     expect(res.status).toBe(200);

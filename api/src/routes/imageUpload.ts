@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import { describeRoute, resolver, validator } from 'hono-openapi';
+import { describeRoute, resolver } from 'hono-openapi';
 import { authMiddleware } from '../middleware/auth';
+import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { sniffImageContentType } from '../services/imageSniff';
 import { storage } from '../services/storage/index';
@@ -74,7 +75,7 @@ router.post(
     maxSize: 11 * 1024 * 1024,
     onError: (c) => c.json({ error: 'Payload too large' }, 413),
   }),
-  validator('param', idSchema),
+  paramValidator(idSchema),
   async (c) => {
     const db = c.get('db');
     const { id: taskId } = c.req.valid('param');

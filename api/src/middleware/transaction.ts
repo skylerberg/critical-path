@@ -23,13 +23,31 @@ export const transactionMiddleware = createMiddleware<{ Variables: Variables }>(
   const skip = c.req.matchedRoutes.some((r) => r.handler === skipAutoTransaction);
 
   if (TRANSACTIONAL_METHODS.has(c.req.method) && !skip) {
-    await db.transaction().execute(async (trx) => {
-      c.set('db', trx);
-      await next();
-    });
+    try {
+      await db.transaction().execute(async (trx) => {
+        c.set('db', trx);
+        await next();
+        // Hono's compose catches handler throws at the handler's own dispatch
+        // frame and builds the response via onError, so next() resolves even
+        // for errors; rethrow c.error so Kysely rolls back instead of
+        // committing writes made before the failure.
+        if (c.error) {
+          throw c.error;
+        }
+      });
+    } catch (err) {
+      if (err === c.error) {
+        // onError already produced the response; rethrowing would run it twice.
+        return;
+      }
+      throw err;
+    }
   } else {
     c.set('db', db);
     await next();
+    if (c.error) {
+      return;
+    }
   }
 
   for (const hook of hooks) {

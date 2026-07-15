@@ -1,8 +1,12 @@
 import type { Context } from 'hono';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { AppError } from '../utils/errors';
+import { env } from '../config/env';
 
 const WINDOW_MS = 60_000;
 const MAX_ATTEMPTS = 10;
+export const EMAIL_WINDOW_MS = 15 * 60_000;
+export const EMAIL_MAX_ATTEMPTS = 30;
 
 interface Window {
   count: number;
@@ -43,17 +47,42 @@ export function resetRateLimiter(): void {
   lastSweep = 0;
 }
 
-function clientIp(c: Context): string {
-  const forwarded = c.req.header('x-forwarded-for');
-  if (forwarded) {
-    return forwarded.split(',')[0].trim();
+function socketAddress(c: Context): string | undefined {
+  try {
+    return getConnInfo(c).remote.address;
+  } catch {
+    return undefined;
   }
-  return c.req.header('x-real-ip') ?? 'unknown';
+}
+
+function clientIp(c: Context): string {
+  if (env.trustProxy) {
+    // Rightmost entry: the address our own proxy observed. Leftmost entries
+    // are client-supplied and trivially forged.
+    const forwarded = c.req.header('x-forwarded-for');
+    if (forwarded) {
+      const entries = forwarded.split(',');
+      const last = entries[entries.length - 1].trim();
+      if (last) {
+        return last;
+      }
+    }
+  }
+  return socketAddress(c) ?? 'unknown';
 }
 
 export function enforceAuthRateLimit(c: Context, email: string): void {
-  const key = `${clientIp(c)}:${email.toLowerCase()}`;
-  if (!consumeRateLimit(key)) {
+  const normalizedEmail = email.toLowerCase();
+  const ipAllowed = consumeRateLimit(`ip:${clientIp(c)}:${normalizedEmail}`);
+  // Second, IP-independent dimension: bounds total guesses against one
+  // account even when attempts arrive from many distinct source IPs.
+  const emailAllowed = consumeRateLimit(
+    `email:${normalizedEmail}`,
+    Date.now(),
+    EMAIL_MAX_ATTEMPTS,
+    EMAIL_WINDOW_MS
+  );
+  if (!ipAllowed || !emailAllowed) {
     throw new AppError(429, 'Too many attempts, please try again later');
   }
 }

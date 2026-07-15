@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver, validator } from 'hono-openapi';
+import { describeRoute, resolver } from 'hono-openapi';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
+import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
   createLabelSchema,
@@ -11,9 +12,9 @@ import {
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
-  unprocessableErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
+  validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
@@ -38,9 +39,8 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
-      ...unprocessableErrorResponse,
       ...conflictErrorResponse,
-      ...validationErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -100,7 +100,7 @@ router.patch(
     },
   }),
   authMiddleware,
-  validator('param', idSchema),
+  paramValidator(idSchema),
   jsonValidator(patchLabelSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -161,7 +161,7 @@ router.delete(
     },
   }),
   authMiddleware,
-  validator('param', idSchema),
+  paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
 

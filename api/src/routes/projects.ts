@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver, validator } from 'hono-openapi';
+import { describeRoute, resolver } from 'hono-openapi';
 import type { Selectable, Updateable } from 'kysely';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
+import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { getBoardPayload } from '../services/boardPayload';
 import { copyProject } from '../services/projectCopy';
@@ -20,6 +21,7 @@ import {
   notFoundErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
+  validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
@@ -132,7 +134,7 @@ router.post(
       },
       ...unauthorizedErrorResponse,
       ...conflictErrorResponse,
-      ...validationErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -215,7 +217,7 @@ router.get(
     },
   }),
   authMiddleware,
-  validator('param', idSchema),
+  paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
 
@@ -252,7 +254,7 @@ router.patch(
     },
   }),
   authMiddleware,
-  validator('param', idSchema),
+  paramValidator(idSchema),
   jsonValidator(patchProjectSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -309,7 +311,7 @@ router.delete(
     },
   }),
   authMiddleware,
-  validator('param', idSchema),
+  paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
     const db = c.get('db');

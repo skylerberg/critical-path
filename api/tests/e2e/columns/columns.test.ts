@@ -227,6 +227,15 @@ describe('DELETE /api/columns/:id', () => {
     expect(res.status).toBe(404);
   });
 
+  it('returns 400 with a plain error body for a malformed move_tasks_to', async () => {
+    const res = await ctx.request(token).delete(`/api/columns/${newId()}?move_tasks_to=not-a-uuid`);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(typeof body.error).toBe('string');
+    expect(body.data).toBeUndefined();
+    expect(body.success).toBeUndefined();
+  });
+
   it('deletes an empty column with 204', async () => {
     const projectId = await createProject();
     const columnId = await insertColumn(projectId);

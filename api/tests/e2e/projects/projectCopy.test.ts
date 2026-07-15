@@ -186,6 +186,39 @@ describe('POST /api/projects with source_project_id', () => {
     expect(((await res.json()) as BoardPayloadBody).project.is_template).toBe(true);
   });
 
+  it('rolls back every copied row when the copy fails after the inserts', async () => {
+    const sourceId = newId();
+    projectIds.push(sourceId);
+    const sourceRes = await ctx
+      .request(user.token)
+      .post('/api/projects', { id: sourceId, name: 'Broken image source' });
+    expect(sourceRes.status).toBe(201);
+    const source = (await sourceRes.json()) as BoardPayloadBody;
+
+    const taskId = await insertTask({
+      projectId: sourceId,
+      columnId: source.columns[0].id,
+      title: 'Task with missing image object',
+    });
+    await insertTaskImage({ taskId });
+
+    const copyId = newId();
+    const res = await ctx
+      .request(user.token)
+      .post('/api/projects', { id: copyId, name: 'Doomed copy', source_project_id: sourceId });
+    expect(res.status).toBe(500);
+
+    const copiedProject = await db
+      .selectFrom('project')
+      .select('id')
+      .where('id', '=', copyId)
+      .executeTakeFirst();
+    expect(copiedProject).toBeUndefined();
+
+    const getRes = await ctx.request(user.token).get(`/api/projects/${copyId}`);
+    expect(getRes.status).toBe(404);
+  });
+
   it('returns 422 when source_project_id does not exist', async () => {
     const res = await ctx.request(user.token).post('/api/projects', {
       id: newId(),

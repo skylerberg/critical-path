@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver, validator } from 'hono-openapi';
+import { describeRoute, resolver } from 'hono-openapi';
 import { sql } from 'kysely';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
+import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
   idSchema,
@@ -16,6 +17,7 @@ import {
   notFoundErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
+  validationOrUnprocessableErrorResponse,
   unprocessableErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
@@ -57,7 +59,7 @@ router.post(
       },
       ...unauthorizedErrorResponse,
       ...conflictErrorResponse,
-      ...validationErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -116,7 +118,7 @@ router.patch(
     },
   }),
   authMiddleware,
-  validator('param', idSchema),
+  paramValidator(idSchema),
   jsonValidator(patchColumnSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -184,8 +186,8 @@ router.delete(
     },
   }),
   authMiddleware,
-  validator('param', idSchema),
-  validator('query', deleteColumnQuerySchema),
+  paramValidator(idSchema),
+  queryValidator(deleteColumnQuerySchema),
   async (c) => {
     const { id } = c.req.valid('param');
     const { move_tasks_to } = c.req.valid('query');

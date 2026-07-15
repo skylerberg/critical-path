@@ -37,11 +37,15 @@ export const env = {
     .map((s) => s.trim())
     .filter(Boolean),
 
-  // Getter so tests can toggle process.env.SIGNUP_ENABLED at runtime.
+  // Getters so tests can toggle the underlying env vars at runtime.
   get signupEnabled(): boolean {
     const raw = process.env.SIGNUP_ENABLED?.trim().toLowerCase();
     if (raw === 'true') return true;
     if (raw === 'false') return false;
     return environment !== 'production';
+  },
+
+  get trustProxy(): boolean {
+    return process.env.TRUST_PROXY?.trim().toLowerCase() === 'true';
   },
 };

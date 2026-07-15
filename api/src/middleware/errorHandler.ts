@@ -31,13 +31,6 @@ export function errorHandler(err: Error | HTTPResponseError, c: Context) {
     userId,
   });
 
-  return c.json(
-    {
-      error:
-        err instanceof Error
-          ? err.message
-          : 'An internal server error occurred. Please try again later.',
-    },
-    500
-  );
+  // Never echo err.message: driver errors leak table and constraint names.
+  return c.json({ error: 'An internal server error occurred. Please try again later.' }, 500);
 }
