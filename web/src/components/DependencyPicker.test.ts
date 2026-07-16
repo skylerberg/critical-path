@@ -50,7 +50,7 @@ describe('DependencyPicker', () => {
     });
 
     it('adds the picked task as a blocker of this task and clears the query', async () => {
-      const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+      const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
       render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
 
       const input = screen.getByLabelText<HTMLInputElement>('Search tasks to add as blockers');
@@ -76,7 +76,7 @@ describe('DependencyPicker', () => {
     });
 
     it('adds this task as a blocker of the picked task and clears the query', async () => {
-      const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+      const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
       render(DependencyPicker, { taskId: 't1', direction: 'blocked' });
 
       const input = screen.getByLabelText<HTMLInputElement>('Search tasks this one blocks');

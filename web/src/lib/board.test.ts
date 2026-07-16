@@ -350,6 +350,16 @@ describe('board store mutations', () => {
     expect(toasts.toasts.map((t) => t.message)).toEqual(['Dependency cycle']);
     expect(board.tasks.find((t) => t.id === 't1')?.blocker_ids).toEqual([]);
   });
+
+  it('addBlocker resolves true when the edge lands and false for no-op or cycle paths', async () => {
+    expect(await board.addBlocker('t1', 't2')).toBe(true);
+
+    fetchMock.mockClear();
+    expect(await board.addBlocker('t1', 't2')).toBe(false);
+    expect(await board.addBlocker('missing', 't3')).toBe(false);
+    expect(await board.addBlocker('t2', 't1')).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('taskMatchesFilters title query', () => {
@@ -460,6 +470,23 @@ describe('deleteTask', () => {
       expect(result.layout.nodes.some((n) => n.id === 't1')).toBe(false);
       expect(result.layout.edges.some((e) => e.from === 't1' || e.to === 't1')).toBe(false);
     }
+  });
+
+  it('does not resurrect a task when a failed/aborted DELETE refetches a board that already dropped it', async () => {
+    mockRoutes((request, url) => {
+      if (request.method === 'DELETE' && url.pathname === '/api/tasks/t1') {
+        return jsonResponse(500, { error: 'aborted' });
+      }
+      if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
+        const p = payload();
+        return jsonResponse(200, { ...p, tasks: p.tasks.filter((t) => t.id !== 't1') });
+      }
+      return undefined;
+    });
+
+    await board.deleteTask('t1');
+
+    expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
   });
 });
 

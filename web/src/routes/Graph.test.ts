@@ -47,6 +47,18 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
   };
 }
 
+function previewPath(container: HTMLElement): string {
+  const path = container.querySelector('path[marker-end="url(#cp-graph-arrow-active)"]');
+  expect(path).not.toBeNull();
+  return path!.getAttribute('d') ?? '';
+}
+
+function parsePreview(d: string): { start: [number, number]; end: [number, number] } {
+  const m = d.match(/^M\s+([-\d.]+)\s+([-\d.]+)\s+L\s+([-\d.]+)\s+([-\d.]+)$/);
+  if (m === null) throw new Error(`unexpected preview path: ${d}`);
+  return { start: [Number(m[1]), Number(m[2])], end: [Number(m[3]), Number(m[4])] };
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
@@ -166,6 +178,26 @@ describe('Graph', () => {
 
     expect(await screen.findByText('No tasks to graph')).toBeInTheDocument();
   });
+
+  it('offers Clear filters when a title filter dims nodes even though the project has no labels', async () => {
+    const projectId = 'p-graph-clear-no-labels';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    expect(board.labels).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+
+    board.setFilterQuery('Task a');
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Clear filters' }));
+    expect(board.hasActiveFilters).toBe(false);
+  });
 });
 
 describe('Graph dependency editing', () => {
@@ -188,7 +220,7 @@ describe('Graph dependency editing', () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
-    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
 
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
@@ -213,7 +245,7 @@ describe('Graph dependency editing', () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
-    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
 
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
@@ -286,7 +318,7 @@ describe('Graph dependency editing', () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
-    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
 
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
@@ -312,7 +344,7 @@ describe('Graph dependency editing', () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
-    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
 
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
@@ -336,7 +368,7 @@ describe('Graph dependency editing', () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
-    vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+    vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
 
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
@@ -429,5 +461,86 @@ describe('Graph dependency editing', () => {
         'opacity-25'
       );
     });
+  });
+
+  it('keeps a freshly created highlighted node at full opacity even when it fails the active filter', async () => {
+    const projectId = 'p-graph-pulse-exempt';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    board.setFilterQuery('zzz');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    const input = screen.getByRole('textbox', { name: 'New task title' });
+    await fireEvent.input(input, { target: { value: 'Ship it' } });
+    await fireEvent.submit(input.closest('form')!);
+
+    let highlighted: Element | null = null;
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+      highlighted = container.querySelector('[data-highlight]');
+      expect(highlighted).not.toBeNull();
+    });
+    const cls = highlighted!.getAttribute('class') ?? '';
+    expect(cls).toContain('opacity-100');
+    expect(cls).not.toContain('opacity-25');
+  });
+
+  it('points the back-handle preview arrow at the source origin while the tail tracks the pointer', async () => {
+    const projectId = 'p-graph-back-preview';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    const backHandle = container.querySelector(
+      '[data-connect-dir="back"][data-connect-handle="a"]'
+    );
+    stubElementFromPoint(null);
+
+    await fireEvent.pointerDown(backHandle!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 200, clientY: 60 });
+    const first = parsePreview(previewPath(container));
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 320, clientY: 140 });
+    const second = parsePreview(previewPath(container));
+
+    expect(second.end).toEqual(first.end);
+    expect(second.start).not.toEqual(first.start);
+  });
+
+  it('points the front-handle preview arrow at the drop target while the tail stays at the source', async () => {
+    const projectId = 'p-graph-front-preview';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    const frontHandle = container.querySelector(
+      '[data-connect-dir="front"][data-connect-handle="a"]'
+    );
+    stubElementFromPoint(null);
+
+    await fireEvent.pointerDown(frontHandle!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 200, clientY: 60 });
+    const first = parsePreview(previewPath(container));
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 320, clientY: 140 });
+    const second = parsePreview(previewPath(container));
+
+    expect(second.start).toEqual(first.start);
+    expect(second.end).not.toEqual(first.end);
   });
 });

@@ -15,7 +15,7 @@
 </script>
 
 <div class="flex min-w-0 flex-1 items-center gap-2">
-  <label class="relative flex shrink-0 items-center">
+  <label class="relative flex min-w-0 items-center">
     <svg
       class="pointer-events-none absolute left-2.5 size-4 text-muted"
       viewBox="0 0 24 24"
@@ -35,7 +35,7 @@
       oninput={(event) => board.setFilterQuery(event.currentTarget.value)}
       aria-label="Filter tasks by title"
       placeholder="Filter tasks…"
-      class="min-h-11 w-36 rounded-md border border-edge bg-canvas pr-3 pl-8 text-sm outline-none focus:border-accent sm:w-48"
+      class="min-h-11 w-36 min-w-0 rounded-md border border-edge bg-canvas pr-3 pl-8 text-sm outline-none focus:border-accent sm:w-48"
     />
   </label>
   {#if board.labels.length > 0 || assignees.length > 0}

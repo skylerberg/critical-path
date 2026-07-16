@@ -1,8 +1,9 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import TaskDetail from './TaskDetail.svelte';
 import { board } from '../lib/board.svelte';
+import { router } from '../lib/router.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
 
@@ -125,6 +126,28 @@ describe('TaskDetail', () => {
     render(TaskDetail, { taskId: 'missing', closePath: '/projects/p1' });
 
     expect(screen.getByText('Task not found')).toBeInTheDocument();
+  });
+
+  it('waits for the delete to finish before redirecting, so the DELETE is never aborted', async () => {
+    let resolveDelete: (() => void) | undefined;
+    const deleteSpy = vi.spyOn(board, 'deleteTask').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDelete = resolve;
+        })
+    );
+    const redirectSpy = vi.spyOn(router, 'redirect').mockImplementation(() => {});
+
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+
+    expect(deleteSpy).toHaveBeenCalledWith('t1');
+    expect(redirectSpy).not.toHaveBeenCalled();
+
+    resolveDelete?.();
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith('/projects/p1'));
   });
 
   it('lists tasks that depend on this one and removes the reverse relation', async () => {

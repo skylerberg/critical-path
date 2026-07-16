@@ -394,18 +394,20 @@ class BoardStore {
     }
   }
 
-  async addBlocker(taskId: string, blockerTaskId: string): Promise<void> {
+  async addBlocker(taskId: string, blockerTaskId: string): Promise<boolean> {
+    const target = this.tasks.find((task) => task.id === taskId);
+    if (target === undefined || target.blocker_ids.includes(blockerTaskId)) {
+      return false;
+    }
     const next = this.tasks.map((task) =>
-      task.id === taskId && !task.blocker_ids.includes(blockerTaskId)
-        ? { ...task, blocker_ids: [...task.blocker_ids, blockerTaskId] }
-        : task
+      task.id === taskId ? { ...task, blocker_ids: [...task.blocker_ids, blockerTaskId] } : task
     );
     // Reject a cycle-forming edge before applying it, so the graph never flashes
     // its full-screen cycle state and the backend 409 toast never stacks on ours.
     const { nodes, edges } = buildGraph(next, this.columns);
     if (detectCycle(nodes, edges)) {
       toasts.error('Adding this blocker would create a dependency cycle');
-      return;
+      return false;
     }
     this.tasks = next;
     try {
@@ -415,8 +417,10 @@ class BoardStore {
           body: { blocker_task_id: blockerTaskId },
         })
       );
+      return true;
     } catch (error) {
       await this.#mutationFailed(error);
+      return false;
     }
   }
 

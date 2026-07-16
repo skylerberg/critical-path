@@ -312,7 +312,7 @@
 
   function onPointerEnd(e: PointerEvent): void {
     if (connectSource !== null) {
-      onConnectEnd(e);
+      void onConnectEnd(e);
       return;
     }
     if (!pointers.delete(e.pointerId)) return;
@@ -379,7 +379,7 @@
     connectTarget = id !== null && id !== connectSource ? id : null;
   }
 
-  function onConnectEnd(e: PointerEvent): void {
+  async function onConnectEnd(e: PointerEvent): Promise<void> {
     if (e.pointerId !== connectPointerId) return;
     resolveConnectTarget(e);
     const source = connectSource;
@@ -388,12 +388,13 @@
     cancelConnect();
     if (source !== null && target !== null && target !== source) {
       // Front handle: source blocks target. Back handle: target blocks source.
-      if (direction === 'back') {
-        void board.addBlocker(source, target);
-      } else {
-        void board.addBlocker(target, source);
-      }
-      highlightNodes([source, target]);
+      const added =
+        direction === 'back'
+          ? await board.addBlocker(source, target)
+          : await board.addBlocker(target, source);
+      // Only pulse the pair when the edge actually landed — not for a cycle
+      // rejection or a duplicate no-op.
+      if (added) highlightNodes([source, target]);
     }
   }
 
@@ -493,13 +494,15 @@
           </button>
         {/if}
       </div>
-      {#if board.labels.length > 0 && layout !== null && layout.nodes.length > 0}
+      {#if layout !== null && layout.nodes.length > 0 && (board.labels.length > 0 || board.hasActiveFilters)}
         <div
           class="pointer-events-auto flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-x-auto rounded-md border border-edge bg-surface/90 px-2 py-1 shadow-sm"
           role="group"
           aria-label="Label filters"
         >
-          <LabelFilterChips />
+          {#if board.labels.length > 0}
+            <LabelFilterChips />
+          {/if}
           {#if board.hasActiveFilters}
             <button
               type="button"
@@ -594,8 +597,16 @@
         />
       {/each}
       {#if connectSourceNode && connectPoint}
+        {@const previewStart =
+          connectDirection === 'back'
+            ? connectPoint
+            : { x: connectOriginX, y: connectSourceNode.y }}
+        {@const previewEnd =
+          connectDirection === 'back'
+            ? { x: connectOriginX, y: connectSourceNode.y }
+            : connectPoint}
         <path
-          d="M {connectOriginX} {connectSourceNode.y} L {connectPoint.x} {connectPoint.y}"
+          d="M {previewStart.x} {previewStart.y} L {previewEnd.x} {previewEnd.y}"
           fill="none"
           class="stroke-accent"
           stroke-width="2"
@@ -614,7 +625,13 @@
           transform="translate({n.x - NODE_WIDTH / 2} {n.y - NODE_HEIGHT / 2})"
           data-node-id={n.id}
           data-highlight={pulse ? '' : undefined}
-          class="group {dimmed ? 'opacity-25' : n.isDone ? 'opacity-60' : ''}"
+          class="group {pulse
+            ? 'opacity-100'
+            : dimmed
+              ? 'opacity-25'
+              : n.isDone
+                ? 'opacity-60'
+                : ''}"
         >
           <rect
             width={NODE_WIDTH}

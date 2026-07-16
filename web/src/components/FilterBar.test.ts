@@ -43,6 +43,17 @@ describe('FilterBar', () => {
     expect(board.hasActiveFilters).toBe(true);
   });
 
+  it('lets the search input and its wrapper shrink so the header cannot overflow narrow viewports', () => {
+    board.tasks = [task('t1', [])];
+
+    render(FilterBar);
+    const input = screen.getByLabelText<HTMLInputElement>('Filter tasks by title');
+    expect(input.className).toContain('min-w-0');
+    const label = input.closest('label')!;
+    expect(label.className).toContain('min-w-0');
+    expect(label.className).not.toContain('shrink-0');
+  });
+
   it('keeps a selected assignee chip and Clear filters when the user vanishes from all tasks', async () => {
     board.tasks = [task('t1', ['u1'])];
     board.toggleAssigneeFilter('u1');

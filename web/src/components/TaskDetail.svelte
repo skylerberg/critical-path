@@ -36,12 +36,14 @@
   let uploadInput = $state<HTMLInputElement>();
   let titleDraft = $state<string | null>(null);
   let confirmingDelete = $state(false);
+  let deleting = $state(false);
 
   $effect(() => {
     const id = taskId;
     untrack(() => {
       titleDraft = null;
       confirmingDelete = false;
+      deleting = false;
       void board.loadTaskImages(id);
     });
   });
@@ -72,6 +74,9 @@
   }
 
   function saveDescription(doc: TiptapDoc | null): Promise<boolean> {
+    // The editor flushes pending saves on teardown; skip that doomed PATCH once a
+    // delete is under way so it cannot 404 (or resurrect the task on refetch).
+    if (deleting) return Promise.resolve(true);
     return board.updateTask(taskId, { description: doc });
   }
 
@@ -80,12 +85,16 @@
     return image?.url ?? null;
   }
 
-  function handleDelete(): void {
+  async function handleDelete(): Promise<void> {
     if (!confirmingDelete) {
       confirmingDelete = true;
       return;
     }
-    void board.deleteTask(taskId);
+    // Await the DELETE before closing: navigating away first aborts the in-flight
+    // request, and the failure path's refetch then races the server commit and
+    // resurrects the task.
+    deleting = true;
+    await board.deleteTask(taskId);
     close();
   }
 
@@ -268,7 +277,7 @@
             new Date(task.updated_at)
           )}
         </p>
-        <Button variant="danger" onclick={handleDelete}>
+        <Button variant="danger" onclick={() => void handleDelete()}>
           {confirmingDelete ? 'Confirm delete' : 'Delete task'}
         </Button>
       </div>
