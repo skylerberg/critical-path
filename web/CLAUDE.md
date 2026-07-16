@@ -11,6 +11,13 @@ throwaway data for testing and delete only what you created; never wipe or
 bulk-delete `game_dev`, and never touch `gamedev@skylerberg.com`'s data. See
 `game-dev-api/CLAUDE.md` for the full rule.
 
+## Long-running local instance — don't kill it
+
+A `vite preview` on `127.0.0.1:4173` (fronted by `tailscale serve`) is the
+owner's live instance and stays up across sessions. Never stop a dev/preview
+server with a broad `pkill -f vite` — it also kills that instance. Kill only
+your own process by its PID or port (`lsof -ti :<your-port> | xargs kill`).
+
 ## Checks (run all before finishing)
 
 ```sh
