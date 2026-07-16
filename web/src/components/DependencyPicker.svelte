@@ -31,6 +31,11 @@
       .slice(0, 8);
   });
 
+  const trimmed = $derived(query.trim());
+  const showCreate = $derived(
+    trimmed !== '' && !board.tasks.some((t) => t.title.toLowerCase() === trimmed.toLowerCase())
+  );
+
   const label = $derived(
     direction === 'blocker' ? 'Search tasks to add as blockers' : 'Search tasks this one blocks'
   );
@@ -43,15 +48,37 @@
     }
     query = '';
   }
+
+  function createAndLink(): void {
+    const title = trimmed;
+    if (title === '') return;
+    void board.createAndLinkTask(
+      title,
+      direction === 'blocker' ? { blockerOf: taskId } : { blockedBy: taskId }
+    );
+    query = '';
+  }
 </script>
 
 <div class="flex flex-col gap-2">
   <Input bind:value={query} aria-label={label} placeholder="{label}…" />
   {#if query.trim() !== ''}
-    {#if candidates.length === 0}
+    {#if candidates.length === 0 && !showCreate}
       <p class="text-sm text-muted">No matching tasks.</p>
     {:else}
       <ul class="flex flex-col overflow-hidden rounded-md border border-edge">
+        {#if showCreate}
+          <li>
+            <button
+              type="button"
+              onclick={createAndLink}
+              class="flex min-h-11 w-full cursor-pointer items-center gap-2 px-3 text-left text-sm font-medium hover:bg-accent-soft"
+            >
+              <span class="text-accent" aria-hidden="true">+</span>
+              <span class="min-w-0 flex-1 truncate">Create "{trimmed}"</span>
+            </button>
+          </li>
+        {/if}
         {#each candidates as candidate (candidate.id)}
           <li>
             <button

@@ -30,6 +30,7 @@ class BoardStore {
   dragging = $state(false);
   filterLabelIds = $state<string[]>([]);
   filterAssigneeIds = $state<string[]>([]);
+  filterQuery = $state('');
 
   // Monotonic tokens rather than project-id checks: ids cannot tell a stale
   // request apart from a fresh one across a P1->P2->P1 flip.
@@ -96,6 +97,7 @@ class BoardStore {
     this.currentProjectId = null;
     this.filterLabelIds = [];
     this.filterAssigneeIds = [];
+    this.filterQuery = '';
   }
 
   tasksInColumn(columnId: string): BoardTask[] {
@@ -104,10 +106,10 @@ class BoardStore {
       .sort((a, b) => a.position - b.position);
   }
 
-  async createTask(columnId: string, title: string): Promise<void> {
+  async createTask(columnId: string, title: string): Promise<string | null> {
     const projectId = this.currentProjectId;
     if (projectId === null) {
-      return;
+      return null;
     }
     const id = newId();
     const position = append(this.tasksInColumn(columnId).map((task) => task.position));
@@ -134,9 +136,35 @@ class BoardStore {
           body: { id, project_id: projectId, column_id: columnId, title, position },
         })
       );
+      return id;
     } catch (error) {
       await this.#mutationFailed(error);
+      return null;
     }
+  }
+
+  // Awaiting the create before addBlocker guarantees the row exists server-side, so
+  // the blocker call can never race ahead of it (the label-race class of bug).
+  // addBlocker(taskId, blockerTaskId) reads as "blockerTaskId blocks taskId", hence
+  // the inverted argument order for each direction below.
+  async createAndLinkTask(
+    title: string,
+    opts: { blockerOf?: string; blockedBy?: string } = {}
+  ): Promise<string | null> {
+    const firstColumn = this.columns[0];
+    if (firstColumn === undefined) {
+      return null;
+    }
+    const id = await this.createTask(firstColumn.id, title);
+    if (id === null) {
+      return null;
+    }
+    if (opts.blockerOf !== undefined) {
+      await this.addBlocker(opts.blockerOf, id);
+    } else if (opts.blockedBy !== undefined) {
+      await this.addBlocker(id, opts.blockedBy);
+    }
+    return id;
   }
 
   async moveTask(taskId: string, columnId: string, position: number): Promise<void> {
@@ -421,13 +449,22 @@ class BoardStore {
       : [...this.filterAssigneeIds, userId];
   }
 
+  setFilterQuery(query: string): void {
+    this.filterQuery = query;
+  }
+
   clearFilters(): void {
     this.filterLabelIds = [];
     this.filterAssigneeIds = [];
+    this.filterQuery = '';
   }
 
   get hasActiveFilters(): boolean {
-    return this.filterLabelIds.length > 0 || this.filterAssigneeIds.length > 0;
+    return (
+      this.filterLabelIds.length > 0 ||
+      this.filterAssigneeIds.length > 0 ||
+      this.filterQuery.trim() !== ''
+    );
   }
 
   taskMatchesFilters(task: BoardTask): boolean {
@@ -437,7 +474,9 @@ class BoardStore {
     const assigneeOk =
       this.filterAssigneeIds.length === 0 ||
       task.assignee_ids.some((id) => this.filterAssigneeIds.includes(id));
-    return labelOk && assigneeOk;
+    const query = this.filterQuery.trim().toLowerCase();
+    const queryOk = query === '' || task.title.toLowerCase().includes(query);
+    return labelOk && assigneeOk && queryOk;
   }
 
   taskImages = $state<Record<string, TaskImage[]>>({});
@@ -501,12 +540,20 @@ class BoardStore {
       return;
     }
     switch (event.type) {
-      case 'task_created':
-      case 'task_updated': {
+      case 'task_created': {
         const task = event.data as BoardTask;
         this.tasks = this.tasks.some((t) => t.id === task.id)
           ? this.tasks.map((t) => (t.id === task.id ? task : t))
           : [...this.tasks, task];
+        break;
+      }
+      case 'task_updated': {
+        // Update-only: a task_updated for a task we no longer hold means it was
+        // deleted (a locally-deleted task whose in-flight edit — e.g. the detail
+        // overlay's autosave flushed on close — lands after our optimistic remove).
+        // Re-adding it here would resurrect a phantom node in the graph.
+        const task = event.data as BoardTask;
+        this.tasks = this.tasks.map((t) => (t.id === task.id ? task : t));
         break;
       }
       case 'task_deleted': {

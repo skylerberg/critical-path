@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { board, positionAfterDrop } from './board.svelte';
 import type { BoardPayload } from './board-types';
+import { computeGraph } from './graph';
 import { toasts } from './toasts.svelte';
 
 function task(id: string, columnId: string, position: number, title: string) {
@@ -348,6 +349,150 @@ describe('board store mutations', () => {
 
     expect(toasts.toasts.map((t) => t.message)).toEqual(['Dependency cycle']);
     expect(board.tasks.find((t) => t.id === 't1')?.blocker_ids).toEqual([]);
+  });
+});
+
+describe('taskMatchesFilters title query', () => {
+  it('matches every task when the query is empty or blank', () => {
+    board.setFilterQuery('');
+    expect(board.taskMatchesFilters(task('t9', 'c1', 1000, 'Anything'))).toBe(true);
+    board.setFilterQuery('   ');
+    expect(board.taskMatchesFilters(task('t9', 'c1', 1000, 'Anything'))).toBe(true);
+    expect(board.hasActiveFilters).toBe(false);
+  });
+
+  it('matches a case-insensitive substring of the title', () => {
+    board.setFilterQuery('AL');
+    expect(board.taskMatchesFilters(task('t9', 'c1', 1000, 'Alpha'))).toBe(true);
+    expect(board.taskMatchesFilters(task('t9', 'c1', 1000, 'Beta'))).toBe(false);
+    expect(board.hasActiveFilters).toBe(true);
+  });
+
+  it('composes the title query with the label filter', () => {
+    board.filterLabelIds = ['l1'];
+    board.setFilterQuery('alpha');
+    expect(board.taskMatchesFilters(task('t1', 'c1', 1000, 'Alpha'))).toBe(true);
+    expect(board.taskMatchesFilters(task('t1', 'c1', 1000, 'Beta'))).toBe(false);
+    expect(board.taskMatchesFilters(task('t2', 'c1', 1000, 'Alpha'))).toBe(false);
+  });
+
+  it('clearFilters resets the query', () => {
+    board.setFilterQuery('x');
+    board.clearFilters();
+    expect(board.filterQuery).toBe('');
+    expect(board.hasActiveFilters).toBe(false);
+  });
+});
+
+describe('createAndLinkTask', () => {
+  beforeEach(async () => {
+    await board.load('p1');
+    fetchMock.mockClear();
+  });
+
+  it('creates in the first column, then links the new task as a blocker of the target', async () => {
+    const id = await board.createAndLinkTask('New task', { blockerOf: 't3' });
+
+    expect(id).not.toBeNull();
+    expect(requestAt(0).method).toBe('POST');
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/tasks');
+    expect(requestAt(1).method).toBe('POST');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/tasks/t3/blockers');
+    expect(await requestAt(1).json()).toEqual({ blocker_task_id: id });
+
+    expect(board.tasks.find((t) => t.id === id)?.column_id).toBe('c1');
+    expect(board.tasks.find((t) => t.id === 't3')?.blocker_ids).toContain(id);
+  });
+
+  it('links the new task as blocked by the target for the reverse direction', async () => {
+    const id = await board.createAndLinkTask('New task', { blockedBy: 't1' });
+
+    expect(new URL(requestAt(1).url).pathname).toBe(`/api/tasks/${id}/blockers`);
+    expect(await requestAt(1).json()).toEqual({ blocker_task_id: 't1' });
+    expect(board.tasks.find((t) => t.id === id)?.blocker_ids).toEqual(['t1']);
+  });
+
+  it('creates an unconnected task when no direction is given', async () => {
+    const id = await board.createAndLinkTask('Loose task');
+
+    expect(id).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/tasks');
+    expect(board.tasks.find((t) => t.id === id)?.blocker_ids).toEqual([]);
+  });
+
+  it('does not link when the create fails', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/tasks'
+        ? jsonResponse(500, { error: 'boom' })
+        : undefined
+    );
+
+    const id = await board.createAndLinkTask('New task', { blockerOf: 't3' });
+
+    expect(id).toBeNull();
+    const blockerCalls = fetchMock.mock.calls.filter((call) =>
+      new URL((call[0] as Request).url).pathname.endsWith('/blockers')
+    );
+    expect(blockerCalls).toHaveLength(0);
+  });
+});
+
+describe('deleteTask', () => {
+  beforeEach(async () => {
+    await board.load('p1');
+    fetchMock.mockClear();
+  });
+
+  it('removes the task, strips it from other blocker_ids, and drops it from the graph', async () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't2' ? { ...t, blocker_ids: ['t1'] } : t));
+
+    await board.deleteTask('t1');
+
+    expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
+    expect(board.tasks.find((t) => t.id === 't2')?.blocker_ids).toEqual([]);
+    expect(requestAt(0).method).toBe('DELETE');
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/tasks/t1');
+
+    const result = computeGraph(board.tasks, board.columns);
+    expect(result.kind).toBe('ok');
+    if (result.kind === 'ok') {
+      expect(result.layout.nodes.some((n) => n.id === 't1')).toBe(false);
+      expect(result.layout.edges.some((e) => e.from === 't1' || e.to === 't1')).toBe(false);
+    }
+  });
+});
+
+describe('applyRealtime does not resurrect a deleted task', () => {
+  beforeEach(async () => {
+    await board.load('p1');
+  });
+
+  it('ignores a stale task_updated echo for a task that was just deleted', async () => {
+    await board.deleteTask('t1');
+    expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
+
+    board.applyRealtime({
+      type: 'task_updated',
+      project_id: 'p1',
+      data: { ...task('t1', 'c1', 1000, 'A'), title: 'A edited' },
+    });
+
+    expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
+    const result = computeGraph(board.tasks, board.columns);
+    if (result.kind === 'ok') {
+      expect(result.layout.nodes.some((n) => n.id === 't1')).toBe(false);
+    }
+  });
+
+  it('still applies a task_updated echo for a task that is present', () => {
+    board.applyRealtime({
+      type: 'task_updated',
+      project_id: 'p1',
+      data: { ...task('t2', 'c1', 2000, 'B'), title: 'B renamed' },
+    });
+
+    expect(board.tasks.find((t) => t.id === 't2')?.title).toBe('B renamed');
   });
 });
 

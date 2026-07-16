@@ -5,7 +5,6 @@ import {
   NODE_WIDTH,
   buildGraph,
   computeGraph,
-  criticalPath,
   detectCycle,
   edgeId,
   edgePath,
@@ -145,69 +144,13 @@ describe('layoutGraph', () => {
   });
 });
 
-describe('criticalPath', () => {
-  it('picks the full chain a -> b -> c', () => {
-    const nodes = [node('a'), node('b'), node('c')];
-    const result = criticalPath(nodes, [edge('a', 'b'), edge('b', 'c')]);
-
-    expect(result.nodeIds).toEqual(['a', 'b', 'c']);
-    expect(result.edgeIds).toEqual(['a->b', 'b->c']);
-  });
-
-  it('picks one longest branch of a diamond', () => {
-    const nodes = [node('a'), node('b'), node('c'), node('d')];
-    const edges = [edge('a', 'b'), edge('a', 'c'), edge('b', 'd'), edge('c', 'd')];
-
-    const result = criticalPath(nodes, edges);
-
-    expect(result.nodeIds).toHaveLength(3);
-    expect(result.nodeIds[0]).toBe('a');
-    expect(result.nodeIds[2]).toBe('d');
-    expect(['b', 'c']).toContain(result.nodeIds[1]);
-    expect(result.edgeIds).toEqual([
-      edgeId('a', result.nodeIds[1]!),
-      edgeId(result.nodeIds[1]!, 'd'),
-    ]);
-  });
-
-  it('is broken by done tasks', () => {
-    const nodes = [node('a'), node('b'), node('c', true), node('d')];
-    const edges = [edge('a', 'b'), edge('b', 'c'), edge('c', 'd')];
-
-    const result = criticalPath(nodes, edges);
-
-    expect(result.nodeIds).toEqual(['a', 'b']);
-    expect(result.edgeIds).toEqual(['a->b']);
-  });
-
-  it('returns nothing when every chain is a single task', () => {
-    const nodes = [node('a'), node('b', true), node('c')];
-    expect(criticalPath(nodes, [edge('a', 'b'), edge('b', 'c')])).toEqual({
-      nodeIds: [],
-      edgeIds: [],
-    });
-  });
-
-  it('returns nothing for empty edges', () => {
-    expect(criticalPath([node('a'), node('b')], [])).toEqual({ nodeIds: [], edgeIds: [] });
-  });
-
-  it('returns nothing instead of hanging on cyclic input', () => {
-    const nodes = [node('a'), node('b')];
-    expect(criticalPath(nodes, [edge('a', 'b'), edge('b', 'a')])).toEqual({
-      nodeIds: [],
-      edgeIds: [],
-    });
-  });
-});
-
 describe('computeGraph', () => {
   it('returns a cycle marker without layout on cyclic data', () => {
     const tasks = [task('a', 'todo', ['b']), task('b', 'todo', ['a'])];
     expect(computeGraph(tasks, columns)).toEqual({ kind: 'cycle' });
   });
 
-  it('returns layout and critical path for a DAG', () => {
+  it('returns a layout for a DAG', () => {
     const tasks = [task('a', 'todo'), task('b', 'todo', ['a']), task('c', 'done', ['b'])];
 
     const result = computeGraph(tasks, columns);
@@ -216,7 +159,6 @@ describe('computeGraph', () => {
     if (result.kind !== 'ok') return;
     expect(result.layout.nodes).toHaveLength(3);
     expect(result.layout.edges).toHaveLength(2);
-    expect(result.critical.nodeIds).toEqual(['a', 'b']);
   });
 });
 

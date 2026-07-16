@@ -19,7 +19,9 @@
 
 <header class="shrink-0 border-b border-edge bg-surface px-3 py-2 lg:px-4">
   <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-    <h1 class="min-w-0 flex-1 truncate text-lg font-semibold">{board.project?.name ?? ''}</h1>
+    <h1 class="min-w-0 truncate text-lg font-semibold {boardActive ? '' : 'flex-1'}">
+      {board.project?.name ?? ''}
+    </h1>
     <nav use:link aria-label="Project views" class="flex gap-1">
       <a
         href={`/projects/${projectId}`}
@@ -60,10 +62,10 @@
       </svg>
       Labels
     </button>
+    {#if boardActive}
+      <FilterBar />
+    {/if}
   </div>
-  {#if view !== 'graph'}
-    <FilterBar />
-  {/if}
 </header>
 
 {#if labelsOpen}

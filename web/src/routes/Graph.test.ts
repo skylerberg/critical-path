@@ -1,6 +1,7 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { flushSync } from 'svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
 import { toasts } from '../lib/toasts.svelte';
@@ -55,7 +56,7 @@ beforeEach(() => {
 });
 
 describe('Graph', () => {
-  it('renders a linked node per task, header tabs, and the critical path legend', async () => {
+  it('renders a linked node per task and header tabs', async () => {
     const projectId = 'p-graph-chain';
     const tasks = [task('a', 'todo'), task('b', 'todo', ['a']), task('c', 'todo', ['b'])];
     fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
@@ -77,8 +78,24 @@ describe('Graph', () => {
       'href',
       `/projects/${projectId}/graph`
     );
-    expect(screen.getByText('Critical path')).toBeInTheDocument();
     expect(container.querySelectorAll('path[marker-end]')).toHaveLength(2);
+  });
+
+  it('no longer renders the critical-path legend or accent-highlighted nodes', async () => {
+    const projectId = 'p-graph-no-critical';
+    const tasks = [task('a', 'todo'), task('b', 'todo', ['a']), task('c', 'todo', ['b'])];
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(3);
+    });
+    expect(screen.queryByText('Critical path')).not.toBeInTheDocument();
+    expect(container.querySelector('#cp-graph-arrow-critical')).toBeNull();
+    for (const rect of container.querySelectorAll('[data-node-id] rect')) {
+      expect(rect.getAttribute('class') ?? '').not.toContain('stroke-accent');
+    }
   });
 
   it('renders each node as an anchor to the graph-preserving task path', async () => {
@@ -160,6 +177,7 @@ describe('Graph dependency editing', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     Reflect.deleteProperty(document, 'elementFromPoint');
   });
 
@@ -261,5 +279,155 @@ describe('Graph dependency editing', () => {
     await fireEvent.click(chip);
 
     expect(spy).toHaveBeenCalledWith('b', 'a');
+  });
+
+  it('drags the back handle to add the reverse dependency', async () => {
+    const projectId = 'p-graph-back-handle';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    const backHandle = container.querySelector(
+      '[data-connect-dir="back"][data-connect-handle="a"]'
+    );
+    const targetNode = container.querySelector('[data-node-id="b"]');
+    expect(backHandle).not.toBeNull();
+    stubElementFromPoint(targetNode);
+
+    await fireEvent.pointerDown(backHandle!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerMove(window, { pointerId: 1, clientX: 200, clientY: 60 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 60 });
+
+    expect(spy).toHaveBeenCalledWith('a', 'b');
+  });
+
+  it('keeps the front handle direction (source blocks target)', async () => {
+    const projectId = 'p-graph-front-handle';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    const frontHandle = container.querySelector(
+      '[data-connect-dir="front"][data-connect-handle="a"]'
+    );
+    const targetNode = container.querySelector('[data-node-id="b"]');
+    stubElementFromPoint(targetNode);
+
+    await fireEvent.pointerDown(frontHandle!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 60 });
+
+    expect(spy).toHaveBeenCalledWith('b', 'a');
+  });
+
+  it('highlights the source and target after a connect, then clears', async () => {
+    const projectId = 'p-graph-highlight';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+    vi.spyOn(board, 'addBlocker').mockResolvedValue(undefined);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    const handle = container.querySelector('[data-connect-handle="a"]');
+    const targetNode = container.querySelector('[data-node-id="b"]');
+    stubElementFromPoint(targetNode);
+
+    vi.useFakeTimers();
+    await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
+    await fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 60 });
+    flushSync();
+    expect(container.querySelectorAll('[data-highlight]')).toHaveLength(2);
+
+    vi.advanceTimersByTime(1800);
+    flushSync();
+    expect(container.querySelectorAll('[data-highlight]')).toHaveLength(0);
+  });
+
+  it('creates a task from the new-task control and highlights it', async () => {
+    const projectId = 'p-graph-new-task';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+    const spy = vi.spyOn(board, 'createAndLinkTask');
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    const input = screen.getByRole('textbox', { name: 'New task title' });
+    await fireEvent.input(input, { target: { value: 'Ship it' } });
+    await fireEvent.submit(input.closest('form')!);
+
+    expect(spy).toHaveBeenCalledWith('Ship it');
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+      expect(container.querySelectorAll('[data-highlight]').length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('highlights nodes matching a selected label and dims the rest', async () => {
+    const projectId = 'p-graph-label-filter';
+    const withLabel = { ...task('a', 'todo'), label_ids: ['l1'] };
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, {
+        ...payload(projectId, [withLabel, task('b', 'todo')]),
+        labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+      })
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    await fireEvent.click(screen.getByRole('button', { name: /art/ }));
+
+    await waitFor(() => {
+      const a = container.querySelector('[data-node-id="a"]')!;
+      const b = container.querySelector('[data-node-id="b"]')!;
+      expect(a.getAttribute('class') ?? '').not.toContain('opacity-25');
+      expect(a.querySelector('rect')!.getAttribute('class') ?? '').toContain('stroke-accent');
+      expect(b.getAttribute('class') ?? '').toContain('opacity-25');
+    });
+  });
+
+  it('dims nodes whose title does not match the shared title filter', async () => {
+    const projectId = 'p-graph-title-filter';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    board.setFilterQuery('Task a');
+
+    await waitFor(() => {
+      expect(
+        container.querySelector('[data-node-id="a"]')!.getAttribute('class') ?? ''
+      ).not.toContain('opacity-25');
+      expect(container.querySelector('[data-node-id="b"]')!.getAttribute('class') ?? '').toContain(
+        'opacity-25'
+      );
+    });
   });
 });

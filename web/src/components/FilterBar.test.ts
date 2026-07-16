@@ -32,6 +32,17 @@ beforeEach(() => {
 });
 
 describe('FilterBar', () => {
+  it('drives the shared title filter from the search input', async () => {
+    board.tasks = [task('t1', [])];
+
+    render(FilterBar);
+    const input = screen.getByLabelText<HTMLInputElement>('Filter tasks by title');
+    await fireEvent.input(input, { target: { value: 'boss' } });
+
+    expect(board.filterQuery).toBe('boss');
+    expect(board.hasActiveFilters).toBe(true);
+  });
+
   it('keeps a selected assignee chip and Clear filters when the user vanishes from all tasks', async () => {
     board.tasks = [task('t1', ['u1'])];
     board.toggleAssigneeFilter('u1');

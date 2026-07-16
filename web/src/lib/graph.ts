@@ -41,14 +41,7 @@ export interface GraphLayout {
   height: number;
 }
 
-export interface CriticalPath {
-  nodeIds: string[];
-  edgeIds: string[];
-}
-
-export type GraphResult =
-  | { kind: 'cycle' }
-  | { kind: 'ok'; layout: GraphLayout; critical: CriticalPath };
+export type GraphResult = { kind: 'cycle' } | { kind: 'ok'; layout: GraphLayout };
 
 export function edgeId(from: string, to: string): string {
   return `${from}->${to}`;
@@ -146,59 +139,6 @@ export function layoutGraph(nodes: readonly GraphNode[], edges: readonly GraphEd
   };
 }
 
-// A single task is not a meaningful chain, so paths shorter than two nodes
-// produce no highlight.
-export function criticalPath(
-  nodes: readonly GraphNode[],
-  edges: readonly GraphEdge[]
-): CriticalPath {
-  const activeNodes = nodes.filter((node) => !node.isDone);
-  const activeIds = new Set(activeNodes.map((node) => node.id));
-  const activeEdges = edges.filter((edge) => activeIds.has(edge.from) && activeIds.has(edge.to));
-  const order = topologicalOrder(activeNodes, activeEdges);
-  if (order.length < activeNodes.length) {
-    return { nodeIds: [], edgeIds: [] };
-  }
-  const incoming = new Map<string, string[]>(activeNodes.map((node) => [node.id, []]));
-  for (const edge of activeEdges) {
-    incoming.get(edge.to)!.push(edge.from);
-  }
-  const chainLength = new Map<string, number>();
-  const predecessor = new Map<string, string>();
-  let bestId: string | null = null;
-  let bestLength = 0;
-  for (const id of order) {
-    let length = 1;
-    for (const from of incoming.get(id)!) {
-      const candidate = chainLength.get(from)! + 1;
-      if (candidate > length) {
-        length = candidate;
-        predecessor.set(id, from);
-      }
-    }
-    chainLength.set(id, length);
-    if (length > bestLength) {
-      bestLength = length;
-      bestId = id;
-    }
-  }
-  if (bestId === null || bestLength < 2) {
-    return { nodeIds: [], edgeIds: [] };
-  }
-  const nodeIds: string[] = [];
-  const edgeIds: string[] = [];
-  let current: string | undefined = bestId;
-  while (current !== undefined) {
-    nodeIds.unshift(current);
-    const prev: string | undefined = predecessor.get(current);
-    if (prev !== undefined) {
-      edgeIds.unshift(edgeId(prev, current));
-    }
-    current = prev;
-  }
-  return { nodeIds, edgeIds };
-}
-
 export function computeGraph(
   tasks: readonly BoardTask[],
   columns: readonly BoardColumn[]
@@ -207,7 +147,7 @@ export function computeGraph(
   if (detectCycle(nodes, edges)) {
     return { kind: 'cycle' };
   }
-  return { kind: 'ok', layout: layoutGraph(nodes, edges), critical: criticalPath(nodes, edges) };
+  return { kind: 'ok', layout: layoutGraph(nodes, edges) };
 }
 
 function fmt(point: LayoutPoint): string {

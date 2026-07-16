@@ -87,4 +87,44 @@ describe('DependencyPicker', () => {
       expect(input.value).toBe('');
     });
   });
+
+  describe('create option', () => {
+    it('shows no Create row until the query matches no existing task', async () => {
+      render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
+
+      const input = screen.getByLabelText('Search tasks to add as blockers');
+      await fireEvent.input(input, { target: { value: 'Sleeve cards' } });
+
+      expect(screen.queryByText('Create "Sleeve cards"')).not.toBeInTheDocument();
+
+      await fireEvent.input(input, { target: { value: 'Playtest rules' } });
+
+      expect(screen.getByText('Create "Playtest rules"')).toBeInTheDocument();
+      expect(screen.queryByText('No matching tasks.')).not.toBeInTheDocument();
+    });
+
+    it('creates and links a new blocker in the blocker direction', async () => {
+      const spy = vi.spyOn(board, 'createAndLinkTask').mockResolvedValue('new');
+      render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
+
+      const input = screen.getByLabelText<HTMLInputElement>('Search tasks to add as blockers');
+      await fireEvent.input(input, { target: { value: 'Playtest rules' } });
+      await fireEvent.click(screen.getByRole('button', { name: /Create "Playtest rules"/ }));
+
+      expect(spy).toHaveBeenCalledWith('Playtest rules', { blockerOf: 't1' });
+      expect(input.value).toBe('');
+    });
+
+    it('creates and links a new blocked task in the blocked direction', async () => {
+      const spy = vi.spyOn(board, 'createAndLinkTask').mockResolvedValue('new');
+      render(DependencyPicker, { taskId: 't1', direction: 'blocked' });
+
+      const input = screen.getByLabelText<HTMLInputElement>('Search tasks this one blocks');
+      await fireEvent.input(input, { target: { value: 'Playtest rules' } });
+      await fireEvent.click(screen.getByRole('button', { name: /Create "Playtest rules"/ }));
+
+      expect(spy).toHaveBeenCalledWith('Playtest rules', { blockedBy: 't1' });
+      expect(input.value).toBe('');
+    });
+  });
 });

@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { SvelteMap } from 'svelte/reactivity';
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { board } from '../lib/board.svelte';
+  import type { BoardTask } from '../lib/board-types';
   import { link } from '../lib/router.svelte';
   import { toasts } from '../lib/toasts.svelte';
+  import LabelFilterChips from '../components/LabelFilterChips.svelte';
   import {
     NODE_HEIGHT,
     NODE_WIDTH,
@@ -32,14 +34,19 @@
 
   const result: GraphResult = $derived(computeGraph(board.tasks, board.columns));
   const layout = $derived(result.kind === 'ok' ? result.layout : null);
-  const criticalNodeIds = $derived(
-    new Set<string>(result.kind === 'ok' ? result.critical.nodeIds : [])
-  );
-  const criticalEdgeIds = $derived(
-    new Set<string>(result.kind === 'ok' ? result.critical.edgeIds : [])
-  );
-  const normalEdges = $derived(layout?.edges.filter((e) => !criticalEdgeIds.has(e.id)) ?? []);
-  const criticalEdges = $derived(layout?.edges.filter((e) => criticalEdgeIds.has(e.id)) ?? []);
+  const taskById = $derived(new Map<string, BoardTask>(board.tasks.map((t) => [t.id, t])));
+
+  function nodeDimmed(id: string): boolean {
+    if (!board.hasActiveFilters) return false;
+    const task = taskById.get(id);
+    return task !== undefined && !board.taskMatchesFilters(task);
+  }
+
+  function nodeLabelMatch(id: string): boolean {
+    if (board.filterLabelIds.length === 0) return false;
+    const task = taskById.get(id);
+    return task !== undefined && board.taskMatchesFilters(task);
+  }
 
   let cycleToastedFor: string | null = null;
   $effect(() => {
@@ -81,6 +88,7 @@
   let connectSource = $state<string | null>(null);
   let connectTarget = $state<string | null>(null);
   let connectPoint = $state<LayoutPoint | null>(null);
+  let connectDirection = $state<'front' | 'back'>('front');
   let connectPointerId: number | null = null;
   let selectedEdgeId = $state<string | null>(null);
   let coarsePointer = $state(false);
@@ -88,6 +96,69 @@
   const connectSourceNode = $derived(
     connectSource === null ? null : (layout?.nodes.find((n) => n.id === connectSource) ?? null)
   );
+  const connectOriginX = $derived(
+    connectSourceNode === null
+      ? 0
+      : connectSourceNode.x + (connectDirection === 'back' ? -NODE_WIDTH / 2 : NODE_WIDTH / 2)
+  );
+
+  // A transient accent ring shows where the source/target (or a freshly created
+  // node) landed after dagre re-lays-out; a single timer clears the whole set.
+  const HIGHLIGHT_MS = 1800;
+  const highlightedNodeIds = new SvelteSet<string>();
+  let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function highlightNodes(ids: readonly string[]): void {
+    for (const id of ids) {
+      highlightedNodeIds.add(id);
+    }
+    if (highlightTimer !== null) {
+      clearTimeout(highlightTimer);
+    }
+    highlightTimer = setTimeout(() => {
+      highlightedNodeIds.clear();
+      highlightTimer = null;
+    }, HIGHLIGHT_MS);
+  }
+
+  $effect(() => {
+    return () => {
+      if (highlightTimer !== null) clearTimeout(highlightTimer);
+    };
+  });
+
+  let newTaskOpen = $state(false);
+  let newTaskTitle = $state('');
+  let newTaskInput = $state<HTMLInputElement | null>(null);
+
+  $effect(() => {
+    if (newTaskOpen) newTaskInput?.focus();
+  });
+
+  function openNewTask(): void {
+    newTaskOpen = true;
+  }
+
+  function closeNewTask(): void {
+    newTaskOpen = false;
+    newTaskTitle = '';
+  }
+
+  function onNewTaskKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeNewTask();
+    }
+  }
+
+  async function submitNewTask(e: SubmitEvent): Promise<void> {
+    e.preventDefault();
+    const title = newTaskTitle.trim();
+    if (title === '') return;
+    closeNewTask();
+    const id = await board.createAndLinkTask(title);
+    if (id !== null) highlightNodes([id]);
+  }
   const selectedEdge = $derived(
     selectedEdgeId === null ? null : (layout?.edges.find((e) => e.id === selectedEdgeId) ?? null)
   );
@@ -275,12 +346,13 @@
     }
   }
 
-  function startConnect(e: PointerEvent, sourceId: string): void {
+  function startConnect(e: PointerEvent, sourceId: string, direction: 'front' | 'back'): void {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
     connectSource = sourceId;
     connectTarget = null;
+    connectDirection = direction;
     connectPointerId = e.pointerId;
     selectedEdgeId = null;
     // The node anchor's capture-phase suppressor keys on didDrag, so the release
@@ -312,9 +384,16 @@
     resolveConnectTarget(e);
     const source = connectSource;
     const target = connectTarget;
+    const direction = connectDirection;
     cancelConnect();
     if (source !== null && target !== null && target !== source) {
-      void board.addBlocker(target, source);
+      // Front handle: source blocks target. Back handle: target blocks source.
+      if (direction === 'back') {
+        void board.addBlocker(source, target);
+      } else {
+        void board.addBlocker(target, source);
+      }
+      highlightNodes([source, target]);
     }
   }
 
@@ -358,6 +437,82 @@
 </script>
 
 <div class="relative min-h-0 flex-1 overflow-hidden">
+  {#if result.kind !== 'cycle'}
+    <div
+      class="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start gap-2 p-3"
+    >
+      <div class="pointer-events-auto flex items-center">
+        {#if newTaskOpen}
+          <form
+            onsubmit={submitNewTask}
+            class="flex items-center gap-1 rounded-md border border-edge bg-surface p-1 shadow-sm"
+          >
+            <input
+              bind:this={newTaskInput}
+              bind:value={newTaskTitle}
+              onkeydown={onNewTaskKeydown}
+              type="text"
+              placeholder="Task title"
+              aria-label="New task title"
+              class="h-9 w-44 rounded bg-canvas px-2 text-sm text-ink outline-none"
+            />
+            <button
+              type="submit"
+              class="flex min-h-11 cursor-pointer items-center rounded-md bg-accent px-3 text-sm font-medium text-white"
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              onclick={closeNewTask}
+              aria-label="Cancel new task"
+              class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md text-muted hover:text-ink"
+            >
+              ✕
+            </button>
+          </form>
+        {:else}
+          <button
+            type="button"
+            onclick={openNewTask}
+            class="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-md border border-edge bg-surface px-3 text-sm font-medium text-ink shadow-sm hover:bg-accent-soft"
+          >
+            <svg
+              class="size-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New task
+          </button>
+        {/if}
+      </div>
+      {#if board.labels.length > 0 && layout !== null && layout.nodes.length > 0}
+        <div
+          class="pointer-events-auto flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-x-auto rounded-md border border-edge bg-surface/90 px-2 py-1 shadow-sm"
+          role="group"
+          aria-label="Label filters"
+        >
+          <LabelFilterChips />
+          {#if board.hasActiveFilters}
+            <button
+              type="button"
+              onclick={() => board.clearFilters()}
+              class="min-h-11 cursor-pointer text-xs font-medium text-muted underline hover:text-ink"
+            >
+              Clear filters
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/if}
   {#if result.kind === 'cycle'}
     <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
       <p class="text-base font-medium">Dependency cycle detected</p>
@@ -401,7 +556,7 @@
           <path d="M 0 1 L 9 5 L 0 9 z" class="fill-muted" />
         </marker>
         <marker
-          id="cp-graph-arrow-critical"
+          id="cp-graph-arrow-active"
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
@@ -413,22 +568,13 @@
           <path d="M 0 1 L 9 5 L 0 9 z" class="fill-accent" />
         </marker>
       </defs>
-      {#each normalEdges as e (e.id)}
+      {#each layout.edges as e (e.id)}
         <path
           d={edgePath(e.points)}
           fill="none"
           class="stroke-muted {selectedEdgeId === e.id ? 'opacity-100' : 'opacity-50'}"
           stroke-width={selectedEdgeId === e.id ? 3.5 : 1.5}
           marker-end="url(#cp-graph-arrow)"
-        />
-      {/each}
-      {#each criticalEdges as e (e.id)}
-        <path
-          d={edgePath(e.points)}
-          fill="none"
-          class="stroke-accent"
-          stroke-width={selectedEdgeId === e.id ? 4 : 2.5}
-          marker-end="url(#cp-graph-arrow-critical)"
         />
       {/each}
       {#each layout.edges as e (e.id)}
@@ -449,30 +595,35 @@
       {/each}
       {#if connectSourceNode && connectPoint}
         <path
-          d="M {connectSourceNode.x +
-            NODE_WIDTH / 2} {connectSourceNode.y} L {connectPoint.x} {connectPoint.y}"
+          d="M {connectOriginX} {connectSourceNode.y} L {connectPoint.x} {connectPoint.y}"
           fill="none"
           class="stroke-accent"
           stroke-width="2"
           stroke-dasharray="6 5"
-          marker-end="url(#cp-graph-arrow-critical)"
+          marker-end="url(#cp-graph-arrow-active)"
           pointer-events="none"
         />
       {/if}
       {#each layout.nodes as n (n.id)}
-        {@const critical = criticalNodeIds.has(n.id)}
         {@const isTarget = connectSource !== null && connectTarget === n.id}
+        {@const pulse = highlightedNodeIds.has(n.id)}
+        {@const labelMatch = nodeLabelMatch(n.id)}
+        {@const emphasis = isTarget || pulse || labelMatch}
+        {@const dimmed = nodeDimmed(n.id)}
         <g
           transform="translate({n.x - NODE_WIDTH / 2} {n.y - NODE_HEIGHT / 2})"
           data-node-id={n.id}
-          class="group {n.isDone ? 'opacity-60' : ''}"
+          data-highlight={pulse ? '' : undefined}
+          class="group {dimmed ? 'opacity-25' : n.isDone ? 'opacity-60' : ''}"
         >
           <rect
             width={NODE_WIDTH}
             height={NODE_HEIGHT}
             rx="10"
-            class="fill-surface {critical || isTarget ? 'stroke-accent' : 'stroke-edge'}"
-            stroke-width={isTarget ? 3 : critical ? 2.5 : 1}
+            class="fill-surface {emphasis ? 'stroke-accent' : 'stroke-edge'} {pulse
+              ? 'cp-node-pulse'
+              : ''}"
+            stroke-width={isTarget ? 3 : pulse ? 3 : labelMatch ? 2.5 : 1}
           />
           <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
             <a
@@ -494,17 +645,18 @@
           </foreignObject>
           <circle
             data-connect-handle={n.id}
+            data-connect-dir="front"
             cx={NODE_WIDTH}
             cy={NODE_HEIGHT / 2}
             r="11"
             fill="transparent"
             role="button"
             tabindex="0"
-            aria-label="Drag to add a dependency from {n.title}"
+            aria-label="Drag to add a task that {n.title} blocks"
             class="cursor-crosshair {coarsePointer
               ? ''
               : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
-            onpointerdown={(event) => startConnect(event, n.id)}
+            onpointerdown={(event) => startConnect(event, n.id, 'front')}
           />
           <circle
             cx={NODE_WIDTH}
@@ -514,6 +666,31 @@
               ? ''
               : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}"
             stroke-width="1.5"
+            pointer-events="none"
+          />
+          <circle
+            data-connect-handle={n.id}
+            data-connect-dir="back"
+            cx="0"
+            cy={NODE_HEIGHT / 2}
+            r="11"
+            fill="transparent"
+            role="button"
+            tabindex="0"
+            aria-label="Drag to add a task that blocks {n.title}"
+            class="cursor-crosshair {coarsePointer
+              ? ''
+              : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
+            onpointerdown={(event) => startConnect(event, n.id, 'back')}
+          />
+          <circle
+            cx="0"
+            cy={NODE_HEIGHT / 2}
+            r="5"
+            class="fill-surface stroke-accent {coarsePointer
+              ? ''
+              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}"
+            stroke-width="2"
             pointer-events="none"
           />
         </g>
@@ -540,21 +717,28 @@
       {/if}
     </svg>
     {#if layout.edges.length === 0}
-      <div class="pointer-events-none absolute inset-x-0 top-3 flex justify-center px-4">
+      <div class="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-4">
         <p
           class="rounded-full border border-edge bg-surface/90 px-4 py-1.5 text-center text-xs text-muted shadow-sm"
         >
-          No dependencies yet — open a task and add blockers to map the critical path.
+          No dependencies yet — drag a node's handle onto another to map how tasks relate.
         </p>
-      </div>
-    {/if}
-    {#if criticalNodeIds.size > 0}
-      <div
-        class="pointer-events-none absolute top-3 right-3 flex items-center gap-2 rounded-full border border-edge bg-surface/90 px-3 py-1.5 text-xs font-medium text-muted shadow-sm"
-      >
-        <span class="inline-block h-0.5 w-5 rounded bg-accent"></span>
-        Critical path
       </div>
     {/if}
   {/if}
 </div>
+
+<style>
+  @keyframes -global-cp-node-pulse {
+    0%,
+    100% {
+      stroke-opacity: 1;
+    }
+    50% {
+      stroke-opacity: 0.3;
+    }
+  }
+  :global(.cp-node-pulse) {
+    animation: cp-node-pulse 0.9s ease-in-out infinite;
+  }
+</style>
