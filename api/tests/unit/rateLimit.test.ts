@@ -69,6 +69,7 @@ describe('enforceAuthRateLimit client IP derivation', () => {
 
   afterEach(() => {
     delete process.env.TRUST_PROXY;
+    delete process.env.TRUST_PROXY_HOPS;
   });
 
   it('ignores forged X-Forwarded-For and X-Real-IP when TRUST_PROXY is off', async () => {
@@ -100,6 +101,30 @@ describe('enforceAuthRateLimit client IP derivation', () => {
 
     const otherClient = await attempt({ 'X-Forwarded-For': '1.2.3.250, 203.0.113.9' });
     expect(otherClient.status).toBe(204);
+  });
+
+  it('uses the entry TRUST_PROXY_HOPS from the right when set', async () => {
+    process.env.TRUST_PROXY = 'true';
+    process.env.TRUST_PROXY_HOPS = '2';
+
+    for (let i = 0; i < 10; i++) {
+      const res = await attempt({ 'X-Forwarded-For': `spoofed, 1.2.3.4, 130.211.0.${i}` });
+      expect(res.status).toBe(204);
+    }
+
+    const limited = await attempt({ 'X-Forwarded-For': 'spoofed, 1.2.3.4, 130.211.0.99' });
+    expect(limited.status).toBe(429);
+
+    const otherClient = await attempt({ 'X-Forwarded-For': 'spoofed, 9.9.9.9, 130.211.0.99' });
+    expect(otherClient.status).toBe(204);
+  });
+
+  it('falls back to the socket address when hops exceed the header entries', async () => {
+    process.env.TRUST_PROXY = 'true';
+    process.env.TRUST_PROXY_HOPS = '5';
+
+    const res = await attempt({ 'X-Forwarded-For': '1.2.3.4, 5.6.7.8' });
+    expect(res.status).toBe(204);
   });
 
   it('caps total attempts per email across distinct source IPs', async () => {

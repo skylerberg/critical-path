@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: critical-path-api
+  namespace: critical-path
+  annotations:
+    cloud.google.com/neg: '{"exposed_ports": {"80": {"name": "critical-path-api-neg"}}}'
+spec:
+  type: ClusterIP
+  selector:
+    app: critical-path-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3001

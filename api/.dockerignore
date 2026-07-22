@@ -1,0 +1,16 @@
+.git
+.githooks
+.github
+.claude
+node_modules
+dist
+data
+coverage
+tests
+k8s
+terraform
+eslint-rules
+.env
+.env.*
+*.md
+openapi.json
