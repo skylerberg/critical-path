@@ -49,6 +49,10 @@ export const env = {
     return process.env.TRUST_PROXY?.trim().toLowerCase() === 'true';
   },
 
+  get trustProxyHops(): number {
+    return parseIntOrDefault(process.env.TRUST_PROXY_HOPS, 1);
+  },
+
   get passwordResetSecret(): string {
     const secret = process.env.PASSWORD_RESET_SECRET;
     if (secret) return secret;

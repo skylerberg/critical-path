@@ -57,14 +57,14 @@ function socketAddress(c: Context): string | undefined {
 
 function clientIp(c: Context): string {
   if (env.trustProxy) {
-    // Rightmost entry: the address our own proxy observed. Leftmost entries
-    // are client-supplied and trivially forged.
+    // Entries left of the proxy-appended suffix are client-forgeable. GCP
+    // HTTPS load balancers append "<client-ip>, <lb-ip>", hence hops=2 there.
     const forwarded = c.req.header('x-forwarded-for');
     if (forwarded) {
       const entries = forwarded.split(',');
-      const last = entries[entries.length - 1].trim();
-      if (last) {
-        return last;
+      const candidate = entries[entries.length - env.trustProxyHops]?.trim();
+      if (candidate) {
+        return candidate;
       }
     }
   }

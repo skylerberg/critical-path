@@ -1,0 +1,78 @@
+name: production-deploy
+run-name: Production Deploy
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'k8s/**'
+      - '.github/workflows/deploy.yaml'
+# No cancel-in-progress: a killed run could leave a migration mid-flight.
+concurrency:
+  group: '${{ github.workflow }}'
+jobs:
+  deploy-to-production:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    env:
+      IMAGE: gcr.io/realm-construction/critical-path-api
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v3'
+        with:
+          workload_identity_provider: 'projects/1085332810847/locations/global/workloadIdentityPools/default-pool/providers/github-provider'
+          service_account: 'github-actions-service@realm-construction.iam.gserviceaccount.com'
+
+      - uses: 'google-github-actions/setup-gcloud@v3'
+        with:
+          install_components: 'gke-gcloud-auth-plugin'
+
+      - uses: 'google-github-actions/get-gke-credentials@v3'
+        with:
+          cluster_name: 'cow-cluster'
+          location: 'us-west1-a'
+
+      - name: 'Build and push image'
+        run: |
+          gcloud auth configure-docker --quiet
+          docker build -t "$IMAGE:$GITHUB_SHA" .
+          docker push "$IMAGE:$GITHUB_SHA"
+
+      - name: 'Apply base manifests'
+        run: kubectl apply -f k8s/namespace.yaml -f k8s/pvc.yaml -f k8s/service.yaml
+
+      - name: 'Run database migrations'
+        run: |
+          kubectl -n critical-path delete job "critical-path-migrate-$GITHUB_SHA" --ignore-not-found
+          sed "s/{COMMITHASH}/$GITHUB_SHA/g" k8s/migrate-job.yaml | kubectl apply -f -
+          for i in $(seq 1 60); do
+            status=$(kubectl -n critical-path get job "critical-path-migrate-$GITHUB_SHA" \
+              -o jsonpath='{.status.conditions[?(@.status=="True")].type}')
+            if [ "$status" = "Complete" ]; then
+              exit 0
+            fi
+            if [ "$status" = "Failed" ]; then
+              echo "Migration job failed; logs:" >&2
+              kubectl -n critical-path logs "job/critical-path-migrate-$GITHUB_SHA" >&2 || true
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for migration job; logs:" >&2
+          kubectl -n critical-path logs "job/critical-path-migrate-$GITHUB_SHA" >&2 || true
+          exit 1
+
+      - name: 'Deploy'
+        run: |
+          sed "s/{COMMITHASH}/$GITHUB_SHA/g" k8s/deployment.yaml | kubectl apply -f -
+          kubectl -n critical-path rollout status deployment/critical-path-api --timeout=300s
