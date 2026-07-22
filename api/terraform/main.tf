@@ -121,6 +121,13 @@ resource "google_compute_backend_bucket" "web" {
   name        = "critical-path-web-backend"
   bucket_name = google_storage_bucket.web.name
   enable_cdn  = true
+
+  # Without this, CDN cache_mode defaults to CACHE_ALL_STATIC and its
+  # client_ttl caps the browser-facing max-age at 3600, defeating the
+  # immutable year-long headers the deploy sets on hashed assets.
+  cdn_policy {
+    cache_mode = "USE_ORIGIN_HEADERS"
+  }
 }
 
 resource "google_compute_url_map" "critical_path" {
