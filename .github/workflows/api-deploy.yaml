@@ -55,17 +55,21 @@ jobs:
         run: |
           kubectl -n critical-path delete job "critical-path-migrate-$GITHUB_SHA" --ignore-not-found
           sed "s/{COMMITHASH}/$GITHUB_SHA/g" k8s/migrate-job.yaml | kubectl apply -f -
+          # Conditions come as a list ("SuccessCriteriaMet Complete",
+          # "FailureTarget Failed" on k8s >= 1.31), so substring-match.
           for i in $(seq 1 60); do
-            status=$(kubectl -n critical-path get job "critical-path-migrate-$GITHUB_SHA" \
+            conditions=$(kubectl -n critical-path get job "critical-path-migrate-$GITHUB_SHA" \
               -o jsonpath='{.status.conditions[?(@.status=="True")].type}')
-            if [ "$status" = "Complete" ]; then
-              exit 0
-            fi
-            if [ "$status" = "Failed" ]; then
-              echo "Migration job failed; logs:" >&2
-              kubectl -n critical-path logs "job/critical-path-migrate-$GITHUB_SHA" >&2 || true
-              exit 1
-            fi
+            case " $conditions " in
+              *' Complete '*)
+                exit 0
+                ;;
+              *' Failed '*)
+                echo "Migration job failed; logs:" >&2
+                kubectl -n critical-path logs "job/critical-path-migrate-$GITHUB_SHA" >&2 || true
+                exit 1
+                ;;
+            esac
             sleep 5
           done
           echo "Timed out waiting for migration job; logs:" >&2
