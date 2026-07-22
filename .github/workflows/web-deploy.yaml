@@ -1,0 +1,62 @@
+name: production-deploy
+run-name: Production Deploy
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+concurrency:
+  group: '${{ github.workflow }}'
+  cancel-in-progress: true
+jobs:
+  deploy-to-production:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    env:
+      BUCKET: critical-path-web-prod
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v3'
+        with:
+          workload_identity_provider: 'projects/1085332810847/locations/global/workloadIdentityPools/default-pool/providers/github-provider'
+          service_account: 'github-actions-service@realm-construction.iam.gserviceaccount.com'
+
+      - uses: 'google-github-actions/setup-gcloud@v3'
+
+      - name: 'Upload site'
+        uses: 'google-github-actions/upload-cloud-storage@v3'
+        with:
+          path: 'dist'
+          destination: '${{ env.BUCKET }}'
+          parent: false
+          process_gcloudignore: false
+
+      # `gcloud storage` rather than `gsutil`: gsutil cannot consume the
+      # workload-identity-federation credentials set up by auth@v3.
+      - name: 'Set cache headers'
+        run: |
+          gcloud storage objects update --recursive \
+            --cache-control='public, max-age=31536000, immutable' \
+            "gs://$BUCKET/assets"
+          gcloud storage objects update \
+            --cache-control='public, max-age=31536000, immutable' \
+            "gs://$BUCKET/workbox-*.js"
+          gcloud storage objects update \
+            --cache-control='no-cache, no-store, must-revalidate' \
+            "gs://$BUCKET/index.html" "gs://$BUCKET/sw.js"
+          gcloud storage objects update \
+            --cache-control='no-cache, no-store, must-revalidate' \
+            --content-type='application/manifest+json' \
+            "gs://$BUCKET/manifest.webmanifest"
