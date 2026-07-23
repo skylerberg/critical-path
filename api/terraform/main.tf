@@ -80,7 +80,7 @@ data "google_compute_network_endpoint_group" "api" {
 resource "google_compute_backend_service" "api" {
   name                            = "critical-path-api-backend"
   protocol                        = "HTTP"
-  load_balancing_scheme           = "EXTERNAL"
+  load_balancing_scheme           = "EXTERNAL_MANAGED"
   timeout_sec                     = 3600
   session_affinity                = "NONE"
   connection_draining_timeout_sec = 60
@@ -176,6 +176,16 @@ resource "google_compute_url_map" "critical_path" {
     name            = "main"
     default_service = google_compute_backend_bucket.web.self_link
 
+    # The bucket can't set security headers itself; replace=true keeps this
+    # from stacking on the API's own HSTS header.
+    header_action {
+      response_headers_to_add {
+        header_name  = "Strict-Transport-Security"
+        header_value = "max-age=31536000; includeSubDomains"
+        replace      = true
+      }
+    }
+
     path_rule {
       paths = [
         "/api/*",
@@ -213,7 +223,7 @@ resource "google_compute_global_forwarding_rule" "https" {
   port_range  = "443"
   ip_address  = google_compute_global_address.critical_path.address
 
-  load_balancing_scheme = "EXTERNAL"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
   target                = google_compute_target_https_proxy.critical_path.self_link
 }
 
@@ -223,7 +233,7 @@ resource "google_compute_global_forwarding_rule" "http_redirect" {
   port_range  = "80"
   ip_address  = google_compute_global_address.critical_path.address
 
-  load_balancing_scheme = "EXTERNAL"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
   target                = google_compute_target_http_proxy.http_redirect.self_link
 }
 
