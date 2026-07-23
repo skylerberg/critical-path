@@ -79,7 +79,9 @@ describe('board and ready views', () => {
   it('board --json annotates tasks with their state', async () => {
     const res = await h.runCli(['board', board.project.id, '--json']);
     expect(res.exitCode).toBe(0);
-    const payload = res.json<Omit<BoardPayload, 'tasks'> & { tasks: (BoardTask & { state: string })[] }>();
+    const payload = res.json<
+      Omit<BoardPayload, 'tasks'> & { tasks: (BoardTask & { state: string })[] }
+    >();
     const states = new Map(payload.tasks.map((t) => [t.id, t.state]));
     expect(states.get(blockerId)).toBe('ready');
     expect(states.get(blockedId)).toBe('blocked');
@@ -97,10 +99,9 @@ describe('board and ready views', () => {
 
   it('resolves the project from the default-project config', async () => {
     const set = await h.runCli(['config', 'set', 'default-project', board.project.id]);
-    if (set.exitCode === 0) {
-      const res = await h.runCli(['ready', '--json']);
-      expect(res.exitCode).toBe(0);
-    }
+    expect(set.exitCode).toBe(0);
+    const res = await h.runCli(['ready', '--json']);
+    expect(res.exitCode).toBe(0);
   });
 
   it('unresolvable project exits 4', async () => {

@@ -7,7 +7,7 @@
     "cpath": "bin/cpath.mjs"
   },
   "scripts": {
-    "generate-api": "node scripts/generate-api-types.mjs",
+    "generate-api": "node scripts/generate-api-types.mjs && prettier --write src/api/api.generated.ts",
     "type-check": "tsc -p tsconfig.json",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",

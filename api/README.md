@@ -156,6 +156,61 @@ npm run lint
 npm run format
 ```
 
+## CLI (`cpath`)
+
+A full command-line client lives in `cli/` as a standalone npm package
+(`critical-path-cli`). It has its own lockfile and `node_modules` on purpose:
+nothing about the deployed API image or the deploy workflow changes when the
+CLI changes.
+
+```sh
+npm ci --prefix cli         # once; also required before running the CLI tests
+cd cli && npm link          # installs the global `cpath` command
+```
+
+Authenticate — the password is prompted (or piped via `--password-stdin`) and
+never stored; the 30-day session token goes into the macOS Keychain
+(`security` service `critical-path-cli`), or a chmod-600 file on other
+platforms:
+
+```sh
+cpath login --email you@example.com
+cpath whoami
+```
+
+Everyday usage:
+
+```sh
+cpath project list
+cpath board "My Project"                # columns with [ready]/[blocked] markers
+cpath ready --project "My Project"      # unblocked, unfinished tasks
+cpath task create "Fix the bug" --project "My Project" --description "See **notes**"
+cpath task move "Fix the bug" --project "My Project" --column "In Progress" --top
+cpath task done "Fix the bug" --project "My Project"
+cpath task block "Ship it" --by "Fix the bug" --project "My Project"
+cpath config set default-project "My Project"   # makes --project optional
+```
+
+Entity references accept a UUID, a unique id prefix (>= 4 chars), an exact
+name/title (case-insensitive), or a unique substring; ambiguity is an error
+listing the candidates. Task descriptions are Markdown in and out, converted
+to the API's restricted Tiptap JSON (`--description-json` is the raw escape
+hatch).
+
+Every command takes `--json` for machine-readable output and `--no-input` to
+fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2
+usage/ambiguous reference, 3 auth, 4 not found, 5 conflict, 6 invalid input.
+
+`CRITICAL_PATH_API_URL` (or `--api-url`, or `cpath config set api-url`)
+selects the server; `CRITICAL_PATH_TOKEN` overrides the stored token;
+`CRITICAL_PATH_PROJECT` sets the default project.
+
+After changing the API surface, regenerate the CLI's committed types:
+
+```sh
+npm run openapi:dump && npm run --prefix cli generate-api
+```
+
 ## Known limitations (v1)
 
 - No email verification.

@@ -61,35 +61,78 @@ export async function resolveProject(ctx: RuntimeContext, ref?: string): Promise
     );
   }
   const projects = await listProjects(ctx);
-  return matchRef(effective, projects, 'project', (p) => p.id, (p) => p.name);
-}
-
-export async function fetchBoard(ctx: RuntimeContext, projectId: string): Promise<BoardPayload> {
-  return assertOk(
-    await ctx.api.GET('/api/projects/{id}', { params: { path: { id: projectId } } })
+  return matchRef(
+    effective,
+    projects,
+    'project',
+    (p) => p.id,
+    (p) => p.name
   );
 }
 
-export async function resolveBoard(ctx: RuntimeContext, projectRef?: string): Promise<BoardPayload> {
+export async function fetchBoard(ctx: RuntimeContext, projectId: string): Promise<BoardPayload> {
+  return assertOk(await ctx.api.GET('/api/projects/{id}', { params: { path: { id: projectId } } }));
+}
+
+export async function resolveBoard(
+  ctx: RuntimeContext,
+  projectRef?: string
+): Promise<BoardPayload> {
   const project = await resolveProject(ctx, projectRef);
   return fetchBoard(ctx, project.id);
 }
 
 export function resolveColumn(board: BoardPayload, ref: string): BoardColumn {
-  return matchRef(ref, board.columns, 'column', (c) => c.id, (c) => c.name);
+  return matchRef(
+    ref,
+    board.columns,
+    'column',
+    (c) => c.id,
+    (c) => c.name
+  );
 }
 
 export function resolveTaskInBoard(board: BoardPayload, ref: string): BoardTask {
-  return matchRef(ref, board.tasks, 'task', (t) => t.id, (t) => t.title);
+  return matchRef(
+    ref,
+    board.tasks,
+    'task',
+    (t) => t.id,
+    (t) => t.title
+  );
 }
 
 export function resolveLabel(board: BoardPayload, ref: string): BoardLabel {
-  return matchRef(ref, board.labels, 'label', (l) => l.id, (l) => l.name);
+  return matchRef(
+    ref,
+    board.labels,
+    'label',
+    (l) => l.id,
+    (l) => l.name
+  );
+}
+
+export async function resolveTaskId(
+  ctx: RuntimeContext,
+  ref: string,
+  projectRef?: string
+): Promise<string> {
+  if (UUID_RE.test(ref)) {
+    return ref;
+  }
+  const board = await resolveBoard(ctx, projectRef);
+  return resolveTaskInBoard(board, ref).id;
 }
 
 export async function resolveWorkspace(ctx: RuntimeContext, ref: string): Promise<Workspace> {
   const { workspaces } = assertOk(await ctx.api.GET('/api/workspaces'));
-  return matchRef(ref, workspaces, 'workspace', (w) => w.id, (w) => w.name);
+  return matchRef(
+    ref,
+    workspaces,
+    'workspace',
+    (w) => w.id,
+    (w) => w.name
+  );
 }
 
 export async function listUsers(ctx: RuntimeContext, projectId?: string): Promise<User[]> {
@@ -111,5 +154,11 @@ export async function resolveUser(
   if (byEmail.length === 1) {
     return byEmail[0];
   }
-  return matchRef(ref, users, 'user', (u) => u.id, (u) => u.name);
+  return matchRef(
+    ref,
+    users,
+    'user',
+    (u) => u.id,
+    (u) => u.name
+  );
 }
