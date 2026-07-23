@@ -16,4 +16,9 @@ export default tseslint.config(eslint.configs.recommended, tseslint.configs.reco
     'no-console': 'off',
     'local/no-unqualified-kysely-columns': 'error',
   },
+}, {
+  files: ['**/*.mjs'],
+  rules: {
+    'no-undef': 'off',
+  },
 });

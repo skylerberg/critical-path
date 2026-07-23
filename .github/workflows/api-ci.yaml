@@ -29,6 +29,7 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      - run: npm ci --prefix cli
       # Node's --env-file hard-errors when the file is missing, so write it.
       - name: Write .env.test
         run: |

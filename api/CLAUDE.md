@@ -1,6 +1,6 @@
-# game-dev-api
+# critical-path-api
 
-Backend for "Critical Path" (rename via `src/config/constants.ts`). Plain
+Backend for "Critical Path". Plain
 Postgres + Kysely — no Supabase, no Docker, no OpenTelemetry.
 
 # Local data — do not destroy
@@ -69,6 +69,19 @@ touch `gamedev@skylerberg.com` or its rows.
   stateless HMAC (`PASSWORD_RESET_SECRET`, required in production), 15-minute
   TTL, links built from `RESET_URL_BASE`. `POST /api/auth/forgot-password`
   always answers 204 and enqueues the send as a post-commit hook.
+
+# CLI
+
+`cli/` is a standalone nested npm package (`critical-path-cli`, command
+`cpath`) — a full CLI client for this API. It deliberately keeps its own
+package-lock and node_modules (`npm ci --prefix cli`) so the deployed image
+and the deploy workflow's path filters are untouched by CLI changes; never
+add CLI dependencies to the root package.json. CLI tests are part of the root
+`npm test` (they drive the Hono app in-process via `cli/tests/e2e/helpers.ts`);
+CLI checks run from `cli/`: `npm run type-check && npm run lint && npm run
+format:check`. After changing the API surface, run `npm run openapi:dump &&
+npm run --prefix cli generate-api` and commit the regenerated
+`cli/src/api/api.generated.ts`.
 
 # Running things
 
