@@ -4,11 +4,12 @@ metadata:
   name: critical-path-api
   namespace: critical-path
 spec:
-  # Single replica until the realtime bus, upload storage, and rate limits
-  # are shared across processes; Recreate because the uploads PVC is RWO.
-  replicas: 1
+  replicas: 2
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: critical-path-api
@@ -17,12 +18,21 @@ spec:
       labels:
         app: critical-path-api
     spec:
-      terminationGracePeriodSeconds: 20
+      serviceAccountName: critical-path-api
+      terminationGracePeriodSeconds: 45
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
-        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: critical-path-api
       containers:
         - name: api
           image: gcr.io/realm-construction/critical-path-api:{COMMITHASH}
@@ -51,10 +61,15 @@ spec:
                 secretKeyRef:
                   name: critical-path-secrets
                   key: PASSWORD_RESET_SECRET
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: critical-path-secrets
+                  key: REDIS_URL
             - name: STORAGE_DRIVER
-              value: disk
-            - name: STORAGE_DISK_ROOT
-              value: /data/uploads
+              value: gcs
+            - name: STORAGE_GCS_BUCKET
+              value: critical-path-uploads-prod
             - name: CORS_ORIGINS
               value: https://criticalpath.skylerberg.com
             - name: RESET_URL_BASE
@@ -77,16 +92,15 @@ spec:
               port: 3001
             initialDelaySeconds: 10
             periodSeconds: 15
+          lifecycle:
+            # Keep serving while the load balancer deprograms this endpoint
+            # from the NEG; SIGTERM only arrives after the sleep.
+            preStop:
+              exec:
+                command: ['sleep', '15']
           resources:
             requests:
               cpu: 100m
               memory: 256Mi
             limits:
               memory: 512Mi
-          volumeMounts:
-            - name: uploads
-              mountPath: /data/uploads
-      volumes:
-        - name: uploads
-          persistentVolumeClaim:
-            claimName: critical-path-uploads

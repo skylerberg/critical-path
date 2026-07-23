@@ -49,7 +49,7 @@ jobs:
           docker push "$IMAGE:$GITHUB_SHA"
 
       - name: 'Apply base manifests'
-        run: kubectl apply -f k8s/namespace.yaml -f k8s/pvc.yaml -f k8s/service.yaml
+        run: kubectl apply -f k8s/namespace.yaml -f k8s/serviceaccount.yaml -f k8s/redis.yaml -f k8s/pdb.yaml -f k8s/service.yaml
 
       - name: 'Run database migrations'
         run: |

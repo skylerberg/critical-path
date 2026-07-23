@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: critical-path-redis
+  namespace: critical-path
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: critical-path-redis
+  template:
+    metadata:
+      labels:
+        app: critical-path-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:8.2-alpine
+          args: ['--requirepass', '$(REDIS_PASSWORD)']
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: critical-path-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: critical-path-redis
+  namespace: critical-path
+spec:
+  type: ClusterIP
+  selector:
+    app: critical-path-redis
+  ports:
+    - port: 6379
+      targetPort: 6379

@@ -27,6 +27,9 @@ export const env = {
 
   storageDriver: process.env.STORAGE_DRIVER || 'disk',
   storageDiskRoot: process.env.STORAGE_DISK_ROOT || './data/uploads',
+  storageGcsBucket: process.env.STORAGE_GCS_BUCKET,
+
+  redisUrl: process.env.REDIS_URL,
 
   logFormat: process.env.LOG_FORMAT,
 

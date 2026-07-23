@@ -93,6 +93,32 @@ resource "google_compute_backend_service" "api" {
   }
 }
 
+resource "google_service_account" "api" {
+  account_id   = "critical-path-api"
+  display_name = "Critical Path API (GKE Workload Identity)"
+}
+
+# Lets the critical-path/critical-path-api KSA impersonate the GCP SA, which
+# is how pods reach the uploads bucket without key files.
+resource "google_service_account_iam_member" "api_workload_identity" {
+  service_account_id = google_service_account.api.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${local.project}.svc.id.goog[critical-path/critical-path-api]"
+}
+
+resource "google_storage_bucket" "uploads" {
+  name     = "critical-path-uploads-prod"
+  location = "US"
+
+  uniform_bucket_level_access = true
+}
+
+resource "google_storage_bucket_iam_member" "uploads_api" {
+  bucket = google_storage_bucket.uploads.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.api.email}"
+}
+
 resource "google_storage_bucket" "web" {
   name     = "critical-path-web-prod"
   location = "US"
