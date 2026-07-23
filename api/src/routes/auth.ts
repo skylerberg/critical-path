@@ -291,11 +291,17 @@ router.post(
     summary: 'Change password',
     description:
       'Change the password of the authenticated user. Requires the current password; on ' +
-      'success every session is revoked and the client must log in again.',
+      'success every existing session is revoked and a fresh session token is returned, ' +
+      'keeping this client logged in.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Password changed and all sessions revoked',
+      200: {
+        description: 'Password changed, all prior sessions revoked, new session issued',
+        content: {
+          'application/json': {
+            schema: resolver(authResponseSchema),
+          },
+        },
       },
       ...unauthorizedErrorResponse,
       ...validationErrorResponse,
@@ -321,8 +327,9 @@ router.post(
     }
 
     await setPasswordAndRevokeSessions(c, user.id, new_password);
+    const token = await createSession(c.get('db'), user.id);
 
-    return c.body(null, 204);
+    return c.json({ token, user }, 200);
   }
 );
 

@@ -144,19 +144,23 @@ describe('Account management', () => {
       expect(login.status).toBe(200);
     });
 
-    it('changes the password, revokes every session, and publishes sessions_revoked', async () => {
+    it('changes the password, revokes prior sessions, and returns a fresh session', async () => {
       const user = await ctx.createUser('cp-ok');
       const otherLogin = await ctx
         .request()
         .post('/api/auth/login', { email: user.email, password: user.password });
       const otherToken = ((await otherLogin.json()) as { token: string }).token;
 
+      let newToken = '';
       const seen = await collectBusEntries(async () => {
         const res = await ctx.request(user.token).post('/api/auth/change-password', {
           current_password: user.password,
           new_password: 'changed-password-123',
         });
-        expect(res.status).toBe(204);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { token: string; user: { id: string; email: string } };
+        expect(body.user).toEqual({ id: user.id, email: user.email, name: user.name });
+        newToken = body.token;
       });
       expect(seen).toEqual([
         { type: SESSIONS_REVOKED, project_id: null, data: { user_id: user.id } },
@@ -164,6 +168,7 @@ describe('Account management', () => {
 
       expect((await ctx.request(user.token).get('/api/auth/me')).status).toBe(401);
       expect((await ctx.request(otherToken).get('/api/auth/me')).status).toBe(401);
+      expect((await ctx.request(newToken).get('/api/auth/me')).status).toBe(200);
 
       const oldLogin = await ctx
         .request()
@@ -185,7 +190,7 @@ describe('Account management', () => {
         current_password: user.password,
         new_password: 'changed-password-123',
       });
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
       expect(await alternativeIdOf(user.id)).not.toBe(before);
 
       const reset = await ctx

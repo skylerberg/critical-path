@@ -517,7 +517,7 @@ describe('Realtime end to end', () => {
       current_password: userD.password,
       new_password: 'brand-new-password-123',
     });
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
 
     await waitFor(async () => clientD.closeInfo !== null);
     expect(clientD.closeInfo).toEqual({ code: 4401, reason: 'Session revoked' });
