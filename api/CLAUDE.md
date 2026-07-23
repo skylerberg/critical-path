@@ -77,6 +77,10 @@ touch `gamedev@skylerberg.com` or its rows.
   `game_dev_test`). Single file:
   `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>`.
 - `npm run type-check`, `npm run lint`, `npm run format`.
+- Worktrees under `.claude/worktrees/` need `node_modules` to run any of the
+  above; symlink it from the main checkout
+  (`ln -s ../../../node_modules node_modules` from inside the worktree)
+  instead of running `npm install` again.
 
 # Migration workflow
 
