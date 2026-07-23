@@ -11,7 +11,11 @@ function requireInteractive(ctx: RuntimeContext, what: string): void {
 
 function ask(ctx: RuntimeContext, question: string, hidden: boolean): Promise<string> {
   const { stdin, stderr } = ctx.deps;
-  stderr.write(question);
+  const tty = stdin as NodeJS.ReadableStream & {
+    isTTY?: boolean;
+    setRawMode?: (mode: boolean) => void;
+  };
+  const isTty = tty.isTTY === true && typeof tty.setRawMode === 'function';
   const echo = new Writable({
     write(chunk: Buffer | string, _encoding, callback) {
       if (!hidden) {
@@ -23,12 +27,28 @@ function ask(ctx: RuntimeContext, question: string, hidden: boolean): Promise<st
   const rl = readline.createInterface({
     input: stdin,
     output: echo,
-    terminal: stdin.isTTY === true,
+    terminal: isTty,
   });
-  return new Promise((resolve) => {
+  if (isTty) {
+    tty.setRawMode!(true);
+  }
+  // Written only after raw mode is on: input arriving between the prompt and
+  // the raw-mode switch would otherwise be echoed by the tty.
+  stderr.write(question);
+  const finish = () => {
+    if (isTty) {
+      tty.setRawMode!(false);
+    }
+    rl.close();
+    stderr.write('\n');
+  };
+  return new Promise((resolve, reject) => {
+    rl.on('SIGINT', () => {
+      finish();
+      reject(new CliError('Aborted', EXIT.failure));
+    });
     rl.question('', (answer) => {
-      rl.close();
-      stderr.write('\n');
+      finish();
       resolve(answer);
     });
   });

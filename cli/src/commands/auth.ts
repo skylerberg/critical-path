@@ -57,9 +57,18 @@ export function registerAuth(program: Command, deps: CliDeps): void {
           const stdinLines = opts.passwordStdin === true ? await readStdinLines(ctx) : null;
           const email = await resolveEmail(ctx, opts);
           const password = await readPassword(ctx, stdinLines, 0, 'Password');
-          const result = assertOk(
-            await ctx.api.POST('/api/auth/login', { body: { email, password } })
-          );
+          let result;
+          try {
+            result = assertOk(await ctx.api.POST('/api/auth/login', { body: { email, password } }));
+          } catch (err) {
+            if (err instanceof ApiError && err.status === 401) {
+              throw new CliError(
+                `Invalid email or password for ${email} at ${ctx.baseUrl}`,
+                EXIT.auth
+              );
+            }
+            throw err;
+          }
           await ctx.credentials.set(ctx.baseUrl, result.token);
           warnIfEnvToken(ctx);
           printUser(ctx, result.user, 'Logged in as');
