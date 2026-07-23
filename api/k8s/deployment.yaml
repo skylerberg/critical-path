@@ -35,7 +35,7 @@ spec:
                     app: critical-path-api
       containers:
         - name: api
-          image: gcr.io/realm-construction/critical-path-api:{COMMITHASH}
+          image: us-west1-docker.pkg.dev/realm-construction/critical-path/api:{COMMITHASH}
           ports:
             - containerPort: 3001
           env:
