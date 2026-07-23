@@ -104,10 +104,14 @@ class SessionStore {
     return undefined;
   };
 
-  // No logout call: a password change/reset already revoked every session server-side.
+  // No logout call: a password reset already revoked every session server-side.
   forget(): void {
     this.#clear();
     sessionStorage.removeItem(INTENDED_PATH_KEY);
+  }
+
+  adopt(token: string, user: SessionUser): void {
+    this.#setSession(token, user);
   }
 
   #setSession(token: string, user: SessionUser): void {

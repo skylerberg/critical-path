@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/game-dev-api/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -98,7 +98,7 @@ export interface paths {
         put?: never;
         /**
          * Change password
-         * @description Change the password of the authenticated user. Requires the current password; on success every session is revoked and the client must log in again.
+         * @description Change the password of the authenticated user. Requires the current password; on success every existing session is revoked and a fresh session token is returned, keeping this client logged in.
          */
         post: operations["postApiAuthChangePassword"];
         delete?: never;
@@ -865,15 +865,6 @@ export interface operations {
                     "application/json": components["schemas"]["AuthResponse"];
                 };
             };
-            /** @description Forbidden - insufficient permissions */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             /** @description Conflict - resource already exists */
             409: {
                 headers: {
@@ -1119,12 +1110,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Password changed and all sessions revoked */
-            204: {
+            /** @description Password changed, all prior sessions revoked, new session issued */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
             };
             /** @description Authentication required or failed */
             401: {
