@@ -90,21 +90,6 @@ describe('Auth', () => {
         error: 'An internal server error occurred. Please try again later.',
       });
     });
-
-    it('returns 403 when signup is disabled', async () => {
-      process.env.SIGNUP_ENABLED = 'false';
-      try {
-        const res = await ctx.request().post('/api/auth/signup', {
-          id: newId(),
-          email: uniqueEmail('disabled'),
-          password: 'password-123',
-          name: 'Disabled Signup',
-        });
-        expect(res.status).toBe(403);
-      } finally {
-        delete process.env.SIGNUP_ENABLED;
-      }
-    });
   });
 
   describe('POST /api/auth/login', () => {

@@ -25,7 +25,6 @@ import {
   resetPasswordSchema,
   userSchema,
   unauthorizedErrorResponse,
-  forbiddenErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
   validationOrUnprocessableErrorResponse,
@@ -67,7 +66,6 @@ router.post(
         },
       },
       ...validationErrorResponse,
-      ...forbiddenErrorResponse,
       ...conflictErrorResponse,
       ...tooManyRequestsErrorResponse,
       ...internalServerErrorResponse,
@@ -77,10 +75,6 @@ router.post(
   async (c) => {
     const { id, email, password, name } = c.req.valid('json');
     enforceAuthRateLimit(c, email);
-
-    if (!env.signupEnabled) {
-      throw new AppError(403, 'Signup is disabled');
-    }
 
     const db = c.get('db');
 

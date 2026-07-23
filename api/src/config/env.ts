@@ -38,13 +38,6 @@ export const env = {
     .filter(Boolean),
 
   // Getters so tests can toggle the underlying env vars at runtime.
-  get signupEnabled(): boolean {
-    const raw = process.env.SIGNUP_ENABLED?.trim().toLowerCase();
-    if (raw === 'true') return true;
-    if (raw === 'false') return false;
-    return environment !== 'production';
-  },
-
   get trustProxy(): boolean {
     return process.env.TRUST_PROXY?.trim().toLowerCase() === 'true';
   },

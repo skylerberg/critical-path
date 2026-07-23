@@ -59,8 +59,6 @@ spec:
               value: https://criticalpath.skylerberg.com
             - name: RESET_URL_BASE
               value: https://criticalpath.skylerberg.com/reset-password
-            - name: SIGNUP_ENABLED
-              value: 'true'
             - name: TRUST_PROXY
               value: 'true'
             - name: TRUST_PROXY_HOPS
