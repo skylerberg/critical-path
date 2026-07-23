@@ -14,3 +14,4 @@ eslint-rules
 .env.*
 *.md
 openapi.json
+cli

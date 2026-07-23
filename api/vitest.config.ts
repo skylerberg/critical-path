@@ -10,7 +10,7 @@ export default defineConfig({
     // The e2e suite shares one database, so files must not run concurrently;
     // this also forces a single worker.
     fileParallelism: false,
-    include: ['tests/e2e/**/*.test.ts', 'tests/unit/**/*.test.ts'],
+    include: ['tests/e2e/**/*.test.ts', 'tests/unit/**/*.test.ts', 'cli/tests/**/*.test.ts'],
     globalSetup: ['./tests/setup/globalSetup.ts'],
     coverage: {
       provider: 'v8',
