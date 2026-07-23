@@ -1,4 +1,4 @@
-# game-dev-api
+# critical-path-api
 
 TypeScript API for **Critical Path**, a project-management suite (Hono + Kysely + Postgres).
 

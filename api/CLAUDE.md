@@ -1,6 +1,6 @@
-# game-dev-api
+# critical-path-api
 
-Backend for "Critical Path" (rename via `src/config/constants.ts`). Plain
+Backend for "Critical Path". Plain
 Postgres + Kysely — no Supabase, no Docker, no OpenTelemetry.
 
 # Local data — do not destroy
