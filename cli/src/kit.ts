@@ -1,10 +1,11 @@
 import { Command } from 'commander';
 import { createContext, type CliDeps, type GlobalFlags, type RuntimeContext } from './context';
+import { DEFAULT_API_URL } from './config';
 
 export function leaf(name: string): Command {
   return new Command(name)
     .option('--json', 'output JSON instead of human-readable text')
-    .option('--api-url <url>', 'API base URL (default http://localhost:3001)')
+    .option('--api-url <url>', `API base URL (default ${DEFAULT_API_URL})`)
     .option('--no-input', 'never prompt; fail if input would be required')
     .option('--no-color', 'disable colored output');
 }

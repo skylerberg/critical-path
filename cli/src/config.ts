@@ -15,7 +15,7 @@ export const CONFIG_KEYS = {
 
 export type ConfigKey = keyof typeof CONFIG_KEYS;
 
-export const DEFAULT_API_URL = 'http://localhost:3001';
+export const DEFAULT_API_URL = 'https://criticalpath.skylerberg.com';
 
 export function resolveConfigDir(env: Record<string, string | undefined>): string {
   if (env.CRITICAL_PATH_CONFIG_DIR) {
