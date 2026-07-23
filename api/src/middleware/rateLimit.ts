@@ -2,6 +2,8 @@ import type { Context } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { AppError } from '../utils/errors';
 import { env } from '../config/env';
+import { getRedis, redisConfigured } from '../services/redis';
+import { logger } from '../utils/logger';
 
 const WINDOW_MS = 60_000;
 const MAX_ATTEMPTS = 10;
@@ -26,11 +28,11 @@ function sweep(now: number): void {
   }
 }
 
-export function consumeRateLimit(
+function consumeRateLimitLocal(
   key: string,
-  now = Date.now(),
-  maxAttempts = MAX_ATTEMPTS,
-  windowMs = WINDOW_MS
+  now: number,
+  maxAttempts: number,
+  windowMs: number
 ): boolean {
   sweep(now);
   const window = windows.get(key);
@@ -40,6 +42,46 @@ export function consumeRateLimit(
   }
   window.count++;
   return window.count <= maxAttempts;
+}
+
+// null means "no shared verdict" (Redis unconfigured or unreachable); the
+// caller then falls back to the per-process window, which still bounds abuse
+// per replica rather than failing closed on a Redis outage.
+async function consumeRateLimitShared(
+  key: string,
+  maxAttempts: number,
+  windowMs: number
+): Promise<boolean | null> {
+  if (!redisConfigured()) {
+    return null;
+  }
+  try {
+    const redis = getRedis();
+    const count = await redis.incr(`ratelimit:${key}`);
+    if (count === 1) {
+      await redis.pExpire(`ratelimit:${key}`, windowMs);
+    }
+    return count <= maxAttempts;
+  } catch (err) {
+    logger.warn({
+      msg: 'Shared rate limit unavailable; using per-process fallback',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+export async function consumeRateLimit(
+  key: string,
+  now = Date.now(),
+  maxAttempts = MAX_ATTEMPTS,
+  windowMs = WINDOW_MS
+): Promise<boolean> {
+  const shared = await consumeRateLimitShared(key, maxAttempts, windowMs);
+  if (shared !== null) {
+    return shared;
+  }
+  return consumeRateLimitLocal(key, now, maxAttempts, windowMs);
 }
 
 export function resetRateLimiter(): void {
@@ -78,15 +120,15 @@ export const RESET_EMAIL_MAX_ATTEMPTS = 3;
 
 // Returns shouldSend instead of throwing 429: a visible throttle status would
 // leak which emails exist, so callers respond identically either way.
-export function enforceResetRateLimit(c: Context, email: string): boolean {
+export async function enforceResetRateLimit(c: Context, email: string): Promise<boolean> {
   const now = Date.now();
-  const ipAllowed = consumeRateLimit(
+  const ipAllowed = await consumeRateLimit(
     `reset-ip:${clientIp(c)}`,
     now,
     RESET_IP_MAX_ATTEMPTS,
     RESET_IP_WINDOW_MS
   );
-  const emailAllowed = consumeRateLimit(
+  const emailAllowed = await consumeRateLimit(
     `reset-email:${email.toLowerCase()}`,
     now,
     RESET_EMAIL_MAX_ATTEMPTS,
@@ -95,12 +137,12 @@ export function enforceResetRateLimit(c: Context, email: string): boolean {
   return ipAllowed && emailAllowed;
 }
 
-export function enforceAuthRateLimit(c: Context, email: string): void {
+export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
   const normalizedEmail = email.toLowerCase();
-  const ipAllowed = consumeRateLimit(`ip:${clientIp(c)}:${normalizedEmail}`);
+  const ipAllowed = await consumeRateLimit(`ip:${clientIp(c)}:${normalizedEmail}`);
   // Second, IP-independent dimension: bounds total guesses against one
   // account even when attempts arrive from many distinct source IPs.
-  const emailAllowed = consumeRateLimit(
+  const emailAllowed = await consumeRateLimit(
     `email:${normalizedEmail}`,
     Date.now(),
     EMAIL_MAX_ATTEMPTS,

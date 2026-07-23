@@ -76,7 +76,7 @@ router.post(
   jsonValidator(signupRequestSchema),
   async (c) => {
     const { id, email, password, name } = c.req.valid('json');
-    enforceAuthRateLimit(c, email);
+    await enforceAuthRateLimit(c, email);
 
     if (!env.signupEnabled) {
       throw new AppError(403, 'Signup is disabled');
@@ -139,7 +139,7 @@ router.post(
   jsonValidator(loginRequestSchema),
   async (c) => {
     const { email, password } = c.req.valid('json');
-    enforceAuthRateLimit(c, email);
+    await enforceAuthRateLimit(c, email);
 
     const db = c.get('db');
 
@@ -352,7 +352,7 @@ router.post(
   async (c) => {
     const { email } = c.req.valid('json');
 
-    if (enforceResetRateLimit(c, email)) {
+    if (await enforceResetRateLimit(c, email)) {
       const user = await c
         .get('db')
         .selectFrom('app_user')

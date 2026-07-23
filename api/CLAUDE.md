@@ -58,8 +58,12 @@ touch `gamedev@skylerberg.com` or its rows.
   `src/services/realtime/transport.ts`); `/ws` is never part of the OpenAPI
   spec. Handshake: `{ type: 'auth', token }` within 10s, then
   `subscribe`/`unsubscribe` with a `project_id`; ping/pong heartbeat every 30s.
-  Session revocation publishes `sessions_revoked` on the in-process bus, which
+  Session revocation publishes `sessions_revoked` on the realtime bus, which
   closes that user's sockets with code 4401.
+- The realtime bus is in-process by default; when `REDIS_URL` is set (as in
+  production, which runs 2+ replicas) publishes fan out via Redis pub/sub so
+  every replica delivers to its own sockets. Rate limits also share Redis
+  counters then, falling back to per-process windows if Redis is unreachable.
 - Password-reset emails go through `src/services/email` (`EMAIL_DRIVER`:
   `console` default, `ses` loads the AWS SDK on first send). Reset tokens are
   stateless HMAC (`PASSWORD_RESET_SECRET`, required in production), 15-minute
@@ -75,6 +79,11 @@ touch `gamedev@skylerberg.com` or its rows.
 - `npm run type-check`, `npm run lint`, `npm run format`.
 
 # Migration workflow
+
+Production deploys are rolling: the migration job runs first, then old and
+new pods serve side by side. Every migration must therefore be
+backward-compatible with the previous release (no dropping/renaming columns
+the running code still reads; do that in a follow-up release).
 
 1. Add `src/db/migrations/NNNN_name.ts` exporting `up`/`down`.
 2. `npm run migrate` and `npm run migrate:test`.

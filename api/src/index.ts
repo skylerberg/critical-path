@@ -32,7 +32,8 @@ import { errorHandler } from './middleware/errorHandler';
 import { transactionMiddleware } from './middleware/transaction';
 import { Variables } from './types/index';
 import { db } from './db/index';
-import { attachRealtime } from './services/realtime/index';
+import { attachRealtime, initRedisBus, closeRedisBus } from './services/realtime/index';
+import { closeRedis } from './services/redis';
 import { logger } from './utils/logger';
 
 import authRouter from './routes/auth';
@@ -182,10 +183,19 @@ if (isEntrypoint) {
 
   const realtime = attachRealtime(server);
 
+  initRedisBus().catch((err: unknown) => {
+    logger.error({
+      msg: 'Redis bus init failed; realtime stays in-process',
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
   const shutdown = async (signal: string) => {
     logger.info({ msg: `${signal} signal received: closing HTTP server` });
     setTimeout(() => process.exit(1), 10_000).unref();
     realtime.close();
+    closeRedisBus();
+    closeRedis();
     server.close();
     await db.destroy();
     process.exit(0);

@@ -1,4 +1,5 @@
 import type { AppContext } from '../../types/index';
+import { logger } from '../../utils/logger';
 
 export interface RealtimeEnvelope {
   type: string;
@@ -25,12 +26,36 @@ export const SESSIONS_REVOKED = 'sessions_revoked';
 
 const subscribers = new Set<BusSubscriber>();
 
-// Single publish entry point; a Redis-backed bus swaps in behind the same
-// publish/subscribe pair.
-export function publish(entry: BusEntry): void {
+export type RemotePublisher = (entry: BusEntry) => Promise<void>;
+
+let remotePublish: RemotePublisher | null = null;
+
+export function deliverLocal(entry: BusEntry): void {
   for (const subscriber of subscribers) {
     subscriber(entry);
   }
+}
+
+// With a remote publisher, local delivery happens only via the subscription
+// echo, so every replica (publisher included) receives events through one
+// path. On remote failure, deliver locally: degrade rather than go silent.
+export function publish(entry: BusEntry): void {
+  if (remotePublish) {
+    remotePublish(entry).catch((err: unknown) => {
+      logger.warn({
+        msg: 'Remote bus publish failed; delivering locally',
+        type: entry.type,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      deliverLocal(entry);
+    });
+    return;
+  }
+  deliverLocal(entry);
+}
+
+export function setRemotePublisher(publisher: RemotePublisher | null): void {
+  remotePublish = publisher;
 }
 
 export function subscribeBus(subscriber: BusSubscriber): () => void {
@@ -42,6 +67,7 @@ export function subscribeBus(subscriber: BusSubscriber): () => void {
 
 export function resetBus(): void {
   subscribers.clear();
+  remotePublish = null;
 }
 
 export function publishAfterCommit(

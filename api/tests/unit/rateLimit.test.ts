@@ -16,46 +16,46 @@ describe('consumeRateLimit', () => {
     resetRateLimiter();
   });
 
-  it('allows up to 10 attempts in a window and rejects the 11th', () => {
+  it('allows up to 10 attempts in a window and rejects the 11th', async () => {
     const now = 1_000_000;
     for (let i = 0; i < 10; i++) {
-      expect(consumeRateLimit('key', now + i)).toBe(true);
+      expect(await consumeRateLimit('key', now + i)).toBe(true);
     }
-    expect(consumeRateLimit('key', now + 10)).toBe(false);
+    expect(await consumeRateLimit('key', now + 10)).toBe(false);
   });
 
-  it('resets after the window expires', () => {
+  it('resets after the window expires', async () => {
     const now = 1_000_000;
     for (let i = 0; i < 11; i++) {
-      consumeRateLimit('key', now);
+      await consumeRateLimit('key', now);
     }
-    expect(consumeRateLimit('key', now)).toBe(false);
-    expect(consumeRateLimit('key', now + 60_001)).toBe(true);
+    expect(await consumeRateLimit('key', now)).toBe(false);
+    expect(await consumeRateLimit('key', now + 60_001)).toBe(true);
   });
 
-  it('tracks keys independently', () => {
+  it('tracks keys independently', async () => {
     const now = 1_000_000;
     for (let i = 0; i < 11; i++) {
-      consumeRateLimit('a', now);
+      await consumeRateLimit('a', now);
     }
-    expect(consumeRateLimit('a', now)).toBe(false);
-    expect(consumeRateLimit('b', now)).toBe(true);
+    expect(await consumeRateLimit('a', now)).toBe(false);
+    expect(await consumeRateLimit('b', now)).toBe(true);
   });
 
-  it('supports custom limits and windows', () => {
+  it('supports custom limits and windows', async () => {
     const now = 1_000_000;
-    expect(consumeRateLimit('key', now, 2, 1000)).toBe(true);
-    expect(consumeRateLimit('key', now, 2, 1000)).toBe(true);
-    expect(consumeRateLimit('key', now, 2, 1000)).toBe(false);
-    expect(consumeRateLimit('key', now + 1001, 2, 1000)).toBe(true);
+    expect(await consumeRateLimit('key', now, 2, 1000)).toBe(true);
+    expect(await consumeRateLimit('key', now, 2, 1000)).toBe(true);
+    expect(await consumeRateLimit('key', now, 2, 1000)).toBe(false);
+    expect(await consumeRateLimit('key', now + 1001, 2, 1000)).toBe(true);
   });
 });
 
 describe('enforceAuthRateLimit client IP derivation', () => {
   const app = new Hono();
   app.onError(errorHandler);
-  app.post('/attempt', (c) => {
-    enforceAuthRateLimit(c, 'victim@example.com');
+  app.post('/attempt', async (c) => {
+    await enforceAuthRateLimit(c, 'victim@example.com');
     return c.body(null, 204);
   });
 
@@ -143,8 +143,8 @@ describe('enforceAuthRateLimit client IP derivation', () => {
 describe('enforceResetRateLimit', () => {
   const app = new Hono();
   app.onError(errorHandler);
-  app.post('/forgot/:email', (c) => {
-    const shouldSend = enforceResetRateLimit(c, c.req.param('email'));
+  app.post('/forgot/:email', async (c) => {
+    const shouldSend = await enforceResetRateLimit(c, c.req.param('email'));
     return c.json({ shouldSend }, 200);
   });
 
@@ -202,8 +202,8 @@ describe('enforceResetRateLimit', () => {
 
     const authApp = new Hono();
     authApp.onError(errorHandler);
-    authApp.post('/attempt', (c) => {
-      enforceAuthRateLimit(c, 'victim@example.com');
+    authApp.post('/attempt', async (c) => {
+      await enforceAuthRateLimit(c, 'victim@example.com');
       return c.body(null, 204);
     });
     const res = await authApp.request('/attempt', { method: 'POST' });
