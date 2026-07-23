@@ -1,8 +1,7 @@
 <script lang="ts">
   import { api, ApiError, assertOk } from '../api/client';
-  import { router } from '../lib/router.svelte';
+  import { realtime } from '../lib/realtime.svelte';
   import { session } from '../lib/session.svelte';
-  import { toasts } from '../lib/toasts.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
 
@@ -84,21 +83,29 @@
     }
     savingPassword = true;
     passwordStatus = null;
+    // The server closes this device's socket (4401) when it revokes the old
+    // sessions; disconnecting first keeps that close from being mistaken for a
+    // logout before the new token is stored.
+    realtime.disconnect();
     try {
-      assertOk(
+      const data = assertOk(
         await api.POST('/api/auth/change-password', {
           body: { current_password: currentPassword, new_password: newPassword },
         })
       );
-      session.forget();
-      toasts.success('Password changed. Please log in again.');
-      router.redirect('/login');
+      session.adopt(data.token, data.user);
+      currentPassword = '';
+      newPassword = '';
+      confirmPassword = '';
+      passwordStatus = { kind: 'success', message: 'Password changed' };
     } catch (error) {
       const message =
         error instanceof ApiError && error.status === 401
           ? 'Incorrect current password'
           : messageFor(error);
       passwordStatus = { kind: 'error', message };
+    } finally {
+      realtime.connect();
       savingPassword = false;
     }
   }
