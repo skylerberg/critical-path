@@ -11,7 +11,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: migrate
-          image: gcr.io/realm-construction/critical-path-api:{COMMITHASH}
+          image: us-west1-docker.pkg.dev/realm-construction/critical-path/api:{COMMITHASH}
           command: ['node', '--import', 'tsx', 'src/db/migrate.ts']
           env:
             - name: ENVIRONMENT
