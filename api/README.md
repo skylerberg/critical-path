@@ -201,9 +201,12 @@ Every command takes `--json` for machine-readable output and `--no-input` to
 fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2
 usage/ambiguous reference, 3 auth, 4 not found, 5 conflict, 6 invalid input.
 
-`CRITICAL_PATH_API_URL` (or `--api-url`, or `cpath config set api-url`)
-selects the server; `CRITICAL_PATH_TOKEN` overrides the stored token;
-`CRITICAL_PATH_PROJECT` sets the default project.
+The CLI talks to the production instance
+(`https://criticalpath.skylerberg.com`) by default. `CRITICAL_PATH_API_URL`
+(or `--api-url`, or `cpath config set api-url`) selects another server — e.g.
+`cpath config set api-url http://localhost:3001` for local development.
+Tokens are stored per server URL. `CRITICAL_PATH_TOKEN` overrides the stored
+token; `CRITICAL_PATH_PROJECT` sets the default project.
 
 After changing the API surface, regenerate the CLI's committed types:
 

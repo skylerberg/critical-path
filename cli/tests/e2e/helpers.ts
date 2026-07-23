@@ -35,7 +35,11 @@ export async function createCliHarness(): Promise<CliHarness> {
     const stdin = new PassThrough();
     stdin.end(options.stdin ?? '');
     const deps: CliDeps = {
-      env: { CRITICAL_PATH_CONFIG_DIR: configDir, ...options.env },
+      env: {
+        CRITICAL_PATH_CONFIG_DIR: configDir,
+        CRITICAL_PATH_API_URL: 'http://localhost:3001',
+        ...options.env,
+      },
       platform: 'linux',
       stdin,
       stdout: {
