@@ -15,6 +15,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
+        id: '/',
         name: 'Critical Path',
         short_name: 'CritPath',
         description: 'Project management with kanban boards and dependency graphs',
