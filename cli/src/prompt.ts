@@ -61,12 +61,11 @@ export async function confirmOrAbort(
   }
 }
 
-export async function readLineFromStdin(ctx: RuntimeContext): Promise<string> {
+export async function readStdinLines(ctx: RuntimeContext): Promise<string[]> {
   const chunks: Buffer[] = [];
   for await (const chunk of ctx.deps.stdin) {
     chunks.push(Buffer.from(chunk as string | Buffer));
   }
   const text = Buffer.concat(chunks).toString('utf8');
-  const firstLine = text.split('\n', 1)[0] ?? '';
-  return firstLine.replace(/\r$/, '');
+  return text.split('\n').map((line) => line.replace(/\r$/, ''));
 }

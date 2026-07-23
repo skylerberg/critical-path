@@ -81,7 +81,7 @@ export class TestApiClient {
     return this.makeRequest('DELETE', path);
   }
 
-  postMultipart(path: string, formData: FormData): Promise<Response> {
+  async postMultipart(path: string, formData: FormData): Promise<Response> {
     const headers: Record<string, string> = {};
 
     if (this.token) {
