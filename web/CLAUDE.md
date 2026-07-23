@@ -9,7 +9,7 @@ Live checks run against the real API on `:3001`, backed by the local `game_dev`
 database, which holds the owner's real projects and tasks. Create your own
 throwaway data for testing and delete only what you created; never wipe or
 bulk-delete `game_dev`, and never touch `gamedev@skylerberg.com`'s data. See
-`game-dev-api/CLAUDE.md` for the full rule.
+`critical-path-api/CLAUDE.md` for the full rule.
 
 ## Long-running local instance — don't kill it
 

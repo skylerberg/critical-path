@@ -1,9 +1,9 @@
-# game-dev-web
+# critical-path-web
 
 Critical Path — a project-management suite (kanban boards, task dependency graphs,
 critical-path highlighting). Svelte 5 SPA + PWA built with Vite; no SvelteKit.
 
-The companion API lives in [`game-dev-api`](../game-dev-api).
+The companion API lives in [`critical-path-api`](../critical-path-api).
 
 ## Setup
 
@@ -18,7 +18,7 @@ If your npm config sets `ignore-scripts=true`, run `npm run prepare` once manual
 
 ## Development
 
-Start the API first (port 3001, see the `game-dev-api` README), then:
+Start the API first (port 3001, see the `critical-path-api` README), then:
 
 ```sh
 npm run dev
@@ -33,7 +33,7 @@ Vite serves the app on <http://localhost:5173> and proxies `/api` to
 
 ```sh
 npm run generate:api                       # from a running API (SPEC_URL, default localhost:3001)
-SPEC_PATH=../game-dev-api/openapi.json npm run generate:api   # from a dumped spec (npm run openapi:dump in the API repo)
+SPEC_PATH=../critical-path-api/openapi.json npm run generate:api   # from a dumped spec (npm run openapi:dump in the API repo)
 ```
 
 Regenerate after any API schema change and commit the result.
