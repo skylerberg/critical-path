@@ -1,7 +1,9 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { projects, type Project } from './projects.svelte';
+import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
+import { users } from './users.svelte';
 
 function project(overrides: Partial<Project> = {}): Project {
   return {
@@ -10,7 +12,7 @@ function project(overrides: Partial<Project> = {}): Project {
     description: '',
     archived_at: null,
     created_by: null,
-    workspace_id: null,
+    member_ids: [],
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -25,7 +27,7 @@ function projectRow(item: Project): Omit<Project, 'open_task_count' | 'done_task
     description: item.description,
     archived_at: item.archived_at,
     created_by: item.created_by,
-    workspace_id: item.workspace_id,
+    member_ids: item.member_ids,
     created_at: item.created_at,
   };
 }
@@ -37,6 +39,8 @@ function boardPayload(id: string, name: string, tasksInColumns: string[] = []): 
       name,
       description: '',
       archived_at: null,
+      created_by: null,
+      member_ids: [],
       created_at: '2026-03-01T00:00:00.000Z',
     },
     columns: [
@@ -60,6 +64,8 @@ async function bodyOf(request: Request): Promise<unknown> {
 beforeEach(() => {
   fetchMock.mockReset();
   projects.reset();
+  users.reset();
+  session.user = null;
   for (const toast of [...toasts.toasts]) {
     toasts.dismiss(toast.id);
   }
@@ -120,6 +126,7 @@ describe('projects store', () => {
     const created = projects.active[0]!;
     expect(created.id).toBe(id);
     expect(created.created_at).toBe('2026-03-01T00:00:00.000Z');
+    expect(created.member_ids).toEqual([]);
     expect(created.open_task_count).toBe(0);
     expect(created.done_task_count).toBe(0);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -259,74 +266,106 @@ describe('projects store', () => {
     expect(projects.loadError).toBeNull();
   });
 
-  it('moves a project to a workspace via PATCH workspace_id', async () => {
-    const item = project();
+  it('sets members optimistically and PUTs the full set', async () => {
+    const item = project({ member_ids: ['u-1'] });
     await loadWith([item]);
-    fetchMock.mockImplementation(async () =>
-      jsonResponse(200, { ...projectRow(item), workspace_id: 'w-1' })
-    );
+    fetchMock.mockImplementation(async () => jsonResponse(204));
 
-    const pending = projects.moveToWorkspace('p-1', 'w-1');
-    expect(projects.projects[0]!.workspace_id).toBe('w-1');
+    const pending = projects.setMembers('p-1', ['u-1', 'u-2']);
+    expect(projects.projects[0]!.member_ids).toEqual(['u-1', 'u-2']);
 
     await pending;
 
-    expect(requestAt(1).method).toBe('PATCH');
-    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1');
-    expect(await bodyOf(requestAt(1))).toEqual({ workspace_id: 'w-1' });
+    expect(requestAt(1).method).toBe('PUT');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/members');
+    expect(await bodyOf(requestAt(1))).toEqual({ user_ids: ['u-1', 'u-2'] });
+    expect(toasts.toasts).toEqual([]);
   });
 
-  it('moves a project to Personal with a null workspace_id', async () => {
-    const item = project({ workspace_id: 'w-1' });
+  it('toasts and refetches when setting members fails', async () => {
+    const item = project({ member_ids: ['u-1'] });
     await loadWith([item]);
-    fetchMock.mockImplementation(async () =>
-      jsonResponse(200, { ...projectRow(item), workspace_id: null })
-    );
-
-    await projects.moveToWorkspace('p-1', null);
-
-    expect(await bodyOf(requestAt(1))).toEqual({ workspace_id: null });
-    expect(projects.projects[0]!.workspace_id).toBeNull();
-  });
-
-  it('creates a project in a workspace by following the create with a move', async () => {
     fetchMock.mockImplementation(async (input) => {
-      const request = input as Request;
-      if (request.method === 'POST') {
-        const body = (await request.clone().json()) as { id: string; name: string };
-        return jsonResponse(201, boardPayload(body.id, body.name));
+      if ((input as Request).method === 'PUT') {
+        return jsonResponse(422, { error: 'Unknown user' });
       }
-      const body = (await request.clone().json()) as { workspace_id: string | null };
-      const patchedId = new URL(request.url).pathname.split('/').pop()!;
-      return jsonResponse(200, {
-        id: patchedId,
-        name: 'Scoped',
-        description: '',
-        archived_at: null,
-        created_by: null,
-        workspace_id: body.workspace_id,
-        created_at: '2026-03-01T00:00:00.000Z',
-      });
+      return jsonResponse(200, { projects: [item] });
     });
 
-    const id = await projects.create('Scoped', 'w-7');
+    await projects.setMembers('p-1', ['u-1', 'u-missing']);
 
-    expect(id).not.toBeNull();
-    expect(requestAt(0).method).toBe('POST');
-    expect(requestAt(1).method).toBe('PATCH');
-    expect(await bodyOf(requestAt(1))).toEqual({ workspace_id: 'w-7' });
-    expect(projects.projects.find((p) => p.id === id)!.workspace_id).toBe('w-7');
+    expect(projects.projects[0]!.member_ids).toEqual(['u-1']);
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['Unknown user']);
   });
 
-  it('clearWorkspace resets matching projects to personal locally', async () => {
-    await loadWith([
-      project({ id: 'p-a', workspace_id: 'w-1' }),
-      project({ id: 'p-b', workspace_id: 'w-2' }),
-    ]);
+  it('adds a member by email and appends the returned user', async () => {
+    const item = project({ created_by: 'u-me', member_ids: ['u-1'] });
+    await loadWith([item]);
+    const added = { id: 'u-2', email: 'pat@example.com', name: 'Pat', avatar_url: null };
+    fetchMock.mockImplementation(async () => jsonResponse(200, { user: added }));
 
-    projects.clearWorkspace('w-1');
+    const result = await projects.addMemberByEmail('p-1', 'pat@example.com');
 
-    expect(projects.projects.find((p) => p.id === 'p-a')!.workspace_id).toBeNull();
-    expect(projects.projects.find((p) => p.id === 'p-b')!.workspace_id).toBe('w-2');
+    expect(result).toEqual({ ok: true });
+    expect(requestAt(1).method).toBe('POST');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/members/by-email');
+    expect(await bodyOf(requestAt(1))).toEqual({ email: 'pat@example.com' });
+    expect(projects.projects[0]!.member_ids).toEqual(['u-1', 'u-2']);
+    expect(users.byId('u-2')).toEqual(added);
+  });
+
+  it('does not list the creator when added by their own email', async () => {
+    const owner = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    await loadWith([project({ created_by: 'u-me' })]);
+    fetchMock.mockImplementation(async () => jsonResponse(200, { user: owner }));
+
+    const result = await projects.addMemberByEmail('p-1', 'me@example.com');
+
+    expect(result).toEqual({ ok: true });
+    expect(projects.projects[0]!.member_ids).toEqual([]);
+  });
+
+  it('reports an unknown email without toasting', async () => {
+    await loadWith([project()]);
+    fetchMock.mockImplementation(async () => jsonResponse(404, { error: 'not found' }));
+
+    const result = await projects.addMemberByEmail('p-1', 'ghost@example.com');
+
+    expect(result).toEqual({ ok: false, error: 'No user with that email' });
+    expect(projects.projects[0]!.member_ids).toEqual([]);
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('leave PUTs the member set minus self and drops the project', async () => {
+    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    await loadWith([project({ created_by: 'u-owner', member_ids: ['u-me', 'u-2'] })]);
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    const pending = projects.leave('p-1');
+    expect(projects.projects).toEqual([]);
+
+    await pending;
+
+    expect(requestAt(1).method).toBe('PUT');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/members');
+    expect(await bodyOf(requestAt(1))).toEqual({ user_ids: ['u-2'] });
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('restores the list when leaving fails', async () => {
+    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    const item = project({ created_by: 'u-owner', member_ids: ['u-me'] });
+    await loadWith([item]);
+    fetchMock.mockImplementation(async (input) => {
+      if ((input as Request).method === 'PUT') {
+        return jsonResponse(500, { error: 'nope' });
+      }
+      return jsonResponse(200, { projects: [item] });
+    });
+
+    await projects.leave('p-1');
+
+    expect(projects.projects).toEqual([item]);
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
   });
 });

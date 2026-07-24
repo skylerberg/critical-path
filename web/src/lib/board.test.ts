@@ -29,7 +29,7 @@ function payload(): BoardPayload {
       description: '',
       archived_at: null,
       created_by: null,
-      workspace_id: null,
+      member_ids: [],
       created_at: '2026-01-01T00:00:00Z',
     },
     columns: [

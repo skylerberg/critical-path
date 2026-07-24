@@ -180,99 +180,11 @@ export interface paths {
         };
         /**
          * List visible users
-         * @description Without project_id, list the caller and every user sharing at least one workspace with them. With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks. Ordered by name.
+         * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks. Ordered by name.
          */
         get: operations["getApiUsers"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List workspaces
-         * @description List the workspaces the caller belongs to, including member ids.
-         */
-        get: operations["getApiWorkspaces"];
-        put?: never;
-        /**
-         * Create workspace
-         * @description Create a workspace. The client supplies the workspace id; the creator is added as its first member.
-         */
-        post: operations["postApiWorkspaces"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete workspace
-         * @description Delete a workspace. Members only; non-members get 404. Its projects become personal (creator-only).
-         */
-        delete: operations["deleteApiWorkspacesById"];
-        options?: never;
-        head?: never;
-        /**
-         * Rename workspace
-         * @description Rename a workspace. Members only; non-members get 404.
-         */
-        patch: operations["patchApiWorkspacesById"];
-        trace?: never;
-    };
-    "/api/workspaces/{id}/members": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set workspace members
-         * @description Replace the full member set of a workspace. Members only; non-members get 404. The set must include the caller and every id must reference an existing user (422 with a plain error body otherwise). Removed members lose their task assignments in the workspace’s projects unless they created the project.
-         */
-        put: operations["putApiWorkspacesByIdMembers"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/{id}/members/by-email": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Add workspace member by email
-         * @description Add a user to a workspace by their exact email (case-insensitive). Members only; non-members get 404. An unknown email returns 404. Adding an existing member is idempotent.
-         */
-        post: operations["postApiWorkspacesByIdMembersByEmail"];
         delete?: never;
         options?: never;
         head?: never;
@@ -288,13 +200,13 @@ export interface paths {
         };
         /**
          * List projects
-         * @description List projects the caller can access (created by them or shared via a workspace they belong to) with open and done task counts.
+         * @description List projects the caller can access (created by them or shared with them as a member) with member ids and open and done task counts.
          */
         get: operations["getApiProjects"];
         put?: never;
         /**
          * Create project
-         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not assignees or archived state). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
+         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not assignees, members, or archived state; copies start personal). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
          */
         post: operations["postApiProjects"];
         delete?: never;
@@ -326,9 +238,49 @@ export interface paths {
         head?: never;
         /**
          * Update project
-         * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive. Set workspace_id to share the project with a workspace the caller belongs to (422 otherwise) or null to make it personal; assignees who lose access under the new scope are removed from its tasks.
+         * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive.
          */
         patch: operations["patchApiProjectsById"];
+        trace?: never;
+    };
+    "/api/projects/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set project members
+         * @description Replace the full member set of a project. Anyone with access may call; non-accessors get 404. The creator has implicit access and is never stored as a member: their id is silently stripped from user_ids if present. Every other id must reference an existing user (422 with a plain error body otherwise). A member may omit themselves to leave the project. Removed members lose their task assignments in the project.
+         */
+        put: operations["putApiProjectsByIdMembers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/members/by-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add project member by email
+         * @description Add a user to a project by their exact email (case-insensitive). Anyone with access may call; non-accessors get 404. An unknown email returns 404. Adding an existing member — or the creator, who has implicit access — is an idempotent no-op.
+         */
+        post: operations["postApiProjectsByIdMembersByEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/columns": {
@@ -697,30 +649,6 @@ export interface components {
         UsersResponse: {
             users: components["schemas"]["User"][];
         };
-        WorkspacesListResponse: {
-            workspaces: components["schemas"]["Workspace"][];
-        };
-        Workspace: {
-            created_at: string;
-            created_by: string;
-            id: string;
-            member_ids: string[];
-            name: string;
-        };
-        CreateWorkspace: {
-            /** Format: uuid */
-            id: string;
-            name: string;
-        };
-        PatchWorkspace: {
-            name?: string;
-        };
-        SetWorkspaceMembers: {
-            user_ids: string[];
-        };
-        WorkspaceMemberUserResponse: {
-            user: components["schemas"]["User"];
-        };
         ProjectsListResponse: {
             projects: components["schemas"]["ProjectListItem"][];
         };
@@ -731,9 +659,9 @@ export interface components {
             description: string;
             done_task_count: number;
             id: string;
+            member_ids: string[];
             name: string;
             open_task_count: number;
-            workspace_id: components["schemas"]["UserAvatarurl"];
         };
         BoardPayload: {
             columns: components["schemas"]["BoardColumn"][];
@@ -758,8 +686,8 @@ export interface components {
             created_by: components["schemas"]["UserAvatarurl"];
             description: string;
             id: string;
+            member_ids: string[];
             name: string;
-            workspace_id: components["schemas"]["UserAvatarurl"];
         };
         BoardTask: {
             assignee_ids: string[];
@@ -792,7 +720,12 @@ export interface components {
             archived_at?: components["schemas"]["UserAvatarurl"];
             description?: string;
             name?: string;
-            workspace_id?: string | null;
+        };
+        SetProjectMembers: {
+            user_ids: string[];
+        };
+        ProjectMemberUserResponse: {
+            user: components["schemas"]["User"];
         };
         Column: {
             created_at: string;
@@ -1467,371 +1400,6 @@ export interface operations {
             };
         };
     };
-    getApiWorkspaces: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Workspaces the caller belongs to */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspacesListResponse"];
-                };
-            };
-            /** @description Authentication required or failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    postApiWorkspaces: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateWorkspace"];
-            };
-        };
-        responses: {
-            /** @description Created workspace */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"];
-                };
-            };
-            /** @description Authentication required or failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Conflict - resource already exists */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    deleteApiWorkspacesById: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Workspace deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Authentication required or failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    patchApiWorkspacesById: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PatchWorkspace"];
-            };
-        };
-        responses: {
-            /** @description Updated workspace */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Authentication required or failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    putApiWorkspacesByIdMembers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetWorkspaceMembers"];
-            };
-        };
-        responses: {
-            /** @description Members set */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Authentication required or failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Validation error or domain-rule violation */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    postApiWorkspacesByIdMembersByEmail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ForgotPassword"];
-            };
-        };
-        responses: {
-            /** @description The added (or already present) member */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceMemberUserResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Authentication required or failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     getApiProjects: {
         parameters: {
             query?: never;
@@ -2111,6 +1679,146 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putApiProjectsByIdMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetProjectMembers"];
+            };
+        };
+        responses: {
+            /** @description Members set */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiProjectsByIdMembersByEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPassword"];
+            };
+        };
+        responses: {
+            /** @description The added (or already present) member */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberUserResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
                 };
             };
             /** @description Internal Server Error */

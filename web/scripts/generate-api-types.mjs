@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Deprecated operations/schemas are filtered before codegen so stale call
-// sites turn into TypeScript errors.
+// Deprecated operations/schemas — and schemas only they referenced — are
+// filtered before codegen so stale call sites turn into TypeScript errors.
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -60,9 +60,54 @@ function filterDeprecated(spec) {
         removedSchemas++;
       }
     }
+    removedSchemas += pruneUnreachableSchemas(spec);
   }
 
   return { removedOps, removedSchemas };
+}
+
+function collectSchemaRefs(node, refs) {
+  if (Array.isArray(node)) {
+    for (const item of node) collectSchemaRefs(item, refs);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  if (typeof node.$ref === 'string') {
+    const match = /^#\/components\/schemas\/(.+)$/.exec(node.$ref);
+    if (match) refs.add(match[1]);
+  }
+  for (const value of Object.values(node)) collectSchemaRefs(value, refs);
+}
+
+function pruneUnreachableSchemas(spec) {
+  const schemas = spec.components.schemas;
+  const reachable = new Set();
+  const { components, ...rest } = spec;
+  collectSchemaRefs(rest, reachable);
+  for (const [name, value] of Object.entries(components)) {
+    if (name !== 'schemas') collectSchemaRefs(value, reachable);
+  }
+  const queue = [...reachable];
+  while (queue.length > 0) {
+    const name = queue.pop();
+    if (!(name in schemas)) continue;
+    const nested = new Set();
+    collectSchemaRefs(schemas[name], nested);
+    for (const ref of nested) {
+      if (!reachable.has(ref)) {
+        reachable.add(ref);
+        queue.push(ref);
+      }
+    }
+  }
+  let removed = 0;
+  for (const name of Object.keys(schemas)) {
+    if (!reachable.has(name)) {
+      delete schemas[name];
+      removed++;
+    }
+  }
+  return removed;
 }
 
 async function main() {

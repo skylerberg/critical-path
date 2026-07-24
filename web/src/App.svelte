@@ -4,7 +4,6 @@
   import { users } from './lib/users.svelte';
   import { board } from './lib/board.svelte';
   import { projects } from './lib/projects.svelte';
-  import { workspaces } from './lib/workspaces.svelte';
   import { realtime } from './lib/realtime.svelte';
   import { toasts } from './lib/toasts.svelte';
   import Login from './routes/Login.svelte';
@@ -38,22 +37,15 @@
       users.reset();
       board.reset();
       projects.reset();
-      workspaces.reset();
       realtime.disconnect();
     }
     if (session.status !== 'authed') {
       return undefined;
     }
     const cancelUsers = users.loadWithRetry(() => toasts.error('Failed to load users'));
-    const cancelWorkspaces = workspaces.loadWithRetry(() =>
-      toasts.error('Failed to load workspaces')
-    );
     void projects.load();
     realtime.connect();
-    return () => {
-      cancelUsers();
-      cancelWorkspaces();
-    };
+    return cancelUsers;
   });
 </script>
 

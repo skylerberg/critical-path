@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import ProjectHeader from './ProjectHeader.svelte';
 import { board } from '../lib/board.svelte';
+import { projects } from '../lib/projects.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
 
@@ -30,6 +31,7 @@ function task(
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  projects.reset();
   users.reset();
   board.currentProjectId = 'p1';
   board.project = {
@@ -38,7 +40,7 @@ beforeEach(() => {
     description: '',
     archived_at: null,
     created_by: null,
-    workspace_id: null,
+    member_ids: [],
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
@@ -64,6 +66,30 @@ describe('ProjectHeader', () => {
     expect(screen.queryByLabelText('Filter tasks by title')).not.toBeInTheDocument();
     expect(screen.queryByText('art')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Graph' })).toBeInTheDocument();
+  });
+
+  it('opens the members modal from the Share button', async () => {
+    projects.projects = [
+      {
+        id: 'p1',
+        name: 'Game',
+        description: '',
+        archived_at: null,
+        created_by: 'u1',
+        member_ids: [],
+        created_at: '2026-01-01T00:00:00Z',
+        open_task_count: 0,
+        done_task_count: 0,
+      },
+    ];
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+
+    expect(screen.getByText('Ada')).toBeInTheDocument();
+    expect(screen.getByText('Owner')).toBeInTheDocument();
+    expect(screen.getByLabelText('Add by email')).toBeInTheDocument();
   });
 
   it('updates the shared filterQuery as the user types, which dims non-matching tasks', async () => {

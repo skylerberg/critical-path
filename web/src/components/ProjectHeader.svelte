@@ -3,6 +3,7 @@
   import { link, type ProjectView } from '../lib/router.svelte';
   import FilterBar from './FilterBar.svelte';
   import LabelManager from './LabelManager.svelte';
+  import ProjectMembersModal from './ProjectMembersModal.svelte';
 
   interface Props {
     projectId: string;
@@ -12,6 +13,7 @@
   let { projectId, view }: Props = $props();
 
   let labelsOpen = $state(false);
+  let shareOpen = $state(false);
 
   const boardActive = $derived(view === 'board');
   const graphActive = $derived(view === 'graph');
@@ -62,6 +64,28 @@
       </svg>
       Labels
     </button>
+    <button
+      type="button"
+      onclick={() => (shareOpen = true)}
+      class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink"
+    >
+      <svg
+        class="size-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="8.5" cy="7" r="4" />
+        <line x1="20" y1="8" x2="20" y2="14" />
+        <line x1="23" y1="11" x2="17" y2="11" />
+      </svg>
+      Share
+    </button>
     {#if boardActive}
       <FilterBar />
     {/if}
@@ -70,4 +94,8 @@
 
 {#if labelsOpen}
   <LabelManager open onclose={() => (labelsOpen = false)} />
+{/if}
+
+{#if shareOpen}
+  <ProjectMembersModal {projectId} onclose={() => (shareOpen = false)} />
 {/if}

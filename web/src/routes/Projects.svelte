@@ -1,11 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { groupProjectsByWorkspace } from '../lib/projectGroups';
   import { projects, type Project } from '../lib/projects.svelte';
   import { link, router } from '../lib/router.svelte';
-  import { session } from '../lib/session.svelte';
-  import { users } from '../lib/users.svelte';
-  import { workspaces, type Workspace } from '../lib/workspaces.svelte';
+  import ProjectMembersModal from '../components/ProjectMembersModal.svelte';
   import Badge from '../components/ui/Badge.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
@@ -18,13 +15,10 @@
     }
   });
 
-  const groups = $derived(groupProjectsByWorkspace(projects.active, workspaces.workspaces));
-
   let createOpen = $state(false);
   let copySource = $state<Project | null>(null);
   let createName = $state('');
   let createError = $state('');
-  let createWorkspaceId = $state('');
   let creating = $state(false);
 
   let renameTarget = $state<Project | null>(null);
@@ -33,30 +27,16 @@
 
   let deleteTarget = $state<Project | null>(null);
   let openMenuId = $state<string | null>(null);
-  let moveOpen = $state(false);
   let archivedOpen = $state(false);
-
-  let workspaceModalOpen = $state(false);
-  let workspaceName = $state('');
-  let workspaceError = $state('');
-  let creatingWorkspace = $state(false);
-
-  let membersId = $state<string | null>(null);
-  const membersWorkspace = $derived(membersId === null ? undefined : workspaces.byId(membersId));
-  let memberEmail = $state('');
-  let memberError = $state('');
-  let addingMember = $state(false);
-  let wsRenameName = $state('');
-  let confirmDeleteWorkspace = $state(false);
+  let membersProjectId = $state<string | null>(null);
 
   const menuItemClass =
     'flex min-h-11 w-full cursor-pointer items-center px-4 text-left text-sm hover:bg-accent-soft';
   const gridClass = 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3';
 
-  function openCreate(source: Project | null, workspaceId: string | null): void {
+  function openCreate(source: Project | null): void {
     copySource = source;
     createName = source === null ? '' : `${source.name} copy`;
-    createWorkspaceId = workspaceId ?? '';
     createError = '';
     createOpen = true;
   }
@@ -74,11 +54,8 @@
     }
     createError = '';
     creating = true;
-    const workspaceId = createWorkspaceId === '' ? null : createWorkspaceId;
     const id =
-      copySource === null
-        ? await projects.create(name, workspaceId)
-        : await projects.copy(copySource.id, name, workspaceId);
+      copySource === null ? await projects.create(name) : await projects.copy(copySource.id, name);
     creating = false;
     createOpen = false;
     if (id !== null) {
@@ -112,20 +89,7 @@
 
   function toggleMenu(event: MouseEvent, id: string): void {
     event.stopPropagation();
-    moveOpen = false;
     openMenuId = openMenuId === id ? null : id;
-  }
-
-  function openMoveMenu(event: MouseEvent): void {
-    event.stopPropagation();
-    moveOpen = true;
-  }
-
-  function move(project: Project, workspaceId: string | null): void {
-    if (project.workspace_id !== workspaceId) {
-      void projects.moveToWorkspace(project.id, workspaceId);
-    }
-    openMenuId = null;
   }
 
   function toggleArchive(project: Project): void {
@@ -134,74 +98,9 @@
       : projects.unarchive(project.id));
   }
 
-  function openWorkspaceModal(): void {
-    workspaceName = '';
-    workspaceError = '';
-    workspaceModalOpen = true;
-  }
-
-  async function submitWorkspace(event: SubmitEvent): Promise<void> {
-    event.preventDefault();
-    const name = workspaceName.trim();
-    if (name === '') {
-      workspaceError = 'Name is required';
-      return;
-    }
-    workspaceError = '';
-    creatingWorkspace = true;
-    await workspaces.create(name);
-    creatingWorkspace = false;
-    workspaceModalOpen = false;
-  }
-
-  function openMembers(workspace: Workspace): void {
-    membersId = workspace.id;
-    wsRenameName = workspace.name;
-    memberEmail = '';
-    memberError = '';
-    confirmDeleteWorkspace = false;
-  }
-
-  function submitWorkspaceRename(event: SubmitEvent): void {
-    event.preventDefault();
-    if (membersWorkspace === undefined) return;
-    const name = wsRenameName.trim();
-    if (name !== '' && name !== membersWorkspace.name) {
-      void workspaces.rename(membersWorkspace.id, name);
-    }
-  }
-
-  async function submitAddMember(event: SubmitEvent): Promise<void> {
-    event.preventDefault();
-    if (membersWorkspace === undefined) return;
-    const email = memberEmail.trim();
-    if (email === '') {
-      memberError = 'Email is required';
-      return;
-    }
-    addingMember = true;
-    memberError = '';
-    const result = await workspaces.addMemberByEmail(membersWorkspace.id, email);
-    addingMember = false;
-    if (result.ok) {
-      memberEmail = '';
-    } else {
-      memberError = result.error ?? 'Failed to add member';
-    }
-  }
-
-  function removeMember(userId: string): void {
-    if (membersWorkspace === undefined) return;
-    void workspaces.setMembers(
-      membersWorkspace.id,
-      membersWorkspace.member_ids.filter((id) => id !== userId)
-    );
-  }
-
-  function deleteWorkspace(): void {
-    if (membersWorkspace === undefined) return;
-    void workspaces.remove(membersWorkspace.id);
-    membersId = null;
+  function openMembers(project: Project): void {
+    membersProjectId = project.id;
+    openMenuId = null;
   }
 </script>
 
@@ -232,66 +131,46 @@
         role="menu"
         class="absolute top-full right-0 z-20 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
       >
-        {#if moveOpen}
-          <p class="px-4 py-1 text-xs font-semibold tracking-wide text-muted uppercase">
-            Move to workspace
-          </p>
-          <button
-            type="button"
-            role="menuitem"
-            class={menuItemClass}
-            onclick={() => move(project, null)}
-          >
-            Personal {project.workspace_id === null ? '✓' : ''}
-          </button>
-          {#each workspaces.workspaces as workspace (workspace.id)}
-            <button
-              type="button"
-              role="menuitem"
-              class={menuItemClass}
-              onclick={() => move(project, workspace.id)}
-            >
-              {workspace.name}
-              {project.workspace_id === workspace.id ? '✓' : ''}
-            </button>
-          {/each}
-        {:else}
-          <button
-            type="button"
-            role="menuitem"
-            class={menuItemClass}
-            onclick={() => openRename(project)}
-          >
-            Rename
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            class={menuItemClass}
-            onclick={() => openCreate(project, null)}
-          >
-            Copy
-          </button>
-          <button type="button" role="menuitem" class={menuItemClass} onclick={openMoveMenu}>
-            Move to workspace ▸
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            class={menuItemClass}
-            onclick={() => toggleArchive(project)}
-          >
-            {project.archived_at === null ? 'Archive' : 'Unarchive'}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            class="{menuItemClass} text-danger"
-            onclick={() => (deleteTarget = project)}
-          >
-            Delete
-          </button>
-        {/if}
+        <button
+          type="button"
+          role="menuitem"
+          class={menuItemClass}
+          onclick={() => openRename(project)}
+        >
+          Rename
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          class={menuItemClass}
+          onclick={() => openCreate(project)}
+        >
+          Copy
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          class={menuItemClass}
+          onclick={() => openMembers(project)}
+        >
+          Members
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          class={menuItemClass}
+          onclick={() => toggleArchive(project)}
+        >
+          {project.archived_at === null ? 'Archive' : 'Unarchive'}
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          class="{menuItemClass} text-danger"
+          onclick={() => (deleteTarget = project)}
+        >
+          Delete
+        </button>
       </div>
     {/if}
   </div>
@@ -321,47 +200,10 @@
   </article>
 {/snippet}
 
-{#snippet activeSection(
-  title: string,
-  list: Project[],
-  newWorkspaceId: string | null,
-  workspace?: Workspace
-)}
-  <section class="flex flex-col gap-4">
-    <div class="flex items-center gap-2">
-      <h2 class="text-lg font-semibold">{title}</h2>
-      {#if workspace !== undefined}
-        <Button variant="ghost" class="text-sm text-muted" onclick={() => openMembers(workspace)}>
-          Members ({workspace.member_ids.length})
-        </Button>
-      {/if}
-      <Button
-        variant="ghost"
-        class="ml-auto text-sm"
-        onclick={() => openCreate(null, newWorkspaceId)}
-      >
-        + New project
-      </Button>
-    </div>
-    {#if list.length === 0}
-      <p class="text-sm text-muted">No projects here yet.</p>
-    {:else}
-      <div class={gridClass}>
-        {#each list as project (project.id)}
-          {@render projectCard(project)}
-        {/each}
-      </div>
-    {/if}
-  </section>
-{/snippet}
-
 <main use:link class="mx-auto flex w-full max-w-6xl flex-col gap-10 p-4 lg:p-8">
   <header class="flex items-center justify-between gap-4">
     <h1 class="text-2xl font-semibold">Projects</h1>
-    <div class="flex items-center gap-2">
-      <Button variant="secondary" onclick={openWorkspaceModal}>New workspace</Button>
-      <Button onclick={() => openCreate(null, null)}>New project</Button>
-    </div>
+    <Button onclick={() => openCreate(null)}>New project</Button>
   </header>
 
   {#if !projects.loaded}
@@ -375,23 +217,19 @@
         <Spinner size="lg" />
       </div>
     {/if}
-  {:else if projects.active.length === 0 && workspaces.workspaces.length === 0}
+  {:else if projects.active.length === 0}
     <div
       class="flex flex-col items-center gap-3 rounded-lg border border-dashed border-edge py-16 text-center"
     >
       <p class="text-muted">No projects yet.</p>
-      <Button onclick={() => openCreate(null, null)}>Create your first project</Button>
+      <Button onclick={() => openCreate(null)}>Create your first project</Button>
     </div>
   {:else}
-    {@render activeSection('Personal', groups.personal, null)}
-    {#each groups.workspaces as group (group.workspace.id)}
-      {@render activeSection(
-        group.workspace.name,
-        group.projects,
-        group.workspace.id,
-        group.workspace
-      )}
-    {/each}
+    <div class={gridClass}>
+      {#each projects.active as project (project.id)}
+        {@render projectCard(project)}
+      {/each}
+    </div>
   {/if}
 
   {#if projects.loaded}
@@ -438,18 +276,6 @@
         </p>
       {/if}
       <Input label="Name" bind:value={createName} error={createError} autocapitalize="sentences" />
-      <label class="flex flex-col gap-1 text-sm font-medium">
-        Workspace
-        <select
-          bind:value={createWorkspaceId}
-          class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
-        >
-          <option value="">Personal</option>
-          {#each workspaces.workspaces as workspace (workspace.id)}
-            <option value={workspace.id}>{workspace.name}</option>
-          {/each}
-        </select>
-      </label>
     </form>
     {#snippet footer()}
       <Button variant="secondary" onclick={closeCreate} disabled={creating}>Cancel</Button>
@@ -464,97 +290,8 @@
   </Modal>
 {/if}
 
-{#if workspaceModalOpen}
-  <Modal open title="New workspace" onclose={() => (workspaceModalOpen = false)}>
-    <form id="create-workspace-form" onsubmit={submitWorkspace}>
-      <Input
-        label="Name"
-        bind:value={workspaceName}
-        error={workspaceError}
-        autocapitalize="sentences"
-      />
-    </form>
-    {#snippet footer()}
-      <Button
-        variant="secondary"
-        onclick={() => (workspaceModalOpen = false)}
-        disabled={creatingWorkspace}
-      >
-        Cancel
-      </Button>
-      <Button type="submit" form="create-workspace-form" disabled={creatingWorkspace}>
-        {creatingWorkspace ? 'Creating…' : 'Create workspace'}
-      </Button>
-    {/snippet}
-  </Modal>
-{/if}
-
-{#if membersWorkspace !== undefined}
-  <Modal open title="Manage workspace" onclose={() => (membersId = null)}>
-    <div class="flex flex-col gap-5">
-      <form class="flex items-end gap-2" onsubmit={submitWorkspaceRename}>
-        <div class="flex-1">
-          <Input label="Workspace name" bind:value={wsRenameName} autocapitalize="sentences" />
-        </div>
-        <Button type="submit" variant="secondary">Rename</Button>
-      </form>
-
-      <div class="flex flex-col gap-2">
-        <h3 class="text-sm font-semibold text-muted">Members</h3>
-        <ul class="flex flex-col gap-1">
-          {#each membersWorkspace.member_ids as memberId (memberId)}
-            {@const member = users.displayFor(memberId)}
-            <li class="flex min-h-11 items-center gap-2">
-              <span class="min-w-0 flex-1 truncate text-sm">
-                {member.name === '' ? memberId : member.name}
-                {memberId === session.user?.id ? ' (you)' : ''}
-              </span>
-              {#if memberId !== session.user?.id}
-                <button
-                  type="button"
-                  aria-label="Remove {member.name === '' ? memberId : member.name}"
-                  onclick={() => removeMember(memberId)}
-                  class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-accent-soft hover:text-danger"
-                >
-                  ✕
-                </button>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-        <form class="flex items-end gap-2" onsubmit={submitAddMember}>
-          <div class="flex-1">
-            <Input label="Add by email" type="email" bind:value={memberEmail} error={memberError} />
-          </div>
-          <Button type="submit" variant="secondary" disabled={addingMember}>
-            {addingMember ? 'Adding…' : 'Add'}
-          </Button>
-        </form>
-      </div>
-
-      <div class="flex flex-col gap-2 border-t border-edge pt-4">
-        {#if confirmDeleteWorkspace}
-          <p class="text-sm">
-            Delete <strong>{membersWorkspace.name}</strong>? Its projects become personal.
-          </p>
-          <div class="flex gap-2">
-            <Button variant="secondary" onclick={() => (confirmDeleteWorkspace = false)}>
-              Cancel
-            </Button>
-            <Button variant="danger" onclick={deleteWorkspace}>Delete workspace</Button>
-          </div>
-        {:else}
-          <button
-            type="button"
-            onclick={() => (confirmDeleteWorkspace = true)}
-            class="min-h-11 cursor-pointer self-start text-sm font-medium text-danger hover:underline"
-          >
-            Delete workspace
-          </button>
-        {/if}
-      </div>
-    </div>
-  </Modal>
+{#if membersProjectId !== null}
+  <ProjectMembersModal projectId={membersProjectId} onclose={() => (membersProjectId = null)} />
 {/if}
 
 {#if renameTarget !== null}
