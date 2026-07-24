@@ -16,11 +16,14 @@ function project(overrides: Partial<Project> = {}): Project {
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
+    position: null,
     ...overrides,
   };
 }
 
-function projectRow(item: Project): Omit<Project, 'open_task_count' | 'done_task_count'> {
+function projectRow(
+  item: Project
+): Omit<Project, 'open_task_count' | 'done_task_count' | 'position'> {
   return {
     id: item.id,
     name: item.name,
@@ -367,5 +370,138 @@ describe('projects store', () => {
 
     expect(projects.projects).toEqual([item]);
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+  });
+
+  it('sorts positioned projects first, then nulls by created_at then id', async () => {
+    const second = project({
+      id: 'p-second',
+      position: 2000,
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+    const first = project({
+      id: 'p-first',
+      position: 1000,
+      created_at: '2026-01-09T00:00:00.000Z',
+    });
+    const legacyA = project({ id: 'p-legacy-a', created_at: '2026-01-05T00:00:00.000Z' });
+    const legacyB = project({ id: 'p-legacy-b', created_at: '2026-01-05T00:00:00.000Z' });
+    await loadWith([legacyB, second, legacyA, first]);
+
+    expect(projects.active.map((p) => p.id)).toEqual([
+      'p-first',
+      'p-second',
+      'p-legacy-a',
+      'p-legacy-b',
+    ]);
+  });
+
+  it('sets a position optimistically and PUTs it', async () => {
+    await loadWith([project()]);
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    const pending = projects.setPosition('p-1', 1500);
+    expect(projects.projects[0]!.position).toBe(1500);
+
+    await pending;
+
+    expect(requestAt(1).method).toBe('PUT');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/position');
+    expect(await bodyOf(requestAt(1))).toEqual({ position: 1500 });
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('toasts and refetches when setting a position fails', async () => {
+    const item = project();
+    await loadWith([item]);
+    fetchMock.mockImplementation(async (input) => {
+      if ((input as Request).method === 'PUT') {
+        return jsonResponse(500, { error: 'nope' });
+      }
+      return jsonResponse(200, { projects: [item] });
+    });
+
+    await projects.setPosition('p-1', 1500);
+
+    expect(projects.projects[0]!.position).toBeNull();
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+  });
+
+  it('reorders with a single midpoint PUT when every project is positioned', async () => {
+    const a = project({ id: 'p-a', position: 1000 });
+    const b = project({ id: 'p-b', position: 2000 });
+    const c = project({ id: 'p-c', position: 3000 });
+    await loadWith([a, b, c]);
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    await projects.reorder('p-c', ['p-a', 'p-c', 'p-b']);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestAt(1).method).toBe('PUT');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-c/position');
+    expect(await bodyOf(requestAt(1))).toEqual({ position: 1500 });
+    expect(projects.active.map((p) => p.id)).toEqual(['p-a', 'p-c', 'p-b']);
+  });
+
+  it('normalizes the whole list when any position is null', async () => {
+    const a = project({ id: 'p-a', position: 1000 });
+    const b = project({ id: 'p-b', created_at: '2026-01-02T00:00:00.000Z' });
+    const c = project({ id: 'p-c', created_at: '2026-01-03T00:00:00.000Z' });
+    await loadWith([a, b, c]);
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    await projects.reorder('p-c', ['p-a', 'p-c', 'p-b']);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const puts = new Map<string, unknown>();
+    for (const index of [1, 2, 3]) {
+      expect(requestAt(index).method).toBe('PUT');
+      puts.set(new URL(requestAt(index).url).pathname, await bodyOf(requestAt(index)));
+    }
+    expect(puts).toEqual(
+      new Map<string, unknown>([
+        ['/api/projects/p-a/position', { position: 1000 }],
+        ['/api/projects/p-c/position', { position: 2000 }],
+        ['/api/projects/p-b/position', { position: 3000 }],
+      ])
+    );
+    expect(projects.active.map((p) => p.id)).toEqual(['p-a', 'p-c', 'p-b']);
+  });
+
+  it('applies project_position_updated to a loaded project', async () => {
+    await loadWith([project()]);
+
+    projects.applyRealtime({
+      type: 'project_position_updated',
+      project_id: null,
+      data: { id: 'p-1', position: 750 },
+    });
+
+    expect(projects.projects[0]!.position).toBe(750);
+  });
+
+  it('preserves position through a project_updated merge', async () => {
+    await loadWith([project({ position: 500 })]);
+
+    projects.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p-1',
+      data: { id: 'p-1', name: 'Renamed' },
+    });
+
+    expect(projects.projects[0]!.position).toBe(500);
+    expect(projects.projects[0]!.name).toBe('Renamed');
+  });
+
+  it('keeps the caller position when a PATCH response lacks it', async () => {
+    const item = project({ position: 500, name: 'Old' });
+    await loadWith([item]);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { ...projectRow(item), name: 'New' })
+    );
+
+    await projects.rename('p-1', 'New');
+
+    expect(projects.projects[0]!.position).toBe(500);
+    expect(projects.projects[0]!.name).toBe('New');
   });
 });

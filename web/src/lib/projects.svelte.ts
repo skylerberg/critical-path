@@ -1,6 +1,7 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import { newId } from './ids';
+import { reorderPositionUpdates } from './positions';
 import type { RealtimeEvent } from './realtime-types';
 import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
@@ -17,7 +18,20 @@ export interface AddMemberResult {
 }
 
 function byCreation(a: Project, b: Project): number {
-  return a.created_at.localeCompare(b.created_at) || a.name.localeCompare(b.name);
+  return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+}
+
+function byPosition(a: Project, b: Project): number {
+  if (a.position !== null && b.position !== null) {
+    return a.position - b.position || byCreation(a, b);
+  }
+  if (a.position !== null) {
+    return -1;
+  }
+  if (b.position !== null) {
+    return 1;
+  }
+  return byCreation(a, b);
 }
 
 class ProjectsStore {
@@ -26,7 +40,7 @@ class ProjectsStore {
   loading = $state(false);
   loadError = $state<string | null>(null);
 
-  #sorted = $derived([...this.projects].sort(byCreation));
+  #sorted = $derived([...this.projects].sort(byPosition));
   active = $derived(this.#sorted.filter((p) => p.archived_at === null));
   archived = $derived(this.#sorted.filter((p) => p.archived_at !== null));
 
@@ -142,10 +156,36 @@ class ProjectsStore {
     }
   }
 
+  async setPosition(id: string, position: number): Promise<void> {
+    this.#update(id, (p) => ({ ...p, position }));
+    try {
+      assertOk(
+        await api.PUT('/api/projects/{id}/position', {
+          params: { path: { id } },
+          body: { position },
+        })
+      );
+    } catch (error) {
+      await this.#mutationFailed(error, 'Failed to reorder project');
+    }
+  }
+
+  async reorder(movedId: string, orderedIds: string[]): Promise<void> {
+    const byId = new Map(this.projects.map((p) => [p.id, p]));
+    const ordered = orderedIds.flatMap((id) => byId.get(id) ?? []);
+    const updates = reorderPositionUpdates(ordered, movedId);
+    await Promise.all(updates.map(({ id, position }) => this.setPosition(id, position)));
+  }
+
   applyRealtime(event: RealtimeEvent): void {
     if (event.type === 'project_deleted') {
       const { id } = event.data as { id: string };
       this.projects = this.projects.filter((p) => p.id !== id);
+      return;
+    }
+    if (event.type === 'project_position_updated') {
+      const { id, position } = event.data as { id: string; position: number };
+      this.#update(id, (p) => ({ ...p, position }));
       return;
     }
     if (event.type === 'project_created' || event.type === 'project_updated') {
@@ -161,6 +201,7 @@ class ProjectsStore {
         created_at: new Date().toISOString(),
         open_task_count: 0,
         done_task_count: 0,
+        position: null,
       };
       const merged = { ...base, ...incoming };
       this.projects = existing
@@ -180,6 +221,7 @@ class ProjectsStore {
       created_at: new Date().toISOString(),
       open_task_count: 0,
       done_task_count: 0,
+      position: null,
     };
     this.projects = [...this.projects, optimistic];
     try {
@@ -207,12 +249,14 @@ class ProjectsStore {
   #applyPayload(payload: BoardPayload): void {
     const doneColumns = new Set(payload.columns.filter((c) => c.is_done).map((c) => c.id));
     const doneCount = payload.tasks.filter((t) => doneColumns.has(t.column_id)).length;
+    const existing = this.projects.find((p) => p.id === payload.project.id);
     const project: Project = {
       ...payload.project,
       open_task_count: payload.tasks.length - doneCount,
       done_task_count: doneCount,
+      position: existing?.position ?? null,
     };
-    if (this.projects.some((p) => p.id === project.id)) {
+    if (existing !== undefined) {
       this.#update(project.id, () => project);
     } else {
       this.projects = [...this.projects, project];

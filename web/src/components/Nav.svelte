@@ -1,11 +1,16 @@
 <script lang="ts">
+  import { flip } from 'svelte/animate';
+  import { dndzone, SHADOW_PLACEHOLDER_ITEM_ID, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
   import { APP_NAME } from '../lib/constants';
-  import { projects } from '../lib/projects.svelte';
+  import { projects, type Project } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { link, router } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
   import FeedbackDialog from './FeedbackDialog.svelte';
   import Avatar from './ui/Avatar.svelte';
+
+  const FLIP_MS = 150;
+  const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
 
   const projectsActive = $derived(router.current.name === 'projects');
   const currentProjectId = $derived(
@@ -15,6 +20,31 @@
   const offline = $derived(session.status === 'authed' && realtime.status !== 'online');
 
   let feedbackOpen = $state(false);
+  let localProjects = $state<Project[]>([]);
+  let projectDragging = $state(false);
+
+  $effect(() => {
+    if (!projectDragging) {
+      localProjects = [...projects.active];
+    }
+  });
+
+  function handleProjectConsider(event: CustomEvent<DndEvent<Project>>): void {
+    projectDragging = true;
+    localProjects = event.detail.items;
+  }
+
+  function handleProjectFinalize(event: CustomEvent<DndEvent<Project>>): void {
+    const items = event.detail.items.filter((p) => p.id !== SHADOW_PLACEHOLDER_ITEM_ID);
+    localProjects = items;
+    projectDragging = false;
+    if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
+      void projects.reorder(
+        event.detail.info.id,
+        items.map((p) => p.id)
+      );
+    }
+  }
 
   function logout(): void {
     void session.logout();
@@ -84,6 +114,7 @@
 {#snippet projectLink(id: string, name: string)}
   <a
     href="/projects/{id}"
+    draggable="false"
     aria-current={currentProjectId === id ? 'page' : undefined}
     class="flex min-h-11 items-center truncate rounded-md px-3 text-sm {currentProjectId === id
       ? 'bg-accent-soft font-medium text-accent'
@@ -110,9 +141,23 @@
     Projects
   </a>
 
-  <div class="mt-2 flex-1 overflow-y-auto px-2 pb-2">
-    {#each projects.active as project (project.id)}
-      {@render projectLink(project.id, project.name)}
+  <div
+    class="mt-2 flex-1 overflow-y-auto px-2 pb-2"
+    use:dndzone={{
+      items: localProjects,
+      type: 'sidebar-project',
+      flipDurationMs: FLIP_MS,
+      dropTargetStyle,
+      delayTouchStart: true,
+      zoneItemTabIndex: -1,
+    }}
+    onconsider={handleProjectConsider}
+    onfinalize={handleProjectFinalize}
+  >
+    {#each localProjects as project (project.id)}
+      <div animate:flip={{ duration: FLIP_MS }}>
+        {@render projectLink(project.id, project.name)}
+      </div>
     {/each}
   </div>
 

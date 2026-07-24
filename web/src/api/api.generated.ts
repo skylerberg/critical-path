@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/project-positions/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -200,7 +200,7 @@ export interface paths {
         };
         /**
          * List projects
-         * @description List projects the caller can access (created by them or shared with them as a member) with member ids and open and done task counts.
+         * @description List projects the caller can access (created by them or shared with them as a member) with member ids, open and done task counts, and the caller's personal sort position (null when never set). Ordered by position (nulls last), then created_at, then id.
          */
         get: operations["getApiProjects"];
         put?: never;
@@ -241,6 +241,26 @@ export interface paths {
          * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive.
          */
         patch: operations["patchApiProjectsById"];
+        trace?: never;
+    };
+    "/api/projects/{id}/position": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set project position
+         * @description Set the caller's personal sort position for a project. Positions are per user and order the project list for the caller only; other members are unaffected.
+         */
+        put: operations["putApiProjectsByIdPosition"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/projects/{id}/members": {
@@ -662,6 +682,7 @@ export interface components {
             member_ids: string[];
             name: string;
             open_task_count: number;
+            position: number | null;
         };
         BoardPayload: {
             columns: components["schemas"]["BoardColumn"][];
@@ -720,6 +741,9 @@ export interface components {
             archived_at?: components["schemas"]["UserAvatarurl"];
             description?: string;
             name?: string;
+        };
+        SetProjectPosition: {
+            position: number;
         };
         SetProjectMembers: {
             user_ids: string[];
@@ -1679,6 +1703,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putApiProjectsByIdPosition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetProjectPosition"];
+            };
+        };
+        responses: {
+            /** @description Position set */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
                 };
             };
             /** @description Internal Server Error */

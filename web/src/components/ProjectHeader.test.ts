@@ -80,6 +80,7 @@ describe('ProjectHeader', () => {
         created_at: '2026-01-01T00:00:00Z',
         open_task_count: 0,
         done_task_count: 0,
+        position: null,
       },
     ];
 

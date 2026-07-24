@@ -20,3 +20,26 @@ export function positionForIndex(sortedPositions: readonly number[], index: numb
   if (index >= sortedPositions.length) return append(sortedPositions);
   return between(sortedPositions[index - 1]!, sortedPositions[index]!);
 }
+
+export interface PositionUpdate {
+  id: string;
+  position: number;
+}
+
+// A null position (an item never reordered) leaves no numeric gap to midpoint
+// into, so any null forces a one-time normalization of the whole list;
+// otherwise only the moved item needs a new position.
+export function reorderPositionUpdates(
+  orderedItems: readonly { id: string; position: number | null }[],
+  movedId: string
+): PositionUpdate[] {
+  const index = orderedItems.findIndex((item) => item.id === movedId);
+  if (index === -1) {
+    return [];
+  }
+  if (orderedItems.some((item) => item.position === null)) {
+    return orderedItems.map((item, i) => ({ id: item.id, position: (i + 1) * GAP }));
+  }
+  const others = orderedItems.filter((item) => item.id !== movedId).map((item) => item.position!);
+  return [{ id: movedId, position: positionForIndex(others, index) }];
+}
