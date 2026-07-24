@@ -14,7 +14,6 @@ function project(overrides: Partial<Project> = {}): Project {
     id: 'p-1',
     name: 'Alpha',
     description: '',
-    is_template: false,
     archived_at: null,
     created_by: null,
     workspace_id: null,
@@ -49,7 +48,6 @@ describe('Nav sidebar', () => {
     projects.projects = [
       project({ id: 'p-solo', name: 'Solo Game' }),
       project({ id: 'p-team', name: 'Team Game', workspace_id: 'w-1' }),
-      project({ id: 'p-tpl', name: 'Template', is_template: true }),
       project({ id: 'p-arch', name: 'Archived', archived_at: '2026-02-01T00:00:00.000Z' }),
     ];
     workspaces.workspaces = [workspace()];
@@ -66,7 +64,6 @@ describe('Nav sidebar', () => {
     expect(team).toHaveAttribute('href', '/projects/p-team');
     expect(team).toHaveAttribute('aria-current', 'page');
 
-    expect(screen.queryByRole('link', { name: 'Template' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Archived' })).toBeNull();
   });
 

@@ -20,7 +20,6 @@ function project(overrides: Partial<Project> = {}): Project {
     id: 'p-1',
     name: 'Alpha',
     description: '',
-    is_template: false,
     archived_at: null,
     created_by: null,
     workspace_id: null,
@@ -37,12 +36,6 @@ const activeProject = project({
   description: 'A deck-building game',
   open_task_count: 5,
   done_task_count: 3,
-});
-const templateProject = project({
-  id: 'p-template',
-  name: 'Starter kit',
-  is_template: true,
-  created_at: '2026-01-02T00:00:00.000Z',
 });
 const archivedProject = project({
   id: 'p-archived',
@@ -73,9 +66,9 @@ beforeEach(() => {
 });
 
 describe('Projects', () => {
-  it('renders cards with counts, a templates section, and a collapsed archived section', async () => {
+  it('renders cards with counts and a collapsed archived section', async () => {
     fetchMock.mockImplementation(async () =>
-      jsonResponse(200, { projects: [activeProject, templateProject, archivedProject] })
+      jsonResponse(200, { projects: [activeProject, archivedProject] })
     );
     render(Projects);
 
@@ -87,12 +80,12 @@ describe('Projects', () => {
     expect(screen.getByText('5 open')).toBeInTheDocument();
     expect(screen.getByText('3 done')).toBeInTheDocument();
 
-    expect(screen.getByRole('link', { name: 'Starter kit' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Use template' })).toBeInTheDocument();
-
     expect(screen.queryByRole('link', { name: 'Old prototype' })).not.toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Archived (1)' }));
     expect(screen.getByRole('link', { name: 'Old prototype' })).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Old prototype' }));
+    expect(screen.getByRole('menuitem', { name: 'Copy' })).toBeInTheDocument();
   });
 
   it('shows empty states and opens the new project modal', async () => {
@@ -100,7 +93,6 @@ describe('Projects', () => {
     render(Projects);
 
     expect(await screen.findByText('No projects yet.')).toBeInTheDocument();
-    expect(screen.getByText(/No templates yet/)).toBeInTheDocument();
     expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
 
     await fireEvent.click(screen.getByRole('button', { name: 'New project' }));
@@ -110,13 +102,46 @@ describe('Projects', () => {
     expect(screen.getByRole('button', { name: 'Create project' })).toBeInTheDocument();
   });
 
-  it('prefills the name when using a template', async () => {
-    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [templateProject] }));
+  it('copies a project from the card menu', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.method === 'POST') {
+        const body = (await request.clone().json()) as { id: string; name: string };
+        return jsonResponse(201, {
+          project: {
+            id: body.id,
+            name: body.name,
+            description: '',
+            archived_at: null,
+            created_by: null,
+            workspace_id: null,
+            created_at: '2026-03-01T00:00:00.000Z',
+          },
+          columns: [],
+          tasks: [],
+          labels: [],
+        });
+      }
+      return jsonResponse(200, { projects: [activeProject] });
+    });
     render(Projects);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Use template' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for Alpha' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy' }));
 
-    expect(screen.getByLabelText('Name')).toHaveValue('Starter kit copy');
+    expect(screen.getByRole('heading', { name: 'Copy project' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveValue('Alpha copy');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Copy project' }));
+
+    expect(await screen.findByRole('link', { name: 'Alpha copy' })).toBeInTheDocument();
+    const post = fetchMock.mock.calls.find(
+      (c) => (c[0] as Request).method === 'POST'
+    )![0] as Request;
+    expect(new URL(post.url).pathname).toBe('/api/projects');
+    const body = (await post.clone().json()) as Record<string, unknown>;
+    expect(body.source_project_id).toBe('p-active');
+    expect(body.name).toBe('Alpha copy');
   });
 
   it('opens the delete confirmation from the card menu', async () => {

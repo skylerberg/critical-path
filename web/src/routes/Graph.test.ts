@@ -33,7 +33,6 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
       id: projectId,
       name: 'Rulebook',
       description: '',
-      is_template: false,
       archived_at: null,
       created_by: null,
       workspace_id: null,
