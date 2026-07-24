@@ -26,7 +26,12 @@ const BOARD_EVENTS = new Set([
   'image_created',
   'image_deleted',
 ]);
-const PROJECT_EVENTS = new Set(['project_created', 'project_updated', 'project_deleted']);
+const PROJECT_EVENTS = new Set([
+  'project_created',
+  'project_updated',
+  'project_deleted',
+  'project_position_updated',
+]);
 
 class RealtimeClient {
   status = $state<RealtimeStatus>('offline');

@@ -110,6 +110,7 @@ function project(overrides: Partial<Project> = {}): Project {
     created_at: '2026-01-01T00:00:00Z',
     open_task_count: 0,
     done_task_count: 0,
+    position: null,
     ...overrides,
   };
 }
@@ -370,6 +371,13 @@ describe('project event application', () => {
     projects.projects = [project(), project({ id: 'p2', name: 'Other' })];
     projects.applyRealtime({ type: 'project_deleted', project_id: 'p1', data: { id: 'p1' } });
     expect(projects.projects.map((p) => p.id)).toEqual(['p2']);
+  });
+
+  it('merges the position from a project_position_updated wire event', async () => {
+    projects.projects = [project()];
+    const socket = await connectAndAuth(null);
+    socket.receive({ type: 'project_position_updated', data: { id: 'p1', position: 250 } });
+    expect(projects.projects[0]!.position).toBe(250);
   });
 });
 
