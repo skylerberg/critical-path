@@ -134,6 +134,13 @@ describe('Account', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('shows the feedback entry point', () => {
+    render(Account);
+
+    expect(screen.getByRole('heading', { name: 'Feedback' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send feedback' })).toBeInTheDocument();
+  });
+
   it('flags a confirmation mismatch', async () => {
     render(Account);
 
