@@ -1,11 +1,9 @@
 <script lang="ts">
   import { APP_NAME } from '../lib/constants';
-  import { groupProjectsByWorkspace } from '../lib/projectGroups';
   import { projects } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { link, router } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
-  import { workspaces } from '../lib/workspaces.svelte';
   import FeedbackDialog from './FeedbackDialog.svelte';
   import Avatar from './ui/Avatar.svelte';
 
@@ -14,7 +12,6 @@
     router.current.name === 'project' ? router.current.params.id : null
   );
 
-  const groups = $derived(groupProjectsByWorkspace(projects.active, workspaces.workspaces));
   const offline = $derived(session.status === 'authed' && realtime.status !== 'online');
 
   let feedbackOpen = $state(false);
@@ -114,23 +111,8 @@
   </a>
 
   <div class="mt-2 flex-1 overflow-y-auto px-2 pb-2">
-    {#if groups.personal.length > 0}
-      <p class="px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-muted uppercase">
-        Personal
-      </p>
-      {#each groups.personal as project (project.id)}
-        {@render projectLink(project.id, project.name)}
-      {/each}
-    {/if}
-    {#each groups.workspaces as group (group.workspace.id)}
-      {#if group.projects.length > 0}
-        <p class="truncate px-3 pt-3 pb-1 text-xs font-semibold tracking-wide text-muted uppercase">
-          {group.workspace.name}
-        </p>
-        {#each group.projects as project (project.id)}
-          {@render projectLink(project.id, project.name)}
-        {/each}
-      {/if}
+    {#each projects.active as project (project.id)}
+      {@render projectLink(project.id, project.name)}
     {/each}
   </div>
 

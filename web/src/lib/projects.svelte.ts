@@ -2,12 +2,19 @@ import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
+import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
+import { users } from './users.svelte';
 
 export type Project = components['schemas']['ProjectListItem'];
 type BoardPayload = components['schemas']['BoardPayload'];
 type CreateProject = components['schemas']['CreateProject'];
 type PatchProject = components['schemas']['PatchProject'];
+
+export interface AddMemberResult {
+  ok: boolean;
+  error?: string;
+}
 
 function byCreation(a: Project, b: Project): number {
   return a.created_at.localeCompare(b.created_at) || a.name.localeCompare(b.name);
@@ -44,31 +51,16 @@ class ProjectsStore {
     this.loadError = null;
   }
 
-  async create(name: string, workspaceId: string | null = null): Promise<string | null> {
-    return this.#create({ id: newId(), name }, workspaceId);
+  async create(name: string): Promise<string | null> {
+    return this.#create({ id: newId(), name });
   }
 
-  async copy(
-    sourceProjectId: string,
-    name: string,
-    workspaceId: string | null = null
-  ): Promise<string | null> {
-    return this.#create({ id: newId(), name, source_project_id: sourceProjectId }, workspaceId);
+  async copy(sourceProjectId: string, name: string): Promise<string | null> {
+    return this.#create({ id: newId(), name, source_project_id: sourceProjectId });
   }
 
   async rename(id: string, name: string): Promise<void> {
     await this.#patch(id, { name }, 'Failed to rename project');
-  }
-
-  async moveToWorkspace(id: string, workspaceId: string | null): Promise<void> {
-    await this.#patch(id, { workspace_id: workspaceId }, 'Failed to move project');
-  }
-
-  // A deleted workspace reverts its projects to personal server-side; mirror it locally.
-  clearWorkspace(workspaceId: string): void {
-    this.projects = this.projects.map((p) =>
-      p.workspace_id === workspaceId ? { ...p, workspace_id: null } : p
-    );
   }
 
   async archive(id: string): Promise<void> {
@@ -88,6 +80,68 @@ class ProjectsStore {
     }
   }
 
+  async setMembers(id: string, userIds: string[]): Promise<void> {
+    this.#update(id, (p) => ({ ...p, member_ids: userIds }));
+    try {
+      assertOk(
+        await api.PUT('/api/projects/{id}/members', {
+          params: { path: { id } },
+          body: { user_ids: userIds },
+        })
+      );
+      users.invalidateAll();
+    } catch (error) {
+      await this.#mutationFailed(error, 'Failed to update members');
+    }
+  }
+
+  async addMemberByEmail(id: string, email: string): Promise<AddMemberResult> {
+    try {
+      const { user } = assertOk(
+        await api.POST('/api/projects/{id}/members/by-email', {
+          params: { path: { id } },
+          body: { email },
+        })
+      );
+      users.upsert(user);
+      // The creator is implicit and never listed, mirroring the server's no-op.
+      this.#update(id, (p) =>
+        p.created_by === user.id || p.member_ids.includes(user.id)
+          ? p
+          : { ...p, member_ids: [...p.member_ids, user.id] }
+      );
+      users.invalidateAll();
+      return { ok: true };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        return { ok: false, error: 'No user with that email' };
+      }
+      const message = error instanceof ApiError ? error.message : 'Failed to add member';
+      return { ok: false, error: message };
+    }
+  }
+
+  async leave(id: string): Promise<void> {
+    const project = this.projects.find((p) => p.id === id);
+    const selfId = session.user?.id;
+    if (project === undefined || selfId === undefined) {
+      return;
+    }
+    const remaining = project.member_ids.filter((memberId) => memberId !== selfId);
+    this.projects = this.projects.filter((p) => p.id !== id);
+    try {
+      assertOk(
+        await api.PUT('/api/projects/{id}/members', {
+          params: { path: { id } },
+          body: { user_ids: remaining },
+        })
+      );
+      users.invalidateAll();
+    } catch (error) {
+      await this.#mutationFailed(error, 'Failed to leave board');
+    }
+  }
+
   applyRealtime(event: RealtimeEvent): void {
     if (event.type === 'project_deleted') {
       const { id } = event.data as { id: string };
@@ -103,7 +157,7 @@ class ProjectsStore {
         description: '',
         archived_at: null,
         created_by: null,
-        workspace_id: null,
+        member_ids: [],
         created_at: new Date().toISOString(),
         open_task_count: 0,
         done_task_count: 0,
@@ -115,14 +169,14 @@ class ProjectsStore {
     }
   }
 
-  async #create(body: CreateProject, workspaceId: string | null): Promise<string | null> {
+  async #create(body: CreateProject): Promise<string | null> {
     const optimistic: Project = {
       id: body.id,
       name: body.name,
       description: body.description ?? '',
       archived_at: null,
-      created_by: null,
-      workspace_id: workspaceId,
+      created_by: session.user?.id ?? null,
+      member_ids: [],
       created_at: new Date().toISOString(),
       open_task_count: 0,
       done_task_count: 0,
@@ -131,10 +185,6 @@ class ProjectsStore {
     try {
       const payload = assertOk(await api.POST('/api/projects', { body }));
       this.#applyPayload(payload);
-      // Create has no workspace field; a chosen workspace is applied as a follow-up move.
-      if (workspaceId !== null) {
-        await this.moveToWorkspace(body.id, workspaceId);
-      }
       return body.id;
     } catch (error) {
       await this.#mutationFailed(error, 'Failed to create project');

@@ -3,7 +3,6 @@ import { board } from './board.svelte';
 import { projects } from './projects.svelte';
 import type { RealtimeEvent } from './realtime-types';
 import { session } from './session.svelte';
-import { workspaces } from './workspaces.svelte';
 
 export type RealtimeStatus = 'online' | 'offline' | 'connecting';
 
@@ -28,12 +27,6 @@ const BOARD_EVENTS = new Set([
   'image_deleted',
 ]);
 const PROJECT_EVENTS = new Set(['project_created', 'project_updated', 'project_deleted']);
-const WORKSPACE_EVENTS = new Set([
-  'workspace_created',
-  'workspace_updated',
-  'workspace_members_set',
-  'workspace_deleted',
-]);
 
 class RealtimeClient {
   status = $state<RealtimeStatus>('offline');
@@ -231,8 +224,6 @@ class RealtimeClient {
       board.applyRealtime(event);
     } else if (PROJECT_EVENTS.has(event.type)) {
       projects.applyRealtime(event);
-    } else if (WORKSPACE_EVENTS.has(event.type)) {
-      workspaces.applyRealtime(event);
     }
   }
 

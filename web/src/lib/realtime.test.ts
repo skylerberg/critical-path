@@ -6,7 +6,6 @@ import type { BoardPayload } from './board-types';
 import { projects, type Project } from './projects.svelte';
 import { realtime } from './realtime.svelte';
 import { session } from './session.svelte';
-import { workspaces, type Workspace } from './workspaces.svelte';
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -91,7 +90,7 @@ function boardPayload(): BoardPayload {
       description: '',
       archived_at: null,
       created_by: null,
-      workspace_id: null,
+      member_ids: [],
       created_at: '2026-01-01T00:00:00Z',
     },
     columns: [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }],
@@ -107,21 +106,10 @@ function project(overrides: Partial<Project> = {}): Project {
     description: '',
     archived_at: null,
     created_by: null,
-    workspace_id: null,
+    member_ids: [],
     created_at: '2026-01-01T00:00:00Z',
     open_task_count: 0,
     done_task_count: 0,
-    ...overrides,
-  };
-}
-
-function workspace(overrides: Partial<Workspace> = {}): Workspace {
-  return {
-    id: 'w1',
-    name: 'Team',
-    created_by: 'u1',
-    created_at: '2026-01-01T00:00:00Z',
-    member_ids: ['u1'],
     ...overrides,
   };
 }
@@ -150,7 +138,6 @@ beforeEach(async () => {
   realtime.disconnect();
   board.reset();
   projects.reset();
-  workspaces.reset();
   localStorage.setItem('cp.token', 'test-token');
   fetchMock.mockResolvedValue(jsonResponse(200, { id: 'u1', name: 'Me', email: 'm@e.com' }));
   await session.init();
@@ -343,7 +330,7 @@ describe('board event application', () => {
   });
 });
 
-describe('project and workspace event application', () => {
+describe('project event application', () => {
   it('upserts and removes projects', () => {
     projects.applyRealtime({ type: 'project_created', project_id: 'p1', data: project() });
     projects.applyRealtime({ type: 'project_created', project_id: 'p1', data: project() });
@@ -358,28 +345,31 @@ describe('project and workspace event application', () => {
     expect(projects.projects).toHaveLength(0);
   });
 
-  it('upserts and removes workspaces', () => {
-    workspaces.applyRealtime({ type: 'workspace_created', project_id: null, data: workspace() });
-    workspaces.applyRealtime({ type: 'workspace_created', project_id: null, data: workspace() });
-    expect(workspaces.workspaces).toHaveLength(1);
-    workspaces.applyRealtime({
-      type: 'workspace_updated',
-      project_id: null,
-      data: workspace({ name: 'Renamed' }),
+  it('merges member_ids from a project_updated membership change', () => {
+    projects.projects = [project({ member_ids: ['u2'] })];
+    projects.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: { id: 'p1', member_ids: ['u2', 'u3'] },
     });
-    expect(workspaces.workspaces[0]!.name).toBe('Renamed');
-    workspaces.applyRealtime({ type: 'workspace_deleted', project_id: null, data: { id: 'w1' } });
-    expect(workspaces.workspaces).toHaveLength(0);
+    expect(projects.projects[0]!.member_ids).toEqual(['u2', 'u3']);
+    expect(projects.projects[0]!.name).toBe('Game');
   });
 
-  it('drops a workspace when a members_set removes the caller', () => {
-    workspaces.workspaces = [workspace()];
-    workspaces.applyRealtime({
-      type: 'workspace_members_set',
-      project_id: null,
-      data: workspace({ member_ids: ['u9'] }),
+  it('upserts an unknown project from a project_updated broadcast', () => {
+    projects.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p9',
+      data: { id: 'p9', name: 'Gained', member_ids: ['u1'] },
     });
-    expect(workspaces.workspaces).toHaveLength(0);
+    expect(projects.projects).toHaveLength(1);
+    expect(projects.projects[0]!.member_ids).toEqual(['u1']);
+  });
+
+  it('evicts the project on project_deleted when access is lost', () => {
+    projects.projects = [project(), project({ id: 'p2', name: 'Other' })];
+    projects.applyRealtime({ type: 'project_deleted', project_id: 'p1', data: { id: 'p1' } });
+    expect(projects.projects.map((p) => p.id)).toEqual(['p2']);
   });
 });
 
