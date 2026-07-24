@@ -18,6 +18,7 @@ export type ProjectResponse = typeof projectSchema.infer;
 export const projectListItemSchema = projectSchema.merge({
   open_task_count: 'number',
   done_task_count: 'number',
+  position: 'number | null',
 });
 
 export type ProjectListItem = typeof projectListItemSchema.infer;
@@ -44,6 +45,10 @@ export const patchProjectSchema = type({
 // Empty is allowed: the creator has implicit access, so [] makes it personal.
 export const setProjectMembersSchema = type({
   user_ids: uuid.array().atMostLength(100),
+});
+
+export const setProjectPositionSchema = type({
+  position: 'number',
 });
 
 export const addProjectMemberByEmailSchema = type({
