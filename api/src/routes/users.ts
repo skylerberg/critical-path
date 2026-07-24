@@ -3,6 +3,7 @@ import { describeRoute, resolver } from 'hono-openapi';
 import { authMiddleware } from '../middleware/auth';
 import { queryValidator } from '../middleware/requestValidator';
 import { assertProjectAccess, usersWithProjectAccess } from '../services/authorization';
+import { avatarUrl } from '../services/avatars';
 import {
   usersQuerySchema,
   usersResponseSchema,
@@ -54,9 +55,9 @@ router.get(
       return c.json({ users }, 200);
     }
 
-    const users = await db
+    const rows = await db
       .selectFrom('app_user')
-      .select(['app_user.id', 'app_user.email', 'app_user.name'])
+      .select(['app_user.id', 'app_user.email', 'app_user.name', 'app_user.avatar_storage_key'])
       .where((eb) =>
         eb.or([
           eb('app_user.id', '=', user.id),
@@ -74,6 +75,10 @@ router.get(
       .orderBy('app_user.id')
       .execute();
 
+    const users = rows.map(({ avatar_storage_key, ...rest }) => ({
+      ...rest,
+      avatar_url: avatarUrl(avatar_storage_key),
+    }));
     return c.json({ users }, 200);
   }
 );

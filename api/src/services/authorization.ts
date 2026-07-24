@@ -1,6 +1,7 @@
 import type { ExpressionBuilder, ExpressionWrapper, Kysely, Selectable, SqlBool } from 'kysely';
 import type { DB, Project } from '../db/types';
 import { AppError } from '../utils/errors';
+import { avatarUrl } from './avatars';
 
 export interface ProjectAccessFields {
   created_by: string | null;
@@ -85,10 +86,10 @@ export function accessibleProjectsFilter(userId: string) {
 export async function usersWithProjectAccess(
   db: Kysely<DB>,
   projectId: string
-): Promise<Array<{ id: string; email: string; name: string }>> {
-  return await db
+): Promise<Array<{ id: string; email: string; name: string; avatar_url: string | null }>> {
+  const rows = await db
     .selectFrom('app_user')
-    .select(['app_user.id', 'app_user.email', 'app_user.name'])
+    .select(['app_user.id', 'app_user.email', 'app_user.name', 'app_user.avatar_storage_key'])
     .where((eb) =>
       eb.or([
         eb.exists(
@@ -119,4 +120,8 @@ export async function usersWithProjectAccess(
     .orderBy('app_user.name')
     .orderBy('app_user.id')
     .execute();
+  return rows.map(({ avatar_storage_key, ...rest }) => ({
+    ...rest,
+    avatar_url: avatarUrl(avatar_storage_key),
+  }));
 }

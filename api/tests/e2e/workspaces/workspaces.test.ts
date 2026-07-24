@@ -294,7 +294,7 @@ describe('Workspaces API', () => {
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
-        user: { id: member.id, email: member.email, name: member.name },
+        user: { id: member.id, email: member.email, name: member.name, avatar_url: null },
       });
 
       const again = await ctx

@@ -26,6 +26,8 @@ export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface AppUser {
   alternative_id: Generated<string>;
+  avatar_content_type: string | null;
+  avatar_storage_key: string | null;
   created_at: Generated<Timestamp>;
   email: string;
   id: string;

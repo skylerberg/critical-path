@@ -8,6 +8,7 @@ import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { isWorkspaceMember } from '../services/authorization';
+import { avatarUrl } from '../services/avatars';
 import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
 import { publishAfterCommit } from '../services/realtime/index';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
@@ -432,7 +433,7 @@ router.post(
 
     const target = await db
       .selectFrom('app_user')
-      .select(['id', 'email', 'name'])
+      .select(['id', 'email', 'name', 'avatar_storage_key'])
       .where((eb) => eb(eb.fn<string>('lower', ['email']), '=', email.toLowerCase()))
       .executeTakeFirst();
     if (!target) {
@@ -452,7 +453,17 @@ router.post(
       });
     }
 
-    return c.json({ user: target }, 200);
+    return c.json(
+      {
+        user: {
+          id: target.id,
+          email: target.email,
+          name: target.name,
+          avatar_url: avatarUrl(target.avatar_storage_key),
+        },
+      },
+      200
+    );
   }
 );
 

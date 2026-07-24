@@ -37,6 +37,8 @@ import { closeRedis } from './services/redis';
 import { logger } from './utils/logger';
 
 import authRouter from './routes/auth';
+import avatarUploadRouter from './routes/avatarUpload';
+import avatarsRouter from './routes/avatars';
 import usersRouter from './routes/users';
 import workspacesRouter from './routes/workspaces';
 import projectsRouter from './routes/projects';
@@ -54,14 +56,18 @@ app.use('*', corsMiddleware);
 app.use('*', compress());
 
 const IMAGE_UPLOAD_PATH = /^\/api\/tasks\/[^/]+\/images$/;
+const AVATAR_UPLOAD_PATH = '/api/auth/me/avatar';
 const globalBodyLimit = bodyLimit({
   maxSize: 1024 * 1024,
   onError: (c) => c.json({ error: 'Payload too large' }, 413),
 });
-// The image upload route carries its own larger bodyLimit; a global cap
-// applied first would reject those uploads before the route-level limit runs.
+// The upload routes carry their own larger bodyLimit; a global cap applied
+// first would reject those uploads before the route-level limit runs.
 app.use('*', (c, next) => {
-  if (c.req.method === 'POST' && IMAGE_UPLOAD_PATH.test(c.req.path)) {
+  if (
+    c.req.method === 'POST' &&
+    (IMAGE_UPLOAD_PATH.test(c.req.path) || c.req.path === AVATAR_UPLOAD_PATH)
+  ) {
     return next();
   }
   return globalBodyLimit(c, next);
@@ -115,6 +121,7 @@ const openAPIOptions = {
       { name: 'Tasks', description: 'Tasks, dependencies, labels, and assignees' },
       { name: 'Labels', description: 'Per-project labels' },
       { name: 'Images', description: 'Task image upload and retrieval' },
+      { name: 'Avatars', description: 'User profile image upload and retrieval' },
       { name: 'Feedback', description: 'User-submitted product feedback' },
     ],
   },
@@ -139,6 +146,8 @@ app.get('/api/openapi.json', async (c) => {
 app.get('/api/docs', swaggerUI({ url: '/api/openapi.json' }));
 
 app.route('/api/auth', authRouter);
+// Second router on the same prefix: POST /me/avatar needs its own bodyLimit.
+app.route('/api/auth', avatarUploadRouter);
 app.route('/api/users', usersRouter);
 app.route('/api/workspaces', workspacesRouter);
 app.route('/api/projects', projectsRouter);
@@ -148,6 +157,7 @@ app.route('/api/tasks', tasksRouter);
 app.route('/api/tasks', imageUploadRouter);
 app.route('/api/labels', labelsRouter);
 app.route('/api/images', imagesRouter);
+app.route('/api/avatars', avatarsRouter);
 app.route('/api/feedback', feedbackRouter);
 
 app.notFound((c) => {
