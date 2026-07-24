@@ -9,14 +9,21 @@ export async function getBoardPayload(
 ): Promise<BoardPayload | null> {
   const project = await db
     .selectFrom('project')
-    .select([
+    .select((eb) => [
       'id',
       'name',
       'description',
       'archived_at',
       'created_at',
       'created_by',
-      'workspace_id',
+      jsonArrayFrom(
+        eb
+          .selectFrom('project_member')
+          .select('project_member.user_id')
+          .whereRef('project_member.project_id', '=', 'project.id')
+          .orderBy('project_member.created_at')
+          .orderBy('project_member.user_id')
+      ).as('member_rows'),
     ])
     .where('id', '=', projectId)
     .executeTakeFirst();
@@ -91,7 +98,7 @@ export async function getBoardPayload(
       archived_at: project.archived_at?.toISOString() ?? null,
       created_at: project.created_at.toISOString(),
       created_by: project.created_by,
-      workspace_id: project.workspace_id,
+      member_ids: project.member_rows.map((row) => row.user_id),
     },
     columns,
     tasks: tasks.map((task) => ({

@@ -9,7 +9,6 @@ import { registerLabel } from './commands/label';
 import { registerProject } from './commands/project';
 import { registerTask } from './commands/task';
 import { registerUser } from './commands/user';
-import { registerWorkspace } from './commands/workspace';
 
 export function buildProgram(deps: CliDeps): Command {
   const program = new Command('cpath')
@@ -20,7 +19,6 @@ export function buildProgram(deps: CliDeps): Command {
   registerColumn(program, deps);
   registerTask(program, deps);
   registerLabel(program, deps);
-  registerWorkspace(program, deps);
   registerUser(program, deps);
   registerImage(program, deps);
   registerBoardViews(program, deps);

@@ -4,19 +4,19 @@ import { AppError } from '../utils/errors';
 import { avatarUrl } from './avatars';
 
 export interface ProjectAccessFields {
+  id: string;
   created_by: string | null;
-  workspace_id: string | null;
 }
 
-export async function isWorkspaceMember(
+export async function isProjectMember(
   db: Kysely<DB>,
-  workspaceId: string,
+  projectId: string,
   userId: string
 ): Promise<boolean> {
   const row = await db
-    .selectFrom('workspace_member')
+    .selectFrom('project_member')
     .select('user_id')
-    .where('workspace_id', '=', workspaceId)
+    .where('project_id', '=', projectId)
     .where('user_id', '=', userId)
     .executeTakeFirst();
   return row !== undefined;
@@ -28,8 +28,7 @@ export async function canAccessProject(
   project: ProjectAccessFields
 ): Promise<boolean> {
   if (project.created_by === userId) return true;
-  if (project.workspace_id === null) return false;
-  return await isWorkspaceMember(db, project.workspace_id, userId);
+  return await isProjectMember(db, project.id, userId);
 }
 
 // 404 rather than 403 so inaccessible projects are indistinguishable from
@@ -73,10 +72,10 @@ export function accessibleProjectsFilter(userId: string) {
       eb('project.created_by', '=', userId),
       eb.exists(
         eb
-          .selectFrom('workspace_member')
-          .select('workspace_member.user_id')
-          .whereRef('workspace_member.workspace_id', '=', 'project.workspace_id')
-          .where('workspace_member.user_id', '=', userId)
+          .selectFrom('project_member')
+          .select('project_member.user_id')
+          .whereRef('project_member.project_id', '=', 'project.id')
+          .where('project_member.user_id', '=', userId)
       ),
     ]);
 }
@@ -101,11 +100,10 @@ export async function usersWithProjectAccess(
         ),
         eb.exists(
           eb
-            .selectFrom('project')
-            .innerJoin('workspace_member', 'workspace_member.workspace_id', 'project.workspace_id')
-            .select('workspace_member.user_id')
-            .where('project.id', '=', projectId)
-            .whereRef('workspace_member.user_id', '=', 'app_user.id')
+            .selectFrom('project_member')
+            .select('project_member.user_id')
+            .where('project_member.project_id', '=', projectId)
+            .whereRef('project_member.user_id', '=', 'app_user.id')
         ),
         eb.exists(
           eb

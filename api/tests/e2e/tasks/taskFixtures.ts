@@ -22,14 +22,18 @@ export class ProjectFixtures {
 
   async createProject(
     name = 'tasks e2e project',
-    options: { createdBy?: string; workspaceId?: string } = {}
+    options: { createdBy?: string; memberIds?: string[] } = {}
   ): Promise<string> {
     const id = newId();
     const createdBy = options.createdBy ?? (await this.fallbackOwner());
-    await db
-      .insertInto('project')
-      .values({ id, name, created_by: createdBy, workspace_id: options.workspaceId ?? null })
-      .execute();
+    await db.insertInto('project').values({ id, name, created_by: createdBy }).execute();
+    const memberIds = (options.memberIds ?? []).filter((userId) => userId !== createdBy);
+    if (memberIds.length > 0) {
+      await db
+        .insertInto('project_member')
+        .values(memberIds.map((userId) => ({ project_id: id, user_id: userId })))
+        .execute();
+    }
     this.projectIds.push(id);
     return id;
   }

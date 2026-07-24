@@ -3,7 +3,6 @@ import type { RuntimeContext } from './context';
 import type { components } from './api/api.generated';
 
 export type ProjectListItem = components['schemas']['ProjectListItem'];
-export type Workspace = components['schemas']['Workspace'];
 export type User = components['schemas']['User'];
 export type BoardPayload = components['schemas']['BoardPayload'];
 export type BoardColumn = components['schemas']['BoardColumn'];
@@ -122,17 +121,6 @@ export async function resolveTaskId(
   }
   const board = await resolveBoard(ctx, projectRef);
   return resolveTaskInBoard(board, ref).id;
-}
-
-export async function resolveWorkspace(ctx: RuntimeContext, ref: string): Promise<Workspace> {
-  const { workspaces } = assertOk(await ctx.api.GET('/api/workspaces'));
-  return matchRef(
-    ref,
-    workspaces,
-    'workspace',
-    (w) => w.id,
-    (w) => w.name
-  );
 }
 
 export async function listUsers(ctx: RuntimeContext, projectId?: string): Promise<User[]> {

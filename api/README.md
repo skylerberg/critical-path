@@ -45,19 +45,34 @@ behind a reverse proxy that appends the client IP to `X-Forwarded-For`, set
 `TRUST_PROXY=true` so the rightmost forwarded entry is used instead; leave it
 unset otherwise, since the header is client-forgeable.
 
-### Workspaces and project access
+### Project members and access
 
-Projects are visible only to their creator and, when the project is assigned
-to a workspace, to that workspace's members. Inaccessible projects return 404
-everywhere (never 403), including as a copy source. Any workspace member can
-rename or delete the workspace and manage its member set (`PUT
-/api/workspaces/:id/members` must include the caller). Deleting a workspace
-reverts its projects to creator-only. When a member is removed or a project
-moves to a different scope, task assignments belonging to users who lost
-access are removed in the same transaction. `GET /api/users` returns only the
-caller plus users sharing a workspace with them; `GET /api/users?project_id=`
-returns the users who can access that project plus users still assigned to
-its tasks.
+Every project is shared per-project: it is visible to its creator and to the
+users in its `project_member` set. The creator has implicit access and is
+never stored as a member row (`member_ids` in project responses never
+contains `created_by`). Inaccessible projects return 404 everywhere (never
+403), including as a copy source. Management is open: anyone with access can
+manage the member set, and a member may remove themselves to leave.
+
+- `PUT /api/projects/:id/members` (`{ user_ids: uuid[] }`, up to 100 ids)
+  replaces the full member set. The creator's id is silently stripped if
+  present, so clients may send naive lists; every other id must reference an
+  existing user (422 otherwise). Removed members lose their task assignments
+  in the project in the same transaction.
+- `POST /api/projects/:id/members/by-email` (`{ email }`) adds one user by
+  exact, case-insensitive email and returns `{ user }` (with `avatar_url`).
+  Unknown emails return 404; adding an existing member or the creator is an
+  idempotent no-op.
+
+Copied projects start personal: members are never copied from the source.
+`GET /api/users` returns the caller plus every user sharing at least one
+project with them (as creator or member on either side); `GET
+/api/users?project_id=` returns the users who can access that project plus
+users still assigned to its tasks.
+
+`GET /api/workspaces` remains as a deprecated stub that always returns
+`{ "workspaces": [] }` so stale cached clients degrade gracefully; it is
+removed in the next release along with the workspace tables.
 
 ### Realtime
 
@@ -69,7 +84,7 @@ within 10 seconds of connecting, then may `{ "type": "subscribe", "project_id" }
 session is revoked.
 
 Every mutation emits an event after its transaction commits. The envelope is
-`{ type, project_id, data }` (`project_id` is `null` for workspace events):
+`{ type, project_id, data }`:
 
 | type                            | data                                                 |
 | ------------------------------- | ---------------------------------------------------- |
@@ -82,25 +97,25 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `label_deleted`                 | `{ id }`                                             |
 | `image_created`                 | image response plus `{ task_id, image_count }`       |
 | `image_deleted`                 | `{ task_id, image_count }`                           |
-| `project_created` / `project_updated` | projects-list item (with task counts)          |
+| `project_created` / `project_updated` | projects-list item (with `member_ids` and task counts) |
 | `project_deleted`               | `{ id }`                                             |
-| `workspace_created` / `workspace_updated` | workspace with `member_ids`                |
-| `workspace_members_set`         | workspace with `member_ids`                          |
-| `workspace_deleted`             | `{ id }`                                             |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
-add/remove, and by the cascades that strip assignees when a workspace member
-is removed or a project changes scope.
+add/remove, and by the cascade that strips assignees when a project member is
+removed.
 
 Delivery: project-scoped events go to sockets subscribed to that project whose
-user can access it (re-checked per event). `project_created` /
-`project_updated` are broadcast to every authenticated socket, filtered by the
-same access check, so project lists stay current without a room.
-`project_deleted` (also sent to workspace members who lose access when a
-project moves out of their workspace), `workspace_members_set` (which also
-reaches the removed members), and `workspace_deleted` are sent to a recipient
-list snapshotted inside the transaction, since the delivery access re-check
-would otherwise exclude exactly the users who need the event.
+user can access it (re-checked per event against `created_by` and
+`project_member`). `project_created` / `project_updated` are broadcast to
+every authenticated socket, filtered by the same access check, so project
+lists stay current without a room. Membership changes emit no dedicated event
+type: users who gain or keep access receive a `project_updated` broadcast
+whose payload carries the new `member_ids`, while users who lose access
+receive a `project_deleted` eviction sent to a recipient list snapshotted
+inside the transaction — the post-commit access re-check would exclude
+exactly the users who need to hear about their removal. Project deletion
+snapshots its recipients (creator plus members) the same way, since the rows
+backing the access check are gone after commit.
 
 ### Email
 
@@ -243,8 +258,8 @@ npm run openapi:dump && npm run --prefix cli generate-api
 
 - No email verification.
 - Float `position` ordering with no automatic rebalancing.
-- No per-workspace roles: every workspace member can rename/delete the
-  workspace and manage members.
+- No per-project roles: everyone with access to a project can rename/delete
+  it and manage its member set.
 - `GET /api/images/:id` and `GET /api/avatars/:key` are unauthenticated
   capability URLs (unguessable UUIDs) so `<img>` tags work without auth
   headers.

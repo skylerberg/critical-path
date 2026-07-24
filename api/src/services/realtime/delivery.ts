@@ -33,20 +33,6 @@ export async function deliver(entry: BusEntry, dbc: Kysely<DB> = db): Promise<vo
     return;
   }
 
-  if (entry.workspaceId !== undefined) {
-    const candidates = authedSocketEntries();
-    const userIds = [...new Set(candidates.map(([, state]) => state.userId))];
-    if (userIds.length === 0) return;
-    const memberRows = await dbc
-      .selectFrom('workspace_member')
-      .select('user_id')
-      .where('workspace_id', '=', entry.workspaceId)
-      .where('user_id', 'in', userIds)
-      .execute();
-    sendTo(candidates, new Set(memberRows.map((row) => row.user_id)), message);
-    return;
-  }
-
   if (entry.project_id === null) {
     return;
   }
@@ -61,7 +47,7 @@ export async function deliver(entry: BusEntry, dbc: Kysely<DB> = db): Promise<vo
 
   const project = await dbc
     .selectFrom('project')
-    .select(['created_by', 'workspace_id'])
+    .select('created_by')
     .where('id', '=', entry.project_id)
     .executeTakeFirst();
   if (!project) return;
@@ -69,11 +55,11 @@ export async function deliver(entry: BusEntry, dbc: Kysely<DB> = db): Promise<vo
   const userIds = [...new Set(candidates.map(([, state]) => state.userId))];
   const allowed = new Set(userIds.filter((userId) => userId === project.created_by));
   const unresolved = userIds.filter((userId) => !allowed.has(userId));
-  if (project.workspace_id !== null && unresolved.length > 0) {
+  if (unresolved.length > 0) {
     const memberRows = await dbc
-      .selectFrom('workspace_member')
+      .selectFrom('project_member')
       .select('user_id')
-      .where('workspace_id', '=', project.workspace_id)
+      .where('project_id', '=', entry.project_id)
       .where('user_id', 'in', unresolved)
       .execute();
     for (const row of memberRows) {

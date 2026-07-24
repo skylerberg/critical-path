@@ -1,6 +1,7 @@
 import { type } from 'arktype';
-import { uuid, stringWithLength, isoDateString } from './common';
+import { uuid, email, stringWithLength, isoDateString } from './common';
 import { boardColumnSchema, boardLabelSchema, boardTaskSchema } from './board';
+import { userSchema } from './users';
 
 export const projectSchema = type({
   id: 'string',
@@ -9,7 +10,7 @@ export const projectSchema = type({
   archived_at: 'string | null',
   created_at: 'string',
   created_by: 'string | null',
-  workspace_id: 'string | null',
+  member_ids: 'string[]',
 });
 
 export type ProjectResponse = typeof projectSchema.infer;
@@ -38,8 +39,22 @@ export const patchProjectSchema = type({
   'name?': stringWithLength(1, 200),
   'description?': stringWithLength(0, 10000),
   'archived_at?': isoDateString.or('null'),
-  'workspace_id?': uuid.or('null'),
 });
+
+// Empty is allowed: the creator has implicit access, so [] makes it personal.
+export const setProjectMembersSchema = type({
+  user_ids: uuid.array().atMostLength(100),
+});
+
+export const addProjectMemberByEmailSchema = type({
+  email,
+});
+
+export const projectMemberUserResponseSchema = type({
+  user: userSchema,
+});
+
+export type ProjectMemberUserResponse = typeof projectMemberUserResponseSchema.infer;
 
 export const boardPayloadSchema = type({
   project: projectSchema,

@@ -114,9 +114,9 @@ const openAPIOptions = {
     },
     tags: [
       { name: 'Auth', description: 'Signup, login, and session management' },
-      { name: 'Users', description: 'Workspace users' },
-      { name: 'Workspaces', description: 'Workspaces and their members' },
-      { name: 'Projects', description: 'Projects and board payloads' },
+      { name: 'Users', description: 'Visible users' },
+      { name: 'Workspaces', description: 'Deprecated: replaced by per-project members' },
+      { name: 'Projects', description: 'Projects, members, and board payloads' },
       { name: 'Columns', description: 'Kanban board columns' },
       { name: 'Tasks', description: 'Tasks, dependencies, labels, and assignees' },
       { name: 'Labels', description: 'Per-project labels' },

@@ -41,13 +41,13 @@ touch `gamedev@skylerberg.com` or its rows.
 9. Mutations with no useful body return `c.body(null, 204)`.
 10. Comments: absolute minimum, only non-obvious why.
 11. Project access is strict and centralized in `src/services/authorization.ts`:
-    a project is visible to its creator and, when it has a `workspace_id`, to
-    that workspace's members. Every project-scoped handler asserts access and
-    answers 404 (never 403) for inaccessible rows.
+    a project is visible to its creator (implicit, never stored as a member
+    row) and to its `project_member` rows. Every project-scoped handler asserts
+    access and answers 404 (never 403) for inaccessible rows.
 12. Every mutation emits a realtime event via `publishAfterCommit` from
     `src/services/realtime` (runs as a post-commit hook, so nothing is
-    published on rollback). Events about rows that are gone post-commit
-    (`project_deleted`, `workspace_deleted`, `workspace_members_set`) must
+    published on rollback). Events about rows or access that are gone
+    post-commit (`project_deleted`, membership-removal evictions) must
     snapshot `recipientUserIds` inside the transaction; events about live rows
     rely on the delivery layer's per-event access re-check. Event catalog and
     envelope are in README.md.
