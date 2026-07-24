@@ -22,22 +22,17 @@ export function registerProject(program: Command, deps: CliDeps): void {
 
   project.addCommand(
     leaf('list')
-      .description('List projects (active non-templates by default)')
+      .description('List projects (active by default)')
       .option('--archived', 'show archived projects instead of active ones')
-      .option('--templates', 'show templates instead of regular projects')
       .option('--all', 'show every project')
       .action(
         withCtx(deps, async (ctx, opts) => {
           const all = opts.all === true;
           const archived = opts.archived === true;
-          const templates = opts.templates === true;
           const projects = (await listProjects(ctx)).filter(
-            (p) =>
-              all ||
-              ((archived ? p.archived_at != null : p.archived_at == null) &&
-                (templates ? p.is_template : !p.is_template))
+            (p) => all || (archived ? p.archived_at != null : p.archived_at == null)
           );
-          const showFlags = all || archived || templates;
+          const showFlags = all || archived;
           ctx.out.data(projects, () => {
             const headers = ['ID', 'NAME', 'OPEN', 'DONE'];
             if (showFlags) {
@@ -53,11 +48,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
                   String(p.done_task_count),
                 ];
                 if (showFlags) {
-                  row.push(
-                    [p.archived_at != null ? 'archived' : '', p.is_template ? 'template' : '']
-                      .filter((flag) => flag !== '')
-                      .join(',')
-                  );
+                  row.push(p.archived_at != null ? 'archived' : '');
                 }
                 return row;
               })
@@ -72,8 +63,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
       .description('Create a project (default columns, or a deep copy with --from)')
       .argument('<name>', 'project name')
       .option('--description <text>', 'project description')
-      .option('--template', 'create as a template')
-      .option('--from <project>', 'source project to deep-copy (id or name)')
+      .option('--from <project>', 'source project to copy (id or name)')
       .action(
         withCtx(deps, async (ctx, opts, name) => {
           const from = opts.from as string | undefined;
@@ -84,7 +74,6 @@ export function registerProject(program: Command, deps: CliDeps): void {
                 id: crypto.randomUUID(),
                 name,
                 description: opts.description as string | undefined,
-                is_template: opts.template === true ? true : undefined,
                 source_project_id: source?.id,
               },
             })
@@ -111,9 +100,6 @@ export function registerProject(program: Command, deps: CliDeps): void {
               ctx.out.line(`Description: ${p.description}`);
             }
             ctx.out.line(`Created: ${p.created_at}`);
-            if (p.is_template) {
-              ctx.out.line('Template: yes');
-            }
             if (p.archived_at != null) {
               ctx.out.line(`Archived: ${p.archived_at}`);
             }
@@ -140,8 +126,6 @@ export function registerProject(program: Command, deps: CliDeps): void {
       .argument('<project>', 'project id or name')
       .option('--name <name>', 'new name')
       .option('--description <text>', 'new description')
-      .option('--template', 'mark as a template')
-      .option('--no-template', 'unmark as a template')
       .option('--workspace <workspace>', 'move into a workspace (id or name)')
       .option('--no-workspace', 'remove from its workspace')
       .action(
@@ -154,9 +138,6 @@ export function registerProject(program: Command, deps: CliDeps): void {
           if (typeof opts.description === 'string') {
             body.description = opts.description;
           }
-          if (typeof opts.template === 'boolean') {
-            body.is_template = opts.template;
-          }
           if (opts.workspace === false) {
             body.workspace_id = null;
           } else if (typeof opts.workspace === 'string') {
@@ -164,7 +145,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
           }
           if (Object.keys(body).length === 0) {
             throw new CliError(
-              'Pass at least one of --name, --description, --template/--no-template, --workspace/--no-workspace',
+              'Pass at least one of --name, --description, --workspace/--no-workspace',
               EXIT.usage
             );
           }

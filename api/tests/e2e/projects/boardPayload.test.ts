@@ -78,7 +78,6 @@ describe('GET /api/projects/:id board payload', () => {
     expect(payload.project).toMatchObject({
       id: projectId,
       name: 'Payload',
-      is_template: false,
       archived_at: null,
     });
 

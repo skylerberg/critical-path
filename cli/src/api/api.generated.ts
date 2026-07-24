@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/feedback/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/remove-templates/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate-api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -687,7 +687,6 @@ export interface components {
       description: string;
       done_task_count: number;
       id: string;
-      is_template: boolean;
       name: string;
       open_task_count: number;
       workspace_id: components['schemas']['ProjectsArchivedat'];
@@ -716,7 +715,6 @@ export interface components {
       created_by: components['schemas']['ProjectsArchivedat'];
       description: string;
       id: string;
-      is_template: boolean;
       name: string;
       workspace_id: components['schemas']['ProjectsArchivedat'];
     };
@@ -744,14 +742,12 @@ export interface components {
       id: string;
       name: string;
       description?: string;
-      is_template?: boolean;
       /** Format: uuid */
       source_project_id?: string;
     };
     PatchProject: {
       archived_at?: components['schemas']['ProjectsArchivedat'];
       description?: string;
-      is_template?: boolean;
       name?: string;
       workspace_id?: string | null;
     };

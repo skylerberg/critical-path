@@ -43,21 +43,13 @@ const DEFAULT_COLUMNS = [
 
 type ProjectRow = Pick<
   Selectable<Project>,
-  | 'id'
-  | 'name'
-  | 'description'
-  | 'is_template'
-  | 'archived_at'
-  | 'created_at'
-  | 'created_by'
-  | 'workspace_id'
+  'id' | 'name' | 'description' | 'archived_at' | 'created_at' | 'created_by' | 'workspace_id'
 >;
 
 const PROJECT_COLUMNS = [
   'id',
   'name',
   'description',
-  'is_template',
   'archived_at',
   'created_at',
   'created_by',
@@ -69,7 +61,6 @@ function toProjectResponse(row: ProjectRow) {
     id: row.id,
     name: row.name,
     description: row.description,
-    is_template: row.is_template,
     archived_at: row.archived_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),
     created_by: row.created_by,
@@ -170,7 +161,6 @@ router.get(
         'project.id',
         'project.name',
         'project.description',
-        'project.is_template',
         'project.archived_at',
         'project.created_at',
         'project.created_by',
@@ -253,7 +243,6 @@ router.post(
           id: body.id,
           name: body.name,
           description: body.description,
-          isTemplate: body.is_template ?? false,
           sourceProjectId: body.source_project_id,
           createdBy: user.id,
         });
@@ -264,7 +253,6 @@ router.post(
             id: body.id,
             name: body.name,
             description: body.description ?? '',
-            is_template: body.is_template ?? false,
             created_by: user.id,
           })
           .execute();
@@ -400,7 +388,6 @@ router.patch(
     const updates: Updateable<Project> = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
-    if (body.is_template !== undefined) updates.is_template = body.is_template;
     if (body.archived_at !== undefined) updates.archived_at = body.archived_at;
     if (workspaceChanged) updates.workspace_id = body.workspace_id;
 

@@ -55,7 +55,6 @@ describe('projects CRUD', () => {
         id,
         name: 'Defaults',
         description: 'A project',
-        is_template: false,
         archived_at: null,
       });
       expect(typeof body.project.created_at).toBe('string');
@@ -70,14 +69,13 @@ describe('projects CRUD', () => {
       }
     });
 
-    it('defaults description to empty and honors is_template', async () => {
+    it('defaults description to empty', async () => {
       const id = newId();
-      const res = await createProject({ id, name: 'Template', is_template: true });
+      const res = await createProject({ id, name: 'No description' });
       expect(res.status).toBe(201);
 
       const body = (await res.json()) as BoardPayloadBody;
       expect(body.project.description).toBe('');
-      expect(body.project.is_template).toBe(true);
     });
 
     it('returns 409 for a duplicate id', async () => {
@@ -145,21 +143,19 @@ describe('projects CRUD', () => {
   });
 
   describe('PATCH /api/projects/:id', () => {
-    it('updates name, description, and is_template', async () => {
+    it('updates name and description', async () => {
       const id = newId();
       await createProject({ id, name: 'Before' });
 
       const res = await ctx.request(user.token).patch(`/api/projects/${id}`, {
         name: 'After',
         description: 'Updated',
-        is_template: true,
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({
         id,
         name: 'After',
         description: 'Updated',
-        is_template: true,
         archived_at: null,
       });
     });

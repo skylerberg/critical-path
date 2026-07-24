@@ -26,7 +26,6 @@ export interface BoardPayloadBody {
     id: string;
     name: string;
     description: string;
-    is_template: boolean;
     archived_at: string | null;
     created_at: string;
   };

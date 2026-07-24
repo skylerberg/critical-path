@@ -6,7 +6,6 @@ export const projectSchema = type({
   id: 'string',
   name: 'string',
   description: 'string',
-  is_template: 'boolean',
   archived_at: 'string | null',
   created_at: 'string',
   created_by: 'string | null',
@@ -32,14 +31,12 @@ export const createProjectSchema = type({
   id: uuid,
   name: stringWithLength(1, 200),
   'description?': stringWithLength(0, 10000),
-  'is_template?': 'boolean',
   'source_project_id?': uuid,
 });
 
 export const patchProjectSchema = type({
   'name?': stringWithLength(1, 200),
   'description?': stringWithLength(0, 10000),
-  'is_template?': 'boolean',
   'archived_at?': isoDateString.or('null'),
   'workspace_id?': uuid.or('null'),
 });
