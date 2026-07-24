@@ -1,6 +1,12 @@
 <script lang="ts">
   import { flip } from 'svelte/animate';
-  import { dndzone, SHADOW_PLACEHOLDER_ITEM_ID, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
+  import {
+    dndzone,
+    SHADOW_PLACEHOLDER_ITEM_ID,
+    SOURCES,
+    TRIGGERS,
+    type DndEvent,
+  } from 'svelte-dnd-action';
   import { APP_NAME } from '../lib/constants';
   import { projects, type Project } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
@@ -29,15 +35,17 @@
     }
   });
 
+  // Keyboard drags end with a consider event (trigger DRAG_STOPPED), not a
+  // finalize, so the dragging flag must reset here too.
   function handleProjectConsider(event: CustomEvent<DndEvent<Project>>): void {
-    projectDragging = true;
+    projectDragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
     localProjects = event.detail.items;
   }
 
   function handleProjectFinalize(event: CustomEvent<DndEvent<Project>>): void {
     const items = event.detail.items.filter((p) => p.id !== SHADOW_PLACEHOLDER_ITEM_ID);
     localProjects = items;
-    projectDragging = false;
+    projectDragging = event.detail.info.source === SOURCES.KEYBOARD;
     if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
       void projects.reorder(
         event.detail.info.id,
@@ -143,19 +151,24 @@
 
   <div
     class="mt-2 flex-1 overflow-y-auto px-2 pb-2"
+    aria-label="Projects"
     use:dndzone={{
       items: localProjects,
       type: 'sidebar-project',
       flipDurationMs: FLIP_MS,
       dropTargetStyle,
       delayTouchStart: true,
-      zoneItemTabIndex: -1,
+      zoneItemTabIndex: 0,
     }}
     onconsider={handleProjectConsider}
     onfinalize={handleProjectFinalize}
   >
     {#each localProjects as project (project.id)}
-      <div animate:flip={{ duration: FLIP_MS }}>
+      <div
+        animate:flip={{ duration: FLIP_MS }}
+        aria-label={project.name}
+        class="rounded-md focus-visible:outline-2 focus-visible:outline-accent"
+      >
         {@render projectLink(project.id, project.name)}
       </div>
     {/each}

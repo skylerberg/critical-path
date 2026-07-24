@@ -5,6 +5,7 @@
     dndzone,
     dragHandleZone,
     SHADOW_PLACEHOLDER_ITEM_ID,
+    SOURCES,
     TRIGGERS,
     type DndEvent,
   } from 'svelte-dnd-action';
@@ -93,22 +94,27 @@
     }).length;
   }
 
+  // Keyboard drags end with a consider event (trigger DRAG_STOPPED), not a
+  // finalize, so the dragging flags must reset here too.
   function handleColumnConsider(event: CustomEvent<DndEvent<BoardColumn>>): void {
-    columnDragging = true;
+    columnDragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
     localColumns = event.detail.items;
   }
 
   function handleColumnFinalize(event: CustomEvent<DndEvent<BoardColumn>>): void {
     const items = event.detail.items.filter((column) => column.id !== SHADOW_PLACEHOLDER_ITEM_ID);
     localColumns = items;
-    columnDragging = false;
+    // Keyboard drags finalize on EVERY arrow press; the drag only ends with the
+    // DRAG_STOPPED consider, so the flag must survive keyboard finalizes or
+    // shortcuts and realtime updates fire mid-drag.
+    columnDragging = event.detail.info.source === SOURCES.KEYBOARD;
     if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
       void board.moveColumn(event.detail.info.id, positionAfterDrop(items, event.detail.info.id));
     }
   }
 
   function handleTaskConsider(columnId: string, event: CustomEvent<DndEvent<BoardTask>>): void {
-    taskDragging = true;
+    taskDragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
     localTasks[columnId] = event.detail.items;
   }
 
@@ -117,8 +123,9 @@
     localTasks[columnId] = items;
     // The origin zone's finalize (DROPPED_INTO_ANOTHER) must not end the drag: the
     // target zone's DROPPED_INTO_ZONE is the single place that commits the move.
+    // Keyboard finalizes fire per arrow press, so they keep the flag up too.
     if (event.detail.info.trigger !== TRIGGERS.DROPPED_INTO_ANOTHER) {
-      taskDragging = false;
+      taskDragging = event.detail.info.source === SOURCES.KEYBOARD;
     }
     if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
       void board.moveTask(
@@ -149,13 +156,13 @@
   <div class="flex h-full items-stretch gap-3 p-3 lg:gap-4 lg:p-4">
     <div
       class="flex items-stretch gap-3 empty:hidden lg:gap-4"
+      aria-label="Columns"
       use:dragHandleZone={{
         items: localColumns,
         type: 'column',
         flipDurationMs: FLIP_MS,
         dropTargetStyle,
         delayTouchStart: true,
-        zoneItemTabIndex: -1,
       }}
       onconsider={handleColumnConsider}
       onfinalize={handleColumnFinalize}
@@ -169,19 +176,25 @@
           <ColumnHeader {column} count={board.tasksInColumn(column.id).length} />
           <div
             class="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2"
+            aria-label="{column.name} tasks"
             use:dndzone={{
               items: localTasks[column.id] ?? [],
               type: 'task',
               flipDurationMs: FLIP_MS,
               dropTargetStyle,
               delayTouchStart: TOUCH_DRAG_DELAY_MS,
-              zoneItemTabIndex: -1,
+              zoneItemTabIndex: 0,
             }}
             onconsider={(event) => handleTaskConsider(column.id, event)}
             onfinalize={(event) => handleTaskFinalize(column.id, event)}
           >
             {#each localTasks[column.id] ?? [] as task (task.id)}
-              <div animate:flip={{ duration: FLIP_MS }} data-task-id={task.id}>
+              <div
+                animate:flip={{ duration: FLIP_MS }}
+                data-task-id={task.id}
+                aria-label={task.title}
+                class="rounded-md focus-visible:outline-2 focus-visible:outline-accent"
+              >
                 <TaskCard
                   {task}
                   {projectId}

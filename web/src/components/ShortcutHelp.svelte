@@ -37,6 +37,15 @@
       ],
     },
     {
+      heading: 'Reorder (Tab to a card, column handle, or sidebar project)',
+      bindings: [
+        { keys: ['Enter', 'Space'], label: 'Pick up or drop the focused item' },
+        { keys: ['↑', '↓', '←', '→'], label: 'Move the picked-up item' },
+        { keys: ['Tab'], label: 'Carry a picked-up task to another column' },
+        { keys: ['Esc'], label: 'Drop the picked-up item' },
+      ],
+    },
+    {
       heading: 'Navigation',
       bindings: [
         { keys: ['g', 'b'], label: 'Go to board', chord: true },
