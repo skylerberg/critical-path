@@ -24,6 +24,7 @@
   let { projectId }: Props = $props();
 
   const FLIP_MS = 150;
+  const TOUCH_DRAG_DELAY_MS = 250;
   const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
 
   let localColumns = $state<BoardColumn[]>([]);
@@ -163,7 +164,7 @@
         <section
           animate:flip={{ duration: FLIP_MS }}
           aria-label={column.name}
-          class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-start flex-col rounded-lg border border-edge bg-surface"
+          class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-start snap-always flex-col rounded-lg border border-edge bg-surface"
         >
           <ColumnHeader {column} count={board.tasksInColumn(column.id).length} />
           <div
@@ -173,7 +174,7 @@
               type: 'task',
               flipDurationMs: FLIP_MS,
               dropTargetStyle,
-              delayTouchStart: true,
+              delayTouchStart: TOUCH_DRAG_DELAY_MS,
               zoneItemTabIndex: -1,
             }}
             onconsider={(event) => handleTaskConsider(column.id, event)}
@@ -197,7 +198,7 @@
         </section>
       {/each}
     </div>
-    <div class="w-[85vw] max-w-72 shrink-0 snap-start">
+    <div class="w-[85vw] max-w-72 shrink-0 snap-start snap-always">
       {#if addingColumn}
         <form
           onsubmit={submitNewColumn}
