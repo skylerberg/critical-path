@@ -33,16 +33,9 @@ describe('project access control', () => {
     return (await res.json()) as BoardPayloadBody;
   }
 
-  async function createWorkspaceAs(user: TestUser, name: string): Promise<string> {
-    const id = newId();
-    const res = await ctx.request(user.token).post('/api/workspaces', { id, name });
-    expect(res.status).toBe(201);
-    return id;
-  }
-
   it('stamps created_by on fresh creates and copies', async () => {
     const board = await createProjectAs(alice, 'created-by fresh');
-    expect(board.project).toMatchObject({ created_by: alice.id, workspace_id: null });
+    expect(board.project).toMatchObject({ created_by: alice.id, member_ids: [] });
 
     const copyId = newId();
     projectIds.push(copyId);
@@ -53,7 +46,28 @@ describe('project access control', () => {
     });
     expect(copyRes.status).toBe(201);
     const copy = (await copyRes.json()) as BoardPayloadBody;
-    expect(copy.project).toMatchObject({ created_by: alice.id, workspace_id: null });
+    expect(copy.project).toMatchObject({ created_by: alice.id, member_ids: [] });
+  });
+
+  it('copies never inherit the source project members', async () => {
+    const board = await createProjectAs(alice, 'copy stays personal');
+    const share = await ctx
+      .request(alice.token)
+      .put(`/api/projects/${board.project.id}/members`, { user_ids: [bob.id] });
+    expect(share.status).toBe(204);
+
+    const copyId = newId();
+    projectIds.push(copyId);
+    const copyRes = await ctx.request(alice.token).post('/api/projects', {
+      id: copyId,
+      name: 'personal copy',
+      source_project_id: board.project.id,
+    });
+    expect(copyRes.status).toBe(201);
+    expect(((await copyRes.json()) as BoardPayloadBody).project.member_ids).toEqual([]);
+
+    const denied = await ctx.request(bob.token).get(`/api/projects/${copyId}`);
+    expect(denied.status).toBe(404);
   });
 
   describe('another user’s personal project', () => {
@@ -151,27 +165,17 @@ describe('project access control', () => {
     });
   });
 
-  describe('workspace sharing lifecycle', () => {
-    it('grants access when added to the workspace and revokes it on removal', async () => {
+  describe('membership sharing lifecycle', () => {
+    it('grants access when added as a member and revokes it on removal', async () => {
       const board = await createProjectAs(alice, 'alice shared');
       const projectId = board.project.id;
-      const workspaceId = await createWorkspaceAs(alice, 'sharing ws');
-
-      const move = await ctx
-        .request(alice.token)
-        .patch(`/api/projects/${projectId}`, { workspace_id: workspaceId });
-      expect(move.status).toBe(200);
-      expect(await move.json()).toMatchObject({
-        created_by: alice.id,
-        workspace_id: workspaceId,
-      });
 
       const beforeAdd = await ctx.request(bob.token).get(`/api/projects/${projectId}`);
       expect(beforeAdd.status).toBe(404);
 
       const add = await ctx
         .request(alice.token)
-        .post(`/api/workspaces/${workspaceId}/members/by-email`, { email: bob.email });
+        .post(`/api/projects/${projectId}/members/by-email`, { email: bob.email });
       expect(add.status).toBe(200);
 
       const afterAdd = await ctx.request(bob.token).get(`/api/projects/${projectId}`);
@@ -187,8 +191,8 @@ describe('project access control', () => {
         .patch(`/api/projects/${projectId}`, { name: 'renamed by bob' });
       expect(rename.status).toBe(200);
 
-      const remove = await ctx.request(alice.token).put(`/api/workspaces/${workspaceId}/members`, {
-        user_ids: [alice.id],
+      const remove = await ctx.request(alice.token).put(`/api/projects/${projectId}/members`, {
+        user_ids: [],
       });
       expect(remove.status).toBe(204);
 
@@ -196,26 +200,12 @@ describe('project access control', () => {
       expect(afterRemove.status).toBe(404);
     });
 
-    it('rejects moving a project into a workspace the caller does not belong to', async () => {
-      const board = await createProjectAs(alice, 'alice move denied');
-      const bobWorkspaceId = await createWorkspaceAs(bob, 'bob only ws');
-
-      const res = await ctx
-        .request(alice.token)
-        .patch(`/api/projects/${board.project.id}`, { workspace_id: bobWorkspaceId });
-      expect(res.status).toBe(422);
-    });
-
-    it('strips assignees who lose access when the project moves scope', async () => {
-      const board = await createProjectAs(alice, 'alice strip on move');
+    it('strips assignees who lose access when their membership is removed', async () => {
+      const board = await createProjectAs(alice, 'alice strip on removal');
       const projectId = board.project.id;
-      const workspaceId = await createWorkspaceAs(alice, 'strip ws');
       await ctx
         .request(alice.token)
-        .post(`/api/workspaces/${workspaceId}/members/by-email`, { email: bob.email });
-      await ctx.request(alice.token).patch(`/api/projects/${projectId}`, {
-        workspace_id: workspaceId,
-      });
+        .post(`/api/projects/${projectId}/members/by-email`, { email: bob.email });
 
       const taskId = await insertTask({ projectId, columnId: board.columns[0].id });
       const assign = await ctx.request(alice.token).put(`/api/tasks/${taskId}/assignees`, {
@@ -225,9 +215,8 @@ describe('project access control', () => {
 
       const toPersonal = await ctx
         .request(alice.token)
-        .patch(`/api/projects/${projectId}`, { workspace_id: null });
-      expect(toPersonal.status).toBe(200);
-      expect((await toPersonal.json()).workspace_id).toBeNull();
+        .put(`/api/projects/${projectId}/members`, { user_ids: [] });
+      expect(toPersonal.status).toBe(204);
 
       const assignees = await db
         .selectFrom('task_assignee')

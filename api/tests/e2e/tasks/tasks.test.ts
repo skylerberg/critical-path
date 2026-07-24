@@ -1,6 +1,5 @@
 import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
-import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { ProjectFixtures, validDescription, descriptionWithLink } from './taskFixtures';
@@ -42,21 +41,9 @@ describe('Tasks CRUD', () => {
 
     it('creates a task with labels and assignees in board-payload shape', async () => {
       const assignee = await ctx.createUser('tasks-crud-assignee');
-      const workspaceId = newId();
-      await db
-        .insertInto('workspace')
-        .values({ id: workspaceId, name: 'tasks crud ws', created_by: user.id })
-        .execute();
-      await db
-        .insertInto('workspace_member')
-        .values([
-          { workspace_id: workspaceId, user_id: user.id },
-          { workspace_id: workspaceId, user_id: assignee.id },
-        ])
-        .execute();
       const sharedProjectId = await fixtures.createProject('tasks crud shared', {
         createdBy: user.id,
-        workspaceId,
+        memberIds: [assignee.id],
       });
       const sharedColumnId = await fixtures.createColumn(sharedProjectId);
       const labelA = await fixtures.createLabel(sharedProjectId, `label-a-${newId()}`);

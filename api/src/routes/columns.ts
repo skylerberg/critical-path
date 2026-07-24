@@ -75,7 +75,7 @@ router.post(
 
     const project = await db
       .selectFrom('project')
-      .select(['created_by', 'workspace_id'])
+      .select(['id', 'created_by'])
       .where('id', '=', project_id)
       .executeTakeFirst();
     if (!project || !(await canAccessProject(db, user.id, project))) {

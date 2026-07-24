@@ -1,7 +1,7 @@
 import { type } from 'arktype';
-import { uuid, email, stringWithLength } from './common';
-import { userSchema } from './users';
 
+// Kept only for the deprecated GET /api/workspaces stub; removed with it in
+// the follow-up release.
 export const workspaceSchema = type({
   id: 'string',
   name: 'string',
@@ -17,27 +17,3 @@ export const workspacesListResponseSchema = type({
 });
 
 export type WorkspacesListResponse = typeof workspacesListResponseSchema.infer;
-
-export const createWorkspaceSchema = type({
-  id: uuid,
-  name: stringWithLength(1, 200),
-});
-
-export const patchWorkspaceSchema = type({
-  'name?': stringWithLength(1, 200),
-});
-
-// Never empty: the member set must always include the caller.
-export const setWorkspaceMembersSchema = type({
-  user_ids: uuid.array().atLeastLength(1).atMostLength(100),
-});
-
-export const addWorkspaceMemberByEmailSchema = type({
-  email,
-});
-
-export const workspaceMemberUserResponseSchema = type({
-  user: userSchema,
-});
-
-export type WorkspaceMemberUserResponse = typeof workspaceMemberUserResponseSchema.infer;

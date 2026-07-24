@@ -14,8 +14,6 @@ export interface PublishOptions {
   // Candidate every authed socket (access-checked) instead of only the
   // project's subscribers — for project list events.
   broadcast?: boolean;
-  // Deliver to current members of this workspace (live membership check).
-  workspaceId?: string;
 }
 
 export interface BusEntry extends RealtimeEnvelope, PublishOptions {}

@@ -5,7 +5,6 @@ import { app } from '../../../src/index';
 import { attachRealtime, projectSockets } from '../../../src/services/realtime/index';
 import type { RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, type TestUser } from '../../setup/testContext';
-import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
 
@@ -97,7 +96,6 @@ describe('Realtime end to end', () => {
   let clientC: RtClient;
   const clients: RtClient[] = [];
 
-  let workspaceId: string;
   let projectId: string;
   let columnId: string;
   let taskId: string;
@@ -122,16 +120,6 @@ describe('Realtime end to end', () => {
     userB = await ctx.createUser('rt-b');
     userC = await ctx.createUser('rt-c');
 
-    workspaceId = newId();
-    const wsRes = await ctx
-      .request(userA.token)
-      .post('/api/workspaces', { id: workspaceId, name: 'rt workspace' });
-    expect(wsRes.status).toBe(201);
-    await db
-      .insertInto('workspace_member')
-      .values({ workspace_id: workspaceId, user_id: userB.id })
-      .execute();
-
     projectId = newId();
     const projectRes = await ctx
       .request(userA.token)
@@ -139,10 +127,10 @@ describe('Realtime end to end', () => {
     expect(projectRes.status).toBe(201);
     const payload = (await projectRes.json()) as { columns: Array<{ id: string }> };
     columnId = payload.columns[0].id;
-    const moveRes = await ctx
+    const shareRes = await ctx
       .request(userA.token)
-      .patch(`/api/projects/${projectId}`, { workspace_id: workspaceId });
-    expect(moveRes.status).toBe(200);
+      .put(`/api/projects/${projectId}/members`, { user_ids: [userB.id] });
+    expect(shareRes.status).toBe(204);
 
     clientA = await connect(userA.token);
     clientB = await connect(userB.token);
@@ -371,7 +359,7 @@ describe('Realtime end to end', () => {
     expect(event.data).toEqual({ id: task2Id });
   });
 
-  it('broadcasts project_updated to unsubscribed members but not outsiders', async () => {
+  it('broadcasts project_updated with member_ids to unsubscribed members but not outsiders', async () => {
     const res = await ctx
       .request(userA.token)
       .patch(`/api/projects/${projectId}`, { name: 'Renamed project' });
@@ -383,7 +371,7 @@ describe('Realtime end to end', () => {
     expect(event.data).toMatchObject({
       id: projectId,
       name: 'Renamed project',
-      workspace_id: workspaceId,
+      member_ids: [userB.id],
       open_task_count: 1,
       done_task_count: 0,
     });
@@ -399,10 +387,10 @@ describe('Realtime end to end', () => {
     expect(createRes.status).toBe(201);
     await clientA.waitForEvent((e) => e.type === 'project_created' && e.data.id === otherProjectId);
 
-    const moveRes = await ctx
+    const shareRes = await ctx
       .request(userA.token)
-      .patch(`/api/projects/${otherProjectId}`, { workspace_id: workspaceId });
-    expect(moveRes.status).toBe(200);
+      .put(`/api/projects/${otherProjectId}/members`, { user_ids: [userB.id] });
+    expect(shareRes.status).toBe(204);
     await clientB2.waitForEvent(
       (e) => e.type === 'project_updated' && e.data.id === otherProjectId
     );
@@ -421,66 +409,60 @@ describe('Realtime end to end', () => {
     expect(clientC.events).toEqual([]);
   });
 
-  it('sends project_deleted to members who lose access when a project leaves the workspace', async () => {
-    const movedProjectId = newId();
+  it('delivers project_updated with the new member list when a user is added', async () => {
+    const sharedProjectId = newId();
     const createRes = await ctx
       .request(userA.token)
-      .post('/api/projects', { id: movedProjectId, name: 'leaving project' });
+      .post('/api/projects', { id: sharedProjectId, name: 'gaining project' });
     expect(createRes.status).toBe(201);
-
-    const intoRes = await ctx
-      .request(userA.token)
-      .patch(`/api/projects/${movedProjectId}`, { workspace_id: workspaceId });
-    expect(intoRes.status).toBe(200);
-    await clientB2.waitForEvent(
-      (e) => e.type === 'project_updated' && e.data.id === movedProjectId
-    );
-
-    const outRes = await ctx
-      .request(userA.token)
-      .patch(`/api/projects/${movedProjectId}`, { workspace_id: null });
-    expect(outRes.status).toBe(200);
-
-    const event = await clientB2.waitForEvent(
-      (e) => e.type === 'project_deleted' && e.data.id === movedProjectId
-    );
-    expect(event).toMatchObject({
-      type: 'project_deleted',
-      project_id: movedProjectId,
-      data: { id: movedProjectId },
-    });
     await settle();
-    expect(clientC.events).toEqual([]);
+    const beforeGain = clientB2.events.length;
+
+    const addRes = await ctx
+      .request(userA.token)
+      .post(`/api/projects/${sharedProjectId}/members/by-email`, { email: userB.email });
+    expect(addRes.status).toBe(200);
+
+    const gained = await clientB2.waitForEvent(
+      (e) => e.type === 'project_updated' && e.data.id === sharedProjectId
+    );
+    expect(gained.data).toMatchObject({ member_ids: [userB.id] });
+    expect(clientB2.events.slice(0, beforeGain).map((e) => e.data.id)).not.toContain(
+      sharedProjectId
+    );
+
+    const cleanupRes = await ctx.request(userA.token).delete(`/api/projects/${sharedProjectId}`);
+    expect(cleanupRes.status).toBe(204);
   });
 
-  it('delivers workspace_updated to members on rename', async () => {
+  it('evicts removed members via project_deleted, strips their assignments, then goes quiet', async () => {
     const res = await ctx
       .request(userA.token)
-      .patch(`/api/workspaces/${workspaceId}`, { name: 'Renamed workspace' });
-    expect(res.status).toBe(200);
-    const event = await clientB2.waitForEvent(
-      (e) => e.type === 'workspace_updated' && e.data.id === workspaceId
-    );
-    expect(event.project_id).toBeNull();
-    expect(event.data).toMatchObject({ name: 'Renamed workspace' });
-    await settle();
-    expect(clientC.events).toEqual([]);
-  });
-
-  it('tells removed members via workspace_members_set, strips their assignments, then goes quiet', async () => {
-    const res = await ctx
-      .request(userA.token)
-      .put(`/api/workspaces/${workspaceId}/members`, { user_ids: [userA.id] });
+      .put(`/api/projects/${projectId}/members`, { user_ids: [] });
     expect(res.status).toBe(204);
 
-    const memberEvent = await clientB.waitForEvent((e) => e.type === 'workspace_members_set');
-    expect(memberEvent.data).toMatchObject({ id: workspaceId, member_ids: [userA.id] });
-    await clientB2.waitForEvent((e) => e.type === 'workspace_members_set');
+    const evicted = await clientB.waitForEvent(
+      (e) => e.type === 'project_deleted' && e.data.id === projectId
+    );
+    expect(evicted).toMatchObject({
+      type: 'project_deleted',
+      project_id: projectId,
+      data: { id: projectId },
+    });
+    await clientB2.waitForEvent((e) => e.type === 'project_deleted' && e.data.id === projectId);
 
     const stripEvent = await clientA.waitForEvent(
       (e) => e.type === 'task_relations_set' && e.data.task_id === taskId
     );
     expect(stripEvent.data).toMatchObject({ assignee_ids: [] });
+
+    const updated = await clientA.waitForEvent(
+      (e) =>
+        e.type === 'project_updated' &&
+        e.data.id === projectId &&
+        JSON.stringify(e.data.member_ids) === JSON.stringify([])
+    );
+    expect(updated.data).toMatchObject({ member_ids: [] });
 
     const quietFrom = clientB.events.length;
     const newTaskId = newId();
@@ -502,10 +484,10 @@ describe('Realtime end to end', () => {
     expect(clientC.events).toEqual([]);
   });
 
-  it('only delivered broadcast and workspace events to the unsubscribed client', () => {
+  it('only delivered project list events to the unsubscribed client', () => {
     expect(clientB2.events.length).toBeGreaterThan(0);
     for (const event of clientB2.events) {
-      expect(event.type).toMatch(/^(project_|workspace_)/);
+      expect(event.type).toMatch(/^project_/);
     }
   });
 

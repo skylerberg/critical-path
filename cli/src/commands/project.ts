@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { leaf, withCtx } from '../kit';
 import { CliError, EXIT, assertOk } from '../api/errors';
 import { confirmOrAbort } from '../prompt';
-import { listProjects, resolveBoard, resolveProject, resolveWorkspace } from '../resolve';
+import { listProjects, listUsers, resolveBoard, resolveProject, resolveUser } from '../resolve';
 import { sortedColumns, sortedTasksIn } from '../board';
 import type { CliDeps, RuntimeContext } from '../context';
 import type { components } from '../api/api.generated';
@@ -126,8 +126,6 @@ export function registerProject(program: Command, deps: CliDeps): void {
       .argument('<project>', 'project id or name')
       .option('--name <name>', 'new name')
       .option('--description <text>', 'new description')
-      .option('--workspace <workspace>', 'move into a workspace (id or name)')
-      .option('--no-workspace', 'remove from its workspace')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
           const target = await resolveProject(ctx, ref);
@@ -138,19 +136,93 @@ export function registerProject(program: Command, deps: CliDeps): void {
           if (typeof opts.description === 'string') {
             body.description = opts.description;
           }
-          if (opts.workspace === false) {
-            body.workspace_id = null;
-          } else if (typeof opts.workspace === 'string') {
-            body.workspace_id = (await resolveWorkspace(ctx, opts.workspace)).id;
-          }
           if (Object.keys(body).length === 0) {
-            throw new CliError(
-              'Pass at least one of --name, --description, --workspace/--no-workspace',
-              EXIT.usage
-            );
+            throw new CliError('Pass at least one of --name, --description', EXIT.usage);
           }
           const updated = await patchProject(ctx, target.id, body);
           ctx.out.data(updated, () => ctx.out.line(`Updated project ${updated.name}`));
+        })
+      )
+  );
+
+  project.addCommand(
+    leaf('members')
+      .description('List the members of a project (the creator is implicit)')
+      .argument('<project>', 'project id or name')
+      .action(
+        withCtx(deps, async (ctx, _opts, ref) => {
+          const target = await resolveProject(ctx, ref);
+          const users = new Map((await listUsers(ctx, target.id)).map((u) => [u.id, u]));
+          const memberIds =
+            target.created_by == null
+              ? target.member_ids
+              : [target.created_by, ...target.member_ids];
+          const members = memberIds.map((id) => {
+            const user = users.get(id);
+            return {
+              id,
+              name: user?.name ?? null,
+              email: user?.email ?? null,
+              role: id === target.created_by ? 'owner' : 'member',
+            };
+          });
+          ctx.out.data(members, () => {
+            ctx.out.table(
+              ['ID', 'NAME', 'EMAIL', 'ROLE'],
+              members.map((m) => [m.id.slice(0, 8), m.name ?? '(unknown)', m.email ?? '', m.role])
+            );
+          });
+        })
+      )
+  );
+
+  project.addCommand(
+    leaf('set-members')
+      .description('Replace the member list (the creator always keeps access)')
+      .argument('<project>', 'project id or name')
+      .argument('<users...>', 'user ids, names, or emails')
+      .action(
+        withCtx(deps, async (ctx, _opts, ref, ...rest) => {
+          const target = await resolveProject(ctx, ref);
+          const userRefs = rest.flat();
+          const ids: string[] = [];
+          for (const userRef of userRefs) {
+            const user = await resolveUser(ctx, userRef);
+            if (!ids.includes(user.id)) {
+              ids.push(user.id);
+            }
+          }
+          assertOk(
+            await ctx.api.PUT('/api/projects/{id}/members', {
+              params: { path: { id: target.id } },
+              body: { user_ids: ids },
+            })
+          );
+          const updated = await resolveProject(ctx, target.id);
+          ctx.out.data(updated, () =>
+            ctx.out.line(`Set ${updated.member_ids.length} member(s) on project ${updated.name}`)
+          );
+        })
+      )
+  );
+
+  project.addCommand(
+    leaf('invite')
+      .description('Add a member by email')
+      .argument('<project>', 'project id or name')
+      .requiredOption('--email <email>', 'email of the user to add')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const target = await resolveProject(ctx, ref);
+          const { user } = assertOk(
+            await ctx.api.POST('/api/projects/{id}/members/by-email', {
+              params: { path: { id: target.id } },
+              body: { email: opts.email as string },
+            })
+          );
+          ctx.out.data(user, () =>
+            ctx.out.line(`Added ${user.name} <${user.email}> to project ${target.name}`)
+          );
         })
       )
   );

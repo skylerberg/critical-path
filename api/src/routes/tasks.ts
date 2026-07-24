@@ -139,7 +139,7 @@ async function assertLabelsInProject(
 async function assertAssigneesHaveProjectAccess(
   db: Kysely<DB>,
   userIds: string[],
-  project: { id: string; created_by: string | null; workspace_id: string | null }
+  project: { id: string; created_by: string | null }
 ): Promise<void> {
   if (userIds.length === 0) {
     return;
@@ -151,17 +151,13 @@ async function assertAssigneesHaveProjectAccess(
     .where((eb) =>
       eb.or([
         ...(project.created_by === null ? [] : [eb('app_user.id', '=', project.created_by)]),
-        ...(project.workspace_id === null
-          ? []
-          : [
-              eb.exists(
-                eb
-                  .selectFrom('workspace_member')
-                  .select('workspace_member.user_id')
-                  .where('workspace_member.workspace_id', '=', project.workspace_id)
-                  .whereRef('workspace_member.user_id', '=', 'app_user.id')
-              ),
-            ]),
+        eb.exists(
+          eb
+            .selectFrom('project_member')
+            .select('project_member.user_id')
+            .where('project_member.project_id', '=', project.id)
+            .whereRef('project_member.user_id', '=', 'app_user.id')
+        ),
       ])
     )
     .execute();
@@ -217,7 +213,7 @@ router.post(
 
     const project = await db
       .selectFrom('project')
-      .select(['id', 'created_by', 'workspace_id'])
+      .select(['id', 'created_by'])
       .where('id', '=', body.project_id)
       .executeTakeFirst();
     if (!project || !(await canAccessProject(db, user.id, project))) {

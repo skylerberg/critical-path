@@ -129,41 +129,26 @@ describe('realtime delivery', () => {
   let creator: string;
   let member: string;
   let outsider: string;
-  let workspaceId: string;
   let personalProjectId: string;
-  let workspaceProjectId: string;
+  let sharedProjectId: string;
 
   beforeAll(async () => {
     creator = await createUser('rt creator');
     member = await createUser('rt member');
     outsider = await createUser('rt outsider');
 
-    workspaceId = newId();
-    await db
-      .insertInto('workspace')
-      .values({ id: workspaceId, name: 'rt workspace', created_by: creator })
-      .execute();
-    await db
-      .insertInto('workspace_member')
-      .values([
-        { workspace_id: workspaceId, user_id: creator },
-        { workspace_id: workspaceId, user_id: member },
-      ])
-      .execute();
-
     personalProjectId = newId();
-    workspaceProjectId = newId();
+    sharedProjectId = newId();
     await db
       .insertInto('project')
       .values([
         { id: personalProjectId, name: 'rt personal', created_by: creator },
-        {
-          id: workspaceProjectId,
-          name: 'rt shared',
-          created_by: creator,
-          workspace_id: workspaceId,
-        },
+        { id: sharedProjectId, name: 'rt shared', created_by: creator },
       ])
+      .execute();
+    await db
+      .insertInto('project_member')
+      .values({ project_id: sharedProjectId, user_id: member })
       .execute();
   });
 
@@ -213,12 +198,12 @@ describe('realtime delivery', () => {
   });
 
   it('delivers project events to subscribed sockets whose user has access', async () => {
-    const creatorSocket = connect(creator, workspaceProjectId);
-    const memberSocket = connect(member, workspaceProjectId);
-    const outsiderSocket = connect(outsider, workspaceProjectId);
+    const creatorSocket = connect(creator, sharedProjectId);
+    const memberSocket = connect(member, sharedProjectId);
+    const outsiderSocket = connect(outsider, sharedProjectId);
     const unsubscribedMember = connect(member);
 
-    await deliver({ type: 'task_updated', project_id: workspaceProjectId, data: { id: 't1' } });
+    await deliver({ type: 'task_updated', project_id: sharedProjectId, data: { id: 't1' } });
 
     expect(creatorSocket.sent).toHaveLength(1);
     expect(memberSocket.sent).toHaveLength(1);
@@ -226,7 +211,7 @@ describe('realtime delivery', () => {
     expect(unsubscribedMember.sent).toEqual([]);
   });
 
-  it('denies non-creators on a no-workspace project even when subscribed', async () => {
+  it('denies non-members on a member-less project even when subscribed', async () => {
     const memberSocket = connect(member, personalProjectId);
     const creatorSocket = connect(creator, personalProjectId);
 
@@ -242,8 +227,8 @@ describe('realtime delivery', () => {
 
     await deliver({
       type: 'project_updated',
-      project_id: workspaceProjectId,
-      data: { id: workspaceProjectId },
+      project_id: sharedProjectId,
+      data: { id: sharedProjectId },
       broadcast: true,
     });
 
@@ -258,21 +243,6 @@ describe('realtime delivery', () => {
     expect(socket.sent).toEqual([]);
   });
 
-  it('workspaceId events go to current workspace members only', async () => {
-    const memberSocket = connect(member);
-    const outsiderSocket = connect(outsider);
-
-    await deliver({
-      type: 'workspace_updated',
-      project_id: null,
-      data: { id: workspaceId },
-      workspaceId,
-    });
-
-    expect(memberSocket.sent).toHaveLength(1);
-    expect(outsiderSocket.sent).toEqual([]);
-  });
-
   it('skips sockets that are not open', async () => {
     const socket = connect(creator, personalProjectId);
     socket.readyState = 3;
@@ -281,14 +251,14 @@ describe('realtime delivery', () => {
   });
 
   it('closeSocketsForUser closes with 4401 and drops state', () => {
-    const memberSocket = connect(member, workspaceProjectId);
-    const creatorSocket = connect(creator, workspaceProjectId);
+    const memberSocket = connect(member, sharedProjectId);
+    const creatorSocket = connect(creator, sharedProjectId);
 
     closeSocketsForUser(member);
 
     expect(memberSocket.closes).toEqual([{ code: 4401, reason: 'Session revoked' }]);
     expect(getSocketState(memberSocket)).toBeUndefined();
-    expect(projectSockets(workspaceProjectId)).toEqual([creatorSocket]);
+    expect(projectSockets(sharedProjectId)).toEqual([creatorSocket]);
     expect(creatorSocket.closes).toEqual([]);
   });
 });

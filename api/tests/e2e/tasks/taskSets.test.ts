@@ -1,6 +1,5 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
-import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
 
@@ -109,21 +108,9 @@ describe('Task label and assignee sets', () => {
 
     it('replaces the assignee set as a diff', async () => {
       const other = await ctx.createUser('task-sets-other');
-      const workspaceId = newId();
-      await db
-        .insertInto('workspace')
-        .values({ id: workspaceId, name: 'task sets ws', created_by: user.id })
-        .execute();
-      await db
-        .insertInto('workspace_member')
-        .values([
-          { workspace_id: workspaceId, user_id: user.id },
-          { workspace_id: workspaceId, user_id: other.id },
-        ])
-        .execute();
       const sharedProjectId = await fixtures.createProject('task sets shared', {
         createdBy: user.id,
-        workspaceId,
+        memberIds: [other.id],
       });
       const sharedColumnId = await fixtures.createColumn(sharedProjectId);
       const createRes = await ctx.request(user.token).post('/api/tasks', {

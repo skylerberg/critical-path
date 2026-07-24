@@ -22,10 +22,10 @@ router.get(
     tags: ['Users'],
     summary: 'List visible users',
     description:
-      'Without project_id, list the caller and every user sharing at least one workspace ' +
-      'with them. With project_id (the caller must have access to the project — 404 ' +
-      'otherwise), list users who can access that project plus users still assigned to its ' +
-      'tasks. Ordered by name.',
+      'Without project_id, list the caller and every user sharing at least one project ' +
+      'with them (as creator or member on either side). With project_id (the caller must ' +
+      'have access to the project — 404 otherwise), list users who can access that project ' +
+      'plus users still assigned to its tasks. Ordered by name.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -63,11 +63,32 @@ router.get(
           eb('app_user.id', '=', user.id),
           eb.exists(
             eb
-              .selectFrom('workspace_member as mine')
-              .innerJoin('workspace_member as theirs', 'theirs.workspace_id', 'mine.workspace_id')
-              .select('theirs.user_id')
-              .where('mine.user_id', '=', user.id)
-              .whereRef('theirs.user_id', '=', 'app_user.id')
+              .selectFrom('project')
+              .select('project.id')
+              .where((pb) =>
+                pb.and([
+                  pb.or([
+                    pb('project.created_by', '=', user.id),
+                    pb.exists(
+                      pb
+                        .selectFrom('project_member as mine')
+                        .select('mine.user_id')
+                        .whereRef('mine.project_id', '=', 'project.id')
+                        .where('mine.user_id', '=', user.id)
+                    ),
+                  ]),
+                  pb.or([
+                    pb(pb.ref('project.created_by'), '=', pb.ref('app_user.id')),
+                    pb.exists(
+                      pb
+                        .selectFrom('project_member as theirs')
+                        .select('theirs.user_id')
+                        .whereRef('theirs.project_id', '=', 'project.id')
+                        .whereRef('theirs.user_id', '=', 'app_user.id')
+                    ),
+                  ]),
+                ])
+              )
           ),
         ])
       )

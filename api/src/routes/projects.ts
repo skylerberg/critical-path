@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import type { Kysely, Selectable, Updateable } from 'kysely';
+import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
@@ -9,9 +10,9 @@ import {
   accessibleProjectsFilter,
   assertProjectAccess,
   canAccessProject,
-  isWorkspaceMember,
 } from '../services/authorization';
-import { stripAssigneesForProjectScope } from '../services/assigneeStrip';
+import { avatarUrl } from '../services/avatars';
+import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
 import { getBoardPayload } from '../services/boardPayload';
 import { copyProject } from '../services/projectCopy';
 import { publishAfterCommit } from '../services/realtime/index';
@@ -25,10 +26,14 @@ import {
   boardPayloadSchema,
   createProjectSchema,
   patchProjectSchema,
+  setProjectMembersSchema,
+  addProjectMemberByEmailSchema,
+  projectMemberUserResponseSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
+  validationErrorResponse,
   validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
@@ -43,7 +48,7 @@ const DEFAULT_COLUMNS = [
 
 type ProjectRow = Pick<
   Selectable<Project>,
-  'id' | 'name' | 'description' | 'archived_at' | 'created_at' | 'created_by' | 'workspace_id'
+  'id' | 'name' | 'description' | 'archived_at' | 'created_at' | 'created_by'
 >;
 
 const PROJECT_COLUMNS = [
@@ -53,10 +58,9 @@ const PROJECT_COLUMNS = [
   'archived_at',
   'created_at',
   'created_by',
-  'workspace_id',
 ] as const;
 
-function toProjectResponse(row: ProjectRow) {
+function toProjectResponse(row: ProjectRow, memberIds: string[]) {
   return {
     id: row.id,
     name: row.name,
@@ -64,8 +68,19 @@ function toProjectResponse(row: ProjectRow) {
     archived_at: row.archived_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),
     created_by: row.created_by,
-    workspace_id: row.workspace_id,
+    member_ids: memberIds,
   };
+}
+
+async function fetchMemberIds(db: Kysely<DB>, projectId: string): Promise<string[]> {
+  const rows = await db
+    .selectFrom('project_member')
+    .select('user_id')
+    .where('project_id', '=', projectId)
+    .orderBy('created_at')
+    .orderBy('user_id')
+    .execute();
+  return rows.map((row) => row.user_id);
 }
 
 // project_created/project_updated carry the projects-list item shape so a
@@ -95,34 +110,19 @@ async function fetchTaskCounts(
   };
 }
 
-// The delivery layer's per-event access re-check would drop exactly these
-// now-excluded users, so their removal event needs a snapshotted recipient list.
-async function membersLosingAccess(
+async function publishProjectListItem(
+  c: Parameters<typeof publishAfterCommit>[0],
   db: Kysely<DB>,
-  oldWorkspaceId: string,
-  newWorkspaceId: string | null,
-  createdBy: string | null
-): Promise<string[]> {
-  const oldMembers = await db
-    .selectFrom('workspace_member')
-    .select('user_id')
-    .where('workspace_id', '=', oldWorkspaceId)
-    .execute();
-  const losing = new Set(oldMembers.map((member) => member.user_id));
-  if (createdBy !== null) {
-    losing.delete(createdBy);
-  }
-  if (newWorkspaceId !== null) {
-    const newMembers = await db
-      .selectFrom('workspace_member')
-      .select('user_id')
-      .where('workspace_id', '=', newWorkspaceId)
-      .execute();
-    for (const member of newMembers) {
-      losing.delete(member.user_id);
-    }
-  }
-  return [...losing];
+  row: ProjectRow,
+  memberIds: string[]
+): Promise<void> {
+  publishAfterCommit(
+    c,
+    'project_updated',
+    row.id,
+    { ...toProjectResponse(row, memberIds), ...(await fetchTaskCounts(db, row.id)) },
+    { broadcast: true }
+  );
 }
 
 const router: AppHono = new Hono();
@@ -133,8 +133,8 @@ router.get(
     tags: ['Projects'],
     summary: 'List projects',
     description:
-      'List projects the caller can access (created by them or shared via a workspace they ' +
-      'belong to) with open and done task counts.',
+      'List projects the caller can access (created by them or shared with them as a member) ' +
+      'with member ids and open and done task counts.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -164,7 +164,14 @@ router.get(
         'project.archived_at',
         'project.created_at',
         'project.created_by',
-        'project.workspace_id',
+        jsonArrayFrom(
+          eb
+            .selectFrom('project_member')
+            .select('project_member.user_id')
+            .whereRef('project_member.project_id', '=', 'project.id')
+            .orderBy('project_member.created_at')
+            .orderBy('project_member.user_id')
+        ).as('member_rows'),
         eb.fn
           .count<string>('task.id')
           .filterWhere(eb.not(eb.fn.coalesce('board_column.is_done', eb.val(false))))
@@ -183,7 +190,10 @@ router.get(
     return c.json(
       {
         projects: rows.map((row) => ({
-          ...toProjectResponse(row),
+          ...toProjectResponse(
+            row,
+            row.member_rows.map((member) => member.user_id)
+          ),
           open_task_count: Number(row.open_task_count),
           done_task_count: Number(row.done_task_count),
         })),
@@ -201,9 +211,9 @@ router.post(
     description:
       'Create a project with the default Backlog / To Do / In Progress / Done columns, or ' +
       'deep-copy an existing project by passing source_project_id (copies columns, labels, ' +
-      'tasks, task labels, dependencies, and images — not assignees or archived state). ' +
-      'Returns 422 when source_project_id does not reference an existing project and 404 ' +
-      'when it references a project the caller cannot access.',
+      'tasks, task labels, dependencies, and images — not assignees, members, or archived ' +
+      'state; copies start personal). Returns 422 when source_project_id does not reference ' +
+      'an existing project and 404 when it references a project the caller cannot access.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {
@@ -232,7 +242,7 @@ router.post(
       if (body.source_project_id !== undefined) {
         const source = await db
           .selectFrom('project')
-          .select(['created_by', 'workspace_id'])
+          .select(['id', 'created_by'])
           .where('id', '=', body.source_project_id)
           .executeTakeFirst();
         if (source && !(await canAccessProject(db, user.id, source))) {
@@ -346,9 +356,7 @@ router.patch(
     summary: 'Update project',
     description:
       'Update project fields. Set archived_at to an ISO timestamp to archive or null to ' +
-      'unarchive. Set workspace_id to share the project with a workspace the caller belongs ' +
-      'to (422 otherwise) or null to make it personal; assignees who lose access under the ' +
-      'new scope are removed from its tasks.',
+      'unarchive.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -375,21 +383,12 @@ router.patch(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await assertProjectAccess(db, user.id, id);
-
-    const workspaceChanged =
-      body.workspace_id !== undefined && body.workspace_id !== project.workspace_id;
-    if (workspaceChanged && body.workspace_id !== null && body.workspace_id !== undefined) {
-      if (!(await isWorkspaceMember(db, body.workspace_id, user.id))) {
-        throw new AppError(422, 'workspace_id must reference a workspace you are a member of');
-      }
-    }
+    await assertProjectAccess(db, user.id, id);
 
     const updates: Updateable<Project> = {};
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
     if (body.archived_at !== undefined) updates.archived_at = body.archived_at;
-    if (workspaceChanged) updates.workspace_id = body.workspace_id;
 
     const row =
       Object.keys(updates).length > 0
@@ -409,37 +408,9 @@ router.patch(
       throw new AppError(404, 'Project not found');
     }
 
-    if (workspaceChanged) {
-      const stripped = await stripAssigneesForProjectScope(
-        db,
-        id,
-        row.created_by,
-        row.workspace_id
-      );
-      const strippedTaskIds = [...new Set(stripped.map((entry) => entry.task_id))];
-      publishTaskRelationsSet(c, await fetchTaskRelations(db, strippedTaskIds));
-
-      if (project.workspace_id !== null) {
-        const losing = await membersLosingAccess(
-          db,
-          project.workspace_id,
-          row.workspace_id,
-          row.created_by
-        );
-        if (losing.length > 0) {
-          publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: losing });
-        }
-      }
-    }
-
-    publishAfterCommit(
-      c,
-      'project_updated',
-      id,
-      { ...toProjectResponse(row), ...(await fetchTaskCounts(db, id)) },
-      { broadcast: true }
-    );
-    return c.json(toProjectResponse(row), 200);
+    const memberIds = await fetchMemberIds(db, id);
+    await publishProjectListItem(c, db, row, memberIds);
+    return c.json(toProjectResponse(row, memberIds), 200);
   }
 );
 
@@ -472,19 +443,9 @@ router.delete(
 
     // Snapshot who can see the project now; post-commit the rows backing the
     // access check are gone.
-    const recipients = new Set<string>();
+    const recipients = new Set<string>(await fetchMemberIds(db, id));
     if (project.created_by !== null) {
       recipients.add(project.created_by);
-    }
-    if (project.workspace_id !== null) {
-      const members = await db
-        .selectFrom('workspace_member')
-        .select('user_id')
-        .where('workspace_id', '=', project.workspace_id)
-        .execute();
-      for (const member of members) {
-        recipients.add(member.user_id);
-      }
     }
 
     const imageRows = await db
@@ -508,6 +469,157 @@ router.delete(
 
     publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: [...recipients] });
     return c.body(null, 204);
+  }
+);
+
+router.put(
+  '/:id/members',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'Set project members',
+    description:
+      'Replace the full member set of a project. Anyone with access may call; non-accessors ' +
+      'get 404. The creator has implicit access and is never stored as a member: their id is ' +
+      'silently stripped from user_ids if present. Every other id must reference an existing ' +
+      'user (422 with a plain error body otherwise). A member may omit themselves to leave ' +
+      'the project. Removed members lose their task assignments in the project.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Members set',
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  jsonValidator(setProjectMembersSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const { user_ids } = c.req.valid('json');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    const project = await assertProjectAccess(db, user.id, id);
+
+    const desired = [...new Set(user_ids)].filter((userId) => userId !== project.created_by);
+
+    if (desired.length > 0) {
+      const existingUsers = await db
+        .selectFrom('app_user')
+        .select('id')
+        .where('id', 'in', desired)
+        .execute();
+      if (existingUsers.length !== desired.length) {
+        throw new AppError(422, 'user_ids must reference existing users');
+      }
+    }
+
+    const current = new Set(await fetchMemberIds(db, id));
+    const desiredSet = new Set(desired);
+    const added = desired.filter((userId) => !current.has(userId));
+    const removed = [...current].filter((userId) => !desiredSet.has(userId));
+
+    if (removed.length > 0) {
+      await db
+        .deleteFrom('project_member')
+        .where('project_id', '=', id)
+        .where('user_id', 'in', removed)
+        .execute();
+      const stripped = await stripAssigneesForRemovedMembers(db, id, removed);
+      const strippedTaskIds = [...new Set(stripped.map((entry) => entry.task_id))];
+      publishTaskRelationsSet(c, await fetchTaskRelations(db, strippedTaskIds));
+    }
+
+    if (added.length > 0) {
+      await db
+        .insertInto('project_member')
+        .values(added.map((userId) => ({ project_id: id, user_id: userId })))
+        .onConflict((oc) => oc.columns(['project_id', 'user_id']).doNothing())
+        .execute();
+    }
+
+    // Removed members would fail the delivery access re-check, so their
+    // eviction is a project_deleted with a snapshotted recipient list.
+    if (removed.length > 0) {
+      publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: removed });
+    }
+    await publishProjectListItem(c, db, project, await fetchMemberIds(db, id));
+
+    return c.body(null, 204);
+  }
+);
+
+router.post(
+  '/:id/members/by-email',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'Add project member by email',
+    description:
+      'Add a user to a project by their exact email (case-insensitive). Anyone with access ' +
+      'may call; non-accessors get 404. An unknown email returns 404. Adding an existing ' +
+      'member — or the creator, who has implicit access — is an idempotent no-op.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'The added (or already present) member',
+        content: {
+          'application/json': {
+            schema: resolver(projectMemberUserResponseSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...validationErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  jsonValidator(addProjectMemberByEmailSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const { email } = c.req.valid('json');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    const project = await assertProjectAccess(db, user.id, id);
+
+    const target = await db
+      .selectFrom('app_user')
+      .select(['id', 'email', 'name', 'avatar_storage_key'])
+      .where((eb) => eb(eb.fn<string>('lower', ['email']), '=', email.toLowerCase()))
+      .executeTakeFirst();
+    if (!target) {
+      throw new AppError(404, 'User not found');
+    }
+
+    if (target.id !== project.created_by) {
+      await db
+        .insertInto('project_member')
+        .values({ project_id: id, user_id: target.id })
+        .onConflict((oc) => oc.columns(['project_id', 'user_id']).doNothing())
+        .execute();
+      await publishProjectListItem(c, db, project, await fetchMemberIds(db, id));
+    }
+
+    return c.json(
+      {
+        user: {
+          id: target.id,
+          email: target.email,
+          name: target.name,
+          avatar_url: avatarUrl(target.avatar_storage_key),
+        },
+      },
+      200
+    );
   }
 );
 

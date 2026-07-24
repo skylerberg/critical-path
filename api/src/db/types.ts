@@ -70,6 +70,12 @@ export interface Project {
   workspace_id: string | null;
 }
 
+export interface ProjectMember {
+  created_at: Generated<Timestamp>;
+  project_id: string;
+  user_id: string;
+}
+
 export interface Session {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp;
@@ -134,6 +140,7 @@ export interface DB {
   feedback: Feedback;
   label: Label;
   project: Project;
+  project_member: ProjectMember;
   session: Session;
   task: Task;
   task_assignee: TaskAssignee;

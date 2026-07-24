@@ -5,7 +5,7 @@ import {
   canAccessProject,
   assertProjectAccess,
   accessibleProjectsFilter,
-  isWorkspaceMember,
+  isProjectMember,
   usersWithProjectAccess,
 } from '../../src/services/authorization';
 import { AppError } from '../../src/utils/errors';
@@ -25,36 +25,26 @@ async function createUser(name: string): Promise<string> {
 let creator: string;
 let member: string;
 let outsider: string;
-let workspaceId: string;
 let personalProjectId: string;
-let workspaceProjectId: string;
+let sharedProjectId: string;
 
 beforeAll(async () => {
   creator = await createUser('authz creator');
   member = await createUser('authz member');
   outsider = await createUser('authz outsider');
 
-  workspaceId = newId();
-  await db
-    .insertInto('workspace')
-    .values({ id: workspaceId, name: 'authz workspace', created_by: creator })
-    .execute();
-  await db
-    .insertInto('workspace_member')
-    .values([
-      { workspace_id: workspaceId, user_id: creator },
-      { workspace_id: workspaceId, user_id: member },
-    ])
-    .execute();
-
   personalProjectId = newId();
-  workspaceProjectId = newId();
+  sharedProjectId = newId();
   await db
     .insertInto('project')
     .values([
       { id: personalProjectId, name: 'personal', created_by: creator },
-      { id: workspaceProjectId, name: 'shared', created_by: creator, workspace_id: workspaceId },
+      { id: sharedProjectId, name: 'shared', created_by: creator },
     ])
+    .execute();
+  await db
+    .insertInto('project_member')
+    .values({ project_id: sharedProjectId, user_id: member })
     .execute();
 });
 
@@ -63,36 +53,36 @@ afterAll(async () => {
 });
 
 describe('canAccessProject', () => {
-  it('allows the creator of a no-workspace project', async () => {
-    expect(await canAccessProject(db, creator, { created_by: creator, workspace_id: null })).toBe(
-      true
-    );
+  it('allows the creator of a member-less project', async () => {
+    expect(
+      await canAccessProject(db, creator, { id: personalProjectId, created_by: creator })
+    ).toBe(true);
   });
 
-  it('denies everyone else on a no-workspace project', async () => {
-    expect(await canAccessProject(db, member, { created_by: creator, workspace_id: null })).toBe(
+  it('denies everyone else on a member-less project', async () => {
+    expect(await canAccessProject(db, member, { id: personalProjectId, created_by: creator })).toBe(
       false
     );
   });
 
-  it('allows workspace members on a workspace project', async () => {
-    const project = { created_by: creator, workspace_id: workspaceId };
+  it('allows members on a shared project', async () => {
+    const project = { id: sharedProjectId, created_by: creator };
     expect(await canAccessProject(db, member, project)).toBe(true);
     expect(await canAccessProject(db, outsider, project)).toBe(false);
   });
 
-  it('allows the creator even after the project moves to a workspace they left', async () => {
-    expect(
-      await canAccessProject(db, creator, { created_by: creator, workspace_id: workspaceId })
-    ).toBe(true);
+  it('allows the creator without a member row', async () => {
+    expect(await canAccessProject(db, creator, { id: sharedProjectId, created_by: creator })).toBe(
+      true
+    );
   });
 });
 
 describe('assertProjectAccess', () => {
   it('returns the project row for an allowed user', async () => {
-    const row = await assertProjectAccess(db, member, workspaceProjectId);
-    expect(row.id).toBe(workspaceProjectId);
-    expect(row.workspace_id).toBe(workspaceId);
+    const row = await assertProjectAccess(db, member, sharedProjectId);
+    expect(row.id).toBe(sharedProjectId);
+    expect(row.created_by).toBe(creator);
   });
 
   it('throws 404 for a user without access', async () => {
@@ -121,31 +111,37 @@ describe('accessibleProjectsFilter', () => {
     return rows.map((row) => row.id);
   }
 
-  it('returns created and workspace-shared projects only', async () => {
+  it('returns created and member-shared projects only', async () => {
     expect((await accessibleIds(creator)).sort()).toEqual(
-      [personalProjectId, workspaceProjectId].sort()
+      [personalProjectId, sharedProjectId].sort()
     );
-    expect(await accessibleIds(member)).toEqual([workspaceProjectId]);
+    expect(await accessibleIds(member)).toEqual([sharedProjectId]);
     expect(await accessibleIds(outsider)).toEqual([]);
   });
 });
 
-describe('isWorkspaceMember', () => {
+describe('isProjectMember', () => {
   it('reflects membership rows', async () => {
-    expect(await isWorkspaceMember(db, workspaceId, member)).toBe(true);
-    expect(await isWorkspaceMember(db, workspaceId, outsider)).toBe(false);
+    expect(await isProjectMember(db, sharedProjectId, member)).toBe(true);
+    expect(await isProjectMember(db, sharedProjectId, outsider)).toBe(false);
+    expect(await isProjectMember(db, sharedProjectId, creator)).toBe(false);
   });
 });
 
 describe('usersWithProjectAccess', () => {
-  it('returns only the creator for a no-workspace project', async () => {
+  it('returns only the creator for a member-less project', async () => {
     const users = await usersWithProjectAccess(db, personalProjectId);
     expect(users.map((u) => u.id)).toEqual([creator]);
   });
 
-  it('returns creator and workspace members for a workspace project', async () => {
-    const users = await usersWithProjectAccess(db, workspaceProjectId);
+  it('returns creator and members for a shared project', async () => {
+    const users = await usersWithProjectAccess(db, sharedProjectId);
     expect(users.map((u) => u.id).sort()).toEqual([creator, member].sort());
+    for (const user of users) {
+      expect(user).toMatchObject({ avatar_url: null });
+      expect(typeof user.email).toBe('string');
+      expect(typeof user.name).toBe('string');
+    }
   });
 
   it('includes users still referenced by a task_assignee row', async () => {
@@ -153,13 +149,13 @@ describe('usersWithProjectAccess', () => {
     const taskId = newId();
     await db
       .insertInto('board_column')
-      .values({ id: columnId, project_id: workspaceProjectId, name: 'col', position: 1000 })
+      .values({ id: columnId, project_id: sharedProjectId, name: 'col', position: 1000 })
       .execute();
     await db
       .insertInto('task')
       .values({
         id: taskId,
-        project_id: workspaceProjectId,
+        project_id: sharedProjectId,
         column_id: columnId,
         title: 'task',
         position: 1000,
@@ -167,7 +163,7 @@ describe('usersWithProjectAccess', () => {
       .execute();
     await db.insertInto('task_assignee').values({ task_id: taskId, user_id: outsider }).execute();
 
-    const users = await usersWithProjectAccess(db, workspaceProjectId);
+    const users = await usersWithProjectAccess(db, sharedProjectId);
     expect(users.map((u) => u.id).sort()).toEqual([creator, member, outsider].sort());
 
     await db.deleteFrom('task').where('id', '=', taskId).execute();
