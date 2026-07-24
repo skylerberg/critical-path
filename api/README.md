@@ -70,10 +70,6 @@ project with them (as creator or member on either side); `GET
 /api/users?project_id=` returns the users who can access that project plus
 users still assigned to its tasks.
 
-`GET /api/workspaces` remains as a deprecated stub that always returns
-`{ "workspaces": [] }` so stale cached clients degrade gracefully; it is
-removed in the next release along with the workspace tables.
-
 ### Per-user project ordering
 
 Each user can order their own project list without affecting anyone else's.
