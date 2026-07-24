@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onDestroy, untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
+  import { shortcuts } from '../lib/shortcuts.svelte';
   import { users } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
   import LabelFilterChips from './LabelFilterChips.svelte';
@@ -11,6 +13,25 @@
       ...new Set([...board.tasks.flatMap((task) => task.assignee_ids), ...board.filterAssigneeIds]),
     ];
     return ids.map((id) => users.displayFor(id));
+  });
+
+  let searchInput = $state<HTMLInputElement | null>(null);
+
+  $effect(() => {
+    if (!shortcuts.filterFocusRequested) {
+      return;
+    }
+    untrack(() => {
+      shortcuts.filterFocusRequested = false;
+      searchInput?.focus();
+      searchInput?.select();
+    });
+  });
+
+  // A request raised while the bar is unmounted (board still loading) must not
+  // fire a surprise focus on the next mount.
+  onDestroy(() => {
+    shortcuts.filterFocusRequested = false;
   });
 </script>
 
@@ -30,9 +51,16 @@
       <path d="m21 21-4.3-4.3" />
     </svg>
     <input
+      bind:this={searchInput}
       type="search"
       value={board.filterQuery}
       oninput={(event) => board.setFilterQuery(event.currentTarget.value)}
+      onkeydown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
       aria-label="Filter tasks by title"
       placeholder="Filter tasks…"
       class="min-h-11 w-36 min-w-0 rounded-md border border-edge bg-canvas pr-3 pl-8 text-sm outline-none focus:border-accent sm:w-48"

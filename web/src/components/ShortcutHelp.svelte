@@ -21,6 +21,7 @@
         { keys: ['k', '↑'], label: 'Select task above' },
         { keys: ['←'], label: 'Select task in previous column' },
         { keys: ['→'], label: 'Select task in next column' },
+        { keys: ['f'], label: 'Filter tasks' },
         { keys: ['Esc'], label: 'Close menu, else clear selection' },
       ],
     },
