@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
+  import { append } from '../lib/positions';
   import { router } from '../lib/router.svelte';
   import AssigneePicker from './AssigneePicker.svelte';
   import DependencyPicker from './DependencyPicker.svelte';
@@ -85,6 +86,16 @@
     return image?.url ?? null;
   }
 
+  function changeColumn(event: Event & { currentTarget: EventTarget & HTMLSelectElement }): void {
+    const columnId = event.currentTarget.value;
+    if (task === undefined || columnId === task.column_id) return;
+    void board.moveTask(
+      taskId,
+      columnId,
+      append(board.tasksInColumn(columnId).map((t) => t.position))
+    );
+  }
+
   async function handleDelete(): Promise<void> {
     if (!confirmingDelete) {
       confirmingDelete = true;
@@ -140,6 +151,20 @@
         />
         <Button variant="ghost" aria-label="Close" onclick={close}>✕</Button>
       </div>
+
+      <section class="flex flex-col gap-2">
+        <h3 class="text-sm font-semibold text-muted">Column</h3>
+        <select
+          aria-label="Column"
+          value={task.column_id}
+          onchange={changeColumn}
+          class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
+        >
+          {#each board.columns as column (column.id)}
+            <option value={column.id}>{column.name}</option>
+          {/each}
+        </select>
+      </section>
 
       <section class="flex flex-col gap-2">
         <h3 class="text-sm font-semibold text-muted">Description</h3>

@@ -70,7 +70,7 @@ beforeEach(() => {
       image_count: 1,
     }),
     task('t2', 'c1', 'Cut prototype'),
-    task('t3', 'c2', 'Buy sleeves'),
+    task('t3', 'c2', 'Buy sleeves', { position: 5000 }),
     task('t4', 'c1', 'Playtest session', { blocker_ids: ['t1'] }),
   ];
   board.labels = [
@@ -120,6 +120,33 @@ describe('TaskDetail', () => {
 
     expect(screen.getByText(/Created .+ · Updated .+/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete task' })).toBeInTheDocument();
+  });
+
+  it('renders the column select with the current column and all columns as options', () => {
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    const select = screen.getByLabelText('Column');
+    expect(select).toHaveValue('c1');
+    expect(screen.getByRole('option', { name: 'Todo' })).toHaveValue('c1');
+    expect(screen.getByRole('option', { name: 'Done' })).toHaveValue('c2');
+  });
+
+  it('moves the task to the bottom of the selected column', async () => {
+    const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
+
+    expect(spy).toHaveBeenCalledWith('t1', 'c2', 6000);
+  });
+
+  it('does not move the task when the current column is re-selected', async () => {
+    const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c1' } });
+
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('shows a fallback when the task is not in the store', () => {
