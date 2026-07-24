@@ -1,6 +1,6 @@
 import '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import Nav from './Nav.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { workspaces, type Workspace } from '../lib/workspaces.svelte';
@@ -77,5 +77,14 @@ describe('Nav sidebar', () => {
       .getAllByRole('link')
       .filter((a) => a.getAttribute('href') === '/account');
     expect(accountLinks.length).toBeGreaterThan(0);
+  });
+
+  it('opens the feedback dialog from the sidebar footer', async () => {
+    render(Nav);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Send feedback' }));
+
+    expect(document.querySelector('dialog')?.open).toBe(true);
+    expect(screen.getByLabelText('Feedback message')).toBeInTheDocument();
   });
 });

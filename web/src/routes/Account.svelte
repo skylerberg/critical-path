@@ -2,6 +2,7 @@
   import { api, ApiError, assertOk } from '../api/client';
   import { realtime } from '../lib/realtime.svelte';
   import { session } from '../lib/session.svelte';
+  import FeedbackDialog from '../components/FeedbackDialog.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
 
@@ -14,6 +15,8 @@
   let email = $state(session.user?.email ?? '');
   let emailStatus = $state<Status>(null);
   let savingEmail = $state(false);
+
+  let feedbackOpen = $state(false);
 
   let currentPassword = $state('');
   let newPassword = $state('');
@@ -188,4 +191,16 @@
       </div>
     </form>
   </section>
+
+  <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
+    <h2 class="text-lg font-semibold">Feedback</h2>
+    <p class="text-sm text-muted">
+      Spotted a bug, or is something confusing or missing? We read every message.
+    </p>
+    <div class="flex justify-end">
+      <Button variant="secondary" onclick={() => (feedbackOpen = true)}>Send feedback</Button>
+    </div>
+  </section>
 </main>
+
+<FeedbackDialog open={feedbackOpen} onclose={() => (feedbackOpen = false)} />
