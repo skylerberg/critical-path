@@ -1,17 +1,17 @@
 import { type } from 'arktype';
-import { uuid, stringWithLength } from './common';
+import { uuid, stringWithLength, finiteNumber } from './common';
 
 export const createColumnSchema = type({
   id: uuid,
   project_id: uuid,
   name: stringWithLength(1, 200),
-  position: 'number',
+  position: finiteNumber,
   'is_done?': 'boolean',
 });
 
 export const patchColumnSchema = type({
   'name?': stringWithLength(1, 200),
-  'position?': 'number',
+  'position?': finiteNumber,
   'is_done?': 'boolean',
 });
 
@@ -19,7 +19,7 @@ export const columnSchema = type({
   id: 'string',
   project_id: 'string',
   name: 'string',
-  position: 'number',
+  position: finiteNumber,
   is_done: 'boolean',
   created_at: 'string',
 });
@@ -33,7 +33,7 @@ export const deleteColumnQuerySchema = type({
 export const movedTaskSchema = type({
   id: 'string',
   column_id: 'string',
-  position: 'number',
+  position: finiteNumber,
 });
 
 export const movedTasksResponseSchema = type({

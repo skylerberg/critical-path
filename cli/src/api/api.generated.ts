@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/cleanup-drops/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/finite-positions/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate-api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -696,6 +696,7 @@ export interface components {
       id: string;
       is_done: boolean;
       name: string;
+      /** @description a finite number */
       position: number;
     };
     BoardLabel: {
@@ -721,6 +722,7 @@ export interface components {
       id: string;
       image_count: number;
       label_ids: string[];
+      /** @description a finite number */
       position: number;
       title: string;
       updated_at: string;
@@ -745,6 +747,7 @@ export interface components {
       name?: string;
     };
     SetProjectPosition: {
+      /** @description a finite number */
       position: number;
     };
     SetProjectMembers: {
@@ -758,6 +761,7 @@ export interface components {
       id: string;
       is_done: boolean;
       name: string;
+      /** @description a finite number */
       position: number;
       project_id: string;
     };
@@ -765,6 +769,7 @@ export interface components {
       /** Format: uuid */
       id: string;
       name: string;
+      /** @description a finite number */
       position: number;
       /** Format: uuid */
       project_id: string;
@@ -773,6 +778,7 @@ export interface components {
     PatchColumn: {
       is_done?: boolean;
       name?: string;
+      /** @description a finite number */
       position?: number;
     };
     MovedTasksResponse: {
@@ -781,6 +787,7 @@ export interface components {
     MovedTask: {
       column_id: string;
       id: string;
+      /** @description a finite number */
       position: number;
     };
     CreateTask: {
@@ -788,6 +795,7 @@ export interface components {
       column_id: string;
       /** Format: uuid */
       id: string;
+      /** @description a finite number */
       position: number;
       /** Format: uuid */
       project_id: string;
@@ -806,6 +814,7 @@ export interface components {
       image_count: number;
       images: components['schemas']['ImageResponse'][];
       label_ids: string[];
+      /** @description a finite number */
       position: number;
       project_id: string;
       title: string;
@@ -823,6 +832,7 @@ export interface components {
       /** Format: uuid */
       column_id?: string;
       description?: components['schemas']['NullableTiptapDoc'];
+      /** @description a finite number */
       position?: number;
       title?: string;
     };

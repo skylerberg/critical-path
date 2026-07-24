@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../../src/db/index';
-import { newId } from '../../helpers/fixtures';
+import { newId, rawJsonWithPosition } from '../../helpers/fixtures';
 
 const ctx = new TestContext();
 let token: string;
@@ -159,6 +159,23 @@ describe('POST /api/columns', () => {
     expect(body.error).toBe('Validation failed');
     expect(Array.isArray(body.details)).toBe(true);
   });
+
+  it('returns 422 for a non-finite position', async () => {
+    const projectId = await createProject();
+
+    for (const literal of ['1e999', '-1e999']) {
+      const raw = rawJsonWithPosition(
+        { id: newId(), project_id: projectId, name: 'Non-finite' },
+        literal
+      );
+      const res = await ctx.request(token).sendRawJson('POST', '/api/columns', raw);
+      expect(res.status, literal).toBe(422);
+
+      const body = await res.json();
+      expect(body.error).toBe('Validation failed');
+      expect(body.details.some((d: { path: string }) => d.path === 'position')).toBe(true);
+    }
+  });
 });
 
 describe('PATCH /api/columns/:id', () => {
@@ -210,6 +227,19 @@ describe('PATCH /api/columns/:id', () => {
 
     const body = await res.json();
     expect(body.error).toBe('Validation failed');
+  });
+
+  it('returns 422 for a non-finite position', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+
+    for (const literal of ['1e999', '-1e999']) {
+      const res = await ctx
+        .request(token)
+        .sendRawJson('PATCH', `/api/columns/${columnId}`, rawJsonWithPosition({}, literal));
+      expect(res.status, literal).toBe(422);
+      expect((await res.json()).error).toBe('Validation failed');
+    }
   });
 
   it('returns 404 for a nonexistent column', async () => {

@@ -18,6 +18,10 @@ export const email = type('string').pipe((s, ctx) => {
   return s;
 });
 
+export const finiteNumber = type('number')
+  .narrow((n, ctx) => Number.isFinite(n) || ctx.mustBe('a finite number'))
+  .configure({ description: 'a finite number' });
+
 export const stringWithLength = (min: number, max: number) =>
   type('string').pipe((s, ctx) => {
     const trimmed = s.trim();

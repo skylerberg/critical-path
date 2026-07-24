@@ -174,6 +174,16 @@ describe('project positions', () => {
     expect((await res.json()).error).toBe('Validation failed');
   });
 
+  it('returns 422 when position is not finite', async () => {
+    for (const literal of ['1e999', '-1e999']) {
+      const res = await ctx
+        .request(userA.token)
+        .sendRawJson('PUT', `/api/projects/${first}/position`, `{"position":${literal}}`);
+      expect(res.status, literal).toBe(422);
+      expect((await res.json()).error).toBe('Validation failed');
+    }
+  });
+
   it('deletes position rows when the project is deleted', async () => {
     const doomed = await createProject(userA, 'Doomed', '2026-01-01T00:00:04.000Z');
     const putRes = await ctx
