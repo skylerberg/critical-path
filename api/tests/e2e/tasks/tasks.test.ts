@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
-import { newId } from '../../helpers/fixtures';
+import { newId, rawJsonWithPosition } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { ProjectFixtures, validDescription, descriptionWithLink } from './taskFixtures';
 
@@ -117,6 +117,18 @@ describe('Tasks CRUD', () => {
         .request(user.token)
         .post('/api/tasks', taskBody({ column_id: newId() }));
       expect(res.status).toBe(422);
+    });
+
+    it('rejects a non-finite position with 422', async () => {
+      for (const literal of ['1e999', '-1e999']) {
+        const res = await ctx
+          .request(user.token)
+          .sendRawJson('POST', '/api/tasks', rawJsonWithPosition(taskBody(), literal));
+        expect(res.status, literal).toBe(422);
+        const body = await res.json();
+        expect(body.error).toBe('Validation failed');
+        expect(body.details.some((d: { path: string }) => d.path === 'position')).toBe(true);
+      }
     });
 
     it('rejects a label from another project with 422', async () => {
@@ -270,6 +282,19 @@ describe('Tasks CRUD', () => {
       const updated = await res.json();
       expect(updated.column_id).toBe(targetColumn);
       expect(updated.position).toBe(500);
+    });
+
+    it('rejects a non-finite position with 422', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+
+      for (const literal of ['1e999', '-1e999']) {
+        const res = await ctx
+          .request(user.token)
+          .sendRawJson('PATCH', `/api/tasks/${id}`, rawJsonWithPosition({}, literal));
+        expect(res.status, literal).toBe(422);
+        expect((await res.json()).error).toBe('Validation failed');
+      }
     });
 
     it('rejects moving to a column of another project with 422', async () => {

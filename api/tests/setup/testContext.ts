@@ -81,6 +81,23 @@ export class TestApiClient {
     return this.makeRequest('DELETE', path);
   }
 
+  // For JSON that JSON.stringify cannot produce, e.g. 1e999 (Infinity).
+  async sendRawJson(
+    method: 'POST' | 'PUT' | 'PATCH',
+    path: string,
+    rawBody: string
+  ): Promise<Response> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    return app.request(path, { method, headers, body: rawBody });
+  }
+
   async postMultipart(path: string, formData: FormData): Promise<Response> {
     const headers: Record<string, string> = {};
 
