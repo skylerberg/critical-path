@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import FilterBar from './FilterBar.svelte';
 import { board } from '../lib/board.svelte';
+import { shortcuts } from '../lib/shortcuts.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
 
@@ -26,6 +27,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
   users.reset();
+  shortcuts.reset();
   board.currentProjectId = 'p1';
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
   users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada' }];
@@ -73,5 +75,34 @@ describe('FilterBar', () => {
     expect(board.hasActiveFilters).toBe(false);
     expect(screen.queryByTitle('Filter by Ada')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+  });
+
+  it('focuses and selects the search input when the f shortcut requests it', async () => {
+    board.tasks = [task('t1', [])];
+    board.setFilterQuery('boss');
+
+    render(FilterBar);
+    const input = screen.getByLabelText<HTMLInputElement>('Filter tasks by title');
+    shortcuts.filterFocusRequested = true;
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(input);
+      expect(shortcuts.filterFocusRequested).toBe(false);
+    });
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe('boss'.length);
+  });
+
+  it('blurs the search input on Escape and keeps the filter applied', async () => {
+    board.tasks = [task('t1', [])];
+    board.setFilterQuery('boss');
+
+    render(FilterBar);
+    const input = screen.getByLabelText<HTMLInputElement>('Filter tasks by title');
+    input.focus();
+    await fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(document.activeElement).not.toBe(input);
+    expect(board.filterQuery).toBe('boss');
   });
 });

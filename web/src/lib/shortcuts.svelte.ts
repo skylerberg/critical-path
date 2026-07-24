@@ -22,6 +22,7 @@ class ShortcutController {
   labelMenu = $state<string | null>(null);
   assigneeMenu = $state<string | null>(null);
   quickAddColumn = $state<string | null>(null);
+  filterFocusRequested = $state(false);
 
   #gPending = false;
   #gTimer: ReturnType<typeof setTimeout> | undefined;
@@ -39,6 +40,7 @@ class ShortcutController {
   reset(): void {
     this.closeMenus();
     this.quickAddColumn = null;
+    this.filterFocusRequested = false;
     this.#gPending = false;
     clearTimeout(this.#gTimer);
   }
@@ -136,6 +138,13 @@ class ShortcutController {
         this.quickAddColumn = columnId;
         break;
       }
+      case 'f':
+        // A modified press is the browser's find-in-page, not ours.
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+          return false;
+        }
+        this.filterFocusRequested = true;
+        break;
       case 'd': {
         if (selectedId === null) {
           return false;

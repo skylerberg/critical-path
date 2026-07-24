@@ -22,8 +22,8 @@ function task(id: string, columnId: string, position: number): BoardTask {
   };
 }
 
-function press(key: string): KeyboardEvent {
-  const event = new KeyboardEvent('keydown', { key, cancelable: true });
+function press(key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', { key, cancelable: true, ...init });
   shortcuts.handleKeydown(event);
   return event;
 }
@@ -66,6 +66,9 @@ describe('shortcut focus guards', () => {
     input.focus();
     press('j');
     expect(selection.selectedTaskId).toBeNull();
+    const event = press('f');
+    expect(shortcuts.filterFocusRequested).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
   });
 });
 
@@ -122,6 +125,27 @@ describe('board shortcuts', () => {
     press('?');
     expect(shortcuts.helpOpen).toBe(true);
   });
+
+  it('requests filter focus with f and preventDefaults', () => {
+    const event = press('f');
+    expect(shortcuts.filterFocusRequested).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('leaves modified f presses (find-in-page) to the browser', () => {
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      const event = press('f', init);
+      expect(shortcuts.filterFocusRequested).toBe(false);
+      expect(event.defaultPrevented).toBe(false);
+    }
+  });
+
+  it('clears a pending filter focus request on reset', () => {
+    press('f');
+    expect(shortcuts.filterFocusRequested).toBe(true);
+    shortcuts.reset();
+    expect(shortcuts.filterFocusRequested).toBe(false);
+  });
 });
 
 describe('g-chords', () => {
@@ -170,6 +194,12 @@ describe('overlay context', () => {
     expect(selection.selectedTaskId).toBeNull();
   });
 
+  it('does not request filter focus with f', () => {
+    const event = press('f');
+    expect(shortcuts.filterFocusRequested).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('still opens help with ?', () => {
     press('?');
     expect(shortcuts.helpOpen).toBe(true);
@@ -184,6 +214,12 @@ describe('graph view', () => {
   it('does not run selection nav (the graph has no card list)', () => {
     const event = press('j');
     expect(selection.selectedTaskId).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does not request filter focus with f (no filter input on the graph)', () => {
+    const event = press('f');
+    expect(shortcuts.filterFocusRequested).toBe(false);
     expect(event.defaultPrevented).toBe(false);
   });
 
