@@ -9,6 +9,7 @@ export const userSchema = type({
   id: 'string',
   email: 'string',
   name: 'string',
+  avatar_url: 'string | null',
 });
 
 export type User = typeof userSchema.infer;

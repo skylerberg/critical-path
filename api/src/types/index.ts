@@ -7,6 +7,7 @@ export type Variables = {
     id: string;
     email: string;
     name: string;
+    avatar_url: string | null;
   };
   db: Kysely<DB>;
   postCommitHooks: Array<() => Promise<void>>;

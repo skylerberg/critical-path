@@ -124,6 +124,23 @@ way.
 (development falls back to a fixed dev-only secret). `RESET_URL_BASE` sets the
 link target (default `http://localhost:5173/reset-password`).
 
+### User avatars
+
+Each user can have one profile image:
+
+- `POST /api/auth/me/avatar` (authenticated, multipart `file`, max 10 MB) sets
+  the avatar. The upload must sniff as PNG, JPEG, GIF, or WebP by magic bytes
+  and is normalized server-side: auto-oriented, downscaled to fit within
+  1024x1024 (never enlarged), and re-encoded as WebP. Animated GIF/WebP uploads
+  keep only their first frame. Responds with the updated user; every user-shaped
+  response carries `avatar_url` (`/api/avatars/<key>` or `null`).
+- `DELETE /api/auth/me/avatar` removes the avatar (idempotent) and responds with
+  the updated user.
+- `GET /api/avatars/:key` serves the stored WebP bytes with
+  `Cache-Control: private, max-age=31536000, immutable`. Every upload mints a
+  fresh storage key (the old object is deleted after the transaction commits),
+  so avatar URLs never change content and can be cached forever.
+
 ## Database workflow
 
 Migrations live in `src/db/migrations/` (Kysely `Migrator`, numbered
@@ -228,5 +245,6 @@ npm run openapi:dump && npm run --prefix cli generate-api
 - Float `position` ordering with no automatic rebalancing.
 - No per-workspace roles: every workspace member can rename/delete the
   workspace and manage members.
-- `GET /api/images/:id` is an unauthenticated capability URL (unguessable
-  UUID) so `<img>` tags work without auth headers.
+- `GET /api/images/:id` and `GET /api/avatars/:key` are unauthenticated
+  capability URLs (unguessable UUIDs) so `<img>` tags work without auth
+  headers.

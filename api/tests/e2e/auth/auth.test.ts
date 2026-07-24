@@ -29,7 +29,7 @@ describe('Auth', () => {
       const body = await res.json();
       expect(body.token).toBeTypeOf('string');
       expect(body.token.length).toBeGreaterThan(20);
-      expect(body.user).toEqual({ id, email, name: 'Signup User' });
+      expect(body.user).toEqual({ id, email, name: 'Signup User', avatar_url: null });
     });
 
     it('rejects a taken email case-insensitively with 409', async () => {
@@ -103,7 +103,12 @@ describe('Auth', () => {
       const body = await res.json();
       expect(body.token).toBeTypeOf('string');
       expect(body.token).not.toBe(user.token);
-      expect(body.user).toEqual({ id: user.id, email: user.email, name: user.name });
+      expect(body.user).toEqual({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar_url: null,
+      });
     });
 
     it('rejects a wrong password with 401', async () => {
@@ -162,7 +167,12 @@ describe('Auth', () => {
       const res = await ctx.request(user.token).get('/api/auth/me');
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ id: user.id, email: user.email, name: user.name });
+      expect(await res.json()).toEqual({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar_url: null,
+      });
     });
 
     it('rejects a missing token with 401', async () => {

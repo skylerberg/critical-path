@@ -40,10 +40,20 @@ describe('Account management', () => {
       const res = await ctx.request(user.token).patch('/api/auth/me', { name: 'Renamed User' });
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ id: user.id, email: user.email, name: 'Renamed User' });
+      expect(await res.json()).toEqual({
+        id: user.id,
+        email: user.email,
+        name: 'Renamed User',
+        avatar_url: null,
+      });
 
       const me = await ctx.request(user.token).get('/api/auth/me');
-      expect(await me.json()).toEqual({ id: user.id, email: user.email, name: 'Renamed User' });
+      expect(await me.json()).toEqual({
+        id: user.id,
+        email: user.email,
+        name: 'Renamed User',
+        avatar_url: null,
+      });
     });
 
     it('updates the email, keeps the session valid, and allows login with the new email', async () => {
@@ -52,7 +62,12 @@ describe('Account management', () => {
       const res = await ctx.request(user.token).patch('/api/auth/me', { email: newEmail });
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ id: user.id, email: newEmail, name: user.name });
+      expect(await res.json()).toEqual({
+        id: user.id,
+        email: newEmail,
+        name: user.name,
+        avatar_url: null,
+      });
 
       const me = await ctx.request(user.token).get('/api/auth/me');
       expect(me.status).toBe(200);
@@ -101,7 +116,7 @@ describe('Account management', () => {
       expect((await res.json()).error).toBeTypeOf('string');
 
       const me = await ctx.request(b.token).get('/api/auth/me');
-      expect(await me.json()).toEqual({ id: b.id, email: b.email, name: b.name });
+      expect(await me.json()).toEqual({ id: b.id, email: b.email, name: b.name, avatar_url: null });
     });
 
     it('returns the current user unchanged for an empty patch', async () => {
@@ -109,7 +124,12 @@ describe('Account management', () => {
       const res = await ctx.request(user.token).patch('/api/auth/me', {});
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ id: user.id, email: user.email, name: user.name });
+      expect(await res.json()).toEqual({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar_url: null,
+      });
     });
 
     it('returns 422 for an invalid email', async () => {
@@ -159,7 +179,12 @@ describe('Account management', () => {
         });
         expect(res.status).toBe(200);
         const body = (await res.json()) as { token: string; user: { id: string; email: string } };
-        expect(body.user).toEqual({ id: user.id, email: user.email, name: user.name });
+        expect(body.user).toEqual({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          avatar_url: null,
+        });
         newToken = body.token;
       });
       expect(seen).toEqual([

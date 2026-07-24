@@ -10,6 +10,7 @@ import { AppError, isUniqueViolation } from '../utils/errors';
 import { env } from '../config/env';
 import { APP_NAME } from '../config/constants';
 import { isValidUuid } from '../types/uuid';
+import { avatarUrl } from '../services/avatars';
 import { getEmailSender } from '../services/email/index';
 import { hashPassword, verifyPassword, verifyDummyPassword } from '../services/passwords';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
@@ -105,7 +106,7 @@ router.post(
 
     const token = await createSession(db, id);
 
-    return c.json({ token, user: { id, email, name } }, 201);
+    return c.json({ token, user: { id, email, name, avatar_url: null } }, 201);
   }
 );
 
@@ -139,7 +140,7 @@ router.post(
 
     const user = await db
       .selectFrom('app_user')
-      .select(['id', 'email', 'name', 'password_hash'])
+      .select(['id', 'email', 'name', 'avatar_storage_key', 'password_hash'])
       .where((eb) => eb(eb.fn<string>('lower', ['email']), '=', email.toLowerCase()))
       .executeTakeFirst();
 
@@ -155,7 +156,18 @@ router.post(
 
     const token = await createSession(db, user.id);
 
-    return c.json({ token, user: { id: user.id, email: user.email, name: user.name } }, 200);
+    return c.json(
+      {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          avatar_url: avatarUrl(user.avatar_storage_key),
+        },
+      },
+      200
+    );
   }
 );
 
@@ -274,7 +286,7 @@ router.patch(
         .where('id', '=', user.id)
         .returning(['id', 'email', 'name'])
         .executeTakeFirstOrThrow();
-      return c.json(row, 200);
+      return c.json({ ...row, avatar_url: user.avatar_url }, 200);
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new AppError(409, 'Email already in use');

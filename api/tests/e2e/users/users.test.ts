@@ -54,7 +54,12 @@ describe('GET /api/users', () => {
     expect(ids.indexOf(alice.id)).toBeLessThan(ids.indexOf(bob.id));
 
     const aliceRow = body.users.find((u: { id: string }) => u.id === alice.id);
-    expect(aliceRow).toEqual({ id: alice.id, email: alice.email, name: alice.name });
+    expect(aliceRow).toEqual({
+      id: alice.id,
+      email: alice.email,
+      name: alice.name,
+      avatar_url: null,
+    });
   });
 
   it('returns only self for a user with no workspaces', async () => {
@@ -62,7 +67,9 @@ describe('GET /api/users', () => {
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.users).toEqual([{ id: stranger.id, email: stranger.email, name: stranger.name }]);
+    expect(body.users).toEqual([
+      { id: stranger.id, email: stranger.email, name: stranger.name, avatar_url: null },
+    ]);
   });
 
   describe('?project_id=', () => {

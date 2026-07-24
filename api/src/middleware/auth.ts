@@ -2,6 +2,7 @@ import { Next } from 'hono';
 import { AppContext } from '../types/index';
 import { AppError } from '../utils/errors';
 import { db } from '../db/index';
+import { avatarUrl } from '../services/avatars';
 import { hashSessionToken } from '../services/sessions';
 
 export async function authMiddleware(c: AppContext, next: Next) {
@@ -24,6 +25,7 @@ export async function authMiddleware(c: AppContext, next: Next) {
       'app_user.id',
       'app_user.email',
       'app_user.name',
+      'app_user.avatar_storage_key',
     ])
     .where('session.token_hash', '=', tokenHash)
     .executeTakeFirst();
@@ -38,7 +40,12 @@ export async function authMiddleware(c: AppContext, next: Next) {
     throw new AppError(401, 'Invalid or expired token');
   }
 
-  c.set('user', { id: row.id, email: row.email, name: row.name });
+  c.set('user', {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    avatar_url: avatarUrl(row.avatar_storage_key),
+  });
 
   return await next();
 }
