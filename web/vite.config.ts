@@ -47,6 +47,15 @@ export default defineConfig({
             },
           },
           {
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/avatars/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'api-avatars',
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
             urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
             handler: 'NetworkOnly',
           },

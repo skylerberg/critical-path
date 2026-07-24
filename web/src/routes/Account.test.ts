@@ -4,12 +4,13 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import Account from './Account.svelte';
 import { realtime } from '../lib/realtime.svelte';
 import { session } from '../lib/session.svelte';
+import { users } from '../lib/users.svelte';
 
 vi.mock('../lib/realtime.svelte', () => ({
   realtime: { connect: vi.fn(), disconnect: vi.fn() },
 }));
 
-const user = { id: 'u-1', email: 'ada@example.com', name: 'Ada' };
+const user = { id: 'u-1', email: 'ada@example.com', name: 'Ada', avatar_url: null };
 
 async function loginAs(): Promise<void> {
   fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'tok', user }));
@@ -25,6 +26,7 @@ beforeEach(async () => {
   fetchMock.mockReset();
   vi.mocked(realtime.connect).mockClear();
   vi.mocked(realtime.disconnect).mockClear();
+  users.reset();
   localStorage.clear();
   sessionStorage.clear();
   window.history.replaceState(null, '', '/account');
@@ -132,6 +134,69 @@ describe('Account', () => {
       await screen.findByText('New password must be at least 8 characters')
     ).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('uploads a profile image and updates the session and users store', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { ...user, avatar_url: '/api/avatars/key-1' }));
+    // The mocked fetch never drains the request body, and undici cannot read
+    // jsdom's FormData anyway, so the sent file is asserted via this spy.
+    const appendSpy = vi.spyOn(FormData.prototype, 'append');
+    render(Account);
+
+    expect(screen.getByRole('button', { name: 'Upload image' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove image' })).not.toBeInTheDocument();
+
+    const file = new File(['png-bytes'], 'me.png', { type: 'image/png' });
+    await fireEvent.change(screen.getByLabelText('Profile image file'), {
+      target: { files: [file] },
+    });
+
+    try {
+      expect(await screen.findByText('Profile image updated')).toBeInTheDocument();
+      const request = requestAt(0);
+      expect(request.method).toBe('POST');
+      expect(new URL(request.url).pathname).toBe('/api/auth/me/avatar');
+      expect(request.headers.get('Content-Type')).toContain('multipart/form-data');
+      expect(appendSpy).toHaveBeenCalledExactlyOnceWith('file', file);
+      expect(session.user?.avatar_url).toBe('/api/avatars/key-1');
+      expect(users.byId('u-1')?.avatar_url).toBe('/api/avatars/key-1');
+      expect(screen.getByTitle('Ada')).toHaveAttribute('src', '/api/avatars/key-1');
+      expect(screen.getByRole('button', { name: 'Replace image' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Remove image' })).toBeInTheDocument();
+    } finally {
+      appendSpy.mockRestore();
+    }
+  });
+
+  it('removes the profile image', async () => {
+    session.user = { ...user, avatar_url: '/api/avatars/key-1' };
+    fetchMock.mockResolvedValue(jsonResponse(200, { ...user, avatar_url: null }));
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove image' }));
+
+    expect(await screen.findByText('Profile image removed')).toBeInTheDocument();
+    const request = requestAt(0);
+    expect(request.method).toBe('DELETE');
+    expect(new URL(request.url).pathname).toBe('/api/auth/me/avatar');
+    expect(session.user?.avatar_url).toBeNull();
+    expect(users.byId('u-1')?.avatar_url).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Remove image' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Upload image' })).toBeInTheDocument();
+  });
+
+  it('shows a friendly error when the image is too large and keeps the avatar state', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(413, { error: 'payload too large' }));
+    render(Account);
+
+    const file = new File(['big'], 'big.png', { type: 'image/png' });
+    await fireEvent.change(screen.getByLabelText('Profile image file'), {
+      target: { files: [file] },
+    });
+
+    expect(await screen.findByText('That image is too large (max 10 MB)')).toBeInTheDocument();
+    expect(session.user?.avatar_url).toBeNull();
+    expect(screen.getByRole('button', { name: 'Upload image' })).toBeInTheDocument();
   });
 
   it('shows the feedback entry point', () => {

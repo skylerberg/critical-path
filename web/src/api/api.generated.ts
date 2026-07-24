@@ -147,6 +147,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload avatar
+         * @description Set the profile image of the authenticated user via multipart form data. The upload must sniff as PNG, JPEG, GIF, or WebP by magic bytes (the client-declared MIME type is ignored) and be at most 10 MB. The image is normalized server-side: auto-oriented, downscaled to fit within 1024x1024 (never enlarged), and re-encoded as WebP. Animated GIF/WebP uploads keep only their first frame. Replaces any existing avatar; the old stored object is deleted after the transaction commits.
+         */
+        post: operations["postApiAuthMeAvatar"];
+        /**
+         * Remove avatar
+         * @description Remove the profile image of the authenticated user. The stored object is deleted after the transaction commits. Idempotent: removing a nonexistent avatar succeeds. Returns the updated user so clients can adopt it directly.
+         */
+        delete: operations["deleteApiAuthMeAvatar"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users": {
         parameters: {
             query?: never;
@@ -567,6 +591,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/avatars/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get avatar
+         * @description Serve avatar image bytes by storage key. Unauthenticated: the unguessable key acts as a capability URL so <img> tags work without auth headers. Every avatar upload mints a fresh key, so responses are immutable and cacheable forever.
+         */
+        get: operations["getApiAvatarsById"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/feedback": {
         parameters: {
             query?: never;
@@ -618,10 +662,12 @@ export interface components {
             user: components["schemas"]["User"];
         };
         User: {
+            avatar_url: components["schemas"]["UserAvatarurl"];
             email: string;
             id: string;
             name: string;
         };
+        UserAvatarurl: string | null;
         SignupRequest: {
             email: string;
             /** Format: uuid */
@@ -679,17 +725,16 @@ export interface components {
             projects: components["schemas"]["ProjectListItem"][];
         };
         ProjectListItem: {
-            archived_at: components["schemas"]["ProjectsArchivedat"];
+            archived_at: components["schemas"]["UserAvatarurl"];
             created_at: string;
-            created_by: components["schemas"]["ProjectsArchivedat"];
+            created_by: components["schemas"]["UserAvatarurl"];
             description: string;
             done_task_count: number;
             id: string;
             name: string;
             open_task_count: number;
-            workspace_id: components["schemas"]["ProjectsArchivedat"];
+            workspace_id: components["schemas"]["UserAvatarurl"];
         };
-        ProjectsArchivedat: string | null;
         BoardPayload: {
             columns: components["schemas"]["BoardColumn"][];
             labels: components["schemas"]["BoardLabel"][];
@@ -708,13 +753,13 @@ export interface components {
             name: string;
         };
         Project: {
-            archived_at: components["schemas"]["ProjectsArchivedat"];
+            archived_at: components["schemas"]["UserAvatarurl"];
             created_at: string;
-            created_by: components["schemas"]["ProjectsArchivedat"];
+            created_by: components["schemas"]["UserAvatarurl"];
             description: string;
             id: string;
             name: string;
-            workspace_id: components["schemas"]["ProjectsArchivedat"];
+            workspace_id: components["schemas"]["UserAvatarurl"];
         };
         BoardTask: {
             assignee_ids: string[];
@@ -744,7 +789,7 @@ export interface components {
             source_project_id?: string;
         };
         PatchProject: {
-            archived_at?: components["schemas"]["ProjectsArchivedat"];
+            archived_at?: components["schemas"]["UserAvatarurl"];
             description?: string;
             name?: string;
             workspace_id?: string | null;
@@ -858,7 +903,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             message: string;
-            page_path?: components["schemas"]["ProjectsArchivedat"];
+            page_path?: components["schemas"]["UserAvatarurl"];
         };
     };
     responses: never;
@@ -1241,6 +1286,116 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiAuthMeAvatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Payload Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unprocessable request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiAuthMeAvatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Internal Server Error */
@@ -3101,6 +3256,55 @@ export interface operations {
             };
             /** @description Authentication required or failed */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiAvatarsById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Avatar bytes (Content-Type reflects the stored image format) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Bad Request */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

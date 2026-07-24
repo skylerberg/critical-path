@@ -76,7 +76,7 @@ beforeEach(() => {
     { id: 'l1', name: 'art', color: '#ff0000' },
     { id: 'l2', name: 'rules', color: '#00ff00' },
   ];
-  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace' }];
+  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null }];
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
     const url = new URL(request.url);

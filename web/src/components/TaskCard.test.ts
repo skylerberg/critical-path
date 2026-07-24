@@ -21,7 +21,7 @@ const task: BoardTask = {
 
 beforeEach(() => {
   users.reset();
-  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace' }];
+  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null }];
 });
 
 describe('TaskCard', () => {

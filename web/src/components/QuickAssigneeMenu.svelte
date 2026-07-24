@@ -82,7 +82,7 @@
             ? 'text-accent-strong'
             : 'text-ink'}"
         >
-          <Avatar name={user.name} size="sm" />
+          <Avatar name={user.name} src={user.avatar_url} size="sm" />
           <span class="min-w-0 flex-1 truncate">{user.name}</span>
           {#if selectedIds.has(user.id)}
             <span aria-hidden="true">✓</span>

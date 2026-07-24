@@ -6,7 +6,7 @@ import { session } from './session.svelte';
 import { users } from './users.svelte';
 import { toasts } from './toasts.svelte';
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me' };
+const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
 
 function workspace(overrides: Partial<Workspace> = {}): Workspace {
   return {

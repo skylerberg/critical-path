@@ -169,7 +169,7 @@ describe('users loadForProject', () => {
 describe('users displayFor', () => {
   it('returns a neutral placeholder for an unknown id', () => {
     const placeholder = users.displayFor('ghost');
-    expect(placeholder).toEqual({ id: 'ghost', name: '', email: '' });
+    expect(placeholder).toEqual({ id: 'ghost', name: '', email: '', avatar_url: null });
   });
 
   it('returns the real user when known', async () => {
@@ -181,10 +181,10 @@ describe('users displayFor', () => {
 describe('users upsert', () => {
   it('adds a new user in sorted order and replaces an existing one', async () => {
     await users.load();
-    users.upsert({ id: 'u-mel', email: 'mel@example.com', name: 'Mel' });
+    users.upsert({ id: 'u-mel', email: 'mel@example.com', name: 'Mel', avatar_url: null });
     expect(users.users.map((u) => u.name)).toEqual(['Ada', 'Brin', 'Mel', 'Zed']);
 
-    users.upsert({ id: 'u-ada', email: 'ada@new.com', name: 'Ada' });
+    users.upsert({ id: 'u-ada', email: 'ada@new.com', name: 'Ada', avatar_url: null });
     expect(users.byId('u-ada')?.email).toBe('ada@new.com');
   });
 });

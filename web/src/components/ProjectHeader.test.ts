@@ -44,7 +44,7 @@ beforeEach(() => {
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
   board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
   board.tasks = [task('t1', 'Design cards', ['l1'], ['u1'])];
-  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada' }];
+  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada', avatar_url: null }];
 });
 
 describe('ProjectHeader', () => {

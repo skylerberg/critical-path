@@ -27,7 +27,7 @@ class UsersStore {
   // A user who is no longer visible (e.g. an assignee who lost project access)
   // still needs to render, so callers get a neutral placeholder instead of undefined.
   displayFor(id: string): User {
-    return this.#byId.get(id) ?? { id, name: '', email: '' };
+    return this.#byId.get(id) ?? { id, name: '', email: '', avatar_url: null };
   }
 
   forProject(projectId: string): User[] {
