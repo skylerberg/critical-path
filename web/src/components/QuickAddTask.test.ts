@@ -1,5 +1,5 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import QuickAddTask from './QuickAddTask.svelte';
 import { board } from '../lib/board.svelte';
@@ -16,6 +16,10 @@ const payload = {
   tasks: [],
   labels: [],
 };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 beforeEach(async () => {
   fetchMock.mockReset();
@@ -64,6 +68,33 @@ describe('QuickAddTask', () => {
     expect(request.method).toBe('POST');
     expect(new URL(request.url).pathname).toBe('/api/tasks');
     expect(await request.json()).toMatchObject({ title: 'Sketch icons', column_id: 'c1' });
+  });
+
+  it('scrolls the created card into view without stealing focus', async () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    render(QuickAddTask, { columnId: 'c1' });
+    await fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
+    const input = screen.getByLabelText('Task title');
+    await fireEvent.input(input, { target: { value: 'Scroll me' } });
+
+    // The submit handler yields at tick() before its DOM query, so the card stub
+    // for the just-generated id can be attached synchronously after dispatch.
+    const submitted = fireEvent.submit(input.closest('form')!);
+    const created = board.tasks.find((t) => t.title === 'Scroll me');
+    expect(created).toBeDefined();
+    const card = document.createElement('div');
+    card.setAttribute('data-task-id', created!.id);
+    document.body.appendChild(card);
+    await submitted;
+
+    await waitFor(() => {
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(scrollSpy.mock.contexts[0]).toBe(card);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    expect(input).toHaveFocus();
+    card.remove();
+    scrollSpy.mockRestore();
   });
 
   it('ignores empty submissions', async () => {

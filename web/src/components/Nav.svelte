@@ -6,6 +6,7 @@
   import { link, router } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
   import { workspaces } from '../lib/workspaces.svelte';
+  import FeedbackDialog from './FeedbackDialog.svelte';
   import Avatar from './ui/Avatar.svelte';
 
   const projectsActive = $derived(router.current.name === 'projects');
@@ -15,6 +16,8 @@
 
   const groups = $derived(groupProjectsByWorkspace(projects.active, workspaces.workspaces));
   const offline = $derived(session.status === 'authed' && realtime.status !== 'online');
+
+  let feedbackOpen = $state(false);
 
   function logout(): void {
     void session.logout();
@@ -46,6 +49,21 @@
     <rect x="14" y="3" width="7" height="7" rx="1" />
     <rect x="3" y="14" width="7" height="7" rx="1" />
     <rect x="14" y="14" width="7" height="7" rx="1" />
+  </svg>
+{/snippet}
+
+{#snippet feedbackIcon()}
+  <svg
+    class="size-5"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
   </svg>
 {/snippet}
 
@@ -129,6 +147,14 @@
     {/if}
     <button
       type="button"
+      onclick={() => (feedbackOpen = true)}
+      class="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink"
+    >
+      {@render feedbackIcon()}
+      Send feedback
+    </button>
+    <button
+      type="button"
       onclick={logout}
       class="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink"
     >
@@ -175,3 +201,5 @@
     Log out
   </button>
 </nav>
+
+<FeedbackDialog open={feedbackOpen} onclose={() => (feedbackOpen = false)} />

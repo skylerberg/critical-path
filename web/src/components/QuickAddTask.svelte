@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { board } from '../lib/board.svelte';
   import Button from './ui/Button.svelte';
 
@@ -12,15 +13,25 @@
   let title = $state('');
   let input = $state<HTMLInputElement>();
 
-  function submit(event: SubmitEvent): void {
+  async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     const trimmed = title.trim();
     if (trimmed === '') {
       return;
     }
     void board.createTask(columnId, trimmed);
+    // createTask pushes the optimistic task synchronously, so the column's bottom
+    // card is the new one; awaiting its returned id would stall the scroll on the API.
+    const created = board.tasksInColumn(columnId).at(-1);
     title = '';
     input?.focus();
+    if (created === undefined) {
+      return;
+    }
+    await tick();
+    document
+      .querySelector(`[data-task-id="${created.id}"]`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   function close(): void {

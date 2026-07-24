@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
 import { router } from '../lib/router.svelte';
@@ -73,6 +73,10 @@ beforeEach(() => {
   board.reset();
   selection.clear();
   shortcuts.reset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('Project', () => {
@@ -152,6 +156,31 @@ describe('Project', () => {
     await screen.findByLabelText('Task title');
     await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(window.location.pathname).toBe(`/projects/${projectId}`);
+  });
+
+  it('scrolls the card created by quick-add into view', async () => {
+    const projectId = 'p-board-scroll';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+
+    render(Project, { props: { projectId, view: 'board' } });
+    await screen.findByText('Design cards');
+
+    const column = screen.getByRole('listitem', { name: 'To Do' });
+    await fireEvent.click(within(column).getByRole('button', { name: '+ Add task' }));
+    const input = within(column).getByLabelText('Task title');
+    await fireEvent.input(input, { target: { value: 'Scroll target' } });
+    await fireEvent.submit(input.closest('form')!);
+
+    const created = board.tasks.find((t) => t.title === 'Scroll target');
+    expect(created).toBeDefined();
+    await waitFor(() => {
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+    });
+    const receiver = scrollSpy.mock.contexts[0] as Element;
+    expect(receiver.getAttribute('data-task-id')).toBe(created!.id);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    expect(input).toHaveFocus();
   });
 
   it('runs the keymap from the shell on the board view', async () => {
