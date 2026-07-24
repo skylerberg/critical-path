@@ -108,6 +108,7 @@
     oninput={() => (highlighted = 0)}
     aria-label="Filter labels"
     placeholder="Filter or create a label"
+    autocapitalize="sentences"
     class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
   />
   <div class="flex flex-col gap-1" role="group" aria-label="Labels">

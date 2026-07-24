@@ -61,7 +61,7 @@
 </script>
 
 <div class="flex flex-col gap-2">
-  <Input bind:value={query} aria-label={label} placeholder="{label}…" />
+  <Input bind:value={query} aria-label={label} placeholder="{label}…" autocapitalize="sentences" />
   {#if query.trim() !== ''}
     {#if candidates.length === 0 && !showCreate}
       <p class="text-sm text-muted">No matching tasks.</p>

@@ -42,6 +42,7 @@
         use:focusOnMount
         aria-label="Task title"
         placeholder="Task title"
+        autocapitalize="sentences"
         onkeydown={(event) => {
           if (event.key === 'Escape') {
             close();

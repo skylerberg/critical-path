@@ -108,7 +108,7 @@
       class="mt-4 flex flex-col gap-3 border-t border-edge pt-4"
       aria-label={editingId === null ? 'New label' : 'Edit label'}
     >
-      <Input label="Name" bind:value={name} placeholder="Label name" />
+      <Input label="Name" bind:value={name} placeholder="Label name" autocapitalize="sentences" />
       <div class="flex flex-wrap gap-2" role="group" aria-label="Color palette">
         {#each PALETTE as swatch (swatch)}
           <button

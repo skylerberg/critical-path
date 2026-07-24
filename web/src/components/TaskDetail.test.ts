@@ -100,6 +100,7 @@ describe('TaskDetail', () => {
     render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
 
     expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
+    expect(screen.getByLabelText('Task title')).toHaveAttribute('autocapitalize', 'sentences');
 
     expect(screen.getByRole('button', { name: 'art' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'rules' })).toHaveAttribute('aria-pressed', 'false');

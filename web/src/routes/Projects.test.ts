@@ -106,6 +106,7 @@ describe('Projects', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'New project' }));
 
     expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveAttribute('autocapitalize', 'sentences');
     expect(screen.getByRole('button', { name: 'Create project' })).toBeInTheDocument();
   });
 

@@ -58,6 +58,7 @@
       bind:value={draft}
       use:focusAndSelect
       aria-label="Column name"
+      autocapitalize="sentences"
       onblur={commitRename}
       onkeydown={(event) => {
         if (event.key === 'Enter') {

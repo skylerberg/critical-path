@@ -455,6 +455,7 @@
               type="text"
               placeholder="Task title"
               aria-label="New task title"
+              autocapitalize="sentences"
               class="h-9 w-44 rounded bg-canvas px-2 text-sm text-ink outline-none"
             />
             <button
