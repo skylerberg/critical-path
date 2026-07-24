@@ -70,7 +70,7 @@
     if (!taskDragging) {
       const next: Record<string, BoardTask[]> = {};
       for (const column of board.columns) {
-        next[column.id] = board.tasksInColumn(column.id);
+        next[column.id] = board.displayTasksInColumn(column.id);
       }
       localTasks = next;
     }

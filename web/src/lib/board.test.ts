@@ -394,6 +394,42 @@ describe('taskMatchesFilters title query', () => {
   });
 });
 
+describe('displayTasksInColumn', () => {
+  beforeEach(() => {
+    board.tasks = [
+      task('t1', 'c1', 1000, 'Alpha'),
+      task('t2', 'c1', 2000, 'Beta'),
+      { ...task('t3', 'c1', 3000, 'Alpha again'), label_ids: ['l1'] },
+      { ...task('t4', 'c1', 4000, 'Gamma'), assignee_ids: ['u1'] },
+    ];
+  });
+
+  it('returns the pure position order when no filters are active', () => {
+    expect(board.displayTasksInColumn('c1')).toEqual(board.tasksInColumn('c1'));
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3', 't4']);
+  });
+
+  it('hoists title-query matches above non-matches, position-ordered within each group', () => {
+    board.setFilterQuery('alpha');
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't3', 't2', 't4']);
+  });
+
+  it('partitions by label filter', () => {
+    board.filterLabelIds = ['l1'];
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't3', 't2', 't4']);
+  });
+
+  it('partitions by assignee filter', () => {
+    board.filterAssigneeIds = ['u1'];
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t4', 't1', 't2', 't3']);
+  });
+
+  it('leaves tasksInColumn in position order while filters are active', () => {
+    board.setFilterQuery('alpha');
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3', 't4']);
+  });
+});
+
 describe('createAndLinkTask', () => {
   beforeEach(async () => {
     await board.load('p1');
@@ -553,5 +589,52 @@ describe('positionAfterDrop', () => {
       { id: 'm', position: 500 },
     ];
     expect(positionAfterDrop(items, 'm')).toBe(3000);
+  });
+
+  it('appends when the moved id is not in the items', () => {
+    const items = [
+      { id: 'a', position: 1000 },
+      { id: 'b', position: 2000 },
+    ];
+    expect(positionAfterDrop(items, 'missing')).toBe(3000);
+  });
+
+  it('lands between the card above and the next real position in an unsorted display array', () => {
+    const items = [
+      { id: 'match', position: 1000 },
+      { id: 'm', position: 9999 },
+      { id: 'dim1', position: 3000 },
+      { id: 'dim2', position: 2000 },
+    ];
+    expect(positionAfterDrop(items, 'm')).toBe(1500);
+  });
+
+  it('prepends over all positions when dropped at the display top of an unsorted array', () => {
+    const items = [
+      { id: 'm', position: 9999 },
+      { id: 'match', position: 5000 },
+      { id: 'dim', position: 2000 },
+    ];
+    expect(positionAfterDrop(items, 'm')).toBe(1000);
+  });
+
+  it('appends after the max-position card even when it is not displayed last', () => {
+    const items = [
+      { id: 'match', position: 5000 },
+      { id: 'm', position: 9999 },
+      { id: 'dim1', position: 2000 },
+      { id: 'dim2', position: 3000 },
+    ];
+    expect(positionAfterDrop(items, 'm')).toBe(6000);
+  });
+
+  it('skips a duplicate neighbor position to the next strictly greater one', () => {
+    const items = [
+      { id: 'a', position: 1000 },
+      { id: 'm', position: 9999 },
+      { id: 'b', position: 1000 },
+      { id: 'c', position: 2000 },
+    ];
+    expect(positionAfterDrop(items, 'm')).toBe(1500);
   });
 });

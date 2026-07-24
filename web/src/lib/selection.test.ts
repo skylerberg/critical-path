@@ -87,4 +87,34 @@ describe('selection store', () => {
     selection.move('down');
     expect(selection.selectedTaskId).toBe('t1');
   });
+
+  function seedFilteredBoard(): void {
+    board.tasks = [
+      { ...task('t1', 'c1', 1000), title: 'plain one' },
+      { ...task('t2', 'c1', 2000), title: 'match a' },
+      { ...task('t3', 'c1', 3000), title: 'match b' },
+      { ...task('t4', 'c2', 1000), title: 'plain two' },
+      { ...task('t5', 'c2', 2000), title: 'match c' },
+    ];
+    board.setFilterQuery('match');
+  }
+
+  it('walks matched tasks before dimmed ones when filters are active', () => {
+    seedFilteredBoard();
+
+    selection.move('down');
+    expect(selection.selectedTaskId).toBe('t2');
+    selection.move('down');
+    expect(selection.selectedTaskId).toBe('t3');
+    selection.move('down');
+    expect(selection.selectedTaskId).toBe('t1');
+  });
+
+  it('moves horizontally by display row, landing on a dimmed task when rows differ', () => {
+    seedFilteredBoard();
+
+    selection.set('t3');
+    selection.move('right');
+    expect(selection.selectedTaskId).toBe('t4');
+  });
 });
