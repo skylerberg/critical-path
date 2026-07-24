@@ -567,6 +567,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send feedback
+         * @description Store product feedback from the signed-in user and email it to the site owner. The client supplies the feedback id.
+         */
+        post: operations["postApiFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -665,7 +685,6 @@ export interface components {
             description: string;
             done_task_count: number;
             id: string;
-            is_template: boolean;
             name: string;
             open_task_count: number;
             workspace_id: components["schemas"]["ProjectsArchivedat"];
@@ -694,7 +713,6 @@ export interface components {
             created_by: components["schemas"]["ProjectsArchivedat"];
             description: string;
             id: string;
-            is_template: boolean;
             name: string;
             workspace_id: components["schemas"]["ProjectsArchivedat"];
         };
@@ -722,14 +740,12 @@ export interface components {
             id: string;
             name: string;
             description?: string;
-            is_template?: boolean;
             /** Format: uuid */
             source_project_id?: string;
         };
         PatchProject: {
             archived_at?: components["schemas"]["ProjectsArchivedat"];
             description?: string;
-            is_template?: boolean;
             name?: string;
             workspace_id?: string | null;
         };
@@ -833,6 +849,16 @@ export interface components {
         PatchLabel: {
             color?: string;
             name?: string;
+        };
+        FeedbackResponse: {
+            created_at: string;
+            id: string;
+        };
+        CreateFeedback: {
+            /** Format: uuid */
+            id: string;
+            message: string;
+            page_path?: components["schemas"]["ProjectsArchivedat"];
         };
     };
     responses: never;
@@ -3089,6 +3115,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFeedback"];
+            };
+        };
+        responses: {
+            /** @description Feedback stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackResponse"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
                 };
             };
             /** @description Internal Server Error */

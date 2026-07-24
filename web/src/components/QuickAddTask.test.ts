@@ -9,7 +9,6 @@ const payload = {
     id: 'p1',
     name: 'Game',
     description: '',
-    is_template: false,
     archived_at: null,
     created_at: '2026-01-01T00:00:00Z',
   },

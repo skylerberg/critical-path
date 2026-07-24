@@ -27,7 +27,6 @@ function payload(): BoardPayload {
       id: 'p1',
       name: 'Game',
       description: '',
-      is_template: false,
       archived_at: null,
       created_by: null,
       workspace_id: null,

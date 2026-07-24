@@ -20,8 +20,7 @@ class ProjectsStore {
   loadError = $state<string | null>(null);
 
   #sorted = $derived([...this.projects].sort(byCreation));
-  active = $derived(this.#sorted.filter((p) => p.archived_at === null && !p.is_template));
-  templates = $derived(this.#sorted.filter((p) => p.is_template && p.archived_at === null));
+  active = $derived(this.#sorted.filter((p) => p.archived_at === null));
   archived = $derived(this.#sorted.filter((p) => p.archived_at !== null));
 
   async load(): Promise<void> {
@@ -49,7 +48,7 @@ class ProjectsStore {
     return this.#create({ id: newId(), name }, workspaceId);
   }
 
-  async createFromTemplate(
+  async copy(
     sourceProjectId: string,
     name: string,
     workspaceId: string | null = null
@@ -80,10 +79,6 @@ class ProjectsStore {
     await this.#patch(id, { archived_at: null }, 'Failed to unarchive project');
   }
 
-  async setTemplate(id: string, isTemplate: boolean): Promise<void> {
-    await this.#patch(id, { is_template: isTemplate }, 'Failed to update project');
-  }
-
   async remove(id: string): Promise<void> {
     this.projects = this.projects.filter((p) => p.id !== id);
     try {
@@ -106,7 +101,6 @@ class ProjectsStore {
         id: incoming.id,
         name: '',
         description: '',
-        is_template: false,
         archived_at: null,
         created_by: null,
         workspace_id: null,
@@ -126,7 +120,6 @@ class ProjectsStore {
       id: body.id,
       name: body.name,
       description: body.description ?? '',
-      is_template: body.is_template ?? false,
       archived_at: null,
       created_by: null,
       workspace_id: workspaceId,

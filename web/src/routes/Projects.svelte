@@ -21,7 +21,7 @@
   const groups = $derived(groupProjectsByWorkspace(projects.active, workspaces.workspaces));
 
   let createOpen = $state(false);
-  let createTemplate = $state<Project | null>(null);
+  let copySource = $state<Project | null>(null);
   let createName = $state('');
   let createError = $state('');
   let createWorkspaceId = $state('');
@@ -53,9 +53,9 @@
     'flex min-h-11 w-full cursor-pointer items-center px-4 text-left text-sm hover:bg-accent-soft';
   const gridClass = 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3';
 
-  function openCreate(template: Project | null, workspaceId: string | null): void {
-    createTemplate = template;
-    createName = template === null ? '' : `${template.name} copy`;
+  function openCreate(source: Project | null, workspaceId: string | null): void {
+    copySource = source;
+    createName = source === null ? '' : `${source.name} copy`;
     createWorkspaceId = workspaceId ?? '';
     createError = '';
     createOpen = true;
@@ -76,9 +76,9 @@
     creating = true;
     const workspaceId = createWorkspaceId === '' ? null : createWorkspaceId;
     const id =
-      createTemplate === null
+      copySource === null
         ? await projects.create(name, workspaceId)
-        : await projects.createFromTemplate(createTemplate.id, name, workspaceId);
+        : await projects.copy(copySource.id, name, workspaceId);
     creating = false;
     createOpen = false;
     if (id !== null) {
@@ -132,10 +132,6 @@
     void (project.archived_at === null
       ? projects.archive(project.id)
       : projects.unarchive(project.id));
-  }
-
-  function toggleTemplate(project: Project): void {
-    void projects.setTemplate(project.id, !project.is_template);
   }
 
   function openWorkspaceModal(): void {
@@ -268,16 +264,16 @@
           >
             Rename
           </button>
-          <button type="button" role="menuitem" class={menuItemClass} onclick={openMoveMenu}>
-            Move to workspace ▸
-          </button>
           <button
             type="button"
             role="menuitem"
             class={menuItemClass}
-            onclick={() => toggleTemplate(project)}
+            onclick={() => openCreate(project, null)}
           >
-            {project.is_template ? 'Unmark as template' : 'Mark as template'}
+            Copy
+          </button>
+          <button type="button" role="menuitem" class={menuItemClass} onclick={openMoveMenu}>
+            Move to workspace ▸
           </button>
           <button
             type="button"
@@ -318,19 +314,9 @@
     {#if project.description !== ''}
       <p class="line-clamp-2 text-sm text-muted">{project.description}</p>
     {/if}
-    <div class="mt-auto flex items-center justify-between gap-2 pt-1">
-      <div class="flex items-center gap-2">
-        <Badge variant="accent">{project.open_task_count} open</Badge>
-        <Badge variant="success">{project.done_task_count} done</Badge>
-        {#if dimmed && project.is_template}
-          <Badge>Template</Badge>
-        {/if}
-      </div>
-      {#if project.is_template && project.archived_at === null}
-        <Button variant="secondary" class="relative z-10" onclick={() => openCreate(project, null)}>
-          Use template
-        </Button>
-      {/if}
+    <div class="mt-auto flex items-center gap-2 pt-1">
+      <Badge variant="accent">{project.open_task_count} open</Badge>
+      <Badge variant="success">{project.done_task_count} done</Badge>
     </div>
   </article>
 {/snippet}
@@ -409,21 +395,6 @@
   {/if}
 
   {#if projects.loaded}
-    <section class="flex flex-col gap-4">
-      <h2 class="text-lg font-semibold">Templates</h2>
-      {#if projects.templates.length === 0}
-        <p class="text-sm text-muted">
-          No templates yet. Mark a project as a template from its card menu to reuse it here.
-        </p>
-      {:else}
-        <div class={gridClass}>
-          {#each projects.templates as template (template.id)}
-            {@render projectCard(template)}
-          {/each}
-        </div>
-      {/if}
-    </section>
-
     {#if projects.archived.length > 0}
       <section class="flex flex-col gap-4">
         <button
@@ -459,15 +430,11 @@
 </main>
 
 {#if createOpen}
-  <Modal
-    open
-    title={createTemplate === null ? 'New project' : 'New project from template'}
-    onclose={closeCreate}
-  >
+  <Modal open title={copySource === null ? 'New project' : 'Copy project'} onclose={closeCreate}>
     <form id="create-project-form" onsubmit={submitCreate} class="flex flex-col gap-3">
-      {#if createTemplate !== null}
+      {#if copySource !== null}
         <p class="text-sm text-muted">
-          Copies columns, tasks, labels, and dependencies from “{createTemplate.name}”.
+          Copies columns, tasks, labels, dependencies, and images from “{copySource.name}”.
         </p>
       {/if}
       <Input label="Name" bind:value={createName} error={createError} autocapitalize="sentences" />
@@ -487,7 +454,11 @@
     {#snippet footer()}
       <Button variant="secondary" onclick={closeCreate} disabled={creating}>Cancel</Button>
       <Button type="submit" form="create-project-form" disabled={creating}>
-        {creating ? 'Creating…' : 'Create project'}
+        {#if copySource === null}
+          {creating ? 'Creating…' : 'Create project'}
+        {:else}
+          {creating ? 'Copying…' : 'Copy project'}
+        {/if}
       </Button>
     {/snippet}
   </Modal>

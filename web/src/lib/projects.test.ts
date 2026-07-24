@@ -8,7 +8,6 @@ function project(overrides: Partial<Project> = {}): Project {
     id: 'p-1',
     name: 'Alpha',
     description: '',
-    is_template: false,
     archived_at: null,
     created_by: null,
     workspace_id: null,
@@ -24,7 +23,6 @@ function projectRow(item: Project): Omit<Project, 'open_task_count' | 'done_task
     id: item.id,
     name: item.name,
     description: item.description,
-    is_template: item.is_template,
     archived_at: item.archived_at,
     created_by: item.created_by,
     workspace_id: item.workspace_id,
@@ -38,7 +36,6 @@ function boardPayload(id: string, name: string, tasksInColumns: string[] = []): 
       id,
       name,
       description: '',
-      is_template: false,
       archived_at: null,
       created_at: '2026-03-01T00:00:00.000Z',
     },
@@ -69,12 +66,11 @@ beforeEach(() => {
 });
 
 describe('projects store', () => {
-  it('loads projects and groups active, templates, and archived', async () => {
-    const active = project();
-    const template = project({
+  it('loads projects and groups active and archived', async () => {
+    const first = project();
+    const second = project({
       id: 'p-2',
-      name: 'Starter',
-      is_template: true,
+      name: 'Beta',
       created_at: '2026-01-02T00:00:00.000Z',
     });
     const archived = project({
@@ -84,15 +80,14 @@ describe('projects store', () => {
       created_at: '2026-01-03T00:00:00.000Z',
     });
     fetchMock.mockImplementation(async () =>
-      jsonResponse(200, { projects: [archived, template, active] })
+      jsonResponse(200, { projects: [archived, second, first] })
     );
 
     await projects.load();
 
     expect(requestAt(0).method).toBe('GET');
     expect(new URL(requestAt(0).url).pathname).toBe('/api/projects');
-    expect(projects.active).toEqual([active]);
-    expect(projects.templates).toEqual([template]);
+    expect(projects.active).toEqual([first, second]);
     expect(projects.archived).toEqual([archived]);
     expect(projects.loaded).toBe(true);
     expect(projects.loadError).toBeNull();
@@ -147,7 +142,7 @@ describe('projects store', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('creates from a template and derives counts from the payload', async () => {
+  it('copies a project and derives counts from the payload', async () => {
     fetchMock.mockImplementation(async (input) => {
       const body = (await (input as Request).clone().json()) as { id: string; name: string };
       return jsonResponse(
@@ -156,12 +151,12 @@ describe('projects store', () => {
       );
     });
 
-    const id = await projects.createFromTemplate('tpl-1', 'From Template');
+    const id = await projects.copy('src-1', 'Alpha copy');
 
     expect(await bodyOf(requestAt(0))).toEqual({
       id,
-      name: 'From Template',
-      source_project_id: 'tpl-1',
+      name: 'Alpha copy',
+      source_project_id: 'src-1',
     });
     const created = projects.projects.find((p) => p.id === id)!;
     expect(created.open_task_count).toBe(2);
@@ -221,20 +216,6 @@ describe('projects store', () => {
     expect(await bodyOf(requestAt(1))).toEqual({ name: 'New name' });
     expect(projects.projects[0]!.name).toBe('Old name');
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
-  });
-
-  it('marks a project as a template', async () => {
-    const item = project();
-    await loadWith([item]);
-    fetchMock.mockImplementation(async () =>
-      jsonResponse(200, { ...projectRow(item), is_template: true })
-    );
-
-    await projects.setTemplate('p-1', true);
-
-    expect(await bodyOf(requestAt(1))).toEqual({ is_template: true });
-    expect(projects.templates.map((p) => p.id)).toEqual(['p-1']);
-    expect(projects.active).toEqual([]);
   });
 
   it('removes optimistically and sends the DELETE', async () => {
@@ -321,7 +302,6 @@ describe('projects store', () => {
         id: patchedId,
         name: 'Scoped',
         description: '',
-        is_template: false,
         archived_at: null,
         created_by: null,
         workspace_id: body.workspace_id,
