@@ -277,14 +277,10 @@ describe('Project members API', () => {
     });
   });
 
-  describe('GET /api/workspaces (deprecated stub)', () => {
-    it('requires auth and always returns an empty list', async () => {
-      const anon = await ctx.request().get('/api/workspaces');
-      expect(anon.status).toBe(401);
-
+  describe('GET /api/workspaces (removed)', () => {
+    it('returns 404 now that the deprecated stub is gone', async () => {
       const res = await ctx.request(owner.token).get('/api/workspaces');
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ workspaces: [] });
+      expect(res.status).toBe(404);
     });
   });
 });

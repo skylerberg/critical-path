@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/project-positions/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/cleanup-drops/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate-api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -670,16 +670,6 @@ export interface components {
     };
     UsersResponse: {
       users: components['schemas']['User'][];
-    };
-    WorkspacesListResponse: {
-      workspaces: components['schemas']['Workspace'][];
-    };
-    Workspace: {
-      created_at: string;
-      created_by: string;
-      id: string;
-      member_ids: string[];
-      name: string;
     };
     ProjectsListResponse: {
       projects: components['schemas']['ProjectListItem'][];

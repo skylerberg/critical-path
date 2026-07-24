@@ -65,9 +65,7 @@ export interface Project {
   created_by: string;
   description: Generated<string>;
   id: string;
-  is_template: Generated<boolean>;
   name: string;
-  workspace_id: string | null;
 }
 
 export interface ProjectMember {
@@ -128,19 +126,6 @@ export interface TaskLabel {
   task_id: string;
 }
 
-export interface Workspace {
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  id: string;
-  name: string;
-}
-
-export interface WorkspaceMember {
-  created_at: Generated<Timestamp>;
-  user_id: string;
-  workspace_id: string;
-}
-
 export interface DB {
   app_user: AppUser;
   board_column: BoardColumn;
@@ -155,6 +140,4 @@ export interface DB {
   task_dependency: TaskDependency;
   task_image: TaskImage;
   task_label: TaskLabel;
-  workspace: Workspace;
-  workspace_member: WorkspaceMember;
 }

@@ -40,7 +40,6 @@ import authRouter from './routes/auth';
 import avatarUploadRouter from './routes/avatarUpload';
 import avatarsRouter from './routes/avatars';
 import usersRouter from './routes/users';
-import workspacesRouter from './routes/workspaces';
 import projectsRouter from './routes/projects';
 import columnsRouter from './routes/columns';
 import tasksRouter from './routes/tasks';
@@ -115,7 +114,6 @@ const openAPIOptions = {
     tags: [
       { name: 'Auth', description: 'Signup, login, and session management' },
       { name: 'Users', description: 'Visible users' },
-      { name: 'Workspaces', description: 'Deprecated: replaced by per-project members' },
       { name: 'Projects', description: 'Projects, members, and board payloads' },
       { name: 'Columns', description: 'Kanban board columns' },
       { name: 'Tasks', description: 'Tasks, dependencies, labels, and assignees' },
@@ -149,7 +147,6 @@ app.route('/api/auth', authRouter);
 // Second router on the same prefix: POST /me/avatar needs its own bodyLimit.
 app.route('/api/auth', avatarUploadRouter);
 app.route('/api/users', usersRouter);
-app.route('/api/workspaces', workspacesRouter);
 app.route('/api/projects', projectsRouter);
 app.route('/api/columns', columnsRouter);
 app.route('/api/tasks', tasksRouter);
