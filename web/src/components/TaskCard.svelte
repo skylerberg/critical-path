@@ -94,7 +94,7 @@
       {#if assignees.length > 0}
         <span class="ml-auto flex -space-x-1.5">
           {#each assignees as assignee (assignee.id)}
-            <Avatar name={assignee.name} size="sm" />
+            <Avatar name={assignee.name} src={assignee.avatar_url} size="sm" />
           {/each}
         </span>
       {/if}

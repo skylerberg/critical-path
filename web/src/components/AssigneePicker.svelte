@@ -44,7 +44,7 @@
           ? 'border-accent bg-accent-soft text-accent-strong'
           : 'border-edge text-muted hover:border-accent hover:text-ink'}"
       >
-        <Avatar name={user.name} size="sm" />
+        <Avatar name={user.name} src={user.avatar_url} size="sm" />
         {user.name}
       </button>
     {/each}

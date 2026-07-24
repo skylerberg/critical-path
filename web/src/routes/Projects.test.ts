@@ -44,7 +44,7 @@ const archivedProject = project({
   created_at: '2026-01-03T00:00:00.000Z',
 });
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me' };
+const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
 
 function workspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -201,7 +201,7 @@ describe('Projects', () => {
   it('adds a member by email from the manage-members modal', async () => {
     workspaces.workspaces = [workspace()];
     users.users = [me];
-    const added = { id: 'u-added', email: 'pat@example.com', name: 'Pat' };
+    const added = { id: 'u-added', email: 'pat@example.com', name: 'Pat', avatar_url: null };
     fetchMock.mockImplementation(async (input) => {
       const request = input as Request;
       const url = new URL(request.url);

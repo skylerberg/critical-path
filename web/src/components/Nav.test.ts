@@ -7,7 +7,7 @@ import { workspaces, type Workspace } from '../lib/workspaces.svelte';
 import { session } from '../lib/session.svelte';
 import { router } from '../lib/router.svelte';
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me' };
+const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
 
 function project(overrides: Partial<Project> = {}): Project {
   return {

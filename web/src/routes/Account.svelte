@@ -2,7 +2,9 @@
   import { api, ApiError, assertOk } from '../api/client';
   import { realtime } from '../lib/realtime.svelte';
   import { session } from '../lib/session.svelte';
+  import { users } from '../lib/users.svelte';
   import FeedbackDialog from '../components/FeedbackDialog.svelte';
+  import Avatar from '../components/ui/Avatar.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
 
@@ -11,6 +13,10 @@
   let name = $state(session.user?.name ?? '');
   let nameStatus = $state<Status>(null);
   let savingName = $state(false);
+
+  let avatarInput = $state<HTMLInputElement | null>(null);
+  let avatarStatus = $state<Status>(null);
+  let savingAvatar = $state(false);
 
   let email = $state(session.user?.email ?? '');
   let emailStatus = $state<Status>(null);
@@ -43,6 +49,65 @@
     } finally {
       savingName = false;
     }
+  }
+
+  async function uploadAvatar(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (file === undefined) {
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      avatarStatus = { kind: 'error', message: 'That image is too large (max 10 MB).' };
+      return;
+    }
+    savingAvatar = true;
+    avatarStatus = null;
+    try {
+      const user = assertOk(
+        await api.POST('/api/auth/me/avatar', {
+          body: { file: file as unknown as string },
+          bodySerializer: () => {
+            const form = new FormData();
+            form.append('file', file);
+            return form;
+          },
+        })
+      );
+      session.user = user;
+      users.upsert(user);
+      avatarStatus = { kind: 'success', message: 'Profile image updated' };
+    } catch (error) {
+      avatarStatus = { kind: 'error', message: avatarMessageFor(error) };
+    } finally {
+      savingAvatar = false;
+    }
+  }
+
+  async function removeAvatar(): Promise<void> {
+    savingAvatar = true;
+    avatarStatus = null;
+    try {
+      const user = assertOk(await api.DELETE('/api/auth/me/avatar'));
+      session.user = user;
+      users.upsert(user);
+      avatarStatus = { kind: 'success', message: 'Profile image removed' };
+    } catch (error) {
+      avatarStatus = { kind: 'error', message: avatarMessageFor(error) };
+    } finally {
+      savingAvatar = false;
+    }
+  }
+
+  function avatarMessageFor(error: unknown): string {
+    if (error instanceof ApiError && error.status === 413) {
+      return 'That image is too large (max 10 MB)';
+    }
+    if (error instanceof ApiError && error.status === 422) {
+      return 'That file is not a supported image (PNG, JPEG, GIF, or WebP)';
+    }
+    return messageFor(error);
   }
 
   async function submitEmail(event: SubmitEvent): Promise<void> {
@@ -144,6 +209,32 @@
         <Button type="submit" disabled={savingName}>{savingName ? 'Saving…' : 'Save name'}</Button>
       </div>
     </form>
+  </section>
+
+  <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
+    <h2 class="text-lg font-semibold">Profile image</h2>
+    <div class="flex items-center gap-4">
+      <Avatar name={session.user?.name ?? ''} src={session.user?.avatar_url} size="lg" />
+      <div class="flex flex-wrap gap-2">
+        <Button variant="secondary" disabled={savingAvatar} onclick={() => avatarInput?.click()}>
+          {savingAvatar ? 'Saving…' : session.user?.avatar_url ? 'Replace image' : 'Upload image'}
+        </Button>
+        {#if session.user?.avatar_url}
+          <Button variant="secondary" disabled={savingAvatar} onclick={removeAvatar}>
+            Remove image
+          </Button>
+        {/if}
+      </div>
+    </div>
+    {@render status(avatarStatus)}
+    <input
+      bind:this={avatarInput}
+      type="file"
+      accept="image/png,image/jpeg,image/gif,image/webp"
+      aria-label="Profile image file"
+      class="hidden"
+      onchange={uploadAvatar}
+    />
   </section>
 
   <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">

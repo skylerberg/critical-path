@@ -88,7 +88,7 @@
                 ? 'ring-2 ring-accent ring-offset-2 ring-offset-surface'
                 : 'opacity-70 hover:opacity-100'}"
             >
-              <Avatar name={user.name} size="sm" />
+              <Avatar name={user.name} src={user.avatar_url} size="sm" />
             </span>
           </button>
         {/each}

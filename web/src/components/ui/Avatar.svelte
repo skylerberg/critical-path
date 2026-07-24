@@ -1,10 +1,11 @@
 <script lang="ts">
   interface Props {
     name: string;
-    size?: 'sm' | 'md';
+    src?: string | null;
+    size?: 'sm' | 'md' | 'lg';
   }
 
-  let { name, size = 'md' }: Props = $props();
+  let { name, src = null, size = 'md' }: Props = $props();
 
   const COLORS = [
     '#e11d48',
@@ -34,15 +35,29 @@
     return COLORS[hash % COLORS.length];
   });
 
-  const sizes = { sm: 'size-6 text-[10px]', md: 'size-8 text-xs' };
+  let erroredSrc = $state<string | null>(null);
+  const imageSrc = $derived(src != null && src !== erroredSrc ? src : null);
+
+  const sizes = { sm: 'size-6 text-[10px]', md: 'size-8 text-xs', lg: 'size-16 text-xl' };
 </script>
 
-<span
-  class="inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white select-none {sizes[
-    size
-  ]}"
-  style="background-color: {color}"
-  title={name}
->
-  {initials}
-</span>
+{#if imageSrc !== null}
+  <img
+    src={imageSrc}
+    alt=""
+    title={name}
+    draggable="false"
+    class="inline-block shrink-0 rounded-full object-cover select-none {sizes[size]}"
+    onerror={() => (erroredSrc = imageSrc)}
+  />
+{:else}
+  <span
+    class="inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white select-none {sizes[
+      size
+    ]}"
+    style="background-color: {color}"
+    title={name}
+  >
+    {initials}
+  </span>
+{/if}

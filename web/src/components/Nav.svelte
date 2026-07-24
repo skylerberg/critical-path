@@ -141,7 +141,7 @@
         aria-current={router.current.name === 'account' ? 'page' : undefined}
         class="flex min-h-11 items-center gap-2 rounded-md px-3 hover:bg-accent-soft"
       >
-        <Avatar name={session.user.name} size="sm" />
+        <Avatar name={session.user.name} src={session.user.avatar_url} size="sm" />
         <span class="min-w-0 truncate text-sm font-medium">{session.user.name}</span>
       </a>
     {/if}
@@ -188,7 +188,7 @@
         ? 'text-accent'
         : 'text-muted'}"
     >
-      <Avatar name={session.user.name} size="sm" />
+      <Avatar name={session.user.name} src={session.user.avatar_url} size="sm" />
       <span class="max-w-24 truncate">{session.user.name}</span>
     </a>
   {/if}

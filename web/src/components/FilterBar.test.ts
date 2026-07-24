@@ -30,7 +30,7 @@ beforeEach(() => {
   shortcuts.reset();
   board.currentProjectId = 'p1';
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
-  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada' }];
+  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada', avatar_url: null }];
 });
 
 describe('FilterBar', () => {
