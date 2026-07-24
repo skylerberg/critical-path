@@ -1,85 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { serve, type ServerType } from '@hono/node-server';
-import WebSocket from 'ws';
 import { app } from '../../../src/index';
 import { attachRealtime, projectSockets } from '../../../src/services/realtime/index';
 import type { RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { newId } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
-
-const PNG_1X1 = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64'
-);
-
-interface Envelope {
-  type: string;
-  project_id: string | null;
-  data: Record<string, unknown>;
-}
-
-class RtClient {
-  readonly events: Envelope[] = [];
-  closeInfo: { code: number; reason: string } | null = null;
-
-  private constructor(private ws: WebSocket) {}
-
-  static connect(port: number, token: string): Promise<RtClient> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
-      const client = new RtClient(ws);
-      ws.on('error', reject);
-      ws.on('close', (code, reason) => {
-        client.closeInfo = { code, reason: String(reason) };
-      });
-      ws.on('open', () => ws.send(JSON.stringify({ type: 'auth', token })));
-      ws.on('message', (raw) => {
-        const message = JSON.parse(String(raw)) as Envelope;
-        if (message.type === 'auth_ok') {
-          resolve(client);
-          return;
-        }
-        if (message.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong' }));
-          return;
-        }
-        client.events.push(message);
-      });
-    });
-  }
-
-  subscribe(projectId: string): void {
-    this.ws.send(JSON.stringify({ type: 'subscribe', project_id: projectId }));
-  }
-
-  async waitForEvent(predicate: (event: Envelope) => boolean, timeoutMs = 4000): Promise<Envelope> {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const match = this.events.find(predicate);
-      if (match) return match;
-      if (Date.now() > deadline) {
-        const seen = this.events.map((event) => event.type).join(', ') || 'none';
-        throw new Error(`No matching event before timeout; saw: ${seen}`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-  }
-
-  eventsOfType(type: string): Envelope[] {
-    return this.events.filter((event) => event.type === type);
-  }
-
-  close(): void {
-    this.ws.close();
-  }
-}
-
-// Delivery runs in unawaited post-commit hooks, so silence can only be
-// asserted after giving in-flight deliveries time to land.
-function settle(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 200));
-}
+import { PNG_1X1, RtClient, settle } from './helpers';
 
 describe('Realtime end to end', () => {
   const ctx = new TestContext();

@@ -21,6 +21,7 @@ export interface BusEntry extends RealtimeEnvelope, PublishOptions {}
 export type BusSubscriber = (entry: BusEntry) => void;
 
 export const SESSIONS_REVOKED = 'sessions_revoked';
+export const USER_UPDATED = 'user_updated';
 
 const subscribers = new Set<BusSubscriber>();
 
