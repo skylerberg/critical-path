@@ -4,18 +4,33 @@ import type { BoardColumn, BoardLabel, BoardProject, BoardTask } from './board-t
 import { buildGraph, detectCycle } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
-import { append, positionForIndex } from './positions';
+import { append, between, prepend } from './positions';
 import { toasts } from './toasts.svelte';
 
 export type TaskImage = components['schemas']['ImageResponse'];
 
+// Anchors on the visual neighbor above the drop, so it stays correct when the
+// display order is a filtered partition rather than pure position order.
 export function positionAfterDrop(
   items: readonly { id: string; position: number }[],
   movedId: string
 ): number {
   const index = items.findIndex((item) => item.id === movedId);
   const others = items.filter((item) => item.id !== movedId).map((item) => item.position);
-  return positionForIndex(others, index === -1 ? others.length : index);
+  if (index === -1) {
+    return append(others);
+  }
+  if (index === 0) {
+    return prepend(others);
+  }
+  const prev = items[index - 1]!.position;
+  let next: number | null = null;
+  for (const position of others) {
+    if (position > prev && (next === null || position < next)) {
+      next = position;
+    }
+  }
+  return next === null ? append(others) : between(prev, next);
 }
 
 class BoardStore {
@@ -481,6 +496,19 @@ class BoardStore {
     const query = this.filterQuery.trim().toLowerCase();
     const queryOk = query === '' || task.title.toLowerCase().includes(query);
     return labelOk && assigneeOk && queryOk;
+  }
+
+  displayTasksInColumn(columnId: string): BoardTask[] {
+    const tasks = this.tasksInColumn(columnId);
+    if (!this.hasActiveFilters) {
+      return tasks;
+    }
+    const matches: BoardTask[] = [];
+    const rest: BoardTask[] = [];
+    for (const task of tasks) {
+      (this.taskMatchesFilters(task) ? matches : rest).push(task);
+    }
+    return [...matches, ...rest];
   }
 
   taskImages = $state<Record<string, TaskImage[]>>({});

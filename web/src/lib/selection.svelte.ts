@@ -59,7 +59,7 @@ class SelectionStore {
 
   move(direction: NavDirection): void {
     const grid = board.columns.map((column) =>
-      board.tasksInColumn(column.id).map((task) => task.id)
+      board.displayTasksInColumn(column.id).map((task) => task.id)
     );
     const next = nextSelection(grid, this.selectedTaskId, direction);
     if (next !== null) {
