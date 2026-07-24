@@ -181,7 +181,7 @@
             onfinalize={(event) => handleTaskFinalize(column.id, event)}
           >
             {#each localTasks[column.id] ?? [] as task (task.id)}
-              <div animate:flip={{ duration: FLIP_MS }}>
+              <div animate:flip={{ duration: FLIP_MS }} data-task-id={task.id}>
                 <TaskCard
                   {task}
                   {projectId}

@@ -43,6 +43,26 @@ export interface GraphLayout {
 
 export type GraphResult = { kind: 'cycle' } | { kind: 'ok'; layout: GraphLayout };
 
+export interface ViewBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// Null means the node is already fully visible and no pan is needed.
+export function panToNode(vb: ViewBox, node: LayoutPoint): ViewBox | null {
+  const visible =
+    node.x - NODE_WIDTH / 2 >= vb.x &&
+    node.x + NODE_WIDTH / 2 <= vb.x + vb.w &&
+    node.y - NODE_HEIGHT / 2 >= vb.y &&
+    node.y + NODE_HEIGHT / 2 <= vb.y + vb.h;
+  if (visible) {
+    return null;
+  }
+  return { x: node.x - vb.w / 2, y: node.y - vb.h / 2, w: vb.w, h: vb.h };
+}
+
 export function edgeId(from: string, to: string): string {
   return `${from}->${to}`;
 }
