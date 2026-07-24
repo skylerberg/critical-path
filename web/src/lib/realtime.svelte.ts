@@ -1,6 +1,7 @@
 import { untrack } from 'svelte';
 import { board } from './board.svelte';
 import { projects } from './projects.svelte';
+import { users } from './users.svelte';
 import type { RealtimeEvent } from './realtime-types';
 import { session } from './session.svelte';
 
@@ -229,6 +230,11 @@ class RealtimeClient {
       board.applyRealtime(event);
     } else if (PROJECT_EVENTS.has(event.type)) {
       projects.applyRealtime(event);
+    } else if (event.type === 'user_updated') {
+      const updated = users.applyRealtime(event.data);
+      if (updated !== null && session.user?.id === updated.id) {
+        session.user = updated;
+      }
     }
   }
 

@@ -73,8 +73,31 @@ class UsersStore {
 
   upsert(user: User): void {
     this.users = this.users.some((u) => u.id === user.id)
-      ? this.users.map((u) => (u.id === user.id ? user : u))
+      ? this.users.map((u) => (u.id === user.id ? user : u)).sort(byName)
       : [...this.users, user].sort(byName);
+  }
+
+  applyRealtime(data: unknown): User | null {
+    if (typeof data !== 'object' || data === null) {
+      return null;
+    }
+    const { id, name, email, avatar_url } = data as Record<string, unknown>;
+    if (typeof id !== 'string' || typeof name !== 'string' || typeof email !== 'string') {
+      return null;
+    }
+    const user: User = {
+      id,
+      name,
+      email,
+      avatar_url: typeof avatar_url === 'string' ? avatar_url : null,
+    };
+    this.upsert(user);
+    for (const [projectId, list] of Object.entries(this.#projectUsers)) {
+      if (list.some((u) => u.id === user.id)) {
+        this.#projectUsers[projectId] = list.map((u) => (u.id === user.id ? user : u)).sort(byName);
+      }
+    }
+    return user;
   }
 
   loadWithRetry(onFirstError: () => void): () => void {
