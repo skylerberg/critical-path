@@ -6,6 +6,7 @@ import type { BoardPayload } from './board-types';
 import { projects, type Project } from './projects.svelte';
 import { realtime } from './realtime.svelte';
 import { session } from './session.svelte';
+import { users } from './users.svelte';
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -480,5 +481,35 @@ describe('logout', () => {
     expect(realtime.status).toBe('offline');
     vi.advanceTimersByTime(60_000);
     expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+});
+
+describe('user_updated dispatch', () => {
+  beforeEach(() => {
+    users.reset();
+  });
+
+  it('merges into the users store, and into the session user when self', async () => {
+    const socket = await connectAndAuth('p1');
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u-peer', name: 'Peer', email: 'peer@example.com', avatar_url: '/api/avatars/k' },
+    });
+    expect(users.byId('u-peer')?.avatar_url).toBe('/api/avatars/k');
+    expect(session.user?.name).toBe('Me');
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u1', name: 'Me Renamed', email: 'm@e.com', avatar_url: null },
+    });
+    expect(session.user?.name).toBe('Me Renamed');
+  });
+
+  it('drops malformed user_updated payloads', async () => {
+    const socket = await connectAndAuth('p1');
+    socket.receive({ type: 'user_updated', data: { id: 7 } });
+    expect(users.users).toEqual([]);
+    expect(session.user?.name).toBe('Me');
   });
 });

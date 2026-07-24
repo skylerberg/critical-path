@@ -188,3 +188,44 @@ describe('users upsert', () => {
     expect(users.byId('u-ada')?.email).toBe('ada@new.com');
   });
 });
+
+describe('users applyRealtime', () => {
+  it('updates the global list and any project caches holding the user', async () => {
+    await users.load();
+    await users.loadForProject('p-1');
+
+    const updated = users.applyRealtime({
+      id: 'u-ada',
+      name: 'Ada Prime',
+      email: 'ada@new.com',
+      avatar_url: '/api/avatars/abc',
+    });
+
+    expect(updated?.name).toBe('Ada Prime');
+    expect(users.byId('u-ada')).toEqual({
+      id: 'u-ada',
+      name: 'Ada Prime',
+      email: 'ada@new.com',
+      avatar_url: '/api/avatars/abc',
+    });
+    expect(users.forProject('p-1').find((u) => u.id === 'u-ada')?.name).toBe('Ada Prime');
+    expect(users.users.map((u) => u.name)).toEqual([...users.users.map((u) => u.name)].sort());
+  });
+
+  it('adds a previously unknown user', () => {
+    const updated = users.applyRealtime({
+      id: 'u-new',
+      name: 'New',
+      email: 'new@example.com',
+      avatar_url: null,
+    });
+    expect(updated).not.toBeNull();
+    expect(users.byId('u-new')?.email).toBe('new@example.com');
+  });
+
+  it('ignores malformed payloads', () => {
+    expect(users.applyRealtime(null)).toBeNull();
+    expect(users.applyRealtime({ id: 42 })).toBeNull();
+    expect(users.users).toEqual([]);
+  });
+});
