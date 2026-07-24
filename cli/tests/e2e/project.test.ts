@@ -117,20 +117,6 @@ describe('project commands', () => {
     expect(again.json<ProjectListItem[]>().map((p) => p.id)).toContain(board.project.id);
   });
 
-  it('templates are hidden by default and shown with --templates', async () => {
-    const board = await createProject('Template Me', ['--template']);
-    expect(board.project.is_template).toBe(true);
-
-    const active = await h.runCli(['project', 'list', '--json']);
-    expect(active.json<ProjectListItem[]>().map((p) => p.id)).not.toContain(board.project.id);
-
-    const templates = await h.runCli(['project', 'list', '--templates', '--json']);
-    expect(templates.json<ProjectListItem[]>().map((p) => p.id)).toContain(board.project.id);
-
-    const all = await h.runCli(['project', 'list', '--all', '--json']);
-    expect(all.json<ProjectListItem[]>().map((p) => p.id)).toContain(board.project.id);
-  });
-
   it('delete refuses without confirmation under --no-input, then deletes with --force', async () => {
     const board = await createProject('Delete Me');
 

@@ -45,14 +45,13 @@ describe('POST /api/projects with source_project_id', () => {
     projectIds.push(sourceId);
     const sourceRes = await ctx
       .request(user.token)
-      .post('/api/projects', { id: sourceId, name: 'Template', description: 'Source desc' });
+      .post('/api/projects', { id: sourceId, name: 'Copy source', description: 'Source desc' });
     expect(sourceRes.status).toBe(201);
     const source = (await sourceRes.json()) as BoardPayloadBody;
     const backlog = source.columns.find((c) => c.name === 'Backlog')!;
     const done = source.columns.find((c) => c.name === 'Done')!;
 
     const patchRes = await ctx.request(user.token).patch(`/api/projects/${sourceId}`, {
-      is_template: true,
       archived_at: '2026-03-01T00:00:00.000Z',
     });
     expect(patchRes.status).toBe(200);
@@ -102,15 +101,14 @@ describe('POST /api/projects with source_project_id', () => {
     projectIds.push(copyId);
     const copyRes = await ctx
       .request(user.token)
-      .post('/api/projects', { id: copyId, name: 'From template', source_project_id: sourceId });
+      .post('/api/projects', { id: copyId, name: 'Copied project', source_project_id: sourceId });
     expect(copyRes.status).toBe(201);
     const copy = (await copyRes.json()) as BoardPayloadBody;
 
     expect(copy.project).toMatchObject({
       id: copyId,
-      name: 'From template',
+      name: 'Copied project',
       description: 'Source desc',
-      is_template: false,
       archived_at: null,
     });
 
@@ -167,23 +165,6 @@ describe('POST /api/projects with source_project_id', () => {
 
     expect(await storage.get(newImageRow.storage_key)).toEqual(imageBytes);
     expect(await storage.get(storageKey)).toEqual(imageBytes);
-  });
-
-  it('applies is_template from the request when copying', async () => {
-    const sourceId = newId();
-    projectIds.push(sourceId);
-    await ctx.request(user.token).post('/api/projects', { id: sourceId, name: 'Plain source' });
-
-    const copyId = newId();
-    projectIds.push(copyId);
-    const res = await ctx.request(user.token).post('/api/projects', {
-      id: copyId,
-      name: 'Template copy',
-      is_template: true,
-      source_project_id: sourceId,
-    });
-    expect(res.status).toBe(201);
-    expect(((await res.json()) as BoardPayloadBody).project.is_template).toBe(true);
   });
 
   it('rolls back every copied row when the copy fails after the inserts', async () => {

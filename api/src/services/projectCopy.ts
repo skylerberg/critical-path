@@ -10,7 +10,6 @@ export interface CopyProjectInput {
   id: string;
   name: string;
   description?: string;
-  isTemplate: boolean;
   sourceProjectId: string;
   createdBy: string;
 }
@@ -56,7 +55,6 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
       id: input.id,
       name: input.name,
       description: input.description ?? source.description,
-      is_template: input.isTemplate,
       created_by: input.createdBy,
     })
     .execute();
