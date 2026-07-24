@@ -404,6 +404,7 @@ describe('Graph dependency editing', () => {
     });
     await fireEvent.click(screen.getByRole('button', { name: 'New task' }));
     const input = screen.getByRole('textbox', { name: 'New task title' });
+    expect(input).toHaveAttribute('autocapitalize', 'sentences');
     await fireEvent.input(input, { target: { value: 'Ship it' } });
     await fireEvent.submit(input.closest('form')!);
 

@@ -128,6 +128,7 @@
         <input
           value={titleDraft ?? task.title}
           aria-label="Task title"
+          autocapitalize="sentences"
           oninput={(event) => (titleDraft = event.currentTarget.value)}
           onblur={commitTitle}
           onkeydown={(event) => {

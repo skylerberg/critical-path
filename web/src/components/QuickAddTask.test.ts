@@ -40,6 +40,7 @@ describe('QuickAddTask', () => {
 
     const input = screen.getByLabelText('Task title');
     expect(input).toHaveFocus();
+    expect(input).toHaveAttribute('autocapitalize', 'sentences');
   });
 
   it('submits on Enter, inserts optimistically, clears, and stays open', async () => {

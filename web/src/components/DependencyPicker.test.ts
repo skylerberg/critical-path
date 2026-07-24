@@ -41,6 +41,7 @@ describe('DependencyPicker', () => {
       render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
 
       const input = screen.getByLabelText('Search tasks to add as blockers');
+      expect(input).toHaveAttribute('autocapitalize', 'sentences');
       await fireEvent.input(input, { target: { value: 'cards' } });
 
       expect(screen.getByText('Print cards')).toBeInTheDocument();

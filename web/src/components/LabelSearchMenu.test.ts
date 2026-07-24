@@ -38,6 +38,7 @@ afterEach(() => {
 describe('LabelSearchMenu', () => {
   it('filters labels by the query', async () => {
     render(LabelSearchMenu, { taskId: 't1' });
+    expect(screen.getByLabelText('Filter labels')).toHaveAttribute('autocapitalize', 'sentences');
     await fireEvent.input(screen.getByLabelText('Filter labels'), { target: { value: 'rul' } });
 
     expect(screen.getByRole('button', { name: 'rules' })).toBeInTheDocument();

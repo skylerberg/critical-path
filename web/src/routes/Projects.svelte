@@ -470,7 +470,7 @@
           Copies columns, tasks, labels, and dependencies from “{createTemplate.name}”.
         </p>
       {/if}
-      <Input label="Name" bind:value={createName} error={createError} />
+      <Input label="Name" bind:value={createName} error={createError} autocapitalize="sentences" />
       <label class="flex flex-col gap-1 text-sm font-medium">
         Workspace
         <select
@@ -496,7 +496,12 @@
 {#if workspaceModalOpen}
   <Modal open title="New workspace" onclose={() => (workspaceModalOpen = false)}>
     <form id="create-workspace-form" onsubmit={submitWorkspace}>
-      <Input label="Name" bind:value={workspaceName} error={workspaceError} />
+      <Input
+        label="Name"
+        bind:value={workspaceName}
+        error={workspaceError}
+        autocapitalize="sentences"
+      />
     </form>
     {#snippet footer()}
       <Button
@@ -518,7 +523,7 @@
     <div class="flex flex-col gap-5">
       <form class="flex items-end gap-2" onsubmit={submitWorkspaceRename}>
         <div class="flex-1">
-          <Input label="Workspace name" bind:value={wsRenameName} />
+          <Input label="Workspace name" bind:value={wsRenameName} autocapitalize="sentences" />
         </div>
         <Button type="submit" variant="secondary">Rename</Button>
       </form>
@@ -584,7 +589,7 @@
 {#if renameTarget !== null}
   <Modal open title="Rename project" onclose={() => (renameTarget = null)}>
     <form id="rename-project-form" onsubmit={submitRename}>
-      <Input label="Name" bind:value={renameName} error={renameError} />
+      <Input label="Name" bind:value={renameName} error={renameError} autocapitalize="sentences" />
     </form>
     {#snippet footer()}
       <Button variant="secondary" onclick={() => (renameTarget = null)}>Cancel</Button>

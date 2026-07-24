@@ -208,6 +208,7 @@
             use:focusOnMount
             aria-label="Column name"
             placeholder="Column name"
+            autocapitalize="sentences"
             onkeydown={(event) => {
               if (event.key === 'Escape') {
                 addingColumn = false;
