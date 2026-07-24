@@ -66,6 +66,10 @@ export const env = {
     return process.env.EMAIL_DRIVER || 'console';
   },
 
+  get feedbackEmailAddress(): string {
+    return process.env.FEEDBACK_EMAIL_ADDRESS || 'criticalpath@skylerberg.com';
+  },
+
   get sesRegion(): string | undefined {
     return process.env.SES_REGION;
   },

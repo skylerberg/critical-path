@@ -80,6 +80,8 @@ spec:
               value: '2'
             - name: EMAIL_DRIVER
               value: console
+            - name: FEEDBACK_EMAIL_ADDRESS
+              value: criticalpath@skylerberg.com
           readinessProbe:
             httpGet:
               path: /health

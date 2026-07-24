@@ -104,13 +104,21 @@ would otherwise exclude exactly the users who need the event.
 
 ### Email
 
-Password-reset emails go through the driver named by `EMAIL_DRIVER`:
+Password-reset and feedback emails go through the driver named by
+`EMAIL_DRIVER`:
 
 - `console` (default) — logs the full email; the reset link is usable from the
   server log in development.
 - `ses` — sends via AWS SES v2. Requires `SES_REGION`, `SES_FROM_ADDRESS`, and
   standard AWS SDK credentials in the environment. The SDK is loaded on first
   send only.
+
+`POST /api/feedback` (authenticated) stores user-submitted feedback in the
+`feedback` table and emails it to `FEEDBACK_EMAIL_ADDRESS` (default
+`criticalpath@skylerberg.com`) after the transaction commits. With
+`EMAIL_DRIVER=console` (as in production today) feedback emails land in the
+server logs until SES is enabled; the stored row is the source of truth either
+way.
 
 `PASSWORD_RESET_SECRET` signs reset tokens and is required in production
 (development falls back to a fixed dev-only secret). `RESET_URL_BASE` sets the
