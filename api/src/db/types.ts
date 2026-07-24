@@ -42,6 +42,14 @@ export interface BoardColumn {
   project_id: string;
 }
 
+export interface Feedback {
+  created_at: Generated<Timestamp>;
+  id: string;
+  message: string;
+  page_path: string | null;
+  user_id: string;
+}
+
 export interface Label {
   color: string;
   id: string;
@@ -121,6 +129,7 @@ export interface WorkspaceMember {
 export interface DB {
   app_user: AppUser;
   board_column: BoardColumn;
+  feedback: Feedback;
   label: Label;
   project: Project;
   session: Session;

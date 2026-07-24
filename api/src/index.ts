@@ -45,6 +45,7 @@ import tasksRouter from './routes/tasks';
 import imageUploadRouter from './routes/imageUpload';
 import labelsRouter from './routes/labels';
 import imagesRouter from './routes/images';
+import feedbackRouter from './routes/feedback';
 
 export const app = new Hono<{ Variables: Variables }>();
 
@@ -114,6 +115,7 @@ const openAPIOptions = {
       { name: 'Tasks', description: 'Tasks, dependencies, labels, and assignees' },
       { name: 'Labels', description: 'Per-project labels' },
       { name: 'Images', description: 'Task image upload and retrieval' },
+      { name: 'Feedback', description: 'User-submitted product feedback' },
     ],
   },
 };
@@ -146,6 +148,7 @@ app.route('/api/tasks', tasksRouter);
 app.route('/api/tasks', imageUploadRouter);
 app.route('/api/labels', labelsRouter);
 app.route('/api/images', imagesRouter);
+app.route('/api/feedback', feedbackRouter);
 
 app.notFound((c) => {
   return c.json(
