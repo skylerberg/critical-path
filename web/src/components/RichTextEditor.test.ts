@@ -82,4 +82,16 @@ describe('RichTextEditor', () => {
     expect(getByRole('button', { name: 'Bold' })).toHaveAttribute('aria-pressed', 'false');
     expect(getByRole('toolbar', { name: 'Formatting' })).toBeInTheDocument();
   });
+
+  it('renders svg icons for the list buttons', async () => {
+    const onSave = vi.fn();
+    const { getByRole } = render(RichTextEditor, { content: null, onSave });
+    await tick();
+
+    for (const name of ['Bullet list', 'Ordered list']) {
+      const button = getByRole('button', { name });
+      expect(button).toHaveAttribute('aria-pressed', 'false');
+      expect(button.querySelector('svg')).not.toBeNull();
+    }
+  });
 });

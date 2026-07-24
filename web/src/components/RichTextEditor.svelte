@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import type { Snippet } from 'svelte';
   import { Editor, type ChainedCommands, type JSONContent } from '@tiptap/core';
   import StarterKit from '@tiptap/starter-kit';
   import Image from '@tiptap/extension-image';
@@ -174,7 +175,53 @@
   }
 </script>
 
-{#snippet tool(label: string, name: string, active: boolean, action: () => void, disabled = false)}
+{#snippet bulletListIcon()}
+  <svg
+    class="size-4"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M8 6h13" />
+    <path d="M8 12h13" />
+    <path d="M8 18h13" />
+    <path d="M3 6h.01" />
+    <path d="M3 12h.01" />
+    <path d="M3 18h.01" />
+  </svg>
+{/snippet}
+
+{#snippet orderedListIcon()}
+  <svg
+    class="size-4"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M10 6h11" />
+    <path d="M10 12h11" />
+    <path d="M10 18h11" />
+    <path d="M4 6h1v4" />
+    <path d="M4 10h2" />
+    <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
+  </svg>
+{/snippet}
+
+{#snippet tool(
+  label: string | Snippet,
+  name: string,
+  active: boolean,
+  action: () => void,
+  disabled = false
+)}
   <button
     type="button"
     aria-label={name}
@@ -187,7 +234,11 @@
       ? 'bg-accent-soft text-accent-strong'
       : 'text-muted hover:bg-accent-soft hover:text-ink'}"
   >
-    {label}
+    {#if typeof label === 'string'}
+      {label}
+    {:else}
+      {@render label()}
+    {/if}
   </button>
 {/snippet}
 
@@ -206,8 +257,12 @@
     {@render tool('H1', 'Heading 1', s.h1, () => run((c) => c.toggleHeading({ level: 1 })))}
     {@render tool('H2', 'Heading 2', s.h2, () => run((c) => c.toggleHeading({ level: 2 })))}
     {@render tool('H3', 'Heading 3', s.h3, () => run((c) => c.toggleHeading({ level: 3 })))}
-    {@render tool('••', 'Bullet list', s.bulletList, () => run((c) => c.toggleBulletList()))}
-    {@render tool('1.', 'Ordered list', s.orderedList, () => run((c) => c.toggleOrderedList()))}
+    {@render tool(bulletListIcon, 'Bullet list', s.bulletList, () =>
+      run((c) => c.toggleBulletList())
+    )}
+    {@render tool(orderedListIcon, 'Ordered list', s.orderedList, () =>
+      run((c) => c.toggleOrderedList())
+    )}
     {@render tool('❝', 'Blockquote', s.blockquote, () => run((c) => c.toggleBlockquote()))}
     {@render tool('{ }', 'Code block', s.codeBlock, () => run((c) => c.toggleCodeBlock()))}
     {@render tool('🔗', 'Link', s.link, toggleLink)}
