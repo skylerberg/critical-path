@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
+import { computeGraph, panToNode, type ViewBox } from '../lib/graph';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 
@@ -413,6 +414,73 @@ describe('Graph dependency editing', () => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
       expect(container.querySelectorAll('[data-highlight]').length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it('pans the viewBox to reveal a task created outside the current view', async () => {
+    const projectId = 'p-graph-pan';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    const svg = container.querySelector('svg[aria-label="Dependency graph"]')!;
+    const parseViewBox = (): ViewBox => {
+      const [x, y, w, h] = (svg.getAttribute('viewBox') ?? '').split(' ').map(Number);
+      return { x: x!, y: y!, w: w!, h: h! };
+    };
+    const before = parseViewBox();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    const input = screen.getByRole('textbox', { name: 'New task title' });
+    await fireEvent.input(input, { target: { value: 'Ship it' } });
+    await fireEvent.submit(input.closest('form')!);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    const createdId = board.tasks.find((t) => t.title === 'Ship it')!.id;
+    const result = computeGraph(board.tasks, board.columns);
+    if (result.kind !== 'ok') throw new Error('expected a drawable graph');
+    const node = result.layout.nodes.find((n) => n.id === createdId)!;
+    const expected = panToNode(before, node);
+    expect(expected).not.toBeNull();
+    await waitFor(() => {
+      const after = parseViewBox();
+      expect(after.x).toBeCloseTo(expected!.x);
+      expect(after.y).toBeCloseTo(expected!.y);
+      expect(after.w).toBe(before.w);
+      expect(after.h).toBe(before.h);
+    });
+  });
+
+  it('keeps the viewBox still when the created node is already visible', async () => {
+    const projectId = 'p-graph-no-pan';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+    vi.spyOn(board, 'createAndLinkTask').mockResolvedValue('a');
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    const svg = container.querySelector('svg[aria-label="Dependency graph"]')!;
+    const before = svg.getAttribute('viewBox');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    const input = screen.getByRole('textbox', { name: 'New task title' });
+    await fireEvent.input(input, { target: { value: 'Already visible' } });
+    await fireEvent.submit(input.closest('form')!);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-highlight]')).toHaveLength(1);
+    });
+    expect(svg.getAttribute('viewBox')).toBe(before);
   });
 
   it('highlights nodes matching a selected label and dims the rest', async () => {

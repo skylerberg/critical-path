@@ -9,8 +9,10 @@ import {
   edgeId,
   edgePath,
   layoutGraph,
+  panToNode,
   type GraphEdge,
   type GraphNode,
+  type ViewBox,
 } from './graph';
 
 function column(id: string, name: string, isDone = false): BoardColumn {
@@ -159,6 +161,38 @@ describe('computeGraph', () => {
     if (result.kind !== 'ok') return;
     expect(result.layout.nodes).toHaveLength(3);
     expect(result.layout.edges).toHaveLength(2);
+  });
+});
+
+describe('panToNode', () => {
+  const vb: ViewBox = { x: 0, y: 0, w: 640, h: 480 };
+
+  it('returns null when the node is fully inside the viewBox', () => {
+    expect(panToNode(vb, { x: 320, y: 240 })).toBeNull();
+  });
+
+  it('returns null when the node exactly touches the viewBox edges', () => {
+    expect(panToNode(vb, { x: NODE_WIDTH / 2, y: NODE_HEIGHT / 2 })).toBeNull();
+    expect(panToNode(vb, { x: 640 - NODE_WIDTH / 2, y: 480 - NODE_HEIGHT / 2 })).toBeNull();
+  });
+
+  it('centers on a node beyond the right edge, keeping the zoom', () => {
+    expect(panToNode(vb, { x: 1000, y: 240 })).toEqual({ x: 680, y: 0, w: 640, h: 480 });
+  });
+
+  it('centers on a node above and left of the viewBox', () => {
+    expect(panToNode(vb, { x: -50, y: -60 })).toEqual({ x: -370, y: -300, w: 640, h: 480 });
+  });
+
+  it('pans when the node is only partially visible', () => {
+    const clipped = { x: 640 - NODE_WIDTH / 2 + 1, y: 240 };
+    expect(panToNode(vb, clipped)).toEqual({ x: clipped.x - 320, y: 0, w: 640, h: 480 });
+  });
+
+  it('honors a non-origin viewBox offset', () => {
+    const offset: ViewBox = { x: 500, y: 300, w: 640, h: 480 };
+    expect(panToNode(offset, { x: 820, y: 540 })).toBeNull();
+    expect(panToNode(offset, { x: 200, y: 100 })).toEqual({ x: -120, y: -140, w: 640, h: 480 });
   });
 });
 

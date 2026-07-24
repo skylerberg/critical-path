@@ -10,9 +10,11 @@
     NODE_WIDTH,
     computeGraph,
     edgePath,
+    panToNode,
     type GraphResult,
     type LayoutEdge,
     type LayoutPoint,
+    type ViewBox,
   } from '../lib/graph';
 
   interface Props {
@@ -20,13 +22,6 @@
   }
 
   let { projectId }: Props = $props();
-
-  interface ViewBox {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  }
 
   const MIN_VB_WIDTH = 160;
   const FIT_PADDING = 32;
@@ -157,7 +152,13 @@
     if (title === '') return;
     closeNewTask();
     const id = await board.createAndLinkTask(title);
-    if (id !== null) highlightNodes([id]);
+    if (id === null) return;
+    highlightNodes([id]);
+    const node = layout?.nodes.find((n) => n.id === id);
+    if (node !== undefined) {
+      const panned = panToNode(vb, node);
+      if (panned !== null) vb = panned;
+    }
   }
   const selectedEdge = $derived(
     selectedEdgeId === null ? null : (layout?.edges.find((e) => e.id === selectedEdgeId) ?? null)
