@@ -74,6 +74,19 @@ users still assigned to its tasks.
 `{ "workspaces": [] }` so stale cached clients degrade gracefully; it is
 removed in the next release along with the workspace tables.
 
+### Per-user project ordering
+
+Each user can order their own project list without affecting anyone else's.
+`PUT /api/projects/:id/position` (`{ position: number }`, float) upserts the
+caller's position for that project and returns 204; non-accessors get 404.
+`GET /api/projects` returns each item's `position` (`null` when the caller
+never set one) and orders by position ascending with nulls last, then
+`created_at`, then `id` — so never-positioned projects keep creation order at
+the end of the list. Position rows are deleted by cascade when the project is
+deleted or the user's account is removed; leaving a project keeps the row,
+which is harmless (the project no longer appears in the list) and restores
+the old position if the user is re-added.
+
 ### Realtime
 
 A WebSocket endpoint listens at `/ws` on the same server (not part of the
@@ -97,8 +110,9 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `label_deleted`                 | `{ id }`                                             |
 | `image_created`                 | image response plus `{ task_id, image_count }`       |
 | `image_deleted`                 | `{ task_id, image_count }`                           |
-| `project_created` / `project_updated` | projects-list item (with `member_ids` and task counts) |
+| `project_created` / `project_updated` | projects-list item (with `member_ids` and task counts, without the per-user `position`) |
 | `project_deleted`               | `{ id }`                                             |
+| `project_position_updated`      | `{ id, position }`                                   |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
 add/remove, and by the cascade that strips assignees when a project member is
@@ -116,6 +130,10 @@ inside the transaction — the post-commit access re-check would exclude
 exactly the users who need to hear about their removal. Project deletion
 snapshots its recipients (creator plus members) the same way, since the rows
 backing the access check are gone after commit.
+`project_position_updated` also uses an exact recipient list — the caller
+only — even though its row survives the commit: positions are per-user, so
+the event exists solely to sync the caller's other devices and must never
+reach other members.
 
 ### Email
 

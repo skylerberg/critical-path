@@ -26,6 +26,7 @@ import {
   boardPayloadSchema,
   createProjectSchema,
   patchProjectSchema,
+  setProjectPositionSchema,
   setProjectMembersSchema,
   addProjectMemberByEmailSchema,
   projectMemberUserResponseSchema,
@@ -134,7 +135,8 @@ router.get(
     summary: 'List projects',
     description:
       'List projects the caller can access (created by them or shared with them as a member) ' +
-      'with member ids and open and done task counts.',
+      "with member ids, open and done task counts, and the caller's personal sort position " +
+      '(null when never set). Ordered by position (nulls last), then created_at, then id.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -157,6 +159,11 @@ router.get(
       .selectFrom('project')
       .leftJoin('task', 'task.project_id', 'project.id')
       .leftJoin('board_column', 'board_column.id', 'task.column_id')
+      .leftJoin('project_user_position', (join) =>
+        join
+          .onRef('project_user_position.project_id', '=', 'project.id')
+          .on('project_user_position.user_id', '=', user.id)
+      )
       .select((eb) => [
         'project.id',
         'project.name',
@@ -164,6 +171,7 @@ router.get(
         'project.archived_at',
         'project.created_at',
         'project.created_by',
+        'project_user_position.position',
         jsonArrayFrom(
           eb
             .selectFrom('project_member')
@@ -182,7 +190,8 @@ router.get(
           .as('done_task_count'),
       ])
       .where(accessibleProjectsFilter(user.id))
-      .groupBy('project.id')
+      .groupBy(['project.id', 'project_user_position.position'])
+      .orderBy('project_user_position.position', (ob) => ob.asc().nullsLast())
       .orderBy('project.created_at')
       .orderBy('project.id')
       .execute();
@@ -196,6 +205,7 @@ router.get(
           ),
           open_task_count: Number(row.open_task_count),
           done_task_count: Number(row.done_task_count),
+          position: row.position,
         })),
       },
       200
@@ -468,6 +478,56 @@ router.delete(
     }
 
     publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: [...recipients] });
+    return c.body(null, 204);
+  }
+);
+
+router.put(
+  '/:id/position',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'Set project position',
+    description:
+      "Set the caller's personal sort position for a project. Positions are per user and " +
+      'order the project list for the caller only; other members are unaffected.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Position set',
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...validationErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  jsonValidator(setProjectPositionSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const { position } = c.req.valid('json');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    await assertProjectAccess(db, user.id, id);
+
+    await db
+      .insertInto('project_user_position')
+      .values({ user_id: user.id, project_id: id, position })
+      .onConflict((oc) => oc.columns(['user_id', 'project_id']).doUpdateSet({ position }))
+      .execute();
+
+    // Per-user data: exact recipients sync the caller's other devices without
+    // leaking or reshuffling anything for other members.
+    publishAfterCommit(
+      c,
+      'project_position_updated',
+      id,
+      { id, position },
+      { recipientUserIds: [user.id] }
+    );
     return c.body(null, 204);
   }
 );

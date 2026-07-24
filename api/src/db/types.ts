@@ -76,6 +76,13 @@ export interface ProjectMember {
   user_id: string;
 }
 
+export interface ProjectUserPosition {
+  created_at: Generated<Timestamp>;
+  position: number;
+  project_id: string;
+  user_id: string;
+}
+
 export interface Session {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp;
@@ -141,6 +148,7 @@ export interface DB {
   label: Label;
   project: Project;
   project_member: ProjectMember;
+  project_user_position: ProjectUserPosition;
   session: Session;
   task: Task;
   task_assignee: TaskAssignee;
