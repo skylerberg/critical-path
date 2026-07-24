@@ -6,6 +6,7 @@ import {
   subscribeBus,
   resetBus,
   publishAfterCommit,
+  USER_UPDATED,
   type BusEntry,
 } from '../../src/services/realtime/bus';
 import {
@@ -234,6 +235,45 @@ describe('realtime delivery', () => {
 
     expect(memberSocket.sent).toHaveLength(1);
     expect(outsiderSocket.sent).toEqual([]);
+  });
+
+  it('delivers user_updated to project sharers and every socket of the changed user', async () => {
+    const creatorSocket = connect(creator);
+    const memberSocket = connect(member);
+    const memberSecondSocket = connect(member);
+    const outsiderSocket = connect(outsider);
+
+    await deliver({
+      type: USER_UPDATED,
+      project_id: null,
+      data: { id: member, email: 'rt@example.com', name: 'rt member', avatar_url: null },
+    });
+
+    expect(creatorSocket.sent).toHaveLength(1);
+    expect(memberSocket.sent).toHaveLength(1);
+    expect(memberSecondSocket.sent).toHaveLength(1);
+    expect(outsiderSocket.sent).toEqual([]);
+    expect(creatorSocket.events()).toEqual([
+      {
+        type: USER_UPDATED,
+        project_id: null,
+        data: { id: member, email: 'rt@example.com', name: 'rt member', avatar_url: null },
+      },
+    ]);
+  });
+
+  it('delivers user_updated only to the changed user when they share no projects', async () => {
+    const creatorSocket = connect(creator);
+    const outsiderSocket = connect(outsider);
+
+    await deliver({
+      type: USER_UPDATED,
+      project_id: null,
+      data: { id: outsider, email: 'rt@example.com', name: 'rt outsider', avatar_url: null },
+    });
+
+    expect(outsiderSocket.sent).toHaveLength(1);
+    expect(creatorSocket.sent).toEqual([]);
   });
 
   it('delivers nothing when the project row is gone', async () => {

@@ -109,6 +109,7 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `project_created` / `project_updated` | projects-list item (with `member_ids` and task counts, without the per-user `position`) |
 | `project_deleted`               | `{ id }`                                             |
 | `project_position_updated`      | `{ id, position }`                                   |
+| `user_updated`                  | public user `{ id, email, name, avatar_url }`        |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
 add/remove, and by the cascade that strips assignees when a project member is
@@ -130,6 +131,15 @@ backing the access check are gone after commit.
 only — even though its row survives the commit: positions are per-user, so
 the event exists solely to sync the caller's other devices and must never
 reach other members.
+`user_updated` (emitted on avatar upload/removal and on `PATCH /api/auth/me`
+name/email changes, never from password or session flows) carries
+`project_id: null` and is broadcast to the changed user's own sockets (their
+other devices) plus every authenticated socket whose user shares at least one
+project with them — creator or member on either side, re-checked live per
+event with a single query over the connected users. That recipient set is
+the visibility set of the global `GET /api/users` listing (the per-project mode can be broader via task assignees; those extra viewers simply do not receive live updates), which already exposes email to
+project-sharers, so the event's `email` field never reaches a user who could
+not already fetch it.
 
 ### Email
 

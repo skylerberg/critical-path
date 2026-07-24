@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import { authMiddleware } from '../middleware/auth';
 import { AppError } from '../utils/errors';
 import { avatarUrl } from '../services/avatars';
+import { USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
 import { sniffImageContentType } from '../services/imageSniff';
 import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
@@ -137,10 +138,14 @@ router.post(
       c.get('postCommitHooks').push(() => storage.delete(oldKey));
     }
 
-    return c.json(
-      { id: user.id, email: user.email, name: user.name, avatar_url: avatarUrl(storageKey) },
-      200
-    );
+    const updated = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatar_url: avatarUrl(storageKey),
+    };
+    publishAfterCommit(c, USER_UPDATED, null, updated);
+    return c.json(updated, 200);
   }
 );
 
@@ -187,6 +192,12 @@ router.delete(
         .where('id', '=', user.id)
         .execute();
       c.get('postCommitHooks').push(() => storage.delete(oldKey));
+      publishAfterCommit(c, USER_UPDATED, null, {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar_url: null,
+      });
     }
 
     return c.json({ id: user.id, email: user.email, name: user.name, avatar_url: null }, 200);

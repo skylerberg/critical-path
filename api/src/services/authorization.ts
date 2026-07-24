@@ -80,6 +80,54 @@ export function accessibleProjectsFilter(userId: string) {
     ]);
 }
 
+export function sharesProjectFilter(userId: string) {
+  return (eb: ExpressionBuilder<DB, 'app_user'>): ExpressionWrapper<DB, 'app_user', SqlBool> =>
+    eb.exists(
+      eb
+        .selectFrom('project')
+        .select('project.id')
+        .where((pb) =>
+          pb.and([
+            pb.or([
+              pb('project.created_by', '=', userId),
+              pb.exists(
+                pb
+                  .selectFrom('project_member as mine')
+                  .select('mine.user_id')
+                  .whereRef('mine.project_id', '=', 'project.id')
+                  .where('mine.user_id', '=', userId)
+              ),
+            ]),
+            pb.or([
+              pb(pb.ref('project.created_by'), '=', pb.ref('app_user.id')),
+              pb.exists(
+                pb
+                  .selectFrom('project_member as theirs')
+                  .select('theirs.user_id')
+                  .whereRef('theirs.project_id', '=', 'project.id')
+                  .whereRef('theirs.user_id', '=', 'app_user.id')
+              ),
+            ]),
+          ])
+        )
+    );
+}
+
+export async function projectSharerIdsAmong(
+  db: Kysely<DB>,
+  userId: string,
+  candidateUserIds: string[]
+): Promise<string[]> {
+  if (candidateUserIds.length === 0) return [];
+  const rows = await db
+    .selectFrom('app_user')
+    .select('app_user.id')
+    .where('app_user.id', 'in', candidateUserIds)
+    .where(sharesProjectFilter(userId))
+    .execute();
+  return rows.map((row) => row.id);
+}
+
 // The task_assignee arm keeps users who lost access visible while their old
 // assignments still exist.
 export async function usersWithProjectAccess(

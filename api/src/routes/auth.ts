@@ -14,7 +14,7 @@ import { avatarUrl } from '../services/avatars';
 import { getEmailSender } from '../services/email/index';
 import { hashPassword, verifyPassword, verifyDummyPassword } from '../services/passwords';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
-import { SESSIONS_REVOKED, publishAfterCommit } from '../services/realtime/index';
+import { SESSIONS_REVOKED, USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
 import { createSession, deleteSessionByTokenHash, hashSessionToken } from '../services/sessions';
 import {
   signupRequestSchema,
@@ -252,7 +252,7 @@ router.patch(
     const db = c.get('db');
 
     const updates: Updateable<AppUser> = {};
-    if (name !== undefined) updates.name = name;
+    if (name !== undefined && name !== user.name) updates.name = name;
     if (email !== undefined && email !== user.email) {
       updates.email = email;
       if (email.toLowerCase() !== user.email.toLowerCase()) {
@@ -286,7 +286,9 @@ router.patch(
         .where('id', '=', user.id)
         .returning(['id', 'email', 'name'])
         .executeTakeFirstOrThrow();
-      return c.json({ ...row, avatar_url: user.avatar_url }, 200);
+      const updated = { ...row, avatar_url: user.avatar_url };
+      publishAfterCommit(c, USER_UPDATED, null, updated);
+      return c.json(updated, 200);
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new AppError(409, 'Email already in use');

@@ -2,7 +2,11 @@ import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { authMiddleware } from '../middleware/auth';
 import { queryValidator } from '../middleware/requestValidator';
-import { assertProjectAccess, usersWithProjectAccess } from '../services/authorization';
+import {
+  assertProjectAccess,
+  sharesProjectFilter,
+  usersWithProjectAccess,
+} from '../services/authorization';
 import { avatarUrl } from '../services/avatars';
 import {
   usersQuerySchema,
@@ -58,40 +62,7 @@ router.get(
     const rows = await db
       .selectFrom('app_user')
       .select(['app_user.id', 'app_user.email', 'app_user.name', 'app_user.avatar_storage_key'])
-      .where((eb) =>
-        eb.or([
-          eb('app_user.id', '=', user.id),
-          eb.exists(
-            eb
-              .selectFrom('project')
-              .select('project.id')
-              .where((pb) =>
-                pb.and([
-                  pb.or([
-                    pb('project.created_by', '=', user.id),
-                    pb.exists(
-                      pb
-                        .selectFrom('project_member as mine')
-                        .select('mine.user_id')
-                        .whereRef('mine.project_id', '=', 'project.id')
-                        .where('mine.user_id', '=', user.id)
-                    ),
-                  ]),
-                  pb.or([
-                    pb(pb.ref('project.created_by'), '=', pb.ref('app_user.id')),
-                    pb.exists(
-                      pb
-                        .selectFrom('project_member as theirs')
-                        .select('theirs.user_id')
-                        .whereRef('theirs.project_id', '=', 'project.id')
-                        .whereRef('theirs.user_id', '=', 'app_user.id')
-                    ),
-                  ]),
-                ])
-              )
-          ),
-        ])
-      )
+      .where((eb) => eb.or([eb('app_user.id', '=', user.id), sharesProjectFilter(user.id)(eb)]))
       .orderBy('app_user.name')
       .orderBy('app_user.id')
       .execute();
