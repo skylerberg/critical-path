@@ -5,9 +5,18 @@
     label?: string;
     error?: string;
     value?: string;
+    element?: HTMLInputElement | null;
   }
 
-  let { label, error, value = $bindable(''), class: className = '', id, ...rest }: Props = $props();
+  let {
+    label,
+    error,
+    value = $bindable(''),
+    element = $bindable(null),
+    class: className = '',
+    id,
+    ...rest
+  }: Props = $props();
 
   const uid = $props.id();
   const inputId = $derived(id ?? `input-${uid}`);
@@ -19,6 +28,7 @@
   {/if}
   <input
     id={inputId}
+    bind:this={element}
     bind:value
     aria-invalid={error ? true : undefined}
     class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 aria-invalid:border-danger {className}"
