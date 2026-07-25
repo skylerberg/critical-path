@@ -229,7 +229,6 @@ describe('Project', () => {
 
     await screen.findByLabelText('Task title');
     pressKey('l', projectId, 'graph', 't1');
-    // The open task detail shares the same filter input, so assert the menu's own dialog.
     expect(await screen.findByRole('heading', { level: 2, name: 'Labels' })).toBeInTheDocument();
     expect(shortcuts.labelMenu).toBe('t1');
   });

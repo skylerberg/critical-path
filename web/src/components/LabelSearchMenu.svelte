@@ -5,9 +5,10 @@
   interface Props {
     taskId: string;
     autofocus?: boolean;
+    onclose?: () => void;
   }
 
-  let { taskId, autofocus = false }: Props = $props();
+  let { taskId, autofocus = false, onclose }: Props = $props();
 
   const PALETTE = [
     '#ef4444',
@@ -24,6 +25,7 @@
 
   let query = $state('');
   let highlighted = $state(0);
+  let listEl = $state<HTMLDivElement>();
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const selectedIds = $derived(new Set(task?.label_ids ?? []));
@@ -54,6 +56,9 @@
     const color = PALETTE[board.labels.length % PALETTE.length]!;
     query = '';
     highlighted = 0;
+    if (listEl !== undefined) {
+      listEl.scrollTop = 0;
+    }
     const create = board.createLabel(name, color);
     const created = board.labels.find((label) => !existing.has(label.id));
     // Applying the label PUTs its id; wait for the create's POST to commit first,
@@ -80,16 +85,44 @@
     }
   }
 
-  function onkeydown(event: KeyboardEvent): void {
+  // Safe to read the DOM before Svelte re-renders: arrow keys move the highlight
+  // but never change the row set.
+  function revealHighlighted(): void {
+    const target = listEl?.querySelectorAll('button')[highlighted];
+    target?.scrollIntoView({ block: 'nearest' });
+    // Dragging focus along with the highlight keeps Enter and the row's own
+    // click activating the same label; arrowing from the filter input must not
+    // steal focus away from it.
+    if (target !== undefined && listEl?.contains(document.activeElement) === true) {
+      target.focus();
+    }
+  }
+
+  function onkeydown(event: KeyboardEvent, rowIndex?: number): void {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       highlighted = Math.min(rowCount - 1, highlighted + 1);
+      revealHighlighted();
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       highlighted = Math.max(0, highlighted - 1);
+      revealHighlighted();
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      activate(highlighted);
+      activate(rowIndex ?? highlighted);
+    } else if (event.key === 'Escape' && onclose !== undefined) {
+      // preventDefault suppresses the enclosing <dialog>'s close request so only
+      // the picker collapses; stopPropagation keeps it away from window shortcuts.
+      event.preventDefault();
+      event.stopPropagation();
+      onclose();
+    }
+  }
+
+  function oninput(): void {
+    highlighted = 0;
+    if (listEl !== undefined) {
+      listEl.scrollTop = 0;
     }
   }
 
@@ -105,19 +138,26 @@
     bind:value={query}
     use:maybeFocus
     {onkeydown}
-    oninput={() => (highlighted = 0)}
+    {oninput}
     aria-label="Filter labels"
     placeholder="Filter or create a label"
     autocapitalize="sentences"
     class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
   />
-  <div class="flex flex-col gap-1" role="group" aria-label="Labels">
+  <div
+    bind:this={listEl}
+    class="flex max-h-64 flex-col gap-1 overflow-y-auto overscroll-contain"
+    role="group"
+    aria-label="Labels"
+  >
     {#if showCreate}
       <button
         type="button"
         onclick={createAndApply}
+        onkeydown={(event) => onkeydown(event, 0)}
+        onfocus={() => (highlighted = 0)}
         onpointermove={() => (highlighted = 0)}
-        class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {highlighted ===
+        class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {highlighted ===
         0
           ? 'bg-accent-soft text-ink'
           : 'text-muted hover:bg-accent-soft hover:text-ink'}"
@@ -131,8 +171,10 @@
         type="button"
         aria-pressed={selectedIds.has(label.id)}
         onclick={() => toggle(label.id)}
+        onkeydown={(event) => onkeydown(event, index)}
+        onfocus={() => (highlighted = index)}
         onpointermove={() => (highlighted = index)}
-        class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {highlighted ===
+        class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {highlighted ===
         index
           ? 'bg-accent-soft'
           : 'hover:bg-accent-soft'} {selectedIds.has(label.id) ? 'text-accent-strong' : 'text-ink'}"
