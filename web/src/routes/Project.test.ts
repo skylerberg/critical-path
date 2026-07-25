@@ -6,6 +6,7 @@ import { board } from '../lib/board.svelte';
 import { router } from '../lib/router.svelte';
 import { selection } from '../lib/selection.svelte';
 import { shortcuts } from '../lib/shortcuts.svelte';
+import { users } from '../lib/users.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 import type { ProjectView } from '../lib/router.svelte';
 
@@ -33,7 +34,7 @@ function task(id: string, columnId: string, title: string): BoardTask {
 }
 
 // Extra `users` lets one mock answer both the board fetch and the project-scoped
-// users fetch the rendered view fires on load.
+// users fetch the project shell fires on load.
 function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users: [] } {
   return {
     users: [],
@@ -68,11 +69,19 @@ function mockProjectApi(projectId: string, tasks: BoardTask[]): void {
   });
 }
 
+function requestedPaths(): string[] {
+  return fetchMock.mock.calls.map((call) => {
+    const url = new URL((call[0] as Request).url);
+    return `${url.pathname}${url.search}`;
+  });
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
   selection.clear();
   shortcuts.reset();
+  users.reset();
 });
 
 afterEach(() => {
@@ -88,19 +97,33 @@ describe('Project', () => {
 
     expect(await screen.findByRole('heading', { name: 'Rulebook' })).toBeInTheDocument();
     expect(screen.getByText('Design cards')).toBeInTheDocument();
+    expect(screen.getByLabelText('Filter tasks by title')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Dependency graph')).not.toBeInTheDocument();
   });
 
-  it('renders the graph view with the shared header', async () => {
+  it('renders the graph view with the shared header and its filter bar', async () => {
     const projectId = 'p-shell-graph';
     mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
 
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
     expect(await screen.findByRole('heading', { name: 'Rulebook' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Filter tasks by title')).toBeInTheDocument();
     expect(container.querySelector('svg[aria-label="Dependency graph"]')).not.toBeNull();
     expect(screen.queryByRole('button', { name: '+ Add column' })).not.toBeInTheDocument();
+  });
+
+  it('fetches project-scoped users on the graph view for the header assignee chips', async () => {
+    const projectId = 'p-shell-graph-users';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'graph' } });
+
+    await screen.findByRole('heading', { name: 'Rulebook' });
+    await waitFor(() => {
+      expect(requestedPaths()).toContain(`/api/users?project_id=${projectId}`);
+    });
   });
 
   it('shows the error shell with retry and fetches exactly once on failure', async () => {
@@ -117,7 +140,9 @@ describe('Project', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
 
     await new Promise((resolve) => setTimeout(resolve, 25));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestedPaths().filter((path) => path === `/api/projects/${projectId}`)).toHaveLength(
+      1
+    );
   });
 
   it('opens the task overlay above the graph without leaving the graph view', async () => {

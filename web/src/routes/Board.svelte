@@ -11,7 +11,6 @@
   } from 'svelte-dnd-action';
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
-  import { users } from '../lib/users.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import ColumnHeader from '../components/ColumnHeader.svelte';
   import QuickAddTask from '../components/QuickAddTask.svelte';
@@ -37,10 +36,6 @@
 
   $effect(() => {
     board.dragging = columnDragging || taskDragging;
-  });
-
-  $effect(() => {
-    void users.loadForProject(projectId);
   });
 
   // QuickAddTask encapsulates its open/focus state, so the shortcut opens it via its trigger.

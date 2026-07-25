@@ -217,10 +217,10 @@ describe('graph view', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
-  it('does not request filter focus with f (no filter input on the graph)', () => {
+  it('requests filter focus with f (the header filter bar renders here too)', () => {
     const event = press('f');
-    expect(shortcuts.filterFocusRequested).toBe(false);
-    expect(event.defaultPrevented).toBe(false);
+    expect(shortcuts.filterFocusRequested).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it('does nothing for l without an overlay (no selection to target)', () => {
@@ -254,6 +254,12 @@ describe('graph overlay context', () => {
     shortcuts.reset();
     press('a');
     expect(shortcuts.assigneeMenu).toBe('t1');
+  });
+
+  it('does not request filter focus with f', () => {
+    const event = press('f');
+    expect(shortcuts.filterFocusRequested).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
   });
 
   it('navigates with g then g to the graph base', () => {

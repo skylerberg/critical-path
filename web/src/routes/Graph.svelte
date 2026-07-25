@@ -4,7 +4,6 @@
   import type { BoardTask } from '../lib/board-types';
   import { link } from '../lib/router.svelte';
   import { toasts } from '../lib/toasts.svelte';
-  import LabelFilterChips from '../components/LabelFilterChips.svelte';
   import {
     NODE_HEIGHT,
     NODE_WIDTH,
@@ -177,7 +176,9 @@
 
   $effect(() => {
     function onKeyDown(e: KeyboardEvent): void {
-      if (e.key !== 'Escape') return;
+      // The header's filter input handles its own Escape; one press must not also
+      // drop an edge selection behind it.
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
       if (connectSource !== null) {
         cancelConnect();
       } else if (selectedEdgeId !== null) {
@@ -440,9 +441,7 @@
 
 <div class="relative min-h-0 flex-1 overflow-hidden">
   {#if result.kind !== 'cycle'}
-    <div
-      class="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start gap-2 p-3"
-    >
+    <div class="pointer-events-none absolute top-0 left-0 z-10 p-3">
       <div class="pointer-events-auto flex items-center">
         {#if newTaskOpen}
           <form
@@ -496,26 +495,6 @@
           </button>
         {/if}
       </div>
-      {#if layout !== null && layout.nodes.length > 0 && (board.labels.length > 0 || board.hasActiveFilters)}
-        <div
-          class="pointer-events-auto flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-x-auto rounded-md border border-edge bg-surface/90 px-2 py-1 shadow-sm"
-          role="group"
-          aria-label="Label filters"
-        >
-          {#if board.labels.length > 0}
-            <LabelFilterChips />
-          {/if}
-          {#if board.hasActiveFilters}
-            <button
-              type="button"
-              onclick={() => board.clearFilters()}
-              class="min-h-11 cursor-pointer text-xs font-medium text-muted underline hover:text-ink"
-            >
-              Clear filters
-            </button>
-          {/if}
-        </div>
-      {/if}
     </div>
   {/if}
   {#if result.kind === 'cycle'}

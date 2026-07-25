@@ -28,6 +28,25 @@ function task(
   };
 }
 
+function header(container: HTMLElement): HTMLElement {
+  const el = container.querySelector('header');
+  if (el === null) {
+    throw new Error('header not rendered');
+  }
+  return el;
+}
+
+function inventory(el: HTMLElement): (string | undefined)[] {
+  return [...el.querySelectorAll('a, button, input')].map(
+    (node) =>
+      node.getAttribute('aria-label') ?? node.getAttribute('title') ?? node.textContent?.trim()
+  );
+}
+
+function current(el: HTMLElement): (string | undefined)[] {
+  return [...el.querySelectorAll('[aria-current="page"]')].map((node) => node.textContent?.trim());
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
@@ -60,12 +79,25 @@ describe('ProjectHeader', () => {
     expect(screen.getByRole('link', { name: 'Graph' })).toBeInTheDocument();
   });
 
-  it('hides the board filter cluster on the graph view', () => {
+  it('renders the same filter cluster on the graph view', () => {
     render(ProjectHeader, { projectId: 'p1', view: 'graph' });
 
-    expect(screen.queryByLabelText('Filter tasks by title')).not.toBeInTheDocument();
-    expect(screen.queryByText('art')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Filter tasks by title')).toBeInTheDocument();
+    expect(screen.getByText('art')).toBeInTheDocument();
+    expect(screen.getByTitle('Filter by Ada')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Graph' })).toBeInTheDocument();
+  });
+
+  it('exposes an identical control inventory and title layout in both views', () => {
+    const boardHeader = header(render(ProjectHeader, { projectId: 'p1', view: 'board' }).container);
+    const graphHeader = header(render(ProjectHeader, { projectId: 'p1', view: 'graph' }).container);
+
+    expect(inventory(graphHeader)).toEqual(inventory(boardHeader));
+    expect(graphHeader.querySelector('h1')?.className).toBe(
+      boardHeader.querySelector('h1')?.className
+    );
+    expect(current(boardHeader)).toEqual(['Board']);
+    expect(current(graphHeader)).toEqual(['Graph']);
   });
 
   it('opens the members modal from the Share button', async () => {
