@@ -32,6 +32,8 @@
         { keys: ['n'], label: 'New task in selected column' },
         { keys: ['l'], label: 'Label the selected task' },
         { keys: ['a'], label: 'Assign the selected task' },
+        { keys: ['b'], label: 'Add a task that blocks the selection' },
+        { keys: ['Shift+B'], label: 'Add a task the selection blocks' },
         { keys: ['d'], label: 'Move selected task to done' },
       ],
     },

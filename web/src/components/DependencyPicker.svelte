@@ -1,17 +1,17 @@
 <script lang="ts">
   import { board } from '../lib/board.svelte';
+  import type { DependencyDirection } from '../lib/dependency-types';
   import Input from './ui/Input.svelte';
-
-  type Direction = 'blocker' | 'blocked';
 
   type Row = { kind: 'create'; title: string } | { kind: 'task'; id: string; title: string };
 
   interface Props {
     taskId: string;
-    direction: Direction;
+    direction: DependencyDirection;
+    autofocus?: boolean;
   }
 
-  let { taskId, direction }: Props = $props();
+  let { taskId, direction, autofocus = false }: Props = $props();
 
   let query = $state('');
   let highlightedKey = $state<string | null>(null);
@@ -140,6 +140,7 @@
   <Input
     bind:value={query}
     bind:element={inputEl}
+    {autofocus}
     {onkeydown}
     oninput={() => (highlightedKey = null)}
     aria-label={label}

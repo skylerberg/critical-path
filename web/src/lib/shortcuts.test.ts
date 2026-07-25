@@ -64,11 +64,15 @@ describe('shortcut focus guards', () => {
     const input = document.createElement('input');
     document.body.append(input);
     input.focus();
+    selection.set('t1');
     press('j');
-    expect(selection.selectedTaskId).toBeNull();
+    expect(selection.selectedTaskId).toBe('t1');
     const event = press('f');
     expect(shortcuts.filterFocusRequested).toBe(false);
     expect(event.defaultPrevented).toBe(false);
+    const typed = press('b');
+    expect(shortcuts.dependencyMenu).toBeNull();
+    expect(typed.defaultPrevented).toBe(false);
   });
 });
 
@@ -94,6 +98,70 @@ describe('board shortcuts', () => {
     selection.set('t1');
     press('l');
     expect(shortcuts.labelMenu).toBe('t1');
+  });
+
+  it('opens the dependency menu for the selection in both directions', () => {
+    selection.set('t1');
+    const blockedBy = press('b');
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    expect(blockedBy.defaultPrevented).toBe(true);
+
+    shortcuts.reset();
+    selection.set('t1');
+    const blocks = press('B', { shiftKey: true });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+    expect(blocks.defaultPrevented).toBe(true);
+  });
+
+  it('reads the direction off shiftKey, not the character (CapsLock)', () => {
+    selection.set('t1');
+    press('B');
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+  });
+
+  it('does nothing for b without a selection', () => {
+    const event = press('b');
+    expect(shortcuts.dependencyMenu).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('leaves modified b presses to the browser', () => {
+    selection.set('t1');
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      const event = press('b', init);
+      expect(shortcuts.dependencyMenu).toBeNull();
+      expect(event.defaultPrevented).toBe(false);
+    }
+  });
+
+  it('leaves Cmd+L and Cmd+A to the browser', () => {
+    selection.set('t1');
+    const label = press('l', { metaKey: true });
+    expect(shortcuts.labelMenu).toBeNull();
+    expect(label.defaultPrevented).toBe(false);
+
+    const assignee = press('a', { metaKey: true });
+    expect(shortcuts.assigneeMenu).toBeNull();
+    expect(assignee.defaultPrevented).toBe(false);
+  });
+
+  it('swallows selection keys while the dependency menu is open and closes it on Escape', () => {
+    selection.set('t1');
+    press('b');
+    press('j');
+    expect(selection.selectedTaskId).toBe('t1');
+    const closed = press('Escape');
+    expect(shortcuts.dependencyMenu).toBeNull();
+    expect(closed.defaultPrevented).toBe(true);
+  });
+
+  it('clears an open dependency menu on reset', () => {
+    selection.set('t1');
+    press('b');
+    expect(shortcuts.anyMenuOpen).toBe(true);
+    shortcuts.reset();
+    expect(shortcuts.dependencyMenu).toBeNull();
+    expect(shortcuts.anyMenuOpen).toBe(false);
   });
 
   it('requests quick-add in the selected column, else the first column', () => {
@@ -162,6 +230,24 @@ describe('g-chords', () => {
     expect(navigate).toHaveBeenLastCalledWith('/projects');
   });
 
+  it('completes the chord under CapsLock rather than opening the dependency menu', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    selection.set('t1');
+    press('G');
+    press('B');
+    expect(navigate).toHaveBeenLastCalledWith('/projects/p1');
+    expect(shortcuts.dependencyMenu).toBeNull();
+  });
+
+  it('gives g then b to the chord rather than the dependency menu', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    selection.set('t1');
+    press('g');
+    press('b');
+    expect(navigate).toHaveBeenLastCalledWith('/projects/p1');
+    expect(shortcuts.dependencyMenu).toBeNull();
+  });
+
   it('does not complete the chord after the window elapses', () => {
     vi.useFakeTimers();
     try {
@@ -187,6 +273,14 @@ describe('overlay context', () => {
     shortcuts.reset();
     press('a');
     expect(shortcuts.assigneeMenu).toBe('t1');
+  });
+
+  it('targets the open task with b even with no board selection', () => {
+    press('b');
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    shortcuts.reset();
+    press('B', { shiftKey: true });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
   });
 
   it('does not run board selection shortcuts', () => {
@@ -230,6 +324,13 @@ describe('graph view', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it('does nothing for b without an overlay (no selection to target)', () => {
+    selection.set('t1');
+    const event = press('b');
+    expect(shortcuts.dependencyMenu).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('opens the help overlay with ?', () => {
     press('?');
     expect(shortcuts.helpOpen).toBe(true);
@@ -248,12 +349,15 @@ describe('graph overlay context', () => {
     router.current = { name: 'project', params: { id: 'p1', view: 'graph', taskId: 't1' } };
   });
 
-  it('targets the open task with l and a', () => {
+  it('targets the open task with l, a and b', () => {
     press('l');
     expect(shortcuts.labelMenu).toBe('t1');
     shortcuts.reset();
     press('a');
     expect(shortcuts.assigneeMenu).toBe('t1');
+    shortcuts.reset();
+    press('b');
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
   });
 
   it('does not request filter focus with f', () => {
