@@ -108,4 +108,76 @@ describe('LabelSearchMenu', () => {
 
     expect(screen.queryByRole('button', { name: 'Create "art"' })).not.toBeInTheDocument();
   });
+
+  it('leaves Escape alone without an onclose so the quick menu modal still closes', async () => {
+    render(LabelSearchMenu, { taskId: 't1' });
+
+    const notPrevented = await fireEvent.keyDown(screen.getByLabelText('Filter labels'), {
+      key: 'Escape',
+    });
+
+    expect(notPrevented).toBe(true);
+    expect(screen.getByLabelText('Filter labels')).toBeInTheDocument();
+  });
+
+  it('calls onclose on Escape from the filter input', async () => {
+    const onclose = vi.fn();
+    render(LabelSearchMenu, { taskId: 't1', onclose });
+
+    await fireEvent.keyDown(screen.getByLabelText('Filter labels'), { key: 'Escape' });
+
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onclose on Escape from a focused label row', async () => {
+    const onclose = vi.fn();
+    render(LabelSearchMenu, { taskId: 't1', onclose });
+    const row = screen.getByRole('button', { name: 'art' });
+    row.focus();
+
+    const notPrevented = await fireEvent.keyDown(row, { key: 'Escape' });
+
+    expect(notPrevented).toBe(false);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves focus with the highlight when arrowing from a label row', async () => {
+    render(LabelSearchMenu, { taskId: 't1' });
+    const row = screen.getByRole('button', { name: 'art' });
+    row.focus();
+
+    await fireEvent.keyDown(row, { key: 'ArrowDown' });
+
+    const next = screen.getByRole('button', { name: 'rules' });
+    expect(next).toHaveFocus();
+
+    await fireEvent.keyDown(next, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toEqual(['l2']);
+    });
+  });
+
+  it('activates the focused row on Enter even when the pointer highlights another', async () => {
+    render(LabelSearchMenu, { taskId: 't1' });
+    const art = screen.getByRole('button', { name: 'art' });
+    art.focus();
+    await fireEvent.pointerMove(screen.getByRole('button', { name: 'rules' }));
+
+    await fireEvent.keyDown(art, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toEqual(['l1']);
+    });
+  });
+
+  it('scrolls the newly highlighted row into view on ArrowDown', async () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    render(LabelSearchMenu, { taskId: 't1' });
+
+    await fireEvent.keyDown(screen.getByLabelText('Filter labels'), { key: 'ArrowDown' });
+
+    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest' });
+    expect(scrollSpy.mock.contexts[0]).toBe(screen.getByRole('button', { name: 'rules' }));
+  });
 });

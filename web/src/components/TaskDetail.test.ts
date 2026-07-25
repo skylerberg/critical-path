@@ -101,8 +101,8 @@ describe('TaskDetail', () => {
     expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
     expect(screen.getByLabelText('Task title')).toHaveAttribute('autocapitalize', 'sentences');
 
-    expect(screen.getByRole('button', { name: 'art' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'rules' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Remove label art' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove label rules' })).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /Ada Lovelace/ })).toHaveAttribute(
       'aria-pressed',
       'true'
