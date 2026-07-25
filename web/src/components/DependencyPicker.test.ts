@@ -40,7 +40,7 @@ describe('DependencyPicker', () => {
     it('excludes the task itself and its existing blockers', async () => {
       render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
 
-      const input = screen.getByLabelText('Search tasks to add as blockers');
+      const input = screen.getByLabelText('Search tasks that block this one');
       expect(input).toHaveAttribute('autocapitalize', 'sentences');
       await fireEvent.input(input, { target: { value: 'cards' } });
 
@@ -54,7 +54,7 @@ describe('DependencyPicker', () => {
       const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
       render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
 
-      const input = screen.getByLabelText<HTMLInputElement>('Search tasks to add as blockers');
+      const input = screen.getByLabelText<HTMLInputElement>('Search tasks that block this one');
       await fireEvent.input(input, { target: { value: 'sleeve' } });
       await fireEvent.click(screen.getByRole('button', { name: /Sleeve cards/ }));
 
@@ -93,7 +93,7 @@ describe('DependencyPicker', () => {
     it('shows no Create row until the query matches no existing task', async () => {
       render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
 
-      const input = screen.getByLabelText('Search tasks to add as blockers');
+      const input = screen.getByLabelText('Search tasks that block this one');
       await fireEvent.input(input, { target: { value: 'Sleeve cards' } });
 
       expect(screen.queryByText('Create "Sleeve cards"')).not.toBeInTheDocument();
@@ -108,7 +108,7 @@ describe('DependencyPicker', () => {
       const spy = vi.spyOn(board, 'createAndLinkTask').mockResolvedValue('new');
       render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
 
-      const input = screen.getByLabelText<HTMLInputElement>('Search tasks to add as blockers');
+      const input = screen.getByLabelText<HTMLInputElement>('Search tasks that block this one');
       await fireEvent.input(input, { target: { value: 'Playtest rules' } });
       await fireEvent.click(screen.getByRole('button', { name: /Create "Playtest rules"/ }));
 

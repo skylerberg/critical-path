@@ -186,10 +186,10 @@
 
       <section class="flex flex-col gap-2">
         <div class="flex items-center gap-2">
-          <h3 class="text-sm font-semibold text-muted">Blockers</h3>
+          <h3 class="text-sm font-semibold text-muted">Blocked by</h3>
           {#if openBlockerCount > 0}
             <Badge variant="danger">
-              Blocked by {openBlockerCount} open task{openBlockerCount === 1 ? '' : 's'}
+              {openBlockerCount} open task{openBlockerCount === 1 ? '' : 's'}
             </Badge>
           {/if}
         </div>
@@ -206,7 +206,7 @@
                 </span>
                 <button
                   type="button"
-                  aria-label="Remove blocker {blocker.title}"
+                  aria-label="Remove blocking task {blocker.title}"
                   onclick={() => void board.removeBlocker(taskId, blocker.id)}
                   class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger"
                 >

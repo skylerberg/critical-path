@@ -522,8 +522,8 @@
     <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
       <p class="text-base font-medium">Dependency cycle detected</p>
       <p class="max-w-sm text-sm text-muted">
-        These tasks block each other in a loop, so the graph cannot be drawn. Remove one of the
-        circular blockers to restore the view.
+        These tasks block each other in a loop, so the graph cannot be drawn. Break one of the
+        circular dependencies to restore the view.
       </p>
     </div>
   {:else if layout === null || layout.nodes.length === 0}
@@ -531,8 +531,8 @@
       <p class="text-base font-medium">No tasks to graph</p>
       <p class="max-w-sm text-sm text-muted" use:link>
         Add tasks on the
-        <a href="/projects/{projectId}" class="text-accent underline">board</a>, then link them with
-        blockers to see the dependency graph.
+        <a href="/projects/{projectId}" class="text-accent underline">board</a>, then link them to
+        see the dependency graph.
       </p>
     </div>
   {:else}

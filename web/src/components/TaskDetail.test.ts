@@ -95,7 +95,7 @@ beforeEach(() => {
 });
 
 describe('TaskDetail', () => {
-  it('renders title, labels, assignees, blockers, timestamps, and fetched images', async () => {
+  it('renders title, labels, assignees, blocked-by, timestamps, and fetched images', async () => {
     render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
 
     expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
@@ -110,9 +110,10 @@ describe('TaskDetail', () => {
 
     expect(screen.getByText('Cut prototype')).toBeInTheDocument();
     expect(screen.getByText('Buy sleeves')).toBeInTheDocument();
-    expect(screen.getByText('Blocked by 1 open task')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Blocked by' })).toBeInTheDocument();
+    expect(screen.getByText('1 open task')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Remove blocker Cut prototype' })
+      screen.getByRole('button', { name: 'Remove blocking task Cut prototype' })
     ).toBeInTheDocument();
 
     expect(await screen.findByAltText('mock.png')).toHaveAttribute('src', '/api/images/img1');
