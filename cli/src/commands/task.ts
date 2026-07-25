@@ -371,7 +371,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
               ctx.out.line(`Assignees: ${names.join(', ')}`);
             }
             if (detail.blocker_ids.length > 0) {
-              ctx.out.line('Blockers:');
+              ctx.out.line('Blocked by:');
               for (const id of detail.blocker_ids) {
                 const blocker = byId.get(id);
                 if (blocker != null) {
@@ -753,7 +753,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
             .map((t) => ({ ...t, state: taskState(t, board) }));
           ctx.out.data(blockers, () => {
             if (blockers.length === 0) {
-              ctx.out.line('No blockers');
+              ctx.out.line('Nothing blocks this task');
               return;
             }
             ctx.out.table(
