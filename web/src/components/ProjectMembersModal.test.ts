@@ -59,18 +59,20 @@ describe('ProjectMembersModal', () => {
     expect(screen.getByRole('button', { name: 'Remove Ada' })).toBeInTheDocument();
   });
 
-  it('shows an inline error for an unknown email', async () => {
-    projects.projects = [project({ created_by: me.id, member_ids: [] })];
-    fetchMock.mockImplementation(async () => jsonResponse(404, { error: 'not found' }));
+  it('offers the people picker pre-populated with your other collaborators', async () => {
+    const bob = { id: 'u-bob', email: 'bob@example.com', name: 'Bob', avatar_url: null };
+    users.users = [me, ada, bob];
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+    fetchMock.mockImplementation(async () => jsonResponse(200, { users: [me, ada, bob] }));
 
     render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
 
-    await fireEvent.input(screen.getByLabelText('Add by email'), {
-      target: { value: 'ghost@example.com' },
+    expect(screen.getByLabelText('Add people')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Bob' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Ada' })).toBeNull();
+    await waitFor(() => {
+      expect(new URL((fetchMock.mock.calls[0]![0] as Request).url).pathname).toBe('/api/users');
     });
-    await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-
-    expect(await screen.findByText('No user with that email')).toBeInTheDocument();
   });
 
   it('leaving from the board route PUTs minus self and navigates to the projects page', async () => {
@@ -84,10 +86,9 @@ describe('ProjectMembersModal', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Leave board' }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalled();
+      expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
     });
-    const put = fetchMock.mock.calls[0]![0] as Request;
-    expect(put.method).toBe('PUT');
+    const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
     expect(new URL(put.url).pathname).toBe('/api/projects/p-1/members');
     expect(await put.clone().json()).toEqual({ user_ids: ['u-3'] });
     expect(projects.projects).toEqual([]);

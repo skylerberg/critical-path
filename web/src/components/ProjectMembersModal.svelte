@@ -3,10 +3,10 @@
   import { router } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
   import { users } from '../lib/users.svelte';
+  import MemberPicker from './MemberPicker.svelte';
   import Avatar from './ui/Avatar.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
-  import Input from './ui/Input.svelte';
   import Modal from './ui/Modal.svelte';
 
   interface Props {
@@ -21,32 +21,15 @@
     session.user !== null && (project?.member_ids.includes(session.user.id) ?? false)
   );
 
-  let memberEmail = $state('');
-  let memberError = $state('');
-  let addingMember = $state(false);
+  // Membership changes publish no user event, so a collaborator added to a shared
+  // board since app start is missing from the cached directory this modal reads.
+  $effect(() => {
+    void users.refresh().catch(() => {});
+  });
 
   function displayName(userId: string): string {
     const name = users.displayFor(userId).name;
     return name === '' ? userId : name;
-  }
-
-  async function submitAddMember(event: SubmitEvent): Promise<void> {
-    event.preventDefault();
-    if (project === undefined) return;
-    const email = memberEmail.trim();
-    if (email === '') {
-      memberError = 'Email is required';
-      return;
-    }
-    addingMember = true;
-    memberError = '';
-    const result = await projects.addMemberByEmail(project.id, email);
-    addingMember = false;
-    if (result.ok) {
-      memberEmail = '';
-    } else {
-      memberError = result.error ?? 'Failed to add member';
-    }
   }
 
   function removeMember(userId: string): void {
@@ -94,7 +77,7 @@
   <Modal open title="Members of {project.name}" {onclose}>
     <div class="flex flex-col gap-5">
       <div class="flex flex-col gap-2">
-        <ul class="flex flex-col gap-1">
+        <ul class="flex max-h-64 flex-col gap-1 overflow-y-auto">
           {#if project.created_by !== null}
             {@render memberRow(project.created_by, true)}
           {/if}
@@ -102,14 +85,7 @@
             {@render memberRow(memberId, false)}
           {/each}
         </ul>
-        <form class="flex items-end gap-2" onsubmit={submitAddMember}>
-          <div class="flex-1">
-            <Input label="Add by email" type="email" bind:value={memberEmail} error={memberError} />
-          </div>
-          <Button type="submit" variant="secondary" disabled={addingMember}>
-            {addingMember ? 'Adding…' : 'Add'}
-          </Button>
-        </form>
+        <MemberPicker {projectId} />
       </div>
 
       {#if canLeave}

@@ -122,7 +122,7 @@ describe('ProjectHeader', () => {
 
     expect(screen.getByText('Ada')).toBeInTheDocument();
     expect(screen.getByText('Owner')).toBeInTheDocument();
-    expect(screen.getByLabelText('Add by email')).toBeInTheDocument();
+    expect(screen.getByLabelText('Add people')).toBeInTheDocument();
   });
 
   it('updates the shared filterQuery as the user types, which dims non-matching tasks', async () => {
