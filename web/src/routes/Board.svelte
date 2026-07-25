@@ -9,8 +9,10 @@
     TRIGGERS,
     type DndEvent,
   } from 'svelte-dnd-action';
+  import { focusIf } from '../lib/actions';
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
+  import { draftKey, drafts } from '../lib/drafts.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import ColumnHeader from '../components/ColumnHeader.svelte';
   import QuickAddTask from '../components/QuickAddTask.svelte';
@@ -31,8 +33,11 @@
   let localTasks = $state<Record<string, BoardTask[]>>({});
   let columnDragging = $state(false);
   let taskDragging = $state(false);
-  let addingColumn = $state(false);
-  let newColumnName = $state('');
+
+  const columnKey = $derived(draftKey.addColumn(projectId));
+  const newColumnName = $derived(drafts.get(columnKey));
+  const addingColumn = $derived(newColumnName !== null);
+  let columnFormOpenedHere = $state(false);
 
   $effect(() => {
     board.dragging = columnDragging || taskDragging;
@@ -131,20 +136,25 @@
     }
   }
 
+  function startNewColumn(): void {
+    columnFormOpenedHere = true;
+    drafts.set(columnKey, '');
+  }
+
+  function closeNewColumn(): void {
+    columnFormOpenedHere = false;
+    drafts.clear(columnKey);
+  }
+
   function submitNewColumn(event: SubmitEvent): void {
     event.preventDefault();
-    const name = newColumnName.trim();
+    const name = (newColumnName ?? '').trim();
     if (name === '') {
       return;
     }
     void board.createColumn(name);
-    newColumnName = '';
-    addingColumn = false;
+    closeNewColumn();
   }
-
-  const focusOnMount = (node: HTMLInputElement): void => {
-    node.focus();
-  };
 </script>
 
 <div class="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overscroll-x-contain lg:snap-none">
@@ -213,36 +223,31 @@
           class="flex flex-col gap-2 rounded-lg border border-edge bg-surface p-2"
         >
           <input
-            bind:value={newColumnName}
-            use:focusOnMount
+            value={newColumnName ?? ''}
+            oninput={(event) => drafts.set(columnKey, event.currentTarget.value)}
+            use:focusIf={{
+              active: columnFormOpenedHere,
+              onfocused: () => (columnFormOpenedHere = false),
+            }}
             aria-label="Column name"
             placeholder="Column name"
             autocapitalize="sentences"
             onkeydown={(event) => {
               if (event.key === 'Escape') {
-                addingColumn = false;
-                newColumnName = '';
+                closeNewColumn();
               }
             }}
             class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
           />
           <div class="flex gap-2">
             <Button type="submit" class="flex-1">Add column</Button>
-            <Button
-              variant="ghost"
-              onclick={() => {
-                addingColumn = false;
-                newColumnName = '';
-              }}
-            >
-              Cancel
-            </Button>
+            <Button variant="ghost" onclick={closeNewColumn}>Cancel</Button>
           </div>
         </form>
       {:else}
         <button
           type="button"
-          onclick={() => (addingColumn = true)}
+          onclick={startNewColumn}
           class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-edge px-3 text-sm font-medium text-muted hover:border-accent hover:text-ink"
         >
           + Add column

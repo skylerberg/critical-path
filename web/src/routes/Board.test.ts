@@ -1,8 +1,9 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
+import { draftKey, drafts } from '../lib/drafts.svelte';
 import { selection } from '../lib/selection.svelte';
 import type { BoardTask } from '../lib/board-types';
 
@@ -27,6 +28,7 @@ beforeEach(() => {
   fetchMock.mockImplementation(async () => jsonResponse(200, { users: [] }));
   board.reset();
   selection.clear();
+  drafts.clearAll();
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
   board.tasks = [
     task('t1', 'c1', 1000, 'plain one'),
@@ -109,6 +111,86 @@ describe('Board snapping', () => {
     for (const target of [column(), addColumnTile()]) {
       expect(target).toHaveClass('snap-center', 'md:snap-start', 'snap-always');
     }
+  });
+});
+
+describe('Board add-column drafts', () => {
+  // ColumnHeader's rename input shares the aria-label, so the composer's input is
+  // read through its own form.
+  function nameInput(): HTMLInputElement {
+    const form = screen.getByRole('button', { name: 'Add column' }).closest('form');
+    if (form === null) {
+      throw new Error('Add column form not rendered');
+    }
+    return within(form).getByLabelText('Column name');
+  }
+
+  async function typeName(value: string): Promise<void> {
+    await fireEvent.click(screen.getByRole('button', { name: '+ Add column' }));
+    await fireEvent.input(nameInput(), { target: { value } });
+  }
+
+  it('focuses the input when the user opens the composer', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+
+    await fireEvent.click(screen.getByRole('button', { name: '+ Add column' }));
+
+    expect(nameInput()).toHaveFocus();
+  });
+
+  it('restores an unsent column name on remount without stealing focus', async () => {
+    const first = render(Board, { props: { projectId: 'p1' } });
+    await typeName('Backlog');
+    first.unmount();
+
+    render(Board, { props: { projectId: 'p1' } });
+
+    const restored = nameInput();
+    expect(restored).toHaveValue('Backlog');
+    expect(restored).not.toHaveFocus();
+  });
+
+  it('stays open when the text is emptied', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await typeName('Backlog');
+
+    await fireEvent.input(nameInput(), { target: { value: '' } });
+
+    expect(nameInput()).toBeInTheDocument();
+  });
+
+  it('closes and clears the draft on submit', async () => {
+    board.currentProjectId = 'p1';
+    render(Board, { props: { projectId: 'p1' } });
+    await typeName('Backlog');
+
+    await fireEvent.submit(nameInput().closest('form')!);
+
+    expect(board.columns.map((column) => column.name)).toEqual(['Todo', 'Backlog']);
+    expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
+    expect(drafts.get(draftKey.addColumn('p1'))).toBeNull();
+  });
+
+  it('stays closed on remount after Escape discarded the draft', async () => {
+    const first = render(Board, { props: { projectId: 'p1' } });
+    await typeName('Discard me');
+    await fireEvent.keyDown(nameInput(), { key: 'Escape' });
+    first.unmount();
+
+    render(Board, { props: { projectId: 'p1' } });
+
+    expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
+    expect(drafts.get(draftKey.addColumn('p1'))).toBeNull();
+  });
+
+  it('does not leak a draft into another project', async () => {
+    const first = render(Board, { props: { projectId: 'p1' } });
+    await typeName('Project one only');
+    first.unmount();
+
+    render(Board, { props: { projectId: 'p2' } });
+
+    expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
   });
 });
 

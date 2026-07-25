@@ -3,6 +3,7 @@
   import { isPublicRoute, session } from './lib/session.svelte';
   import { users } from './lib/users.svelte';
   import { board } from './lib/board.svelte';
+  import { drafts } from './lib/drafts.svelte';
   import { projects } from './lib/projects.svelte';
   import { realtime } from './lib/realtime.svelte';
   import { toasts } from './lib/toasts.svelte';
@@ -37,6 +38,7 @@
       users.reset();
       board.reset();
       projects.reset();
+      drafts.clearAll();
       realtime.disconnect();
     }
     if (session.status !== 'authed') {

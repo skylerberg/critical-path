@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import { focusIf } from '../lib/actions';
   import { board } from '../lib/board.svelte';
+  import { draftKey, drafts } from '../lib/drafts.svelte';
   import Button from './ui/Button.svelte';
 
   interface Props {
@@ -9,13 +11,20 @@
 
   let { columnId }: Props = $props();
 
-  let open = $state(false);
-  let title = $state('');
+  const key = $derived(draftKey.quickAddTask(columnId));
+  const title = $derived(drafts.get(key));
+  const open = $derived(title !== null);
+  let openedHere = $state(false);
   let input = $state<HTMLInputElement>();
+
+  function start(): void {
+    openedHere = true;
+    drafts.set(key, '');
+  }
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
-    const trimmed = title.trim();
+    const trimmed = (title ?? '').trim();
     if (trimmed === '') {
       return;
     }
@@ -23,7 +32,8 @@
     // createTask pushes the optimistic task synchronously, so the column's bottom
     // card is the new one; awaiting its returned id would stall the scroll on the API.
     const created = board.tasksInColumn(columnId).at(-1);
-    title = '';
+    // Only the text is cleared: this composer stays open for rapid entry.
+    drafts.set(key, '');
     input?.focus();
     if (created === undefined) {
       return;
@@ -35,13 +45,9 @@
   }
 
   function close(): void {
-    open = false;
-    title = '';
+    openedHere = false;
+    drafts.clear(key);
   }
-
-  const focusOnMount = (node: HTMLInputElement): void => {
-    node.focus();
-  };
 </script>
 
 <div class="p-2 pt-0">
@@ -49,8 +55,9 @@
     <form onsubmit={submit} class="flex flex-col gap-2">
       <input
         bind:this={input}
-        bind:value={title}
-        use:focusOnMount
+        value={title ?? ''}
+        oninput={(event) => drafts.set(key, event.currentTarget.value)}
+        use:focusIf={{ active: openedHere, onfocused: () => (openedHere = false) }}
         aria-label="Task title"
         placeholder="Task title"
         autocapitalize="sentences"
@@ -69,7 +76,7 @@
   {:else}
     <button
       type="button"
-      onclick={() => (open = true)}
+      onclick={start}
       class="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink"
     >
       + Add task
