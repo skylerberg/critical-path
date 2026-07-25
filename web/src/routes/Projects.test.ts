@@ -185,10 +185,10 @@ describe('Projects', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Solo Game' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Members' }));
 
-    await fireEvent.input(screen.getByLabelText('Add by email'), {
+    await fireEvent.input(screen.getByLabelText('Add people'), {
       target: { value: 'pat@example.com' },
     });
-    await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Invite "pat@example.com"' }));
 
     expect(await screen.findByText('Pat')).toBeInTheDocument();
     const post = fetchMock.mock.calls.find(
@@ -224,7 +224,8 @@ describe('Projects', () => {
     const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
     expect(new URL(put.url).pathname).toBe('/api/projects/p-shared/members');
     expect(await put.clone().json()).toEqual({ user_ids: ['u-3'] });
-    expect(screen.queryByText('Ada')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Remove Ada' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add Ada' })).toBeInTheDocument();
   });
 
   it('leaves a shared board by PUTting the set minus self', async () => {

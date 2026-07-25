@@ -301,6 +301,31 @@ describe('projects store', () => {
     expect(toasts.toasts.map((t) => t.message)).toEqual(['Unknown user']);
   });
 
+  it('adds a member by id, appending to the existing set', async () => {
+    await loadWith([project({ created_by: 'u-me', member_ids: ['u-1'] })]);
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    const pending = projects.addMember('p-1', 'u-2');
+    expect(projects.projects[0]!.member_ids).toEqual(['u-1', 'u-2']);
+
+    await pending;
+
+    expect(requestAt(1).method).toBe('PUT');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/members');
+    expect(await bodyOf(requestAt(1))).toEqual({ user_ids: ['u-1', 'u-2'] });
+  });
+
+  it('does not re-add the creator or an existing member', async () => {
+    await loadWith([project({ created_by: 'u-me', member_ids: ['u-1'] })]);
+
+    await projects.addMember('p-1', 'u-me');
+    await projects.addMember('p-1', 'u-1');
+    await projects.addMember('p-missing', 'u-2');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(projects.projects[0]!.member_ids).toEqual(['u-1']);
+  });
+
   it('adds a member by email and appends the returned user', async () => {
     const item = project({ created_by: 'u-me', member_ids: ['u-1'] });
     await loadWith([item]);

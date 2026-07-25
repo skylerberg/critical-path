@@ -109,6 +109,18 @@ class ProjectsStore {
     }
   }
 
+  async addMember(id: string, userId: string): Promise<void> {
+    const project = this.projects.find((p) => p.id === id);
+    if (
+      project === undefined ||
+      project.created_by === userId ||
+      project.member_ids.includes(userId)
+    ) {
+      return;
+    }
+    await this.setMembers(id, [...project.member_ids, userId]);
+  }
+
   async addMemberByEmail(id: string, email: string): Promise<AddMemberResult> {
     try {
       const { user } = assertOk(
