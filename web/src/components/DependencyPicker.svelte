@@ -37,7 +37,7 @@
   );
 
   const label = $derived(
-    direction === 'blocker' ? 'Search tasks to add as blockers' : 'Search tasks this one blocks'
+    direction === 'blocker' ? 'Search tasks that block this one' : 'Search tasks this one blocks'
   );
 
   function add(otherId: string): void {
