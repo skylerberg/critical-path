@@ -7,27 +7,18 @@ export interface AppUpdateDeps {
 }
 
 /**
- * Passing `onNeedReload` suppresses the registration shim's own
- * `window.location.reload()`, so nothing ever reloads the document. A waiting
- * worker is activated only while the tab is hidden — the running page keeps the
- * build it booted with, and the new build appears on the next document load.
+ * The empty `onNeedReload` is load-bearing: supplying it is what stops the
+ * registration shim from reloading the page itself, which would discard
+ * whatever the user had typed but not submitted.
  */
 export class AppUpdate {
-  #applyUpdate: ((reloadPage?: boolean) => Promise<void>) | null = null;
   #registration: ServiceWorkerRegistration | undefined;
-  #waiting = false;
   #lastCheck = 0;
 
   init({ register = registerSW }: AppUpdateDeps = {}): void {
-    this.#applyUpdate = register({
+    register({
       immediate: true,
-      onNeedRefresh: () => {
-        this.#waiting = true;
-        this.#applyWhenHidden();
-      },
-      onNeedReload: () => {
-        this.#waiting = false;
-      },
+      onNeedReload: () => {},
       onRegisteredSW: (_swScriptUrl, registration) => {
         this.#registration = registration;
       },
@@ -40,19 +31,8 @@ export class AppUpdate {
   }
 
   #onVisibilityChange = (): void => {
-    if (document.visibilityState === 'hidden') this.#applyWhenHidden();
-    else this.#checkForUpdate();
+    if (document.visibilityState === 'visible') this.#checkForUpdate();
   };
-
-  #applyWhenHidden(): void {
-    if (document.visibilityState !== 'hidden') return;
-    // The registration is the source of truth: workbox stops reporting
-    // updatefound after the first minute, so later deploys park in `waiting`
-    // without ever raising onNeedRefresh.
-    if (!this.#waiting && !this.#registration?.waiting) return;
-    this.#waiting = false;
-    void this.#applyUpdate?.();
-  }
 
   #checkForUpdate(): void {
     const registration = this.#registration;

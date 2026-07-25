@@ -12,10 +12,10 @@ export default defineConfig({
     tailwindcss(),
     svelteTesting(),
     VitePWA({
-      // `prompt` keeps `skipWaiting`/`clientsClaim` out of the generated worker so a
-      // new build parks in `waiting` instead of taking over a page that is already
-      // running; the app decides when to apply it.
-      registerType: 'prompt',
+      // `skipWaiting`/`clientsClaim` let a new build take over without the running
+      // page's cooperation, so one long-lived tab can't pin a device to a stale
+      // worker. The registration shim's reload is suppressed separately.
+      registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         id: '/',
