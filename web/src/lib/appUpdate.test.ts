@@ -21,25 +21,21 @@ function registrationWith(update: () => Promise<void>): ServiceWorkerRegistratio
 }
 
 function start() {
-  const applyUpdate = vi.fn(() => Promise.resolve());
   // Stands in for the registration shim, which reloads the document itself
   // unless the caller supplies onNeedReload.
   const reload = vi.fn();
   let options: RegisterSWOptions = {};
   const register = vi.fn((opts: RegisterSWOptions = {}) => {
     options = opts;
-    return applyUpdate;
+    return () => Promise.resolve();
   });
   const instance = new AppUpdate();
   instance.init({ register });
   instances.push(instance);
   return {
-    applyUpdate,
     reload,
-    fireControlling: () => (options.onNeedReload ? options.onNeedReload() : reload()),
+    fireActivated: () => (options.onNeedReload ? options.onNeedReload() : reload()),
     options: () => options,
-    needRefresh: () => options.onNeedRefresh?.(),
-    needReload: () => options.onNeedReload?.(),
     registered: (registration: ServiceWorkerRegistration) =>
       options.onRegisteredSW?.('/sw.js', registration),
   };
@@ -55,55 +51,22 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('applying a waiting update', () => {
-  it('does not apply while the page is visible', () => {
+describe('never reloading the document', () => {
+  it('supplies onNeedReload so the shim cannot reload the page', () => {
     const sw = start();
-    sw.needRefresh();
-    goVisible();
-    expect(sw.applyUpdate).not.toHaveBeenCalled();
+    sw.fireActivated();
+    expect(sw.reload).not.toHaveBeenCalled();
   });
 
-  it('applies once the page becomes hidden', () => {
-    const sw = start();
-    sw.needRefresh();
-    goHidden();
-    expect(sw.applyUpdate).toHaveBeenCalledTimes(1);
-  });
-
-  it('applies immediately when the update arrives while already hidden', () => {
-    const sw = start();
-    setVisibility('hidden');
-    sw.needRefresh();
-    expect(sw.applyUpdate).toHaveBeenCalledTimes(1);
-  });
-
-  it('does nothing when the page hides with no waiting update', () => {
-    const sw = start();
-    goHidden();
-    expect(sw.applyUpdate).not.toHaveBeenCalled();
-  });
-
-  it('applies a waiting update at most once', () => {
-    const sw = start();
-    sw.needRefresh();
-    goHidden();
-    goVisible();
-    goHidden();
-    expect(sw.applyUpdate).toHaveBeenCalledTimes(1);
-  });
-
-  it('stops tracking an update another tab already activated', () => {
-    const sw = start();
-    sw.needRefresh();
-    sw.needReload();
-    goHidden();
-    expect(sw.applyUpdate).not.toHaveBeenCalled();
-  });
-
-  it('registers the onNeedReload handler that suppresses the built-in reload', () => {
+  it('registers the worker immediately', () => {
     const sw = start();
     expect(typeof sw.options().onNeedReload).toBe('function');
     expect(sw.options().immediate).toBe(true);
+  });
+
+  it('leaves the new worker to activate itself', () => {
+    const sw = start();
+    expect(sw.options().onNeedRefresh).toBeUndefined();
   });
 });
 
@@ -151,34 +114,5 @@ describe('update checks', () => {
     goVisible();
     await Promise.resolve();
     expect(update).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('never reloading the document', () => {
-  it('supplies onNeedReload so the shim cannot reload the page', () => {
-    const sw = start();
-    sw.fireControlling();
-    expect(sw.reload).not.toHaveBeenCalled();
-  });
-});
-
-describe('later deploys in the same session', () => {
-  it('applies a worker parked in waiting even without another onNeedRefresh', () => {
-    const sw = start();
-    sw.registered({
-      update: () => Promise.resolve(),
-      waiting: {} as ServiceWorker,
-    } as unknown as ServiceWorkerRegistration);
-
-    goHidden();
-
-    expect(sw.applyUpdate).toHaveBeenCalledTimes(1);
-  });
-
-  it('stays put when nothing is waiting', () => {
-    const sw = start();
-    sw.registered(registrationWith(() => Promise.resolve()));
-    goHidden();
-    expect(sw.applyUpdate).not.toHaveBeenCalled();
   });
 });
