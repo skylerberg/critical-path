@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
+import { draftKey, drafts } from '../lib/drafts.svelte';
 import { computeGraph, panToNode, type ViewBox } from '../lib/graph';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
@@ -62,6 +63,7 @@ function parsePreview(d: string): { start: [number, number]; end: [number, numbe
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  drafts.clearAll();
   for (const toast of [...toasts.toasts]) {
     toasts.dismiss(toast.id);
   }
@@ -613,5 +615,101 @@ describe('Graph dependency editing', () => {
 
     expect(second.start).toEqual(first.start);
     expect(second.end).not.toEqual(first.end);
+  });
+});
+
+describe('Graph new-task drafts', () => {
+  const projectId = 'p-graph-draft';
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function mockGraph(): void {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+  }
+
+  function titleInput(): HTMLInputElement {
+    return screen.getByRole('textbox', { name: 'New task title' });
+  }
+
+  async function openAndType(value: string): Promise<void> {
+    await fireEvent.click(await screen.findByRole('button', { name: 'New task' }));
+    await fireEvent.input(titleInput(), { target: { value } });
+  }
+
+  it('focuses the input when the user opens the composer', async () => {
+    mockGraph();
+    render(Project, { props: { projectId, view: 'graph' } });
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New task' }));
+
+    expect(titleInput()).toHaveFocus();
+  });
+
+  it('restores an unsent title on remount without stealing focus', async () => {
+    mockGraph();
+    const first = render(Project, { props: { projectId, view: 'graph' } });
+    await openAndType('Half typed');
+    first.unmount();
+
+    render(Project, { props: { projectId, view: 'graph' } });
+
+    const restored = await screen.findByRole('textbox', { name: 'New task title' });
+    expect(restored).toHaveValue('Half typed');
+    expect(restored).not.toHaveFocus();
+  });
+
+  it('stays open when the text is emptied', async () => {
+    mockGraph();
+    render(Project, { props: { projectId, view: 'graph' } });
+    await openAndType('Half typed');
+
+    await fireEvent.input(titleInput(), { target: { value: '' } });
+
+    expect(titleInput()).toBeInTheDocument();
+  });
+
+  it('closes and clears the draft on submit', async () => {
+    mockGraph();
+    vi.spyOn(board, 'createAndLinkTask').mockResolvedValue('a');
+    render(Project, { props: { projectId, view: 'graph' } });
+    await openAndType('Ship it');
+
+    await fireEvent.submit(titleInput().closest('form')!);
+
+    expect(screen.queryByRole('textbox', { name: 'New task title' })).not.toBeInTheDocument();
+    expect(drafts.get(draftKey.graphAddTask(projectId))).toBeNull();
+  });
+
+  it('stays closed on remount after Cancel discarded the draft', async () => {
+    mockGraph();
+    const first = render(Project, { props: { projectId, view: 'graph' } });
+    await openAndType('Discard me');
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel new task' }));
+    first.unmount();
+
+    render(Project, { props: { projectId, view: 'graph' } });
+
+    expect(await screen.findByRole('button', { name: 'New task' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'New task title' })).not.toBeInTheDocument();
+  });
+
+  it('does not leak a draft into another project', async () => {
+    mockGraph();
+    const first = render(Project, { props: { projectId, view: 'graph' } });
+    await openAndType('Project one only');
+    first.unmount();
+
+    const other = 'p-graph-draft-other';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(other, [task('a', 'todo')]))
+    );
+    render(Project, { props: { projectId: other, view: 'graph' } });
+
+    expect(await screen.findByRole('button', { name: 'New task' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'New task title' })).not.toBeInTheDocument();
   });
 });

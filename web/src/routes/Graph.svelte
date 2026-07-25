@@ -1,7 +1,9 @@
 <script lang="ts">
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+  import { focusIf } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
+  import { draftKey, drafts } from '../lib/drafts.svelte';
   import { link } from '../lib/router.svelte';
   import { toasts } from '../lib/toasts.svelte';
   import {
@@ -121,21 +123,19 @@
     };
   });
 
-  let newTaskOpen = $state(false);
-  let newTaskTitle = $state('');
-  let newTaskInput = $state<HTMLInputElement | null>(null);
-
-  $effect(() => {
-    if (newTaskOpen) newTaskInput?.focus();
-  });
+  const newTaskKey = $derived(draftKey.graphAddTask(projectId));
+  const newTaskTitle = $derived(drafts.get(newTaskKey));
+  const newTaskOpen = $derived(newTaskTitle !== null);
+  let newTaskOpenedHere = $state(false);
 
   function openNewTask(): void {
-    newTaskOpen = true;
+    newTaskOpenedHere = true;
+    drafts.set(newTaskKey, '');
   }
 
   function closeNewTask(): void {
-    newTaskOpen = false;
-    newTaskTitle = '';
+    newTaskOpenedHere = false;
+    drafts.clear(newTaskKey);
   }
 
   function onNewTaskKeydown(e: KeyboardEvent): void {
@@ -147,7 +147,7 @@
 
   async function submitNewTask(e: SubmitEvent): Promise<void> {
     e.preventDefault();
-    const title = newTaskTitle.trim();
+    const title = (newTaskTitle ?? '').trim();
     if (title === '') return;
     closeNewTask();
     const id = await board.createAndLinkTask(title);
@@ -449,8 +449,12 @@
             class="flex items-center gap-1 rounded-md border border-edge bg-surface p-1 shadow-sm"
           >
             <input
-              bind:this={newTaskInput}
-              bind:value={newTaskTitle}
+              value={newTaskTitle ?? ''}
+              oninput={(event) => drafts.set(newTaskKey, event.currentTarget.value)}
+              use:focusIf={{
+                active: newTaskOpenedHere,
+                onfocused: () => (newTaskOpenedHere = false),
+              }}
               onkeydown={onNewTaskKeydown}
               type="text"
               placeholder="Task title"

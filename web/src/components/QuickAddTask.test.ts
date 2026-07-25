@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import QuickAddTask from './QuickAddTask.svelte';
 import { board } from '../lib/board.svelte';
+import { draftKey, drafts } from '../lib/drafts.svelte';
 
 const payload = {
   project: {
@@ -24,6 +25,7 @@ afterEach(() => {
 beforeEach(async () => {
   fetchMock.mockReset();
   board.reset();
+  drafts.clearAll();
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
     if (request.method === 'GET') {
@@ -60,6 +62,7 @@ describe('QuickAddTask', () => {
     expect(created?.position).toBe(1000);
     expect(input).toHaveValue('');
     expect(screen.getByLabelText('Task title')).toBeInTheDocument();
+    expect(drafts.get(draftKey.quickAddTask('c1'))).toBe('');
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -114,6 +117,59 @@ describe('QuickAddTask', () => {
     await fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
 
     await fireEvent.keyDown(screen.getByLabelText('Task title'), { key: 'Escape' });
+
+    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Add task' })).toBeInTheDocument();
+    expect(drafts.get(draftKey.quickAddTask('c1'))).toBeNull();
+  });
+});
+
+describe('QuickAddTask drafts', () => {
+  async function typeTitle(columnId: string, value: string): Promise<void> {
+    await fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
+    await fireEvent.input(screen.getByLabelText('Task title'), { target: { value } });
+    expect(drafts.get(draftKey.quickAddTask(columnId))).toBe(value);
+  }
+
+  it('restores an unsent title on remount without stealing focus', async () => {
+    const first = render(QuickAddTask, { columnId: 'c1' });
+    await typeTitle('c1', 'Half typed');
+    first.unmount();
+
+    render(QuickAddTask, { columnId: 'c1' });
+
+    const restored = screen.getByLabelText('Task title');
+    expect(restored).toHaveValue('Half typed');
+    expect(restored).not.toHaveFocus();
+  });
+
+  it('stays open when the text is emptied', async () => {
+    render(QuickAddTask, { columnId: 'c1' });
+    await typeTitle('c1', 'Half typed');
+
+    await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: '' } });
+
+    expect(screen.getByLabelText('Task title')).toBeInTheDocument();
+  });
+
+  it('stays closed on remount after Escape discarded the draft', async () => {
+    const first = render(QuickAddTask, { columnId: 'c1' });
+    await typeTitle('c1', 'Discard me');
+    await fireEvent.keyDown(screen.getByLabelText('Task title'), { key: 'Escape' });
+    first.unmount();
+
+    render(QuickAddTask, { columnId: 'c1' });
+
+    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Add task' })).toBeInTheDocument();
+  });
+
+  it('does not leak a draft into another column', async () => {
+    const first = render(QuickAddTask, { columnId: 'c1' });
+    await typeTitle('c1', 'Column one only');
+    first.unmount();
+
+    render(QuickAddTask, { columnId: 'c2' });
 
     expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '+ Add task' })).toBeInTheDocument();

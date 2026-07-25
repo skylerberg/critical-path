@@ -35,9 +35,13 @@
 
   let dialog = $state<HTMLDialogElement>();
   let uploadInput = $state<HTMLInputElement>();
-  let titleDraft = $state<string | null>(null);
   let confirmingDelete = $state(false);
   let deleting = $state(false);
+
+  // Deliberately local, unlike the compose drafts: this shadows a server-owned
+  // value, so surviving an unmount would mean committing an abandoned edit later
+  // — possibly over a rename the user never saw.
+  let titleDraft = $state<string | null>(null);
 
   $effect(() => {
     const id = taskId;
@@ -121,6 +125,8 @@
   class="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto bg-surface p-0 text-ink backdrop:bg-black/50 lg:m-auto lg:h-auto lg:max-h-[90dvh] lg:w-full lg:max-w-2xl lg:rounded-lg lg:border lg:border-edge lg:shadow-xl"
   oncancel={(event) => {
     event.preventDefault();
+    // Escape discards the title edit, matching the inline column rename.
+    titleDraft = null;
     close();
   }}
   onclick={(event) => {

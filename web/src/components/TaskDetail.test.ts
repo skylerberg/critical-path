@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import TaskDetail from './TaskDetail.svelte';
 import { board } from '../lib/board.svelte';
+import { drafts } from '../lib/drafts.svelte';
 import { router } from '../lib/router.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -46,6 +47,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
   board.taskImages = {};
+  drafts.clearAll();
   users.reset();
   board.currentProjectId = 'p1';
   board.project = {
@@ -176,6 +178,49 @@ describe('TaskDetail', () => {
 
     resolveDelete?.();
     await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith('/projects/p1'));
+  });
+
+  it('discards an uncommitted title edit when the overlay closes', async () => {
+    const update = vi.spyOn(board, 'updateTask').mockResolvedValue(true);
+    const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    await fireEvent.input(screen.getByLabelText('Task title'), {
+      target: { value: 'Design cards v2' },
+    });
+    first.unmount();
+    expect(update).not.toHaveBeenCalled();
+
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    const reopened = screen.getByLabelText('Task title');
+    expect(reopened).toHaveValue('Design cards');
+
+    await fireEvent.blur(reopened);
+
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('discards the title draft on Escape', async () => {
+    const update = vi.spyOn(board, 'updateTask').mockResolvedValue(true);
+    vi.spyOn(router, 'redirect').mockImplementation(() => {});
+    const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Scrapped' } });
+
+    await fireEvent(document.querySelector('dialog')!, new Event('cancel', { cancelable: true }));
+
+    first.unmount();
+
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('does not carry a title edit onto another task', async () => {
+    const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Only t1' } });
+    first.unmount();
+
+    render(TaskDetail, { taskId: 't2', closePath: '/projects/p1' });
+
+    expect(screen.getByLabelText('Task title')).toHaveValue('Cut prototype');
   });
 
   it('lists tasks that depend on this one and removes the reverse relation', async () => {

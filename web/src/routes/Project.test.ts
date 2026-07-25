@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
+import { drafts } from '../lib/drafts.svelte';
 import { router } from '../lib/router.svelte';
 import { selection } from '../lib/selection.svelte';
 import { shortcuts } from '../lib/shortcuts.svelte';
@@ -79,6 +80,7 @@ function requestedPaths(): string[] {
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  drafts.clearAll();
   selection.clear();
   shortcuts.reset();
   users.reset();
@@ -206,6 +208,35 @@ describe('Project', () => {
     expect(receiver.getAttribute('data-task-id')).toBe(created!.id);
     expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
     expect(input).toHaveFocus();
+  });
+
+  it('keeps a half-typed quick-add title across a project switch', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      const id = /^\/api\/projects\/(.+)$/.exec(new URL(request.url).pathname)?.[1];
+      if (id === undefined) {
+        return jsonResponse(200, { users: [] });
+      }
+      return jsonResponse(200, {
+        ...payload(id, []),
+        columns: [{ id: `${id}-todo`, name: 'To Do', position: 1000, is_done: false }],
+      });
+    });
+
+    const view = render(Project, { props: { projectId: 'p-draft-a', view: 'board' } });
+    await fireEvent.click(await screen.findByRole('button', { name: '+ Add task' }));
+    await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Half typed' } });
+
+    await view.rerender({ projectId: 'p-draft-b', view: 'board' });
+
+    expect(await screen.findByRole('button', { name: '+ Add task' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
+
+    await view.rerender({ projectId: 'p-draft-a', view: 'board' });
+
+    const restored = await waitFor(() => screen.getByLabelText('Task title'));
+    expect(restored).toHaveValue('Half typed');
+    expect(restored).not.toHaveFocus();
   });
 
   it('runs the keymap from the shell on the board view', async () => {
