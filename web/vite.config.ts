@@ -12,7 +12,10 @@ export default defineConfig({
     tailwindcss(),
     svelteTesting(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // `prompt` keeps `skipWaiting`/`clientsClaim` out of the generated worker so a
+      // new build parks in `waiting` instead of taking over a page that is already
+      // running; the app decides when to apply it.
+      registerType: 'prompt',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         id: '/',
