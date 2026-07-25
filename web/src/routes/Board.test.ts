@@ -44,6 +44,22 @@ function column(): HTMLElement {
   return section;
 }
 
+function scroller(): HTMLElement {
+  const element = document.querySelector('[aria-label="Columns"]')?.parentElement?.parentElement;
+  if (!(element instanceof HTMLElement)) {
+    throw new Error('Board scroller not rendered');
+  }
+  return element;
+}
+
+function addColumnTile(): HTMLElement {
+  const element = screen.getByRole('button', { name: '+ Add column' }).parentElement;
+  if (!(element instanceof HTMLElement)) {
+    throw new Error('Add column tile not rendered');
+  }
+  return element;
+}
+
 function cardTitles(): string[] {
   return [...column().querySelectorAll('a p')].map((p) => p.textContent ?? '');
 }
@@ -76,6 +92,23 @@ describe('Board display order', () => {
       .filter((a) => a.className.includes('opacity-30'))
       .map((a) => a.querySelector('p')?.textContent);
     expect(dimmed).toEqual(['plain one', 'plain two']);
+  });
+});
+
+describe('Board snapping', () => {
+  it('centers snap targets below md, aligns them to the start from md, and drops snapping at lg', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+
+    expect(scroller()).toHaveClass(
+      'snap-x',
+      'snap-mandatory',
+      'overscroll-x-contain',
+      'lg:snap-none'
+    );
+    for (const target of [column(), addColumnTile()]) {
+      expect(target).toHaveClass('snap-center', 'md:snap-start', 'snap-always');
+    }
   });
 });
 

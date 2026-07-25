@@ -147,7 +147,7 @@
   };
 </script>
 
-<div class="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto lg:snap-none">
+<div class="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overscroll-x-contain lg:snap-none">
   <div class="flex h-full items-stretch gap-3 p-3 lg:gap-4 lg:p-4">
     <div
       class="flex items-stretch gap-3 empty:hidden lg:gap-4"
@@ -166,7 +166,7 @@
         <section
           animate:flip={{ duration: FLIP_MS }}
           aria-label={column.name}
-          class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-start snap-always flex-col rounded-lg border border-edge bg-surface"
+          class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-center snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start"
         >
           <ColumnHeader {column} count={board.tasksInColumn(column.id).length} />
           <div
@@ -206,7 +206,7 @@
         </section>
       {/each}
     </div>
-    <div class="w-[85vw] max-w-72 shrink-0 snap-start snap-always">
+    <div class="w-[85vw] max-w-72 shrink-0 snap-center snap-always md:snap-start">
       {#if addingColumn}
         <form
           onsubmit={submitNewColumn}
