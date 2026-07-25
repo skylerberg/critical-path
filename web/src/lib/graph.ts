@@ -128,6 +128,15 @@ export function detectCycle(nodes: readonly GraphNode[], edges: readonly GraphEd
   return topologicalOrder(nodes, edges).length < nodes.length;
 }
 
+// Whatever a topological order cannot place is on a cycle or downstream of one.
+export function cycleNodeIds(
+  nodes: readonly GraphNode[],
+  edges: readonly GraphEdge[]
+): Set<string> {
+  const placed = new Set(topologicalOrder(nodes, edges));
+  return new Set(nodes.filter((node) => !placed.has(node.id)).map((node) => node.id));
+}
+
 export function layoutGraph(nodes: readonly GraphNode[], edges: readonly GraphEdge[]): GraphLayout {
   if (nodes.length === 0) {
     return { nodes: [], edges: [], width: 0, height: 0 };

@@ -24,9 +24,7 @@
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const images = $derived(board.taskImages[taskId]);
   const taskById = $derived(new Map(board.tasks.map((t) => [t.id, t])));
-  const doneColumnIds = $derived(
-    new Set(board.columns.filter((column) => column.is_done).map((column) => column.id))
-  );
+  const doneColumnIds = $derived(board.doneColumnIds);
   const blockers = $derived((task?.blocker_ids ?? []).flatMap((id) => taskById.get(id) ?? []));
   const openBlockerCount = $derived(
     blockers.filter((blocker) => !doneColumnIds.has(blocker.column_id)).length

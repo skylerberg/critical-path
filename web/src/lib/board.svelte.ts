@@ -1,7 +1,7 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import type { BoardColumn, BoardLabel, BoardProject, BoardTask } from './board-types';
-import { buildGraph, detectCycle } from './graph';
+import { buildGraph, cycleNodeIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
 import { append, between, prepend } from './positions';
@@ -169,11 +169,13 @@ class BoardStore {
     title: string,
     opts: { blockerOf?: string; blockedBy?: string } = {}
   ): Promise<string | null> {
-    const firstColumn = this.columns[0];
-    if (firstColumn === undefined) {
+    // A done column can sit first, and dropping a brand-new task straight into it
+    // would file it as finished — and hide it from the graph that just made it.
+    const column = this.columns.find((c) => !c.is_done) ?? this.columns[0];
+    if (column === undefined) {
       return null;
     }
-    const id = await this.createTask(firstColumn.id, title);
+    const id = await this.createTask(column.id, title);
     if (id === null) {
       return null;
     }
@@ -423,8 +425,16 @@ class BoardStore {
     // Reject a cycle-forming edge before applying it, so the graph never flashes
     // its full-screen cycle state and the backend 409 toast never stacks on ours.
     const { nodes, edges } = buildGraph(next, this.columns);
-    if (detectCycle(nodes, edges)) {
-      toasts.error('Adding this blocker would create a dependency cycle');
+    const onCycle = cycleNodeIds(nodes, edges);
+    if (onCycle.size > 0) {
+      // A done task on the loop is one the graph may not be drawing, so the edge
+      // that makes this a cycle can be nowhere on screen.
+      const throughDone = nodes.some((node) => onCycle.has(node.id) && node.isDone);
+      toasts.error(
+        throughDone
+          ? 'Adding this blocker would create a dependency cycle through a done task'
+          : 'Adding this blocker would create a dependency cycle'
+      );
       return false;
     }
     this.tasks = next;
@@ -479,6 +489,10 @@ class BoardStore {
     this.filterLabelIds = [];
     this.filterAssigneeIds = [];
     this.filterQuery = '';
+  }
+
+  get doneColumnIds(): Set<string> {
+    return new Set(this.columns.filter((column) => column.is_done).map((column) => column.id));
   }
 
   get hasActiveFilters(): boolean {
