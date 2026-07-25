@@ -77,13 +77,16 @@ class ShortcutController {
     // Selection nav and card-scoped actions are live only on the board view with no
     // overlay: the graph has no card list, and an open task owns its own keymap.
     const selectionActive = view === 'board' && overlayTaskId === undefined;
+    // The filter bar is part of the shared project header, so f reaches it from the
+    // graph too — but an open task overlay owns the key.
+    const filterBarActive = view !== null && overlayTaskId === undefined;
     if (selectionActive && this.#handleSelectionKey(event, projectId)) {
       return;
     }
 
     // l/a target the open overlay task first, else the board selection (null on the
     // graph, so they no-op there without an overlay).
-    this.#handleCommonKey(event, overlayTaskId, selectionActive);
+    this.#handleCommonKey(event, overlayTaskId, selectionActive, filterBarActive);
   };
 
   #completeChord(key: string, projectId: string | null): boolean {
@@ -138,13 +141,6 @@ class ShortcutController {
         this.quickAddColumn = columnId;
         break;
       }
-      case 'f':
-        // A modified press is the browser's find-in-page, not ours.
-        if (event.metaKey || event.ctrlKey || event.altKey) {
-          return false;
-        }
-        this.filterFocusRequested = true;
-        break;
       case 'd': {
         if (selectedId === null) {
           return false;
@@ -170,12 +166,20 @@ class ShortcutController {
   #handleCommonKey(
     event: KeyboardEvent,
     overlayTaskId: string | undefined,
-    selectionActive: boolean
+    selectionActive: boolean,
+    filterBarActive: boolean
   ): void {
     const target = overlayTaskId ?? (selectionActive ? selection.selectedTaskId : null);
     switch (event.key) {
       case '?':
         this.helpOpen = true;
+        break;
+      case 'f':
+        // A modified press is the browser's find-in-page, not ours.
+        if (!filterBarActive || event.metaKey || event.ctrlKey || event.altKey) {
+          return;
+        }
+        this.filterFocusRequested = true;
         break;
       case 'l':
         if (target === null) {

@@ -25,7 +25,7 @@ function task(id: string, columnId: string, blockerIds: string[] = []): BoardTas
 }
 
 // Extra `users` lets one mock answer both the board fetch and the project-scoped
-// users fetch the rendered view fires on load.
+// users fetch the project shell fires on load.
 function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users: [] } {
   return {
     users: [],
@@ -127,7 +127,7 @@ describe('Graph', () => {
     expect(screen.getByRole('link', { name: 'Open task Task a' })).toBe(anchor);
   });
 
-  it('hides the filter bar on the graph view', async () => {
+  it('renders the shared filter bar on the graph view with no duplicate label chips', async () => {
     const projectId = 'p-graph-filters';
     const withLabel = { ...task('a', 'todo'), label_ids: ['l1'] };
     fetchMock.mockImplementation(async () =>
@@ -139,8 +139,8 @@ describe('Graph', () => {
 
     render(Project, { props: { projectId, view: 'graph' } });
 
-    await screen.findByRole('heading', { name: 'Rulebook' });
-    expect(screen.queryByRole('group', { name: 'Filters' })).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('Filter tasks by title')).toBeInTheDocument();
+    expect(screen.getAllByText('art')).toHaveLength(1);
   });
 
   it('shows the no-dependencies hint and no legend when tasks have no blockers', async () => {
@@ -195,7 +195,10 @@ describe('Graph', () => {
 
     board.setFilterQuery('Task a');
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Clear filters' }));
+    // setFilterQuery propagates asynchronously, so the header has to be awaited.
+    const clear = await screen.findAllByRole('button', { name: 'Clear filters' });
+    expect(clear).toHaveLength(1);
+    await fireEvent.click(clear[0]!);
     expect(board.hasActiveFilters).toBe(false);
   });
 });

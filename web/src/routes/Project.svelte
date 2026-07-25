@@ -4,6 +4,7 @@
   import type { ProjectView } from '../lib/router.svelte';
   import { selection } from '../lib/selection.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
+  import { users } from '../lib/users.svelte';
   import ProjectHeader from '../components/ProjectHeader.svelte';
   import QuickAssigneeMenu from '../components/QuickAssigneeMenu.svelte';
   import QuickLabelMenu from '../components/QuickLabelMenu.svelte';
@@ -24,7 +25,16 @@
 
   $effect(() => {
     const id = projectId;
-    untrack(() => void board.load(id));
+    untrack(() => {
+      void board.load(id);
+    });
+  });
+
+  // The header's assignee filter lives in both views, so the project-scoped user
+  // list is the shell's to fetch, not the board's. Tracked, so invalidating the
+  // cache after a membership change refetches it.
+  $effect(() => {
+    void users.loadForProject(projectId);
   });
 
   // The shell owns the keymap so l/a/?/g and the quick menus reach both views and the
