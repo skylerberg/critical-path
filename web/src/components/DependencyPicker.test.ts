@@ -129,6 +129,21 @@ describe('DependencyPicker', () => {
     });
   });
 
+  describe('autofocus', () => {
+    it('focuses the search field on mount when asked', () => {
+      render(DependencyPicker, { taskId: 't1', direction: 'blocker', autofocus: true });
+
+      expect(screen.getByLabelText('Search tasks that block this one')).toHaveFocus();
+    });
+
+    it('leaves focus alone by default', () => {
+      render(DependencyPicker, { taskId: 't1', direction: 'blocker' });
+
+      expect(screen.getByLabelText('Search tasks that block this one')).not.toHaveFocus();
+      expect(document.activeElement).toBe(document.body);
+    });
+  });
+
   describe('keyboard navigation', () => {
     // Query 'cards' in the blocker picker on t1 yields the rows
     // [Print cards (t3), Sleeve cards (t4), Create "cards"].

@@ -15,11 +15,20 @@
     element = $bindable(null),
     class: className = '',
     id,
+    autofocus = false,
     ...rest
   }: Props = $props();
 
   const uid = $props.id();
   const inputId = $derived(id ?? `input-${uid}`);
+
+  // An action rather than the DOM attribute, which trips Svelte's a11y_autofocus
+  // rule and is inert in jsdom.
+  const maybeFocus = (node: HTMLInputElement): void => {
+    if (autofocus) {
+      node.focus();
+    }
+  };
 </script>
 
 <div class="flex flex-col gap-1">
@@ -30,6 +39,7 @@
     id={inputId}
     bind:this={element}
     bind:value
+    use:maybeFocus
     aria-invalid={error ? true : undefined}
     class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 aria-invalid:border-danger {className}"
     {...rest}

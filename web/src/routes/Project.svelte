@@ -7,6 +7,7 @@
   import { users } from '../lib/users.svelte';
   import ProjectHeader from '../components/ProjectHeader.svelte';
   import QuickAssigneeMenu from '../components/QuickAssigneeMenu.svelte';
+  import QuickDependencyMenu from '../components/QuickDependencyMenu.svelte';
   import QuickLabelMenu from '../components/QuickLabelMenu.svelte';
   import ShortcutHelp from '../components/ShortcutHelp.svelte';
   import TaskDetail from '../components/TaskDetail.svelte';
@@ -37,16 +38,21 @@
     void users.loadForProject(projectId);
   });
 
-  // The shell owns the keymap so l/a/?/g and the quick menus reach both views and the
-  // task overlay; the shortcut layer gates board-only nav keys by the route view.
+  // The shell owns the keymap so the quick menus and global keys reach both views and
+  // the task overlay; the shortcut layer gates board-only nav keys by the route view.
   $effect(() => {
     window.addEventListener('keydown', shortcuts.handleKeydown);
     return () => window.removeEventListener('keydown', shortcuts.handleKeydown);
   });
 
+  // A quick menu holds a task id, so it has to go with the selection on a project
+  // switch — otherwise it reopens pointing at a task the new board does not have.
   $effect(() => {
     if (projectId) {
-      untrack(() => selection.clear());
+      untrack(() => {
+        selection.clear();
+        shortcuts.closeMenus();
+      });
     }
   });
 
@@ -89,6 +95,13 @@
     <QuickAssigneeMenu
       taskId={shortcuts.assigneeMenu}
       onclose={() => (shortcuts.assigneeMenu = null)}
+    />
+  {/if}
+  {#if shortcuts.dependencyMenu !== null}
+    <QuickDependencyMenu
+      taskId={shortcuts.dependencyMenu.taskId}
+      direction={shortcuts.dependencyMenu.direction}
+      onclose={() => (shortcuts.dependencyMenu = null)}
     />
   {/if}
   {#if shortcuts.helpOpen}

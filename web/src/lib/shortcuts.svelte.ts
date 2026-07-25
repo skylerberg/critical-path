@@ -1,4 +1,5 @@
 import { board } from './board.svelte';
+import type { DependencyDirection } from './dependency-types';
 import { append } from './positions';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
@@ -21,6 +22,7 @@ class ShortcutController {
   helpOpen = $state(false);
   labelMenu = $state<string | null>(null);
   assigneeMenu = $state<string | null>(null);
+  dependencyMenu = $state<{ taskId: string; direction: DependencyDirection } | null>(null);
   quickAddColumn = $state<string | null>(null);
   filterFocusRequested = $state(false);
 
@@ -28,13 +30,19 @@ class ShortcutController {
   #gTimer: ReturnType<typeof setTimeout> | undefined;
 
   get anyMenuOpen(): boolean {
-    return this.helpOpen || this.labelMenu !== null || this.assigneeMenu !== null;
+    return (
+      this.helpOpen ||
+      this.labelMenu !== null ||
+      this.assigneeMenu !== null ||
+      this.dependencyMenu !== null
+    );
   }
 
   closeMenus(): void {
     this.helpOpen = false;
     this.labelMenu = null;
     this.assigneeMenu = null;
+    this.dependencyMenu = null;
   }
 
   reset(): void {
@@ -68,7 +76,7 @@ class ShortcutController {
     if (this.#gPending) {
       this.#gPending = false;
       clearTimeout(this.#gTimer);
-      if (this.#completeChord(event.key, projectId)) {
+      if (this.#completeChord(event.key.toLowerCase(), projectId)) {
         event.preventDefault();
         return;
       }
@@ -84,8 +92,8 @@ class ShortcutController {
       return;
     }
 
-    // l/a target the open overlay task first, else the board selection (null on the
-    // graph, so they no-op there without an overlay).
+    // The task-scoped keys target the open overlay task first, else the board
+    // selection (null on the graph, so they no-op there without an overlay).
     this.#handleCommonKey(event, overlayTaskId, selectionActive, filterBarActive);
   };
 
@@ -181,19 +189,32 @@ class ShortcutController {
         }
         this.filterFocusRequested = true;
         break;
+      // A modified press belongs to the browser (Cmd+L, Cmd+A, Cmd+B), not to us.
       case 'l':
-        if (target === null) {
+      case 'L':
+        if (target === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
         this.labelMenu = target;
         break;
       case 'a':
-        if (target === null) {
+      case 'A':
+        if (target === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
         this.assigneeMenu = target;
         break;
+      case 'b':
+      case 'B':
+        // CapsLock reports a plain press as 'B', so the direction comes from the
+        // modifier and never the character.
+        if (target === null || event.metaKey || event.ctrlKey || event.altKey) {
+          return;
+        }
+        this.dependencyMenu = { taskId: target, direction: event.shiftKey ? 'blocked' : 'blocker' };
+        break;
       case 'g':
+      case 'G':
         this.#armChord();
         break;
       case 'Escape':

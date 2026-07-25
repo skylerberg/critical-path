@@ -12,9 +12,15 @@ import type { ProjectView } from '../lib/router.svelte';
 
 // The shortcut layer reads the live route, so the shell keymap tests must drive the
 // router to the same view/overlay the component is rendered with.
-function pressKey(key: string, id: string, view: ProjectView, taskId?: string): void {
+function pressKey(
+  key: string,
+  id: string,
+  view: ProjectView,
+  taskId?: string,
+  init: KeyboardEventInit = {}
+): void {
   router.current = { name: 'project', params: { id, view, taskId } };
-  window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true }));
+  window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init }));
 }
 
 function task(id: string, columnId: string, title: string): BoardTask {
@@ -231,5 +237,51 @@ describe('Project', () => {
     pressKey('l', projectId, 'graph', 't1');
     expect(await screen.findByRole('heading', { level: 2, name: 'Labels' })).toBeInTheDocument();
     expect(shortcuts.labelMenu).toBe('t1');
+  });
+
+  it('opens a focused blocked-by picker for the board selection with b', async () => {
+    const projectId = 'p-shell-board-blockers';
+    mockProjectApi(projectId, [
+      task('t1', 'todo', 'Design cards'),
+      task('t2', 'todo', 'Cut cards'),
+    ]);
+
+    render(Project, { props: { projectId, view: 'board' } });
+
+    await screen.findByText('Design cards');
+    selection.set('t1');
+    pressKey('b', projectId, 'board');
+
+    const heading = await screen.findByRole('heading', {
+      level: 2,
+      name: 'Blocked by — Design cards',
+    });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+
+    const menu = heading.closest('dialog')!;
+    const input = within(menu).getByLabelText<HTMLInputElement>('Search tasks that block this one');
+    expect(input).toHaveFocus();
+
+    const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
+    await fireEvent.input(input, { target: { value: 'cut' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    expect(spy).toHaveBeenCalledWith('t1', 't2');
+  });
+
+  it('opens the blocks picker for the open task with Shift+B from the graph overlay', async () => {
+    const projectId = 'p-shell-graph-blocks';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'graph', taskId: 't1' } });
+
+    await screen.findByLabelText('Task title');
+    pressKey('B', projectId, 'graph', 't1', { shiftKey: true });
+
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Blocks — Design cards' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+    // The open task detail renders both pickers with the same aria-labels, so the
+    // query has to be scoped to the quick menu's own dialog.
+    const menu = heading.closest('dialog')!;
+    expect(within(menu).getByLabelText('Search tasks this one blocks')).toHaveFocus();
   });
 });
