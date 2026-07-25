@@ -713,3 +713,104 @@ describe('Graph new-task drafts', () => {
     expect(screen.queryByRole('textbox', { name: 'New task title' })).not.toBeInTheDocument();
   });
 });
+
+describe('Graph done-task visibility', () => {
+  it('hides done tasks and the edges into them by default', async () => {
+    const projectId = 'p-graph-done-default';
+    const tasks = [task('a', 'done'), task('b', 'todo', ['a']), task('c', 'todo', ['b'])];
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    expect(container.querySelector('[data-node-id="a"]')).toBeNull();
+    expect(container.querySelectorAll('path[marker-end]')).toHaveLength(1);
+  });
+
+  it('shows them again when the toggle is pressed, and hides them when pressed back', async () => {
+    const projectId = 'p-graph-done-toggle';
+    const tasks = [task('a', 'done'), task('b', 'todo', ['a'])];
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    const toggle = await screen.findByRole('button', { name: 'Show done (1)' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    await fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    expect(container.querySelectorAll('path[marker-end]')).toHaveLength(1);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    await fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+  });
+
+  it('offers no toggle when the project has nothing done', async () => {
+    const projectId = 'p-graph-done-none';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    expect(screen.queryByRole('button', { name: /Show done/ })).not.toBeInTheDocument();
+  });
+
+  it('explains the empty graph when every task is done rather than telling you to add tasks', async () => {
+    const projectId = 'p-graph-done-all';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'done'), task('b', 'done', ['a'])]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    expect(await screen.findByText('Everything here is done')).toBeInTheDocument();
+    expect(screen.queryByText('No tasks to graph')).not.toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Show done (2)' }));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+  });
+
+  it('keeps the toggle on across a trip to the board and resets it on another project', async () => {
+    const projectId = 'p-graph-done-persist';
+    const tasks = [task('a', 'done'), task('b', 'todo')];
+    fetchMock.mockImplementation(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      const id = url.includes('p-graph-done-other') ? 'p-graph-done-other' : projectId;
+      return jsonResponse(200, payload(id, tasks));
+    });
+
+    const view = render(Project, { props: { projectId, view: 'graph' } });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Show done (1)' }));
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+
+    await view.rerender({ projectId, view: 'board' });
+    await view.rerender({ projectId, view: 'graph' });
+    expect(await screen.findByRole('button', { name: 'Show done (1)' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+
+    await view.rerender({ projectId: 'p-graph-done-other', view: 'graph' });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Show done (1)' })).toHaveAttribute(
+        'aria-pressed',
+        'false'
+      );
+    });
+  });
+});

@@ -28,7 +28,21 @@
   const FIT_PADDING = 32;
   const FIT_MIN_WIDTH = 640;
 
-  const result: GraphResult = $derived(computeGraph(board.tasks, board.columns));
+  const doneColumnIds = $derived(
+    new Set(board.columns.filter((column) => column.is_done).map((column) => column.id))
+  );
+  const doneTaskCount = $derived(
+    board.tasks.filter((task) => doneColumnIds.has(task.column_id)).length
+  );
+  // Dropping the nodes is enough to drop their edges — an edge whose blocker is not
+  // itself in the task set is never built.
+  const graphTasks = $derived(
+    board.graphShowDone
+      ? board.tasks
+      : board.tasks.filter((task) => !doneColumnIds.has(task.column_id))
+  );
+
+  const result: GraphResult = $derived(computeGraph(graphTasks, board.columns));
   const layout = $derived(result.kind === 'ok' ? result.layout : null);
   const taskById = $derived(new Map<string, BoardTask>(board.tasks.map((t) => [t.id, t])));
 
@@ -64,8 +78,11 @@
   let fittedFor: string | null = null;
   $effect(() => {
     const current = layout;
-    if (!current || current.nodes.length === 0 || fittedFor === projectId) return;
-    fittedFor = projectId;
+    // Toggling done tasks can change the graph's extent enough that the old viewbox
+    // frames nothing, so it re-fits like a fresh project does.
+    const key = `${projectId}:${board.graphShowDone}`;
+    if (!current || current.nodes.length === 0 || fittedFor === key) return;
+    fittedFor = key;
     let x = -FIT_PADDING;
     let w = current.width + FIT_PADDING * 2;
     if (w < FIT_MIN_WIDTH) {
@@ -442,7 +459,7 @@
 <div class="relative min-h-0 flex-1 overflow-hidden">
   {#if result.kind !== 'cycle'}
     <div class="pointer-events-none absolute top-0 left-0 z-10 p-3">
-      <div class="pointer-events-auto flex items-center">
+      <div class="pointer-events-auto flex flex-wrap items-center gap-2">
         {#if newTaskOpen}
           <form
             onsubmit={submitNewTask}
@@ -498,6 +515,30 @@
             New task
           </button>
         {/if}
+        {#if doneTaskCount > 0}
+          <button
+            type="button"
+            onclick={() => (board.graphShowDone = !board.graphShowDone)}
+            aria-pressed={board.graphShowDone}
+            class="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-sm font-medium shadow-sm {board.graphShowDone
+              ? 'border-accent bg-accent-soft text-ink'
+              : 'border-edge bg-surface text-muted hover:text-ink'}"
+          >
+            <svg
+              class="size-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            Show done ({doneTaskCount})
+          </button>
+        {/if}
       </div>
     </div>
   {/if}
@@ -511,12 +552,20 @@
     </div>
   {:else if layout === null || layout.nodes.length === 0}
     <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-      <p class="text-base font-medium">No tasks to graph</p>
-      <p class="max-w-sm text-sm text-muted" use:link>
-        Add tasks on the
-        <a href="/projects/{projectId}" class="text-accent underline">board</a>, then link them to
-        see the dependency graph.
-      </p>
+      {#if doneTaskCount > 0}
+        <p class="text-base font-medium">Everything here is done</p>
+        <p class="max-w-sm text-sm text-muted">
+          Use <span class="font-medium text-ink">Show done</span> to bring the finished tasks back into
+          the graph.
+        </p>
+      {:else}
+        <p class="text-base font-medium">No tasks to graph</p>
+        <p class="max-w-sm text-sm text-muted" use:link>
+          Add tasks on the
+          <a href="/projects/{projectId}" class="text-accent underline">board</a>, then link them to
+          see the dependency graph.
+        </p>
+      {/if}
     </div>
   {:else}
     <svg

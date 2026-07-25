@@ -46,6 +46,8 @@ class BoardStore {
   filterLabelIds = $state<string[]>([]);
   filterAssigneeIds = $state<string[]>([]);
   filterQuery = $state('');
+  // In the store rather than the view so it survives switching views and back.
+  graphShowDone = $state(false);
 
   // Monotonic tokens rather than project-id checks: ids cannot tell a stale
   // request apart from a fresh one across a P1->P2->P1 flip.
@@ -113,6 +115,7 @@ class BoardStore {
     this.filterLabelIds = [];
     this.filterAssigneeIds = [];
     this.filterQuery = '';
+    this.graphShowDone = false;
   }
 
   tasksInColumn(columnId: string): BoardTask[] {
