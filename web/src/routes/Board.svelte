@@ -79,9 +79,7 @@
 
   const labelById = $derived(new Map(board.labels.map((label) => [label.id, label])));
   const taskById = $derived(new Map(board.tasks.map((task) => [task.id, task])));
-  const doneColumnIds = $derived(
-    new Set(board.columns.filter((column) => column.is_done).map((column) => column.id))
-  );
+  const doneColumnIds = $derived(board.doneColumnIds);
 
   function labelsFor(task: BoardTask): BoardLabel[] {
     return task.label_ids.flatMap((id) => labelById.get(id) ?? []);

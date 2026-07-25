@@ -713,3 +713,173 @@ describe('Graph new-task drafts', () => {
     expect(screen.queryByRole('textbox', { name: 'New task title' })).not.toBeInTheDocument();
   });
 });
+
+describe('Graph done-task visibility', () => {
+  it('hides done tasks and the edges into them by default', async () => {
+    const projectId = 'p-graph-done-default';
+    const tasks = [task('a', 'done'), task('b', 'todo', ['a']), task('c', 'todo', ['b'])];
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    expect(container.querySelector('[data-node-id="a"]')).toBeNull();
+    expect(container.querySelectorAll('path[marker-end]')).toHaveLength(1);
+  });
+
+  it('shows them again when the toggle is pressed, and hides them when pressed back', async () => {
+    const projectId = 'p-graph-done-toggle';
+    const tasks = [task('a', 'done'), task('b', 'todo', ['a'])];
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    const toggle = await screen.findByRole('button', { name: 'Show done (1)' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    await fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    expect(container.querySelectorAll('path[marker-end]')).toHaveLength(1);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    await fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+  });
+
+  it('offers no toggle when the project has nothing done', async () => {
+    const projectId = 'p-graph-done-none';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    expect(screen.queryByRole('button', { name: /Show done/ })).not.toBeInTheDocument();
+  });
+
+  it('explains the empty graph when every task is done rather than telling you to add tasks', async () => {
+    const projectId = 'p-graph-done-all';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'done'), task('b', 'done', ['a'])]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    expect(await screen.findByText('Everything here is done')).toBeInTheDocument();
+    expect(screen.queryByText('No tasks to graph')).not.toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Show done (2)' }));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+  });
+
+  it('keeps the toggle on across a trip to the board and resets it on another project', async () => {
+    const projectId = 'p-graph-done-persist';
+    fetchMock.mockImplementation(async (input) => {
+      const { pathname } = new URL((input as Request).url);
+      return pathname.includes('p-graph-done-other')
+        ? jsonResponse(200, payload('p-graph-done-other', [task('x', 'done'), task('y', 'todo')]))
+        : jsonResponse(200, payload(projectId, [task('a', 'done'), task('b', 'todo')]));
+    });
+
+    const view = render(Project, { props: { projectId, view: 'graph' } });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Show done (1)' }));
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('[data-node-id="a"]')).toHaveLength(1);
+    });
+
+    await view.rerender({ projectId, view: 'board' });
+    await view.rerender({ projectId, view: 'graph' });
+    expect(await screen.findByRole('button', { name: 'Show done (1)' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+
+    await view.rerender({ projectId: 'p-graph-done-other', view: 'graph' });
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-node-id="y"]')).not.toBeNull();
+    });
+    expect(view.container.querySelector('[data-node-id="x"]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Show done (1)' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('hides a done task that a live task blocks, not just done blockers', async () => {
+    const projectId = 'p-graph-done-downstream';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'done', ['a'])]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    expect(container.querySelector('[data-node-id="a"]')).not.toBeNull();
+    expect(container.querySelectorAll('path[marker-end]')).toHaveLength(0);
+  });
+
+  it('keeps the toggle reachable when showing done tasks reveals a cycle', async () => {
+    const projectId = 'p-graph-done-cycle';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(
+        200,
+        payload(projectId, [task('a', 'done', ['b']), task('b', 'done', ['a']), task('c', 'todo')])
+      )
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    const toggle = await screen.findByRole('button', { name: 'Show done (2)' });
+    await fireEvent.click(toggle);
+    expect(await screen.findByText('Dependency cycle detected')).toBeInTheDocument();
+
+    // The only way out of the cycle state the click created.
+    await fireEvent.click(screen.getByRole('button', { name: 'Show done (2)' }));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+  });
+
+  it('creates graph tasks in the first column that is not done', async () => {
+    const projectId = 'p-graph-done-create';
+    const payloadWithDoneFirst = {
+      ...payload(projectId, [task('a', 'todo')]),
+      columns: [
+        { id: 'done', name: 'Done', position: 1000, is_done: true },
+        { id: 'todo', name: 'To Do', position: 2000, is_done: false },
+      ],
+    };
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.method !== 'GET') {
+        return jsonResponse(201, {});
+      }
+      return jsonResponse(200, payloadWithDoneFirst);
+    });
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New task' }));
+    const input = await screen.findByRole('textbox', { name: 'New task title' });
+    await fireEvent.input(input, { target: { value: 'Playtest' } });
+    await fireEvent.submit(input.closest('form')!);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    expect(board.tasks.find((t) => t.title === 'Playtest')?.column_id).toBe('todo');
+  });
+});

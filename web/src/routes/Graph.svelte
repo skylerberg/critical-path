@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import { focusIf } from '../lib/actions';
   import { board } from '../lib/board.svelte';
@@ -12,6 +13,7 @@
     computeGraph,
     edgePath,
     panToNode,
+    type GraphLayout,
     type GraphResult,
     type LayoutEdge,
     type LayoutPoint,
@@ -28,7 +30,17 @@
   const FIT_PADDING = 32;
   const FIT_MIN_WIDTH = 640;
 
-  const result: GraphResult = $derived(computeGraph(board.tasks, board.columns));
+  const doneColumnIds = $derived(board.doneColumnIds);
+  const doneTaskCount = $derived(
+    board.tasks.filter((task) => doneColumnIds.has(task.column_id)).length
+  );
+  const graphTasks = $derived(
+    board.graphShowDone
+      ? board.tasks
+      : board.tasks.filter((task) => !doneColumnIds.has(task.column_id))
+  );
+
+  const result: GraphResult = $derived(computeGraph(graphTasks, board.columns));
   const layout = $derived(result.kind === 'ok' ? result.layout : null);
   const taskById = $derived(new Map<string, BoardTask>(board.tasks.map((t) => [t.id, t])));
 
@@ -46,12 +58,15 @@
 
   let cycleToastedFor: string | null = null;
   $effect(() => {
+    // Keyed by the toggle too, so flipping done tasks back and forth over a cycle
+    // that only they form does not re-toast on every flip.
+    const key = `${projectId}:${board.graphShowDone}`;
     if (result.kind === 'cycle') {
-      if (cycleToastedFor !== projectId) {
-        cycleToastedFor = projectId;
+      if (cycleToastedFor !== key) {
+        cycleToastedFor = key;
         toasts.error('Dependency cycle detected — the graph cannot be drawn.');
       }
-    } else if (cycleToastedFor === projectId) {
+    } else if (cycleToastedFor === key) {
       // Re-arm so a genuine cycle that appears later still toasts.
       cycleToastedFor = null;
     }
@@ -61,11 +76,25 @@
   let vb = $state<ViewBox>({ x: 0, y: 0, w: 1200, h: 800 });
   let panning = $state(false);
 
-  let fittedFor: string | null = null;
+  function framesContent(box: ViewBox, drawing: GraphLayout): boolean {
+    return (
+      box.x < drawing.width && box.x + box.w > 0 && box.y < drawing.height && box.y + box.h > 0
+    );
+  }
+
+  let fittedProject: string | null = null;
+  let fittedShowDone = false;
   $effect(() => {
     const current = layout;
-    if (!current || current.nodes.length === 0 || fittedFor === projectId) return;
-    fittedFor = projectId;
+    if (!current || current.nodes.length === 0) return;
+    const showDone = board.graphShowDone;
+    if (fittedProject === projectId && fittedShowDone === showDone) return;
+    const toggled = fittedProject === projectId;
+    fittedProject = projectId;
+    fittedShowDone = showDone;
+    // Toggling done tasks keeps a deliberate pan or zoom, unless hiding them left
+    // the viewbox pointing at empty space.
+    if (toggled && untrack(() => framesContent(vb, current))) return;
     let x = -FIT_PADDING;
     let w = current.width + FIT_PADDING * 2;
     if (w < FIT_MIN_WIDTH) {
@@ -440,9 +469,9 @@
 </script>
 
 <div class="relative min-h-0 flex-1 overflow-hidden">
-  {#if result.kind !== 'cycle'}
-    <div class="pointer-events-none absolute top-0 left-0 z-10 p-3">
-      <div class="pointer-events-auto flex items-center">
+  <div class="pointer-events-none absolute top-0 left-0 z-10 p-3">
+    <div class="pointer-events-auto flex flex-wrap items-center gap-2">
+      {#if result.kind !== 'cycle'}
         {#if newTaskOpen}
           <form
             onsubmit={submitNewTask}
@@ -498,9 +527,33 @@
             New task
           </button>
         {/if}
-      </div>
+      {/if}
+      {#if doneTaskCount > 0}
+        <button
+          type="button"
+          onclick={() => (board.graphShowDone = !board.graphShowDone)}
+          aria-pressed={board.graphShowDone}
+          class="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-sm font-medium shadow-sm {board.graphShowDone
+            ? 'border-accent bg-accent-soft text-ink'
+            : 'border-edge bg-surface text-muted hover:text-ink'}"
+        >
+          <svg
+            class="size-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+          Show done ({doneTaskCount})
+        </button>
+      {/if}
     </div>
-  {/if}
+  </div>
   {#if result.kind === 'cycle'}
     <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
       <p class="text-base font-medium">Dependency cycle detected</p>
@@ -508,15 +561,29 @@
         These tasks block each other in a loop, so the graph cannot be drawn. Break one of the
         circular dependencies to restore the view.
       </p>
+      {#if board.graphShowDone && doneTaskCount > 0}
+        <p class="max-w-sm text-sm text-muted">
+          If the loop runs through finished work, turning
+          <span class="font-medium text-ink">Show done</span> back off will draw the rest.
+        </p>
+      {/if}
     </div>
   {:else if layout === null || layout.nodes.length === 0}
     <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-      <p class="text-base font-medium">No tasks to graph</p>
-      <p class="max-w-sm text-sm text-muted" use:link>
-        Add tasks on the
-        <a href="/projects/{projectId}" class="text-accent underline">board</a>, then link them to
-        see the dependency graph.
-      </p>
+      {#if doneTaskCount > 0}
+        <p class="text-base font-medium">Everything here is done</p>
+        <p class="max-w-sm text-sm text-muted">
+          Use <span class="font-medium text-ink">Show done</span> to bring the finished tasks back into
+          the graph.
+        </p>
+      {:else}
+        <p class="text-base font-medium">No tasks to graph</p>
+        <p class="max-w-sm text-sm text-muted" use:link>
+          Add tasks on the
+          <a href="/projects/{projectId}" class="text-accent underline">board</a>, then link them to
+          see the dependency graph.
+        </p>
+      {/if}
     </div>
   {:else}
     <svg
