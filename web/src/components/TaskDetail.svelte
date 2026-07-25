@@ -208,7 +208,7 @@
                   type="button"
                   aria-label="Remove blocking task {blocker.title}"
                   onclick={() => void board.removeBlocker(taskId, blocker.id)}
-                  class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger"
+                  class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
                 >
                   Remove
                 </button>
@@ -236,7 +236,7 @@
                   type="button"
                   aria-label="Remove blocked task {dependent.title}"
                   onclick={() => void board.removeBlocker(dependent.id, taskId)}
-                  class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger"
+                  class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
                 >
                   Remove
                 </button>
