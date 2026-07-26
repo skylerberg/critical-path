@@ -50,7 +50,9 @@ unset otherwise, since the header is client-forgeable.
 Every project is shared per-project: it is visible to its creator and to the
 users in its `project_member` set. The creator has implicit access and is
 never stored as a member row (`member_ids` in project responses never
-contains `created_by`). Inaccessible projects return 404 everywhere (never
+contains `created_by`). Ownership is transferable, and a transfer swaps the
+two representations: the incoming owner's member row is deleted and the
+outgoing owner gains one. Inaccessible projects return 404 everywhere (never
 403), including as a copy source. Management is open: anyone with access can
 manage the member set, and a member may remove themselves to leave.
 
@@ -63,6 +65,16 @@ manage the member set, and a member may remove themselves to leave.
   exact, case-insensitive email and returns `{ user }` (with `avatar_url`).
   Unknown emails return 404; adding an existing member or the creator is an
   idempotent no-op.
+- `PUT /api/projects/:id/owner` (`{ user_id }`) transfers ownership and
+  returns the updated project. This is the one privileged project operation:
+  only the current creator may call it (other members get 403, non-accessors
+  404). `user_id` must already be a member (422 otherwise), passing your own
+  id is a no-op, and task assignments are untouched. Afterwards the outgoing
+  creator is an ordinary member and can leave via `PUT /:id/members`.
+
+`project.created_by` is `ON DELETE RESTRICT`, so an account cannot be deleted
+while it still owns a project — ownership has to move (or the project has to
+go) first.
 
 Copied projects start personal: members are never copied from the source.
 `GET /api/users` returns the caller plus every user sharing at least one
