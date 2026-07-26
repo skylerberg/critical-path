@@ -69,6 +69,10 @@ export const unauthorizedErrorResponse = errorResponse(401, 'Authentication requ
 export const forbiddenErrorResponse = errorResponse(403, 'Forbidden - insufficient permissions');
 export const notFoundErrorResponse = errorResponse(404, 'Not Found');
 export const conflictErrorResponse = errorResponse(409, 'Conflict - resource already exists');
+export const preconditionConflictErrorResponse = errorResponse(
+  409,
+  'Conflict - the task changed since it was loaded'
+);
 export const dependencyCycleErrorResponse = errorResponse(
   409,
   'Conflict - the blocker would close a dependency cycle',

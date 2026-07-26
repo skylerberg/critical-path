@@ -30,6 +30,7 @@ import {
   unauthorizedErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
+  preconditionConflictErrorResponse,
   dependencyCycleErrorResponse,
   validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
@@ -343,7 +344,11 @@ router.patch(
     description:
       'Update title, description (a Tiptap doc, or null to clear it), or move the task by ' +
       'sending column_id and position together. The new column must belong to the task’s ' +
-      'project; violations return 422 with a plain error body. Bumps updated_at.',
+      'project; violations return 422 with a plain error body. Bumps updated_at. ' +
+      'expected_updated_at is an optimistic-concurrency precondition on the task’s content: ' +
+      'it is honored only when the patch includes title or description, a patch that only ' +
+      'moves the task is always last-write-wins and ignores it, and a precondition that does ' +
+      'not match the stored updated_at returns 409 and writes nothing.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -357,6 +362,7 @@ router.patch(
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
+      ...preconditionConflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -373,6 +379,26 @@ router.patch(
 
     if (body.column_id !== undefined) {
       await assertColumnInProject(db, body.column_id, project.id);
+    }
+
+    const guardsContent = body.title !== undefined || 'description' in body;
+    if (guardsContent && body.expected_updated_at !== undefined) {
+      // Without the row lock two concurrent guarded patches both read the pre-update
+      // timestamp, both pass the check, and both commit.
+      const current = await db
+        .selectFrom('task')
+        .select('task.updated_at')
+        .where('task.id', '=', id)
+        .forNoKeyUpdate()
+        .executeTakeFirst();
+      if (!current) {
+        throw new AppError(404, 'Task not found');
+      }
+      // Compared in JS, never in SQL: timestamptz keeps microseconds the millisecond-precision
+      // ISO string a client echoes back cannot carry.
+      if (current.updated_at.getTime() !== Date.parse(body.expected_updated_at)) {
+        throw new AppError(409, 'This task changed since you loaded it');
+      }
     }
 
     await db
