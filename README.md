@@ -74,7 +74,9 @@ manage the member set, and a member may remove themselves to leave.
 
 `project.created_by` is `ON DELETE RESTRICT`, so an account cannot be deleted
 while it still owns a project — ownership has to move (or the project has to
-go) first.
+go) first. Neither being added to a project nor being handed one requires any
+acceptance from the recipient, so someone given a project they do not want has
+to transfer it back or delete it before they can delete their account.
 
 Copied projects start personal: members are never copied from the source.
 `GET /api/users` returns the caller plus every user sharing at least one

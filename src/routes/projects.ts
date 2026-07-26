@@ -87,6 +87,22 @@ async function fetchMemberIds(db: Kysely<DB>, projectId: string): Promise<string
   return rows.map((row) => row.user_id);
 }
 
+// Every project_member write decides what to write from created_by, so that
+// read has to hold the project row: without the lock an ownership transfer can
+// commit mid-request and leave the new creator holding a member row.
+async function lockProject(db: Kysely<DB>, projectId: string): Promise<ProjectRow> {
+  const row = await db
+    .selectFrom('project')
+    .select(PROJECT_COLUMNS)
+    .where('id', '=', projectId)
+    .forUpdate()
+    .executeTakeFirst();
+  if (!row) {
+    throw new AppError(404, 'Project not found');
+  }
+  return row;
+}
+
 // project_created/project_updated carry the projects-list item shape so a
 // client that just gained visibility can upsert without a refetch.
 async function fetchTaskCounts(
@@ -567,7 +583,8 @@ router.put(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await assertProjectAccess(db, user.id, id);
+    await assertProjectAccess(db, user.id, id);
+    const project = await lockProject(db, id);
 
     const desired = [...new Set(user_ids)].filter((userId) => userId !== project.created_by);
 
@@ -652,7 +669,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await assertProjectAccess(db, user.id, id);
+    await assertProjectAccess(db, user.id, id);
 
     const target = await db
       .selectFrom('app_user')
@@ -663,6 +680,7 @@ router.post(
       throw new AppError(404, 'User not found');
     }
 
+    const project = await lockProject(db, id);
     if (target.id !== project.created_by) {
       await db
         .insertInto('project_member')
@@ -724,7 +742,8 @@ router.put(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await assertProjectAccess(db, user.id, id);
+    await assertProjectAccess(db, user.id, id);
+    const project = await lockProject(db, id);
     if (project.created_by !== user.id) {
       throw new AppError(403, 'Only the project owner can transfer ownership');
     }
@@ -737,18 +756,12 @@ router.put(
       throw new AppError(422, 'user_id must reference a project member');
     }
 
-    // The created_by predicate serialises concurrent transfers on the project
-    // row; the loser sees the committed new owner and 403s.
     const row = await db
       .updateTable('project')
       .set({ created_by: user_id })
       .where('id', '=', id)
-      .where('created_by', '=', user.id)
       .returning(PROJECT_COLUMNS)
-      .executeTakeFirst();
-    if (!row) {
-      throw new AppError(403, 'Only the project owner can transfer ownership');
-    }
+      .executeTakeFirstOrThrow();
 
     await db
       .deleteFrom('project_member')

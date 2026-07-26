@@ -212,6 +212,56 @@ describe('PUT /api/projects/:id/owner', () => {
     expect(assignees.map((row) => row.user_id).sort()).toEqual([owner.id, member.id].sort());
   });
 
+  it('serialises a member edit against a concurrent ownership transfer', async () => {
+    const third = await ctx.createUser('transfer-race');
+    const board = await createProject('transfer race');
+    const projectId = board.project.id;
+    const seed = await ctx
+      .request(owner.token)
+      .put(`/api/projects/${projectId}/members`, { user_ids: [member.id, third.id] });
+    expect(seed.status).toBe(204);
+
+    const trx = await db.startTransaction().execute();
+    await trx.selectFrom('project').select('id').where('id', '=', projectId).forUpdate().execute();
+
+    // The member set this sends is the pre-transfer one, so without the row
+    // lock it would re-add the incoming owner as a member of their own project.
+    const edit = ctx
+      .request(third.token)
+      .put(`/api/projects/${projectId}/members`, { user_ids: [member.id, third.id] });
+    const blocked = Symbol('blocked');
+    const raced = await Promise.race<Response | symbol>([
+      edit,
+      new Promise<symbol>((resolve) => setTimeout(() => resolve(blocked), 300)),
+    ]);
+
+    try {
+      expect(raced).toBe(blocked);
+      await trx
+        .updateTable('project')
+        .set({ created_by: member.id })
+        .where('id', '=', projectId)
+        .execute();
+      await trx
+        .deleteFrom('project_member')
+        .where('project_id', '=', projectId)
+        .where('user_id', '=', member.id)
+        .execute();
+      await trx
+        .insertInto('project_member')
+        .values({ project_id: projectId, user_id: owner.id })
+        .execute();
+      await trx.commit().execute();
+    } catch (err) {
+      await trx.rollback().execute();
+      throw err;
+    }
+
+    expect((await edit).status).toBe(204);
+    expect(await createdBy(projectId)).toBe(member.id);
+    expect(await memberRows(projectId)).toEqual([third.id]);
+  });
+
   it('refuses to delete an account that still owns a project, and allows it once ownership moves', async () => {
     const doomed = await ctx.createUser('transfer-doomed');
     const projectId = newId();
@@ -224,7 +274,11 @@ describe('PUT /api/projects/:id/owner', () => {
       .request(doomed.token)
       .put(`/api/projects/${projectId}/members`, { user_ids: [member.id] });
 
-    await expect(db.deleteFrom('app_user').where('id', '=', doomed.id).execute()).rejects.toThrow();
+    await expect(
+      db.deleteFrom('app_user').where('id', '=', doomed.id).execute()
+    ).rejects.toMatchObject({ code: '23001', constraint: 'project_created_by_fkey' });
+    expect(await createdBy(projectId)).toBe(doomed.id);
+    expect(await memberRows(projectId)).toEqual([member.id]);
 
     const transfer = await ctx
       .request(doomed.token)
