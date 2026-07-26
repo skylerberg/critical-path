@@ -470,4 +470,17 @@ describe('Board filter scrolling', () => {
     expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
     expect(taskList().scrollTop).toBe(240);
   });
+
+  it('ignores a filter edit that only changes the query case', async () => {
+    board.setFilterQuery('match');
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    taskList().scrollTop = 240;
+
+    board.setFilterQuery('MATCH');
+    await tick();
+
+    expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
+    expect(taskList().scrollTop).toBe(240);
+  });
 });

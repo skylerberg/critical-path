@@ -495,12 +495,21 @@ class BoardStore {
     return new Set(this.columns.filter((column) => column.is_done).map((column) => column.id));
   }
 
+  get #normalizedQuery(): string {
+    return this.filterQuery.trim().toLowerCase();
+  }
+
   get hasActiveFilters(): boolean {
     return (
       this.filterLabelIds.length > 0 ||
       this.filterAssigneeIds.length > 0 ||
-      this.filterQuery.trim() !== ''
+      this.#normalizedQuery !== ''
     );
+  }
+
+  /** Changes only when the filter changes in a way that can repartition a column. */
+  get filterSignature(): string {
+    return JSON.stringify([this.#normalizedQuery, this.filterLabelIds, this.filterAssigneeIds]);
   }
 
   taskMatchesFilters(task: BoardTask): boolean {
@@ -510,7 +519,7 @@ class BoardStore {
     const assigneeOk =
       this.filterAssigneeIds.length === 0 ||
       task.assignee_ids.some((id) => this.filterAssigneeIds.includes(id));
-    const query = this.filterQuery.trim().toLowerCase();
+    const query = this.#normalizedQuery;
     const queryOk = query === '' || task.title.toLowerCase().includes(query);
     return labelOk && assigneeOk && queryOk;
   }

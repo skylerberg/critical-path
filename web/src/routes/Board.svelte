@@ -81,12 +81,6 @@
   const taskById = $derived(new Map(board.tasks.map((task) => [task.id, task])));
   const doneColumnIds = $derived(board.doneColumnIds);
 
-  // Exactly the inputs that repartition a column, trimmed the same way the store
-  // trims them, so a no-op edit does not yank every list back to the top.
-  const filterSignature = $derived(
-    JSON.stringify([board.filterQuery.trim(), board.filterLabelIds, board.filterAssigneeIds])
-  );
-
   function labelsFor(task: BoardTask): BoardLabel[] {
     return task.label_ids.flatMap((id) => labelById.get(id) ?? []);
   }
@@ -190,7 +184,7 @@
           <div
             class="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2"
             aria-label="{column.name} tasks"
-            use:scrollToTopOn={filterSignature}
+            use:scrollToTopOn={board.filterSignature}
             use:dndzone={{
               items: localTasks[column.id] ?? [],
               type: 'task',

@@ -393,6 +393,35 @@ describe('taskMatchesFilters title query', () => {
   });
 });
 
+describe('filterSignature', () => {
+  it('is unchanged by query edits the matcher normalizes away', () => {
+    board.setFilterQuery('alpha');
+    const signature = board.filterSignature;
+
+    board.setFilterQuery('  ALPHA ');
+
+    expect(board.filterSignature).toBe(signature);
+  });
+
+  it('changes for every filter dimension and returns to the unfiltered value', () => {
+    const unfiltered = board.filterSignature;
+
+    board.setFilterQuery('alpha');
+    const withQuery = board.filterSignature;
+    expect(withQuery).not.toBe(unfiltered);
+
+    board.toggleLabelFilter('l1');
+    const withLabel = board.filterSignature;
+    expect(withLabel).not.toBe(withQuery);
+
+    board.toggleAssigneeFilter('u1');
+    expect(board.filterSignature).not.toBe(withLabel);
+
+    board.clearFilters();
+    expect(board.filterSignature).toBe(unfiltered);
+  });
+});
+
 describe('displayTasksInColumn', () => {
   beforeEach(() => {
     board.tasks = [
