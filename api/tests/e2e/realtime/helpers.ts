@@ -45,10 +45,15 @@ export class RtClient {
     this.ws.send(JSON.stringify({ type: 'subscribe', project_id: projectId }));
   }
 
-  async waitForEvent(predicate: (event: Envelope) => boolean, timeoutMs = 4000): Promise<Envelope> {
+  // The buffer is never drained between tests, so pass `from` whenever an
+  // earlier test could have left an event the predicate also matches.
+  async waitForEvent(
+    predicate: (event: Envelope) => boolean,
+    { timeoutMs = 4000, from = 0 }: { timeoutMs?: number; from?: number } = {}
+  ): Promise<Envelope> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const match = this.events.find(predicate);
+      const match = this.events.slice(from).find(predicate);
       if (match) return match;
       if (Date.now() > deadline) {
         const seen = this.events.map((event) => event.type).join(', ') || 'none';

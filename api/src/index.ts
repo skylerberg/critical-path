@@ -47,6 +47,7 @@ import imageUploadRouter from './routes/imageUpload';
 import labelsRouter from './routes/labels';
 import imagesRouter from './routes/images';
 import feedbackRouter from './routes/feedback';
+import publicBoardsRouter from './routes/publicBoards';
 
 export const app = new Hono<{ Variables: Variables }>();
 
@@ -121,6 +122,7 @@ const openAPIOptions = {
       { name: 'Images', description: 'Task image upload and retrieval' },
       { name: 'Avatars', description: 'User profile image upload and retrieval' },
       { name: 'Feedback', description: 'User-submitted product feedback' },
+      { name: 'Public', description: 'Unauthenticated read-only board access' },
     ],
   },
 };
@@ -156,6 +158,7 @@ app.route('/api/labels', labelsRouter);
 app.route('/api/images', imagesRouter);
 app.route('/api/avatars', avatarsRouter);
 app.route('/api/feedback', feedbackRouter);
+app.route('/api/public', publicBoardsRouter);
 
 app.notFound((c) => {
   return c.json(
