@@ -8,6 +8,7 @@
     type DndEvent,
   } from 'svelte-dnd-action';
   import { APP_NAME } from '../lib/constants';
+  import { motion } from '../lib/motion.svelte';
   import { projects, type Project } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { link, router } from '../lib/router.svelte';
@@ -17,6 +18,8 @@
 
   const FLIP_MS = 150;
   const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
+
+  const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
 
   const projectsActive = $derived(router.current.name === 'projects');
   const currentProjectId = $derived(
@@ -155,7 +158,8 @@
     use:dndzone={{
       items: localProjects,
       type: 'sidebar-project',
-      flipDurationMs: FLIP_MS,
+      flipDurationMs: flipMs,
+      dropAnimationDisabled: motion.reduced,
       dropTargetStyle,
       delayTouchStart: true,
       zoneItemTabIndex: 0,
@@ -165,7 +169,7 @@
   >
     {#each localProjects as project (project.id)}
       <div
-        animate:flip={{ duration: FLIP_MS }}
+        animate:flip={{ duration: flipMs }}
         aria-label={project.name}
         class="rounded-md focus-visible:outline-2 focus-visible:outline-accent"
       >

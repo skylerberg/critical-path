@@ -2,11 +2,40 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
+import type { Options } from 'svelte-dnd-action';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
+import { motion } from '../lib/motion.svelte';
 import { selection } from '../lib/selection.svelte';
 import type { BoardTask } from '../lib/board-types';
+
+const { zoneOptions } = vi.hoisted(() => ({ zoneOptions: [] as Options[] }));
+
+// Wraps rather than replaces: the keyboard-drag cases below drive the real action.
+vi.mock('svelte-dnd-action', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('svelte-dnd-action')>();
+  const record = (fn: typeof actual.dndzone) => (node: HTMLElement, options: Options) => {
+    zoneOptions.push(options);
+    const zone = fn(node, options);
+    return {
+      update: (next: Options) => {
+        zoneOptions.push(next);
+        zone.update?.(next);
+      },
+      destroy: () => zone.destroy?.(),
+    };
+  };
+  return {
+    ...actual,
+    dndzone: record(actual.dndzone),
+    dragHandleZone: record(actual.dragHandleZone),
+  };
+});
+
+function configsOfType(type: string): Options[] {
+  return zoneOptions.filter((options) => options.type === type);
+}
 
 function task(id: string, columnId: string, position: number, title: string): BoardTask {
   return {
@@ -27,6 +56,8 @@ function task(id: string, columnId: string, position: number, title: string): Bo
 beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(async () => jsonResponse(200, { users: [] }));
+  zoneOptions.length = 0;
+  motion.reduced = false;
   board.reset();
   selection.clear();
   drafts.clearAll();
@@ -350,6 +381,67 @@ describe('Board keyboard reordering', () => {
 
     await fireEvent.keyDown(section, { key: 'Enter' });
     await vi.waitFor(() => expect(board.dragging).toBe(false));
+  });
+});
+
+describe('Board reduced motion', () => {
+  function expectEveryZone(flipDurationMs: number, dropAnimationDisabled: boolean): void {
+    for (const type of ['column', 'task']) {
+      const configs = configsOfType(type);
+      expect(configs.length).toBeGreaterThan(0);
+      for (const config of configs) {
+        expect(config.flipDurationMs).toBe(flipDurationMs);
+        expect(config.dropAnimationDisabled).toBe(dropAnimationDisabled);
+      }
+    }
+  }
+
+  it('animates both dnd zones by default', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+
+    expectEveryZone(150, false);
+  });
+
+  it('disables flip and drop animation in both dnd zones when motion is reduced', async () => {
+    motion.reduced = true;
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+
+    expectEveryZone(0, true);
+  });
+
+  it('reconfigures the zones when the preference flips mid-session', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    zoneOptions.length = 0;
+
+    motion.reduced = true;
+
+    await vi.waitFor(() => {
+      expect(configsOfType('column').length).toBeGreaterThan(0);
+      expect(configsOfType('task').length).toBeGreaterThan(0);
+    });
+    expectEveryZone(0, true);
+  });
+
+  it('still commits keyboard reorders when motion is reduced', async () => {
+    motion.reduced = true;
+    render(Board, { props: { projectId: 'p1' } });
+    const item = await screen.findByRole('listitem', { name: 'plain one' });
+    item.focus();
+
+    await fireEvent.keyDown(item, { key: 'Enter' });
+    await vi.waitFor(() => expect(board.dragging).toBe(true));
+
+    await fireEvent.keyDown(item, { key: 'ArrowDown' });
+    await vi.waitFor(() =>
+      expect(cardTitles()).toEqual(['match a', 'plain one', 'plain two', 'match b'])
+    );
+    await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+    const patch = patchRequests()[0]!;
+    expect(new URL(patch.url).pathname).toBe('/api/tasks/t1');
+    expect(await patch.clone().json()).toEqual({ column_id: 'c1', position: 2500 });
   });
 });
 

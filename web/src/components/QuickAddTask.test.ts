@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import QuickAddTask from './QuickAddTask.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
+import { motion } from '../lib/motion.svelte';
 
 const payload = {
   project: {
@@ -26,6 +27,7 @@ beforeEach(async () => {
   fetchMock.mockReset();
   board.reset();
   drafts.clearAll();
+  motion.reduced = false;
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
     if (request.method === 'GET') {
@@ -95,6 +97,32 @@ describe('QuickAddTask', () => {
     });
     expect(scrollSpy.mock.contexts[0]).toBe(card);
     expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    expect(input).toHaveFocus();
+    card.remove();
+    scrollSpy.mockRestore();
+  });
+
+  it('jumps the created card into view when motion is reduced', async () => {
+    motion.reduced = true;
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    render(QuickAddTask, { columnId: 'c1' });
+    await fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
+    const input = screen.getByLabelText('Task title');
+    await fireEvent.input(input, { target: { value: 'Jump me' } });
+
+    const submitted = fireEvent.submit(input.closest('form')!);
+    const created = board.tasks.find((t) => t.title === 'Jump me');
+    expect(created).toBeDefined();
+    const card = document.createElement('div');
+    card.setAttribute('data-task-id', created!.id);
+    document.body.appendChild(card);
+    await submitted;
+
+    await waitFor(() => {
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(scrollSpy.mock.contexts[0]).toBe(card);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'auto' });
     expect(input).toHaveFocus();
     card.remove();
     scrollSpy.mockRestore();
