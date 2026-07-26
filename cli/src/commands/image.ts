@@ -24,7 +24,10 @@ export function registerImage(program: Command, deps: CliDeps): void {
       .description('Attach an image (png/jpeg/gif/webp, max 10 MB) to a task')
       .argument('<task>', 'task id or title')
       .argument('<file>', 'path to the image file')
-      .option('--project <ref>', 'project id or name (needed for task refs that are not full ids)')
+      .option(
+        '--project <project>',
+        'project id or name (needed for task refs that are not full ids)'
+      )
       .action(
         withCtx(deps, async (ctx, opts, taskRef, filePath) => {
           const info = await stat(filePath);
@@ -56,7 +59,10 @@ export function registerImage(program: Command, deps: CliDeps): void {
     leaf('list')
       .description('List the images attached to a task')
       .argument('<task>', 'task id or title')
-      .option('--project <ref>', 'project id or name (needed for task refs that are not full ids)')
+      .option(
+        '--project <project>',
+        'project id or name (needed for task refs that are not full ids)'
+      )
       .action(
         withCtx(deps, async (ctx, opts, taskRef) => {
           const taskId = await resolveTaskId(ctx, taskRef, opts.project as string | undefined);
