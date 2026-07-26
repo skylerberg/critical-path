@@ -7,6 +7,28 @@ type BoardPayload = components['schemas']['BoardPayload'];
 type BoardTask = components['schemas']['BoardTask'];
 type StatefulTask = BoardTask & { state: string };
 
+interface BlockersJson {
+  blocked_by: StatefulTask[];
+  blocks: StatefulTask[];
+}
+
+interface TreeNode {
+  task: BoardTask;
+  state: string;
+  blockers?: TreeNode[];
+  dependents?: TreeNode[];
+}
+
+interface BlockersTreeJson {
+  blocked_by_tree: TreeNode | null;
+  blocks_tree: TreeNode | null;
+}
+
+interface TaskShowJson {
+  blocker_ids: string[];
+  blocked_task_ids: string[];
+}
+
 describe('task blockers', () => {
   const tc = new TestContext();
   let user: TestUser;
@@ -105,9 +127,10 @@ describe('task blockers', () => {
       '--json',
     ]);
     expect(res.exitCode).toBe(0);
-    const blockers = res.json<StatefulTask[]>();
-    expect(blockers.map((t) => t.id)).toEqual([planId]);
-    expect(blockers[0].state).toBe('blocked');
+    const { blocked_by: blockedBy, blocks } = res.json<BlockersJson>();
+    expect(blockedBy.map((t) => t.id)).toEqual([planId]);
+    expect(blockedBy[0].state).toBe('blocked');
+    expect(blocks).toEqual([]);
   });
 
   it('blockers --tree renders the transitive chain with indentation', async () => {
@@ -130,6 +153,122 @@ describe('task blockers', () => {
     expect(midLine).toContain('[blocked]');
     expect(leafLine).toMatch(new RegExp(`^    ${draftId.slice(0, 8)}`));
     expect(leafLine).toContain('[ready]');
+    expect(res.stdout).toContain('Blocked by:');
+    expect(res.stdout).not.toContain('Blocks:');
+  });
+
+  it('blockers shows both directions for a task in the middle of a chain', async () => {
+    const json = await h.runCli([
+      'task',
+      'blockers',
+      'Plan the API',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(json.exitCode).toBe(0);
+    const { blocked_by: blockedBy, blocks } = json.json<BlockersJson>();
+    expect(blockedBy.map((t) => t.id)).toEqual([draftId]);
+    expect(blockedBy[0].state).toBe('ready');
+    expect(blocks.map((t) => t.id)).toEqual([buildId]);
+    expect(blocks[0].state).toBe('blocked');
+
+    const human = await h.runCli(['task', 'blockers', 'Plan the API', '--project', projectId]);
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout).toContain('Blocked by:');
+    expect(human.stdout).toContain('Blocks:');
+    expect(human.stdout.indexOf('Blocked by:')).toBeLessThan(human.stdout.indexOf('Blocks:'));
+    const buildLine = human.stdout.split('\n').find((l) => l.includes(buildId.slice(0, 8)));
+    expect(buildLine).toContain('[blocked]');
+  });
+
+  it('does not say nothing blocks a task that blocks others', async () => {
+    const human = await h.runCli([
+      'task',
+      'blockers',
+      'Draft requirements',
+      '--project',
+      projectId,
+    ]);
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout).not.toContain('Nothing blocks this task');
+    expect(human.stdout).not.toContain('Blocked by:');
+    expect(human.stdout).toContain('Blocks:');
+    expect(human.stdout).toContain(planId.slice(0, 8));
+
+    const json = await h.runCli([
+      'task',
+      'blockers',
+      'Draft requirements',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    const { blocked_by: blockedBy, blocks } = json.json<BlockersJson>();
+    expect(blockedBy).toEqual([]);
+    expect(blocks.map((t) => t.id)).toEqual([planId]);
+  });
+
+  it('blockers --tree walks both directions', async () => {
+    const human = await h.runCli([
+      'task',
+      'blockers',
+      'Plan the API',
+      '--project',
+      projectId,
+      '--tree',
+    ]);
+    expect(human.exitCode).toBe(0);
+    const lines = human.stdout.split('\n');
+    expect(lines[0]).toMatch(new RegExp(`^${planId.slice(0, 8)}`));
+    expect(lines[1]).toBe('Blocked by:');
+    expect(lines[2]).toMatch(new RegExp(`^  ${draftId.slice(0, 8)}`));
+    expect(lines[3]).toBe('Blocks:');
+    expect(lines[4]).toMatch(new RegExp(`^  ${buildId.slice(0, 8)}`));
+
+    const json = await h.runCli([
+      'task',
+      'blockers',
+      'Plan the API',
+      '--project',
+      projectId,
+      '--tree',
+      '--json',
+    ]);
+    const { blocked_by_tree: blockedByTree, blocks_tree: blocksTree } =
+      json.json<BlockersTreeJson>();
+    expect(blockedByTree?.task.id).toBe(planId);
+    expect(blockedByTree?.blockers?.map((n) => n.task.id)).toEqual([draftId]);
+    expect(blocksTree?.task.id).toBe(planId);
+    expect(blocksTree?.dependents?.map((n) => n.task.id)).toEqual([buildId]);
+  });
+
+  it('show renders both dependency directions', async () => {
+    const human = await h.runCli(['task', 'show', 'Plan the API', '--project', projectId]);
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout).toContain('Blocked by:');
+    expect(human.stdout).toContain('Blocks:');
+    expect(human.stdout.indexOf('Blocked by:')).toBeLessThan(human.stdout.indexOf('Blocks:'));
+    expect(human.stdout.indexOf(draftId.slice(0, 8))).toBeLessThan(
+      human.stdout.indexOf(buildId.slice(0, 8))
+    );
+
+    const json = await h.runCli(['task', 'show', 'Plan the API', '--project', projectId, '--json']);
+    const plan = json.json<TaskShowJson>();
+    expect(plan.blocker_ids).toEqual([draftId]);
+    expect(plan.blocked_task_ids).toEqual([buildId]);
+
+    const leaf = await h.runCli([
+      'task',
+      'show',
+      'Build the API',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    const build = leaf.json<TaskShowJson>();
+    expect(build.blocker_ids).toEqual([planId]);
+    expect(build.blocked_task_ids).toEqual([]);
   });
 
   it('unblock removes the dependency and is idempotent', async () => {
@@ -167,6 +306,10 @@ describe('task blockers', () => {
       projectId,
       '--json',
     ]);
-    expect(empty.json<StatefulTask[]>()).toEqual([]);
+    expect(empty.json<BlockersJson>()).toEqual({ blocked_by: [], blocks: [] });
+
+    const human = await h.runCli(['task', 'blockers', 'Build the API', '--project', projectId]);
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout).toContain('Nothing blocks this task');
   });
 });
