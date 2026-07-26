@@ -34,7 +34,7 @@
 </script>
 
 {#if list.length === 0}
-  <p class="text-sm text-muted">{readonly ? 'Nobody assigned.' : 'No users available.'}</p>
+  <p class="text-sm text-muted">No users available.</p>
 {:else}
   <div class="flex flex-wrap gap-2" role="group" aria-label="Assignees">
     {#each list as user (user.id)}

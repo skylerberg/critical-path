@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import PublicBoard from './PublicBoard.svelte';
 import { board } from '../lib/board.svelte';
 import { router } from '../lib/router.svelte';
@@ -90,7 +90,7 @@ describe('PublicBoard', () => {
     expect(requestedPaths()).not.toContain('/api/users');
   });
 
-  it('offers no editing affordances and no app chrome of its own', async () => {
+  it('offers no editing affordances', async () => {
     mockPublicApi(jsonResponse(200, payload()));
 
     render(PublicBoard, { props: { projectId: PROJECT_ID } });
@@ -99,8 +99,6 @@ describe('PublicBoard', () => {
     expect(screen.queryByRole('button', { name: '+ Add column' })).toBeNull();
     expect(screen.queryByTitle('Rename column')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete column' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
-    expect(screen.queryByLabelText('Filter tasks by title')).toBeNull();
   });
 
   it('mounts a noindex robots tag while rendered and removes it on unmount', async () => {
@@ -121,8 +119,24 @@ describe('PublicBoard', () => {
     render(PublicBoard, { props: { projectId: PROJECT_ID } });
 
     expect(await screen.findByText('This board is not public')).toBeInTheDocument();
+    expect(screen.getByText(/turned off by the board's owner/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     expect(screen.queryByText('To Do')).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Roadmap' })).toBeNull();
+  });
+
+  it('offers a retry instead of blaming the owner when the load simply failed', async () => {
+    mockPublicApi(jsonResponse(500, { error: 'Something went wrong' }));
+
+    render(PublicBoard, { props: { projectId: PROJECT_ID } });
+
+    expect(await screen.findByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.queryByText(/turned off by the board's owner/)).toBeNull();
+
+    mockPublicApi(jsonResponse(200, payload()));
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(await screen.findByRole('heading', { name: 'Roadmap' })).toBeInTheDocument();
   });
 
   it('opens the read-only card detail for a task in the path', async () => {

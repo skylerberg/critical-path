@@ -5,6 +5,7 @@
   import { users } from '../lib/users.svelte';
   import TaskDetail from '../components/TaskDetail.svelte';
   import Badge from '../components/ui/Badge.svelte';
+  import Button from '../components/ui/Button.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import Board from './Board.svelte';
 
@@ -30,8 +31,7 @@
     return () => users.invalidateAll();
   });
 
-  // Defence in depth: the edge stamps X-Robots-Tag, but a crawler that renders
-  // the SPA is the case that header cannot reach on its own.
+  // Only reaches crawlers that execute JS; header-level noindex is an edge concern.
   $effect(() => {
     const meta = document.createElement('meta');
     meta.name = 'robots';
@@ -50,9 +50,13 @@
 </script>
 
 {#if board.error !== null && board.currentProjectId === projectId}
-  <div class="flex min-h-dvh flex-col items-center justify-center gap-2 p-4 text-center">
+  <div class="flex min-h-dvh flex-col items-center justify-center gap-4 p-4 text-center">
     <p class="text-muted">{board.error}</p>
-    <p class="text-sm text-muted">The link may have been turned off by the board's owner.</p>
+    {#if board.errorStatus === 404}
+      <p class="text-sm text-muted">The link may have been turned off by the board's owner.</p>
+    {:else}
+      <Button variant="secondary" onclick={() => void board.refetch()}>Try again</Button>
+    {/if}
   </div>
 {:else if !ready}
   <div class="flex min-h-dvh items-center justify-center">

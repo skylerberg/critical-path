@@ -1,11 +1,28 @@
-import { fetchMock } from '../api/testUtils';
+import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ProjectHeader from './ProjectHeader.svelte';
 import { board } from '../lib/board.svelte';
-import { projects } from '../lib/projects.svelte';
+import { projects, type Project } from '../lib/projects.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
+
+function project(overrides: Partial<Project> = {}): Project {
+  return {
+    id: 'p1',
+    name: 'Game',
+    description: '',
+    archived_at: null,
+    created_by: 'u1',
+    member_ids: [],
+    is_public: false,
+    created_at: '2026-01-01T00:00:00Z',
+    open_task_count: 0,
+    done_task_count: 0,
+    position: null,
+    ...overrides,
+  };
+}
 
 function task(
   id: string,
@@ -80,12 +97,41 @@ describe('ProjectHeader', () => {
     expect(screen.getByRole('link', { name: 'Graph' })).toBeInTheDocument();
   });
 
-  it('flags a published board so nobody is sharing one without knowing', async () => {
+  it('flags a published board as soon as this tab publishes it, and clears it on unpublish', async () => {
+    projects.projects = [project()];
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
     expect(screen.queryByText('Public')).toBeNull();
 
-    board.project = { ...board.project!, is_public: true };
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, project({ is_public: true })));
+    await projects.setPublic('p1', true);
     await waitFor(() => expect(screen.getByText('Public')).toBeInTheDocument());
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, project()));
+    await projects.setPublic('p1', false);
+    await waitFor(() => expect(screen.queryByText('Public')).toBeNull());
+  });
+
+  it('flags a board another member published, from the realtime event', async () => {
+    projects.projects = [project()];
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    expect(screen.queryByText('Public')).toBeNull();
+
+    projects.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: { id: 'p1', is_public: true },
+    });
+    await waitFor(() => expect(screen.getByText('Public')).toBeInTheDocument());
+  });
+
+  it('falls back to the board payload while the projects list is still loading', async () => {
+    board.project = { ...board.project!, is_public: true };
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+
+    expect(screen.getByText('Public')).toBeInTheDocument();
+
+    projects.projects = [project()];
+    await waitFor(() => expect(screen.queryByText('Public')).toBeNull());
   });
 
   it('renders the same filter cluster on the graph view', () => {
@@ -110,21 +156,7 @@ describe('ProjectHeader', () => {
   });
 
   it('opens the members modal from the Share button', async () => {
-    projects.projects = [
-      {
-        id: 'p1',
-        name: 'Game',
-        description: '',
-        archived_at: null,
-        created_by: 'u1',
-        member_ids: [],
-        is_public: false,
-        created_at: '2026-01-01T00:00:00Z',
-        open_task_count: 0,
-        done_task_count: 0,
-        position: null,
-      },
-    ];
+    projects.projects = [project()];
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
 

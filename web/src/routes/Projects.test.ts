@@ -274,7 +274,7 @@ describe('Projects', () => {
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Team Game' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Members' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
 
     expect(screen.getByText('Me (you)')).toBeInTheDocument();
     expect(screen.getByText('Owner')).toBeInTheDocument();
@@ -300,7 +300,7 @@ describe('Projects', () => {
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Solo Game' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Members' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
 
     await fireEvent.input(screen.getByLabelText('Add people'), {
       target: { value: 'pat@example.com' },
@@ -332,7 +332,7 @@ describe('Projects', () => {
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Team Game' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Members' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Remove Ada' }));
 
     await waitFor(() => {
@@ -363,7 +363,7 @@ describe('Projects', () => {
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Team Game' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Members' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Leave board' }));
 
     await waitFor(() => {

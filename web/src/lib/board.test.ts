@@ -294,6 +294,26 @@ describe('board store readonly mode', () => {
     expect(users.displayFor('u-ada').name).toBe('Ada');
   });
 
+  it('leaves the user cache alone when a public fetch loses the race', async () => {
+    let release = (): void => {};
+    const inflightResponse = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => {
+      await inflightResponse;
+      return jsonResponse(200, publicPayload);
+    });
+
+    const inflight = board.load('p1', undefined, { readonly: true });
+    board.reset();
+    users.invalidateAll();
+    release();
+    await inflight;
+
+    expect(users.forProject('p1')).toEqual([]);
+    expect(board.project).toBeNull();
+  });
+
   it('stays on the public endpoint when refetching', async () => {
     mockPublic();
     await board.load('p1', undefined, { readonly: true });

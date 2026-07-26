@@ -1,5 +1,6 @@
 <script lang="ts">
   import { board } from '../lib/board.svelte';
+  import { projects } from '../lib/projects.svelte';
   import { link, type ProjectView } from '../lib/router.svelte';
   import FilterBar from './FilterBar.svelte';
   import LabelManager from './LabelManager.svelte';
@@ -18,6 +19,14 @@
 
   const boardActive = $derived(view === 'board');
   const graphActive = $derived(view === 'graph');
+
+  // Publishing and the project_updated event land in the projects list; the board
+  // payload's copy only refreshes on a board fetch, so it is the fallback.
+  const isPublic = $derived(
+    projects.projects.find((p) => p.id === projectId)?.is_public ??
+      board.project?.is_public ??
+      false
+  );
 </script>
 
 <header class="shrink-0 border-b border-edge bg-surface px-3 py-2 lg:px-4">
@@ -25,7 +34,7 @@
     <h1 class="min-w-0 truncate text-lg font-semibold">
       {board.project?.name ?? ''}
     </h1>
-    {#if board.project?.is_public}
+    {#if isPublic}
       <Badge variant="accent">Public</Badge>
     {/if}
     <nav use:link aria-label="Project views" class="flex gap-1">

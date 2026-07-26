@@ -15,7 +15,7 @@ import type { RealtimeEvent } from './realtime-types';
 import { append, between, prepend } from './positions';
 import { router, splitPath } from './router.svelte';
 import { toasts } from './toasts.svelte';
-import { users } from './users.svelte';
+import { users, type User } from './users.svelte';
 
 export type TaskImage = components['schemas']['ImageResponse'];
 
@@ -91,6 +91,7 @@ class BoardStore {
   labels = $state<BoardLabel[]>([]);
   loading = $state(false);
   error = $state<string | null>(null);
+  errorStatus = $state<number | null>(null);
   currentProjectId = $state<string | null>(null);
   readonly = $state(false);
   // Read-only signal for the shortcut layer; nothing in this store reacts to it.
@@ -145,17 +146,28 @@ class BoardStore {
     }
     const token = ++this.#fetchToken;
     try {
-      const data = this.readonly
+      const { data, projectUsers } = this.readonly
         ? await this.#fetchPublic(projectId)
-        : assertOk(await api.GET('/api/projects/{id}', { params: { path: { id: projectId } } }));
+        : {
+            data: assertOk(
+              await api.GET('/api/projects/{id}', { params: { path: { id: projectId } } })
+            ),
+            projectUsers: null,
+          };
       if (token !== this.#fetchToken) {
         return;
+      }
+      // Behind the staleness check: a losing response must not refill the user
+      // cache the read-only page dropped on its way out.
+      if (projectUsers !== null) {
+        users.setForProject(projectId, projectUsers);
       }
       this.project = data.project;
       this.columns = [...data.columns].sort((a, b) => a.position - b.position);
       this.tasks = data.tasks;
       this.labels = data.labels;
       this.error = null;
+      this.errorStatus = null;
       // Now that the label set is known, drop any the incoming URL named but this
       // project does not have.
       this.setFilters(this.filters);
@@ -164,36 +176,39 @@ class BoardStore {
         return;
       }
       this.error = error instanceof ApiError ? error.message : 'Failed to load board';
+      this.errorStatus = error instanceof ApiError ? error.status : null;
     }
   }
 
   // Placeholders stand in for the identity and timestamp fields the public
   // payload withholds; nothing the read-only UI renders reads them.
   async #fetchPublic(projectId: string): Promise<{
-    project: BoardProject;
-    columns: BoardColumn[];
-    tasks: BoardTask[];
-    labels: BoardLabel[];
+    data: {
+      project: BoardProject;
+      columns: BoardColumn[];
+      tasks: BoardTask[];
+      labels: BoardLabel[];
+    };
+    projectUsers: User[];
   }> {
     const data: PublicBoardPayload = assertOk(
       await api.GET('/api/public/projects/{id}/board', { params: { path: { id: projectId } } })
     );
-    users.setForProject(
-      projectId,
-      data.users.map((user) => ({ ...user, email: '' }))
-    );
     return {
-      project: {
-        ...data.project,
-        archived_at: null,
-        created_at: '',
-        created_by: null,
-        member_ids: [],
-        is_public: true,
+      data: {
+        project: {
+          ...data.project,
+          archived_at: null,
+          created_at: '',
+          created_by: null,
+          member_ids: [],
+          is_public: true,
+        },
+        columns: data.columns,
+        tasks: data.tasks.map((task) => ({ ...task, created_at: '', updated_at: '' })),
+        labels: data.labels,
       },
-      columns: data.columns,
-      tasks: data.tasks.map((task) => ({ ...task, created_at: '', updated_at: '' })),
-      labels: data.labels,
+      projectUsers: data.users.map((user) => ({ ...user, email: '' })),
     };
   }
 
@@ -207,6 +222,7 @@ class BoardStore {
     this.taskImages = {};
     this.loading = false;
     this.error = null;
+    this.errorStatus = null;
     this.dragging = false;
     this.currentProjectId = null;
     this.readonly = false;
