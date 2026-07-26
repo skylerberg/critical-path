@@ -65,6 +65,7 @@ export interface Project {
   created_by: string;
   description: Generated<string>;
   id: string;
+  is_public: Generated<boolean>;
   name: string;
 }
 

@@ -1,7 +1,8 @@
 import type { Kysely } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB } from '../db/types';
-import type { BoardPayload, TiptapDoc } from '../schemas/index';
+import type { BoardPayload, PublicBoard, PublicBoardUser, TiptapDoc } from '../schemas/index';
+import { usersWithProjectAccess } from './authorization';
 
 export async function getBoardPayload(
   db: Kysely<DB>,
@@ -16,6 +17,7 @@ export async function getBoardPayload(
       'archived_at',
       'created_at',
       'created_by',
+      'is_public',
       jsonArrayFrom(
         eb
           .selectFrom('project_member')
@@ -99,6 +101,7 @@ export async function getBoardPayload(
       created_at: project.created_at.toISOString(),
       created_by: project.created_by,
       member_ids: project.member_rows.map((row) => row.user_id),
+      is_public: project.is_public,
     },
     columns,
     tasks: tasks.map((task) => ({
@@ -116,4 +119,63 @@ export async function getBoardPayload(
     })),
     labels,
   };
+}
+
+// Never spread: listing every field by hand is what keeps a newly added board
+// field private until someone deliberately publishes it here.
+export function toPublicBoard(payload: BoardPayload, users: PublicBoardUser[]): PublicBoard {
+  return {
+    project: {
+      id: payload.project.id,
+      name: payload.project.name,
+      description: payload.project.description,
+    },
+    columns: payload.columns.map((column) => ({
+      id: column.id,
+      name: column.name,
+      position: column.position,
+      is_done: column.is_done,
+    })),
+    tasks: payload.tasks.map((task) => ({
+      id: task.id,
+      column_id: task.column_id,
+      title: task.title,
+      description: task.description,
+      position: task.position,
+      label_ids: task.label_ids,
+      assignee_ids: task.assignee_ids,
+      blocker_ids: task.blocker_ids,
+      image_count: task.image_count,
+    })),
+    labels: payload.labels.map((label) => ({
+      id: label.id,
+      name: label.name,
+      color: label.color,
+    })),
+    users: users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      avatar_url: user.avatar_url,
+    })),
+  };
+}
+
+export async function getPublicBoard(
+  db: Kysely<DB>,
+  projectId: string
+): Promise<PublicBoard | null> {
+  const payload = await getBoardPayload(db, projectId);
+  if (!payload) {
+    return null;
+  }
+
+  const assigneeIds = new Set(payload.tasks.flatMap((task) => task.assignee_ids));
+  const users =
+    assigneeIds.size === 0
+      ? []
+      : (await usersWithProjectAccess(db, projectId))
+          .filter((user) => assigneeIds.has(user.id))
+          .map(({ id, name, avatar_url }) => ({ id, name, avatar_url }));
+
+  return toPublicBoard(payload, users);
 }

@@ -84,6 +84,19 @@ describe('GET /api/openapi.json', () => {
     expect(body.properties.user_id).toMatchObject({ type: 'string' });
   });
 
+  it('marks the public board route unauthenticated and the private one authenticated', async () => {
+    const res = await app.request('/api/openapi.json');
+    expect(res.status).toBe(200);
+
+    const spec = await res.json();
+    const publicOperation = spec.paths['/api/public/projects/{id}/board'].get;
+    expect(publicOperation).toBeDefined();
+    expect(publicOperation.security).toBeUndefined();
+    expect(publicOperation.responses['401']).toBeUndefined();
+
+    expect(spec.paths['/api/projects/{id}'].get.security).toEqual([{ bearerAuth: [] }]);
+  });
+
   it('has unique operationIds across all operations', async () => {
     const res = await app.request('/api/openapi.json');
     expect(res.status).toBe(200);

@@ -9,6 +9,23 @@ terraform init
 terraform apply
 ```
 
+## URL map routing
+
+The `main` path matcher routes with `route_rules` (priorities 1–3 send
+`/api/`, `/ws` and `/health` to the API; priority 4 serves `/public/` from the
+web bucket with `X-Robots-Tag: noindex, nofollow`, so published boards are not
+indexable even by crawlers that never run the SPA's JavaScript). A matcher may
+use `path_rule` or `route_rules` but never both, so any change to one rule
+rewrites how all traffic is routed — review the plan for a single
+`google_compute_url_map` diff, and after applying confirm both backends still
+answer:
+
+```
+curl -s -o /dev/null -w '%{http_code}\n' https://criticalpath.skylerberg.com/health
+curl -s -o /dev/null -w '%{http_code}\n' https://criticalpath.skylerberg.com/api/openapi.json
+curl -sI https://criticalpath.skylerberg.com/public/projects/<published-id> | grep -i x-robots-tag
+```
+
 ## Bootstrap ordering (fresh environment only)
 
 Terraform attaches the API backend via a data source over the NEG that GKE
