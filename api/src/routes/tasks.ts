@@ -344,7 +344,8 @@ router.patch(
     description:
       'Update title, description (a Tiptap doc, or null to clear it), or move the task by ' +
       'sending column_id and position together. The new column must belong to the task’s ' +
-      'project; violations return 422 with a plain error body. Bumps updated_at. ' +
+      'project; violations return 422 with a plain error body. updated_at is bumped only when ' +
+      'the patch changes title or description — a pure move leaves it untouched. ' +
       'expected_updated_at is an optimistic-concurrency precondition on the task’s content: ' +
       'it is honored only when the patch includes title or description, a patch that only ' +
       'moves the task is always last-write-wins and ignores it, and a precondition that does ' +
@@ -381,6 +382,8 @@ router.patch(
       await assertColumnInProject(db, body.column_id, project.id);
     }
 
+    // Gates the bump as well as the check: a move that moved updated_at would invalidate every
+    // other open editor's precondition.
     const guardsContent = body.title !== undefined || 'description' in body;
     if (guardsContent && body.expected_updated_at !== undefined) {
       // Without the row lock two concurrent guarded patches both read the pre-update
@@ -401,17 +404,19 @@ router.patch(
       }
     }
 
-    await db
-      .updateTable('task')
-      .set({
-        ...(body.title !== undefined ? { title: body.title } : {}),
-        ...('description' in body ? { description: serializeDescription(body.description) } : {}),
-        ...(body.column_id !== undefined ? { column_id: body.column_id } : {}),
-        ...(body.position !== undefined ? { position: body.position } : {}),
-        updated_at: sql<Date>`now()`,
-      })
-      .where('task.id', '=', id)
-      .execute();
+    const changes = {
+      ...(body.title !== undefined ? { title: body.title } : {}),
+      ...('description' in body ? { description: serializeDescription(body.description) } : {}),
+      ...(body.column_id !== undefined ? { column_id: body.column_id } : {}),
+      ...(body.position !== undefined ? { position: body.position } : {}),
+      ...(guardsContent ? { updated_at: sql<Date>`now()` } : {}),
+    };
+
+    // Every field is optional and an empty body validates, so without this a `{}` patch would
+    // compile to an UPDATE with an empty SET list.
+    if (Object.keys(changes).length > 0) {
+      await db.updateTable('task').set(changes).where('task.id', '=', id).execute();
+    }
 
     const updated = await fetchBoardTask(db, id);
     if (!updated) {
