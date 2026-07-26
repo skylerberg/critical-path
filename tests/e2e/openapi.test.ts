@@ -66,6 +66,24 @@ describe('GET /api/openapi.json', () => {
     expect(step.properties.title).toMatchObject({ type: 'string' });
   });
 
+  it('documents the ownership-transfer route, its 403, and its request body', async () => {
+    const res = await app.request('/api/openapi.json');
+    expect(res.status).toBe(200);
+
+    const spec = await res.json();
+    const operation = spec.paths['/api/projects/{id}/owner'].put;
+    expect(operation.responses['403'].content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/Error',
+    });
+    expect(operation.requestBody.content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/SetProjectOwner',
+    });
+
+    const body = spec.components.schemas.SetProjectOwner;
+    expect(body.required).toEqual(['user_id']);
+    expect(body.properties.user_id).toMatchObject({ type: 'string' });
+  });
+
   it('has unique operationIds across all operations', async () => {
     const res = await app.request('/api/openapi.json');
     expect(res.status).toBe(200);

@@ -362,6 +362,45 @@ describe('Realtime end to end', () => {
     expect(cleanupRes.status).toBe(204);
   });
 
+  it('delivers project_updated to both owners on an ownership transfer, evicting neither', async () => {
+    const handoverProjectId = newId();
+    const createRes = await ctx
+      .request(userA.token)
+      .post('/api/projects', { id: handoverProjectId, name: 'handover project' });
+    expect(createRes.status).toBe(201);
+    const addRes = await ctx
+      .request(userA.token)
+      .put(`/api/projects/${handoverProjectId}/members`, { user_ids: [userB.id] });
+    expect(addRes.status).toBe(204);
+    await settle();
+
+    const transferRes = await ctx
+      .request(userA.token)
+      .put(`/api/projects/${handoverProjectId}/owner`, { user_id: userB.id });
+    expect(transferRes.status).toBe(200);
+
+    for (const client of [clientA, clientB2]) {
+      const event = await client.waitForEvent(
+        (e) =>
+          e.type === 'project_updated' &&
+          e.data.id === handoverProjectId &&
+          e.data.created_by === userB.id
+      );
+      expect(event.data.member_ids).toEqual([userA.id]);
+    }
+
+    await settle();
+    for (const client of [clientA, clientB2]) {
+      expect(
+        client.events.some((e) => e.type === 'project_deleted' && e.data.id === handoverProjectId)
+      ).toBe(false);
+    }
+    expect(clientC.events).toEqual([]);
+
+    const cleanupRes = await ctx.request(userB.token).delete(`/api/projects/${handoverProjectId}`);
+    expect(cleanupRes.status).toBe(204);
+  });
+
   it('evicts removed members via project_deleted, strips their assignments, then goes quiet', async () => {
     const res = await ctx
       .request(userA.token)
