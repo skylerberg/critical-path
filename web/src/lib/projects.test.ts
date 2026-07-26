@@ -13,6 +13,7 @@ function project(overrides: Partial<Project> = {}): Project {
     archived_at: null,
     created_by: null,
     member_ids: [],
+    is_public: false,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -31,6 +32,7 @@ function projectRow(
     archived_at: item.archived_at,
     created_by: item.created_by,
     member_ids: item.member_ids,
+    is_public: item.is_public,
     created_at: item.created_at,
   };
 }
@@ -44,6 +46,7 @@ function boardPayload(id: string, name: string, tasksInColumns: string[] = []): 
       archived_at: null,
       created_by: null,
       member_ids: [],
+      is_public: false,
       created_at: '2026-03-01T00:00:00.000Z',
     },
     columns: [

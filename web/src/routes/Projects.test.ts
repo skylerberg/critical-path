@@ -24,6 +24,7 @@ function project(overrides: Partial<Project> = {}): Project {
     archived_at: null,
     created_by: null,
     member_ids: [],
+    is_public: false,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -273,7 +274,7 @@ describe('Projects', () => {
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Team Game' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Members' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
 
     expect(screen.getByText('Me (you)')).toBeInTheDocument();
     expect(screen.getByText('Owner')).toBeInTheDocument();
@@ -299,7 +300,7 @@ describe('Projects', () => {
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Solo Game' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Members' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
 
     await fireEvent.input(screen.getByLabelText('Add people'), {
       target: { value: 'pat@example.com' },
@@ -331,7 +332,7 @@ describe('Projects', () => {
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Team Game' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Members' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Remove Ada' }));
 
     await waitFor(() => {
@@ -362,7 +363,7 @@ describe('Projects', () => {
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Team Game' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Members' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Leave board' }));
 
     await waitFor(() => {

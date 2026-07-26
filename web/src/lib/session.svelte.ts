@@ -20,6 +20,14 @@ export function isPublicRoute(name: Route['name']): boolean {
   return PUBLIC_ROUTES.has(name);
 }
 
+// Distinct from PUBLIC_ROUTES, which means "signed-out only" and bounces an
+// authed visitor away. These open for both.
+const AUTH_OPTIONAL_ROUTES = new Set<Route['name']>(['public-board']);
+
+export function isAuthOptionalRoute(name: Route['name']): boolean {
+  return AUTH_OPTIONAL_ROUTES.has(name);
+}
+
 export function rememberIntendedPath(path: string): void {
   sessionStorage.setItem(INTENDED_PATH_KEY, path);
 }
@@ -93,6 +101,9 @@ class SessionStore {
   }
 
   guardRoute = (to: Route, path: string): string | undefined => {
+    if (isAuthOptionalRoute(to.name)) {
+      return undefined;
+    }
     const isPublic = isPublicRoute(to.name);
     if (this.status === 'authed' && isPublic) {
       return '/';
@@ -133,7 +144,7 @@ class SessionStore {
       return;
     }
     this.#clear();
-    if (!isPublicRoute(router.current.name)) {
+    if (!isPublicRoute(router.current.name) && !isAuthOptionalRoute(router.current.name)) {
       rememberIntendedPath(router.path);
       router.redirect('/login');
     }

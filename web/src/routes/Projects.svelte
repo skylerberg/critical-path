@@ -28,7 +28,7 @@
   let deleteTarget = $state<Project | null>(null);
   let openMenuId = $state<string | null>(null);
   let archivedOpen = $state(false);
-  let membersProjectId = $state<string | null>(null);
+  let shareProjectId = $state<string | null>(null);
 
   const menuItemClass =
     'flex min-h-11 w-full cursor-pointer items-center px-4 text-left text-sm hover:bg-accent-soft';
@@ -98,8 +98,8 @@
       : projects.unarchive(project.id));
   }
 
-  function openMembers(project: Project): void {
-    membersProjectId = project.id;
+  function openShare(project: Project): void {
+    shareProjectId = project.id;
     openMenuId = null;
   }
 </script>
@@ -151,9 +151,9 @@
           type="button"
           role="menuitem"
           class={menuItemClass}
-          onclick={() => openMembers(project)}
+          onclick={() => openShare(project)}
         >
-          Members
+          Share
         </button>
         <button
           type="button"
@@ -299,8 +299,8 @@
   </Modal>
 {/if}
 
-{#if membersProjectId !== null}
-  <ProjectMembersModal projectId={membersProjectId} onclose={() => (membersProjectId = null)} />
+{#if shareProjectId !== null}
+  <ProjectMembersModal projectId={shareProjectId} onclose={() => (shareProjectId = null)} />
 {/if}
 
 {#if renameTarget !== null}

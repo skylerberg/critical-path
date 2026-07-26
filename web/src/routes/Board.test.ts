@@ -212,6 +212,51 @@ describe('Board column header count', () => {
   });
 });
 
+describe('Board readonly', () => {
+  it('drops every editing affordance and links cards at the public path', async () => {
+    render(Board, { props: { projectId: 'p1', readonly: true } });
+
+    await screen.findByText('plain one');
+    expect(screen.queryByRole('button', { name: '+ Add column' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add a task' })).toBeNull();
+    expect(document.querySelector('[data-quick-add]')).toBeNull();
+    expect(within(header('Todo')).queryByTitle('Rename column')).toBeNull();
+    expect(within(header('Todo')).queryByRole('button', { name: 'Delete column' })).toBeNull();
+    expect(within(header('Todo')).queryByLabelText('Reorder column')).toBeNull();
+    expect(within(header('Todo')).getByText('4')).toHaveTextContent('4 tasks');
+    expect(within(header('Todo')).queryByRole('button')).toBeNull();
+
+    const link = column().querySelector('a');
+    expect(link).toHaveAttribute('href', '/public/projects/p1/tasks/t1');
+  });
+
+  it('disables dragging in both dnd zones', async () => {
+    render(Board, { props: { projectId: 'p1', readonly: true } });
+    await screen.findByText('plain one');
+
+    for (const type of ['column', 'task']) {
+      const options = configsOfType(type).at(-1);
+      expect(options?.dragDisabled).toBe(true);
+      expect(options?.dropFromOthersDisabled).toBe(true);
+    }
+    expect(configsOfType('task').at(-1)?.zoneItemTabIndex).toBe(-1);
+  });
+
+  it('keeps every affordance and the private path when not readonly', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+
+    await screen.findByText('plain one');
+    expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
+    expect(within(header('Todo')).getByTitle('Rename column')).toBeInTheDocument();
+    expect(
+      within(header('Todo')).getByRole('button', { name: 'Delete column' })
+    ).toBeInTheDocument();
+    expect(column().querySelector('a')).toHaveAttribute('href', '/projects/p1/tasks/t1');
+    expect(configsOfType('task').at(-1)?.dragDisabled).toBe(false);
+    expect(configsOfType('task').at(-1)?.zoneItemTabIndex).toBe(0);
+  });
+});
+
 describe('Board snapping', () => {
   it('centers snap targets below md, aligns them to the start from md, and drops snapping at lg', async () => {
     render(Board, { props: { projectId: 'p1' } });

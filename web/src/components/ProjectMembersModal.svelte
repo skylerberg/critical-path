@@ -1,8 +1,9 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { projects } from '../lib/projects.svelte';
-  import { router } from '../lib/router.svelte';
+  import { boardPath, router } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
+  import { toasts } from '../lib/toasts.svelte';
   import { users } from '../lib/users.svelte';
   import MemberPicker from './MemberPicker.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -27,6 +28,11 @@
   let transferring = $state(false);
   let confirmEl = $state<HTMLDivElement>();
   let transferTrigger: HTMLElement | null = null;
+  let confirmPublishOpen = $state(false);
+
+  const publicUrl = $derived(
+    project === undefined ? '' : `${location.origin}${boardPath(project.id, true)}`
+  );
 
   // Reconciled against live state: the target can be removed, or the board handed
   // elsewhere, while this prompt is open.
@@ -84,6 +90,26 @@
     }
   }
 
+  function publish(): void {
+    if (project === undefined) return;
+    confirmPublishOpen = false;
+    void projects.setPublic(project.id, true);
+  }
+
+  function unpublish(): void {
+    if (project === undefined) return;
+    void projects.setPublic(project.id, false);
+  }
+
+  async function copyLink(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      toasts.success('Link copied');
+    } catch {
+      toasts.error('Could not copy link');
+    }
+  }
+
   function leave(): void {
     if (project === undefined) return;
     const id = project.id;
@@ -128,7 +154,7 @@
 {/snippet}
 
 {#if project !== undefined}
-  <Modal open title="Members of {project.name}" {onclose}>
+  <Modal open title="Share {project.name}" {onclose}>
     <div class="flex flex-col gap-5">
       <div class="flex flex-col gap-2">
         <ul class="flex max-h-64 flex-col gap-1 overflow-y-auto">
@@ -140,6 +166,33 @@
           {/each}
         </ul>
         <MemberPicker {projectId} />
+      </div>
+
+      <div class="flex flex-col gap-2 border-t border-edge pt-4">
+        <h3 class="text-sm font-semibold">Public link</h3>
+        {#if project.is_public}
+          <p class="text-sm text-muted">
+            Anyone with this link can view this board without an account.
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input
+              readonly
+              aria-label="Public link"
+              value={publicUrl}
+              onfocus={(event) => event.currentTarget.select()}
+              class="min-h-11 min-w-0 flex-1 rounded-md border border-edge bg-canvas px-3 text-sm outline-none"
+            />
+            <Button variant="secondary" onclick={() => void copyLink()}>Copy link</Button>
+          </div>
+          <Button variant="danger" class="self-start" onclick={unpublish}>Stop sharing</Button>
+        {:else}
+          <p class="text-sm text-muted">
+            Anyone with the link can view this board without an account.
+          </p>
+          <Button class="self-start" onclick={() => (confirmPublishOpen = true)}>
+            Publish read-only link
+          </Button>
+        {/if}
       </div>
 
       {#if transferTarget !== null}
@@ -179,4 +232,20 @@
       {/if}
     </div>
   </Modal>
+
+  {#if confirmPublishOpen}
+    <Modal open title="Publish read-only link" onclose={() => (confirmPublishOpen = false)}>
+      <p class="text-sm text-muted">
+        Publish <strong class="text-ink">{project.name}</strong>? Anyone with the link will be able
+        to see every card title, every description, every image on those cards, and who is assigned
+        — including cards in done columns — without an account or a password. The link is unlisted:
+        it is never listed anywhere and search engines are told not to index it, but anyone you send
+        it to can pass it on. You can stop sharing at any time.
+      </p>
+      {#snippet footer()}
+        <Button variant="secondary" onclick={() => (confirmPublishOpen = false)}>Cancel</Button>
+        <Button onclick={publish}>Publish read-only link</Button>
+      {/snippet}
+    </Modal>
+  {/if}
 {/if}

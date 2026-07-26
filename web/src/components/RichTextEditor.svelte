@@ -12,12 +12,19 @@
 
   interface Props {
     content: TiptapDoc | null;
-    onSave: (doc: TiptapDoc | null) => void | Promise<boolean | void>;
+    onSave?: (doc: TiptapDoc | null) => void | Promise<boolean | void>;
     uploadImage?: (file: File) => Promise<string | null>;
     placeholder?: string;
+    readonly?: boolean;
   }
 
-  let { content, onSave, uploadImage, placeholder = 'Add a description…' }: Props = $props();
+  let {
+    content,
+    onSave,
+    uploadImage,
+    placeholder = 'Add a description…',
+    readonly = false,
+  }: Props = $props();
 
   let element = $state<HTMLDivElement>();
   let fileInput = $state<HTMLInputElement>();
@@ -48,7 +55,8 @@
       saveTimer = null;
     }
     const e = editor;
-    if (!e || e.isDestroyed) return;
+    if (!e || e.isDestroyed || onSave === undefined) return;
+    const save = onSave;
     const doc = currentDoc(e);
     const serialized = JSON.stringify(doc);
     if (serialized === lastSaved) return;
@@ -61,7 +69,7 @@
         lastSaved = '';
       }
     };
-    void Promise.resolve(onSave(doc)).then((ok) => {
+    void Promise.resolve(save(doc)).then((ok) => {
       if (ok === false) markFailed();
     }, markFailed);
   }
@@ -101,6 +109,7 @@
             Placeholder.configure({ placeholder }),
           ],
           content: (content ?? null) as JSONContent | null,
+          editable: !readonly,
           editorProps: {
             attributes: { class: 'tiptap' },
             handlePaste: (_view, event) => insertImageFiles(event.clipboardData?.files),
@@ -243,49 +252,55 @@
 {/snippet}
 
 <div
-  class="rte rounded-md border border-edge bg-canvas focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30"
+  class="rte rounded-md border border-edge bg-canvas {readonly
+    ? ''
+    : 'focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30'}"
 >
-  <div
-    class="flex flex-wrap items-center border-b border-edge px-1"
-    role="toolbar"
-    aria-label="Formatting"
-  >
-    {@render tool('B', 'Bold', s.bold, () => run((c) => c.toggleBold()))}
-    {@render tool('I', 'Italic', s.italic, () => run((c) => c.toggleItalic()))}
-    {@render tool('S', 'Strikethrough', s.strike, () => run((c) => c.toggleStrike()))}
-    {@render tool('</>', 'Inline code', s.code, () => run((c) => c.toggleCode()))}
-    {@render tool('H1', 'Heading 1', s.h1, () => run((c) => c.toggleHeading({ level: 1 })))}
-    {@render tool('H2', 'Heading 2', s.h2, () => run((c) => c.toggleHeading({ level: 2 })))}
-    {@render tool('H3', 'Heading 3', s.h3, () => run((c) => c.toggleHeading({ level: 3 })))}
-    {@render tool(bulletListIcon, 'Bullet list', s.bulletList, () =>
-      run((c) => c.toggleBulletList())
-    )}
-    {@render tool(orderedListIcon, 'Ordered list', s.orderedList, () =>
-      run((c) => c.toggleOrderedList())
-    )}
-    {@render tool('❝', 'Blockquote', s.blockquote, () => run((c) => c.toggleBlockquote()))}
-    {@render tool('{ }', 'Code block', s.codeBlock, () => run((c) => c.toggleCodeBlock()))}
-    {@render tool('🔗', 'Link', s.link, toggleLink)}
-    {#if uploadImage}
-      {@render tool('🖼', 'Insert image', false, () => fileInput?.click())}
-    {/if}
-    {@render tool('↺', 'Undo', false, () => run((c) => c.undo()), !s.canUndo)}
-    {@render tool('↻', 'Redo', false, () => run((c) => c.redo()), !s.canRedo)}
-  </div>
+  {#if !readonly}
+    <div
+      class="flex flex-wrap items-center border-b border-edge px-1"
+      role="toolbar"
+      aria-label="Formatting"
+    >
+      {@render tool('B', 'Bold', s.bold, () => run((c) => c.toggleBold()))}
+      {@render tool('I', 'Italic', s.italic, () => run((c) => c.toggleItalic()))}
+      {@render tool('S', 'Strikethrough', s.strike, () => run((c) => c.toggleStrike()))}
+      {@render tool('</>', 'Inline code', s.code, () => run((c) => c.toggleCode()))}
+      {@render tool('H1', 'Heading 1', s.h1, () => run((c) => c.toggleHeading({ level: 1 })))}
+      {@render tool('H2', 'Heading 2', s.h2, () => run((c) => c.toggleHeading({ level: 2 })))}
+      {@render tool('H3', 'Heading 3', s.h3, () => run((c) => c.toggleHeading({ level: 3 })))}
+      {@render tool(bulletListIcon, 'Bullet list', s.bulletList, () =>
+        run((c) => c.toggleBulletList())
+      )}
+      {@render tool(orderedListIcon, 'Ordered list', s.orderedList, () =>
+        run((c) => c.toggleOrderedList())
+      )}
+      {@render tool('❝', 'Blockquote', s.blockquote, () => run((c) => c.toggleBlockquote()))}
+      {@render tool('{ }', 'Code block', s.codeBlock, () => run((c) => c.toggleCodeBlock()))}
+      {@render tool('🔗', 'Link', s.link, toggleLink)}
+      {#if uploadImage}
+        {@render tool('🖼', 'Insert image', false, () => fileInput?.click())}
+      {/if}
+      {@render tool('↺', 'Undo', false, () => run((c) => c.undo()), !s.canUndo)}
+      {@render tool('↻', 'Redo', false, () => run((c) => c.redo()), !s.canRedo)}
+    </div>
+  {/if}
   <div bind:this={element}></div>
 </div>
 
-<input
-  bind:this={fileInput}
-  type="file"
-  accept="image/png,image/jpeg,image/gif,image/webp"
-  multiple
-  class="hidden"
-  onchange={(event) => {
-    insertImageFiles(event.currentTarget.files);
-    event.currentTarget.value = '';
-  }}
-/>
+{#if !readonly}
+  <input
+    bind:this={fileInput}
+    type="file"
+    accept="image/png,image/jpeg,image/gif,image/webp"
+    multiple
+    class="hidden"
+    onchange={(event) => {
+      insertImageFiles(event.currentTarget.files);
+      event.currentTarget.value = '';
+    }}
+  />
+{/if}
 
 <style>
   .rte :global(.tiptap) {

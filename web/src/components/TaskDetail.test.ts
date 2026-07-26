@@ -57,6 +57,7 @@ beforeEach(() => {
     archived_at: null,
     created_by: null,
     member_ids: [],
+    is_public: false,
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [
@@ -232,5 +233,78 @@ describe('TaskDetail', () => {
     await fireEvent.click(remove);
 
     expect(spy).toHaveBeenCalledWith('t4', 't1');
+  });
+});
+
+describe('TaskDetail readonly', () => {
+  beforeEach(() => {
+    users.setForProject('p1', [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null, email: '' }]);
+  });
+
+  it('renders the card as text with no editing surface and no authenticated fetches', async () => {
+    render(TaskDetail, { taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+
+    expect(screen.queryByLabelText('Task title')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Design cards' })).toBeInTheDocument();
+
+    expect(screen.queryByLabelText('Column')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Column' })).toBeInTheDocument();
+    expect(screen.getByText('Todo')).toBeInTheDocument();
+
+    expect(screen.getByText('art')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove label art' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '+ Add label' })).toBeNull();
+
+    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Ada Lovelace/ })).toBeNull();
+
+    expect(screen.getByText('Cut prototype')).toBeInTheDocument();
+    expect(screen.getByText('Playtest session')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Remove blocking task/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Remove blocked task/ })).toBeNull();
+    expect(screen.queryByLabelText('Add a blocking task')).toBeNull();
+
+    expect(screen.queryByRole('heading', { name: 'Images' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Upload image' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
+    expect(screen.queryByText(/Created .+ · Updated .+/)).toBeNull();
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Column' })).toBeVisible());
+    const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+    expect(paths).not.toContain('/api/tasks/t1');
+    expect(paths).not.toContain('/api/users');
+  });
+
+  it('renders the description read-only, with no formatting toolbar', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1'
+        ? {
+            ...t,
+            description: {
+              type: 'doc',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ship it' }] }],
+            },
+          }
+        : t
+    );
+
+    render(TaskDetail, { taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+
+    expect(await screen.findByText('Ship it')).toBeInTheDocument();
+    expect(screen.queryByRole('toolbar', { name: 'Formatting' })).toBeNull();
+    expect(document.querySelector('.tiptap')).toHaveAttribute('contenteditable', 'false');
+  });
+
+  it('hides sections a public card has nothing to show for', () => {
+    board.tasks = [...board.tasks, task('t5', 'c1', 'Bare card')];
+
+    render(TaskDetail, { taskId: 't5', closePath: '/public/projects/p1', readonly: true });
+
+    expect(screen.getByRole('heading', { name: 'Bare card' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Description' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Labels' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Assignees' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Blocked by' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Blocks' })).toBeNull();
   });
 });

@@ -22,9 +22,10 @@
 
   interface Props {
     projectId: string;
+    readonly?: boolean;
   }
 
-  let { projectId }: Props = $props();
+  let { projectId, readonly = false }: Props = $props();
 
   const FLIP_MS = 150;
   const TOUCH_DRAG_DELAY_MS = 250;
@@ -170,6 +171,8 @@
         dropAnimationDisabled: motion.reduced,
         dropTargetStyle,
         delayTouchStart: true,
+        dragDisabled: readonly,
+        dropFromOthersDisabled: readonly,
       }}
       onconsider={handleColumnConsider}
       onfinalize={handleColumnFinalize}
@@ -182,6 +185,7 @@
         >
           <ColumnHeader
             {column}
+            {readonly}
             count={board.tasksInColumn(column.id).length}
             matchCount={board.hasActiveFilters ? board.matchingCountInColumn(column.id) : null}
           />
@@ -196,7 +200,9 @@
               dropAnimationDisabled: motion.reduced,
               dropTargetStyle,
               delayTouchStart: TOUCH_DRAG_DELAY_MS,
-              zoneItemTabIndex: 0,
+              zoneItemTabIndex: readonly ? -1 : 0,
+              dragDisabled: readonly,
+              dropFromOthersDisabled: readonly,
             }}
             onconsider={(event) => handleTaskConsider(column.id, event)}
             onfinalize={(event) => handleTaskFinalize(column.id, event)}
@@ -211,6 +217,7 @@
                 <TaskCard
                   {task}
                   {projectId}
+                  {readonly}
                   labels={labelsFor(task)}
                   blockedCount={openBlockerCount(task)}
                   dimmed={board.hasActiveFilters && !board.taskMatchesFilters(task)}
@@ -218,49 +225,53 @@
               </div>
             {/each}
           </div>
-          <div data-quick-add={column.id}>
-            <QuickAddTask columnId={column.id} />
-          </div>
+          {#if !readonly}
+            <div data-quick-add={column.id}>
+              <QuickAddTask columnId={column.id} />
+            </div>
+          {/if}
         </section>
       {/each}
     </div>
-    <div class="w-[85vw] max-w-72 shrink-0 snap-center snap-always md:snap-start">
-      {#if addingColumn}
-        <form
-          onsubmit={submitNewColumn}
-          class="flex flex-col gap-2 rounded-lg border border-edge bg-surface p-2"
-        >
-          <input
-            value={newColumnName ?? ''}
-            oninput={(event) => drafts.set(columnKey, event.currentTarget.value)}
-            use:focusIf={{
-              active: columnFormOpenedHere,
-              onfocused: () => (columnFormOpenedHere = false),
-            }}
-            aria-label="Column name"
-            placeholder="Column name"
-            autocapitalize="sentences"
-            onkeydown={(event) => {
-              if (event.key === 'Escape') {
-                closeNewColumn();
-              }
-            }}
-            class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
-          />
-          <div class="flex gap-2">
-            <Button type="submit" class="flex-1">Add column</Button>
-            <Button variant="ghost" onclick={closeNewColumn}>Cancel</Button>
-          </div>
-        </form>
-      {:else}
-        <button
-          type="button"
-          onclick={startNewColumn}
-          class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-edge px-3 text-sm font-medium text-muted hover:border-accent hover:text-ink"
-        >
-          + Add column
-        </button>
-      {/if}
-    </div>
+    {#if !readonly}
+      <div class="w-[85vw] max-w-72 shrink-0 snap-center snap-always md:snap-start">
+        {#if addingColumn}
+          <form
+            onsubmit={submitNewColumn}
+            class="flex flex-col gap-2 rounded-lg border border-edge bg-surface p-2"
+          >
+            <input
+              value={newColumnName ?? ''}
+              oninput={(event) => drafts.set(columnKey, event.currentTarget.value)}
+              use:focusIf={{
+                active: columnFormOpenedHere,
+                onfocused: () => (columnFormOpenedHere = false),
+              }}
+              aria-label="Column name"
+              placeholder="Column name"
+              autocapitalize="sentences"
+              onkeydown={(event) => {
+                if (event.key === 'Escape') {
+                  closeNewColumn();
+                }
+              }}
+              class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
+            />
+            <div class="flex gap-2">
+              <Button type="submit" class="flex-1">Add column</Button>
+              <Button variant="ghost" onclick={closeNewColumn}>Cancel</Button>
+            </div>
+          </form>
+        {:else}
+          <button
+            type="button"
+            onclick={startNewColumn}
+            class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-edge px-3 text-sm font-medium text-muted hover:border-accent hover:text-ink"
+          >
+            + Add column
+          </button>
+        {/if}
+      </div>
+    {/if}
   </div>
 </div>

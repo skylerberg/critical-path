@@ -6,3 +6,5 @@ export type BoardProject = BoardPayload['project'];
 export type BoardColumn = BoardPayload['columns'][number];
 export type BoardTask = BoardPayload['tasks'][number];
 export type BoardLabel = BoardPayload['labels'][number];
+export type PublicBoardPayload =
+  paths['/api/public/projects/{id}/board']['get']['responses']['200']['content']['application/json'];

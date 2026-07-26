@@ -17,9 +17,10 @@
   interface Props {
     taskId: string;
     closePath: string;
+    readonly?: boolean;
   }
 
-  let { taskId, closePath }: Props = $props();
+  let { taskId, closePath, readonly = false }: Props = $props();
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const images = $derived(board.taskImages[taskId]);
@@ -30,6 +31,7 @@
     blockers.filter((blocker) => !doneColumnIds.has(blocker.column_id)).length
   );
   const dependents = $derived(board.tasks.filter((t) => t.blocker_ids.includes(taskId)));
+  const columnName = $derived(board.columns.find((c) => c.id === task?.column_id)?.name ?? '');
 
   let dialog = $state<HTMLDialogElement>();
   let uploadInput = $state<HTMLInputElement>();
@@ -43,11 +45,14 @@
 
   $effect(() => {
     const id = taskId;
+    const authed = !readonly;
     untrack(() => {
       titleDraft = null;
       confirmingDelete = false;
       deleting = false;
-      void board.loadTaskImages(id);
+      if (authed) {
+        void board.loadTaskImages(id);
+      }
     });
   });
 
@@ -140,177 +145,211 @@
       <p class="text-sm text-muted">This task may have been deleted.</p>
     {:else}
       <div class="flex items-start gap-2">
-        <input
-          value={titleDraft ?? task.title}
-          aria-label="Task title"
-          autocapitalize="sentences"
-          oninput={(event) => (titleDraft = event.currentTarget.value)}
-          onblur={commitTitle}
-          onkeydown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              event.currentTarget.blur();
-            }
-          }}
-          class="min-h-11 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-lg font-semibold outline-none hover:border-edge focus:border-accent focus:bg-canvas"
-        />
+        {#if readonly}
+          <h2 class="min-h-11 min-w-0 flex-1 px-2 text-lg font-semibold break-words">
+            {task.title}
+          </h2>
+        {:else}
+          <input
+            value={titleDraft ?? task.title}
+            aria-label="Task title"
+            autocapitalize="sentences"
+            oninput={(event) => (titleDraft = event.currentTarget.value)}
+            onblur={commitTitle}
+            onkeydown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+            }}
+            class="min-h-11 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-lg font-semibold outline-none hover:border-edge focus:border-accent focus:bg-canvas"
+          />
+        {/if}
         <Button variant="ghost" aria-label="Close" onclick={close}>✕</Button>
       </div>
 
       <section class="flex flex-col gap-2">
         <h3 class="text-sm font-semibold text-muted">Column</h3>
-        <select
-          aria-label="Column"
-          value={task.column_id}
-          onchange={changeColumn}
-          class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
-        >
-          {#each board.columns as column (column.id)}
-            <option value={column.id}>{column.name}</option>
-          {/each}
-        </select>
-      </section>
-
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-semibold text-muted">Description</h3>
-        {#key taskId}
-          <RichTextEditor content={task.description} onSave={saveDescription} {uploadImage} />
-        {/key}
-      </section>
-
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-semibold text-muted">Labels</h3>
-        <LabelPicker {taskId} />
-      </section>
-
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-semibold text-muted">Assignees</h3>
-        <AssigneePicker {taskId} />
-      </section>
-
-      <section class="flex flex-col gap-2">
-        <div class="flex items-center gap-2">
-          <h3 class="text-sm font-semibold text-muted">Blocked by</h3>
-          {#if openBlockerCount > 0}
-            <Badge variant="danger">
-              {openBlockerCount} open task{openBlockerCount === 1 ? '' : 's'}
-            </Badge>
-          {/if}
-        </div>
-        {#if blockers.length > 0}
-          <ul class="flex flex-col">
-            {#each blockers as blocker (blocker.id)}
-              <li class="flex min-h-11 items-center gap-2">
-                <span
-                  class="min-w-0 flex-1 truncate text-sm {doneColumnIds.has(blocker.column_id)
-                    ? 'text-muted line-through'
-                    : ''}"
-                >
-                  {blocker.title}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Remove blocking task {blocker.title}"
-                  onclick={() => void board.removeBlocker(taskId, blocker.id)}
-                  class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
-                >
-                  Remove
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        <DependencyPicker {taskId} direction="blocker" />
-      </section>
-
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-semibold text-muted">Blocks</h3>
-        {#if dependents.length > 0}
-          <ul class="flex flex-col">
-            {#each dependents as dependent (dependent.id)}
-              <li class="flex min-h-11 items-center gap-2">
-                <span
-                  class="min-w-0 flex-1 truncate text-sm {doneColumnIds.has(dependent.column_id)
-                    ? 'text-muted line-through'
-                    : ''}"
-                >
-                  {dependent.title}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Remove blocked task {dependent.title}"
-                  onclick={() => void board.removeBlocker(dependent.id, taskId)}
-                  class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
-                >
-                  Remove
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        <DependencyPicker {taskId} direction="blocked" />
-      </section>
-
-      <section class="flex flex-col gap-2">
-        <div class="flex items-center justify-between gap-2">
-          <h3 class="text-sm font-semibold text-muted">Images</h3>
-          <Button variant="secondary" onclick={() => uploadInput?.click()}>Upload image</Button>
-        </div>
-        {#if images === undefined}
-          {#if task.image_count > 0}
-            <Spinner size="sm" label="Loading images" />
-          {/if}
-        {:else if images.length === 0}
-          <p class="text-sm text-muted">No images attached.</p>
+        {#if readonly}
+          <p class="text-sm">{columnName}</p>
         {:else}
-          <ul class="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {#each images as image (image.id)}
-              <li class="relative">
-                <img
-                  src={image.url}
-                  alt={image.filename}
-                  loading="lazy"
-                  class="aspect-square w-full rounded-md border border-edge object-cover"
-                />
-                <button
-                  type="button"
-                  aria-label="Delete image {image.filename}"
-                  onclick={() => void board.deleteTaskImage(taskId, image.id)}
-                  class="absolute top-1 right-1 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/60 text-sm text-white hover:bg-danger"
-                >
-                  ✕
-                </button>
-              </li>
+          <select
+            aria-label="Column"
+            value={task.column_id}
+            onchange={changeColumn}
+            class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
+          >
+            {#each board.columns as column (column.id)}
+              <option value={column.id}>{column.name}</option>
             {/each}
-          </ul>
+          </select>
         {/if}
-        <input
-          bind:this={uploadInput}
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
-          multiple
-          class="hidden"
-          onchange={(event) => {
-            for (const file of event.currentTarget.files ?? []) {
-              void board.uploadTaskImage(taskId, file);
-            }
-            event.currentTarget.value = '';
-          }}
-        />
       </section>
 
-      <div
-        class="flex flex-col gap-3 border-t border-edge pt-4 sm:flex-row sm:items-center sm:justify-between"
-      >
-        <p class="text-xs text-muted">
-          Created {dateFormat.format(new Date(task.created_at))} · Updated {dateFormat.format(
-            new Date(task.updated_at)
-          )}
-        </p>
-        <Button variant="danger" onclick={() => void handleDelete()}>
-          {confirmingDelete ? 'Confirm delete' : 'Delete task'}
-        </Button>
-      </div>
+      {#if !readonly || task.description !== null}
+        <section class="flex flex-col gap-2">
+          <h3 class="text-sm font-semibold text-muted">Description</h3>
+          {#key taskId}
+            {#if readonly}
+              <RichTextEditor content={task.description} readonly />
+            {:else}
+              <RichTextEditor content={task.description} onSave={saveDescription} {uploadImage} />
+            {/if}
+          {/key}
+        </section>
+      {/if}
+
+      {#if !readonly || task.label_ids.length > 0}
+        <section class="flex flex-col gap-2">
+          <h3 class="text-sm font-semibold text-muted">Labels</h3>
+          <LabelPicker {taskId} {readonly} />
+        </section>
+      {/if}
+
+      {#if !readonly || task.assignee_ids.length > 0}
+        <section class="flex flex-col gap-2">
+          <h3 class="text-sm font-semibold text-muted">Assignees</h3>
+          <AssigneePicker {taskId} {readonly} />
+        </section>
+      {/if}
+
+      {#if !readonly || blockers.length > 0}
+        <section class="flex flex-col gap-2">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-semibold text-muted">Blocked by</h3>
+            {#if openBlockerCount > 0}
+              <Badge variant="danger">
+                {openBlockerCount} open task{openBlockerCount === 1 ? '' : 's'}
+              </Badge>
+            {/if}
+          </div>
+          {#if blockers.length > 0}
+            <ul class="flex flex-col">
+              {#each blockers as blocker (blocker.id)}
+                <li class="flex min-h-11 items-center gap-2">
+                  <span
+                    class="min-w-0 flex-1 truncate text-sm {doneColumnIds.has(blocker.column_id)
+                      ? 'text-muted line-through'
+                      : ''}"
+                  >
+                    {blocker.title}
+                  </span>
+                  {#if !readonly}
+                    <button
+                      type="button"
+                      aria-label="Remove blocking task {blocker.title}"
+                      onclick={() => void board.removeBlocker(taskId, blocker.id)}
+                      class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
+                    >
+                      Remove
+                    </button>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          {#if !readonly}
+            <DependencyPicker {taskId} direction="blocker" />
+          {/if}
+        </section>
+      {/if}
+
+      {#if !readonly || dependents.length > 0}
+        <section class="flex flex-col gap-2">
+          <h3 class="text-sm font-semibold text-muted">Blocks</h3>
+          {#if dependents.length > 0}
+            <ul class="flex flex-col">
+              {#each dependents as dependent (dependent.id)}
+                <li class="flex min-h-11 items-center gap-2">
+                  <span
+                    class="min-w-0 flex-1 truncate text-sm {doneColumnIds.has(dependent.column_id)
+                      ? 'text-muted line-through'
+                      : ''}"
+                  >
+                    {dependent.title}
+                  </span>
+                  {#if !readonly}
+                    <button
+                      type="button"
+                      aria-label="Remove blocked task {dependent.title}"
+                      onclick={() => void board.removeBlocker(dependent.id, taskId)}
+                      class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
+                    >
+                      Remove
+                    </button>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          {#if !readonly}
+            <DependencyPicker {taskId} direction="blocked" />
+          {/if}
+        </section>
+      {/if}
+
+      {#if !readonly}
+        <section class="flex flex-col gap-2">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-sm font-semibold text-muted">Images</h3>
+            <Button variant="secondary" onclick={() => uploadInput?.click()}>Upload image</Button>
+          </div>
+          {#if images === undefined}
+            {#if task.image_count > 0}
+              <Spinner size="sm" label="Loading images" />
+            {/if}
+          {:else if images.length === 0}
+            <p class="text-sm text-muted">No images attached.</p>
+          {:else}
+            <ul class="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {#each images as image (image.id)}
+                <li class="relative">
+                  <img
+                    src={image.url}
+                    alt={image.filename}
+                    loading="lazy"
+                    class="aspect-square w-full rounded-md border border-edge object-cover"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Delete image {image.filename}"
+                    onclick={() => void board.deleteTaskImage(taskId, image.id)}
+                    class="absolute top-1 right-1 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/60 text-sm text-white hover:bg-danger"
+                  >
+                    ✕
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          <input
+            bind:this={uploadInput}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            class="hidden"
+            onchange={(event) => {
+              for (const file of event.currentTarget.files ?? []) {
+                void board.uploadTaskImage(taskId, file);
+              }
+              event.currentTarget.value = '';
+            }}
+          />
+        </section>
+
+        <div
+          class="flex flex-col gap-3 border-t border-edge pt-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p class="text-xs text-muted">
+            Created {dateFormat.format(new Date(task.created_at))} · Updated {dateFormat.format(
+              new Date(task.updated_at)
+            )}
+          </p>
+          <Button variant="danger" onclick={() => void handleDelete()}>
+            {confirmingDelete ? 'Confirm delete' : 'Delete task'}
+          </Button>
+        </div>
+      {/if}
     {/if}
   </div>
 </dialog>

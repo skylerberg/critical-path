@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { noFilters } from './board-filters';
-import { link, matchRoute, router, splitPath } from './router.svelte';
+import { boardPath, link, matchRoute, router, splitPath } from './router.svelte';
 
 describe('matchRoute', () => {
   it('matches the root path to projects', () => {
@@ -67,6 +67,25 @@ describe('matchRoute', () => {
         taskId: 't9',
         filters: { labelIds: [], assigneeIds: ['u1'], query: '' },
       },
+    });
+  });
+
+  it('matches the public board and its task overlay', () => {
+    expect(matchRoute('/public/projects/p1')).toEqual({
+      name: 'public-board',
+      params: { id: 'p1' },
+    });
+    expect(matchRoute('/public/projects/p1/tasks/t9')).toEqual({
+      name: 'public-board',
+      params: { id: 'p1', taskId: 't9' },
+    });
+    expect(matchRoute('/public/projects/p1/')).toEqual({
+      name: 'public-board',
+      params: { id: 'p1' },
+    });
+    expect(matchRoute('/public/projects')).toEqual({
+      name: 'not-found',
+      path: '/public/projects',
     });
   });
 
@@ -193,6 +212,15 @@ describe('router', () => {
     } finally {
       router.beforeNavigate = undefined;
     }
+  });
+});
+
+describe('boardPath', () => {
+  it('round-trips through matchRoute for both modes', () => {
+    expect(boardPath('p1', false)).toBe('/projects/p1');
+    expect(boardPath('p1', true)).toBe('/public/projects/p1');
+    expect(matchRoute(boardPath('p1', true)).name).toBe('public-board');
+    expect(matchRoute(boardPath('p1', false)).name).toBe('project');
   });
 });
 

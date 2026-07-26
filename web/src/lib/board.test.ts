@@ -6,6 +6,7 @@ import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
 import { router } from './router.svelte';
 import { toasts } from './toasts.svelte';
+import { users } from './users.svelte';
 
 const CYCLE_ERROR = 'Adding this blocker would create a dependency cycle';
 
@@ -34,6 +35,7 @@ function payload(): BoardPayload {
       archived_at: null,
       created_by: null,
       member_ids: [],
+      is_public: false,
       created_at: '2026-01-01T00:00:00Z',
     },
     columns: [
@@ -220,6 +222,150 @@ describe('board store load', () => {
     expect(board.error).toBeNull();
     expect(board.project?.id).toBe('p1');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('board store readonly mode', () => {
+  const publicPayload = {
+    project: { id: 'p1', name: 'Public Game', description: 'shared' },
+    columns: [
+      { id: 'c2', name: 'Done', position: 2000, is_done: true },
+      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+    ],
+    tasks: [
+      {
+        id: 't1',
+        column_id: 'c1',
+        title: 'A',
+        description: null,
+        position: 1000,
+        label_ids: ['l1'],
+        assignee_ids: ['u-ada'],
+        blocker_ids: [],
+        image_count: 2,
+      },
+    ],
+    labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+    users: [{ id: 'u-ada', name: 'Ada', avatar_url: null }],
+  };
+
+  function mockPublic(): void {
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname === '/api/public/projects/p1/board') {
+        return jsonResponse(200, publicPayload);
+      }
+      return jsonResponse(404, { error: 'This board is not public' });
+    });
+  }
+
+  beforeEach(() => {
+    users.reset();
+  });
+
+  afterEach(() => {
+    users.reset();
+  });
+
+  it('loads from the public endpoint and never touches the private one', async () => {
+    mockPublic();
+
+    await board.load('p1', undefined, { readonly: true });
+
+    expect(board.readonly).toBe(true);
+    expect(board.error).toBeNull();
+    expect(board.project?.name).toBe('Public Game');
+    expect(board.project?.is_public).toBe(true);
+    expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2']);
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+    expect(board.labels.map((l) => l.id)).toEqual(['l1']);
+    const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+    expect(paths).toEqual(['/api/public/projects/p1/board']);
+  });
+
+  it('hydrates the project user cache from the payload without emails', async () => {
+    mockPublic();
+
+    await board.load('p1', undefined, { readonly: true });
+
+    expect(users.forProject('p1')).toEqual([
+      { id: 'u-ada', name: 'Ada', avatar_url: null, email: '' },
+    ]);
+    expect(users.displayFor('u-ada').name).toBe('Ada');
+  });
+
+  it('leaves the user cache alone when a public fetch loses the race', async () => {
+    let release = (): void => {};
+    const inflightResponse = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => {
+      await inflightResponse;
+      return jsonResponse(200, publicPayload);
+    });
+
+    const inflight = board.load('p1', undefined, { readonly: true });
+    board.reset();
+    users.invalidateAll();
+    release();
+    await inflight;
+
+    expect(users.forProject('p1')).toEqual([]);
+    expect(board.project).toBeNull();
+  });
+
+  it('stays on the public endpoint when refetching', async () => {
+    mockPublic();
+    await board.load('p1', undefined, { readonly: true });
+    fetchMock.mockClear();
+
+    await board.refetch();
+
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/public/projects/p1/board');
+  });
+
+  it('surfaces the server message when the board is not public', async () => {
+    mockPublic();
+
+    await board.load('p2', undefined, { readonly: true });
+
+    expect(board.error).toBe('This board is not public');
+    expect(board.project).toBeNull();
+  });
+
+  it('ignores realtime events while read-only', async () => {
+    mockPublic();
+    await board.load('p1', undefined, { readonly: true });
+
+    board.applyRealtime({
+      type: 'task_deleted',
+      project_id: 'p1',
+      data: { id: 't1' },
+    });
+
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('re-fetches privately when the same project is opened signed in', async () => {
+    mockPublic();
+    await board.load('p1', undefined, { readonly: true });
+    mockRoutes();
+    fetchMock.mockClear();
+
+    await board.load('p1');
+
+    expect(board.readonly).toBe(false);
+    expect(board.project?.name).toBe('Game');
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p1');
+  });
+
+  it('clears the readonly flag on reset', async () => {
+    mockPublic();
+    await board.load('p1', undefined, { readonly: true });
+
+    board.reset();
+
+    expect(board.readonly).toBe(false);
   });
 });
 

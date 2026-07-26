@@ -1,13 +1,21 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import { filtersToSearch, noFilters, type BoardFilters } from './board-filters';
-import type { BoardColumn, BoardLabel, BoardProject, BoardTask, CycleTask } from './board-types';
+import type {
+  BoardColumn,
+  BoardLabel,
+  BoardProject,
+  BoardTask,
+  CycleTask,
+  PublicBoardPayload,
+} from './board-types';
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
 import { append, between, prepend } from './positions';
 import { router, splitPath } from './router.svelte';
 import { toasts } from './toasts.svelte';
+import { users, type User } from './users.svelte';
 
 export type TaskImage = components['schemas']['ImageResponse'];
 
@@ -83,7 +91,9 @@ class BoardStore {
   labels = $state<BoardLabel[]>([]);
   loading = $state(false);
   error = $state<string | null>(null);
+  errorStatus = $state<number | null>(null);
   currentProjectId = $state<string | null>(null);
+  readonly = $state(false);
   // Read-only signal for the shortcut layer; nothing in this store reacts to it.
   dragging = $state(false);
   filterLabelIds = $state<string[]>([]);
@@ -101,12 +111,18 @@ class BoardStore {
 
   // Filters are adopted before the first await, so a link built from the store during
   // the fetch already carries the incoming project's narrowing.
-  async load(projectId: string, filters: BoardFilters = noFilters()): Promise<void> {
-    const sameProject = this.currentProjectId === projectId;
+  async load(
+    projectId: string,
+    filters: BoardFilters = noFilters(),
+    opts: { readonly?: boolean } = {}
+  ): Promise<void> {
+    const wantsReadonly = opts.readonly ?? false;
+    const sameProject = this.currentProjectId === projectId && this.readonly === wantsReadonly;
     if (!sameProject) {
       this.reset();
     }
     this.currentProjectId = projectId;
+    this.readonly = wantsReadonly;
     this.setFilters(filters);
     if (sameProject && this.error === null) {
       // Stale-while-revalidate: serve the cached board flicker-free.
@@ -130,17 +146,28 @@ class BoardStore {
     }
     const token = ++this.#fetchToken;
     try {
-      const data = assertOk(
-        await api.GET('/api/projects/{id}', { params: { path: { id: projectId } } })
-      );
+      const { data, projectUsers } = this.readonly
+        ? await this.#fetchPublic(projectId)
+        : {
+            data: assertOk(
+              await api.GET('/api/projects/{id}', { params: { path: { id: projectId } } })
+            ),
+            projectUsers: null,
+          };
       if (token !== this.#fetchToken) {
         return;
+      }
+      // Behind the staleness check: a losing response must not refill the user
+      // cache the read-only page dropped on its way out.
+      if (projectUsers !== null) {
+        users.setForProject(projectId, projectUsers);
       }
       this.project = data.project;
       this.columns = [...data.columns].sort((a, b) => a.position - b.position);
       this.tasks = data.tasks;
       this.labels = data.labels;
       this.error = null;
+      this.errorStatus = null;
       // Now that the label set is known, drop any the incoming URL named but this
       // project does not have.
       this.setFilters(this.filters);
@@ -149,7 +176,40 @@ class BoardStore {
         return;
       }
       this.error = error instanceof ApiError ? error.message : 'Failed to load board';
+      this.errorStatus = error instanceof ApiError ? error.status : null;
     }
+  }
+
+  // Placeholders stand in for the identity and timestamp fields the public
+  // payload withholds; nothing the read-only UI renders reads them.
+  async #fetchPublic(projectId: string): Promise<{
+    data: {
+      project: BoardProject;
+      columns: BoardColumn[];
+      tasks: BoardTask[];
+      labels: BoardLabel[];
+    };
+    projectUsers: User[];
+  }> {
+    const data: PublicBoardPayload = assertOk(
+      await api.GET('/api/public/projects/{id}/board', { params: { path: { id: projectId } } })
+    );
+    return {
+      data: {
+        project: {
+          ...data.project,
+          archived_at: null,
+          created_at: '',
+          created_by: null,
+          member_ids: [],
+          is_public: true,
+        },
+        columns: data.columns,
+        tasks: data.tasks.map((task) => ({ ...task, created_at: '', updated_at: '' })),
+        labels: data.labels,
+      },
+      projectUsers: data.users.map((user) => ({ ...user, email: '' })),
+    };
   }
 
   reset(): void {
@@ -162,8 +222,10 @@ class BoardStore {
     this.taskImages = {};
     this.loading = false;
     this.error = null;
+    this.errorStatus = null;
     this.dragging = false;
     this.currentProjectId = null;
+    this.readonly = false;
     this.filterLabelIds = [];
     this.filterAssigneeIds = [];
     this.filterQuery = '';
@@ -738,7 +800,7 @@ class BoardStore {
   // Idempotent direct patches from realtime events; an echo of our own mutation
   // re-applies the same values and is a no-op.
   applyRealtime(event: RealtimeEvent): void {
-    if (event.project_id !== this.currentProjectId) {
+    if (this.readonly || event.project_id !== this.currentProjectId) {
       return;
     }
     switch (event.type) {

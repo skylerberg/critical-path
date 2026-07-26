@@ -1,7 +1,7 @@
 <script lang="ts">
   import { board } from '../lib/board.svelte';
   import type { BoardLabel, BoardTask } from '../lib/board-types';
-  import { link } from '../lib/router.svelte';
+  import { boardPath, link } from '../lib/router.svelte';
   import { selection } from '../lib/selection.svelte';
   import { users } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -13,9 +13,17 @@
     labels?: BoardLabel[];
     blockedCount?: number;
     dimmed?: boolean;
+    readonly?: boolean;
   }
 
-  let { task, projectId, labels = [], blockedCount = 0, dimmed = false }: Props = $props();
+  let {
+    task,
+    projectId,
+    labels = [],
+    blockedCount = 0,
+    dimmed = false,
+    readonly = false,
+  }: Props = $props();
 
   const assignees = $derived(task.assignee_ids.map((id) => users.displayFor(id)));
   const selected = $derived(selection.selectedTaskId === task.id);
@@ -23,7 +31,7 @@
 
 <a
   use:link
-  href={`/projects/${projectId}/tasks/${task.id}${board.filterSearch}`}
+  href={`${boardPath(projectId, readonly)}/tasks/${task.id}${board.filterSearch}`}
   draggable="false"
   onpointerenter={() => {
     if (!board.dragging) {
