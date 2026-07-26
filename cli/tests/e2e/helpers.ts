@@ -14,25 +14,33 @@ export interface CliRunResult {
   json<T = unknown>(): T;
 }
 
+export interface CliRunHandle {
+  output(): string;
+  errorOutput(): string;
+  interrupt(): void;
+  done: Promise<CliRunResult>;
+}
+
+export interface CliRunOptions {
+  stdin?: string;
+  env?: Record<string, string>;
+}
+
 export interface CliHarness {
   credentials: MemoryStore;
   configDir: string;
-  runCli(
-    argv: string[],
-    options?: { stdin?: string; env?: Record<string, string> }
-  ): Promise<CliRunResult>;
+  runCli(argv: string[], options?: CliRunOptions): Promise<CliRunResult>;
+  startCli(argv: string[], options?: CliRunOptions): CliRunHandle;
 }
 
 export async function createCliHarness(): Promise<CliHarness> {
   const credentials = new MemoryStore();
   const configDir = join(await mkdtemp(join(tmpdir(), 'cpath-e2e-')), 'config');
 
-  async function runCli(
-    argv: string[],
-    options: { stdin?: string; env?: Record<string, string> } = {}
-  ): Promise<CliRunResult> {
+  function startCli(argv: string[], options: CliRunOptions = {}): CliRunHandle {
     let stdout = '';
     let stderr = '';
+    let interruptHandler: (() => void) | null = null;
     const stdin = new PassThrough();
     stdin.end(options.stdin ?? '');
     const deps: CliDeps = {
@@ -55,15 +63,41 @@ export async function createCliHarness(): Promise<CliHarness> {
       },
       fetch: async (request) => app.request(request),
       credentials,
+      onInterrupt: (handler) => {
+        interruptHandler = handler;
+        return () => {
+          if (interruptHandler === handler) {
+            interruptHandler = null;
+          }
+        };
+      },
     };
-    const exitCode = await run(deps, ['node', 'cpath', ...argv]);
-    return {
+    const done = run(deps, ['node', 'cpath', ...argv]).then((exitCode) => ({
       exitCode,
       stdout,
       stderr,
       json: <T = unknown>() => JSON.parse(stdout) as T,
+    }));
+    return {
+      output: () => stdout,
+      errorOutput: () => stderr,
+      interrupt: () => {
+        const handler = interruptHandler;
+        if (handler === null) {
+          // Throwing beats hanging: the command never registered a handler, so it
+          // would ignore the interrupt and never finish.
+          throw new Error('the command has not registered an interrupt handler');
+        }
+        handler();
+      },
+      done,
     };
   }
 
-  return { credentials, configDir, runCli };
+  return {
+    credentials,
+    configDir,
+    runCli: (argv, options) => startCli(argv, options).done,
+    startCli,
+  };
 }
