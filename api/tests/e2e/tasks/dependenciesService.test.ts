@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { db } from '../../helpers/database';
 import {
+  findDependencyCyclePath,
   lockProjectDependencies,
   wouldCreateDependencyCycle,
 } from '../../../src/services/dependencies';
@@ -44,6 +45,26 @@ describe('dependencies service cycle detection', () => {
       expect(await wouldCreateDependencyCycle(trx, taskC, taskA)).toBe(false);
       expect(await wouldCreateDependencyCycle(trx, taskD, taskC)).toBe(false);
       expect(await wouldCreateDependencyCycle(trx, taskC, taskD)).toBe(false);
+    });
+  });
+
+  it('names the offending path with current titles', async () => {
+    await db.transaction().execute(async (trx) => {
+      await lockProjectDependencies(trx, projectId);
+      expect(await findDependencyCyclePath(trx, projectId, taskA, taskC)).toEqual([
+        { id: taskA, title: 'A' },
+        { id: taskB, title: 'B' },
+        { id: taskC, title: 'C' },
+        { id: taskA, title: 'A' },
+      ]);
+    });
+  });
+
+  it('returns no path when the edge would not close a cycle', async () => {
+    await db.transaction().execute(async (trx) => {
+      await lockProjectDependencies(trx, projectId);
+      expect(await findDependencyCyclePath(trx, projectId, taskC, taskA)).toEqual([]);
+      expect(await findDependencyCyclePath(trx, projectId, taskD, taskC)).toEqual([]);
     });
   });
 
