@@ -32,9 +32,6 @@
 
   const menuItemClass =
     'flex min-h-11 w-full cursor-pointer items-center px-4 text-left text-sm hover:bg-accent-soft';
-  // grid-cols-1 is load-bearing: its minmax(0, 1fr) track is what lets the truncating
-  // (white-space: nowrap) card title shrink. An implicit auto track sizes to min-content
-  // and a long project name widens the whole page past the viewport.
   const gridClass = 'grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4';
 
   function openCreate(source: Project | null): void {
@@ -181,16 +178,25 @@
 
 {#snippet projectCard(project: Project, dimmed = false)}
   <article
-    class="relative flex items-center gap-1 rounded-lg border border-edge bg-surface pl-3 transition-colors hover:border-accent {dimmed
+    class="relative flex items-center gap-1 rounded-lg border border-edge bg-surface pl-3 transition-colors hover:border-accent has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-accent {dimmed
       ? 'opacity-60'
       : ''} {openMenuId === project.id ? 'z-30' : ''}"
   >
     <div class="min-w-0 flex-1 py-1">
-      <h3 class="truncate text-sm font-semibold" title={project.name}>
-        <a href="/projects/{project.id}" class="after:absolute after:inset-0">{project.name}</a>
+      <h3 class="truncate text-sm font-semibold">
+        <!-- The ::after covers the whole card, so the anchor is the only element a pointer
+             can hit: one composed title here, and the focus ring on the article, outside
+             the heading's truncate clip. -->
+        <a
+          href="/projects/{project.id}"
+          title={project.description === ''
+            ? project.name
+            : `${project.name}\n${project.description}`}
+          class="after:absolute after:inset-0 focus-visible:outline-none">{project.name}</a
+        >
       </h3>
       {#if project.description !== ''}
-        <p class="line-clamp-2 text-xs text-muted" title={project.description}>
+        <p class="line-clamp-2 text-xs text-muted">
           {project.description}
         </p>
       {/if}

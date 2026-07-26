@@ -93,7 +93,7 @@ describe('Projects', () => {
     expect(inCard.getByRole('button', { name: 'Options for Alpha' })).toBeInTheDocument();
 
     expect(card).toHaveClass('items-center');
-    expect(card).not.toHaveClass('flex-col');
+    expect(card.querySelector('div')).toHaveClass('py-1');
   });
 
   it('keeps the full project name available when the title truncates', async () => {
@@ -103,12 +103,12 @@ describe('Projects', () => {
     );
     render(Projects);
 
-    const heading = (await screen.findByRole('link', { name: longName })).closest('h3')!;
-    expect(heading).toHaveAttribute('title', longName);
-    expect(heading).toHaveClass('truncate');
+    const cardLink = await screen.findByRole('link', { name: longName });
+    expect(cardLink).toHaveAttribute('title', longName);
+    expect(cardLink.closest('h3')).toHaveClass('truncate');
   });
 
-  it('keeps the full description reachable when it clamps', async () => {
+  it('hangs the tooltip on the anchor that the card-wide overlay hit-tests to', async () => {
     const longDescription = 'A deck-building game about deck-building games. '.repeat(9).trim();
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, {
@@ -117,9 +117,13 @@ describe('Projects', () => {
     );
     render(Projects);
 
-    const paragraph = await screen.findByText(longDescription);
-    expect(paragraph).toHaveAttribute('title', longDescription);
+    const cardLink = await screen.findByRole('link', { name: 'Alpha' });
+    expect(cardLink).toHaveAttribute('title', `Alpha\n${longDescription}`);
+
+    const paragraph = screen.getByText(longDescription);
     expect(paragraph).toHaveClass('line-clamp-2');
+    expect(paragraph).not.toHaveAttribute('title');
+    expect(cardLink.closest('h3')).not.toHaveAttribute('title');
   });
 
   it('omits the description line when a project has none', async () => {
@@ -132,7 +136,7 @@ describe('Projects', () => {
     expect(card.querySelectorAll('p')).toHaveLength(0);
   });
 
-  it('packs the grid tighter as the viewport widens', async () => {
+  it('pins the compact grid and page container classes', async () => {
     fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [activeProject] }));
     render(Projects);
 
@@ -145,6 +149,7 @@ describe('Projects', () => {
       'xl:grid-cols-3',
       '2xl:grid-cols-4'
     );
+    expect(card.closest('main')).toHaveClass('max-w-7xl', 'gap-6');
   });
 
   it('keeps the options button outside the card link', async () => {
