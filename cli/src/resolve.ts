@@ -51,7 +51,7 @@ export async function listProjects(ctx: RuntimeContext): Promise<ProjectListItem
   return assertOk(await ctx.api.GET('/api/projects')).projects;
 }
 
-export async function resolveProject(ctx: RuntimeContext, ref?: string): Promise<ProjectListItem> {
+export function effectiveProjectRef(ctx: RuntimeContext, ref?: string): string {
   const effective = ref ?? ctx.deps.env.CRITICAL_PATH_PROJECT ?? ctx.config.default_project;
   if (effective == null || effective === '') {
     throw new CliError(
@@ -59,14 +59,25 @@ export async function resolveProject(ctx: RuntimeContext, ref?: string): Promise
       EXIT.usage
     );
   }
-  const projects = await listProjects(ctx);
+  return effective;
+}
+
+export function matchProject<T extends { id: string; name: string }>(
+  ref: string,
+  projects: readonly T[]
+): T {
   return matchRef(
-    effective,
+    ref,
     projects,
     'project',
     (p) => p.id,
     (p) => p.name
   );
+}
+
+export async function resolveProject(ctx: RuntimeContext, ref?: string): Promise<ProjectListItem> {
+  const effective = effectiveProjectRef(ctx, ref);
+  return matchProject(effective, await listProjects(ctx));
 }
 
 export async function fetchBoard(ctx: RuntimeContext, projectId: string): Promise<BoardPayload> {

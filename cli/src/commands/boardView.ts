@@ -47,7 +47,7 @@ export function registerBoardViews(program: Command, deps: CliDeps): void {
   program.addCommand(
     leaf('ready')
       .description('List tasks that are not done and have no unfinished blockers')
-      .option('--project <ref>', 'project id or name')
+      .option('--project <project>', 'project id or name')
       .action(
         withCtx(deps, async (ctx, opts) => {
           const board = await resolveBoard(ctx, opts.project as string | undefined);

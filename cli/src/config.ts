@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { CliError, EXIT } from './api/errors';
 
 export interface CliConfig {
@@ -48,10 +48,14 @@ export async function loadConfig(configDir: string): Promise<CliConfig> {
   return typeof parsed === 'object' && parsed !== null ? (parsed as CliConfig) : {};
 }
 
-export async function saveConfig(configDir: string, config: CliConfig): Promise<void> {
-  await mkdir(configDir, { recursive: true, mode: 0o700 });
-  const path = configPath(configDir);
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+export async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  // Unique per process so two concurrent writers cannot clobber each other's temp file.
+  const tmp = `${path}.${String(process.pid)}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await rename(tmp, path);
+}
+
+export async function saveConfig(configDir: string, config: CliConfig): Promise<void> {
+  await writeJsonAtomic(configPath(configDir), config);
 }

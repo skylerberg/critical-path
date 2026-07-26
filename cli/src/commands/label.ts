@@ -11,7 +11,7 @@ export function registerLabel(program: Command, deps: CliDeps): void {
   label.addCommand(
     leaf('list')
       .description('List labels')
-      .option('--project <ref>', 'project id or name')
+      .option('--project <project>', 'project id or name')
       .action(
         withCtx(deps, async (ctx, opts) => {
           const board = await resolveBoard(ctx, opts.project as string | undefined);
@@ -31,7 +31,7 @@ export function registerLabel(program: Command, deps: CliDeps): void {
       .description('Create a label')
       .argument('<name>', 'label name')
       .requiredOption('--color <color>', 'hex color like #ff8800')
-      .option('--project <ref>', 'project id or name')
+      .option('--project <project>', 'project id or name')
       .action(
         withCtx(deps, async (ctx, opts, name) => {
           const board = await resolveBoard(ctx, opts.project as string | undefined);
@@ -56,7 +56,7 @@ export function registerLabel(program: Command, deps: CliDeps): void {
     leaf('update')
       .description('Rename or recolor a label')
       .argument('<label>', 'label id or name')
-      .option('--project <ref>', 'project id or name')
+      .option('--project <project>', 'project id or name')
       .option('--name <name>', 'new name')
       .option('--color <color>', 'new hex color like #ff8800')
       .action(
@@ -88,7 +88,7 @@ export function registerLabel(program: Command, deps: CliDeps): void {
     leaf('delete')
       .description('Delete a label')
       .argument('<label>', 'label id or name')
-      .option('--project <ref>', 'project id or name')
+      .option('--project <project>', 'project id or name')
       .option('--force', 'skip the confirmation prompt')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {

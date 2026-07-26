@@ -16,6 +16,7 @@ export interface CliRunResult {
 
 export interface CliHarness {
   credentials: MemoryStore;
+  configDir: string;
   runCli(
     argv: string[],
     options?: { stdin?: string; env?: Record<string, string> }
@@ -64,5 +65,5 @@ export async function createCliHarness(): Promise<CliHarness> {
     };
   }
 
-  return { credentials, runCli };
+  return { credentials, configDir, runCli };
 }
