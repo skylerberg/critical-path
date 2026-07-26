@@ -176,7 +176,11 @@
           aria-label={column.name}
           class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-center snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start"
         >
-          <ColumnHeader {column} count={board.tasksInColumn(column.id).length} />
+          <ColumnHeader
+            {column}
+            count={board.tasksInColumn(column.id).length}
+            matchCount={board.hasActiveFilters ? board.matchingCountInColumn(column.id) : null}
+          />
           <div
             class="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2"
             aria-label="{column.name} tasks"

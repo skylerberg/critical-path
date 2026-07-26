@@ -8,13 +8,16 @@
   interface Props {
     column: BoardColumn;
     count: number;
+    matchCount: number | null;
   }
 
-  let { column, count }: Props = $props();
+  let { column, count, matchCount }: Props = $props();
 
   let renaming = $state(false);
   let draft = $state('');
   let deleteOpen = $state(false);
+
+  const badgeText = $derived(matchCount === null ? String(count) : `${matchCount} of ${count}`);
 
   function startRename(): void {
     draft = column.name;
@@ -78,7 +81,7 @@
     >
       {column.name}
     </button>
-    <Badge>{count}</Badge>
+    <span class="shrink-0 whitespace-nowrap"><Badge>{badgeText}</Badge></span>
   {/if}
   <button
     type="button"
