@@ -4,6 +4,7 @@ import { newId, uniqueEmail } from '../helpers/fixtures';
 import {
   canAccessProject,
   assertProjectAccess,
+  assertPublicProject,
   accessibleProjectsFilter,
   isProjectMember,
   usersWithProjectAccess,
@@ -99,6 +100,54 @@ describe('assertProjectAccess', () => {
     await expect(assertProjectAccess(db, creator, newId())).rejects.toMatchObject({
       statusCode: 404,
     });
+  });
+});
+
+describe('assertPublicProject', () => {
+  async function setPublic(projectId: string, isPublic: boolean): Promise<void> {
+    await db
+      .updateTable('project')
+      .set({ is_public: isPublic })
+      .where('id', '=', projectId)
+      .execute();
+  }
+
+  it('throws 404 while the project is private', async () => {
+    await expect(assertPublicProject(db, personalProjectId)).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'This board is not public',
+    });
+    await expect(assertPublicProject(db, personalProjectId)).rejects.toBeInstanceOf(AppError);
+  });
+
+  it('returns the row once the project is published, and 404s again after', async () => {
+    await setPublic(personalProjectId, true);
+    const row = await assertPublicProject(db, personalProjectId);
+    expect(row.id).toBe(personalProjectId);
+    expect(row.is_public).toBe(true);
+
+    await setPublic(personalProjectId, false);
+    await expect(assertPublicProject(db, personalProjectId)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+
+  it('throws 404 for a nonexistent project', async () => {
+    await expect(assertPublicProject(db, newId())).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('does not grant an outsider access to the project', async () => {
+    await setPublic(personalProjectId, true);
+    try {
+      expect(
+        await canAccessProject(db, outsider, { id: personalProjectId, created_by: creator })
+      ).toBe(false);
+      await expect(assertProjectAccess(db, outsider, personalProjectId)).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    } finally {
+      await setPublic(personalProjectId, false);
+    }
   });
 });
 

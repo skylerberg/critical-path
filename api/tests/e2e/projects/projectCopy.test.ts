@@ -200,6 +200,31 @@ describe('POST /api/projects with source_project_id', () => {
     expect(getRes.status).toBe(404);
   });
 
+  it('never inherits the source board’s public flag', async () => {
+    const sourceId = newId();
+    projectIds.push(sourceId);
+    expect(
+      (await ctx.request(user.token).post('/api/projects', { id: sourceId, name: 'Published' }))
+        .status
+    ).toBe(201);
+    expect(
+      (await ctx.request(user.token).patch(`/api/projects/${sourceId}`, { is_public: true })).status
+    ).toBe(200);
+
+    const copyId = newId();
+    projectIds.push(copyId);
+    const copyRes = await ctx
+      .request(user.token)
+      .post('/api/projects', { id: copyId, name: 'Copy', source_project_id: sourceId });
+    expect(copyRes.status).toBe(201);
+    expect(((await copyRes.json()) as BoardPayloadBody).project).toMatchObject({
+      is_public: false,
+    });
+
+    const publicRes = await ctx.request().get(`/api/public/projects/${copyId}/board`);
+    expect(publicRes.status).toBe(404);
+  });
+
   it('returns 422 when source_project_id does not exist', async () => {
     const res = await ctx.request(user.token).post('/api/projects', {
       id: newId(),

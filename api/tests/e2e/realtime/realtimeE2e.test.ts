@@ -306,6 +306,26 @@ describe('Realtime end to end', () => {
     expect(clientC.events).toEqual([]);
   });
 
+  it('delivers project_updated carrying is_public on publish and unpublish', async () => {
+    const publishRes = await ctx
+      .request(userA.token)
+      .patch(`/api/projects/${projectId}`, { is_public: true });
+    expect(publishRes.status).toBe(200);
+    const published = await clientB2.waitForEvent(
+      (e) => e.type === 'project_updated' && e.data.id === projectId && e.data.is_public === true
+    );
+    expect(published.data).toMatchObject({ id: projectId, is_public: true });
+
+    const unpublishRes = await ctx
+      .request(userA.token)
+      .patch(`/api/projects/${projectId}`, { is_public: false });
+    expect(unpublishRes.status).toBe(200);
+    const unpublished = await clientB2.waitForEvent(
+      (e) => e.type === 'project_updated' && e.data.id === projectId && e.data.is_public === false
+    );
+    expect(unpublished.data).toMatchObject({ id: projectId, is_public: false });
+  });
+
   it('sends project_deleted to everyone who had access before the delete', async () => {
     const otherProjectId = newId();
     const createRes = await ctx

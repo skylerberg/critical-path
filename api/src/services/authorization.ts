@@ -50,6 +50,21 @@ export async function assertProjectAccess(
   return project;
 }
 
+export async function assertPublicProject(
+  db: Kysely<DB>,
+  projectId: string
+): Promise<Selectable<Project>> {
+  const project = await db
+    .selectFrom('project')
+    .selectAll()
+    .where('id', '=', projectId)
+    .executeTakeFirst();
+  if (!project || !project.is_public) {
+    throw new AppError(404, 'This board is not public');
+  }
+  return project;
+}
+
 export async function assertTaskAccess(
   db: Kysely<DB>,
   userId: string,

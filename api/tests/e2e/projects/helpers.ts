@@ -28,6 +28,7 @@ export interface BoardPayloadBody {
     description: string;
     archived_at: string | null;
     created_at: string;
+    is_public: boolean;
   };
   columns: BoardColumnPayload[];
   tasks: BoardTaskPayload[];
