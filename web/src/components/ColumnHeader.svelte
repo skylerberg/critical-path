@@ -18,6 +18,7 @@
   let deleteOpen = $state(false);
 
   const badgeText = $derived(matchCount === null ? String(count) : `${matchCount} of ${count}`);
+  const badgeLabel = $derived(matchCount === null ? ' tasks' : ' tasks match this filter');
 
   function startRename(): void {
     draft = column.name;
@@ -81,7 +82,7 @@
     >
       {column.name}
     </button>
-    <span class="shrink-0 whitespace-nowrap"><Badge>{badgeText}</Badge></span>
+    <Badge>{badgeText}<span class="sr-only">{badgeLabel}</span></Badge>
   {/if}
   <button
     type="button"

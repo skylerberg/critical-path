@@ -110,7 +110,7 @@ describe('Board column header count', () => {
     render(Board, { props: { projectId: 'p1' } });
 
     await screen.findByText('plain one');
-    expect(within(header('Todo')).getByText('4')).toBeInTheDocument();
+    expect(within(header('Todo')).getByText('4')).toHaveTextContent('4 tasks');
     expect(within(header('Todo')).queryByText(/ of /)).toBeNull();
   });
 
@@ -119,7 +119,9 @@ describe('Board column header count', () => {
     render(Board, { props: { projectId: 'p1' } });
 
     await screen.findByText('match a');
-    expect(within(header('Todo')).getByText('2 of 4')).toBeInTheDocument();
+    expect(within(header('Todo')).getByText('2 of 4')).toHaveTextContent(
+      '2 of 4 tasks match this filter'
+    );
   });
 
   it('updates the header when a filter is applied and cleared after render', async () => {
