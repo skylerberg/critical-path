@@ -604,32 +604,25 @@ describe('filters in the query string', () => {
     expect(board.filterSearch).toBe('?labels=l1&q=boss');
   });
 
-  it('rewrites the query string without pushing a history entry', async () => {
+  it('rewrites the query string without pushing a history entry', () => {
     const historyBefore = window.history.length;
 
     board.setFilterQuery('boss');
 
-    await vi.waitFor(() => {
-      expect(router.path).toBe('/projects/p1?q=boss');
-    });
+    expect(router.path).toBe('/projects/p1?q=boss');
     expect(window.history.length).toBe(historyBefore);
   });
 
-  it('writes a chip toggle straight through but debounces the typed query', async () => {
+  // Lagging the write would let the next click push an entry over an unfiltered one.
+  it('writes every filter change straight through to the address bar', () => {
     const replaceState = vi.spyOn(window.history, 'replaceState');
     replaceState.mockClear();
 
     board.toggleLabelFilter('l1');
     expect(router.path).toBe('/projects/p1?labels=l1');
 
-    for (const value of ['b', 'bo', 'bos', 'boss']) {
-      board.setFilterQuery(value);
-    }
-    expect(router.path).toBe('/projects/p1?labels=l1');
-
-    await vi.waitFor(() => {
-      expect(router.path).toBe('/projects/p1?labels=l1&q=boss');
-    });
+    board.setFilterQuery('boss');
+    expect(router.path).toBe('/projects/p1?labels=l1&q=boss');
     expect(replaceState).toHaveBeenCalledTimes(2);
   });
 
@@ -641,23 +634,30 @@ describe('filters in the query string', () => {
     expect(router.path).toBe('/projects/p1/tasks/t1?labels=l1');
   });
 
-  it('drops the query string again when the filters are cleared', async () => {
+  it('drops the query string again when the filters are cleared', () => {
     board.setFilterQuery('boss');
-    await vi.waitFor(() => {
-      expect(router.path).toBe('/projects/p1?q=boss');
-    });
+    expect(router.path).toBe('/projects/p1?q=boss');
 
     board.clearFilters();
 
     expect(router.path).toBe('/projects/p1');
   });
 
-  it('rewrites a hand-ordered query string into the canonical one', async () => {
+  it('rewrites a hand-ordered query string into the canonical one', () => {
     router.navigate('/projects/p1?q=boss&labels=l1', { replace: true });
 
     board.setFilters(parseFilters('?q=boss&labels=l1'));
 
     expect(router.path).toBe('/projects/p1?labels=l1&q=boss');
+  });
+
+  it('drops a label the project does not have from an already-unfiltered address bar', () => {
+    router.navigate('/projects/p1?labels=l-gone', { replace: true });
+
+    board.setFilters(parseFilters('?labels=l-gone'));
+
+    expect(board.hasActiveFilters).toBe(false);
+    expect(router.path).toBe('/projects/p1');
   });
 
   it('does not touch history when the filter state serializes unchanged', () => {
@@ -674,9 +674,7 @@ describe('filters in the query string', () => {
   it('prunes a deleted label from both the filter and the query string', async () => {
     board.toggleLabelFilter('l1');
     board.setFilterQuery('alpha');
-    await vi.waitFor(() => {
-      expect(router.path).toBe('/projects/p1?labels=l1&q=alpha');
-    });
+    expect(router.path).toBe('/projects/p1?labels=l1&q=alpha');
 
     await board.deleteLabel('l1');
 

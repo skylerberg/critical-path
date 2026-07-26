@@ -36,8 +36,6 @@ export function positionAfterDrop(
 }
 
 const CYCLE_PATH_MS = 5000;
-// Safari drops history writes past ~100 per 30s, which sustained typing can reach.
-const FILTER_URL_DEBOUNCE_MS = 250;
 const MAX_CYCLE_TITLES = 6;
 const MAX_CYCLE_TITLE_CHARS = 40;
 
@@ -100,7 +98,6 @@ class BoardStore {
   #loadToken = 0;
   #fetchToken = 0;
   #cyclePathTimer: ReturnType<typeof setTimeout> | null = null;
-  #filterUrlTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Filters are adopted before the first await, so a link built from the store during
   // the fetch already carries the incoming project's narrowing.
@@ -156,7 +153,6 @@ class BoardStore {
   }
 
   reset(): void {
-    this.#cancelFilterUrlWrite();
     this.#loadToken += 1;
     this.#fetchToken += 1;
     this.project = null;
@@ -573,20 +569,16 @@ class BoardStore {
     return filtersToSearch(this.filters);
   }
 
-  setFilters(filters: BoardFilters, urlWrite: 'now' | 'debounced' = 'now'): void {
+  setFilters(filters: BoardFilters): void {
     const labelIds = this.#knownLabelIds(filters.labelIds);
-    const search = filtersToSearch({ ...filters, labelIds });
-    if (search === this.filterSearch) {
-      return;
+    if (filtersToSearch({ ...filters, labelIds }) !== this.filterSearch) {
+      this.filterLabelIds = labelIds;
+      this.filterAssigneeIds = filters.assigneeIds;
+      this.filterQuery = filters.query;
     }
-    this.filterLabelIds = labelIds;
-    this.filterAssigneeIds = filters.assigneeIds;
-    this.filterQuery = filters.query;
-    if (urlWrite === 'debounced') {
-      this.#scheduleFilterUrlWrite();
-    } else {
-      this.#writeFilterUrl();
-    }
+    // Written even when nothing changed: an incoming URL can name a filter the store
+    // has already dropped, and only this takes it back out of the address bar.
+    this.#writeFilterUrl();
   }
 
   // An id the loaded project does not know — a deleted label, or one from another
@@ -599,7 +591,6 @@ class BoardStore {
   }
 
   #writeFilterUrl(): void {
-    this.#cancelFilterUrlWrite();
     const route = router.current;
     if (route.name !== 'project' || route.params.id !== this.currentProjectId) {
       return;
@@ -611,21 +602,6 @@ class BoardStore {
     }
     // Replaces, so a run of filter edits collapses into one history entry.
     router.redirect(pathname + next);
-  }
-
-  #scheduleFilterUrlWrite(): void {
-    this.#cancelFilterUrlWrite();
-    this.#filterUrlTimer = setTimeout(() => {
-      this.#filterUrlTimer = null;
-      this.#writeFilterUrl();
-    }, FILTER_URL_DEBOUNCE_MS);
-  }
-
-  #cancelFilterUrlWrite(): void {
-    if (this.#filterUrlTimer !== null) {
-      clearTimeout(this.#filterUrlTimer);
-      this.#filterUrlTimer = null;
-    }
   }
 
   toggleLabelFilter(labelId: string): void {
@@ -646,9 +622,8 @@ class BoardStore {
     });
   }
 
-  // The only filter a user changes at typing speed, hence the debounced URL write.
   setFilterQuery(query: string): void {
-    this.setFilters({ ...this.filters, query }, 'debounced');
+    this.setFilters({ ...this.filters, query });
   }
 
   clearFilters(): void {

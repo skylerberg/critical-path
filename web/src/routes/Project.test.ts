@@ -17,7 +17,9 @@ import type { ProjectView } from '../lib/router.svelte';
 const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
 
 // The shortcut layer reads the live route, so the shell keymap tests must drive the
-// router to the same view/overlay the component is rendered with.
+// router to the same view/overlay the component is rendered with. Navigating rather
+// than assigning `router.current` keeps `router.path` on the project, which is what a
+// filter key then rewrites.
 function pressKey(
   key: string,
   id: string,
@@ -25,7 +27,9 @@ function pressKey(
   taskId?: string,
   init: KeyboardEventInit = {}
 ): void {
-  router.current = { name: 'project', params: { id, view, taskId, filters: board.filters } };
+  const base = view === 'graph' ? `/projects/${id}/graph` : `/projects/${id}`;
+  const path = taskId === undefined ? base : `${base}/tasks/${taskId}`;
+  router.navigate(path + board.filterSearch, { replace: true });
   window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init }));
 }
 
@@ -494,6 +498,70 @@ describe('Project mounted on the live route', () => {
 
       await waitFor(() => {
         expect(board.hasActiveFilters).toBe(false);
+      });
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('closes a quick menu when the route leaves the task it points at', async () => {
+    const projectId = 'p-route-menu';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
+    router.navigate(`/projects/${projectId}/tasks/t1`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      shortcuts.labelMenu = 't1';
+
+      router.navigate(`/projects/${projectId}`);
+
+      await waitFor(() => {
+        expect(shortcuts.labelMenu).toBeNull();
+      });
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('keeps the board selection through a filter-only rewrite', async () => {
+    const projectId = 'p-route-selection';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
+    router.navigate(`/projects/${projectId}`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByText('Boss fight');
+      selection.set('t1');
+
+      board.setFilterQuery('boss');
+      expect(router.path).toBe(`/projects/${projectId}?q=boss`);
+      await tick();
+
+      expect(selection.selectedTaskId).toBe('t1');
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('revalidates the board when the route moves within the project', async () => {
+    const projectId = 'p-route-revalidate';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
+    router.navigate(`/projects/${projectId}`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByText('Boss fight');
+      const boardFetches = requestedPaths().filter(
+        (path) => path === `/api/projects/${projectId}`
+      ).length;
+
+      router.navigate(`/projects/${projectId}/graph`);
+
+      await waitFor(() => {
+        expect(
+          requestedPaths().filter((path) => path === `/api/projects/${projectId}`)
+        ).toHaveLength(boardFetches + 1);
       });
     } finally {
       void unmount(app);

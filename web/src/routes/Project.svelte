@@ -26,14 +26,16 @@
 
   let { projectId, view, taskId, filters = noFilters() }: Props = $props();
 
-  // Reading the prop directly makes an effect depend on the whole route object, which
-  // is replaced on every query-string rewrite; the derived stops at the id itself.
+  // Reading a prop directly makes an effect depend on the whole route object, which is
+  // replaced on every query-string rewrite. These stop at a value a filter cannot
+  // change, so filtering re-runs nothing while a real move within the project still does.
   const currentProjectId = $derived(projectId);
+  const routeKey = $derived(`${projectId}/${view}/${taskId ?? ''}`);
 
   $effect(() => {
-    const id = currentProjectId;
+    void routeKey;
     untrack(() => {
-      void board.load(id, filters);
+      void board.load(projectId, filters);
     });
   });
 
@@ -58,15 +60,15 @@
     return () => window.removeEventListener('keydown', shortcuts.handleKeydown);
   });
 
-  // A quick menu holds a task id, so it has to go with the selection on a project
-  // switch — otherwise it reopens pointing at a task the new board does not have.
+  // A quick menu holds a task id, so it goes with the selection on every move — not
+  // just a project switch: closing the overlay must not leave a menu open over a card
+  // that is no longer there, owning the keymap.
   $effect(() => {
-    if (currentProjectId) {
-      untrack(() => {
-        selection.clear();
-        shortcuts.closeMenus();
-      });
-    }
+    void routeKey;
+    untrack(() => {
+      selection.clear();
+      shortcuts.closeMenus();
+    });
   });
 
   const ready = $derived(
