@@ -267,8 +267,9 @@ describe('Graph dependency editing', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('guards a cycle-forming drop: toasts once and keeps the graph drawn', async () => {
-    const projectId = 'p-graph-cycle-guard';
+  // a -> b -> c, then dragging c's front handle onto a asks for c to block a,
+  // which closes the loop a -> b -> c -> a.
+  async function rejectCycleFormingDrop(projectId: string) {
     fetchMock.mockImplementation(async () =>
       jsonResponse(
         200,
@@ -276,24 +277,75 @@ describe('Graph dependency editing', () => {
       )
     );
 
-    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    const rendered = render(Project, { props: { projectId, view: 'graph' } });
 
     await waitFor(() => {
-      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(3);
+      expect(rendered.container.querySelectorAll('[data-node-id]')).toHaveLength(3);
     });
-    const handle = container.querySelector('[data-connect-handle="c"]');
-    const targetNode = container.querySelector('[data-node-id="a"]');
-    stubElementFromPoint(targetNode);
+    const handle = rendered.container.querySelector('[data-connect-handle="c"]');
+    stubElementFromPoint(rendered.container.querySelector('[data-node-id="a"]'));
 
     await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
     await fireEvent.pointerUp(window, { pointerId: 1, clientX: 10, clientY: 10 });
 
+    return rendered;
+  }
+
+  it('guards a cycle-forming drop: names the loop, toasts once, keeps the graph drawn', async () => {
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-guard');
+
     expect(container.querySelector('svg[aria-label="Dependency graph"]')).not.toBeNull();
     expect(screen.queryByText('Dependency cycle detected')).not.toBeInTheDocument();
     expect(toasts.toasts.map((t) => t.message)).toEqual([
-      'Adding this blocker would create a dependency cycle',
+      'Adding this blocker would create a dependency cycle: Task a → Task b → Task c → Task a',
     ]);
     expect(board.tasks.find((t) => t.id === 'a')?.blocker_ids).toEqual([]);
+  });
+
+  it('outlines the loop nodes, its existing edges, and the edge that would close it', async () => {
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-highlight');
+
+    expect(
+      [...container.querySelectorAll('[data-cycle]')].map((n) => n.getAttribute('data-node-id'))
+    ).toEqual(['a', 'b', 'c']);
+    expect(container.querySelectorAll('[data-cycle-edge]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-cycle-closing-edge]')).toHaveLength(1);
+    for (const path of container.querySelectorAll('[data-cycle-edge]')) {
+      expect(path.getAttribute('class')).toContain('stroke-danger');
+    }
+  });
+
+  it('never offers to break the loop it just named', async () => {
+    await rejectCycleFormingDrop('p-graph-cycle-no-fix');
+
+    expect(screen.queryByRole('button', { name: 'Remove dependency' })).toBeNull();
+  });
+
+  it('keeps a filtered-out loop node fully visible', async () => {
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-filtered');
+
+    board.setFilterQuery('Task b');
+    flushSync();
+
+    const nodes = [...container.querySelectorAll('[data-cycle]')];
+    expect(nodes).toHaveLength(3);
+    for (const node of nodes) {
+      expect(node.getAttribute('class')).not.toContain('opacity-25');
+    }
+  });
+
+  it('clears the loop highlight once it expires', async () => {
+    vi.useFakeTimers();
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-expiry');
+
+    expect(container.querySelectorAll('[data-cycle]')).toHaveLength(3);
+
+    vi.advanceTimersByTime(5000);
+    flushSync();
+
+    expect(container.querySelectorAll('[data-cycle]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-cycle-edge]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-cycle-closing-edge]')).toHaveLength(0);
   });
 
   it('selects an edge and removes the dependency via the delete chip', async () => {

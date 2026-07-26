@@ -4,11 +4,13 @@ import type { paths } from './api.generated';
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly body: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, body?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -59,7 +61,11 @@ export function assertOk<T>(result: ApiResult<T>): T {
   if (result.response.ok) {
     return result.data as T;
   }
-  throw new ApiError(result.response.status, errorMessage(result.error, result.response));
+  throw new ApiError(
+    result.response.status,
+    errorMessage(result.error, result.response),
+    result.error
+  );
 }
 
 function errorMessage(error: unknown, response: Response): string {

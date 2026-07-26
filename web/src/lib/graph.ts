@@ -137,6 +137,51 @@ export function cycleNodeIds(
   return new Set(nodes.filter((node) => !placed.has(node.id)).map((node) => node.id));
 }
 
+// blockedTaskId is repeated as the last element: that final hop is the edge the
+// caller is about to create, so the result reads as a closed loop.
+export function cyclePathIds(
+  edges: readonly GraphEdge[],
+  blockedTaskId: string,
+  blockerTaskId: string
+): string[] {
+  const out = new Map<string, string[]>();
+  for (const edge of edges) {
+    const targets = out.get(edge.from);
+    if (targets) {
+      targets.push(edge.to);
+    } else {
+      out.set(edge.from, [edge.to]);
+    }
+  }
+
+  const predecessors = new Map<string, string>();
+  const visited = new Set<string>([blockedTaskId]);
+  const queue = [blockedTaskId];
+
+  for (let i = 0; i < queue.length; i++) {
+    const current = queue[i]!;
+    for (const next of out.get(current) ?? []) {
+      if (visited.has(next)) continue;
+      visited.add(next);
+      predecessors.set(next, current);
+      if (next !== blockerTaskId) {
+        queue.push(next);
+        continue;
+      }
+      const path = [blockerTaskId];
+      for (let node = current; node !== blockedTaskId; node = predecessors.get(node)!) {
+        path.push(node);
+      }
+      path.push(blockedTaskId);
+      path.reverse();
+      path.push(blockedTaskId);
+      return path;
+    }
+  }
+
+  return [];
+}
+
 export function layoutGraph(nodes: readonly GraphNode[], edges: readonly GraphEdge[]): GraphLayout {
   if (nodes.length === 0) {
     return { nodes: [], edges: [], width: 0, height: 0 };

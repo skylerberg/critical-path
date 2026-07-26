@@ -5,6 +5,8 @@ import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
 import { toasts } from './toasts.svelte';
 
+const CYCLE_ERROR = 'Adding this blocker would create a dependency cycle';
+
 function task(id: string, columnId: string, position: number, title: string) {
   return {
     id,
@@ -339,15 +341,120 @@ describe('board store mutations', () => {
     expect(toasts.toasts).toHaveLength(0);
   });
 
-  it('addBlocker surfaces a 409 cycle error as a toast and refetches', async () => {
+  it('addBlocker names the loop from the 409 body, highlights it, and refetches', async () => {
     mockRoutes((request) =>
-      request.method === 'POST' ? jsonResponse(409, { error: 'Dependency cycle' }) : undefined
+      request.method === 'POST'
+        ? jsonResponse(409, {
+            error: CYCLE_ERROR,
+            cycle: [
+              { id: 't1', title: 'A' },
+              { id: 't2', title: 'B' },
+              { id: 't1', title: 'A' },
+            ],
+          })
+        : undefined
     );
 
     await board.addBlocker('t1', 't2');
 
-    expect(toasts.toasts.map((t) => t.message)).toEqual(['Dependency cycle']);
+    expect(toasts.toasts.map((t) => t.message)).toEqual([`${CYCLE_ERROR}: A → B → A`]);
+    expect(board.cyclePath).toEqual([
+      { id: 't1', title: 'A' },
+      { id: 't2', title: 'B' },
+      { id: 't1', title: 'A' },
+    ]);
     expect(board.tasks.find((t) => t.id === 't1')?.blocker_ids).toEqual([]);
+  });
+
+  it('addBlocker falls back to the plain 409 message when the server sends no cycle', async () => {
+    mockRoutes((request) =>
+      request.method === 'POST' ? jsonResponse(409, { error: CYCLE_ERROR }) : undefined
+    );
+
+    await board.addBlocker('t1', 't2');
+
+    expect(toasts.toasts.map((t) => t.message)).toEqual([CYCLE_ERROR]);
+    expect(board.cyclePath).toBeNull();
+    expect(board.tasks.find((t) => t.id === 't1')?.blocker_ids).toEqual([]);
+  });
+
+  it('addBlocker ignores a malformed cycle in the 409 body', async () => {
+    mockRoutes((request) =>
+      request.method === 'POST'
+        ? jsonResponse(409, {
+            error: CYCLE_ERROR,
+            cycle: [{ id: 't1', title: 'A' }, { id: 't2' }, { id: 't1', title: 'A' }],
+          })
+        : undefined
+    );
+
+    await board.addBlocker('t1', 't2');
+
+    expect(toasts.toasts.map((t) => t.message)).toEqual([CYCLE_ERROR]);
+    expect(board.cyclePath).toBeNull();
+  });
+
+  it('addBlocker names the loop from the local pre-check without calling the API', async () => {
+    expect(await board.addBlocker('t1', 't2')).toBe(true);
+    fetchMock.mockClear();
+
+    expect(await board.addBlocker('t2', 't1')).toBe(false);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toasts.toasts.at(-1)?.message).toBe(`${CYCLE_ERROR}: B → A → B`);
+    expect(board.cyclePath?.map((step) => step.id)).toEqual(['t2', 't1', 't2']);
+  });
+
+  it('addBlocker names a loop that runs through a done task', async () => {
+    expect(await board.addBlocker('t3', 't1')).toBe(true);
+    fetchMock.mockClear();
+
+    expect(await board.addBlocker('t1', 't3')).toBe(false);
+
+    expect(toasts.toasts.at(-1)?.message).toBe(`${CYCLE_ERROR} through a done task: A → C → A`);
+    expect(board.cyclePath?.map((step) => step.id)).toEqual(['t1', 't3', 't1']);
+  });
+
+  it('addBlocker elides a long loop and truncates long titles in the message', async () => {
+    const longTitle = 'L'.repeat(200);
+    board.tasks = Array.from({ length: 9 }, (_, i) =>
+      task(`x${String(i)}`, 'c1', (i + 1) * 1000, i === 0 ? longTitle : `title ${String(i)}`)
+    ).map((t, i) => (i === 0 ? t : { ...t, blocker_ids: [`x${String(i - 1)}`] }));
+
+    expect(await board.addBlocker('x0', 'x8')).toBe(false);
+
+    expect(board.cyclePath).toHaveLength(10);
+    const message = toasts.toasts.at(-1)!.message;
+    expect(message.startsWith(`${CYCLE_ERROR}: `)).toBe(true);
+    const parts = message.slice(CYCLE_ERROR.length + 2).split(' → ');
+    expect(parts).toHaveLength(6);
+    expect(parts[4]).toBe('…');
+    expect(parts[0]).toBe(parts[5]);
+    expect(parts[0]).toBe(`${'L'.repeat(40)}…`);
+    for (const part of parts) {
+      expect(part.length).toBeLessThanOrEqual(41);
+    }
+  });
+
+  it('cyclePath expires on its own and reset clears it immediately', async () => {
+    vi.useFakeTimers();
+    try {
+      expect(await board.addBlocker('t1', 't2')).toBe(true);
+      expect(await board.addBlocker('t2', 't1')).toBe(false);
+      expect(board.cyclePath).not.toBeNull();
+
+      vi.advanceTimersByTime(4999);
+      expect(board.cyclePath).not.toBeNull();
+      vi.advanceTimersByTime(1);
+      expect(board.cyclePath).toBeNull();
+
+      expect(await board.addBlocker('t2', 't1')).toBe(false);
+      expect(board.cyclePath).not.toBeNull();
+      board.reset();
+      expect(board.cyclePath).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('addBlocker resolves true when the edge lands and false for no-op or cycle paths', async () => {
