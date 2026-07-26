@@ -528,6 +528,11 @@ class BoardStore {
     return [...matches, ...rest];
   }
 
+  matchingCountInColumn(columnId: string): number {
+    return this.tasks.filter((task) => task.column_id === columnId && this.taskMatchesFilters(task))
+      .length;
+  }
+
   taskImages = $state<Record<string, TaskImage[]>>({});
 
   async loadTaskImages(taskId: string): Promise<void> {

@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
@@ -44,6 +44,14 @@ function column(): HTMLElement {
     throw new Error('Todo column not rendered');
   }
   return section;
+}
+
+function header(columnName: string): HTMLElement {
+  const element = document.querySelector(`section[aria-label="${columnName}"] header`);
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`${columnName} header not rendered`);
+  }
+  return element;
 }
 
 function scroller(): HTMLElement {
@@ -94,6 +102,73 @@ describe('Board display order', () => {
       .filter((a) => a.className.includes('opacity-30'))
       .map((a) => a.querySelector('p')?.textContent);
     expect(dimmed).toEqual(['plain one', 'plain two']);
+  });
+});
+
+describe('Board column header count', () => {
+  it('shows the plain total when no filter is active', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+
+    await screen.findByText('plain one');
+    expect(within(header('Todo')).getByText('4')).toHaveTextContent('4 tasks');
+    expect(within(header('Todo')).queryByText(/ of /)).toBeNull();
+  });
+
+  it('shows matches and total while a filter is active', async () => {
+    board.setFilterQuery('match');
+    render(Board, { props: { projectId: 'p1' } });
+
+    await screen.findByText('match a');
+    expect(within(header('Todo')).getByText('2 of 4')).toHaveTextContent(
+      '2 of 4 tasks match this filter'
+    );
+  });
+
+  it('updates the header when a filter is applied and cleared after render', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+
+    board.setFilterQuery('match');
+    await waitFor(() => expect(within(header('Todo')).getByText('2 of 4')).toBeInTheDocument());
+
+    board.clearFilters();
+    await waitFor(() => expect(within(header('Todo')).getByText('4')).toBeInTheDocument());
+  });
+
+  it('counts each column separately', async () => {
+    board.columns = [
+      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+    ];
+    board.tasks = [
+      ...board.tasks,
+      task('t5', 'c2', 1000, 'match c'),
+      task('t6', 'c2', 2000, 'plain three'),
+    ];
+    board.setFilterQuery('match');
+    render(Board, { props: { projectId: 'p1' } });
+
+    await screen.findByText('match a');
+    expect(within(header('Todo')).getByText('2 of 4')).toBeInTheDocument();
+    expect(within(header('Doing')).getByText('1 of 2')).toBeInTheDocument();
+  });
+
+  it('shows 0 of 0 for a column with no tasks while a filter is active', async () => {
+    board.columns = [...board.columns, { id: 'c3', name: 'Empty', position: 3000, is_done: false }];
+    board.setFilterQuery('match');
+    render(Board, { props: { projectId: 'p1' } });
+
+    await screen.findByText('match a');
+    expect(within(header('Empty')).getByText('0 of 0')).toBeInTheDocument();
+  });
+
+  it('counts a label filter, not just the title query', async () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't2' ? { ...t, label_ids: ['l1'] } : t));
+    board.filterLabelIds = ['l1'];
+    render(Board, { props: { projectId: 'p1' } });
+
+    await screen.findByText('match a');
+    expect(within(header('Todo')).getByText('1 of 4')).toBeInTheDocument();
   });
 });
 

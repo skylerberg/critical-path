@@ -429,6 +429,57 @@ describe('displayTasksInColumn', () => {
   });
 });
 
+describe('matchingCountInColumn', () => {
+  beforeEach(() => {
+    board.tasks = [
+      // The module-level task() helper hard-codes label_ids ['l1'] for id 't1'.
+      { ...task('t1', 'c1', 1000, 'Alpha'), label_ids: [] },
+      { ...task('t2', 'c1', 2000, 'Beta'), label_ids: ['l1'] },
+      { ...task('t3', 'c1', 3000, 'Alpha again'), label_ids: ['l1'] },
+      { ...task('t4', 'c1', 4000, 'Gamma'), assignee_ids: ['u1'] },
+      task('t5', 'c2', 1000, 'Alpha elsewhere'),
+    ];
+  });
+
+  it('returns every task in the column when no filters are active', () => {
+    expect(board.matchingCountInColumn('c1')).toBe(4);
+    expect(board.matchingCountInColumn('c2')).toBe(1);
+    expect(board.matchingCountInColumn('nope')).toBe(0);
+  });
+
+  it('counts only title-query matches', () => {
+    board.setFilterQuery('alpha');
+    expect(board.matchingCountInColumn('c1')).toBe(2);
+  });
+
+  it('counts only label matches', () => {
+    board.filterLabelIds = ['l1'];
+    expect(board.matchingCountInColumn('c1')).toBe(2);
+  });
+
+  it('counts only assignee matches', () => {
+    board.filterAssigneeIds = ['u1'];
+    expect(board.matchingCountInColumn('c1')).toBe(1);
+  });
+
+  it('composes filters', () => {
+    board.setFilterQuery('alpha');
+    board.filterLabelIds = ['l1'];
+    expect(board.matchingCountInColumn('c1')).toBe(1);
+  });
+
+  it('does not count matches from other columns', () => {
+    board.setFilterQuery('alpha');
+    expect(board.matchingCountInColumn('c1')).toBe(2);
+    expect(board.matchingCountInColumn('c2')).toBe(1);
+  });
+
+  it('returns 0 when nothing in the column matches', () => {
+    board.setFilterQuery('zzz');
+    expect(board.matchingCountInColumn('c1')).toBe(0);
+  });
+});
+
 describe('createAndLinkTask', () => {
   beforeEach(async () => {
     await board.load('p1');

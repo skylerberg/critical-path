@@ -17,7 +17,7 @@
 </script>
 
 <span
-  class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {variants[
+  class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap {variants[
     variant
   ]}"
 >
