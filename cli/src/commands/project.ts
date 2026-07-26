@@ -207,6 +207,67 @@ export function registerProject(program: Command, deps: CliDeps): void {
   );
 
   project.addCommand(
+    leaf('transfer')
+      .description('Transfer ownership of a project to another member')
+      .argument('<project>', 'project id or name')
+      .requiredOption('--to <user>', 'member to hand the project to (id, name, or email)')
+      .option('--force', 'skip the confirmation prompt')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const target = await resolveProject(ctx, ref);
+          const user = await resolveUser(ctx, opts.to as string, target.id);
+          await confirmOrAbort(
+            ctx,
+            `Transfer project "${target.name}" to ${user.name}? You become an ordinary member.`,
+            opts.force === true
+          );
+          const updated = assertOk(
+            await ctx.api.PUT('/api/projects/{id}/owner', {
+              params: { path: { id: target.id } },
+              body: { user_id: user.id },
+            })
+          );
+          ctx.out.data(updated, () =>
+            ctx.out.line(`Transferred project ${updated.name} to ${user.name}`)
+          );
+        })
+      )
+  );
+
+  project.addCommand(
+    leaf('leave')
+      .description('Leave a project you are a member of')
+      .argument('<project>', 'project id or name')
+      .option('--force', 'skip the confirmation prompt')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const target = await resolveProject(ctx, ref);
+          const me = assertOk(await ctx.api.GET('/api/auth/me'));
+          if (target.created_by === me.id) {
+            throw new CliError(
+              'You own this project; transfer it first with: cpath project transfer <project> --to <user>',
+              EXIT.usage
+            );
+          }
+          await confirmOrAbort(
+            ctx,
+            `Leave project "${target.name}"? You lose access and your task assignments.`,
+            opts.force === true
+          );
+          assertOk(
+            await ctx.api.PUT('/api/projects/{id}/members', {
+              params: { path: { id: target.id } },
+              body: { user_ids: target.member_ids.filter((id) => id !== me.id) },
+            })
+          );
+          ctx.out.data({ left: true, id: target.id }, () =>
+            ctx.out.line(`Left project ${target.name}`)
+          );
+        })
+      )
+  );
+
+  project.addCommand(
     leaf('invite')
       .description('Add a member by email')
       .argument('<project>', 'project id or name')

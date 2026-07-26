@@ -47,6 +47,10 @@ export const setProjectMembersSchema = type({
   user_ids: uuid.array().atMostLength(100),
 });
 
+export const setProjectOwnerSchema = type({
+  user_id: uuid,
+});
+
 export const setProjectPositionSchema = type({
   position: finiteNumber,
 });
