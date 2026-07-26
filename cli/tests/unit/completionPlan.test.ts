@@ -107,6 +107,16 @@ describe('planCompletion: entity values', () => {
     });
   });
 
+  it('dequotes a project carried by the inline = form', () => {
+    for (const word of ["--project='My Project'", '--project="My Project"']) {
+      expect(plan(['cpath', 'task', 'list', word, '--column', ''])).toEqual({
+        kind: 'values',
+        valueKind: 'column',
+        projectRef: 'My Project',
+      });
+    }
+  });
+
   it('carries the project from the bash word-broken = form', () => {
     expect(plan(['cpath', 'task', 'list', '--project', '=', 'Colori', '--label', ''])).toEqual({
       kind: 'values',
@@ -130,6 +140,15 @@ describe('planCompletion: entity values', () => {
     expect(plan(['cpath', 'project', 'set-members', 'Colori', 'a@b.c', ''])).toEqual({
       kind: 'values',
       valueKind: 'user',
+      projectRef: 'Colori',
+    });
+  });
+
+  it('carries a project named as a positional', () => {
+    expect(plan(['cpath', 'project', 'set-members', "'My Project'", ''])).toEqual({
+      kind: 'values',
+      valueKind: 'user',
+      projectRef: 'My Project',
     });
   });
 

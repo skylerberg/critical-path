@@ -1,5 +1,5 @@
 import { Command, Option } from 'commander';
-import { leaf, withCtx } from '../kit';
+import { leaf } from '../kit';
 import { candidatesFor } from '../completion/candidates';
 import {
   currentWord,
@@ -13,12 +13,13 @@ import { createContext, type CliDeps } from '../context';
 const COMPLETION_TIMEOUT_MS = 1500;
 
 // A stalled request would freeze the user's terminal, so completion fetches give up early.
+// One signal per run rather than per request, so chained requests share the deadline.
 function timedDeps(deps: CliDeps): CliDeps {
   const base = deps.fetch ?? ((request: Request) => fetch(request));
+  const signal = AbortSignal.timeout(COMPLETION_TIMEOUT_MS);
   return {
     ...deps,
-    fetch: (request) =>
-      base(new Request(request, { signal: AbortSignal.timeout(COMPLETION_TIMEOUT_MS) })),
+    fetch: (request) => base(new Request(request, { signal })),
   };
 }
 
@@ -31,12 +32,14 @@ export function registerCompletion(program: Command, deps: CliDeps): void {
           .choices([...SHELLS])
           .makeOptionMandatory()
       )
-      .action(
-        withCtx(deps, async (ctx, opts) => {
-          const script = await completionScript(opts.shell as Shell);
-          ctx.out.data(script, () => ctx.out.line(script.trimEnd()));
-        })
-      )
+      // No runtime context: the install instructions run this from a shell startup file,
+      // where a broken config or a locked keychain must not cost the user completion.
+      .action(async (opts: { shell: Shell; json?: boolean }) => {
+        const script = await completionScript(opts.shell);
+        deps.stdout.write(
+          opts.json === true ? `${JSON.stringify(script, null, 2)}\n` : `${script.trimEnd()}\n`
+        );
+      })
   );
 
   const complete = new Command('__complete')
