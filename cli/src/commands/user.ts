@@ -9,7 +9,7 @@ export function registerUser(program: Command, deps: CliDeps): void {
   user.addCommand(
     leaf('list')
       .description('List visible users, optionally scoped to a project')
-      .option('--project <ref>', 'project id or name')
+      .option('--project <project>', 'project id or name')
       .action(
         withCtx(deps, async (ctx, opts) => {
           const projectRef = opts.project as string | undefined;

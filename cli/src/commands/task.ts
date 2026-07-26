@@ -41,7 +41,7 @@ function dedupe(items: string[]): string[] {
 }
 
 function taskLeaf(name: string): Command {
-  return leaf(name).option('--project <ref>', 'project id or name');
+  return leaf(name).option('--project <project>', 'project id or name');
 }
 
 function placementFrom(opts: Opts): Placement {
@@ -317,9 +317,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
   task.addCommand(
     taskLeaf('list')
       .description('List tasks with optional filters')
-      .option('--column <ref>', 'filter by column (id or name)')
-      .option('--label <ref>', 'filter by label (id or name)')
-      .option('--assignee <ref>', 'filter by assignee (user id, name, or email)')
+      .option('--column <column>', 'filter by column (id or name)')
+      .option('--label <label>', 'filter by label (id or name)')
+      .option('--assignee <user>', 'filter by assignee (user id, name, or email)')
       .option('--ready', 'only unfinished tasks with no unfinished blockers')
       .option('--blocked', 'only tasks with unfinished blockers')
       .option('--done', 'only tasks in done columns')
@@ -447,16 +447,16 @@ export function registerTask(program: Command, deps: CliDeps): void {
       taskLeaf('create')
         .description('Create a task (in the first non-done column by default)')
         .argument('<title>', 'task title')
-        .option('--column <ref>', 'target column (id or name)')
+        .option('--column <column>', 'target column (id or name)')
         .option('--description <markdown>', 'description as Markdown')
         .option('--description-file <path>', 'read the Markdown description from a file')
         .option(
           '--description-json <path>',
           'read a Tiptap JSON description from a file (- for stdin)'
         )
-        .option('--label <ref>', 'label id or name (repeatable)', collect, [] as string[])
+        .option('--label <label>', 'label id or name (repeatable)', collect, [] as string[])
         .option(
-          '--assignee <ref>',
+          '--assignee <user>',
           'assignee user id, name, or email (repeatable)',
           collect,
           [] as string[]
@@ -542,7 +542,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
       taskLeaf('move')
         .description('Move a task within or between columns')
         .argument('<task>', 'task id or title')
-        .option('--column <ref>', 'target column (default: the current column)')
+        .option('--column <column>', 'target column (default: the current column)')
     ).action(
       withCtx(deps, async (ctx, opts, ref) => {
         const { board, task: target } = await resolveTaskContext(

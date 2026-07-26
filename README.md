@@ -265,6 +265,31 @@ Every command takes `--json` for machine-readable output and `--no-input` to
 fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2
 usage/ambiguous reference, 3 auth, 4 not found, 5 conflict, 6 invalid input.
 
+### Shell completion
+
+```sh
+# zsh — into a directory on $fpath, or eval it in ~/.zshrc *after* compinit
+cpath completion -s zsh > "${fpath[1]}/_cpath"        # or: eval "$(cpath completion -s zsh)"
+
+# bash
+eval "$(cpath completion -s bash)"                    # in ~/.bashrc
+
+# fish
+cpath completion -s fish > ~/.config/fish/completions/cpath.fish
+```
+
+TAB completes subcommands and flags, and — where a reference is expected —
+project, column, label and task names plus member emails, taken from the
+project named on the command line or, failing that, from
+`CRITICAL_PATH_PROJECT` / the configured `default-project`. Those lookups are
+cached for ~30 seconds under the config directory and fail silently: an
+unreachable server or an expired session just means no suggestions, never an
+error in the middle of your prompt.
+
+The bash and zsh scripts are verified against bash 3.2 and zsh 5.9. **The fish
+script is untested** — it was written from the documented behaviour of
+`commandline` and has never been run against a real fish.
+
 The CLI talks to the production instance
 (`https://criticalpath.skylerberg.com`) by default. `CRITICAL_PATH_API_URL`
 (or `--api-url`, or `cpath config set api-url`) selects another server — e.g.
