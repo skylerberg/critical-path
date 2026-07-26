@@ -125,6 +125,22 @@ describe('ProjectHeader', () => {
     expect(screen.getByLabelText('Add people')).toBeInTheDocument();
   });
 
+  it('carries the active filters on both view tabs so switching views keeps them', () => {
+    board.setFilterQuery('boss');
+    board.toggleLabelFilter('l1');
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+
+    expect(screen.getByRole('link', { name: 'Board' })).toHaveAttribute(
+      'href',
+      '/projects/p1?labels=l1&q=boss'
+    );
+    expect(screen.getByRole('link', { name: 'Graph' })).toHaveAttribute(
+      'href',
+      '/projects/p1/graph?labels=l1&q=boss'
+    );
+  });
+
   it('updates the shared filterQuery as the user types, which dims non-matching tasks', async () => {
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
 

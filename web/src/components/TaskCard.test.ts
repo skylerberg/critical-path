@@ -2,6 +2,7 @@ import '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import TaskCard from './TaskCard.svelte';
+import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
 import { users } from '../lib/users.svelte';
 
@@ -20,6 +21,7 @@ const task: BoardTask = {
 };
 
 beforeEach(() => {
+  board.reset();
   users.reset();
   users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null }];
 });
@@ -51,6 +53,17 @@ describe('TaskCard', () => {
     expect(screen.queryByText('art')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Ada Lovelace')).not.toBeInTheDocument();
     expect(screen.queryByTitle(/Blocked by/)).not.toBeInTheDocument();
+  });
+
+  it('carries the active filters into the task link so closing the card comes back filtered', () => {
+    board.setFilters({ labelIds: ['l1'], assigneeIds: [], query: 'boss' });
+
+    render(TaskCard, { task, projectId: 'p1' });
+
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      '/projects/p1/tasks/t1?labels=l1&q=boss'
+    );
   });
 
   it('dims the card when filtered out', () => {

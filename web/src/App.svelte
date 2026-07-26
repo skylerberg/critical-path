@@ -73,7 +73,12 @@
     {:else if route.name === 'projects'}
       <Projects />
     {:else if route.name === 'project'}
-      <Project projectId={route.params.id} view={route.params.view} taskId={route.params.taskId} />
+      <Project
+        projectId={route.params.id}
+        view={route.params.view}
+        taskId={route.params.taskId}
+        filters={route.params.filters}
+      />
     {:else}
       <NotFound path={route.path} />
     {/if}

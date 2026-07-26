@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Projects from './Projects.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
+import { noFilters } from '../lib/board-filters';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
 import { users } from '../lib/users.svelte';
@@ -174,7 +175,7 @@ describe('Projects', () => {
     expect(router.path).toBe('/projects/p-active');
     expect(router.current).toEqual({
       name: 'project',
-      params: { id: 'p-active', view: 'board' },
+      params: { id: 'p-active', view: 'board', filters: noFilters() },
     });
   });
 

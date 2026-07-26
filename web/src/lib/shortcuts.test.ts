@@ -42,7 +42,9 @@ beforeEach(() => {
     { id: 'done', name: 'Done', position: 2000, is_done: true },
   ];
   board.tasks = [task('t1', 'c1', 1000), task('t2', 'c1', 2000)];
-  router.current = { name: 'project', params: { id: 'p1', view: 'board' } };
+  // Navigating rather than assigning `current` keeps `router.path` in step, which the
+  // store needs to rewrite the query string when a shortcut changes a filter.
+  router.navigate('/projects/p1', { replace: true });
   session.user = me;
 });
 
@@ -390,6 +392,26 @@ describe('g-chords', () => {
     expect(navigate).toHaveBeenLastCalledWith('/projects');
   });
 
+  it('keeps the active filter on every in-project jump', () => {
+    board.setFilters({ labelIds: [], assigneeIds: [], query: 'boss' });
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    press('g');
+    press('g');
+    expect(navigate).toHaveBeenLastCalledWith('/projects/p1/graph?q=boss');
+    press('g');
+    press('b');
+    expect(navigate).toHaveBeenLastCalledWith('/projects/p1?q=boss');
+
+    selection.set('t1');
+    press('Enter');
+    expect(navigate).toHaveBeenLastCalledWith('/projects/p1/tasks/t1?q=boss');
+
+    press('g');
+    press('p');
+    expect(navigate).toHaveBeenLastCalledWith('/projects');
+  });
+
   it('completes the chord under CapsLock rather than opening the dependency menu', () => {
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
     selection.set('t1');
@@ -424,7 +446,7 @@ describe('g-chords', () => {
 
 describe('overlay context', () => {
   beforeEach(() => {
-    router.current = { name: 'project', params: { id: 'p1', view: 'board', taskId: 't1' } };
+    router.navigate('/projects/p1/tasks/t1', { replace: true });
   });
 
   it('targets the open task with l and a', () => {
@@ -484,7 +506,7 @@ describe('overlay context', () => {
 
 describe('graph view', () => {
   beforeEach(() => {
-    router.current = { name: 'project', params: { id: 'p1', view: 'graph' } };
+    router.navigate('/projects/p1/graph', { replace: true });
   });
 
   it('does not run selection nav (the graph has no card list)', () => {
@@ -537,7 +559,7 @@ describe('graph view', () => {
 
 describe('graph overlay context', () => {
   beforeEach(() => {
-    router.current = { name: 'project', params: { id: 'p1', view: 'graph', taskId: 't1' } };
+    router.navigate('/projects/p1/graph/tasks/t1', { replace: true });
   });
 
   it('targets the open task with l, a and b', () => {

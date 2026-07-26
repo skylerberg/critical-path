@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { link, matchRoute, router } from './router.svelte';
+import { noFilters } from './board-filters';
+import { link, matchRoute, router, splitPath } from './router.svelte';
 
 describe('matchRoute', () => {
   it('matches the root path to projects', () => {
@@ -24,35 +25,55 @@ describe('matchRoute', () => {
   it('matches the project board view', () => {
     expect(matchRoute('/projects/abc-123')).toEqual({
       name: 'project',
-      params: { id: 'abc-123', view: 'board' },
+      params: { id: 'abc-123', view: 'board', filters: noFilters() },
     });
   });
 
   it('matches the project graph view', () => {
     expect(matchRoute('/projects/p1/graph')).toEqual({
       name: 'project',
-      params: { id: 'p1', view: 'graph' },
+      params: { id: 'p1', view: 'graph', filters: noFilters() },
     });
   });
 
   it('matches a task overlay on the board view', () => {
     expect(matchRoute('/projects/p1/tasks/t9')).toEqual({
       name: 'project',
-      params: { id: 'p1', view: 'board', taskId: 't9' },
+      params: { id: 'p1', view: 'board', taskId: 't9', filters: noFilters() },
     });
   });
 
   it('matches a task overlay on the graph view', () => {
     expect(matchRoute('/projects/p1/graph/tasks/t9')).toEqual({
       name: 'project',
-      params: { id: 'p1', view: 'graph', taskId: 't9' },
+      params: { id: 'p1', view: 'graph', taskId: 't9', filters: noFilters() },
+    });
+  });
+
+  it('carries the parsed board filters on every project route', () => {
+    expect(matchRoute('/projects/p1', '?labels=l1,l2&q=boss')).toEqual({
+      name: 'project',
+      params: {
+        id: 'p1',
+        view: 'board',
+        filters: { labelIds: ['l1', 'l2'], assigneeIds: [], query: 'boss' },
+      },
+    });
+    expect(matchRoute('/projects/p1/graph/tasks/t9', '?assignees=u1')).toEqual({
+      name: 'project',
+      params: {
+        id: 'p1',
+        view: 'graph',
+        taskId: 't9',
+        filters: { labelIds: [], assigneeIds: ['u1'], query: '' },
+      },
     });
   });
 
   it('decodes URI-encoded params', () => {
     expect(matchRoute('/projects/a%20b')).toEqual({
       name: 'project',
-      params: { id: 'a b', view: 'board' },
+      params: { id: 'a b', view: 'board', filters: noFilters() },
     });
   });
 
@@ -60,7 +81,7 @@ describe('matchRoute', () => {
     expect(matchRoute('/login/')).toEqual({ name: 'login' });
     expect(matchRoute('/projects/p1/')).toEqual({
       name: 'project',
-      params: { id: 'p1', view: 'board' },
+      params: { id: 'p1', view: 'board', filters: noFilters() },
     });
   });
 
@@ -93,7 +114,10 @@ describe('router', () => {
   it('navigates with pushState and updates current', () => {
     router.navigate('/projects/p1');
     expect(window.location.pathname).toBe('/projects/p1');
-    expect(router.current).toEqual({ name: 'project', params: { id: 'p1', view: 'board' } });
+    expect(router.current).toEqual({
+      name: 'project',
+      params: { id: 'p1', view: 'board', filters: noFilters() },
+    });
     expect(router.path).toBe('/projects/p1');
   });
 
@@ -101,6 +125,26 @@ describe('router', () => {
     router.navigate('/reset-password?token=xyz');
     expect(router.current).toEqual({ name: 'reset-password', params: { token: 'xyz' } });
     expect(router.path).toBe('/reset-password?token=xyz');
+  });
+
+  it('keeps a filter query string in the path and parses it into the route', () => {
+    router.navigate('/projects/p1?labels=l1');
+    expect(router.path).toBe('/projects/p1?labels=l1');
+    expect(router.current).toEqual({
+      name: 'project',
+      params: { id: 'p1', view: 'board', filters: { ...noFilters(), labelIds: ['l1'] } },
+    });
+  });
+
+  it('restores the filters of a popped history entry', () => {
+    router.navigate('/projects/p1');
+    window.history.pushState(null, '', '/projects/p1?q=x');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(router.path).toBe('/projects/p1?q=x');
+    expect(router.current).toEqual({
+      name: 'project',
+      params: { id: 'p1', view: 'board', filters: { ...noFilters(), query: 'x' } },
+    });
   });
 
   it('follows a beforeNavigate redirect', () => {
@@ -130,7 +174,10 @@ describe('router', () => {
     const lengthBefore = window.history.length;
     router.navigate('/projects/same');
     expect(window.history.length).toBe(lengthBefore);
-    expect(router.current).toEqual({ name: 'project', params: { id: 'same', view: 'board' } });
+    expect(router.current).toEqual({
+      name: 'project',
+      params: { id: 'same', view: 'board', filters: noFilters() },
+    });
     expect(window.location.pathname).toBe('/projects/same');
   });
 
@@ -146,6 +193,18 @@ describe('router', () => {
     } finally {
       router.beforeNavigate = undefined;
     }
+  });
+});
+
+describe('splitPath', () => {
+  it('splits a path into pathname and search, dropping any hash', () => {
+    expect(splitPath('/projects/p1')).toEqual({ pathname: '/projects/p1', search: '' });
+    expect(splitPath('/projects/p1?q=x')).toEqual({ pathname: '/projects/p1', search: '?q=x' });
+    expect(splitPath('/projects/p1?q=x#top')).toEqual({
+      pathname: '/projects/p1',
+      search: '?q=x',
+    });
+    expect(splitPath('/projects/p1#top')).toEqual({ pathname: '/projects/p1', search: '' });
   });
 });
 

@@ -1,4 +1,5 @@
 import type { Action } from 'svelte/action';
+import { parseFilters, type BoardFilters } from './board-filters';
 
 export type ProjectView = 'board' | 'graph';
 
@@ -9,7 +10,10 @@ export type Route =
   | { name: 'account' }
   | { name: 'forgot-password' }
   | { name: 'reset-password'; params: { token?: string } }
-  | { name: 'project'; params: { id: string; view: ProjectView; taskId?: string } }
+  | {
+      name: 'project';
+      params: { id: string; view: ProjectView; taskId?: string; filters: BoardFilters };
+    }
   | { name: 'not-found'; path: string };
 
 export type BeforeNavigate = (to: Route, path: string) => string | undefined | void;
@@ -34,6 +38,18 @@ function matchPattern(pattern: string, pathname: string): Record<string, string>
   return params;
 }
 
+export function splitPath(path: string): { pathname: string; search: string } {
+  const withoutHash = path.split('#', 1)[0]!;
+  const queryAt = withoutHash.indexOf('?');
+  return queryAt === -1
+    ? { pathname: withoutHash, search: '' }
+    : { pathname: withoutHash.slice(0, queryAt), search: withoutHash.slice(queryAt) };
+}
+
+function projectRoute(id: string, view: ProjectView, search: string, taskId?: string): Route {
+  return { name: 'project', params: { id, view, taskId, filters: parseFilters(search) } };
+}
+
 export function matchRoute(pathname: string, search = ''): Route {
   const path = pathname !== '/' ? pathname.replace(/\/+$/, '') : pathname;
   if (path === '/' || path === '') return { name: 'projects' };
@@ -47,17 +63,13 @@ export function matchRoute(pathname: string, search = ''): Route {
     return { name: 'reset-password', params: token === null ? {} : { token } };
   }
   let params = matchPattern('/projects/:id', path);
-  if (params) return { name: 'project', params: { id: params.id!, view: 'board' } };
+  if (params) return projectRoute(params.id!, 'board', search);
   params = matchPattern('/projects/:id/graph', path);
-  if (params) return { name: 'project', params: { id: params.id!, view: 'graph' } };
+  if (params) return projectRoute(params.id!, 'graph', search);
   params = matchPattern('/projects/:id/tasks/:taskId', path);
-  if (params) {
-    return { name: 'project', params: { id: params.id!, view: 'board', taskId: params.taskId! } };
-  }
+  if (params) return projectRoute(params.id!, 'board', search, params.taskId!);
   params = matchPattern('/projects/:id/graph/tasks/:taskId', path);
-  if (params) {
-    return { name: 'project', params: { id: params.id!, view: 'graph', taskId: params.taskId! } };
-  }
+  if (params) return projectRoute(params.id!, 'graph', search, params.taskId!);
   return { name: 'not-found', path: pathname };
 }
 
@@ -104,10 +116,7 @@ export class Router {
   }
 
   #parse(path: string): Route {
-    const withoutHash = path.split('#', 1)[0]!;
-    const queryAt = withoutHash.indexOf('?');
-    const pathname = queryAt === -1 ? withoutHash : withoutHash.slice(0, queryAt);
-    const search = queryAt === -1 ? '' : withoutHash.slice(queryAt);
+    const { pathname, search } = splitPath(path);
     return matchRoute(pathname, search);
   }
 }
