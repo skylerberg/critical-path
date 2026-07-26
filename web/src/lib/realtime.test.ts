@@ -92,6 +92,7 @@ function boardPayload(): BoardPayload {
       archived_at: null,
       created_by: null,
       member_ids: [],
+      is_public: false,
       created_at: '2026-01-01T00:00:00Z',
     },
     columns: [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }],
@@ -108,6 +109,7 @@ function project(overrides: Partial<Project> = {}): Project {
     archived_at: null,
     created_by: null,
     member_ids: [],
+    is_public: false,
     created_at: '2026-01-01T00:00:00Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -179,6 +181,16 @@ describe('realtime handshake', () => {
     flushSync();
     expect(socket.messages()).toContainEqual({ type: 'unsubscribe', project_id: 'p1' });
     expect(socket.messages()).toContainEqual({ type: 'subscribe', project_id: 'p2' });
+  });
+
+  it('never subscribes to a read-only board, and resubscribes on the way back', async () => {
+    board.readonly = true;
+    const socket = await connectAndAuth('p1');
+    expect(socket.messages().some((m) => m.type === 'subscribe')).toBe(false);
+
+    board.readonly = false;
+    flushSync();
+    expect(socket.messages()).toContainEqual({ type: 'subscribe', project_id: 'p1' });
   });
 });
 

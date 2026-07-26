@@ -66,6 +66,10 @@ class UsersStore {
     await this.#fetch();
   }
 
+  setForProject(projectId: string, list: User[]): void {
+    this.#projectUsers = { ...this.#projectUsers, [projectId]: [...list].sort(byName) };
+  }
+
   // Drop the project-scoped cache so pickers refetch after a membership change.
   invalidateAll(): void {
     this.#projectUsers = {};

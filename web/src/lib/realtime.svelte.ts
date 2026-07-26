@@ -64,7 +64,7 @@ class RealtimeClient {
     this.#armOfflineNotice();
     this.#disposeEffects ??= $effect.root(() => {
       $effect(() => {
-        const projectId = board.currentProjectId;
+        const projectId = this.#subscriptionTarget;
         untrack(() => this.#syncSubscription(projectId));
       });
       $effect(() => {
@@ -153,13 +153,19 @@ class RealtimeClient {
     });
   }
 
+  // A read-only board is a one-shot fetch; subscribing would also be rejected
+  // for a signed-in non-member.
+  get #subscriptionTarget(): string | null {
+    return board.readonly ? null : board.currentProjectId;
+  }
+
   #onAuthOk(): void {
     this.#authed = true;
     this.status = 'online';
     this.#clearOfflineNotice();
     this.#backoff = INITIAL_BACKOFF_MS;
     this.#subscribedProjectId = null;
-    this.#syncSubscription(board.currentProjectId);
+    this.#syncSubscription(this.#subscriptionTarget);
     // The very first connect follows the initial page load, which already
     // fetched everything; only a reconnect needs to self-heal the missed gap.
     if (this.#hasSyncedOnce) {

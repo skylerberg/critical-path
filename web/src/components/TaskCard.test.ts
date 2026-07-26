@@ -66,6 +66,23 @@ describe('TaskCard', () => {
     );
   });
 
+  it('points at the public path when readonly, changing nothing else', () => {
+    render(TaskCard, {
+      task,
+      projectId: 'p1',
+      readonly: true,
+      labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+      blockedCount: 2,
+    });
+
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/public/projects/p1/tasks/t1');
+    expect(screen.getByText('Design cards')).toBeInTheDocument();
+    expect(screen.getByText('art')).toBeInTheDocument();
+    expect(screen.getByTitle('Ada Lovelace')).toHaveTextContent('AL');
+    expect(screen.getByTitle('Blocked by 2 open tasks')).toHaveTextContent('2');
+    expect(screen.getByTitle('3 images')).toHaveTextContent('3');
+  });
+
   it('dims the card when filtered out', () => {
     render(TaskCard, { task, projectId: 'p1', dimmed: true });
 

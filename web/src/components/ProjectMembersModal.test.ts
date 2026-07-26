@@ -18,6 +18,7 @@ function project(overrides: Partial<Project> = {}): Project {
     archived_at: null,
     created_by: ada.id,
     member_ids: [me.id],
+    is_public: false,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -214,5 +215,97 @@ describe('ProjectMembersModal', () => {
     expect(
       screen.queryByText("Owners can't leave a board. Make someone else the owner first.")
     ).toBeNull();
+  });
+});
+
+describe('ProjectMembersModal public link', () => {
+  function patchRequests(): Request[] {
+    return fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => request.method === 'PATCH');
+  }
+
+  beforeEach(() => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.method === 'PATCH') {
+        const body = (await request.clone().json()) as { is_public: boolean };
+        const id = new URL(request.url).pathname.split('/').at(-1)!;
+        return jsonResponse(200, { ...project({ id }), ...body });
+      }
+      return jsonResponse(200, { users: [me, ada] });
+    });
+  });
+
+  it('offers publishing behind a confirm dialog that names what becomes visible', async () => {
+    projects.projects = [project()];
+
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+
+    expect(screen.queryByLabelText('Public link')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish read-only link' }));
+
+    const dialog = screen.getByText(/Anyone with the link will be able to see/);
+    expect(dialog).toHaveTextContent('every card title');
+    expect(dialog).toHaveTextContent('every description');
+    expect(dialog).toHaveTextContent('every image on those cards');
+    expect(dialog).toHaveTextContent('who is assigned');
+    expect(patchRequests()).toHaveLength(0);
+  });
+
+  it('confirming PATCHes is_public and then shows the copyable link', async () => {
+    projects.projects = [project()];
+
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish read-only link' }));
+    const confirm = screen
+      .getAllByRole('button', { name: 'Publish read-only link' })
+      .at(-1) as HTMLElement;
+    await fireEvent.click(confirm);
+
+    await waitFor(() => expect(patchRequests()).toHaveLength(1));
+    const patch = patchRequests()[0]!;
+    expect(new URL(patch.url).pathname).toBe('/api/projects/p-1');
+    expect(await patch.clone().json()).toEqual({ is_public: true });
+
+    const field = await screen.findByLabelText('Public link');
+    expect(field).toHaveValue(`${location.origin}/public/projects/p-1`);
+  });
+
+  it('copies the link to the clipboard', async () => {
+    projects.projects = [project({ is_public: true })];
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
+
+    expect(writeText).toHaveBeenCalledWith(`${location.origin}/public/projects/p-1`);
+    vi.unstubAllGlobals();
+  });
+
+  it('stops sharing without a second confirm', async () => {
+    projects.projects = [project({ is_public: true })];
+
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: 'Stop sharing' }));
+
+    await waitFor(() => expect(patchRequests()).toHaveLength(1));
+    expect(await patchRequests()[0]!.clone().json()).toEqual({ is_public: false });
+    await waitFor(() => expect(screen.queryByLabelText('Public link')).toBeNull());
+  });
+
+  it('targets the project it was given, not whichever board is open', async () => {
+    projects.projects = [project({ id: 'p-A' }), project({ id: 'p-B' })];
+
+    render(ProjectMembersModal, { projectId: 'p-B', onclose: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: 'Publish read-only link' }));
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Publish read-only link' }).at(-1) as HTMLElement
+    );
+
+    await waitFor(() => expect(patchRequests()).toHaveLength(1));
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe('/api/projects/p-B');
+    expect(projects.projects.find((p) => p.id === 'p-A')?.is_public).toBe(false);
   });
 });

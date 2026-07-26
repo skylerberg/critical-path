@@ -85,6 +85,10 @@ class ProjectsStore {
     await this.#patch(id, { archived_at: null }, 'Failed to unarchive project');
   }
 
+  async setPublic(id: string, isPublic: boolean): Promise<void> {
+    await this.#patch(id, { is_public: isPublic }, 'Failed to update sharing');
+  }
+
   async remove(id: string): Promise<void> {
     this.projects = this.projects.filter((p) => p.id !== id);
     try {
@@ -236,6 +240,7 @@ class ProjectsStore {
         archived_at: null,
         created_by: null,
         member_ids: [],
+        is_public: false,
         created_at: new Date().toISOString(),
         open_task_count: 0,
         done_task_count: 0,
@@ -256,6 +261,7 @@ class ProjectsStore {
       archived_at: null,
       created_by: session.user?.id ?? null,
       member_ids: [],
+      is_public: false,
       created_at: new Date().toISOString(),
       open_task_count: 0,
       done_task_count: 0,

@@ -4,6 +4,7 @@
   import FilterBar from './FilterBar.svelte';
   import LabelManager from './LabelManager.svelte';
   import ProjectMembersModal from './ProjectMembersModal.svelte';
+  import Badge from './ui/Badge.svelte';
 
   interface Props {
     projectId: string;
@@ -24,6 +25,9 @@
     <h1 class="min-w-0 truncate text-lg font-semibold">
       {board.project?.name ?? ''}
     </h1>
+    {#if board.project?.is_public}
+      <Badge variant="accent">Public</Badge>
+    {/if}
     <nav use:link aria-label="Project views" class="flex gap-1">
       <a
         href={`/projects/${projectId}${board.filterSearch}`}

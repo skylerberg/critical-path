@@ -1,6 +1,6 @@
 <script lang="ts">
   import { router } from './lib/router.svelte';
-  import { isPublicRoute, session } from './lib/session.svelte';
+  import { isAuthOptionalRoute, isPublicRoute, session } from './lib/session.svelte';
   import { users } from './lib/users.svelte';
   import { board } from './lib/board.svelte';
   import { drafts } from './lib/drafts.svelte';
@@ -14,13 +14,14 @@
   import ResetPassword from './routes/ResetPassword.svelte';
   import Projects from './routes/Projects.svelte';
   import Project from './routes/Project.svelte';
+  import PublicBoard from './routes/PublicBoard.svelte';
   import NotFound from './routes/NotFound.svelte';
   import Nav from './components/Nav.svelte';
   import Toasts from './components/Toasts.svelte';
   import Spinner from './components/ui/Spinner.svelte';
 
   const route = $derived(router.current);
-  const showNav = $derived(!isPublicRoute(route.name));
+  const showNav = $derived(!isPublicRoute(route.name) && !isAuthOptionalRoute(route.name));
 
   router.beforeNavigate = session.guardRoute;
 
@@ -79,6 +80,8 @@
         taskId={route.params.taskId}
         filters={route.params.filters}
       />
+    {:else if route.name === 'public-board'}
+      <PublicBoard projectId={route.params.id} taskId={route.params.taskId} />
     {:else}
       <NotFound path={route.path} />
     {/if}

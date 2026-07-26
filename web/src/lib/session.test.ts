@@ -66,6 +66,19 @@ describe('session.init', () => {
     expect(consumeIntendedPath()).toBe('/projects/p1');
   });
 
+  it('leaves a stale-token visitor on the public board instead of bouncing to login', async () => {
+    router.navigate('/public/projects/p1');
+    localStorage.setItem('cp.token', 'tok-expired');
+    fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Unauthorized' }));
+
+    await session.init();
+
+    expect(session.status).toBe('anon');
+    expect(localStorage.getItem('cp.token')).toBeNull();
+    expect(window.location.pathname).toBe('/public/projects/p1');
+    expect(consumeIntendedPath()).toBe('/');
+  });
+
   it('keeps the token but resolves anon on network failure', async () => {
     localStorage.setItem('cp.token', 'tok-stored');
     fetchMock.mockRejectedValue(new TypeError('network down'));
@@ -192,6 +205,17 @@ describe('session.guardRoute', () => {
     expect(session.guardRoute(matchRoute('/reset-password'), '/reset-password')).toBe('/');
     expect(session.guardRoute(matchRoute('/account'), '/account')).toBeUndefined();
     expect(session.guardRoute(matchRoute('/projects/p1'), '/projects/p1')).toBeUndefined();
+  });
+
+  it('lets both anon and authed visitors reach a public board', async () => {
+    expect(
+      session.guardRoute(matchRoute('/public/projects/p1'), '/public/projects/p1')
+    ).toBeUndefined();
+    await loginAs();
+    expect(
+      session.guardRoute(matchRoute('/public/projects/p1'), '/public/projects/p1')
+    ).toBeUndefined();
+    expect(consumeIntendedPath()).toBe('/');
   });
 
   it('does nothing while the session is unknown', () => {

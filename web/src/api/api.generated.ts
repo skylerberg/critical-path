@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/transfer-project-ownership/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/public-board-link/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -238,7 +238,7 @@ export interface paths {
         head?: never;
         /**
          * Update project
-         * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive.
+         * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive. Set is_public to true to publish the board read-only at GET /api/public/projects/:id/board, which serves card titles, descriptions and their embedded images, labels, blockers, and assignee names and avatars to anyone with the project id and no account. Set it back to false to stop serving it.
          */
         patch: operations["patchApiProjectsById"];
         trace?: never;
@@ -623,6 +623,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/projects/{id}/board": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get public board
+         * @description Serve a read-only board for a project whose is_public flag is set. Unauthenticated: anyone holding the project id can read it. The payload carries columns, labels, and tasks with their descriptions, labels, blockers, image counts, and assignee ids, plus the name and avatar of each assigned user. Member ids, the creator, timestamps, and email addresses are never included. Projects that are private, unknown, or deleted are all 404.
+         */
+        get: operations["getApiPublicProjectsByIdBoard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -699,6 +719,7 @@ export interface components {
             description: string;
             done_task_count: number;
             id: string;
+            is_public: boolean;
             member_ids: string[];
             name: string;
             open_task_count: number;
@@ -728,6 +749,7 @@ export interface components {
             created_by: components["schemas"]["UserAvatarurl"];
             description: string;
             id: string;
+            is_public: boolean;
             member_ids: string[];
             name: string;
         };
@@ -762,6 +784,7 @@ export interface components {
         PatchProject: {
             archived_at?: components["schemas"]["UserAvatarurl"];
             description?: string;
+            is_public?: boolean;
             name?: string;
         };
         SetProjectPosition: {
@@ -903,6 +926,35 @@ export interface components {
             id: string;
             message: string;
             page_path?: components["schemas"]["UserAvatarurl"];
+        };
+        PublicBoard: {
+            columns: components["schemas"]["BoardColumn"][];
+            labels: components["schemas"]["BoardLabel"][];
+            project: components["schemas"]["PublicBoardProject"];
+            tasks: components["schemas"]["PublicBoardTask"][];
+            users: components["schemas"]["PublicBoardUser"][];
+        };
+        PublicBoardProject: {
+            description: string;
+            id: string;
+            name: string;
+        };
+        PublicBoardTask: {
+            assignee_ids: string[];
+            blocker_ids: string[];
+            column_id: string;
+            description: components["schemas"]["NullableTiptapDoc"];
+            id: string;
+            image_count: number;
+            label_ids: string[];
+            /** @description a finite number */
+            position: number;
+            title: string;
+        };
+        PublicBoardUser: {
+            avatar_url: components["schemas"]["UserAvatarurl"];
+            id: string;
+            name: string;
         };
     };
     responses: never;
@@ -3302,6 +3354,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiPublicProjectsByIdBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public board payload */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicBoard"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Internal Server Error */

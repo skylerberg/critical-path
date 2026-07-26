@@ -14,6 +14,7 @@ export type Route =
       name: 'project';
       params: { id: string; view: ProjectView; taskId?: string; filters: BoardFilters };
     }
+  | { name: 'public-board'; params: { id: string; taskId?: string } }
   | { name: 'not-found'; path: string };
 
 export type BeforeNavigate = (to: Route, path: string) => string | undefined | void;
@@ -70,7 +71,15 @@ export function matchRoute(pathname: string, search = ''): Route {
   if (params) return projectRoute(params.id!, 'board', search, params.taskId!);
   params = matchPattern('/projects/:id/graph/tasks/:taskId', path);
   if (params) return projectRoute(params.id!, 'graph', search, params.taskId!);
+  params = matchPattern('/public/projects/:id', path);
+  if (params) return { name: 'public-board', params: { id: params.id! } };
+  params = matchPattern('/public/projects/:id/tasks/:taskId', path);
+  if (params) return { name: 'public-board', params: { id: params.id!, taskId: params.taskId! } };
   return { name: 'not-found', path: pathname };
+}
+
+export function boardPath(projectId: string, isPublic: boolean): string {
+  return isPublic ? `/public/projects/${projectId}` : `/projects/${projectId}`;
 }
 
 const MAX_REDIRECTS = 10;

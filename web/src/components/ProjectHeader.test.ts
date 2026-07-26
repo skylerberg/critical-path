@@ -1,6 +1,6 @@
 import { fetchMock } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ProjectHeader from './ProjectHeader.svelte';
 import { board } from '../lib/board.svelte';
 import { projects } from '../lib/projects.svelte';
@@ -60,6 +60,7 @@ beforeEach(() => {
     archived_at: null,
     created_by: null,
     member_ids: [],
+    is_public: false,
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
@@ -77,6 +78,14 @@ describe('ProjectHeader', () => {
     expect(screen.getByTitle('Filter by Ada')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Graph' })).toBeInTheDocument();
+  });
+
+  it('flags a published board so nobody is sharing one without knowing', async () => {
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    expect(screen.queryByText('Public')).toBeNull();
+
+    board.project = { ...board.project!, is_public: true };
+    await waitFor(() => expect(screen.getByText('Public')).toBeInTheDocument());
   });
 
   it('renders the same filter cluster on the graph view', () => {
@@ -109,6 +118,7 @@ describe('ProjectHeader', () => {
         archived_at: null,
         created_by: 'u1',
         member_ids: [],
+        is_public: false,
         created_at: '2026-01-01T00:00:00Z',
         open_task_count: 0,
         done_task_count: 0,

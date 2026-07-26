@@ -37,6 +37,7 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
       archived_at: null,
       created_by: null,
       member_ids: [],
+      is_public: false,
       created_at: '2026-07-15T00:00:00Z',
     },
     columns: [

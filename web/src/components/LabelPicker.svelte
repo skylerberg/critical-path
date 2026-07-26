@@ -1,13 +1,15 @@
 <script lang="ts">
   import { board } from '../lib/board.svelte';
+  import type { BoardLabel } from '../lib/board-types';
   import LabelSearchMenu from './LabelSearchMenu.svelte';
   import ColorDot from './ui/ColorDot.svelte';
 
   interface Props {
     taskId: string;
+    readonly?: boolean;
   }
 
-  let { taskId }: Props = $props();
+  let { taskId, readonly = false }: Props = $props();
 
   const pickerId = $props.id();
 
@@ -41,38 +43,54 @@
   }
 </script>
 
+{#snippet chip(label: BoardLabel, removable: boolean)}
+  <span
+    class="inline-flex items-center gap-1.5 rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted {removable
+      ? 'group-hover:border-danger group-hover:text-danger'
+      : ''}"
+  >
+    <ColorDot color={label.color} size="sm" />
+    <span class="max-w-40 truncate">{label.name}</span>
+    {#if removable}
+      <span aria-hidden="true">✕</span>
+    {/if}
+  </span>
+{/snippet}
+
 <div class="flex flex-col gap-2">
   <div class="flex flex-wrap items-center gap-1">
     {#each applied as label (label.id)}
+      {#if readonly}
+        <span class="inline-flex min-h-11 items-center justify-center">
+          {@render chip(label, false)}
+        </span>
+      {:else}
+        <button
+          type="button"
+          aria-label="Remove label {label.name}"
+          onclick={(event) => remove(label.id, event)}
+          class="group inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center"
+        >
+          {@render chip(label, true)}
+        </button>
+      {/if}
+    {/each}
+    {#if !readonly}
       <button
         type="button"
-        aria-label="Remove label {label.name}"
-        onclick={(event) => remove(label.id, event)}
-        class="group inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center"
+        bind:this={toggleEl}
+        aria-expanded={expanded}
+        aria-controls={expanded ? pickerId : undefined}
+        onclick={() => (expanded = !expanded)}
+        class="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center text-xs font-medium text-muted hover:text-ink"
       >
-        <span
-          class="inline-flex items-center gap-1.5 rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted group-hover:border-danger group-hover:text-danger"
-        >
-          <ColorDot color={label.color} size="sm" />
-          <span class="max-w-40 truncate">{label.name}</span>
-          <span aria-hidden="true">✕</span>
+        <span class="rounded-full border border-dashed border-edge px-2.5 py-1">
+          {expanded ? 'Done' : '+ Add label'}
         </span>
       </button>
-    {/each}
-    <button
-      type="button"
-      bind:this={toggleEl}
-      aria-expanded={expanded}
-      aria-controls={expanded ? pickerId : undefined}
-      onclick={() => (expanded = !expanded)}
-      class="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center text-xs font-medium text-muted hover:text-ink"
-    >
-      <span class="rounded-full border border-dashed border-edge px-2.5 py-1">
-        {expanded ? 'Done' : '+ Add label'}
-      </span>
-    </button>
+    {/if}
   </div>
-  {#if expanded}
+  {#if expanded && !readonly}
     <div id={pickerId}>
       <LabelSearchMenu
         {taskId}
