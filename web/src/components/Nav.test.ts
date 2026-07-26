@@ -298,6 +298,7 @@ describe('Nav reduced motion', () => {
     expect(requestAt(0).method).toBe('PUT');
     expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p-a/position');
     expect(await requestAt(0).clone().json()).toEqual({ position: 2500 });
+    expectEveryZone(0, true);
   });
 });
 

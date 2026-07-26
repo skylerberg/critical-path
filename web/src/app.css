@@ -52,9 +52,8 @@
   }
 }
 
-/* Unlayered so a Svelte component's <style> (also unlayered) can still opt back in
-   by specificity. Layered !important outranks unlayered !important, so a Tailwind
-   `!` motion utility would need this block moved into @layer base. */
+/* Unlayered so a component <style> can opt an element back in with its own !important;
+   a layered !important here would outrank that. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

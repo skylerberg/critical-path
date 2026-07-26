@@ -442,6 +442,7 @@ describe('Board reduced motion', () => {
     const patch = patchRequests()[0]!;
     expect(new URL(patch.url).pathname).toBe('/api/tasks/t1');
     expect(await patch.clone().json()).toEqual({ column_id: 'c1', position: 2500 });
+    expectEveryZone(0, true);
   });
 });
 
