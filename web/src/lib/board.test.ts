@@ -9,6 +9,8 @@ import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
 
 const CYCLE_ERROR = 'Adding this blocker would create a dependency cycle';
+const SERVER_CREATED_AT = '2026-01-15T00:00:00Z';
+const SERVER_UPDATED_AT = '2026-02-01T00:00:00Z';
 
 function task(id: string, columnId: string, position: number, title: string) {
   return {
@@ -58,6 +60,27 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
     }
     if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
       return jsonResponse(200, payload());
+    }
+    // createTask and updateTask read timestamps off the response, so these two
+    // routes answer with a task rather than the catch-all 204.
+    if (request.method === 'POST' && url.pathname === '/api/tasks') {
+      const body = (await request.clone().json()) as {
+        id: string;
+        column_id: string;
+        position: number;
+        title: string;
+      };
+      return jsonResponse(201, {
+        ...task(body.id, body.column_id, body.position, body.title),
+        created_at: SERVER_CREATED_AT,
+        updated_at: SERVER_UPDATED_AT,
+      });
+    }
+    const patchedTask = /^\/api\/tasks\/([^/]+)$/.exec(url.pathname);
+    if (request.method === 'PATCH' && patchedTask !== null) {
+      const id = patchedTask[1]!;
+      const existing = board.tasks.find((t) => t.id === id) ?? task(id, 'c1', 1000, 'x');
+      return jsonResponse(200, { ...existing, updated_at: SERVER_UPDATED_AT });
     }
     return jsonResponse(204);
   });
@@ -419,6 +442,59 @@ describe('board store mutations', () => {
       title: 'New task',
       position: 3000,
     });
+  });
+
+  it('createTask adopts created_at and updated_at from the response', async () => {
+    await board.createTask('c1', 'New task');
+
+    const created = board.tasks.find((t) => t.title === 'New task');
+    expect(created?.created_at).toBe(SERVER_CREATED_AT);
+    expect(created?.updated_at).toBe(SERVER_UPDATED_AT);
+  });
+
+  it('updateTask sends expected_updated_at and adopts the response updated_at', async () => {
+    const outcome = await board.updateTask('t1', { title: 'Renamed' }, '2026-01-01T00:00:00Z');
+
+    expect(outcome).toEqual({ status: 'ok', updated_at: SERVER_UPDATED_AT });
+    expect(await requestAt(0).json()).toEqual({
+      title: 'Renamed',
+      expected_updated_at: '2026-01-01T00:00:00Z',
+    });
+    expect(board.tasks.find((t) => t.id === 't1')?.updated_at).toBe(SERVER_UPDATED_AT);
+    expect(board.tasks.find((t) => t.id === 't1')?.title).toBe('Renamed');
+  });
+
+  it('updateTask omits expected_updated_at when no baseline is given', async () => {
+    await board.updateTask('t1', { title: 'Renamed' });
+
+    const body = (await requestAt(0).json()) as Record<string, unknown>;
+    expect(Object.keys(body)).not.toContain('expected_updated_at');
+  });
+
+  it('updateTask reports a conflict on 409, refetches, and shows no toast', async () => {
+    mockRoutes((request) =>
+      request.method === 'PATCH' ? jsonResponse(409, { error: 'stale' }) : undefined
+    );
+
+    const outcome = await board.updateTask('t1', { title: 'Renamed' }, '2026-01-01T00:00:00Z');
+
+    expect(outcome).toEqual({ status: 'conflict' });
+    expect(toasts.toasts).toHaveLength(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestAt(1).method).toBe('GET');
+    expect(board.tasks.find((t) => t.id === 't1')?.title).toBe('A');
+  });
+
+  it('updateTask reports an error, toasts, and refetches on 500', async () => {
+    mockRoutes((request) =>
+      request.method === 'PATCH' ? jsonResponse(500, { error: 'boom' }) : undefined
+    );
+
+    const outcome = await board.updateTask('t1', { title: 'Renamed' }, '2026-01-01T00:00:00Z');
+
+    expect(outcome).toEqual({ status: 'error' });
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['boom']);
+    expect(requestAt(1).method).toBe('GET');
   });
 
   it('deleteColumn moves tasks optimistically then applies the 200 moved_tasks positions', async () => {

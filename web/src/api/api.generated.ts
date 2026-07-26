@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/public-board-link/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/stale-write-guard/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -410,7 +410,7 @@ export interface paths {
         head?: never;
         /**
          * Update a task
-         * @description Update title, description (a Tiptap doc, or null to clear it), or move the task by sending column_id and position together. The new column must belong to the task’s project; violations return 422 with a plain error body. Bumps updated_at.
+         * @description Update title, description (a Tiptap doc, or null to clear it), or move the task by sending column_id and position together. The new column must belong to the task’s project; violations return 422 with a plain error body. updated_at is bumped only when the patch changes title or description — a pure move leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
          */
         patch: operations["patchApiTasksById"];
         trace?: never;
@@ -877,6 +877,7 @@ export interface components {
             /** Format: uuid */
             column_id?: string;
             description?: components["schemas"]["NullableTiptapDoc"];
+            expected_updated_at?: string;
             /** @description a finite number */
             position?: number;
             title?: string;
@@ -2551,6 +2552,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - the task changed since it was loaded */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

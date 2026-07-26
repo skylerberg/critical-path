@@ -43,6 +43,17 @@
   // — possibly over a rename the user never saw.
   let titleDraft = $state<string | null>(null);
 
+  // The version the editor was populated from, advanced only by this overlay's own
+  // successful writes — adopting a teammate's incoming version would let the next
+  // save silently overwrite it.
+  let baseUpdatedAt = $state<string | null>(null);
+  // The title that version carries. task.title is overwritten optimistically the
+  // moment a save starts, so it cannot tell an unchanged title from an unsaved one.
+  let baseTitle = $state<string | null>(null);
+  let conflicted = $state(false);
+  let editorRef = $state<ReturnType<typeof RichTextEditor>>();
+  let pendingWrite: Promise<unknown> = Promise.resolve();
+
   $effect(() => {
     const id = taskId;
     const authed = !readonly;
@@ -50,11 +61,35 @@
       titleDraft = null;
       confirmingDelete = false;
       deleting = false;
+      baseUpdatedAt = null;
+      baseTitle = null;
+      conflicted = false;
+      pendingWrite = Promise.resolve();
       if (authed) {
         void board.loadTaskImages(id);
       }
     });
   });
+
+  // Must stay below the reset effect: effects run in declaration order, so capturing
+  // first would only be undone by the reset.
+  $effect(() => {
+    const loaded = task;
+    untrack(() => {
+      if (baseUpdatedAt === null && loaded !== undefined) {
+        baseUpdatedAt = loaded.updated_at;
+        baseTitle = loaded.title;
+      }
+    });
+  });
+
+  // The title and the description share one queue: overlapping writes would carry
+  // the same baseline and the second would conflict against the first.
+  function queueWrite<T>(run: () => Promise<T>): Promise<T> {
+    const next = pendingWrite.then(run);
+    pendingWrite = next.catch(() => undefined);
+    return next;
+  }
 
   $effect(() => {
     if (dialog && !dialog.open) {
@@ -72,20 +107,68 @@
     router.redirect(closePath);
   }
 
+  // Clears the draft only once the server has the new title: a conflict refetches the
+  // old one, and dropping the draft first would take the user's typing with it. The
+  // unchanged-title check belongs inside the queue too, since a save already queued
+  // ahead of this one still moves what the server holds.
   function commitTitle(): void {
-    if (titleDraft === null || task === undefined) return;
-    const trimmed = titleDraft.trim();
-    titleDraft = null;
-    if (trimmed !== '' && trimmed !== task.title) {
-      void board.updateTask(taskId, { title: trimmed });
+    const draft = titleDraft;
+    if (draft === null || task === undefined) return;
+    const trimmed = draft.trim();
+    if (trimmed === '') {
+      titleDraft = null;
+      return;
     }
+    const id = taskId;
+    void queueWrite(async () => {
+      if (conflicted || id !== taskId) return;
+      if (trimmed !== baseTitle) {
+        const outcome = await board.updateTask(id, { title: trimmed }, baseUpdatedAt ?? undefined);
+        if (outcome.status === 'conflict') {
+          conflicted = true;
+          return;
+        }
+        if (outcome.status === 'error') return;
+        baseUpdatedAt = outcome.updated_at;
+        baseTitle = trimmed;
+      }
+      if (titleDraft === draft) {
+        titleDraft = null;
+      }
+    });
   }
 
   function saveDescription(doc: TiptapDoc | null): Promise<boolean> {
     // The editor flushes pending saves on teardown; skip that doomed PATCH once a
     // delete is under way so it cannot 404 (or resurrect the task on refetch).
     if (deleting) return Promise.resolve(true);
-    return board.updateTask(taskId, { description: doc });
+    const id = taskId;
+    return queueWrite(async () => {
+      // Re-checked here because the queue can hold this past a delete, a conflict or
+      // an in-place task change.
+      if (conflicted || deleting || id !== taskId) return true;
+      const outcome = await board.updateTask(id, { description: doc }, baseUpdatedAt ?? undefined);
+      if (outcome.status === 'ok') {
+        baseUpdatedAt = outcome.updated_at;
+        return true;
+      }
+      // Reporting a conflict as a failed save would make the editor retry it on the
+      // next keystroke, against a baseline that can only fail again.
+      if (outcome.status === 'conflict') {
+        conflicted = true;
+        return true;
+      }
+      return false;
+    });
+  }
+
+  function reloadFromServer(): void {
+    if (task === undefined) return;
+    titleDraft = null;
+    baseUpdatedAt = task.updated_at;
+    baseTitle = task.title;
+    conflicted = false;
+    editorRef?.replaceContent(task.description);
   }
 
   async function uploadImage(file: File): Promise<string | null> {
@@ -168,6 +251,19 @@
         <Button variant="ghost" aria-label="Close" onclick={close}>✕</Button>
       </div>
 
+      {#if conflicted}
+        <div
+          role="alert"
+          class="flex flex-col gap-2 rounded-md border border-danger bg-danger/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>
+            This task changed somewhere else while you had it open. Your text is still here — reload
+            to replace it with the latest version.
+          </span>
+          <Button variant="secondary" onclick={reloadFromServer}>Reload</Button>
+        </div>
+      {/if}
+
       <section class="flex flex-col gap-2">
         <h3 class="text-sm font-semibold text-muted">Column</h3>
         {#if readonly}
@@ -193,7 +289,12 @@
             {#if readonly}
               <RichTextEditor content={task.description} readonly />
             {:else}
-              <RichTextEditor content={task.description} onSave={saveDescription} {uploadImage} />
+              <RichTextEditor
+                bind:this={editorRef}
+                content={task.description}
+                onSave={saveDescription}
+                {uploadImage}
+              />
             {/if}
           {/key}
         </section>

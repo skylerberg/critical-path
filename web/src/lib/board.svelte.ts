@@ -19,6 +19,11 @@ import { users, type User } from './users.svelte';
 
 export type TaskImage = components['schemas']['ImageResponse'];
 
+export type TaskUpdateOutcome =
+  | { status: 'ok'; updated_at: string }
+  | { status: 'conflict' }
+  | { status: 'error' };
+
 // Anchors on the visual neighbor above the drop, so it stays correct when the
 // display order is a filtered partition rather than pure position order.
 export function positionAfterDrop(
@@ -280,11 +285,15 @@ class BoardStore {
       },
     ];
     try {
-      assertOk(
+      const created = assertOk(
         await api.POST('/api/tasks', {
           body: { id, project_id: projectId, column_id: columnId, title, position },
         })
       );
+      this.#adoptTimestamps(id, {
+        created_at: created.created_at,
+        updated_at: created.updated_at,
+      });
       return id;
     } catch (error) {
       await this.#mutationFailed(error);
@@ -334,19 +343,39 @@ class BoardStore {
     }
   }
 
+  // Merges only the timestamps, never the whole response body: a label or assignee
+  // change applied optimistically while the write was in flight must survive.
+  #adoptTimestamps(taskId: string, times: { created_at?: string; updated_at: string }): void {
+    this.tasks = this.tasks.map((task) => (task.id === taskId ? { ...task, ...times } : task));
+  }
+
   async updateTask(
     taskId: string,
-    patch: { title?: string; description?: BoardTask['description'] }
-  ): Promise<boolean> {
+    patch: { title?: string; description?: BoardTask['description'] },
+    expectedUpdatedAt?: string
+  ): Promise<TaskUpdateOutcome> {
     this.tasks = this.tasks.map((task) => (task.id === taskId ? { ...task, ...patch } : task));
     try {
-      assertOk(
-        await api.PATCH('/api/tasks/{id}', { params: { path: { id: taskId } }, body: patch })
+      const data = assertOk(
+        await api.PATCH('/api/tasks/{id}', {
+          params: { path: { id: taskId } },
+          body: {
+            ...patch,
+            ...(expectedUpdatedAt !== undefined ? { expected_updated_at: expectedUpdatedAt } : {}),
+          },
+        })
       );
-      return true;
+      this.#adoptTimestamps(taskId, { updated_at: data.updated_at });
+      return { status: 'ok', updated_at: data.updated_at };
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        // No toast: the caller owns the conflict surface, and the refetch is what
+        // lets it offer the server's current version.
+        await this.refetch();
+        return { status: 'conflict' };
+      }
       await this.#mutationFailed(error);
-      return false;
+      return { status: 'error' };
     }
   }
 

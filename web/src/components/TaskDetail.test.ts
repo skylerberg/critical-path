@@ -1,6 +1,8 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
+import type { Editor } from '@tiptap/core';
 import TaskDetail from './TaskDetail.svelte';
 import { board } from '../lib/board.svelte';
 import { drafts } from '../lib/drafts.svelte';
@@ -80,9 +82,21 @@ beforeEach(() => {
     { id: 'l2', name: 'rules', color: '#00ff00' },
   ];
   users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null }];
+  mockRoutes();
+});
+
+const SERVER_UPDATED_AT = '2026-03-01T00:00:00Z';
+
+function mockRoutes(
+  override?: (request: Request, url: URL) => Response | Promise<Response> | undefined
+): void {
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
     const url = new URL(request.url);
+    const response = override?.(request, url);
+    if (response !== undefined) {
+      return response;
+    }
     if (request.method === 'GET' && url.pathname === '/api/tasks/t1') {
       return jsonResponse(200, {
         ...board.tasks[0],
@@ -93,9 +107,78 @@ beforeEach(() => {
     if (request.method === 'GET' && url.pathname === '/api/users') {
       return jsonResponse(200, { users: users.users });
     }
+    if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
+      return jsonResponse(200, {
+        project: board.project,
+        columns: board.columns,
+        tasks: board.tasks,
+        labels: board.labels,
+      });
+    }
+    if (request.method === 'PATCH' && url.pathname === '/api/tasks/t1') {
+      const existing = board.tasks.find((t) => t.id === 't1') ?? task('t1', 'c1', 'Design cards');
+      return jsonResponse(200, { ...existing, updated_at: SERVER_UPDATED_AT });
+    }
     return jsonResponse(204);
   });
-});
+}
+
+function taskPatches(): Request[] {
+  return fetchMock.mock.calls
+    .map((call) => call[0] as Request)
+    .filter(
+      (request) => request.method === 'PATCH' && new URL(request.url).pathname === '/api/tasks/t1'
+    );
+}
+
+function teammateVersion(): BoardTask {
+  return task('t1', 'c1', 'Their title', {
+    label_ids: ['l1'],
+    assignee_ids: ['u1'],
+    blocker_ids: ['t2', 't3'],
+    image_count: 1,
+    updated_at: '2026-05-05T00:00:00Z',
+    description: {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Their description' }] }],
+    },
+  });
+}
+
+function mockConflict(
+  patchResponse: () => Response | Promise<Response> = () =>
+    jsonResponse(409, { error: 'This task changed since you loaded it' })
+): void {
+  mockRoutes((request, url) => {
+    if (request.method === 'PATCH' && url.pathname === '/api/tasks/t1') {
+      return patchResponse();
+    }
+    if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
+      return jsonResponse(200, {
+        project: board.project,
+        columns: board.columns,
+        tasks: [teammateVersion(), ...board.tasks.filter((t) => t.id !== 't1')],
+        labels: board.labels,
+      });
+    }
+    return undefined;
+  });
+}
+
+async function editTitle(value: string): Promise<void> {
+  const input = screen.getByLabelText('Task title');
+  await fireEvent.input(input, { target: { value } });
+  await fireEvent.blur(input);
+}
+
+// Tiptap hangs the editor off its own DOM node; nothing else exposes the instance.
+function descriptionEditor(container: HTMLElement): Editor {
+  const dom = container.querySelector('.tiptap') as (HTMLElement & { editor?: Editor }) | null;
+  if (!dom?.editor) {
+    throw new Error('description editor not mounted');
+  }
+  return dom.editor;
+}
 
 describe('TaskDetail', () => {
   it('renders title, labels, assignees, blocked-by, timestamps, and fetched images', async () => {
@@ -182,7 +265,10 @@ describe('TaskDetail', () => {
   });
 
   it('discards an uncommitted title edit when the overlay closes', async () => {
-    const update = vi.spyOn(board, 'updateTask').mockResolvedValue(true);
+    const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
+      status: 'ok',
+      updated_at: SERVER_UPDATED_AT,
+    });
     const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
     await fireEvent.input(screen.getByLabelText('Task title'), {
       target: { value: 'Design cards v2' },
@@ -200,7 +286,10 @@ describe('TaskDetail', () => {
   });
 
   it('discards the title draft on Escape', async () => {
-    const update = vi.spyOn(board, 'updateTask').mockResolvedValue(true);
+    const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
+      status: 'ok',
+      updated_at: SERVER_UPDATED_AT,
+    });
     vi.spyOn(router, 'redirect').mockImplementation(() => {});
     const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
     await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Scrapped' } });
@@ -222,6 +311,237 @@ describe('TaskDetail', () => {
     render(TaskDetail, { taskId: 't2', closePath: '/projects/p1' });
 
     expect(screen.getByLabelText('Task title')).toHaveValue('Cut prototype');
+  });
+
+  it('sends the loaded updated_at as the precondition when committing a title', async () => {
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await editTitle('Design cards v2');
+
+    await waitFor(() => expect(taskPatches()).toHaveLength(1));
+    expect(await taskPatches()[0]!.json()).toEqual({
+      title: 'Design cards v2',
+      expected_updated_at: '2026-01-02T00:00:00Z',
+    });
+  });
+
+  it('advances the precondition to the response updated_at after a successful save', async () => {
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await editTitle('Design cards v2');
+    await waitFor(() => expect(taskPatches()).toHaveLength(1));
+    await editTitle('Design cards v3');
+    await waitFor(() => expect(taskPatches()).toHaveLength(2));
+
+    expect(await taskPatches()[1]!.json()).toEqual({
+      title: 'Design cards v3',
+      expected_updated_at: SERVER_UPDATED_AT,
+    });
+  });
+
+  it('holds a second save behind the first so it carries the fresh precondition', async () => {
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let patches = 0;
+    mockRoutes((request, url) => {
+      if (request.method === 'PATCH' && url.pathname === '/api/tasks/t1') {
+        patches += 1;
+        const saved = (): Response =>
+          jsonResponse(200, { ...board.tasks[0], updated_at: SERVER_UPDATED_AT });
+        return patches === 1 ? held.then(saved) : saved();
+      }
+      return undefined;
+    });
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await editTitle('Design cards v2');
+    await editTitle('Design cards v3');
+    await editTitle('Design cards v3');
+    expect(taskPatches()).toHaveLength(1);
+
+    release?.();
+    await waitFor(() => expect(taskPatches()).toHaveLength(2));
+    expect(await taskPatches()[1]!.json()).toEqual({
+      title: 'Design cards v3',
+      expected_updated_at: SERVER_UPDATED_AT,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(taskPatches()).toHaveLength(2);
+  });
+
+  it('still saves a title reverted while an earlier save is in flight', async () => {
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let patches = 0;
+    mockRoutes((request, url) => {
+      if (request.method === 'PATCH' && url.pathname === '/api/tasks/t1') {
+        patches += 1;
+        const saved = (): Response =>
+          jsonResponse(200, { ...board.tasks[0], updated_at: SERVER_UPDATED_AT });
+        return patches === 1 ? held.then(saved) : saved();
+      }
+      return undefined;
+    });
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await editTitle('Design cards v2');
+    await editTitle('Design cards');
+    release?.();
+
+    await waitFor(() => expect(taskPatches()).toHaveLength(2));
+    expect(await taskPatches()[1]!.json()).toEqual({
+      title: 'Design cards',
+      expected_updated_at: SERVER_UPDATED_AT,
+    });
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
+  });
+
+  it('keeps the typed title when the input is blurred again mid-save', async () => {
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockConflict(() =>
+      held.then(() => jsonResponse(409, { error: 'This task changed since you loaded it' }))
+    );
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await editTitle('Design cards v2');
+    await fireEvent.blur(screen.getByLabelText('Task title'));
+    release?.();
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards v2');
+    expect(taskPatches()).toHaveLength(1);
+  });
+
+  it('does not adopt a new precondition from a column change', async () => {
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
+    await waitFor(() => expect(taskPatches()).toHaveLength(1));
+    await editTitle('Design cards v2');
+    await waitFor(() => expect(taskPatches()).toHaveLength(2));
+
+    expect(await taskPatches()[1]!.json()).toEqual({
+      title: 'Design cards v2',
+      expected_updated_at: '2026-01-02T00:00:00Z',
+    });
+  });
+
+  it('keeps the typed title and shows the conflict banner when the save is stale', async () => {
+    mockConflict();
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await editTitle('Design cards v2');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/changed somewhere else/);
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards v2');
+  });
+
+  it('sends nothing further while conflicted', async () => {
+    mockConflict();
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await editTitle('Design cards v2');
+    await screen.findByRole('alert');
+    const sent = taskPatches().length;
+
+    await editTitle('Design cards v3');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(taskPatches()).toHaveLength(sent);
+  });
+
+  it('reloads the server title and description and clears the banner', async () => {
+    mockConflict();
+    const { container } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await editTitle('Design cards v2');
+    await screen.findByRole('alert');
+    expect(container.querySelector('.tiptap')?.textContent).not.toContain('Their description');
+    const sent = taskPatches().length;
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByLabelText('Task title')).toHaveValue('Their title');
+    expect(container.querySelector('.tiptap')?.textContent).toContain('Their description');
+    expect(taskPatches()).toHaveLength(sent);
+
+    mockRoutes();
+    await editTitle('Their title v2');
+
+    await waitFor(() => expect(taskPatches()).toHaveLength(sent + 1));
+    expect(await taskPatches()[sent]!.json()).toEqual({
+      title: 'Their title v2',
+      expected_updated_at: '2026-05-05T00:00:00Z',
+    });
+  });
+
+  it('sends the loaded updated_at as the precondition when saving the description', async () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      await tick();
+
+      descriptionEditor(container).commands.insertContent('Draft text');
+      await vi.advanceTimersByTimeAsync(800);
+
+      expect(taskPatches()).toHaveLength(1);
+      const body = (await taskPatches()[0]!.json()) as {
+        description: unknown;
+        expected_updated_at: string;
+      };
+      expect(body.expected_updated_at).toBe('2026-01-02T00:00:00Z');
+      expect(JSON.stringify(body.description)).toContain('Draft text');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the typed description and stops saving it when the save is stale', async () => {
+    mockConflict();
+    vi.useFakeTimers();
+    try {
+      const { container } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      await tick();
+      const editor = descriptionEditor(container);
+
+      editor.commands.insertContent('Draft text');
+      await vi.advanceTimersByTimeAsync(800);
+      await tick();
+
+      expect(screen.getByRole('alert')).toHaveTextContent(/changed somewhere else/);
+      expect(container.querySelector('.tiptap')?.textContent).toContain('Draft text');
+      const sent = taskPatches().length;
+
+      editor.commands.insertContent(' and more');
+      await vi.advanceTimersByTimeAsync(800);
+
+      expect(taskPatches()).toHaveLength(sent);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not adopt a teammate’s realtime update as its precondition', async () => {
+    mockConflict();
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    board.applyRealtime({ type: 'task_updated', project_id: 'p1', data: teammateVersion() });
+    await tick();
+    await editTitle('Design cards v2');
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(await taskPatches()[0]!.json()).toEqual({
+      title: 'Design cards v2',
+      expected_updated_at: '2026-01-02T00:00:00Z',
+    });
   });
 
   it('lists tasks that depend on this one and removes the reverse relation', async () => {
@@ -293,6 +613,38 @@ describe('TaskDetail readonly', () => {
     expect(await screen.findByText('Ship it')).toBeInTheDocument();
     expect(screen.queryByRole('toolbar', { name: 'Formatting' })).toBeNull();
     expect(document.querySelector('.tiptap')).toHaveAttribute('contenteditable', 'false');
+  });
+
+  it('never writes, so it sends no precondition and never banners a conflict', async () => {
+    vi.useFakeTimers();
+    try {
+      board.tasks = board.tasks.map((t) =>
+        t.id === 't1'
+          ? {
+              ...t,
+              description: {
+                type: 'doc',
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ship it' }] }],
+              },
+            }
+          : t
+      );
+
+      const { container } = render(TaskDetail, {
+        taskId: 't1',
+        closePath: '/public/projects/p1',
+        readonly: true,
+      });
+      await tick();
+
+      descriptionEditor(container).commands.insertContent('Sneaky edit');
+      await vi.advanceTimersByTimeAsync(800);
+
+      expect(taskPatches()).toHaveLength(0);
+      expect(screen.queryByRole('alert')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('hides sections a public card has nothing to show for', () => {

@@ -67,6 +67,30 @@ describe('RichTextEditor', () => {
     }
   });
 
+  it('replaceContent swaps the document without scheduling or firing a save', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSave = vi.fn().mockResolvedValue(true);
+      const { component, unmount } = render(RichTextEditor, { content: null, onSave });
+      await tick();
+
+      component.getEditor()!.commands.insertContent('mine');
+      component.replaceContent({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'theirs' }] }],
+      });
+
+      expect(component.getEditor()!.getText()).toBe('theirs');
+      await vi.advanceTimersByTimeAsync(800);
+      expect(onSave).not.toHaveBeenCalled();
+
+      unmount();
+      expect(onSave).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('starts from the provided doc and renders the toolbar', async () => {
     const onSave = vi.fn();
     const { component, getByRole } = render(RichTextEditor, {
