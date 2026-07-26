@@ -386,7 +386,10 @@ npm run openapi:dump && npm run --prefix cli generate-api
   headers.
 - `GET /api/public/projects/:id/board` is unauthenticated and gated only by the
   project's `is_public` flag, which any member may flip. Clearing it stops the
-  board being served immediately, but images embedded in card descriptions keep
-  serving from their `/api/images/:id` capability URLs, so a viewer who already
-  loaded (or copied) one keeps it. Anyone who ever held the project id can read
-  the board the moment it is published; there is no separate, rotatable slug.
+  board being served immediately, but images embedded in card descriptions and
+  the avatars of assigned users keep serving from their `/api/images/:id` and
+  `/api/avatars/:key` capability URLs, so a viewer who already loaded (or
+  copied) one keeps it — an avatar key is only replaced when that user uploads
+  a new one, and it is the same key on every board they appear on. Anyone who
+  ever held the project id can read the board the moment it is published; there
+  is no separate, rotatable slug.

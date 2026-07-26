@@ -112,28 +112,32 @@ describe('assertPublicProject', () => {
       .execute();
   }
 
+  async function gateError(projectId: string): Promise<unknown> {
+    const row = await db
+      .selectFrom('project')
+      .select('is_public')
+      .where('id', '=', projectId)
+      .executeTakeFirstOrThrow();
+    try {
+      assertPublicProject(row);
+      return null;
+    } catch (error) {
+      return error;
+    }
+  }
+
   it('throws 404 while the project is private', async () => {
-    await expect(assertPublicProject(db, personalProjectId)).rejects.toMatchObject({
-      statusCode: 404,
-      message: 'This board is not public',
-    });
-    await expect(assertPublicProject(db, personalProjectId)).rejects.toBeInstanceOf(AppError);
+    const error = await gateError(personalProjectId);
+    expect(error).toBeInstanceOf(AppError);
+    expect(error).toMatchObject({ statusCode: 404, message: 'This board is not public' });
   });
 
-  it('returns the row once the project is published, and 404s again after', async () => {
+  it('passes once the project is published, and throws again after', async () => {
     await setPublic(personalProjectId, true);
-    const row = await assertPublicProject(db, personalProjectId);
-    expect(row.id).toBe(personalProjectId);
-    expect(row.is_public).toBe(true);
+    expect(await gateError(personalProjectId)).toBeNull();
 
     await setPublic(personalProjectId, false);
-    await expect(assertPublicProject(db, personalProjectId)).rejects.toMatchObject({
-      statusCode: 404,
-    });
-  });
-
-  it('throws 404 for a nonexistent project', async () => {
-    await expect(assertPublicProject(db, newId())).rejects.toMatchObject({ statusCode: 404 });
+    expect(await gateError(personalProjectId)).toMatchObject({ statusCode: 404 });
   });
 
   it('does not grant an outsider access to the project', async () => {

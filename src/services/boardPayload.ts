@@ -2,7 +2,7 @@ import type { Kysely } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB } from '../db/types';
 import type { BoardPayload, PublicBoard, PublicBoardUser, TiptapDoc } from '../schemas/index';
-import { usersWithProjectAccess } from './authorization';
+import { assertPublicProject, usersWithProjectAccess } from './authorization';
 
 export async function getBoardPayload(
   db: Kysely<DB>,
@@ -168,6 +168,7 @@ export async function getPublicBoard(
   if (!payload) {
     return null;
   }
+  assertPublicProject(payload.project);
 
   const assigneeIds = new Set(payload.tasks.flatMap((task) => task.assignee_ids));
   const users =
