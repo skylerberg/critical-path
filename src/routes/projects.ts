@@ -52,7 +52,7 @@ const DEFAULT_COLUMNS = [
 
 type ProjectRow = Pick<
   Selectable<Project>,
-  'id' | 'name' | 'description' | 'archived_at' | 'created_at' | 'created_by'
+  'id' | 'name' | 'description' | 'archived_at' | 'created_at' | 'created_by' | 'is_public'
 >;
 
 const PROJECT_COLUMNS = [
@@ -62,6 +62,7 @@ const PROJECT_COLUMNS = [
   'archived_at',
   'created_at',
   'created_by',
+  'is_public',
 ] as const;
 
 function toProjectResponse(row: ProjectRow, memberIds: string[]) {
@@ -73,6 +74,7 @@ function toProjectResponse(row: ProjectRow, memberIds: string[]) {
     created_at: row.created_at.toISOString(),
     created_by: row.created_by,
     member_ids: memberIds,
+    is_public: row.is_public,
   };
 }
 
@@ -190,6 +192,7 @@ router.get(
         'project.archived_at',
         'project.created_at',
         'project.created_by',
+        'project.is_public',
         'project_user_position.position',
         jsonArrayFrom(
           eb
@@ -385,7 +388,10 @@ router.patch(
     summary: 'Update project',
     description:
       'Update project fields. Set archived_at to an ISO timestamp to archive or null to ' +
-      'unarchive.',
+      'unarchive. Set is_public to true to publish the board read-only at ' +
+      'GET /api/public/projects/:id/board, which serves card titles, descriptions and their ' +
+      'embedded images, labels, blockers, and assignee names and avatars to anyone with the ' +
+      'project id and no account. Set it back to false to stop serving it.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -418,6 +424,7 @@ router.patch(
     if (body.name !== undefined) updates.name = body.name;
     if (body.description !== undefined) updates.description = body.description;
     if (body.archived_at !== undefined) updates.archived_at = body.archived_at;
+    if (body.is_public !== undefined) updates.is_public = body.is_public;
 
     const row =
       Object.keys(updates).length > 0

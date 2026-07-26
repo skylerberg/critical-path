@@ -84,6 +84,30 @@ project with them (as creator or member on either side); `GET
 /api/users?project_id=` returns the users who can access that project plus
 users still assigned to its tasks.
 
+### Public boards
+
+`PATCH /api/projects/:id { is_public: true }` publishes a project read-only.
+`GET /api/public/projects/:id/board` then serves it to anyone who knows the
+project id, with no account and no token; setting `is_public` back to false
+makes that route 404 again on the very next request. Any member may flip the
+flag — the same authority they already have to delete the project.
+
+Anonymous reads run through their own unauthenticated router. `is_public` is
+not an arm of the project access predicate, so publishing never widens what an
+authenticated handler will answer: everything else about the project stays 401
+without a token and 404 for non-members. The response is shaped field by field
+from the ordinary board payload, so anything added to that payload later stays
+private until it is published deliberately. Public boards carry card titles,
+descriptions (with their `/api/images/:id` nodes), positions, labels,
+blockers, image counts, and the name and avatar of assigned users; member
+ids, the creator, timestamps, and email addresses are not on the wire, and
+users who are not assigned to anything are not listed at all.
+
+Responses are `no-store` and carry `X-Robots-Tag: noindex, nofollow`. The
+board itself is unlisted: nothing enumerates published projects. Anonymous
+viewers get no realtime — there is no socket to authenticate and no room to
+scope — so the page is a one-shot fetch.
+
 ### Per-user project ordering
 
 Each user can order their own project list without affecting anyone else's.
@@ -360,3 +384,12 @@ npm run openapi:dump && npm run --prefix cli generate-api
 - `GET /api/images/:id` and `GET /api/avatars/:key` are unauthenticated
   capability URLs (unguessable UUIDs) so `<img>` tags work without auth
   headers.
+- `GET /api/public/projects/:id/board` is unauthenticated and gated only by the
+  project's `is_public` flag, which any member may flip. Clearing it stops the
+  board being served immediately, but images embedded in card descriptions and
+  the avatars of assigned users keep serving from their `/api/images/:id` and
+  `/api/avatars/:key` capability URLs, so a viewer who already loaded (or
+  copied) one keeps it — an avatar key is only replaced when that user uploads
+  a new one, and it is the same key on every board they appear on. Anyone who
+  ever held the project id can read the board the moment it is published; there
+  is no separate, rotatable slug.

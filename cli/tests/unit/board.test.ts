@@ -35,6 +35,7 @@ function board(tasks: BoardTask[]): BoardPayload {
       created_by: null,
       archived_at: null,
       member_ids: [],
+      is_public: false,
     },
     columns: [
       { id: 'todo', name: 'Todo', position: 1000, is_done: false },

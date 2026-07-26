@@ -186,13 +186,52 @@ resource "google_compute_url_map" "critical_path" {
       }
     }
 
-    path_rule {
-      paths = [
-        "/api/*",
-        "/ws",
-        "/health",
-      ]
-      service = google_compute_backend_service.api.self_link
+    # route_rules rather than path_rule because a matcher may use only one of
+    # the two, and stamping X-Robots-Tag on /public/ needs a per-rule
+    # header_action. The API rules keep the lower priorities so /api/public/*
+    # still reaches the API instead of the web bucket.
+    route_rules {
+      priority = 1
+      service  = google_compute_backend_service.api.self_link
+
+      match_rules {
+        prefix_match = "/api/"
+      }
+    }
+
+    route_rules {
+      priority = 2
+      service  = google_compute_backend_service.api.self_link
+
+      match_rules {
+        full_path_match = "/ws"
+      }
+    }
+
+    route_rules {
+      priority = 3
+      service  = google_compute_backend_service.api.self_link
+
+      match_rules {
+        full_path_match = "/health"
+      }
+    }
+
+    route_rules {
+      priority = 4
+      service  = google_compute_backend_bucket.web.self_link
+
+      match_rules {
+        prefix_match = "/public/"
+      }
+
+      header_action {
+        response_headers_to_add {
+          header_name  = "X-Robots-Tag"
+          header_value = "noindex, nofollow"
+          replace      = true
+        }
+      }
     }
   }
 }

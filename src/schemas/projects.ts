@@ -11,6 +11,7 @@ export const projectSchema = type({
   created_at: 'string',
   created_by: 'string | null',
   member_ids: 'string[]',
+  is_public: 'boolean',
 });
 
 export type ProjectResponse = typeof projectSchema.infer;
@@ -40,6 +41,7 @@ export const patchProjectSchema = type({
   'name?': stringWithLength(1, 200),
   'description?': stringWithLength(0, 10000),
   'archived_at?': isoDateString.or('null'),
+  'is_public?': 'boolean',
 });
 
 // Empty is allowed: the creator has implicit access, so [] makes it personal.
