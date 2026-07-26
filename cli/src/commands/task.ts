@@ -19,11 +19,13 @@ import {
 } from '../resolve';
 import {
   blockerTree,
+  dependentTree,
+  dependents,
   doneColumnIds,
   sortedColumns,
   sortedTasksIn,
+  taskById,
   taskState,
-  type BlockerNode,
   type TaskState,
 } from '../board';
 import { append, positionForPlacement, type Placement } from '../positions';
@@ -77,6 +79,58 @@ function stateMark(ctx: RuntimeContext, state: TaskState): string {
     return ctx.out.style(['green'], '[ready]');
   }
   return '[done]';
+}
+
+function dependencyLine(
+  ctx: RuntimeContext,
+  task: BoardTask,
+  state: TaskState,
+  depth: number
+): string {
+  return `${'  '.repeat(depth)}${task.id.slice(0, 8)}  ${stateMark(ctx, state)}  ${task.title}`;
+}
+
+function withState(board: BoardPayload, tasks: BoardTask[]): (BoardTask & { state: TaskState })[] {
+  return tasks.map((task) => ({ ...task, state: taskState(task, board) }));
+}
+
+function renderDependencySection(
+  ctx: RuntimeContext,
+  board: BoardPayload,
+  label: string,
+  tasks: BoardTask[]
+): void {
+  if (tasks.length === 0) {
+    return;
+  }
+  ctx.out.line(`${label}:`);
+  for (const task of tasks) {
+    ctx.out.line(dependencyLine(ctx, task, taskState(task, board), 1));
+  }
+}
+
+function renderTreeSection<T extends { task: BoardTask; state: TaskState }>(
+  ctx: RuntimeContext,
+  label: string,
+  nodes: T[],
+  childrenOf: (node: T) => T[]
+): void {
+  if (nodes.length === 0) {
+    return;
+  }
+  ctx.out.line(`${label}:`);
+  const walk = (list: T[], depth: number): void => {
+    for (const node of list) {
+      ctx.out.line(dependencyLine(ctx, node.task, node.state, depth));
+      walk(childrenOf(node), depth + 1);
+    }
+  };
+  walk(nodes, 1);
+}
+
+function blockedByTasks(board: BoardPayload, blockerIds: string[]): BoardTask[] {
+  const byId = taskById(board);
+  return blockerIds.map((id) => byId.get(id)).filter((task): task is BoardTask => task != null);
 }
 
 interface TaskContext {
@@ -348,11 +402,12 @@ export function registerTask(program: Command, deps: CliDeps): void {
           const users =
             detail.assignee_ids.length > 0 ? await listUsers(ctx, detail.project_id) : [];
           const userById = new Map(users.map((u) => [u.id, u]));
-          ctx.out.data({ ...detail, state }, () => {
+          const blockedBy = blockedByTasks(board, detail.blocker_ids);
+          const blocks = dependents(board, detail.id);
+          ctx.out.data({ ...detail, state, blocked_task_ids: blocks.map((t) => t.id) }, () => {
             const columnName =
               board.columns.find((c) => c.id === detail.column_id)?.name ?? detail.column_id;
             const labelName = new Map(board.labels.map((l) => [l.id, l.name]));
-            const byId = new Map(board.tasks.map((t) => [t.id, t]));
             ctx.out.line(ctx.out.style(['bold'], detail.title));
             ctx.out.line(`ID:        ${detail.id.slice(0, 8)} (${detail.id})`);
             ctx.out.line(`State:     ${state}`);
@@ -370,16 +425,8 @@ export function registerTask(program: Command, deps: CliDeps): void {
               });
               ctx.out.line(`Assignees: ${names.join(', ')}`);
             }
-            if (detail.blocker_ids.length > 0) {
-              ctx.out.line('Blocked by:');
-              for (const id of detail.blocker_ids) {
-                const blocker = byId.get(id);
-                if (blocker != null) {
-                  const mark = stateMark(ctx, taskState(blocker, board));
-                  ctx.out.line(`  ${blocker.id.slice(0, 8)}  ${mark}  ${blocker.title}`);
-                }
-              }
-            }
+            renderDependencySection(ctx, board, 'Blocked by', blockedBy);
+            renderDependencySection(ctx, board, 'Blocks', blocks);
             if (detail.images.length > 0) {
               ctx.out.line('Images:');
               for (const image of detail.images) {
@@ -717,9 +764,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
 
   task.addCommand(
     taskLeaf('blockers')
-      .description('Show what blocks a task')
+      .description('Show what blocks a task and what it blocks')
       .argument('<task>', 'task id or title')
-      .option('--tree', 'show the transitive blocker tree')
+      .option('--tree', 'show the transitive blocker and dependent trees')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
           const { board, task: target } = await resolveTaskContext(
@@ -728,39 +775,36 @@ export function registerTask(program: Command, deps: CliDeps): void {
             opts.project as string | undefined
           );
           if (opts.tree === true) {
-            const tree = blockerTree(board, target.id);
-            ctx.out.data(tree, () => {
-              if (tree == null) {
+            const blockedByTree = blockerTree(board, target.id);
+            const blocksTree = dependentTree(board, target.id);
+            ctx.out.data({ blocked_by_tree: blockedByTree, blocks_tree: blocksTree }, () => {
+              if (blockedByTree == null) {
                 return;
               }
-              const render = (node: BlockerNode, depth: number): void => {
-                const mark = stateMark(ctx, node.state);
-                ctx.out.line(
-                  `${'  '.repeat(depth)}${node.task.id.slice(0, 8)}  ${mark}  ${node.task.title}`
-                );
-                for (const child of node.blockers) {
-                  render(child, depth + 1);
-                }
-              };
-              render(tree, 0);
+              ctx.out.line(dependencyLine(ctx, blockedByTree.task, blockedByTree.state, 0));
+              renderTreeSection(ctx, 'Blocked by', blockedByTree.blockers, (node) => node.blockers);
+              renderTreeSection(
+                ctx,
+                'Blocks',
+                blocksTree?.dependents ?? [],
+                (node) => node.dependents
+              );
             });
             return;
           }
-          const byId = new Map(board.tasks.map((t) => [t.id, t]));
-          const blockers = target.blocker_ids
-            .map((id) => byId.get(id))
-            .filter((t): t is BoardTask => t != null)
-            .map((t) => ({ ...t, state: taskState(t, board) }));
-          ctx.out.data(blockers, () => {
-            if (blockers.length === 0) {
-              ctx.out.line('Nothing blocks this task');
-              return;
+          const blockedBy = blockedByTasks(board, target.blocker_ids);
+          const blocks = dependents(board, target.id);
+          ctx.out.data(
+            { blocked_by: withState(board, blockedBy), blocks: withState(board, blocks) },
+            () => {
+              if (blockedBy.length === 0 && blocks.length === 0) {
+                ctx.out.line('Nothing blocks this task');
+                return;
+              }
+              renderDependencySection(ctx, board, 'Blocked by', blockedBy);
+              renderDependencySection(ctx, board, 'Blocks', blocks);
             }
-            ctx.out.table(
-              ['ID', 'STATE', 'TITLE'],
-              blockers.map((t) => [t.id.slice(0, 8), t.state, t.title])
-            );
-          });
+          );
         })
       )
   );

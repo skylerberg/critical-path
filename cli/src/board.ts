@@ -59,3 +59,41 @@ export function blockerTree(board: BoardPayload, taskId: string): BlockerNode | 
 
   return build(taskId, new Set());
 }
+
+export function dependents(board: BoardPayload, taskId: string): BoardTask[] {
+  return board.tasks.filter((task) => task.blocker_ids.includes(taskId));
+}
+
+export interface DependentNode {
+  task: BoardTask;
+  state: TaskState;
+  dependents: DependentNode[];
+}
+
+export function dependentTree(board: BoardPayload, taskId: string): DependentNode | null {
+  const byBlocker = new Map<string, BoardTask[]>();
+  for (const task of board.tasks) {
+    for (const blockerId of task.blocker_ids) {
+      const existing = byBlocker.get(blockerId);
+      if (existing == null) {
+        byBlocker.set(blockerId, [task]);
+      } else {
+        existing.push(task);
+      }
+    }
+  }
+
+  function build(task: BoardTask, seen: Set<string>): DependentNode {
+    const nextSeen = new Set(seen).add(task.id);
+    return {
+      task,
+      state: taskState(task, board),
+      dependents: (byBlocker.get(task.id) ?? [])
+        .filter((child) => !nextSeen.has(child.id))
+        .map((child) => build(child, nextSeen)),
+    };
+  }
+
+  const root = taskById(board).get(taskId);
+  return root == null ? null : build(root, new Set());
+}
