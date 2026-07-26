@@ -82,9 +82,10 @@ describe('GET /api/public/projects/:id/board', () => {
     const backlog = board.columns.find((column) => column.name === 'Backlog')!;
     const done = board.columns.find((column) => column.name === 'Done')!;
 
-    await ctx
+    const membersRes = await ctx
       .request(owner.token)
       .put(`/api/projects/${projectId}/members`, { user_ids: [assignee.id, idleMember.id] });
+    expect(membersRes.status).toBe(204);
 
     const labelId = await insertLabel({ projectId, name: 'bug', color: '#aa0000' });
     const unusedLabelId = await insertLabel({ projectId, name: 'idea', color: '#00bb00' });
@@ -314,6 +315,28 @@ describe('GET /api/public/projects/:id/board', () => {
 
     const publicRes = await ctx.request().get(`/api/public/projects/${board.project.id}/board`);
     expect(publicRes.status).toBe(404);
+  });
+
+  it('lets a plain member publish and un-publish, not only the creator', async () => {
+    const board = await createProject('Member publishes');
+    const projectId = board.project.id;
+    const membersRes = await ctx
+      .request(owner.token)
+      .put(`/api/projects/${projectId}/members`, { user_ids: [assignee.id] });
+    expect(membersRes.status).toBe(204);
+
+    const publishRes = await ctx
+      .request(assignee.token)
+      .patch(`/api/projects/${projectId}`, { is_public: true });
+    expect(publishRes.status).toBe(200);
+    expect(await publishRes.json()).toMatchObject({ is_public: true });
+    expect((await ctx.request().get(`/api/public/projects/${projectId}/board`)).status).toBe(200);
+
+    const unpublishRes = await ctx
+      .request(assignee.token)
+      .patch(`/api/projects/${projectId}`, { is_public: false });
+    expect(unpublishRes.status).toBe(200);
+    expect((await ctx.request().get(`/api/public/projects/${projectId}/board`)).status).toBe(404);
   });
 
   it('keeps two published boards separate', async () => {

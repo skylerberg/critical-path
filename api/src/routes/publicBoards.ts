@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
-import { assertPublicProject } from '../services/authorization';
 import { getPublicBoard } from '../services/boardPayload';
 import {
   idSchema,
@@ -46,7 +45,6 @@ router.get(
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
-    await assertPublicProject(db, id);
     const payload = await getPublicBoard(db, id);
     if (!payload) {
       throw new AppError(404, 'This board is not public');
