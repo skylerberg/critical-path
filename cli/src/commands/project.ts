@@ -216,6 +216,9 @@ export function registerProject(program: Command, deps: CliDeps): void {
         withCtx(deps, async (ctx, opts, ref) => {
           const target = await resolveProject(ctx, ref);
           const user = await resolveUser(ctx, opts.to as string, target.id);
+          if (user.id === target.created_by) {
+            throw new CliError(`${user.name} already owns this project`, EXIT.usage);
+          }
           await confirmOrAbort(
             ctx,
             `Transfer project "${target.name}" to ${user.name}? You become an ordinary member.`,

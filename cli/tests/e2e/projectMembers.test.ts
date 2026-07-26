@@ -188,4 +188,17 @@ describe('project member commands', () => {
     expect(res.exitCode).toBe(2);
     expect(res.stderr).toMatch(/transfer it first/);
   });
+
+  it('transfer to the project owner exits 2 without sending a request', async () => {
+    const res = await h.runCli([
+      'project',
+      'transfer',
+      'CLI Solo Project',
+      '--to',
+      user.email,
+      '--force',
+    ]);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toMatch(/already owns this project/);
+  });
 });
