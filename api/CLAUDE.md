@@ -35,7 +35,10 @@ touch `gamedev@skylerberg.com` or its rows.
    Non-empty CHECKs exist only where empty is never valid (names, title,
    email, color).
 7. All FKs are `ON DELETE CASCADE`; don't manually delete rows the DB
-   cascades.
+   cascades. The one exception is `project.created_by`, which is `ON DELETE
+   RESTRICT`: an account cannot be deleted while it still owns a project, so
+   ownership has to move (`PUT /api/projects/:id/owner`) or the project has to
+   be deleted first.
 8. Avoid N+1 queries; prefer one bulk query (`jsonArrayFrom` correlated
    subqueries) per screen-sized read.
 9. Mutations with no useful body return `c.body(null, 204)`.

@@ -49,6 +49,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db.deleteFrom('project').where('created_by', 'in', userIds).execute();
   await db.deleteFrom('app_user').where('id', 'in', userIds).execute();
 });
 

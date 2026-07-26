@@ -10,6 +10,7 @@ import {
   accessibleProjectsFilter,
   assertProjectAccess,
   canAccessProject,
+  isProjectMember,
 } from '../services/authorization';
 import { avatarUrl } from '../services/avatars';
 import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
@@ -28,10 +29,12 @@ import {
   patchProjectSchema,
   setProjectPositionSchema,
   setProjectMembersSchema,
+  setProjectOwnerSchema,
   addProjectMemberByEmailSchema,
   projectMemberUserResponseSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
+  forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
@@ -82,6 +85,22 @@ async function fetchMemberIds(db: Kysely<DB>, projectId: string): Promise<string
     .orderBy('user_id')
     .execute();
   return rows.map((row) => row.user_id);
+}
+
+// Every project_member write decides what to write from created_by, so that
+// read has to hold the project row: without the lock an ownership transfer can
+// commit mid-request and leave the new creator holding a member row.
+async function lockProject(db: Kysely<DB>, projectId: string): Promise<ProjectRow> {
+  const row = await db
+    .selectFrom('project')
+    .select(PROJECT_COLUMNS)
+    .where('id', '=', projectId)
+    .forUpdate()
+    .executeTakeFirst();
+  if (!row) {
+    throw new AppError(404, 'Project not found');
+  }
+  return row;
 }
 
 // project_created/project_updated carry the projects-list item shape so a
@@ -564,7 +583,8 @@ router.put(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await assertProjectAccess(db, user.id, id);
+    await assertProjectAccess(db, user.id, id);
+    const project = await lockProject(db, id);
 
     const desired = [...new Set(user_ids)].filter((userId) => userId !== project.created_by);
 
@@ -649,7 +669,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await assertProjectAccess(db, user.id, id);
+    await assertProjectAccess(db, user.id, id);
 
     const target = await db
       .selectFrom('app_user')
@@ -660,6 +680,7 @@ router.post(
       throw new AppError(404, 'User not found');
     }
 
+    const project = await lockProject(db, id);
     if (target.id !== project.created_by) {
       await db
         .insertInto('project_member')
@@ -680,6 +701,83 @@ router.post(
       },
       200
     );
+  }
+);
+
+router.put(
+  '/:id/owner',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'Transfer project ownership',
+    description:
+      'Hand a project to another member. Only the current creator may call: other members with ' +
+      'access get 403 and non-accessors get 404. user_id must already be a project member (422 ' +
+      'otherwise). The incoming owner becomes created_by and their member row is dropped; the ' +
+      'outgoing creator gains an ordinary member row and may then leave via PUT /:id/members. ' +
+      'Passing your own id is a no-op. Task assignments are unaffected.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'The project with its new owner',
+        content: {
+          'application/json': {
+            schema: resolver(projectSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
+      ...notFoundErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  jsonValidator(setProjectOwnerSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const { user_id } = c.req.valid('json');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    await assertProjectAccess(db, user.id, id);
+    const project = await lockProject(db, id);
+    if (project.created_by !== user.id) {
+      throw new AppError(403, 'Only the project owner can transfer ownership');
+    }
+
+    if (user_id === user.id) {
+      return c.json(toProjectResponse(project, await fetchMemberIds(db, id)), 200);
+    }
+
+    if (!(await isProjectMember(db, id, user_id))) {
+      throw new AppError(422, 'user_id must reference a project member');
+    }
+
+    const row = await db
+      .updateTable('project')
+      .set({ created_by: user_id })
+      .where('id', '=', id)
+      .returning(PROJECT_COLUMNS)
+      .executeTakeFirstOrThrow();
+
+    await db
+      .deleteFrom('project_member')
+      .where('project_id', '=', id)
+      .where('user_id', '=', user_id)
+      .execute();
+
+    await db
+      .insertInto('project_member')
+      .values({ project_id: id, user_id: user.id })
+      .onConflict((oc) => oc.columns(['project_id', 'user_id']).doNothing())
+      .execute();
+
+    const memberIds = await fetchMemberIds(db, id);
+    await publishProjectListItem(c, db, row, memberIds);
+    return c.json(toProjectResponse(row, memberIds), 200);
   }
 );
 

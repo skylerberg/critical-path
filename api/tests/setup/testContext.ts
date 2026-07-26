@@ -32,6 +32,8 @@ export class TestContext {
   async cleanup(): Promise<void> {
     const ids = this.users.map((u) => u.id);
     if (ids.length > 0) {
+      // project.created_by is ON DELETE RESTRICT, so owned projects must go first.
+      await db.deleteFrom('project').where('created_by', 'in', ids).execute();
       await db.deleteFrom('app_user').where('id', 'in', ids).execute();
     }
     this.users = [];
