@@ -53,6 +53,8 @@
         { keys: ['g', 'g'], label: 'Go to graph', chord: true },
         { keys: ['g', 'p'], label: 'Go to projects', chord: true },
         { keys: ['f'], label: 'Filter tasks' },
+        { keys: ['q'], label: 'Filter to my tasks' },
+        { keys: ['x'], label: 'Clear all filters' },
         { keys: ['?'], label: 'Show this help' },
       ],
     },
