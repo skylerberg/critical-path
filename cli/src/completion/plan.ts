@@ -99,6 +99,11 @@ function argumentAt(cmd: Command, index: number): Argument | undefined {
   return last?.variadic === true ? last : undefined;
 }
 
+function positionalProjectRef(cmd: Command, positionals: string[]): string | undefined {
+  const index = cmd.registeredArguments.findIndex((argument) => argument.name() === 'project');
+  return index === -1 ? undefined : positionals[index];
+}
+
 export function planCompletion(program: Command, words: string[]): CompletionPlan {
   if (words.length === 0) {
     return { kind: 'none' };
@@ -107,9 +112,9 @@ export function planCompletion(program: Command, words: string[]): CompletionPla
   const current = dequoted[dequoted.length - 1];
 
   let cmd = program;
-  let positionals = 0;
+  const positionals: string[] = [];
   let pendingOption: Option | null = null;
-  let projectRef: string | undefined;
+  let optionProjectRef: string | undefined;
 
   for (const word of dequoted.slice(1, -1)) {
     if (pendingOption != null) {
@@ -118,7 +123,7 @@ export function planCompletion(program: Command, words: string[]): CompletionPla
         continue;
       }
       if (pendingOption.long === '--project') {
-        projectRef = word;
+        optionProjectRef = word;
       }
       pendingOption = null;
       continue;
@@ -127,7 +132,8 @@ export function planCompletion(program: Command, words: string[]): CompletionPla
       const eq = word.indexOf('=');
       if (eq !== -1) {
         if (word.slice(0, eq) === '--project') {
-          projectRef = word.slice(eq + 1);
+          // The up-front dequoting skipped this word because it starts with a dash.
+          optionProjectRef = dequoteWord(word.slice(eq + 1));
         }
         continue;
       }
@@ -140,11 +146,13 @@ export function planCompletion(program: Command, words: string[]): CompletionPla
     const sub = cmd.commands.find((c) => c.name() === word || c.aliases().includes(word));
     if (sub != null) {
       cmd = sub;
-      positionals = 0;
+      positionals.length = 0;
       continue;
     }
-    positionals += 1;
+    positionals.push(word);
   }
+
+  const projectRef = optionProjectRef ?? positionalProjectRef(cmd, positionals);
 
   if (pendingOption != null) {
     return planForOption(pendingOption, projectRef);
@@ -165,7 +173,7 @@ export function planCompletion(program: Command, words: string[]): CompletionPla
     };
   }
 
-  if (cmd.commands.length > 0 && positionals === 0) {
+  if (cmd.commands.length > 0 && positionals.length === 0) {
     return {
       kind: 'static',
       items: helper.visibleCommands(cmd).map((sub) => ({
@@ -175,7 +183,7 @@ export function planCompletion(program: Command, words: string[]): CompletionPla
     };
   }
 
-  return planForArgument(argumentAt(cmd, positionals), projectRef);
+  return planForArgument(argumentAt(cmd, positionals.length), projectRef);
 }
 
 export function filterCandidates(items: Candidate[], current: string): Candidate[] {

@@ -1,13 +1,24 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { completionCachePath } from '../../src/completion/cache';
 import { createCliHarness, type CliHarness } from './helpers';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardPayload'];
+
+const SECRET_DESCRIPTION = 'zzz-description-body-that-must-not-reach-disk';
+
+async function freshConfigDir(prefix: string): Promise<string> {
+  const dir = join(await mkdtemp(join(tmpdir(), prefix)), 'config');
+  await mkdir(dir, { recursive: true });
+  return dir;
+}
 
 function candidateValues(stdout: string): string[] {
   return stdout
@@ -45,7 +56,7 @@ describe('completion commands', () => {
 
     for (const argv of [
       ['label', 'create', 'urgent', '--project', projectId, '--color', '#ff0000'],
-      ['task', 'create', 'Alpha task', '--project', projectId],
+      ['task', 'create', 'Alpha task', '--project', projectId, '--description', SECRET_DESCRIPTION],
       ['task', 'create', 'Beta task', '--project', projectId],
     ]) {
       expect((await h.runCli(argv)).exitCode).toBe(0);
@@ -128,15 +139,15 @@ describe('completion commands', () => {
   });
 
   it('resolves a quoted project name containing spaces', async () => {
-    const res = await complete([
-      'task',
-      'list',
-      '--project',
-      "'Completion Fixture Two'",
-      '--column',
-      '',
-    ]);
-    expect(res.values).toEqual(['Backlog', 'To Do', 'In Progress', 'Done']);
+    const columns = ['Backlog', 'To Do', 'In Progress', 'Done'];
+    for (const words of [
+      ['--project', "'Completion Fixture Two'"],
+      ["--project='Completion Fixture Two'"],
+      ['--project="Completion Fixture Two"'],
+    ]) {
+      const res = await complete(['task', 'list', ...words, '--column', '']);
+      expect(res.values).toEqual(columns);
+    }
   });
 
   it('emits well-formed candidate lines', async () => {
@@ -175,10 +186,20 @@ describe('completion commands', () => {
     expect(res.stdout).toBe(':files\n');
   });
 
-  it('caches the entities it fetched', async () => {
-    const parsed: unknown = JSON.parse(await readFile(completionCachePath(h.configDir), 'utf8'));
-    expect(typeof parsed).toBe('object');
-    expect(parsed).not.toBeNull();
+  it('caches candidate-shaped data only, never the payload it derived them from', async () => {
+    await complete(['task', 'list', '--project', projectId, '--column', '']);
+
+    const raw = await readFile(completionCachePath(h.configDir), 'utf8');
+    expect(raw).not.toContain(SECRET_DESCRIPTION);
+
+    const parsed = JSON.parse(raw) as Record<string, { at: number; value: unknown }>;
+    const boardKey = Object.keys(parsed).find((key) => key.endsWith(`board:${projectId}`));
+    expect(boardKey).toBeDefined();
+    expect(parsed[boardKey ?? '']?.value).toEqual({
+      columns: expect.arrayContaining([{ value: 'Backlog', description: expect.any(String) }]),
+      tasks: expect.any(Array),
+      labels: [{ value: 'urgent', description: expect.any(String) }],
+    });
   });
 
   it('scopes entity completion to the configured default project', async () => {
@@ -204,7 +225,7 @@ describe('completion commands', () => {
 
   it('says nothing when authentication fails, but still completes subcommands', async () => {
     const env = {
-      CRITICAL_PATH_CONFIG_DIR: join(await mkdtemp(join(tmpdir(), 'cpath-anon-')), 'config'),
+      CRITICAL_PATH_CONFIG_DIR: await freshConfigDir('cpath-anon-'),
       CRITICAL_PATH_TOKEN: 'not-a-token',
     };
 
@@ -228,5 +249,61 @@ describe('completion commands', () => {
     expect(subcommands.exitCode).toBe(0);
     expect(candidateValues(subcommands.stdout)).toContain('task');
     expect(subcommands.stderr).toBe('');
+  });
+
+  it('prints the script and completes subcommands with an unparseable config', async () => {
+    const dir = await freshConfigDir('cpath-broken-');
+    await writeFile(join(dir, 'config.json'), '{ this is not json');
+    const env = { CRITICAL_PATH_CONFIG_DIR: dir };
+
+    const script = await h.runCli(['completion', '-s', 'bash'], { env });
+    expect(script.exitCode).toBe(0);
+    expect(script.stdout).toContain('complete -o default -o bashdefault -F _cpath cpath');
+    expect(script.stderr).toBe('');
+
+    const subcommands = await h.runCli(['__complete', '--', 'cpath', ''], { env });
+    expect(subcommands.exitCode).toBe(0);
+    expect(candidateValues(subcommands.stdout)).toContain('task');
+    expect(subcommands.stderr).toBe('');
+  });
+
+  it('exits promptly when the API host never answers', { timeout: 30_000 }, async () => {
+    const bin = fileURLToPath(new URL('../../bin/cpath.mjs', import.meta.url));
+    const started = Date.now();
+    const res = await promisify(execFile)(
+      'node',
+      [bin, '__complete', '--', 'cpath', 'task', 'list', '--project', 'foo', '--column', ''],
+      {
+        env: {
+          ...process.env,
+          CRITICAL_PATH_CONFIG_DIR: await freshConfigDir('cpath-blackhole-'),
+          CRITICAL_PATH_API_URL: 'http://10.255.255.1:81',
+          CRITICAL_PATH_TOKEN: 'not-a-token',
+        },
+      }
+    );
+    // A TCP connect nobody answers outlives the fetch deadline; the process must not.
+    expect(Date.now() - started).toBeLessThan(6_000);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toBe('');
+  });
+
+  it('serves entity candidates out of the cache instead of refetching', async () => {
+    await complete(['task', 'list', '--project', projectId, '--column', '']);
+
+    const path = completionCachePath(h.configDir);
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+    const boardKey = Object.keys(parsed).find((key) => key.endsWith(`board:${projectId}`));
+    if (boardKey === undefined) {
+      throw new Error('the board candidates were never cached');
+    }
+    parsed[boardKey] = {
+      at: Date.now(),
+      value: { columns: [{ value: 'Planted', description: '' }], tasks: [], labels: [] },
+    };
+    await writeFile(path, JSON.stringify(parsed));
+
+    const served = await complete(['task', 'list', '--project', projectId, '--column', '']);
+    expect(served.values).toEqual(['Planted']);
   });
 });

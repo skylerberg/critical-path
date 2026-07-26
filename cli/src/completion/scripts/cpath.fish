@@ -6,10 +6,12 @@ function __cpath_complete
     set -l current (commandline -ct)
     set -l out (cpath __complete -- $tokens "$current" 2>/dev/null)
     if test (count $out) -eq 1; and test "$out[1]" = ':files'
-        __fish_complete_path "$current"
+        __fish_complete_path "$current" 2>/dev/null
         return
     end
-    printf '%s\n' $out
+    if test (count $out) -gt 0
+        printf '%s\n' $out
+    end
 end
 
 complete -c cpath -f -a '(__cpath_complete)'

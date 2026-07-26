@@ -16,14 +16,16 @@ interface BoardCandidates {
   labels: Candidate[];
 }
 
-// A name shared by two rows is not usable as a reference, so offer short ids instead.
-function toCandidates(items: readonly NamedRef[]): Candidate[] {
+// Reference resolution is case-insensitive, so names that collide under that comparison
+// would be rejected as ambiguous; offer short ids instead.
+export function toCandidates(items: readonly NamedRef[]): Candidate[] {
   const counts = new Map<string, number>();
   for (const item of items) {
-    counts.set(item.name, (counts.get(item.name) ?? 0) + 1);
+    const key = item.name.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return items.map((item) =>
-    (counts.get(item.name) ?? 0) > 1
+    (counts.get(item.name.toLowerCase()) ?? 0) > 1
       ? { value: item.id.slice(0, 8), description: item.name }
       : { value: item.name, description: item.id.slice(0, 8) }
   );
@@ -45,7 +47,11 @@ async function cached<T>(ctx: RuntimeContext, suffix: string, load: () => Promis
     return hit;
   }
   const value = await load();
-  await writeCached(ctx.configDir, key, value);
+  try {
+    await writeCached(ctx.configDir, key, value);
+  } catch {
+    // An unwritable cache must not cost the user the candidates already in hand.
+  }
   return value;
 }
 
