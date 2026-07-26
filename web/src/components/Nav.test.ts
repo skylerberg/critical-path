@@ -1,12 +1,38 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { SOURCES, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
+import { SOURCES, TRIGGERS, type DndEvent, type Options } from 'svelte-dnd-action';
 import Nav from './Nav.svelte';
+import { motion } from '../lib/motion.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
 import { session } from '../lib/session.svelte';
 import { router } from '../lib/router.svelte';
+
+const { zoneOptions } = vi.hoisted(() => ({ zoneOptions: [] as Options[] }));
+
+// Wraps rather than replaces: the keyboard-drag cases below drive the real action.
+vi.mock('svelte-dnd-action', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('svelte-dnd-action')>();
+  return {
+    ...actual,
+    dndzone: (node: HTMLElement, options: Options) => {
+      zoneOptions.push(options);
+      const zone = actual.dndzone(node, options);
+      return {
+        update: (next: Options) => {
+          zoneOptions.push(next);
+          zone.update?.(next);
+        },
+        destroy: () => zone.destroy?.(),
+      };
+    },
+  };
+});
+
+function sidebarZoneConfigs(): Options[] {
+  return zoneOptions.filter((options) => options.type === 'sidebar-project');
+}
 
 const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
 
@@ -38,6 +64,8 @@ function alertText(): string {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  zoneOptions.length = 0;
+  motion.reduced = false;
   projects.reset();
   session.user = me;
   session.status = 'authed';
@@ -219,6 +247,58 @@ describe('Nav sidebar', () => {
 
     expect(document.querySelector('dialog')?.open).toBe(true);
     expect(screen.getByLabelText('Feedback message')).toBeInTheDocument();
+  });
+});
+
+describe('Nav reduced motion', () => {
+  beforeEach(() => {
+    projects.projects = [
+      project({ id: 'p-a', name: 'A', position: 1000 }),
+      project({ id: 'p-b', name: 'B', position: 2000 }),
+      project({ id: 'p-c', name: 'C', position: 3000 }),
+    ];
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+  });
+
+  function expectEveryZone(flipDurationMs: number, dropAnimationDisabled: boolean): void {
+    const configs = sidebarZoneConfigs();
+    expect(configs.length).toBeGreaterThan(0);
+    for (const config of configs) {
+      expect(config.flipDurationMs).toBe(flipDurationMs);
+      expect(config.dropAnimationDisabled).toBe(dropAnimationDisabled);
+    }
+  }
+
+  it('animates the sidebar zone by default', async () => {
+    render(Nav);
+    await screen.findByRole('link', { name: 'A' });
+
+    expectEveryZone(150, false);
+  });
+
+  it('disables flip and drop animation when motion is reduced', async () => {
+    motion.reduced = true;
+    render(Nav);
+    await screen.findByRole('link', { name: 'A' });
+
+    expectEveryZone(0, true);
+  });
+
+  it('still commits keyboard reorders when motion is reduced', async () => {
+    motion.reduced = true;
+    render(Nav);
+    const item = await screen.findByRole('listitem', { name: 'A' });
+    item.focus();
+
+    await fireEvent.keyDown(item, { key: 'Enter' });
+    await fireEvent.keyDown(item, { key: 'ArrowDown' });
+
+    await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['B', 'A', 'C']));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(requestAt(0).method).toBe('PUT');
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p-a/position');
+    expect(await requestAt(0).clone().json()).toEqual({ position: 2500 });
+    expectEveryZone(0, true);
   });
 });
 

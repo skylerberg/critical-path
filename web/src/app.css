@@ -51,3 +51,18 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+/* Unlayered so a component <style> can opt an element back in with its own !important;
+   a layered !important here would outrank that. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

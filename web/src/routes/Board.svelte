@@ -13,6 +13,7 @@
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { draftKey, drafts } from '../lib/drafts.svelte';
+  import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import ColumnHeader from '../components/ColumnHeader.svelte';
   import QuickAddTask from '../components/QuickAddTask.svelte';
@@ -28,6 +29,8 @@
   const FLIP_MS = 150;
   const TOUCH_DRAG_DELAY_MS = 250;
   const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
+
+  const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
 
   let localColumns = $state<BoardColumn[]>([]);
   let localTasks = $state<Record<string, BoardTask[]>>({});
@@ -163,7 +166,8 @@
       use:dragHandleZone={{
         items: localColumns,
         type: 'column',
-        flipDurationMs: FLIP_MS,
+        flipDurationMs: flipMs,
+        dropAnimationDisabled: motion.reduced,
         dropTargetStyle,
         delayTouchStart: true,
       }}
@@ -172,7 +176,7 @@
     >
       {#each localColumns as column (column.id)}
         <section
-          animate:flip={{ duration: FLIP_MS }}
+          animate:flip={{ duration: flipMs }}
           aria-label={column.name}
           class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-center snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start"
         >
@@ -188,7 +192,8 @@
             use:dndzone={{
               items: localTasks[column.id] ?? [],
               type: 'task',
-              flipDurationMs: FLIP_MS,
+              flipDurationMs: flipMs,
+              dropAnimationDisabled: motion.reduced,
               dropTargetStyle,
               delayTouchStart: TOUCH_DRAG_DELAY_MS,
               zoneItemTabIndex: 0,
@@ -198,7 +203,7 @@
           >
             {#each localTasks[column.id] ?? [] as task (task.id)}
               <div
-                animate:flip={{ duration: FLIP_MS }}
+                animate:flip={{ duration: flipMs }}
                 data-task-id={task.id}
                 aria-label={task.title}
                 class="rounded-md focus-visible:outline-2 focus-visible:outline-accent"

@@ -3,6 +3,7 @@
   import { focusIf } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
+  import { motion } from '../lib/motion.svelte';
   import Button from './ui/Button.svelte';
 
   interface Props {
@@ -41,7 +42,7 @@
     await tick();
     document
       .querySelector(`[data-task-id="${created.id}"]`)
-      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      ?.scrollIntoView({ block: 'nearest', behavior: motion.reduced ? 'auto' : 'smooth' });
   }
 
   function close(): void {
