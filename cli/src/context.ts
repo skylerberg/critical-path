@@ -11,6 +11,7 @@ export interface CliDeps {
   stderr: Writer;
   fetch?: (request: Request) => Promise<Response>;
   credentials?: CredentialStore;
+  onInterrupt?: (handler: () => void) => () => void;
 }
 
 export interface GlobalFlags {

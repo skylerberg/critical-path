@@ -253,6 +253,7 @@ cpath task move "Fix the bug" --project "My Project" --column "In Progress" --to
 cpath task done "Fix the bug" --project "My Project"
 cpath task block "Ship it" --by "Fix the bug" --project "My Project"
 cpath config set default-project "My Project"   # makes --project optional
+cpath watch --project "My Project" | jq 'select(.type=="task_created")'
 ```
 
 Entity references accept a UUID, a unique id prefix (>= 4 chars), an exact
@@ -264,6 +265,39 @@ hatch).
 Every command takes `--json` for machine-readable output and `--no-input` to
 fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2
 usage/ambiguous reference, 3 auth, 4 not found, 5 conflict, 6 invalid input.
+
+### Watching realtime events
+
+`cpath watch` opens the `/ws` connection described under
+[Realtime](#realtime) and prints every delivered event to stdout as
+newline-delimited JSON — one compact object per line, exactly the frame the
+server sent, in the `{ type, project_id, data }` envelope catalogued in the
+event table above. Everything else (the startup summary, connection notices,
+errors) goes to stderr, so `cpath watch | jq …` is the intended shape.
+`--json` and `--no-color` have no effect: the output is always NDJSON.
+
+`--project` narrows the stream to one project. Unlike every other command it
+does **not** fall back to `CRITICAL_PATH_PROJECT` or the configured
+`default-project` — without the flag, `watch` follows every accessible
+project, including ones created while it runs, and each line's `project_id`
+disambiguates. Scoping to a project also drops the `user_updated` event,
+which carries `project_id: null` and belongs to no project.
+
+The connection reconnects on its own with exponential backoff (1s doubling to
+30s) and resubscribes each time, re-listing projects first when it is
+following all of them. **Reconnects are normal, not exceptional**:
+production's load balancer caps a WebSocket at one hour, so a day-long
+`watch` reconnects roughly two dozen times.
+
+**There is no replay.** The server keeps no event log, so events published
+while disconnected are lost — a predictable, recurring gap, not a rare
+failure. `watch` is a live tap, not an event ledger; treat the "Connection
+restored" line on stderr as the cue to resync with `cpath board`.
+
+A close code of 4401 is confirmed with one HTTP request before the process
+gives up, because the server also sends it for transient auth-protocol
+closes. A genuinely revoked or expired session exits 3 with the usual login
+hint; anything else reconnects.
 
 ### Shell completion
 
