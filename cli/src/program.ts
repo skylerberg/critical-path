@@ -10,6 +10,7 @@ import { registerLabel } from './commands/label';
 import { registerProject } from './commands/project';
 import { registerTask } from './commands/task';
 import { registerUser } from './commands/user';
+import { registerWatch } from './commands/watch';
 
 export function buildProgram(deps: CliDeps): Command {
   const program = new Command('cpath')
@@ -23,6 +24,7 @@ export function buildProgram(deps: CliDeps): Command {
   registerUser(program, deps);
   registerImage(program, deps);
   registerBoardViews(program, deps);
+  registerWatch(program, deps);
   registerConfig(program, deps);
   registerCompletion(program, deps);
   return program;
