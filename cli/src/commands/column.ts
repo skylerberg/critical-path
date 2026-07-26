@@ -58,7 +58,7 @@ export function registerColumn(program: Command, deps: CliDeps): void {
   column.addCommand(
     leaf('list')
       .description('List columns in position order')
-      .option('--project <ref>', 'project id or name')
+      .option('--project <project>', 'project id or name')
       .action(
         withCtx(deps, async (ctx, opts) => {
           const board = await resolveBoard(ctx, opts.project as string | undefined);
@@ -86,7 +86,7 @@ export function registerColumn(program: Command, deps: CliDeps): void {
       leaf('create')
         .description('Create a column (placed at the bottom by default)')
         .argument('<name>', 'column name')
-        .option('--project <ref>', 'project id or name')
+        .option('--project <project>', 'project id or name')
         .option('--done', 'tasks in this column count as done')
     ).action(
       withCtx(deps, async (ctx, opts, name) => {
@@ -116,7 +116,7 @@ export function registerColumn(program: Command, deps: CliDeps): void {
     leaf('update')
       .description('Rename a column or toggle its done status')
       .argument('<column>', 'column id or name')
-      .option('--project <ref>', 'project id or name')
+      .option('--project <project>', 'project id or name')
       .option('--name <name>', 'new name')
       .option('--done', 'tasks in this column count as done')
       .option('--no-done', 'tasks in this column do not count as done')
@@ -150,7 +150,7 @@ export function registerColumn(program: Command, deps: CliDeps): void {
       leaf('move')
         .description('Move a column to a new position')
         .argument('<column>', 'column id or name')
-        .option('--project <ref>', 'project id or name')
+        .option('--project <project>', 'project id or name')
     ).action(
       withCtx(deps, async (ctx, opts, ref) => {
         const placement = placementFrom(opts);
@@ -180,7 +180,7 @@ export function registerColumn(program: Command, deps: CliDeps): void {
     leaf('delete')
       .description('Delete a column, optionally moving its tasks to another column')
       .argument('<column>', 'column id or name')
-      .option('--project <ref>', 'project id or name')
+      .option('--project <project>', 'project id or name')
       .option('--move-tasks-to <column>', 'column to receive the deleted tasks')
       .option('--force', 'skip the confirmation prompt')
       .action(

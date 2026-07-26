@@ -1,15 +1,23 @@
-import { CommanderError } from 'commander';
+import { Command, CommanderError } from 'commander';
 import { buildProgram } from './program';
 import { ApiError, CliError, EXIT, exitCodeForStatus } from './api/errors';
 import type { CliDeps } from './context';
 
-export async function run(deps: CliDeps, argv: string[]): Promise<number> {
-  const program = buildProgram(deps);
-  program.exitOverride();
-  program.configureOutput({
+// `.addCommand()` does not inherit these from the root the way `.command()` does.
+function configureTree(cmd: Command, deps: CliDeps): void {
+  cmd.exitOverride();
+  cmd.configureOutput({
     writeOut: (str) => deps.stdout.write(str),
     writeErr: (str) => deps.stderr.write(str),
   });
+  for (const sub of cmd.commands) {
+    configureTree(sub, deps);
+  }
+}
+
+export async function run(deps: CliDeps, argv: string[]): Promise<number> {
+  const program = buildProgram(deps);
+  configureTree(program, deps);
   try {
     await program.parseAsync(argv);
     return EXIT.ok;
