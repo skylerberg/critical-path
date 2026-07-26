@@ -40,6 +40,19 @@
     return editor;
   }
 
+  // The caller is discarding the user's text for the server's, so a save already
+  // scheduled for it has to be dropped rather than flushed.
+  export function replaceContent(doc: TiptapDoc | null): void {
+    const e = editor;
+    if (!e || e.isDestroyed) return;
+    if (saveTimer !== null) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    e.commands.setContent((doc ?? null) as JSONContent | null, { emitUpdate: false });
+    lastSaved = JSON.stringify(currentDoc(e));
+  }
+
   function currentDoc(e: Editor): TiptapDoc | null {
     return e.isEmpty ? null : (e.getJSON() as TiptapDoc);
   }
