@@ -19,7 +19,7 @@ export function errorHandler(err: Error | HTTPResponseError, c: Context) {
       method: c.req.method,
       userId,
     });
-    return c.json({ error: err.message }, err.statusCode as ContentfulStatusCode);
+    return c.json({ error: err.message, ...err.extra }, err.statusCode as ContentfulStatusCode);
   }
 
   logger.error({

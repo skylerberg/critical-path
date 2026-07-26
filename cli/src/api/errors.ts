@@ -61,12 +61,20 @@ export function assertOk<T>(result: ApiResult<T>): T {
 
 function errorMessage(error: unknown, response: Response): string {
   if (error && typeof error === 'object') {
-    const body = error as { error?: unknown; details?: unknown };
+    const body = error as { error?: unknown; details?: unknown; cycle?: unknown };
     if (Array.isArray(body.details) && body.details.length > 0) {
       const fields = (body.details as { path?: unknown; message?: unknown }[])
         .map((detail) => `${String(detail.path)}: ${String(detail.message)}`)
         .join(', ');
       return `Validation failed: ${fields}`;
+    }
+    if (Array.isArray(body.cycle) && body.cycle.length > 0 && typeof body.error === 'string') {
+      const titles = body.cycle
+        .map((step) => (step as { title?: unknown } | null)?.title)
+        .filter((title): title is string => typeof title === 'string');
+      if (titles.length === body.cycle.length && body.error !== '') {
+        return `${body.error}: ${titles.join(' -> ')}`;
+      }
     }
     if (typeof body.error === 'string' && body.error !== '') {
       return body.error;

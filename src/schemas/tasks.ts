@@ -33,6 +33,18 @@ export const addBlockerSchema = type({
   blocker_task_id: uuid,
 });
 
+export const cycleTaskSchema = type({
+  id: 'string',
+  title: 'string',
+});
+
+export type CycleTask = typeof cycleTaskSchema.infer;
+
+export const dependencyCycleErrorSchema = type({
+  error: 'string',
+  cycle: cycleTaskSchema.array(),
+});
+
 export const setTaskLabelsSchema = type({
   label_ids: boundedUuidArray(100),
 });

@@ -9,7 +9,11 @@ import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectAccess, assertTaskAccess, canAccessProject } from '../services/authorization';
 import { storage } from '../services/storage/index';
-import { lockProjectDependencies, wouldCreateDependencyCycle } from '../services/dependencies';
+import {
+  findDependencyCyclePath,
+  lockProjectDependencies,
+  wouldCreateDependencyCycle,
+} from '../services/dependencies';
 import { publishAfterCommit } from '../services/realtime/index';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import {
@@ -18,6 +22,7 @@ import {
   patchTaskSchema,
   taskDetailResponseSchema,
   addBlockerSchema,
+  dependencyCycleErrorSchema,
   setTaskLabelsSchema,
   setTaskAssigneesSchema,
   taskBlockerParamsSchema,
@@ -565,7 +570,11 @@ router.post(
     description:
       'Add a dependency: the task in the body blocks the task in the path. The blocker must ' +
       'be a different task in the same project (422 with a plain error body otherwise). ' +
-      'Adding an existing blocker is an idempotent 204. A dependency cycle returns 409.',
+      'Adding an existing blocker is an idempotent 204. A dependency cycle returns 409. ' +
+      'On 409 the body also carries `cycle`: the offending loop as `{ id, title }` entries, ' +
+      'starting at the task in the path, each entry blocking the next, ending at ' +
+      '`blocker_task_id`, and repeating the first entry last. It is empty when no path is ' +
+      'recoverable.',
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
@@ -574,7 +583,10 @@ router.post(
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
-      ...conflictErrorResponse,
+      409: {
+        description: 'Conflict - the blocker would close a dependency cycle',
+        content: { 'application/json': { schema: resolver(dependencyCycleErrorSchema) } },
+      },
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -604,7 +616,8 @@ router.post(
 
     await lockProjectDependencies(db, project.id);
     if (await wouldCreateDependencyCycle(db, id, blocker_task_id)) {
-      throw new AppError(409, 'Adding this blocker would create a dependency cycle');
+      const cycle = await findDependencyCyclePath(db, project.id, id, blocker_task_id);
+      throw new AppError(409, 'Adding this blocker would create a dependency cycle', { cycle });
     }
 
     await db

@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/finite-positions/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/cycle-path-in-error/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate-api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -446,7 +446,7 @@ export interface paths {
     put?: never;
     /**
      * Add a blocker
-     * @description Add a dependency: the task in the body blocks the task in the path. The blocker must be a different task in the same project (422 with a plain error body otherwise). Adding an existing blocker is an idempotent 204. A dependency cycle returns 409.
+     * @description Add a dependency: the task in the body blocks the task in the path. The blocker must be a different task in the same project (422 with a plain error body otherwise). Adding an existing blocker is an idempotent 204. A dependency cycle returns 409. On 409 the body also carries `cycle`: the offending loop as `{ id, title }` entries, starting at the task in the path, each entry blocking the next, ending at `blocker_task_id`, and repeating the first entry last. It is empty when no path is recoverable.
      */
     post: operations['postApiTasksByIdBlockers'];
     delete?: never;
@@ -841,6 +841,14 @@ export interface components {
     };
     SetTaskAssignees: {
       user_ids: string[];
+    };
+    DependencyCycleError: {
+      cycle: components['schemas']['CycleTask'][];
+      error: string;
+    };
+    CycleTask: {
+      id: string;
+      title: string;
     };
     AddBlocker: {
       /** Format: uuid */
@@ -2603,13 +2611,13 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
-      /** @description Conflict - resource already exists */
+      /** @description Conflict - the blocker would close a dependency cycle */
       409: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['Error'];
+          'application/json': components['schemas']['DependencyCycleError'];
         };
       };
       /** @description Validation error or domain-rule violation */
