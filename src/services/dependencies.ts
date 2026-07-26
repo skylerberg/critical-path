@@ -104,5 +104,16 @@ export async function findDependencyCyclePath(
     .execute();
   const titles = new Map(rows.map((row) => [row.id, row.title]));
 
-  return path.map((id) => ({ id, title: titles.get(id) ?? '' }));
+  const steps: CycleTask[] = [];
+  for (const id of path) {
+    const title = titles.get(id);
+    // READ COMMITTED gives this statement a newer snapshot than the edge fetch,
+    // so a concurrently deleted task has no row; report no path at all rather
+    // than a step with a blank name.
+    if (title === undefined) {
+      return [];
+    }
+    steps.push({ id, title });
+  }
+  return steps;
 }
