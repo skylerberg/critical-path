@@ -6,14 +6,18 @@ import { newId, rawJsonWithPosition } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { ProjectFixtures, validDescription, descriptionWithLink } from './taskFixtures';
 
-async function waitForLockWaiters(count: number, timeoutMs = 2000): Promise<void> {
+async function waitForLockWaiters(count: number, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const { rows } = await sql<{ waiting: string }>`
       select count(*) as waiting from pg_stat_activity
       where datname = current_database() and wait_event_type = 'Lock'
     `.execute(db);
-    if (Number(rows[0]!.waiting) >= count || Date.now() > deadline) return;
+    if (Number(rows[0]!.waiting) >= count) return;
+    if (Date.now() > deadline) {
+      // Returning instead would let the caller's requests race, which passes either way.
+      throw new Error(`timed out waiting for ${count} lock waiters`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -360,10 +364,12 @@ describe('Tasks CRUD', () => {
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const original = await created.json();
 
+      await new Promise((resolve) => setTimeout(resolve, 10));
       const winner = await ctx
         .request(user.token)
         .patch(`/api/tasks/${original.id}`, { title: 'first' });
       expect(winner.status).toBe(200);
+      expect((await winner.json()).updated_at).not.toBe(original.updated_at);
 
       const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
         title: 'second',
@@ -380,11 +386,14 @@ describe('Tasks CRUD', () => {
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const original = await created.json();
 
+      await new Promise((resolve) => setTimeout(resolve, 10));
       const winner = await ctx
         .request(user.token)
         .patch(`/api/tasks/${original.id}`, { description: validDescription() });
       expect(winner.status).toBe(200);
-      const stored = (await winner.json()).description;
+      const winnerBody = await winner.json();
+      expect(winnerBody.updated_at).not.toBe(original.updated_at);
+      const stored = winnerBody.description;
 
       const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
         description: descriptionWithLink('https://example.com'),
@@ -430,9 +439,9 @@ describe('Tasks CRUD', () => {
       expect((await res.json()).column_id).toBe(targetColumn);
     });
 
-    it('still bumps updated_at on a pure move', async () => {
+    it('leaves updated_at untouched on a pure move', async () => {
       const targetColumn = await fixtures.createColumn(projectId, {
-        name: 'Move bump',
+        name: 'Move no bump',
         position: 4000,
       });
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
@@ -443,9 +452,42 @@ describe('Tasks CRUD', () => {
         .request(user.token)
         .patch(`/api/tasks/${original.id}`, { column_id: targetColumn, position: 500 });
       expect(res.status).toBe(200);
-      expect(new Date((await res.json()).updated_at).getTime()).toBeGreaterThan(
-        new Date(original.updated_at).getTime()
-      );
+      const moved = await res.json();
+      expect(moved.column_id).toBe(targetColumn);
+      expect(moved.updated_at).toBe(original.updated_at);
+    });
+
+    it('keeps an open editor saveable after someone else moves the task', async () => {
+      const targetColumn = await fixtures.createColumn(projectId, {
+        name: 'Move then edit',
+        position: 5000,
+      });
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const move = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { column_id: targetColumn, position: 500 });
+      expect(move.status).toBe(200);
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+        title: 'typed while it was dragged',
+        expected_updated_at: original.updated_at,
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('accepts an empty patch body without touching the row', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {});
+      expect(res.status).toBe(200);
+      const after = await res.json();
+      expect(after.title).toBe(original.title);
+      expect(after.updated_at).toBe(original.updated_at);
     });
 
     it('rejects a non-date expected_updated_at with 422', async () => {
@@ -479,7 +521,11 @@ describe('Tasks CRUD', () => {
       const released = new Promise<void>((resolve) => {
         release = resolve;
       });
-      // Pinning the row until both patches are in flight is what makes this test fail if the
+      let locked!: () => void;
+      const lockHeld = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      // Pinning the row until both patches are parked on it is what makes this test fail if the
       // guard ever stops locking the row it reads.
       const holder = db.transaction().execute(async (trx) => {
         await trx
@@ -488,8 +534,11 @@ describe('Tasks CRUD', () => {
           .where('task.id', '=', original.id)
           .forUpdate()
           .execute();
+        locked();
         await released;
       });
+      // holder is in the race so a failed lock surfaces here instead of hanging.
+      await Promise.race([lockHeld, holder]);
 
       const patches = Promise.all([
         ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
@@ -501,8 +550,11 @@ describe('Tasks CRUD', () => {
           expected_updated_at: original.updated_at,
         }),
       ]);
-      await waitForLockWaiters(2);
-      release();
+      try {
+        await waitForLockWaiters(2);
+      } finally {
+        release();
+      }
       await holder;
       const [a, b] = await patches;
 

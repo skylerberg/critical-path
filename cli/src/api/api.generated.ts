@@ -410,7 +410,7 @@ export interface paths {
     head?: never;
     /**
      * Update a task
-     * @description Update title, description (a Tiptap doc, or null to clear it), or move the task by sending column_id and position together. The new column must belong to the task’s project; violations return 422 with a plain error body. Bumps updated_at. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
+     * @description Update title, description (a Tiptap doc, or null to clear it), or move the task by sending column_id and position together. The new column must belong to the task’s project; violations return 422 with a plain error body. updated_at is bumped only when the patch changes title or description — a pure move leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
      */
     patch: operations['patchApiTasksById'];
     trace?: never;
