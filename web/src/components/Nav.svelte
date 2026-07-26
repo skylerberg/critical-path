@@ -23,7 +23,7 @@
     router.current.name === 'project' ? router.current.params.id : null
   );
 
-  const offline = $derived(session.status === 'authed' && realtime.status !== 'online');
+  const offline = $derived(session.status === 'authed' && realtime.interrupted);
 
   let feedbackOpen = $state(false);
   let localProjects = $state<Project[]>([]);
