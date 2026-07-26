@@ -19,7 +19,7 @@
       >
         {icons[toast.variant]}
       </span>
-      <span class="flex-1">{toast.message}</span>
+      <span class="min-w-0 flex-1 break-words">{toast.message}</span>
       <button
         type="button"
         aria-label="Dismiss"

@@ -415,6 +415,31 @@ describe('board store mutations', () => {
     expect(board.cyclePath?.map((step) => step.id)).toEqual(['t1', 't3', 't1']);
   });
 
+  it('addBlocker blames a done task only when the named loop runs through one', async () => {
+    expect(await board.addBlocker('t2', 't1')).toBe(true);
+    expect(await board.addBlocker('t3', 't2')).toBe(true);
+    fetchMock.mockClear();
+
+    expect(await board.addBlocker('t1', 't2')).toBe(false);
+
+    expect(toasts.toasts.at(-1)?.message).toBe(`${CYCLE_ERROR}: A → B → A`);
+    expect(board.cyclePath?.map((step) => step.id)).toEqual(['t1', 't2', 't1']);
+  });
+
+  it('addBlocker keeps the plain message when the loop cannot be named', async () => {
+    board.tasks = board.tasks.map((t) => {
+      if (t.id === 't1') return { ...t, blocker_ids: ['t2'] };
+      if (t.id === 't2') return { ...t, blocker_ids: ['t1'] };
+      return { ...t, column_id: 'c1' };
+    });
+
+    expect(await board.addBlocker('t3', 't1')).toBe(false);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toasts.toasts.at(-1)?.message).toBe(CYCLE_ERROR);
+    expect(board.cyclePath).toBeNull();
+  });
+
   it('addBlocker elides a long loop and truncates long titles in the message', async () => {
     const longTitle = 'L'.repeat(200);
     board.tasks = Array.from({ length: 9 }, (_, i) =>

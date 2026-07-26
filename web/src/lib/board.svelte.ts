@@ -487,14 +487,19 @@ class BoardStore {
     const { nodes, edges } = buildGraph(next, this.columns);
     const onCycle = cycleNodeIds(nodes, edges);
     if (onCycle.size > 0) {
-      // A done task on the loop is one the graph may not be drawing, so the edge
-      // that makes this a cycle can be nowhere on screen.
-      const throughDone = nodes.some((node) => onCycle.has(node.id) && node.isDone);
       const titleById = new Map(nodes.map((node) => [node.id, node.title]));
       const steps = cyclePathIds(edges, taskId, blockerTaskId).map((id) => ({
         id,
         title: titleById.get(id) ?? '',
       }));
+      // A done task on the loop is one the graph may not be drawing, so the edge
+      // that makes this a cycle can be nowhere on screen. `onCycle` also holds
+      // everything downstream of the loop, so it only answers when nothing named it.
+      const doneIds = new Set(nodes.filter((node) => node.isDone).map((node) => node.id));
+      const throughDone =
+        steps.length > 0
+          ? steps.some((step) => doneIds.has(step.id))
+          : nodes.some((node) => onCycle.has(node.id) && node.isDone);
       if (steps.length > 0) {
         this.#showCyclePath(steps);
       }

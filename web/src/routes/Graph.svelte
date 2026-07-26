@@ -66,15 +66,25 @@
   const cycleClosingEdge = $derived(
     cycleIds.length >= 3 ? { from: cycleIds.at(-2)!, to: cycleIds.at(-1)! } : null
   );
-  const cycleClosingPoints = $derived.by(() => {
+  // Every edge on the loop runs low rank to high rank, so the closing hop runs
+  // backwards: it leaves and enters the faces that point at each other and swings
+  // below the loop's row, where a straight line would instead lie along the very
+  // edges it has to be told apart from, behind the nodes and arrowhead first.
+  const CYCLE_CLOSING_BOW = 72;
+  const CYCLE_CLOSING_REACH = 60;
+  const cycleClosingPath = $derived.by(() => {
     if (cycleClosingEdge === null || layout === null) return null;
     const from = layout.nodes.find((n) => n.id === cycleClosingEdge.from);
     const to = layout.nodes.find((n) => n.id === cycleClosingEdge.to);
     if (from === undefined || to === undefined) return null;
-    return {
-      start: { x: from.x + NODE_WIDTH / 2, y: from.y },
-      end: { x: to.x - NODE_WIDTH / 2, y: to.y },
-    };
+    const side = from.x > to.x ? -1 : 1;
+    const start = { x: from.x + (side * NODE_WIDTH) / 2, y: from.y };
+    const end = { x: to.x - (side * NODE_WIDTH) / 2, y: to.y };
+    const bowY =
+      Math.max(...layout.nodes.filter((n) => cycleNodes.has(n.id)).map((n) => n.y)) +
+      CYCLE_CLOSING_BOW;
+    const reach = side * CYCLE_CLOSING_REACH;
+    return `M ${start.x} ${start.y} C ${start.x + reach} ${bowY} ${end.x - reach} ${bowY} ${end.x} ${end.y}`;
   });
 
   let cycleToastedFor: string | null = null;
@@ -669,10 +679,9 @@
           marker-end="url(#cp-graph-arrow{onCycle ? '-cycle' : ''})"
         />
       {/each}
-      {#if cycleClosingPoints}
+      {#if cycleClosingPath}
         <path
-          d="M {cycleClosingPoints.start.x} {cycleClosingPoints.start.y} L {cycleClosingPoints.end
-            .x} {cycleClosingPoints.end.y}"
+          d={cycleClosingPath}
           data-cycle-closing-edge=""
           fill="none"
           class="stroke-danger"

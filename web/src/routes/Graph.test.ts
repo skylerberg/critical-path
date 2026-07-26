@@ -5,7 +5,7 @@ import { flushSync } from 'svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
-import { computeGraph, panToNode, type ViewBox } from '../lib/graph';
+import { NODE_HEIGHT, NODE_WIDTH, computeGraph, panToNode, type ViewBox } from '../lib/graph';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 
@@ -58,6 +58,34 @@ function parsePreview(d: string): { start: [number, number]; end: [number, numbe
   const m = d.match(/^M\s+([-\d.]+)\s+([-\d.]+)\s+L\s+([-\d.]+)\s+([-\d.]+)$/);
   if (m === null) throw new Error(`unexpected preview path: ${d}`);
   return { start: [Number(m[1]), Number(m[2])], end: [Number(m[3]), Number(m[4])] };
+}
+
+function nodeBox(
+  container: HTMLElement,
+  id: string
+): { left: number; right: number; bottom: number; centerY: number } {
+  const transform = container.querySelector(`[data-node-id="${id}"]`)?.getAttribute('transform');
+  const m = (transform ?? '').match(/^translate\(([-\d.]+) ([-\d.]+)\)$/);
+  if (m === null) throw new Error(`unexpected node transform: ${String(transform)}`);
+  const left = Number(m[1]);
+  const top = Number(m[2]);
+  return {
+    left,
+    right: left + NODE_WIDTH,
+    bottom: top + NODE_HEIGHT,
+    centerY: top + NODE_HEIGHT / 2,
+  };
+}
+
+type Point = [number, number];
+
+function parseClosingPath(d: string): { start: Point; c1: Point; c2: Point; end: Point } {
+  const n = /^M ([-\d.]+) ([-\d.]+) C ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)$/
+    .exec(d)
+    ?.slice(1)
+    .map(Number);
+  if (n === undefined) throw new Error(`unexpected closing path: ${d}`);
+  return { start: [n[0]!, n[1]!], c1: [n[2]!, n[3]!], c2: [n[4]!, n[5]!], end: [n[6]!, n[7]!] };
 }
 
 beforeEach(() => {
@@ -313,6 +341,27 @@ describe('Graph dependency editing', () => {
     for (const path of container.querySelectorAll('[data-cycle-edge]')) {
       expect(path.getAttribute('class')).toContain('stroke-danger');
     }
+  });
+
+  it('routes the closing edge into the target and clear of the loop row', async () => {
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-closing-shape');
+
+    const closing = container.querySelector('[data-cycle-closing-edge]');
+    expect(closing).not.toBeNull();
+    const path = parseClosingPath(closing!.getAttribute('d') ?? '');
+    const a = nodeBox(container, 'a');
+    const c = nodeBox(container, 'c');
+
+    expect(path.start).toEqual([c.left, c.centerY]);
+    expect(path.end).toEqual([a.right, a.centerY]);
+    // The last control point sits beyond the endpoint, so the arrowhead arrives
+    // travelling into the node instead of out of its far side.
+    expect(path.c2[0]).toBeGreaterThan(path.end[0]);
+    // Midpoint of the cubic: the drawn curve, not just its controls, must clear the row.
+    const apex =
+      0.125 * path.start[1] + 0.375 * path.c1[1] + 0.375 * path.c2[1] + 0.125 * path.end[1];
+    const row = Math.max(a.bottom, nodeBox(container, 'b').bottom, c.bottom);
+    expect(apex).toBeGreaterThan(row);
   });
 
   it('never offers to break the loop it just named', async () => {
