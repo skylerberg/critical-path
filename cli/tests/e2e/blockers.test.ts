@@ -243,6 +243,39 @@ describe('task blockers', () => {
     expect(blocksTree?.dependents?.map((n) => n.task.id)).toEqual([buildId]);
   });
 
+  it('blockers --tree omits the blocked-by heading for a task that only blocks', async () => {
+    const human = await h.runCli([
+      'task',
+      'blockers',
+      'Draft requirements',
+      '--project',
+      projectId,
+      '--tree',
+    ]);
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout).not.toContain('Blocked by:');
+    const lines = human.stdout.split('\n');
+    expect(lines[0]).toMatch(new RegExp(`^${draftId.slice(0, 8)}`));
+    expect(lines[1]).toBe('Blocks:');
+    expect(lines[2]).toMatch(new RegExp(`^  ${planId.slice(0, 8)}`));
+    expect(lines[3]).toMatch(new RegExp(`^    ${buildId.slice(0, 8)}`));
+
+    const json = await h.runCli([
+      'task',
+      'blockers',
+      'Draft requirements',
+      '--project',
+      projectId,
+      '--tree',
+      '--json',
+    ]);
+    const { blocked_by_tree: blockedByTree, blocks_tree: blocksTree } =
+      json.json<BlockersTreeJson>();
+    expect(blockedByTree?.task.id).toBe(draftId);
+    expect(blockedByTree?.blockers).toEqual([]);
+    expect(blocksTree?.dependents?.map((n) => n.task.id)).toEqual([planId]);
+  });
+
   it('show renders both dependency directions', async () => {
     const human = await h.runCli(['task', 'show', 'Plan the API', '--project', projectId]);
     expect(human.exitCode).toBe(0);
