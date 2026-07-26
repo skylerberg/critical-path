@@ -115,7 +115,7 @@ describe('ProjectMembersModal', () => {
 
     render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
 
-    expect(screen.getByRole('button', { name: 'Make Ada the owner' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Make owner: Ada' })).toBeInTheDocument();
     expect(
       screen.getByText("Owners can't leave a board. Make someone else the owner first.")
     ).toBeInTheDocument();
@@ -127,7 +127,7 @@ describe('ProjectMembersModal', () => {
 
     render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
 
-    expect(screen.queryByRole('button', { name: /Make .* the owner/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Make owner/ })).toBeNull();
   });
 
   it('confirms before transferring, and cancelling sends nothing', async () => {
@@ -135,7 +135,8 @@ describe('ProjectMembersModal', () => {
 
     render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Make Ada the owner' }));
+    const makeOwner = screen.getByRole('button', { name: 'Make owner: Ada' });
+    await fireEvent.click(makeOwner);
 
     expect(screen.getByText(/Make Ada the owner\?/)).toBeInTheDocument();
     expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(false);
@@ -144,6 +145,35 @@ describe('ProjectMembersModal', () => {
 
     expect(screen.queryByText(/Make Ada the owner\?/)).toBeNull();
     expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(false);
+    expect(projects.projects[0]!.created_by).toBe(me.id);
+    expect(document.activeElement).toBe(makeOwner);
+  });
+
+  it('focuses the confirmation so it is announced and scrolled into view', async () => {
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Make owner: Ada' }));
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByRole('group', { name: /Make Ada the owner\?/ })
+      );
+    });
+  });
+
+  it('drops a pending transfer when that member is removed', async () => {
+    projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Make owner: Ada' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove Ada' }));
+
+    expect(screen.queryByText(/Make Ada the owner\?/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Transfer ownership' })).toBeNull();
     expect(projects.projects[0]!.created_by).toBe(me.id);
   });
 
@@ -166,7 +196,7 @@ describe('ProjectMembersModal', () => {
 
     render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Make Ada the owner' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Make owner: Ada' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Transfer ownership' }));
 
     await waitFor(() => {

@@ -173,8 +173,6 @@ class ProjectsStore {
     if (selfId === undefined) {
       return;
     }
-    // The outgoing owner is appended last to match the server's member ordering
-    // by created_at, so the optimistic list survives the confirming merge.
     this.#update(id, (p) => ({
       ...p,
       created_by: userId,
