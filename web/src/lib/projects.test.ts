@@ -364,6 +364,56 @@ describe('projects store', () => {
     expect(toasts.toasts).toEqual([]);
   });
 
+  it('transfers ownership optimistically and merges the returned row', async () => {
+    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    const item = project({ created_by: 'u-me', member_ids: ['u-ada', 'u-2'] });
+    await loadWith([item]);
+    const confirmed = projectRow(project({ created_by: 'u-ada', member_ids: ['u-2', 'u-me'] }));
+    fetchMock.mockImplementation(async () => jsonResponse(200, confirmed));
+
+    const pending = projects.transferOwnership('p-1', 'u-ada');
+    expect(projects.projects[0]!.created_by).toBe('u-ada');
+    expect(projects.projects[0]!.member_ids).toEqual(['u-2', 'u-me']);
+
+    await pending;
+
+    expect(requestAt(1).method).toBe('PUT');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/owner');
+    expect(await bodyOf(requestAt(1))).toEqual({ user_id: 'u-ada' });
+    expect(projects.projects[0]!.created_by).toBe('u-ada');
+    expect(projects.projects[0]!.member_ids).toEqual(['u-2', 'u-me']);
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('toasts and refetches when the server refuses a transfer', async () => {
+    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    const item = project({ created_by: 'u-me', member_ids: ['u-ada'] });
+    await loadWith([item]);
+    fetchMock.mockImplementation(async (input) => {
+      if ((input as Request).method === 'PUT') {
+        return jsonResponse(403, { error: 'Only the project owner can transfer ownership' });
+      }
+      return jsonResponse(200, { projects: [item] });
+    });
+
+    await projects.transferOwnership('p-1', 'u-ada');
+
+    expect(projects.projects[0]!.created_by).toBe('u-me');
+    expect(projects.projects[0]!.member_ids).toEqual(['u-ada']);
+    expect(toasts.toasts.map((t) => t.message)).toEqual([
+      'Only the project owner can transfer ownership',
+    ]);
+  });
+
+  it('does not transfer ownership while signed out', async () => {
+    await loadWith([project({ created_by: 'u-me', member_ids: ['u-ada'] })]);
+
+    await projects.transferOwnership('p-1', 'u-ada');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(projects.projects[0]!.created_by).toBe('u-me');
+  });
+
   it('leave PUTs the member set minus self and drops the project', async () => {
     session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
     await loadWith([project({ created_by: 'u-owner', member_ids: ['u-me', 'u-2'] })]);

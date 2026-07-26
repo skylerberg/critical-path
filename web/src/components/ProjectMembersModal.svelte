@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { projects } from '../lib/projects.svelte';
   import { router } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
@@ -20,6 +21,20 @@
   const canLeave = $derived(
     session.user !== null && (project?.member_ids.includes(session.user.id) ?? false)
   );
+  const isOwner = $derived(session.user !== null && project?.created_by === session.user.id);
+
+  let transferTargetId = $state<string | null>(null);
+  let transferring = $state(false);
+  let confirmEl = $state<HTMLDivElement>();
+  let transferTrigger: HTMLElement | null = null;
+
+  // Reconciled against live state: the target can be removed, or the board handed
+  // elsewhere, while this prompt is open.
+  const transferTarget = $derived(
+    transferTargetId !== null && isOwner && project?.member_ids.includes(transferTargetId) === true
+      ? transferTargetId
+      : null
+  );
 
   // Membership changes publish no user event, so a collaborator added to a shared
   // board since app start is missing from the cached directory this modal reads.
@@ -34,10 +49,39 @@
 
   function removeMember(userId: string): void {
     if (project === undefined) return;
+    if (userId === transferTargetId) {
+      transferTargetId = null;
+    }
     void projects.setMembers(
       project.id,
       project.member_ids.filter((id) => id !== userId)
     );
+  }
+
+  async function startTransfer(userId: string, trigger: HTMLElement): Promise<void> {
+    transferTargetId = userId;
+    transferTrigger = trigger;
+    await tick();
+    confirmEl?.focus();
+  }
+
+  function cancelTransfer(): void {
+    transferTargetId = null;
+    transferTrigger?.focus();
+    transferTrigger = null;
+  }
+
+  async function transfer(): Promise<void> {
+    const targetId = transferTarget;
+    if (project === undefined || targetId === null) return;
+    transferring = true;
+    try {
+      await projects.transferOwnership(project.id, targetId);
+    } finally {
+      transferring = false;
+      transferTargetId = null;
+      transferTrigger = null;
+    }
   }
 
   function leave(): void {
@@ -61,6 +105,16 @@
     {#if owner}
       <Badge>Owner</Badge>
     {:else if userId !== session.user?.id}
+      {#if isOwner}
+        <button
+          type="button"
+          aria-label="Make owner: {name}"
+          onclick={(event) => void startTransfer(userId, event.currentTarget)}
+          class="flex min-h-11 cursor-pointer items-center justify-center rounded-md px-2 text-sm text-muted hover:bg-accent-soft"
+        >
+          Make owner
+        </button>
+      {/if}
       <button
         type="button"
         aria-label="Remove {name}"
@@ -88,7 +142,34 @@
         <MemberPicker {projectId} />
       </div>
 
-      {#if canLeave}
+      {#if transferTarget !== null}
+        <!-- Focused on open: this sits below the member list and the picker, so on a
+             short viewport it would otherwise appear off-screen and unannounced. -->
+        <div
+          bind:this={confirmEl}
+          role="group"
+          tabindex="-1"
+          aria-labelledby="transfer-confirm-prompt"
+          class="flex flex-col gap-2 border-t border-edge pt-4"
+        >
+          <p id="transfer-confirm-prompt" class="text-sm text-muted">
+            Make {displayName(transferTarget)} the owner? You become an ordinary member and can then leave
+            this board.
+          </p>
+          <div class="flex gap-2">
+            <Button onclick={transfer} disabled={transferring}>Transfer ownership</Button>
+            <Button variant="secondary" disabled={transferring} onclick={cancelTransfer}
+              >Cancel</Button
+            >
+          </div>
+        </div>
+      {:else if isOwner}
+        <div class="flex flex-col gap-2 border-t border-edge pt-4">
+          <p class="text-sm text-muted">
+            Owners can't leave a board. Make someone else the owner first.
+          </p>
+        </div>
+      {:else if canLeave}
         <div class="flex flex-col gap-2 border-t border-edge pt-4">
           <p class="text-sm text-muted">
             Leaving removes your access to this board and unassigns your tasks.

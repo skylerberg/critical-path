@@ -168,6 +168,32 @@ class ProjectsStore {
     }
   }
 
+  async transferOwnership(id: string, userId: string): Promise<void> {
+    const selfId = session.user?.id;
+    if (selfId === undefined) {
+      return;
+    }
+    this.#update(id, (p) => ({
+      ...p,
+      created_by: userId,
+      member_ids: [
+        ...p.member_ids.filter((memberId) => memberId !== userId && memberId !== selfId),
+        selfId,
+      ],
+    }));
+    try {
+      const row = assertOk(
+        await api.PUT('/api/projects/{id}/owner', {
+          params: { path: { id } },
+          body: { user_id: userId },
+        })
+      );
+      this.#update(id, (p) => ({ ...p, ...row }));
+    } catch (error) {
+      await this.#mutationFailed(error, 'Failed to transfer ownership');
+    }
+  }
+
   async setPosition(id: string, position: number): Promise<void> {
     this.#update(id, (p) => ({ ...p, position }));
     try {
