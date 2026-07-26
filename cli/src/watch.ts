@@ -80,6 +80,7 @@ export function watchEvents(options: WatchOptions): Promise<void> {
   let stopped = false;
   let backoff = INITIAL_BACKOFF_MS;
   let hasConnectedOnce = false;
+  let hadGap = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let staleTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -134,6 +135,7 @@ export function watchEvents(options: WatchOptions): Promise<void> {
     function onStale(): void {
       if (stopped) return;
       options.notify(`No frames for ${STALE_TIMEOUT_MS} ms; reconnecting`);
+      hadGap = true;
       const dead = socket;
       generation += 1;
       socket = null;
@@ -162,8 +164,11 @@ export function watchEvents(options: WatchOptions): Promise<void> {
       for (const id of tracked) {
         send({ type: 'subscribe', project_id: id });
       }
-      if (hasConnectedOnce) {
+      // Tracked separately from `hasConnectedOnce` so a gap that opened before the first
+      // connection ever succeeded still gets the line consumers resync on.
+      if (hadGap) {
         options.notify('Connection restored');
+        hadGap = false;
       }
       hasConnectedOnce = true;
     }
@@ -222,14 +227,21 @@ export function watchEvents(options: WatchOptions): Promise<void> {
     async function onClose(code: number, gen: number): Promise<void> {
       clearTimers();
       socket = null;
+      hadGap = true;
       if (code !== AUTH_CLOSE_CODE) {
         options.notify(`Realtime connection closed (code ${code}); reconnecting in ${backoff} ms`);
         scheduleReconnect();
         return;
       }
       // The server also sends 4401 for auth timeouts and rejected handshakes, so let one
-      // HTTP round-trip decide whether the session is really gone.
-      const stillValid = await options.revalidateSession();
+      // HTTP round-trip decide whether the session is really gone. An inconclusive check
+      // is a blip, not a revocation.
+      let stillValid = true;
+      try {
+        stillValid = await options.revalidateSession();
+      } catch (err) {
+        options.notify(`Could not check whether the session is still valid (${errorText(err)})`);
+      }
       if (stopped || gen !== generation) return;
       if (!stillValid) {
         settle(

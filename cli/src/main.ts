@@ -1,4 +1,5 @@
 import { run } from './run';
+import { EXIT } from './api/errors';
 
 function flushed(stream: NodeJS.WriteStream): Promise<void> {
   return new Promise((resolve) => stream.write('', () => resolve()));
@@ -6,10 +7,14 @@ function flushed(stream: NodeJS.WriteStream): Promise<void> {
 
 // Node ignores SIGPIPE, so a reader that goes away surfaces as an otherwise-fatal EPIPE
 // error event. Bare `process.exit()` keeps whatever exit code was already computed.
+// Registering any listener also suppresses the throw for every other stdout error, so
+// those must be reported and made fatal here rather than silently dropped.
 process.stdout.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EPIPE') {
     process.exit();
   }
+  process.stderr.write(`${err.message}\n`);
+  process.exit(EXIT.failure);
 });
 
 const code = await run(

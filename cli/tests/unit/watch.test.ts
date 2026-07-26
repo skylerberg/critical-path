@@ -326,6 +326,28 @@ describe('watchEvents', () => {
     await settleAndClose(h);
   });
 
+  it('announces a gap that opened before the first connection ever authenticated', async () => {
+    const h = start();
+    h.last().close(1006);
+    await vi.advanceTimersByTimeAsync(1000);
+    h.last().open();
+    h.last().message('{"type":"auth_ok"}');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(h.notices).toContain('Connection restored');
+    await settleAndClose(h);
+  });
+
+  it('announces no gap on a clean first connection', async () => {
+    const h = start();
+    h.last().open();
+    h.last().message('{"type":"auth_ok"}');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(h.notices).not.toContain('Connection restored');
+    await settleAndClose(h);
+  });
+
   it('keeps the previous subscriptions when the re-list fails', async () => {
     const h = start({
       projectIds: ['p1', 'p2'],
@@ -391,6 +413,19 @@ describe('watchEvents', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(h.sockets).toHaveLength(3);
     expect(h.revalidateSession).toHaveBeenCalledTimes(2);
+    await settleAndClose(h);
+  });
+
+  it('treats a failed revalidation as a blip rather than hanging or rejecting', async () => {
+    const h = start({ revalidateSession: () => Promise.reject(new Error('dns is down')) });
+    h.last().open();
+    h.last().message('{"type":"auth_ok"}');
+    h.last().close(4401);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(h.notices.some((n) => n.includes('dns is down'))).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.sockets).toHaveLength(2);
     await settleAndClose(h);
   });
 
