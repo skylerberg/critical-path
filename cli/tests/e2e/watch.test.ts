@@ -168,6 +168,41 @@ describe('watch command', () => {
     expect((await stopWatch(handle)).exitCode).toBe(0);
   });
 
+  it('ignores CRITICAL_PATH_PROJECT and follows every project anyway', async () => {
+    const handle = h.startCli(['watch'], {
+      env: { ...baseEnv, CRITICAL_PATH_PROJECT: 'CLI Watch Alpha' },
+    });
+    await waitFor(
+      async () => projectSockets(alpha.id).length === 1 && projectSockets(beta.id).length === 1
+    );
+
+    await createTask(alpha, 'Alpha unscoped task');
+    await createTask(beta, 'Beta unscoped task');
+
+    const alphaLine = await waitForLine(handle, (e) => e.data.title === 'Alpha unscoped task');
+    const betaLine = await waitForLine(handle, (e) => e.data.title === 'Beta unscoped task');
+    expect(alphaLine.project_id).toBe(alpha.id);
+    expect(betaLine.project_id).toBe(beta.id);
+
+    expect((await stopWatch(handle)).exitCode).toBe(0);
+  });
+
+  it('reconnects and resubscribes after the server drops the socket', async () => {
+    const handle = h.startCli(['watch', '--project', 'CLI Watch Alpha'], { env: baseEnv });
+    await waitFor(async () => projectSockets(alpha.id).length === 1);
+
+    socketsForUser(user.id)[0].close(1001, 'dropped by the test');
+    await waitFor(async () => socketsForUser(user.id).length === 0);
+    await waitFor(async () => projectSockets(alpha.id).length === 1, 10_000);
+
+    await createTask(alpha, 'Post reconnect task');
+    const event = await waitForLine(handle, (e) => e.data.title === 'Post reconnect task');
+    expect(event.project_id).toBe(alpha.id);
+    expect(handle.errorOutput()).toContain('Connection restored');
+
+    expect((await stopWatch(handle)).exitCode).toBe(0);
+  });
+
   it('subscribes to projects created while it is running', async () => {
     const handle = h.startCli(['watch'], { env: baseEnv });
     await waitFor(async () => projectSockets(alpha.id).length === 1);
