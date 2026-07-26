@@ -223,9 +223,12 @@ describe('Nav sidebar', () => {
 });
 
 describe('offline badge', () => {
-  it('stays hidden while realtime is merely connecting', () => {
+  it('stays hidden while realtime is not online but has latched no interruption', () => {
+    expect(realtime.status).toBe('offline');
     expect(realtime.interrupted).toBe(false);
+
     render(Nav);
+
     expect(screen.queryByText(/reconnecting/i)).toBeNull();
   });
 

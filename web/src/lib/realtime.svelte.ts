@@ -5,7 +5,7 @@ import { users } from './users.svelte';
 import type { RealtimeEvent } from './realtime-types';
 import { session } from './session.svelte';
 
-export type RealtimeStatus = 'online' | 'offline' | 'connecting';
+type RealtimeStatus = 'online' | 'offline' | 'connecting';
 
 const WS_OPEN = 1;
 const INITIAL_BACKOFF_MS = 1000;
@@ -36,6 +36,8 @@ const PROJECT_EVENTS = new Set([
 ]);
 
 class RealtimeClient {
+  // Connection lifecycle only. UI must read `interrupted` instead: `status` is
+  // 'offline' then 'connecting' for the whole of a perfectly normal handshake.
   status = $state<RealtimeStatus>('offline');
   interrupted = $state(false);
 
@@ -210,7 +212,9 @@ class RealtimeClient {
   }
 
   #armOfflineNotice(): void {
-    if (this.interrupted || this.#noticeTimer !== undefined) {
+    // `connect()` reaches here from inside an effect, so the latch must be read
+    // untracked; a tracked read would re-run that effect when the notice fires.
+    if (this.#noticeTimer !== undefined || untrack(() => this.interrupted)) {
       return;
     }
     this.#noticeTimer = setTimeout(() => {
