@@ -260,7 +260,7 @@ describe('Project', () => {
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Keyboard shortcuts' })
     ).toBeInTheDocument();
-    expect(screen.getByText('Filter to my tasks')).toBeInTheDocument();
+    expect(screen.getByText('Toggle my tasks in the filter')).toBeInTheDocument();
     expect(screen.getByText('Clear all filters')).toBeInTheDocument();
   });
 
@@ -299,6 +299,22 @@ describe('Project', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
     });
+  });
+
+  it('leaves the filters alone when x is pressed behind the label manager', async () => {
+    const projectId = 'p-shell-board-modal';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'board' } });
+    await screen.findByRole('heading', { name: 'Rulebook' });
+
+    board.setFilterQuery('boss');
+    await fireEvent.click(screen.getByRole('button', { name: 'Labels' }));
+    await screen.findByRole('heading', { level: 2, name: 'Labels' });
+
+    pressKey('x', projectId, 'board');
+    expect(board.filterQuery).toBe('boss');
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
   });
 
   it('opens the label menu for the open task from the graph overlay', async () => {

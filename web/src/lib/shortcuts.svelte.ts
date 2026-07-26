@@ -19,6 +19,12 @@ function isEditableTarget(): boolean {
   return (el as HTMLElement).isContentEditable;
 }
 
+// Only marked dialogs own the keymap; the task overlay is an unmarked <dialog>
+// whose keys must stay live.
+function modalOwnsKeymap(): boolean {
+  return document.querySelector('dialog[data-modal][open]') !== null;
+}
+
 class ShortcutController {
   helpOpen = $state(false);
   labelMenu = $state<string | null>(null);
@@ -66,6 +72,10 @@ class ShortcutController {
         this.closeMenus();
         event.preventDefault();
       }
+      return;
+    }
+
+    if (modalOwnsKeymap()) {
       return;
     }
 

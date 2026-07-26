@@ -90,6 +90,31 @@ describe('shortcut focus guards', () => {
     expect(board.hasActiveFilters).toBe(true);
     expect(cleared.defaultPrevented).toBe(false);
   });
+
+  it('ignores keys while a modal dialog is open', () => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('data-modal', '');
+    dialog.open = true;
+    const button = document.createElement('button');
+    dialog.append(button);
+    document.body.append(dialog);
+    button.focus();
+
+    board.setFilterQuery('boss');
+    const cleared = press('x');
+    expect(board.filterQuery).toBe('boss');
+    expect(cleared.defaultPrevented).toBe(false);
+
+    const mine = press('q');
+    expect(board.filterAssigneeIds).toEqual([]);
+    expect(mine.defaultPrevented).toBe(false);
+
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    selection.set('t1');
+    const done = press('d');
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(done.defaultPrevented).toBe(false);
+  });
 });
 
 describe('board shortcuts', () => {
@@ -442,6 +467,18 @@ describe('overlay context', () => {
   it('still opens help with ?', () => {
     press('?');
     expect(shortcuts.helpOpen).toBe(true);
+  });
+
+  it('stays live inside the overlay dialog, which carries no modal marker', () => {
+    const dialog = document.createElement('dialog');
+    dialog.open = true;
+    const button = document.createElement('button');
+    dialog.append(button);
+    document.body.append(dialog);
+    button.focus();
+
+    press('l');
+    expect(shortcuts.labelMenu).toBe('t1');
   });
 });
 

@@ -33,8 +33,10 @@
   });
 </script>
 
+<!-- data-modal: global keyboard shortcuts go inert while this dialog is open. -->
 <dialog
   bind:this={dialog}
+  data-modal
   aria-label={title}
   class="m-auto w-full max-w-lg bg-transparent p-4 backdrop:bg-black/50"
   oncancel={(event) => {
