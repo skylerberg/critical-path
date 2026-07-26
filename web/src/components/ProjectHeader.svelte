@@ -26,7 +26,7 @@
     </h1>
     <nav use:link aria-label="Project views" class="flex gap-1">
       <a
-        href={`/projects/${projectId}`}
+        href={`/projects/${projectId}${board.filterSearch}`}
         aria-current={boardActive ? 'page' : undefined}
         class="flex min-h-11 items-center rounded-md px-3 text-sm font-medium {boardActive
           ? 'bg-accent-soft text-accent'
@@ -35,7 +35,7 @@
         Board
       </a>
       <a
-        href={`/projects/${projectId}/graph`}
+        href={`/projects/${projectId}/graph${board.filterSearch}`}
         aria-current={graphActive ? 'page' : undefined}
         class="flex min-h-11 items-center rounded-md px-3 text-sm font-medium {graphActive
           ? 'bg-accent-soft text-accent'

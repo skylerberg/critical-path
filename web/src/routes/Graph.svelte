@@ -611,8 +611,8 @@
         <p class="text-base font-medium">No tasks to graph</p>
         <p class="max-w-sm text-sm text-muted" use:link>
           Add tasks on the
-          <a href="/projects/{projectId}" class="text-accent underline">board</a>, then link them to
-          see the dependency graph.
+          <a href="/projects/{projectId}{board.filterSearch}" class="text-accent underline">board</a
+          >, then link them to see the dependency graph.
         </p>
       {/if}
     </div>
@@ -760,7 +760,7 @@
           <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
             <a
               use:link
-              href="/projects/{projectId}/graph/tasks/{n.id}"
+              href="/projects/{projectId}/graph/tasks/{n.id}{board.filterSearch}"
               draggable="false"
               aria-label="Open task {n.title}"
               class="flex h-full w-full cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3"

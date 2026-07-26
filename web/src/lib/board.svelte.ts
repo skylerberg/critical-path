@@ -1,10 +1,12 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
+import { filtersToSearch, noFilters, type BoardFilters } from './board-filters';
 import type { BoardColumn, BoardLabel, BoardProject, BoardTask, CycleTask } from './board-types';
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
 import { append, between, prepend } from './positions';
+import { router, splitPath } from './router.svelte';
 import { toasts } from './toasts.svelte';
 
 export type TaskImage = components['schemas']['ImageResponse'];
@@ -97,18 +99,22 @@ class BoardStore {
   #fetchToken = 0;
   #cyclePathTimer: ReturnType<typeof setTimeout> | null = null;
 
-  async load(projectId: string): Promise<void> {
-    if (this.currentProjectId === projectId && this.error === null) {
+  // Filters are adopted before the first await, so a link built from the store during
+  // the fetch already carries the incoming project's narrowing.
+  async load(projectId: string, filters: BoardFilters = noFilters()): Promise<void> {
+    const sameProject = this.currentProjectId === projectId;
+    if (!sameProject) {
+      this.reset();
+    }
+    this.currentProjectId = projectId;
+    this.setFilters(filters);
+    if (sameProject && this.error === null) {
       // Stale-while-revalidate: serve the cached board flicker-free.
       if (!this.loading) {
         void this.refetch();
       }
       return;
     }
-    if (this.currentProjectId !== projectId) {
-      this.reset();
-    }
-    this.currentProjectId = projectId;
     this.loading = true;
     const token = ++this.#loadToken;
     await this.refetch();
@@ -135,6 +141,9 @@ class BoardStore {
       this.tasks = data.tasks;
       this.labels = data.labels;
       this.error = null;
+      // Now that the label set is known, drop any the incoming URL named but this
+      // project does not have.
+      this.setFilters(this.filters);
     } catch (error) {
       if (token !== this.#fetchToken) {
         return;
@@ -434,7 +443,10 @@ class BoardStore {
         ? { ...task, label_ids: task.label_ids.filter((id) => id !== labelId) }
         : task
     );
-    this.filterLabelIds = this.filterLabelIds.filter((id) => id !== labelId);
+    this.setFilters({
+      ...this.filters,
+      labelIds: this.filterLabelIds.filter((id) => id !== labelId),
+    });
     try {
       assertOk(await api.DELETE('/api/labels/{id}', { params: { path: { id: labelId } } }));
     } catch (error) {
@@ -545,26 +557,77 @@ class BoardStore {
     }
   }
 
+  get filters(): BoardFilters {
+    return {
+      labelIds: this.filterLabelIds,
+      assigneeIds: this.filterAssigneeIds,
+      query: this.filterQuery,
+    };
+  }
+
+  get filterSearch(): string {
+    return filtersToSearch(this.filters);
+  }
+
+  setFilters(filters: BoardFilters): void {
+    const labelIds = this.#knownLabelIds(filters.labelIds);
+    if (filtersToSearch({ ...filters, labelIds }) !== this.filterSearch) {
+      this.filterLabelIds = labelIds;
+      this.filterAssigneeIds = filters.assigneeIds;
+      this.filterQuery = filters.query;
+    }
+    // Written even when nothing changed: an incoming URL can name a filter the store
+    // has already dropped, and only this takes it back out of the address bar.
+    this.#writeFilterUrl();
+  }
+
+  // An id the loaded project does not know — a deleted label, or one from another
+  // project's link — would dim the whole board with no chip to unpress.
+  #knownLabelIds(labelIds: string[]): string[] {
+    if (this.project === null) {
+      return labelIds;
+    }
+    return labelIds.filter((id) => this.labels.some((label) => label.id === id));
+  }
+
+  #writeFilterUrl(): void {
+    const route = router.current;
+    if (route.name !== 'project' || route.params.id !== this.currentProjectId) {
+      return;
+    }
+    const { pathname, search } = splitPath(router.path);
+    const next = this.filterSearch;
+    if (search === next) {
+      return;
+    }
+    // Replaces, so a run of filter edits collapses into one history entry.
+    router.redirect(pathname + next);
+  }
+
   toggleLabelFilter(labelId: string): void {
-    this.filterLabelIds = this.filterLabelIds.includes(labelId)
-      ? this.filterLabelIds.filter((id) => id !== labelId)
-      : [...this.filterLabelIds, labelId];
+    this.setFilters({
+      ...this.filters,
+      labelIds: this.filterLabelIds.includes(labelId)
+        ? this.filterLabelIds.filter((id) => id !== labelId)
+        : [...this.filterLabelIds, labelId],
+    });
   }
 
   toggleAssigneeFilter(userId: string): void {
-    this.filterAssigneeIds = this.filterAssigneeIds.includes(userId)
-      ? this.filterAssigneeIds.filter((id) => id !== userId)
-      : [...this.filterAssigneeIds, userId];
+    this.setFilters({
+      ...this.filters,
+      assigneeIds: this.filterAssigneeIds.includes(userId)
+        ? this.filterAssigneeIds.filter((id) => id !== userId)
+        : [...this.filterAssigneeIds, userId],
+    });
   }
 
   setFilterQuery(query: string): void {
-    this.filterQuery = query;
+    this.setFilters({ ...this.filters, query });
   }
 
   clearFilters(): void {
-    this.filterLabelIds = [];
-    this.filterAssigneeIds = [];
-    this.filterQuery = '';
+    this.setFilters(noFilters());
   }
 
   get doneColumnIds(): Set<string> {
@@ -764,7 +827,10 @@ class BoardStore {
         this.tasks = this.tasks.map((t) =>
           t.label_ids.includes(id) ? { ...t, label_ids: t.label_ids.filter((l) => l !== id) } : t
         );
-        this.filterLabelIds = this.filterLabelIds.filter((l) => l !== id);
+        this.setFilters({
+          ...this.filters,
+          labelIds: this.filterLabelIds.filter((l) => l !== id),
+        });
         break;
       }
       case 'image_created': {

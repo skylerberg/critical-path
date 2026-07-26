@@ -1,8 +1,9 @@
 import { fetchMock } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import FilterBar from './FilterBar.svelte';
 import { board } from '../lib/board.svelte';
+import { router } from '../lib/router.svelte';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -31,6 +32,10 @@ beforeEach(() => {
   board.currentProjectId = 'p1';
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
   users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada', avatar_url: null }];
+});
+
+afterEach(() => {
+  router.navigate('/', { replace: true });
 });
 
 describe('FilterBar', () => {
@@ -91,6 +96,28 @@ describe('FilterBar', () => {
     });
     expect(input.selectionStart).toBe(0);
     expect(input.selectionEnd).toBe('boss'.length);
+  });
+
+  it('makes the narrowed board a shareable URL without growing the history', async () => {
+    board.tasks = [task('t1', ['u1'])];
+    router.navigate('/projects/p1', { replace: true });
+    const historyBefore = window.history.length;
+
+    render(FilterBar);
+    await fireEvent.input(screen.getByLabelText('Filter tasks by title'), {
+      target: { value: 'boss' },
+    });
+
+    await waitFor(() => {
+      expect(router.path).toBe('/projects/p1?q=boss');
+    });
+
+    await fireEvent.click(screen.getByTitle('Filter by Ada'));
+    expect(router.path).toBe('/projects/p1?assignees=u1&q=boss');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(router.path).toBe('/projects/p1');
+    expect(window.history.length).toBe(historyBefore);
   });
 
   it('blurs the search input on Escape and keeps the filter applied', async () => {

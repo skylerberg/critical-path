@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
+  import { noFilters, type BoardFilters } from '../lib/board-filters';
   import type { ProjectView } from '../lib/router.svelte';
   import { selection } from '../lib/selection.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
@@ -20,22 +21,36 @@
     projectId: string;
     view: ProjectView;
     taskId?: string;
+    filters?: BoardFilters;
   }
 
-  let { projectId, view, taskId }: Props = $props();
+  let { projectId, view, taskId, filters = noFilters() }: Props = $props();
+
+  // Reading a prop directly makes an effect depend on the whole route object, which is
+  // replaced on every query-string rewrite. These stop at a value a filter cannot
+  // change, so filtering re-runs nothing while a real move within the project still does.
+  const currentProjectId = $derived(projectId);
+  const routeKey = $derived(`${projectId}/${view}/${taskId ?? ''}`);
 
   $effect(() => {
-    const id = projectId;
+    void routeKey;
     untrack(() => {
-      void board.load(id);
+      void board.load(projectId, filters);
     });
+  });
+
+  // The query string is authoritative, so Back/Forward and any in-app link carrying a
+  // different one re-narrow the board without refetching it.
+  $effect(() => {
+    const next = filters;
+    untrack(() => board.setFilters(next));
   });
 
   // The header's assignee filter lives in both views, so the project-scoped user
   // list is the shell's to fetch, not the board's. Tracked, so invalidating the
   // cache after a membership change refetches it.
   $effect(() => {
-    void users.loadForProject(projectId);
+    void users.loadForProject(currentProjectId);
   });
 
   // The shell owns the keymap so the quick menus and global keys reach both views and
@@ -45,15 +60,15 @@
     return () => window.removeEventListener('keydown', shortcuts.handleKeydown);
   });
 
-  // A quick menu holds a task id, so it has to go with the selection on a project
-  // switch — otherwise it reopens pointing at a task the new board does not have.
+  // A quick menu holds a task id, so it goes with the selection on every move — not
+  // just a project switch: closing the overlay must not leave a menu open over a card
+  // that is no longer there, owning the keymap.
   $effect(() => {
-    if (projectId) {
-      untrack(() => {
-        selection.clear();
-        shortcuts.closeMenus();
-      });
-    }
+    void routeKey;
+    untrack(() => {
+      selection.clear();
+      shortcuts.closeMenus();
+    });
   });
 
   const ready = $derived(
@@ -86,7 +101,7 @@
     {/if}
   </div>
   {#if taskId !== undefined}
-    <TaskDetail {taskId} closePath={viewBasePath} />
+    <TaskDetail {taskId} closePath={viewBasePath + board.filterSearch} />
   {/if}
   {#if shortcuts.labelMenu !== null}
     <QuickLabelMenu taskId={shortcuts.labelMenu} onclose={() => (shortcuts.labelMenu = null)} />

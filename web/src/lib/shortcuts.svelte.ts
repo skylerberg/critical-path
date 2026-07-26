@@ -117,11 +117,11 @@ class ShortcutController {
       return false;
     }
     if (key === 'b') {
-      router.navigate(`/projects/${projectId}`);
+      router.navigate(`/projects/${projectId}${board.filterSearch}`);
       return true;
     }
     if (key === 'g') {
-      router.navigate(`/projects/${projectId}/graph`);
+      router.navigate(`/projects/${projectId}/graph${board.filterSearch}`);
       return true;
     }
     return false;
@@ -150,7 +150,7 @@ class ShortcutController {
         if (selectedId === null || projectId === null) {
           return false;
         }
-        router.navigate(`/projects/${projectId}/tasks/${selectedId}`);
+        router.navigate(`/projects/${projectId}/tasks/${selectedId}${board.filterSearch}`);
         break;
       case 'n': {
         const columnId = selection.selectedColumnId ?? board.columns[0]?.id ?? null;

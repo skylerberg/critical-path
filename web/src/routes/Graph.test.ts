@@ -637,6 +637,27 @@ describe('Graph dependency editing', () => {
     });
   });
 
+  it('carries the active filter into every node link', async () => {
+    const projectId = 'p-graph-filtered-links';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    board.setFilterQuery('Task a');
+
+    await waitFor(() => {
+      expect(container.querySelector('a[aria-label="Open task Task a"]')).toHaveAttribute(
+        'href',
+        `/projects/${projectId}/graph/tasks/a?q=Task%20a`
+      );
+    });
+  });
+
   it('keeps a freshly created highlighted node at full opacity even when it fails the active filter', async () => {
     const projectId = 'p-graph-pulse-exempt';
     fetchMock.mockImplementation(async () =>

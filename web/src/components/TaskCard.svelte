@@ -23,7 +23,7 @@
 
 <a
   use:link
-  href={`/projects/${projectId}/tasks/${task.id}`}
+  href={`/projects/${projectId}/tasks/${task.id}${board.filterSearch}`}
   draggable="false"
   onpointerenter={() => {
     if (!board.dragging) {

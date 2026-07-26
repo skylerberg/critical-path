@@ -1,8 +1,10 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { board, positionAfterDrop } from './board.svelte';
+import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
+import { router } from './router.svelte';
 import { toasts } from './toasts.svelte';
 
 const CYCLE_ERROR = 'Adding this blocker would create a dependency cycle';
@@ -522,6 +524,181 @@ describe('taskMatchesFilters title query', () => {
     board.clearFilters();
     expect(board.filterQuery).toBe('');
     expect(board.hasActiveFilters).toBe(false);
+  });
+});
+
+describe('filters carried by load', () => {
+  it('adopts the filters it is loaded with and drops them on a project switch', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === '/api/projects/p2'
+        ? jsonResponse(200, { ...payload(), project: { ...payload().project, id: 'p2' } })
+        : undefined
+    );
+
+    await board.load('p1', { labelIds: ['l1'], assigneeIds: ['u1'], query: 'alpha' });
+    expect(board.filterLabelIds).toEqual(['l1']);
+    expect(board.filterAssigneeIds).toEqual(['u1']);
+    expect(board.filterQuery).toBe('alpha');
+
+    await board.load('p2', noFilters());
+    expect(board.hasActiveFilters).toBe(false);
+    expect(board.filterSearch).toBe('');
+  });
+
+  it('re-applies the filters of a same-project load without a second blocking fetch', async () => {
+    await board.load('p1');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await board.load('p1', { labelIds: [], assigneeIds: [], query: 'alpha' });
+
+    expect(board.filterQuery).toBe('alpha');
+    expect(board.loading).toBe(false);
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('drops label ids the loaded project does not have', async () => {
+    await board.load('p1', { labelIds: ['l1', 'l-gone'], assigneeIds: [], query: '' });
+
+    expect(board.filterLabelIds).toEqual(['l1']);
+    expect(board.filterSearch).toBe('?labels=l1');
+  });
+
+  it('keeps unknown label ids until the payload says which labels exist', async () => {
+    let resolve: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((r) => {
+          resolve = r;
+        })
+    );
+
+    const loading = board.load('p1', { labelIds: ['l-gone'], assigneeIds: [], query: '' });
+    await vi.waitFor(() => {
+      expect(resolve).toBeDefined();
+    });
+    expect(board.filterLabelIds).toEqual(['l-gone']);
+
+    resolve!(jsonResponse(200, payload()));
+    await loading;
+    expect(board.filterLabelIds).toEqual([]);
+  });
+});
+
+describe('filters in the query string', () => {
+  beforeEach(async () => {
+    router.navigate('/projects/p1', { replace: true });
+    await board.load('p1');
+  });
+
+  afterEach(() => {
+    board.reset();
+    router.navigate('/', { replace: true });
+  });
+
+  it('serializes the active filters in a fixed order', () => {
+    board.toggleLabelFilter('l1');
+    expect(board.filterSearch).toBe('?labels=l1');
+    board.setFilterQuery('boss');
+    expect(board.filterSearch).toBe('?labels=l1&q=boss');
+  });
+
+  it('rewrites the query string without pushing a history entry', () => {
+    const historyBefore = window.history.length;
+
+    board.setFilterQuery('boss');
+
+    expect(router.path).toBe('/projects/p1?q=boss');
+    expect(window.history.length).toBe(historyBefore);
+  });
+
+  // Lagging the write would let the next click push an entry over an unfiltered one.
+  it('writes every filter change straight through to the address bar', () => {
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    replaceState.mockClear();
+
+    board.toggleLabelFilter('l1');
+    expect(router.path).toBe('/projects/p1?labels=l1');
+
+    board.setFilterQuery('boss');
+    expect(router.path).toBe('/projects/p1?labels=l1&q=boss');
+    expect(replaceState).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the overlay path when a filter changes behind an open task', () => {
+    router.navigate('/projects/p1/tasks/t1', { replace: true });
+
+    board.toggleLabelFilter('l1');
+
+    expect(router.path).toBe('/projects/p1/tasks/t1?labels=l1');
+  });
+
+  it('drops the query string again when the filters are cleared', () => {
+    board.setFilterQuery('boss');
+    expect(router.path).toBe('/projects/p1?q=boss');
+
+    board.clearFilters();
+
+    expect(router.path).toBe('/projects/p1');
+  });
+
+  it('rewrites a hand-ordered query string into the canonical one', () => {
+    router.navigate('/projects/p1?q=boss&labels=l1', { replace: true });
+
+    board.setFilters(parseFilters('?q=boss&labels=l1'));
+
+    expect(router.path).toBe('/projects/p1?labels=l1&q=boss');
+  });
+
+  it('drops a label the project does not have from an already-unfiltered address bar', () => {
+    router.navigate('/projects/p1?labels=l-gone', { replace: true });
+
+    board.setFilters(parseFilters('?labels=l-gone'));
+
+    expect(board.hasActiveFilters).toBe(false);
+    expect(router.path).toBe('/projects/p1');
+  });
+
+  it('does not touch history when the filter state serializes unchanged', () => {
+    board.setFilterQuery('boss');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    replaceState.mockClear();
+
+    board.setFilterQuery('boss ');
+
+    expect(board.filterQuery).toBe('boss');
+    expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  it('prunes a deleted label from both the filter and the query string', async () => {
+    board.toggleLabelFilter('l1');
+    board.setFilterQuery('alpha');
+    expect(router.path).toBe('/projects/p1?labels=l1&q=alpha');
+
+    await board.deleteLabel('l1');
+
+    expect(board.filterLabelIds).toEqual([]);
+    expect(router.path).toBe('/projects/p1?q=alpha');
+  });
+
+  it('prunes a label another member deleted from the query string', () => {
+    board.toggleLabelFilter('l1');
+    expect(router.path).toBe('/projects/p1?labels=l1');
+
+    board.applyRealtime({ type: 'label_deleted', project_id: 'p1', data: { id: 'l1' } });
+
+    expect(board.filterLabelIds).toEqual([]);
+    expect(router.path).toBe('/projects/p1');
+  });
+
+  it('leaves the address bar alone while another route is showing', () => {
+    router.navigate('/projects/p2', { replace: true });
+
+    board.toggleLabelFilter('l1');
+
+    expect(board.filterLabelIds).toEqual(['l1']);
+    expect(router.path).toBe('/projects/p2');
   });
 });
 
