@@ -32,7 +32,10 @@
 
   const menuItemClass =
     'flex min-h-11 w-full cursor-pointer items-center px-4 text-left text-sm hover:bg-accent-soft';
-  const gridClass = 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3';
+  // grid-cols-1 is load-bearing: its minmax(0, 1fr) track is what lets the truncating
+  // (white-space: nowrap) card title shrink. An implicit auto track sizes to min-content
+  // and a long project name widens the whole page past the viewport.
+  const gridClass = 'grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4';
 
   function openCreate(source: Project | null): void {
     copySource = source;
@@ -112,7 +115,7 @@
 />
 
 {#snippet cardMenu(project: Project)}
-  <div class="relative z-10 -mt-2 -mr-2 shrink-0">
+  <div class="relative z-10 shrink-0">
     <button
       type="button"
       aria-label="Options for {project.name}"
@@ -178,29 +181,29 @@
 
 {#snippet projectCard(project: Project, dimmed = false)}
   <article
-    class="relative flex flex-col gap-2 rounded-lg border border-edge bg-surface p-4 transition-colors hover:border-accent {dimmed
+    class="relative flex items-center gap-1 rounded-lg border border-edge bg-surface pl-3 transition-colors hover:border-accent {dimmed
       ? 'opacity-60'
       : ''} {openMenuId === project.id ? 'z-30' : ''}"
   >
-    <div class="flex items-start justify-between gap-1">
-      <h3 class="min-w-0 pt-1 text-base font-semibold">
-        <a href="/projects/{project.id}" class="break-words after:absolute after:inset-0">
-          {project.name}
-        </a>
+    <div class="min-w-0 flex-1 py-1">
+      <h3 class="truncate text-sm font-semibold" title={project.name}>
+        <a href="/projects/{project.id}" class="after:absolute after:inset-0">{project.name}</a>
       </h3>
-      {@render cardMenu(project)}
+      {#if project.description !== ''}
+        <p class="line-clamp-2 text-xs text-muted" title={project.description}>
+          {project.description}
+        </p>
+      {/if}
+      <div class="flex items-center gap-1.5">
+        <Badge variant="accent">{project.open_task_count} open</Badge>
+        <Badge variant="success">{project.done_task_count} done</Badge>
+      </div>
     </div>
-    {#if project.description !== ''}
-      <p class="line-clamp-2 text-sm text-muted">{project.description}</p>
-    {/if}
-    <div class="mt-auto flex items-center gap-2 pt-1">
-      <Badge variant="accent">{project.open_task_count} open</Badge>
-      <Badge variant="success">{project.done_task_count} done</Badge>
-    </div>
+    {@render cardMenu(project)}
   </article>
 {/snippet}
 
-<main use:link class="mx-auto flex w-full max-w-6xl flex-col gap-10 p-4 lg:p-8">
+<main use:link class="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 lg:p-8">
   <header class="flex items-center justify-between gap-4">
     <h1 class="text-2xl font-semibold">Projects</h1>
     <Button onclick={() => openCreate(null)}>New project</Button>
@@ -234,12 +237,12 @@
 
   {#if projects.loaded}
     {#if projects.archived.length > 0}
-      <section class="flex flex-col gap-4">
+      <section class="flex flex-col gap-2">
         <button
           type="button"
           aria-expanded={archivedOpen}
           onclick={() => (archivedOpen = !archivedOpen)}
-          class="flex min-h-11 cursor-pointer items-center gap-2 self-start text-lg font-semibold text-muted hover:text-ink"
+          class="flex min-h-11 cursor-pointer items-center gap-2 self-start text-base font-semibold text-muted hover:text-ink"
         >
           <svg
             class="size-4 transition-transform {archivedOpen ? 'rotate-90' : ''}"

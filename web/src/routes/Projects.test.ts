@@ -1,8 +1,9 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Projects from './Projects.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
+import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
 import { users } from '../lib/users.svelte';
 
@@ -52,6 +53,8 @@ beforeEach(() => {
   projects.reset();
   users.reset();
   session.user = me;
+  router.beforeNavigate = undefined;
+  router.navigate('/', { replace: true });
 });
 
 describe('Projects', () => {
@@ -75,6 +78,113 @@ describe('Projects', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Options for Old prototype' }));
     expect(screen.getByRole('menuitem', { name: 'Copy' })).toBeInTheDocument();
+  });
+
+  it('renders each project as a single compact card', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [activeProject] }));
+    render(Projects);
+
+    const card = (await screen.findByRole('link', { name: 'Alpha' })).closest('article')!;
+    const inCard = within(card);
+    expect(inCard.getByRole('link', { name: 'Alpha' })).toBeInTheDocument();
+    expect(inCard.getByText('A deck-building game')).toBeInTheDocument();
+    expect(inCard.getByText('5 open')).toBeInTheDocument();
+    expect(inCard.getByText('3 done')).toBeInTheDocument();
+    expect(inCard.getByRole('button', { name: 'Options for Alpha' })).toBeInTheDocument();
+
+    expect(card).toHaveClass('items-center');
+    expect(card).not.toHaveClass('flex-col');
+  });
+
+  it('keeps the full project name available when the title truncates', async () => {
+    const longName = 'Alpha '.repeat(20).trim();
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { projects: [project({ id: 'p-long', name: longName })] })
+    );
+    render(Projects);
+
+    const heading = (await screen.findByRole('link', { name: longName })).closest('h3')!;
+    expect(heading).toHaveAttribute('title', longName);
+    expect(heading).toHaveClass('truncate');
+  });
+
+  it('keeps the full description reachable when it clamps', async () => {
+    const longDescription = 'A deck-building game about deck-building games. '.repeat(9).trim();
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, {
+        projects: [project({ id: 'p-wordy', description: longDescription })],
+      })
+    );
+    render(Projects);
+
+    const paragraph = await screen.findByText(longDescription);
+    expect(paragraph).toHaveAttribute('title', longDescription);
+    expect(paragraph).toHaveClass('line-clamp-2');
+  });
+
+  it('omits the description line when a project has none', async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { projects: [project({ id: 'p-plain', name: 'Plain' })] })
+    );
+    render(Projects);
+
+    const card = (await screen.findByRole('link', { name: 'Plain' })).closest('article')!;
+    expect(card.querySelectorAll('p')).toHaveLength(0);
+  });
+
+  it('packs the grid tighter as the viewport widens', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [activeProject] }));
+    render(Projects);
+
+    const card = (await screen.findByRole('link', { name: 'Alpha' })).closest('article')!;
+    expect(card.parentElement).toHaveClass(
+      'grid',
+      'grid-cols-1',
+      'gap-2',
+      'sm:grid-cols-2',
+      'xl:grid-cols-3',
+      '2xl:grid-cols-4'
+    );
+  });
+
+  it('keeps the options button outside the card link', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [activeProject] }));
+    render(Projects);
+
+    const options = await screen.findByRole('button', { name: 'Options for Alpha' });
+    expect(options.closest('a')).toBeNull();
+
+    await fireEvent.click(options);
+
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument();
+    expect(router.path).toBe('/');
+  });
+
+  it('clicking a card navigates to its board', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [activeProject] }));
+    render(Projects);
+
+    await fireEvent.click(await screen.findByRole('link', { name: 'Alpha' }));
+
+    expect(router.path).toBe('/projects/p-active');
+    expect(router.current).toEqual({
+      name: 'project',
+      params: { id: 'p-active', view: 'board' },
+    });
+  });
+
+  it('dims archived cards', async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { projects: [activeProject, archivedProject] })
+    );
+    render(Projects);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Archived (1)' }));
+
+    const card = screen.getByRole('link', { name: 'Old prototype' }).closest('article')!;
+    expect(card).toHaveClass('opacity-60');
+    expect(within(card).getByText('0 open')).toBeInTheDocument();
+    expect(within(card).getByText('0 done')).toBeInTheDocument();
   });
 
   it('shows empty states and opens the new project modal', async () => {
