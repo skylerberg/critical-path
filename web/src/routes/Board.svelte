@@ -9,7 +9,7 @@
     TRIGGERS,
     type DndEvent,
   } from 'svelte-dnd-action';
-  import { focusIf } from '../lib/actions';
+  import { focusIf, scrollToTopOn } from '../lib/actions';
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { draftKey, drafts } from '../lib/drafts.svelte';
@@ -184,6 +184,7 @@
           <div
             class="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2"
             aria-label="{column.name} tasks"
+            use:scrollToTopOn={board.filterSignature}
             use:dndzone={{
               items: localTasks[column.id] ?? [],
               type: 'task',

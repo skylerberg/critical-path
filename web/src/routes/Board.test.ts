@@ -1,6 +1,7 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
@@ -58,6 +59,14 @@ function scroller(): HTMLElement {
   const element = document.querySelector('[aria-label="Columns"]')?.parentElement?.parentElement;
   if (!(element instanceof HTMLElement)) {
     throw new Error('Board scroller not rendered');
+  }
+  return element;
+}
+
+function taskList(name = 'Todo tasks'): HTMLElement {
+  const element = document.querySelector(`[aria-label="${name}"]`);
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`${name} list not rendered`);
   }
   return element;
 }
@@ -341,5 +350,137 @@ describe('Board keyboard reordering', () => {
 
     await fireEvent.keyDown(section, { key: 'Enter' });
     await vi.waitFor(() => expect(board.dragging).toBe(false));
+  });
+});
+
+describe('Board filter scrolling', () => {
+  it('resets each column scroll when a text filter is applied', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    taskList().scrollTop = 240;
+
+    board.setFilterQuery('match');
+
+    await waitFor(() => {
+      expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
+      expect(taskList().scrollTop).toBe(0);
+    });
+  });
+
+  it('resets the scroll when a label chip is toggled', async () => {
+    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+    board.tasks = board.tasks.map((t) => (t.id === 't4' ? { ...t, label_ids: ['l1'] } : t));
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    taskList().scrollTop = 240;
+
+    board.toggleLabelFilter('l1');
+
+    await waitFor(() => {
+      expect(cardTitles()).toEqual(['match b', 'plain one', 'match a', 'plain two']);
+      expect(taskList().scrollTop).toBe(0);
+    });
+  });
+
+  it('resets the scroll when an assignee chip is toggled', async () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't2' ? { ...t, assignee_ids: ['u1'] } : t));
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    taskList().scrollTop = 240;
+
+    board.toggleAssigneeFilter('u1');
+
+    await waitFor(() => {
+      expect(cardTitles()).toEqual(['match a', 'plain one', 'plain two', 'match b']);
+      expect(taskList().scrollTop).toBe(0);
+    });
+  });
+
+  it('resets the scroll when filters are cleared', async () => {
+    board.setFilterQuery('match');
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    taskList().scrollTop = 240;
+
+    board.clearFilters();
+
+    await waitFor(() => {
+      expect(cardTitles()).toEqual(['plain one', 'match a', 'plain two', 'match b']);
+      expect(taskList().scrollTop).toBe(0);
+    });
+  });
+
+  it('resets every column, not just the one that matched', async () => {
+    board.columns = [
+      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+    ];
+    board.tasks = [
+      ...board.tasks,
+      task('t5', 'c2', 1000, 'plain three'),
+      task('t6', 'c2', 2000, 'match c'),
+    ];
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('match c');
+    taskList('Todo tasks').scrollTop = 240;
+    taskList('Doing tasks').scrollTop = 240;
+
+    board.setFilterQuery('match');
+
+    await waitFor(() => {
+      expect(taskList('Todo tasks').scrollTop).toBe(0);
+      expect(taskList('Doing tasks').scrollTop).toBe(0);
+    });
+  });
+
+  it('keeps the scroll position when a new task repartitions a filtered column', async () => {
+    board.setFilterQuery('match');
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    taskList().scrollTop = 240;
+
+    board.tasks = [...board.tasks, task('t5', 'c1', 5000, 'match c')];
+
+    await waitFor(() =>
+      expect(cardTitles()).toEqual(['match a', 'match b', 'match c', 'plain one', 'plain two'])
+    );
+    expect(taskList().scrollTop).toBe(240);
+  });
+
+  it('keeps the scroll position when a task is added with no filter active', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    taskList().scrollTop = 240;
+
+    board.tasks = [...board.tasks, task('t5', 'c1', 5000, 'plain three')];
+
+    await waitFor(() => expect(cardTitles()).toContain('plain three'));
+    expect(taskList().scrollTop).toBe(240);
+  });
+
+  it('ignores a filter edit that cannot change the order', async () => {
+    board.setFilterQuery('match');
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    taskList().scrollTop = 240;
+
+    board.setFilterQuery('match ');
+    await tick();
+
+    expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
+    expect(taskList().scrollTop).toBe(240);
+  });
+
+  it('ignores a filter edit that only changes the query case', async () => {
+    board.setFilterQuery('match');
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    taskList().scrollTop = 240;
+
+    board.setFilterQuery('MATCH');
+    await tick();
+
+    expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
+    expect(taskList().scrollTop).toBe(240);
   });
 });
