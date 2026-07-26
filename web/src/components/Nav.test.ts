@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { SOURCES, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
 import Nav from './Nav.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
+import { realtime } from '../lib/realtime.svelte';
 import { session } from '../lib/session.svelte';
 import { router } from '../lib/router.svelte';
 
@@ -39,6 +40,8 @@ beforeEach(() => {
   fetchMock.mockReset();
   projects.reset();
   session.user = me;
+  session.status = 'authed';
+  realtime.disconnect();
   router.beforeNavigate = undefined;
   router.navigate('/', { replace: true });
 });
@@ -216,5 +219,29 @@ describe('Nav sidebar', () => {
 
     expect(document.querySelector('dialog')?.open).toBe(true);
     expect(screen.getByLabelText('Feedback message')).toBeInTheDocument();
+  });
+});
+
+describe('offline badge', () => {
+  it('stays hidden while realtime is merely connecting', () => {
+    expect(realtime.interrupted).toBe(false);
+    render(Nav);
+    expect(screen.queryByText(/reconnecting/i)).toBeNull();
+  });
+
+  it('appears once the client reports a sustained interruption', async () => {
+    render(Nav);
+    realtime.interrupted = true;
+
+    const badge = await vi.waitFor(() => screen.getByText(/reconnecting/i));
+    expect(badge).toHaveAttribute('role', 'status');
+  });
+
+  it('stays hidden when the session is not authed', () => {
+    session.status = 'anon';
+    realtime.interrupted = true;
+
+    render(Nav);
+    expect(screen.queryByText(/reconnecting/i)).toBeNull();
   });
 });

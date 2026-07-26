@@ -484,6 +484,148 @@ describe('logout', () => {
   });
 });
 
+describe('offline notice', () => {
+  it('stays quiet while the first connect is still handshaking', () => {
+    vi.useFakeTimers();
+    realtime.connect();
+    const socket = latestSocket();
+    expect(realtime.interrupted).toBe(false);
+
+    vi.advanceTimersByTime(2999);
+    expect(realtime.interrupted).toBe(false);
+
+    socket.open();
+    socket.receive({ type: 'auth_ok' });
+    vi.advanceTimersByTime(60_000);
+
+    expect(realtime.status).toBe('online');
+    expect(realtime.interrupted).toBe(false);
+  });
+
+  it('warns when the first connect never completes', () => {
+    vi.useFakeTimers();
+    realtime.connect();
+
+    vi.advanceTimersByTime(2999);
+    expect(realtime.interrupted).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(realtime.interrupted).toBe(true);
+  });
+
+  it('stays quiet across a drop that recovers inside the window', async () => {
+    const socket = await connectAndAuth('p1');
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname === '/api/projects') {
+        return jsonResponse(200, { projects: [] });
+      }
+      return jsonResponse(200, boardPayload());
+    });
+
+    socket.serverClose();
+    vi.advanceTimersByTime(1000);
+    const retry = latestSocket();
+    retry.open();
+    retry.receive({ type: 'auth_ok' });
+
+    vi.advanceTimersByTime(60_000);
+    expect(realtime.interrupted).toBe(false);
+  });
+
+  it('warns when a drop is never recovered', async () => {
+    const socket = await connectAndAuth('p1');
+    vi.useFakeTimers();
+
+    socket.serverClose();
+    vi.advanceTimersByTime(2999);
+    expect(realtime.interrupted).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(realtime.interrupted).toBe(true);
+  });
+
+  it('measures one continuous outage instead of restarting on each failed retry', async () => {
+    const socket = await connectAndAuth('p1');
+    vi.useFakeTimers();
+
+    socket.serverClose();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    vi.advanceTimersByTime(1000);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    latestSocket().serverClose();
+    expect(realtime.interrupted).toBe(false);
+
+    vi.advanceTimersByTime(1999);
+    expect(realtime.interrupted).toBe(false);
+
+    vi.advanceTimersByTime(1);
+    expect(realtime.interrupted).toBe(true);
+  });
+
+  it('clears the latch when a later retry re-auths', async () => {
+    const socket = await connectAndAuth('p1');
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname === '/api/projects') {
+        return jsonResponse(200, { projects: [] });
+      }
+      return jsonResponse(200, boardPayload());
+    });
+
+    socket.serverClose();
+    vi.advanceTimersByTime(3000);
+    expect(realtime.interrupted).toBe(true);
+
+    const retry = latestSocket();
+    retry.open();
+    retry.receive({ type: 'auth_ok' });
+    expect(realtime.interrupted).toBe(false);
+  });
+
+  it('clears on disconnect and leaves no pending timers', async () => {
+    const socket = await connectAndAuth('p1');
+    vi.useFakeTimers();
+
+    socket.serverClose();
+    vi.advanceTimersByTime(3000);
+    expect(realtime.interrupted).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    realtime.disconnect();
+    expect(realtime.interrupted).toBe(false);
+
+    vi.advanceTimersByTime(60_000);
+    expect(realtime.interrupted).toBe(false);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('starts the window on a 4401 close whose revalidation is still in flight', async () => {
+    const socket = await connectAndAuth('p1');
+    let resolveMe: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      async () =>
+        new Promise<Response>((resolve) => {
+          resolveMe = resolve;
+        })
+    );
+
+    vi.useFakeTimers();
+    socket.serverClose(4401);
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(session.status).toBe('unknown');
+    expect(realtime.interrupted).toBe(true);
+
+    resolveMe!(jsonResponse(200, { id: 'u1', name: 'Me', email: 'm@e.com' }));
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(session.status).toBe('authed');
+    expect(realtime.interrupted).toBe(true);
+  });
+});
+
 describe('user_updated dispatch', () => {
   beforeEach(() => {
     users.reset();

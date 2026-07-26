@@ -10,6 +10,7 @@ export type RealtimeStatus = 'online' | 'offline' | 'connecting';
 const WS_OPEN = 1;
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
+const OFFLINE_NOTICE_DELAY_MS = 3000;
 // The server closes with 4401 when a token is rejected or its session revoked.
 const AUTH_CLOSE_CODE = 4401;
 
@@ -36,12 +37,14 @@ const PROJECT_EVENTS = new Set([
 
 class RealtimeClient {
   status = $state<RealtimeStatus>('offline');
+  interrupted = $state(false);
 
   #socket: WebSocket | null = null;
   #authed = false;
   #subscribedProjectId: string | null = null;
   #backoff = INITIAL_BACKOFF_MS;
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  #noticeTimer: ReturnType<typeof setTimeout> | undefined;
   #hasSyncedOnce = false;
   #stopped = true;
   #disposeEffects: (() => void) | null = null;
@@ -56,6 +59,7 @@ class RealtimeClient {
       return;
     }
     this.#stopped = false;
+    this.#armOfflineNotice();
     this.#disposeEffects ??= $effect.root(() => {
       $effect(() => {
         const projectId = board.currentProjectId;
@@ -75,6 +79,7 @@ class RealtimeClient {
     this.#stopped = true;
     clearTimeout(this.#reconnectTimer);
     this.#reconnectTimer = undefined;
+    this.#clearOfflineNotice();
     this.#backoff = INITIAL_BACKOFF_MS;
     this.#authed = false;
     this.#subscribedProjectId = null;
@@ -149,6 +154,7 @@ class RealtimeClient {
   #onAuthOk(): void {
     this.#authed = true;
     this.status = 'online';
+    this.#clearOfflineNotice();
     this.#backoff = INITIAL_BACKOFF_MS;
     this.#subscribedProjectId = null;
     this.#syncSubscription(board.currentProjectId);
@@ -175,6 +181,7 @@ class RealtimeClient {
     this.#authed = false;
     this.#subscribedProjectId = null;
     this.status = 'offline';
+    this.#armOfflineNotice();
     if (event.code === AUTH_CLOSE_CODE) {
       void this.#revalidateSession();
       return;
@@ -200,6 +207,22 @@ class RealtimeClient {
     const delay = this.#backoff;
     this.#backoff = Math.min(this.#backoff * 2, MAX_BACKOFF_MS);
     this.#reconnectTimer = setTimeout(() => this.#open(), delay);
+  }
+
+  #armOfflineNotice(): void {
+    if (this.interrupted || this.#noticeTimer !== undefined) {
+      return;
+    }
+    this.#noticeTimer = setTimeout(() => {
+      this.#noticeTimer = undefined;
+      this.interrupted = true;
+    }, OFFLINE_NOTICE_DELAY_MS);
+  }
+
+  #clearOfflineNotice(): void {
+    clearTimeout(this.#noticeTimer);
+    this.#noticeTimer = undefined;
+    this.interrupted = false;
   }
 
   #syncSubscription(projectId: string | null): void {
