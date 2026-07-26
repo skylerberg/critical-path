@@ -104,7 +104,7 @@ describe('Task blockers', () => {
       expect(res.status).toBe(422);
     });
 
-    it('rejects a direct cycle (A <-> B) with 409', async () => {
+    it('rejects a direct cycle (A <-> B) with 409 naming the loop', async () => {
       const taskA = await createTask('cycle A');
       const taskB = await createTask('cycle B');
 
@@ -117,10 +117,17 @@ describe('Task blockers', () => {
         .request(user.token)
         .post(`/api/tasks/${taskA}/blockers`, { blocker_task_id: taskB });
       expect(backward.status).toBe(409);
+      const body = await backward.json();
+      expect(body.error).toBe('Adding this blocker would create a dependency cycle');
+      expect(body.cycle).toEqual([
+        { id: taskA, title: 'cycle A' },
+        { id: taskB, title: 'cycle B' },
+        { id: taskA, title: 'cycle A' },
+      ]);
       expect(await getBlockerIds(taskA)).toEqual([]);
     });
 
-    it('rejects a transitive cycle (A -> B -> C -> A) with 409', async () => {
+    it('rejects a transitive cycle (A -> B -> C -> A) with 409 naming the loop', async () => {
       const taskA = await createTask('transitive A');
       const taskB = await createTask('transitive B');
       const taskC = await createTask('transitive C');
@@ -138,7 +145,70 @@ describe('Task blockers', () => {
         .request(user.token)
         .post(`/api/tasks/${taskA}/blockers`, { blocker_task_id: taskC });
       expect(closing.status).toBe(409);
+      const body = await closing.json();
+      expect(body.cycle.map((step: { id: string }) => step.id)).toEqual([
+        taskA,
+        taskB,
+        taskC,
+        taskA,
+      ]);
+      expect(body.cycle.map((step: { title: string }) => step.title)).toEqual([
+        'transitive A',
+        'transitive B',
+        'transitive C',
+        'transitive A',
+      ]);
       expect(await getBlockerIds(taskA)).toEqual([]);
+    });
+
+    it('reports the shortest loop when several close', async () => {
+      const taskA = await createTask('shortest A');
+      const taskB = await createTask('shortest B');
+      const taskC = await createTask('shortest C');
+
+      for (const [blocked, blocker] of [
+        [taskB, taskA],
+        [taskC, taskB],
+        [taskC, taskA],
+      ]) {
+        const res = await ctx
+          .request(user.token)
+          .post(`/api/tasks/${blocked}/blockers`, { blocker_task_id: blocker });
+        expect(res.status).toBe(204);
+      }
+
+      const closing = await ctx
+        .request(user.token)
+        .post(`/api/tasks/${taskA}/blockers`, { blocker_task_id: taskC });
+      expect(closing.status).toBe(409);
+      const body = await closing.json();
+      expect(body.cycle.map((step: { id: string }) => step.id)).toEqual([taskA, taskC, taskA]);
+    });
+
+    it('names the loop with titles as they are now, not as they were', async () => {
+      const taskA = await createTask('renamed A');
+      const taskB = await createTask('renamed B');
+
+      const forward = await ctx
+        .request(user.token)
+        .post(`/api/tasks/${taskB}/blockers`, { blocker_task_id: taskA });
+      expect(forward.status).toBe(204);
+
+      const renamed = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${taskB}`, { title: 'B after the rename' });
+      expect(renamed.status).toBe(200);
+
+      const backward = await ctx
+        .request(user.token)
+        .post(`/api/tasks/${taskA}/blockers`, { blocker_task_id: taskB });
+      expect(backward.status).toBe(409);
+      const body = await backward.json();
+      expect(body.cycle.map((step: { title: string }) => step.title)).toEqual([
+        'renamed A',
+        'B after the rename',
+        'renamed A',
+      ]);
     });
   });
 

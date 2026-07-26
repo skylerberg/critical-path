@@ -5,6 +5,17 @@ export const errorSchema = type({
   error: 'string',
 });
 
+export const cycleTaskSchema = type({
+  id: 'string',
+  title: 'string',
+});
+
+export type CycleTask = typeof cycleTaskSchema.infer;
+
+export const dependencyCycleErrorSchema = errorSchema.merge({
+  cycle: cycleTaskSchema.array(),
+});
+
 export const validationErrorSchema = type({
   error: "'Validation failed'",
   details: type({
@@ -58,6 +69,11 @@ export const unauthorizedErrorResponse = errorResponse(401, 'Authentication requ
 export const forbiddenErrorResponse = errorResponse(403, 'Forbidden - insufficient permissions');
 export const notFoundErrorResponse = errorResponse(404, 'Not Found');
 export const conflictErrorResponse = errorResponse(409, 'Conflict - resource already exists');
+export const dependencyCycleErrorResponse = errorResponse(
+  409,
+  'Conflict - the blocker would close a dependency cycle',
+  dependencyCycleErrorSchema
+);
 export const payloadTooLargeErrorResponse = errorResponse(413, 'Payload Too Large');
 // 422 with { error, details } — schema validation failures from jsonValidator.
 export const validationErrorResponse = errorResponse(

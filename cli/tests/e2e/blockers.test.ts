@@ -93,7 +93,7 @@ describe('task blockers', () => {
     expect(states.get(planId)).toBe('ready');
   });
 
-  it('a dependency cycle exits 5', async () => {
+  it('a dependency cycle exits 5 and names the loop', async () => {
     const res = await h.runCli([
       'task',
       'block',
@@ -104,6 +104,9 @@ describe('task blockers', () => {
       projectId,
     ]);
     expect(res.exitCode).toBe(5);
+    expect(res.stderr).toContain(
+      'Adding this blocker would create a dependency cycle: Plan the API -> Build the API -> Plan the API'
+    );
   });
 
   it('blockers lists direct blockers with their state', async () => {

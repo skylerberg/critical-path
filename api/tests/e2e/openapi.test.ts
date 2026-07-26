@@ -44,6 +44,28 @@ describe('GET /api/openapi.json', () => {
     expect(union.anyOf).toHaveLength(2);
   });
 
+  it('documents the cycle path on the add-blocker 409', async () => {
+    const res = await app.request('/api/openapi.json');
+    expect(res.status).toBe(200);
+
+    const spec = await res.json();
+    expect(
+      spec.paths['/api/tasks/{id}/blockers'].post.responses['409'].content['application/json']
+        .schema
+    ).toEqual({ $ref: '#/components/schemas/DependencyCycleError' });
+
+    const conflict = spec.components.schemas.DependencyCycleError;
+    expect(conflict.properties.error).toMatchObject({ type: 'string' });
+    expect(conflict.properties.cycle).toMatchObject({
+      type: 'array',
+      items: { $ref: '#/components/schemas/CycleTask' },
+    });
+
+    const step = spec.components.schemas.CycleTask;
+    expect(step.properties.id).toMatchObject({ type: 'string' });
+    expect(step.properties.title).toMatchObject({ type: 'string' });
+  });
+
   it('has unique operationIds across all operations', async () => {
     const res = await app.request('/api/openapi.json');
     expect(res.status).toBe(200);
