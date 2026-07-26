@@ -4,7 +4,10 @@ import { shortcuts } from './shortcuts.svelte';
 import { selection } from './selection.svelte';
 import { board } from './board.svelte';
 import { router } from './router.svelte';
+import { session } from './session.svelte';
 import type { BoardTask } from './board-types';
+
+const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
 
 function task(id: string, columnId: string, position: number): BoardTask {
   return {
@@ -40,6 +43,7 @@ beforeEach(() => {
   ];
   board.tasks = [task('t1', 'c1', 1000), task('t2', 'c1', 2000)];
   router.current = { name: 'project', params: { id: 'p1', view: 'board' } };
+  session.user = me;
 });
 
 afterEach(() => {
@@ -70,9 +74,46 @@ describe('shortcut focus guards', () => {
     const event = press('f');
     expect(shortcuts.filterFocusRequested).toBe(false);
     expect(event.defaultPrevented).toBe(false);
+    const capsF = press('F');
+    expect(shortcuts.filterFocusRequested).toBe(false);
+    expect(capsF.defaultPrevented).toBe(false);
     const typed = press('b');
     expect(shortcuts.dependencyMenu).toBeNull();
     expect(typed.defaultPrevented).toBe(false);
+
+    board.toggleAssigneeFilter('u-other');
+    const mine = press('q');
+    expect(board.filterAssigneeIds).toEqual(['u-other']);
+    expect(mine.defaultPrevented).toBe(false);
+    const cleared = press('x');
+    expect(board.filterAssigneeIds).toEqual(['u-other']);
+    expect(board.hasActiveFilters).toBe(true);
+    expect(cleared.defaultPrevented).toBe(false);
+  });
+
+  it('ignores keys while a modal dialog is open', () => {
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('data-modal', '');
+    dialog.open = true;
+    const button = document.createElement('button');
+    dialog.append(button);
+    document.body.append(dialog);
+    button.focus();
+
+    board.setFilterQuery('boss');
+    const cleared = press('x');
+    expect(board.filterQuery).toBe('boss');
+    expect(cleared.defaultPrevented).toBe(false);
+
+    const mine = press('q');
+    expect(board.filterAssigneeIds).toEqual([]);
+    expect(mine.defaultPrevented).toBe(false);
+
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    selection.set('t1');
+    const done = press('d');
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(done.defaultPrevented).toBe(false);
   });
 });
 
@@ -198,6 +239,11 @@ describe('board shortcuts', () => {
     const event = press('f');
     expect(shortcuts.filterFocusRequested).toBe(true);
     expect(event.defaultPrevented).toBe(true);
+
+    shortcuts.reset();
+    const caps = press('F');
+    expect(shortcuts.filterFocusRequested).toBe(true);
+    expect(caps.defaultPrevented).toBe(true);
   });
 
   it('leaves modified f presses (find-in-page) to the browser', () => {
@@ -213,6 +259,120 @@ describe('board shortcuts', () => {
     expect(shortcuts.filterFocusRequested).toBe(true);
     shortcuts.reset();
     expect(shortcuts.filterFocusRequested).toBe(false);
+  });
+
+  it('filters to the current user with q and preventDefaults', () => {
+    const event = press('q');
+    expect(board.filterAssigneeIds).toEqual([me.id]);
+    expect(board.hasActiveFilters).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('toggles the my-tasks filter back off with a second q', () => {
+    press('q');
+    expect(board.filterAssigneeIds).toEqual([me.id]);
+    press('q');
+    expect(board.filterAssigneeIds).toEqual([]);
+    expect(board.hasActiveFilters).toBe(false);
+  });
+
+  it('adds to rather than replaces the other assignee filters', () => {
+    board.filterAssigneeIds = ['u-other'];
+    press('q');
+    expect(board.filterAssigneeIds).toEqual(['u-other', me.id]);
+    press('q');
+    expect(board.filterAssigneeIds).toEqual(['u-other']);
+  });
+
+  it('leaves the label and query filters alone when q runs', () => {
+    board.setFilterQuery('boss');
+    board.toggleLabelFilter('lab');
+    press('q');
+    expect(board.filterAssigneeIds).toEqual([me.id]);
+    expect(board.filterQuery).toBe('boss');
+    expect(board.filterLabelIds).toEqual(['lab']);
+  });
+
+  it('does not exclude done tasks with q', () => {
+    board.tasks = [
+      ...board.tasks,
+      { ...task('d-other', 'done', 1000), assignee_ids: [] },
+      { ...task('d-mine', 'done', 2000), assignee_ids: [me.id] },
+    ];
+    press('q');
+    const mine = board.tasks.find((t) => t.id === 'd-mine')!;
+    const other = board.tasks.find((t) => t.id === 'd-other')!;
+    expect(board.taskMatchesFilters(mine)).toBe(true);
+    expect(board.taskMatchesFilters(other)).toBe(false);
+    expect(board.displayTasksInColumn('done').map((t) => t.id)).toEqual(['d-mine', 'd-other']);
+  });
+
+  it('toggles the my-tasks filter under CapsLock', () => {
+    press('Q');
+    expect(board.filterAssigneeIds).toEqual([me.id]);
+  });
+
+  it('does nothing for q without a session user', () => {
+    session.user = null;
+    const event = press('q');
+    expect(board.filterAssigneeIds).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('leaves modified q presses to the browser', () => {
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      const event = press('q', init);
+      expect(board.filterAssigneeIds).toEqual([]);
+      expect(event.defaultPrevented).toBe(false);
+    }
+  });
+
+  it('clears every filter facet with x and preventDefaults', () => {
+    board.toggleLabelFilter('lab');
+    board.toggleAssigneeFilter('u-other');
+    board.setFilterQuery('boss');
+    const event = press('x');
+    expect(board.filterLabelIds).toEqual([]);
+    expect(board.filterAssigneeIds).toEqual([]);
+    expect(board.filterQuery).toBe('');
+    expect(board.hasActiveFilters).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('does not preventDefault x with nothing to clear', () => {
+    const event = press('x');
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('clears the filters under CapsLock', () => {
+    board.setFilterQuery('boss');
+    press('X');
+    expect(board.filterQuery).toBe('');
+  });
+
+  it('leaves modified x presses (cut) to the browser', () => {
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      board.setFilterQuery('boss');
+      const event = press('x', init);
+      expect(board.filterQuery).toBe('boss');
+      expect(event.defaultPrevented).toBe(false);
+    }
+  });
+
+  it('leaves the graph done toggle alone when x clears the filters', () => {
+    board.graphShowDone = true;
+    board.setFilterQuery('boss');
+    press('x');
+    expect(board.filterQuery).toBe('');
+    expect(board.graphShowDone).toBe(true);
+  });
+
+  it('swallows q while a quick menu is open', () => {
+    selection.set('t1');
+    press('b');
+    expect(shortcuts.anyMenuOpen).toBe(true);
+    press('q');
+    expect(board.filterAssigneeIds).toEqual([]);
   });
 });
 
@@ -294,9 +454,31 @@ describe('overlay context', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it('does not touch the filters with q or x', () => {
+    board.toggleAssigneeFilter('u-other');
+    const mine = press('q');
+    expect(board.filterAssigneeIds).toEqual(['u-other']);
+    expect(mine.defaultPrevented).toBe(false);
+    const cleared = press('x');
+    expect(board.filterAssigneeIds).toEqual(['u-other']);
+    expect(cleared.defaultPrevented).toBe(false);
+  });
+
   it('still opens help with ?', () => {
     press('?');
     expect(shortcuts.helpOpen).toBe(true);
+  });
+
+  it('stays live inside the overlay dialog, which carries no modal marker', () => {
+    const dialog = document.createElement('dialog');
+    dialog.open = true;
+    const button = document.createElement('button');
+    dialog.append(button);
+    document.body.append(dialog);
+    button.focus();
+
+    press('l');
+    expect(shortcuts.labelMenu).toBe('t1');
   });
 });
 
@@ -315,6 +497,15 @@ describe('graph view', () => {
     const event = press('f');
     expect(shortcuts.filterFocusRequested).toBe(true);
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('toggles the my-tasks filter with q and clears it with x', () => {
+    const mine = press('q');
+    expect(board.filterAssigneeIds).toEqual([me.id]);
+    expect(mine.defaultPrevented).toBe(true);
+    const cleared = press('x');
+    expect(board.hasActiveFilters).toBe(false);
+    expect(cleared.defaultPrevented).toBe(true);
   });
 
   it('does nothing for l without an overlay (no selection to target)', () => {
@@ -364,6 +555,16 @@ describe('graph overlay context', () => {
     const event = press('f');
     expect(shortcuts.filterFocusRequested).toBe(false);
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does not touch the filters with q or x', () => {
+    board.toggleAssigneeFilter('u-other');
+    const mine = press('q');
+    expect(board.filterAssigneeIds).toEqual(['u-other']);
+    expect(mine.defaultPrevented).toBe(false);
+    const cleared = press('x');
+    expect(board.filterAssigneeIds).toEqual(['u-other']);
+    expect(cleared.defaultPrevented).toBe(false);
   });
 
   it('navigates with g then g to the graph base', () => {

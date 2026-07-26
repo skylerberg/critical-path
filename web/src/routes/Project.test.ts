@@ -6,10 +6,13 @@ import { board } from '../lib/board.svelte';
 import { drafts } from '../lib/drafts.svelte';
 import { router } from '../lib/router.svelte';
 import { selection } from '../lib/selection.svelte';
+import { session } from '../lib/session.svelte';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 import type { ProjectView } from '../lib/router.svelte';
+
+const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
 
 // The shortcut layer reads the live route, so the shell keymap tests must drive the
 // router to the same view/overlay the component is rendered with.
@@ -90,6 +93,7 @@ beforeEach(() => {
   selection.clear();
   shortcuts.reset();
   users.reset();
+  session.user = me;
 });
 
 afterEach(() => {
@@ -256,6 +260,61 @@ describe('Project', () => {
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Keyboard shortcuts' })
     ).toBeInTheDocument();
+    expect(screen.getByText('Toggle my tasks in the filter')).toBeInTheDocument();
+    expect(screen.getByText('Clear all filters')).toBeInTheDocument();
+  });
+
+  it('toggles the my-tasks filter with q and clears it with x from the board shell', async () => {
+    const projectId = 'p-shell-board-filter';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    users.users = [me];
+
+    render(Project, { props: { projectId, view: 'board' } });
+    await screen.findByRole('heading', { name: 'Rulebook' });
+
+    pressKey('q', projectId, 'board');
+    expect(board.filterAssigneeIds).toEqual([me.id]);
+    expect(await screen.findByTitle('Filter by Ada')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
+
+    pressKey('x', projectId, 'board');
+    expect(board.hasActiveFilters).toBe(false);
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('clears an active filter with x from the graph shell', async () => {
+    const projectId = 'p-shell-graph-filter';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'graph' } });
+    await screen.findByRole('heading', { name: 'Rulebook' });
+
+    board.setFilterQuery('boss');
+    expect(await screen.findByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
+
+    pressKey('x', projectId, 'graph');
+    expect(board.filterQuery).toBe('');
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('leaves the filters alone when x is pressed behind the label manager', async () => {
+    const projectId = 'p-shell-board-modal';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'board' } });
+    await screen.findByRole('heading', { name: 'Rulebook' });
+
+    board.setFilterQuery('boss');
+    await fireEvent.click(screen.getByRole('button', { name: 'Labels' }));
+    await screen.findByRole('heading', { level: 2, name: 'Labels' });
+
+    pressKey('x', projectId, 'board');
+    expect(board.filterQuery).toBe('boss');
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
   });
 
   it('opens the label menu for the open task from the graph overlay', async () => {

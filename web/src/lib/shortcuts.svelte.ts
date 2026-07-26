@@ -3,6 +3,7 @@ import type { DependencyDirection } from './dependency-types';
 import { append } from './positions';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
+import { session } from './session.svelte';
 
 const CHORD_WINDOW_MS = 800;
 
@@ -16,6 +17,12 @@ function isEditableTarget(): boolean {
     return true;
   }
   return (el as HTMLElement).isContentEditable;
+}
+
+// Only marked dialogs own the keymap; the task overlay is an unmarked <dialog>
+// whose keys must stay live.
+function modalOwnsKeymap(): boolean {
+  return document.querySelector('dialog[data-modal][open]') !== null;
 }
 
 class ShortcutController {
@@ -65,6 +72,10 @@ class ShortcutController {
         this.closeMenus();
         event.preventDefault();
       }
+      return;
+    }
+
+    if (modalOwnsKeymap()) {
       return;
     }
 
@@ -183,11 +194,37 @@ class ShortcutController {
         this.helpOpen = true;
         break;
       case 'f':
+      case 'F':
         // A modified press is the browser's find-in-page, not ours.
         if (!filterBarActive || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
         this.filterFocusRequested = true;
+        break;
+      case 'q':
+      case 'Q': {
+        if (!filterBarActive || event.metaKey || event.ctrlKey || event.altKey) {
+          return;
+        }
+        const userId = session.user?.id;
+        if (userId === undefined) {
+          return;
+        }
+        board.toggleAssigneeFilter(userId);
+        break;
+      }
+      case 'x':
+      case 'X':
+        if (
+          !filterBarActive ||
+          !board.hasActiveFilters ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.altKey
+        ) {
+          return;
+        }
+        board.clearFilters();
         break;
       // A modified press belongs to the browser (Cmd+L, Cmd+A, Cmd+B), not to us.
       case 'l':

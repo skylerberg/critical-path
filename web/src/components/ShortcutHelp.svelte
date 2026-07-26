@@ -47,12 +47,19 @@
       ],
     },
     {
+      heading: 'Filters',
+      bindings: [
+        { keys: ['f'], label: 'Filter tasks' },
+        { keys: ['q'], label: 'Toggle my tasks in the filter' },
+        { keys: ['x'], label: 'Clear all filters' },
+      ],
+    },
+    {
       heading: 'Navigation',
       bindings: [
         { keys: ['g', 'b'], label: 'Go to board', chord: true },
         { keys: ['g', 'g'], label: 'Go to graph', chord: true },
         { keys: ['g', 'p'], label: 'Go to projects', chord: true },
-        { keys: ['f'], label: 'Filter tasks' },
         { keys: ['?'], label: 'Show this help' },
       ],
     },
