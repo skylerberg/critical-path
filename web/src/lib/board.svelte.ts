@@ -1,7 +1,7 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
-import type { BoardColumn, BoardLabel, BoardProject, BoardTask } from './board-types';
-import { buildGraph, cycleNodeIds } from './graph';
+import type { BoardColumn, BoardLabel, BoardProject, BoardTask, CycleTask } from './board-types';
+import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
 import { append, between, prepend } from './positions';
@@ -33,6 +33,47 @@ export function positionAfterDrop(
   return next === null ? append(others) : between(prev, next);
 }
 
+const CYCLE_PATH_MS = 5000;
+const MAX_CYCLE_TITLES = 6;
+const MAX_CYCLE_TITLE_CHARS = 40;
+
+function truncateTitle(title: string): string {
+  return title.length > MAX_CYCLE_TITLE_CHARS ? `${title.slice(0, MAX_CYCLE_TITLE_CHARS)}…` : title;
+}
+
+// Elision keeps the repeated last entry so the message still reads as a loop.
+function cycleMessage(prefix: string, titles: readonly string[]): string {
+  if (titles.length === 0) {
+    return prefix;
+  }
+  const shown = titles.map(truncateTitle);
+  const parts =
+    shown.length <= MAX_CYCLE_TITLES
+      ? shown
+      : [...shown.slice(0, MAX_CYCLE_TITLES - 2), '…', shown[shown.length - 1]!];
+  return `${prefix}: ${parts.join(' → ')}`;
+}
+
+// Null unless the server sent a well-formed path, so a pod that predates the
+// `cycle` key still falls back to the plain message.
+function cycleFromApiError(error: unknown): { message: string; cycle: CycleTask[] } | null {
+  if (!(error instanceof ApiError) || error.status !== 409) {
+    return null;
+  }
+  const cycle = (error.body as { cycle?: unknown } | null | undefined)?.cycle;
+  if (!Array.isArray(cycle) || cycle.length === 0) {
+    return null;
+  }
+  const steps = cycle.filter(
+    (step): step is CycleTask =>
+      typeof step === 'object' &&
+      step !== null &&
+      typeof (step as { id?: unknown }).id === 'string' &&
+      typeof (step as { title?: unknown }).title === 'string'
+  );
+  return steps.length === cycle.length ? { message: error.message, cycle: steps } : null;
+}
+
 class BoardStore {
   project = $state<BoardProject | null>(null);
   columns = $state<BoardColumn[]>([]);
@@ -48,11 +89,13 @@ class BoardStore {
   filterQuery = $state('');
   // In the store rather than the view so it survives switching views and back.
   graphShowDone = $state(false);
+  cyclePath = $state<CycleTask[] | null>(null);
 
   // Monotonic tokens rather than project-id checks: ids cannot tell a stale
   // request apart from a fresh one across a P1->P2->P1 flip.
   #loadToken = 0;
   #fetchToken = 0;
+  #cyclePathTimer: ReturnType<typeof setTimeout> | null = null;
 
   async load(projectId: string): Promise<void> {
     if (this.currentProjectId === projectId && this.error === null) {
@@ -116,6 +159,23 @@ class BoardStore {
     this.filterAssigneeIds = [];
     this.filterQuery = '';
     this.graphShowDone = false;
+    this.#clearCyclePath();
+  }
+
+  #clearCyclePath(): void {
+    if (this.#cyclePathTimer !== null) {
+      clearTimeout(this.#cyclePathTimer);
+      this.#cyclePathTimer = null;
+    }
+    this.cyclePath = null;
+  }
+
+  // Expires alongside the toast that explains it, so the highlight never
+  // outlives its own caption.
+  #showCyclePath(path: CycleTask[]): void {
+    this.#clearCyclePath();
+    this.cyclePath = path;
+    this.#cyclePathTimer = setTimeout(() => this.#clearCyclePath(), CYCLE_PATH_MS);
   }
 
   tasksInColumn(columnId: string): BoardTask[] {
@@ -427,13 +487,29 @@ class BoardStore {
     const { nodes, edges } = buildGraph(next, this.columns);
     const onCycle = cycleNodeIds(nodes, edges);
     if (onCycle.size > 0) {
+      const titleById = new Map(nodes.map((node) => [node.id, node.title]));
+      const steps = cyclePathIds(edges, taskId, blockerTaskId).map((id) => ({
+        id,
+        title: titleById.get(id) ?? '',
+      }));
       // A done task on the loop is one the graph may not be drawing, so the edge
-      // that makes this a cycle can be nowhere on screen.
-      const throughDone = nodes.some((node) => onCycle.has(node.id) && node.isDone);
+      // that makes this a cycle can be nowhere on screen. `onCycle` also holds
+      // everything downstream of the loop, so it only answers when nothing named it.
+      const doneIds = new Set(nodes.filter((node) => node.isDone).map((node) => node.id));
+      const throughDone =
+        steps.length > 0
+          ? steps.some((step) => doneIds.has(step.id))
+          : nodes.some((node) => onCycle.has(node.id) && node.isDone);
+      if (steps.length > 0) {
+        this.#showCyclePath(steps);
+      }
       toasts.error(
-        throughDone
-          ? 'Adding this blocker would create a dependency cycle through a done task'
-          : 'Adding this blocker would create a dependency cycle'
+        cycleMessage(
+          throughDone
+            ? 'Adding this blocker would create a dependency cycle through a done task'
+            : 'Adding this blocker would create a dependency cycle',
+          steps.map((step) => step.title)
+        )
       );
       return false;
     }
@@ -447,7 +523,7 @@ class BoardStore {
       );
       return true;
     } catch (error) {
-      await this.#mutationFailed(error);
+      await this.#cycleConflictOrFail(error);
       return false;
     }
   }
@@ -729,6 +805,22 @@ class BoardStore {
 
   async #mutationFailed(error: unknown): Promise<void> {
     toasts.error(error instanceof ApiError ? error.message : 'Something went wrong');
+    await this.refetch();
+  }
+
+  async #cycleConflictOrFail(error: unknown): Promise<void> {
+    const named = cycleFromApiError(error);
+    if (named === null) {
+      await this.#mutationFailed(error);
+      return;
+    }
+    this.#showCyclePath(named.cycle);
+    toasts.error(
+      cycleMessage(
+        named.message,
+        named.cycle.map((step) => step.title)
+      )
+    );
     await this.refetch();
   }
 

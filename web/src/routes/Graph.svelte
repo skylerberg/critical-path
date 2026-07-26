@@ -11,6 +11,7 @@
     NODE_HEIGHT,
     NODE_WIDTH,
     computeGraph,
+    edgeId,
     edgePath,
     panToNode,
     type GraphLayout,
@@ -55,6 +56,36 @@
     const task = taskById.get(id);
     return task !== undefined && board.taskMatchesFilters(task);
   }
+
+  const cycleIds = $derived(board.cyclePath?.map((step) => step.id) ?? []);
+  const cycleNodes = $derived(new Set(cycleIds));
+  // Every pair but the last: the closing hop is the edge that does not exist yet.
+  const cycleEdges = $derived(
+    new Set(cycleIds.slice(0, -2).map((id, i) => edgeId(id, cycleIds[i + 1]!)))
+  );
+  const cycleClosingEdge = $derived(
+    cycleIds.length >= 3 ? { from: cycleIds.at(-2)!, to: cycleIds.at(-1)! } : null
+  );
+  // Every edge on the loop runs low rank to high rank, so the closing hop runs
+  // backwards: it leaves and enters the faces that point at each other and swings
+  // below the loop's row, where a straight line would instead lie along the very
+  // edges it has to be told apart from, behind the nodes and arrowhead first.
+  const CYCLE_CLOSING_BOW = 72;
+  const CYCLE_CLOSING_REACH = 60;
+  const cycleClosingPath = $derived.by(() => {
+    if (cycleClosingEdge === null || layout === null) return null;
+    const from = layout.nodes.find((n) => n.id === cycleClosingEdge.from);
+    const to = layout.nodes.find((n) => n.id === cycleClosingEdge.to);
+    if (from === undefined || to === undefined) return null;
+    const side = from.x > to.x ? -1 : 1;
+    const start = { x: from.x + (side * NODE_WIDTH) / 2, y: from.y };
+    const end = { x: to.x - (side * NODE_WIDTH) / 2, y: to.y };
+    const bowY =
+      Math.max(...layout.nodes.filter((n) => cycleNodes.has(n.id)).map((n) => n.y)) +
+      CYCLE_CLOSING_BOW;
+    const reach = side * CYCLE_CLOSING_REACH;
+    return `M ${start.x} ${start.y} C ${start.x + reach} ${bowY} ${end.x - reach} ${bowY} ${end.x} ${end.y}`;
+  });
 
   let cycleToastedFor: string | null = null;
   $effect(() => {
@@ -622,16 +653,44 @@
         >
           <path d="M 0 1 L 9 5 L 0 9 z" class="fill-accent" />
         </marker>
+        <marker
+          id="cp-graph-arrow-cycle"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="11"
+          markerHeight="11"
+          markerUnits="userSpaceOnUse"
+          orient="auto"
+        >
+          <path d="M 0 1 L 9 5 L 0 9 z" class="fill-danger" />
+        </marker>
       </defs>
       {#each layout.edges as e (e.id)}
+        {@const onCycle = cycleEdges.has(e.id)}
         <path
           d={edgePath(e.points)}
+          data-cycle-edge={onCycle ? '' : undefined}
           fill="none"
-          class="stroke-muted {selectedEdgeId === e.id ? 'opacity-100' : 'opacity-50'}"
-          stroke-width={selectedEdgeId === e.id ? 3.5 : 1.5}
-          marker-end="url(#cp-graph-arrow)"
+          class={onCycle
+            ? 'stroke-danger opacity-100'
+            : `stroke-muted ${selectedEdgeId === e.id ? 'opacity-100' : 'opacity-50'}`}
+          stroke-width={onCycle ? 3 : selectedEdgeId === e.id ? 3.5 : 1.5}
+          marker-end="url(#cp-graph-arrow{onCycle ? '-cycle' : ''})"
         />
       {/each}
+      {#if cycleClosingPath}
+        <path
+          d={cycleClosingPath}
+          data-cycle-closing-edge=""
+          fill="none"
+          class="stroke-danger"
+          stroke-width="2"
+          stroke-dasharray="6 5"
+          marker-end="url(#cp-graph-arrow-cycle)"
+          pointer-events="none"
+        />
+      {/if}
       {#each layout.edges as e (e.id)}
         <path
           d={edgePath(e.points)}
@@ -673,11 +732,13 @@
         {@const labelMatch = nodeLabelMatch(n.id)}
         {@const emphasis = isTarget || pulse || labelMatch}
         {@const dimmed = nodeDimmed(n.id)}
+        {@const onCycle = cycleNodes.has(n.id)}
         <g
           transform="translate({n.x - NODE_WIDTH / 2} {n.y - NODE_HEIGHT / 2})"
           data-node-id={n.id}
           data-highlight={pulse ? '' : undefined}
-          class="group {pulse
+          data-cycle={onCycle ? '' : undefined}
+          class="group {pulse || onCycle
             ? 'opacity-100'
             : dimmed
               ? 'opacity-25'
@@ -689,10 +750,12 @@
             width={NODE_WIDTH}
             height={NODE_HEIGHT}
             rx="10"
-            class="fill-surface {emphasis ? 'stroke-accent' : 'stroke-edge'} {pulse
-              ? 'cp-node-pulse'
-              : ''}"
-            stroke-width={isTarget ? 3 : pulse ? 3 : labelMatch ? 2.5 : 1}
+            class="fill-surface {onCycle
+              ? 'stroke-danger'
+              : emphasis
+                ? 'stroke-accent'
+                : 'stroke-edge'} {pulse ? 'cp-node-pulse' : ''}"
+            stroke-width={onCycle || isTarget || pulse ? 3 : labelMatch ? 2.5 : 1}
           />
           <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
             <a

@@ -5,6 +5,7 @@ import {
   NODE_WIDTH,
   buildGraph,
   computeGraph,
+  cyclePathIds,
   detectCycle,
   edgeId,
   edgePath,
@@ -102,6 +103,40 @@ describe('detectCycle', () => {
     const nodes = [node('a'), node('b'), node('c'), node('d')];
     const edges = [edge('a', 'b'), edge('b', 'c'), edge('c', 'b'), edge('a', 'd')];
     expect(detectCycle(nodes, edges)).toBe(true);
+  });
+});
+
+describe('cyclePathIds', () => {
+  it('walks the chain from the blocked task to the blocker and closes the loop', () => {
+    const edges = [edge('a', 'b'), edge('b', 'c')];
+    expect(cyclePathIds(edges, 'a', 'c')).toEqual(['a', 'b', 'c', 'a']);
+  });
+
+  it('returns nothing when the edge would not close a loop', () => {
+    const edges = [edge('a', 'b'), edge('b', 'c')];
+    expect(cyclePathIds(edges, 'c', 'a')).toEqual([]);
+    expect(cyclePathIds([], 'a', 'b')).toEqual([]);
+  });
+
+  it('names a direct two-task loop', () => {
+    expect(cyclePathIds([edge('a', 'b')], 'a', 'b')).toEqual(['a', 'b', 'a']);
+  });
+
+  it('reports one shortest branch of a diamond', () => {
+    const edges = [edge('a', 'b'), edge('a', 'c'), edge('b', 'd'), edge('c', 'd')];
+    const path = cyclePathIds(edges, 'a', 'd');
+
+    expect(path).toHaveLength(4);
+    expect(path[0]).toBe('a');
+    expect(path[3]).toBe('a');
+    expect(path[2]).toBe('d');
+    expect(['b', 'c']).toContain(path[1]);
+  });
+
+  it('terminates on edges that already contain a cycle', () => {
+    const edges = [edge('x', 'y'), edge('y', 'x'), edge('a', 'b'), edge('b', 'c')];
+    expect(cyclePathIds(edges, 'a', 'c')).toEqual(['a', 'b', 'c', 'a']);
+    expect(cyclePathIds(edges, 'x', 'y')).toEqual(['x', 'y', 'x']);
   });
 });
 

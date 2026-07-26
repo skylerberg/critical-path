@@ -5,7 +5,7 @@ import { flushSync } from 'svelte';
 import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
-import { computeGraph, panToNode, type ViewBox } from '../lib/graph';
+import { NODE_HEIGHT, NODE_WIDTH, computeGraph, panToNode, type ViewBox } from '../lib/graph';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 
@@ -58,6 +58,34 @@ function parsePreview(d: string): { start: [number, number]; end: [number, numbe
   const m = d.match(/^M\s+([-\d.]+)\s+([-\d.]+)\s+L\s+([-\d.]+)\s+([-\d.]+)$/);
   if (m === null) throw new Error(`unexpected preview path: ${d}`);
   return { start: [Number(m[1]), Number(m[2])], end: [Number(m[3]), Number(m[4])] };
+}
+
+function nodeBox(
+  container: HTMLElement,
+  id: string
+): { left: number; right: number; bottom: number; centerY: number } {
+  const transform = container.querySelector(`[data-node-id="${id}"]`)?.getAttribute('transform');
+  const m = (transform ?? '').match(/^translate\(([-\d.]+) ([-\d.]+)\)$/);
+  if (m === null) throw new Error(`unexpected node transform: ${String(transform)}`);
+  const left = Number(m[1]);
+  const top = Number(m[2]);
+  return {
+    left,
+    right: left + NODE_WIDTH,
+    bottom: top + NODE_HEIGHT,
+    centerY: top + NODE_HEIGHT / 2,
+  };
+}
+
+type Point = [number, number];
+
+function parseClosingPath(d: string): { start: Point; c1: Point; c2: Point; end: Point } {
+  const n = /^M ([-\d.]+) ([-\d.]+) C ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)$/
+    .exec(d)
+    ?.slice(1)
+    .map(Number);
+  if (n === undefined) throw new Error(`unexpected closing path: ${d}`);
+  return { start: [n[0]!, n[1]!], c1: [n[2]!, n[3]!], c2: [n[4]!, n[5]!], end: [n[6]!, n[7]!] };
 }
 
 beforeEach(() => {
@@ -267,8 +295,9 @@ describe('Graph dependency editing', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('guards a cycle-forming drop: toasts once and keeps the graph drawn', async () => {
-    const projectId = 'p-graph-cycle-guard';
+  // a -> b -> c, then dragging c's front handle onto a asks for c to block a,
+  // which closes the loop a -> b -> c -> a.
+  async function rejectCycleFormingDrop(projectId: string) {
     fetchMock.mockImplementation(async () =>
       jsonResponse(
         200,
@@ -276,24 +305,96 @@ describe('Graph dependency editing', () => {
       )
     );
 
-    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    const rendered = render(Project, { props: { projectId, view: 'graph' } });
 
     await waitFor(() => {
-      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(3);
+      expect(rendered.container.querySelectorAll('[data-node-id]')).toHaveLength(3);
     });
-    const handle = container.querySelector('[data-connect-handle="c"]');
-    const targetNode = container.querySelector('[data-node-id="a"]');
-    stubElementFromPoint(targetNode);
+    const handle = rendered.container.querySelector('[data-connect-handle="c"]');
+    stubElementFromPoint(rendered.container.querySelector('[data-node-id="a"]'));
 
     await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
     await fireEvent.pointerUp(window, { pointerId: 1, clientX: 10, clientY: 10 });
 
+    return rendered;
+  }
+
+  it('guards a cycle-forming drop: names the loop, toasts once, keeps the graph drawn', async () => {
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-guard');
+
     expect(container.querySelector('svg[aria-label="Dependency graph"]')).not.toBeNull();
     expect(screen.queryByText('Dependency cycle detected')).not.toBeInTheDocument();
     expect(toasts.toasts.map((t) => t.message)).toEqual([
-      'Adding this blocker would create a dependency cycle',
+      'Adding this blocker would create a dependency cycle: Task a → Task b → Task c → Task a',
     ]);
     expect(board.tasks.find((t) => t.id === 'a')?.blocker_ids).toEqual([]);
+  });
+
+  it('outlines the loop nodes, its existing edges, and the edge that would close it', async () => {
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-highlight');
+
+    expect(
+      [...container.querySelectorAll('[data-cycle]')].map((n) => n.getAttribute('data-node-id'))
+    ).toEqual(['a', 'b', 'c']);
+    expect(container.querySelectorAll('[data-cycle-edge]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-cycle-closing-edge]')).toHaveLength(1);
+    for (const path of container.querySelectorAll('[data-cycle-edge]')) {
+      expect(path.getAttribute('class')).toContain('stroke-danger');
+    }
+  });
+
+  it('routes the closing edge into the target and clear of the loop row', async () => {
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-closing-shape');
+
+    const closing = container.querySelector('[data-cycle-closing-edge]');
+    expect(closing).not.toBeNull();
+    const path = parseClosingPath(closing!.getAttribute('d') ?? '');
+    const a = nodeBox(container, 'a');
+    const c = nodeBox(container, 'c');
+
+    expect(path.start).toEqual([c.left, c.centerY]);
+    expect(path.end).toEqual([a.right, a.centerY]);
+    // The last control point sits beyond the endpoint, so the arrowhead arrives
+    // travelling into the node instead of out of its far side.
+    expect(path.c2[0]).toBeGreaterThan(path.end[0]);
+    // Midpoint of the cubic: the drawn curve, not just its controls, must clear the row.
+    const apex =
+      0.125 * path.start[1] + 0.375 * path.c1[1] + 0.375 * path.c2[1] + 0.125 * path.end[1];
+    const row = Math.max(a.bottom, nodeBox(container, 'b').bottom, c.bottom);
+    expect(apex).toBeGreaterThan(row);
+  });
+
+  it('never offers to break the loop it just named', async () => {
+    await rejectCycleFormingDrop('p-graph-cycle-no-fix');
+
+    expect(screen.queryByRole('button', { name: 'Remove dependency' })).toBeNull();
+  });
+
+  it('keeps a filtered-out loop node fully visible', async () => {
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-filtered');
+
+    board.setFilterQuery('Task b');
+    flushSync();
+
+    const nodes = [...container.querySelectorAll('[data-cycle]')];
+    expect(nodes).toHaveLength(3);
+    for (const node of nodes) {
+      expect(node.getAttribute('class')).not.toContain('opacity-25');
+    }
+  });
+
+  it('clears the loop highlight once it expires', async () => {
+    vi.useFakeTimers();
+    const { container } = await rejectCycleFormingDrop('p-graph-cycle-expiry');
+
+    expect(container.querySelectorAll('[data-cycle]')).toHaveLength(3);
+
+    vi.advanceTimersByTime(5000);
+    flushSync();
+
+    expect(container.querySelectorAll('[data-cycle]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-cycle-edge]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-cycle-closing-edge]')).toHaveLength(0);
   });
 
   it('selects an edge and removes the dependency via the delete chip', async () => {
