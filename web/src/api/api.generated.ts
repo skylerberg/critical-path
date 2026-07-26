@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/cycle-path-in-error/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/transfer-project-ownership/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -297,6 +297,26 @@ export interface paths {
          * @description Add a user to a project by their exact email (case-insensitive). Anyone with access may call; non-accessors get 404. An unknown email returns 404. Adding an existing member — or the creator, who has implicit access — is an idempotent no-op.
          */
         post: operations["postApiProjectsByIdMembersByEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Transfer project ownership
+         * @description Hand a project to another member. Only the current creator may call: other members with access get 403 and non-accessors get 404. user_id must already be a project member (422 otherwise). The incoming owner becomes created_by and their member row is dropped; the outgoing creator gains an ordinary member row and may then leave via PUT /:id/members. Passing your own id is a no-op. Task assignments are unaffected.
+         */
+        put: operations["putApiProjectsByIdOwner"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -753,6 +773,10 @@ export interface components {
         };
         ProjectMemberUserResponse: {
             user: components["schemas"]["User"];
+        };
+        SetProjectOwner: {
+            /** Format: uuid */
+            user_id: string;
         };
         Column: {
             created_at: string;
@@ -1930,6 +1954,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putApiProjectsByIdOwner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetProjectOwner"];
+            };
+        };
+        responses: {
+            /** @description The project with its new owner */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */

@@ -20,6 +20,10 @@
   const canLeave = $derived(
     session.user !== null && (project?.member_ids.includes(session.user.id) ?? false)
   );
+  const isOwner = $derived(session.user !== null && project?.created_by === session.user.id);
+
+  let transferTargetId = $state<string | null>(null);
+  let transferring = $state(false);
 
   // Membership changes publish no user event, so a collaborator added to a shared
   // board since app start is missing from the cached directory this modal reads.
@@ -38,6 +42,17 @@
       project.id,
       project.member_ids.filter((id) => id !== userId)
     );
+  }
+
+  async function transfer(): Promise<void> {
+    if (project === undefined || transferTargetId === null) return;
+    transferring = true;
+    try {
+      await projects.transferOwnership(project.id, transferTargetId);
+    } finally {
+      transferring = false;
+      transferTargetId = null;
+    }
   }
 
   function leave(): void {
@@ -61,6 +76,16 @@
     {#if owner}
       <Badge>Owner</Badge>
     {:else if userId !== session.user?.id}
+      {#if isOwner}
+        <button
+          type="button"
+          aria-label="Make {name} the owner"
+          onclick={() => (transferTargetId = userId)}
+          class="flex min-h-11 cursor-pointer items-center justify-center rounded-md px-2 text-sm text-muted hover:bg-accent-soft"
+        >
+          Make owner
+        </button>
+      {/if}
       <button
         type="button"
         aria-label="Remove {name}"
@@ -88,7 +113,28 @@
         <MemberPicker {projectId} />
       </div>
 
-      {#if canLeave}
+      {#if transferTargetId !== null}
+        <div class="flex flex-col gap-2 border-t border-edge pt-4">
+          <p class="text-sm text-muted">
+            Make {displayName(transferTargetId)} the owner? You become an ordinary member and can then
+            leave this board.
+          </p>
+          <div class="flex gap-2">
+            <Button onclick={transfer} disabled={transferring}>Transfer ownership</Button>
+            <Button
+              variant="secondary"
+              disabled={transferring}
+              onclick={() => (transferTargetId = null)}>Cancel</Button
+            >
+          </div>
+        </div>
+      {:else if isOwner}
+        <div class="flex flex-col gap-2 border-t border-edge pt-4">
+          <p class="text-sm text-muted">
+            Owners can't leave a board. Make someone else the owner first.
+          </p>
+        </div>
+      {:else if canLeave}
         <div class="flex flex-col gap-2 border-t border-edge pt-4">
           <p class="text-sm text-muted">
             Leaving removes your access to this board and unassigns your tasks.
