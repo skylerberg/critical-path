@@ -1,8 +1,22 @@
 import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
+import { sql } from 'kysely';
 import { TestContext, TestUser } from '../../setup/testContext';
+import { db } from '../../helpers/database';
 import { newId, rawJsonWithPosition } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { ProjectFixtures, validDescription, descriptionWithLink } from './taskFixtures';
+
+async function waitForLockWaiters(count: number, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const { rows } = await sql<{ waiting: string }>`
+      select count(*) as waiting from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock'
+    `.execute(db);
+    if (Number(rows[0]!.waiting) >= count || Date.now() > deadline) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 describe('Tasks CRUD', () => {
   const ctx = new TestContext();
@@ -309,6 +323,194 @@ describe('Tasks CRUD', () => {
         .request(user.token)
         .patch(`/api/tasks/${id}`, { column_id: otherColumn, position: 500 });
       expect(res.status).toBe(422);
+    });
+
+    it('accepts a title patch whose expected_updated_at matches the stored row', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+        title: 'guarded rename',
+        expected_updated_at: original.updated_at,
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()).title).toBe('guarded rename');
+    });
+
+    it('round-trips its own updated_at as the next precondition', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      const first = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+        title: 'first',
+        expected_updated_at: original.updated_at,
+      });
+      expect(first.status).toBe(200);
+      const afterFirst = await first.json();
+
+      const second = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+        title: 'second',
+        expected_updated_at: afterFirst.updated_at,
+      });
+      expect(second.status).toBe(200);
+      expect((await second.json()).title).toBe('second');
+    });
+
+    it('returns 409 and writes nothing when expected_updated_at is stale', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      const winner = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { title: 'first' });
+      expect(winner.status).toBe(200);
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+        title: 'second',
+        expected_updated_at: original.updated_at,
+      });
+      expect(res.status).toBe(409);
+      expect(typeof (await res.json()).error).toBe('string');
+
+      const after = await ctx.request(user.token).get(`/api/tasks/${original.id}`);
+      expect((await after.json()).title).toBe('first');
+    });
+
+    it('returns 409 for a stale description write and leaves the stored description intact', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      const winner = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { description: validDescription() });
+      expect(winner.status).toBe(200);
+      const stored = (await winner.json()).description;
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+        description: descriptionWithLink('https://example.com'),
+        expected_updated_at: original.updated_at,
+      });
+      expect(res.status).toBe(409);
+
+      const after = await ctx.request(user.token).get(`/api/tasks/${original.id}`);
+      expect((await after.json()).description).toEqual(stored);
+    });
+
+    it('still accepts a title patch with no precondition', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      await ctx.request(user.token).patch(`/api/tasks/${original.id}`, { title: 'first' });
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { title: 'unguarded' });
+      expect(res.status).toBe(200);
+      expect((await res.json()).title).toBe('unguarded');
+    });
+
+    it('ignores expected_updated_at on a pure move', async () => {
+      const targetColumn = await fixtures.createColumn(projectId, {
+        name: 'Moved',
+        position: 3000,
+      });
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      const bump = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { title: 'bumped' });
+      expect(bump.status).toBe(200);
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+        column_id: targetColumn,
+        position: 500,
+        expected_updated_at: original.updated_at,
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()).column_id).toBe(targetColumn);
+    });
+
+    it('still bumps updated_at on a pure move', async () => {
+      const targetColumn = await fixtures.createColumn(projectId, {
+        name: 'Move bump',
+        position: 4000,
+      });
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { column_id: targetColumn, position: 500 });
+      expect(res.status).toBe(200);
+      expect(new Date((await res.json()).updated_at).getTime()).toBeGreaterThan(
+        new Date(original.updated_at).getTime()
+      );
+    });
+
+    it('rejects a non-date expected_updated_at with 422', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${id}`, { title: 'x', expected_updated_at: 'nonsense' });
+      expect(res.status).toBe(422);
+      expect((await res.json()).error).toBe('Validation failed');
+    });
+
+    it('404s for an inaccessible task even with a valid precondition', async () => {
+      const outsider = await ctx.createUser('tasks-crud-outsider');
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      const res = await ctx.request(outsider.token).patch(`/api/tasks/${original.id}`, {
+        title: 'not yours',
+        expected_updated_at: original.updated_at,
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it('lets exactly one of two concurrent guarded patches win', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // Pinning the row until both patches are in flight is what makes this test fail if the
+      // guard ever stops locking the row it reads.
+      const holder = db.transaction().execute(async (trx) => {
+        await trx
+          .selectFrom('task')
+          .select('task.id')
+          .where('task.id', '=', original.id)
+          .forUpdate()
+          .execute();
+        await released;
+      });
+
+      const patches = Promise.all([
+        ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+          title: 'A',
+          expected_updated_at: original.updated_at,
+        }),
+        ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+          title: 'B',
+          expected_updated_at: original.updated_at,
+        }),
+      ]);
+      await waitForLockWaiters(2);
+      release();
+      await holder;
+      const [a, b] = await patches;
+
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+
+      const winnerTitle = (await (a.status === 200 ? a : b).json()).title;
+      const after = await ctx.request(user.token).get(`/api/tasks/${original.id}`);
+      expect((await after.json()).title).toBe(winnerTitle);
     });
   });
 

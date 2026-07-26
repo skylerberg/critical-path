@@ -1,5 +1,5 @@
 import { type } from 'arktype';
-import { uuid, stringWithLength, boundedUuidArray, finiteNumber } from './common';
+import { uuid, stringWithLength, boundedUuidArray, finiteNumber, isoDateString } from './common';
 import { nullableTiptapDocSchema } from './tiptap';
 import { boardTaskSchema } from './board';
 import { imageResponseSchema } from './images';
@@ -20,6 +20,7 @@ export const patchTaskSchema = type({
   'description?': nullableTiptapDocSchema,
   'column_id?': uuid,
   'position?': finiteNumber,
+  'expected_updated_at?': isoDateString,
 });
 
 export const taskDetailResponseSchema = boardTaskSchema.merge({

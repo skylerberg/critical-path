@@ -127,6 +127,19 @@ describe('Realtime end to end', () => {
     expect(event.data).toMatchObject({ title: 'Renamed task' });
   });
 
+  it('publishes no task_updated when the precondition fails', async () => {
+    const before = clientB.eventsOfType('task_updated').length;
+
+    const res = await ctx.request(userA.token).patch(`/api/tasks/${taskId}`, {
+      title: 'Stale rename',
+      expected_updated_at: '2020-01-01T00:00:00.000Z',
+    });
+    expect(res.status).toBe(409);
+
+    await settle();
+    expect(clientB.eventsOfType('task_updated')).toHaveLength(before);
+  });
+
   it('delivers label_created and task_relations_set for label changes', async () => {
     const labelId = newId();
     const labelRes = await ctx.request(userA.token).post('/api/labels', {
