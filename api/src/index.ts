@@ -34,6 +34,7 @@ import { Variables } from './types/index';
 import { db } from './db/index';
 import { attachRealtime, initRedisBus, closeRedisBus } from './services/realtime/index';
 import { closeRedis } from './services/redis';
+import { startWebhookWorker } from './services/webhooks/index';
 import { logger } from './utils/logger';
 
 import authRouter from './routes/auth';
@@ -50,6 +51,7 @@ import commentsRouter from './routes/comments';
 import imagesRouter from './routes/images';
 import feedbackRouter from './routes/feedback';
 import publicBoardsRouter from './routes/publicBoards';
+import webhooksRouter from './routes/webhooks';
 
 export const app = new Hono<{ Variables: Variables }>();
 
@@ -130,6 +132,7 @@ const openAPIOptions = {
       { name: 'Images', description: 'Task image upload and retrieval' },
       { name: 'Avatars', description: 'User profile image upload and retrieval' },
       { name: 'Feedback', description: 'User-submitted product feedback' },
+      { name: 'Webhooks', description: 'Per-project outbound HTTP callbacks' },
       { name: 'Public', description: 'Unauthenticated read-only board access' },
     ],
   },
@@ -168,6 +171,7 @@ app.route('/api/comments', commentsRouter);
 app.route('/api/images', imagesRouter);
 app.route('/api/avatars', avatarsRouter);
 app.route('/api/feedback', feedbackRouter);
+app.route('/api/webhooks', webhooksRouter);
 app.route('/api/public', publicBoardsRouter);
 
 app.notFound((c) => {
@@ -205,6 +209,7 @@ if (isEntrypoint) {
   );
 
   const realtime = attachRealtime(server);
+  const webhookWorker = startWebhookWorker();
 
   initRedisBus().catch((err: unknown) => {
     logger.error({
@@ -217,6 +222,7 @@ if (isEntrypoint) {
     logger.info({ msg: `${signal} signal received: closing HTTP server` });
     setTimeout(() => process.exit(1), 10_000).unref();
     realtime.close();
+    webhookWorker.close();
     closeRedisBus();
     closeRedis();
     server.close();

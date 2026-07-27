@@ -1,5 +1,9 @@
 import type { AppContext } from '../../types/index';
 import { logger } from '../../utils/logger';
+// Imported from the modules directly, not the barrel, so the sender and its
+// node:http / node:dns dependencies stay out of every module that touches the bus.
+import { isWebhookEvent } from '../webhooks/events';
+import { enqueueDeliveries } from '../webhooks/queue';
 
 export interface RealtimeEnvelope {
   type: string;
@@ -76,7 +80,22 @@ export function publishAfterCommit(
   data: unknown,
   opts?: PublishOptions
 ): void {
-  c.get('postCommitHooks').push(async () => {
+  const hooks = c.get('postCommitHooks');
+  // A separate hook from the webhook flush below: the runner catches each hook
+  // independently, so an enqueue failure can never suppress the publish.
+  hooks.push(async () => {
     publish({ type, project_id: projectId, data, ...opts });
   });
+
+  if (projectId === null || !isWebhookEvent(type)) {
+    return;
+  }
+  // A post-commit hook rather than a bus subscriber: with Redis every replica
+  // sees every entry through the subscription echo, so a subscriber would
+  // enqueue one copy per replica.
+  const pending = c.get('webhookEvents');
+  if (pending.length === 0) {
+    hooks.push(() => enqueueDeliveries(pending));
+  }
+  pending.push({ type, project_id: projectId, data });
 }
