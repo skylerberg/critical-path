@@ -53,8 +53,10 @@ never stored as a member row (`member_ids` in project responses never
 contains `created_by`). Ownership is transferable, and a transfer swaps the
 two representations: the incoming owner's member row is deleted and the
 outgoing owner gains one. Inaccessible projects return 404 everywhere (never
-403), including as a copy source. Management is open: anyone with access can
-manage the member set, and a member may remove themselves to leave.
+403), including as a copy source. Editing is open: anyone with access can
+rename, archive and manage the member set, and a member may remove themselves
+to leave. The two privileged operations are owner-only and answer 403 to a
+member with access: transferring ownership and deleting the project.
 
 - `PUT /api/projects/:id/members` (`{ user_ids: uuid[] }`, up to 100 ids)
   replaces the full member set. The creator's id is silently stripped if
@@ -66,11 +68,15 @@ manage the member set, and a member may remove themselves to leave.
   Unknown emails return 404; adding an existing member or the creator is an
   idempotent no-op.
 - `PUT /api/projects/:id/owner` (`{ user_id }`) transfers ownership and
-  returns the updated project. This is the one privileged project operation:
-  only the current creator may call it (other members get 403, non-accessors
-  404). `user_id` must already be a member (422 otherwise), passing your own
-  id is a no-op, and task assignments are untouched. Afterwards the outgoing
-  creator is an ordinary member and can leave via `PUT /:id/members`.
+  returns the updated project. Only the current creator may call it (other
+  members get 403, non-accessors 404). `user_id` must already be a member (422
+  otherwise), passing your own id is a no-op, and task assignments are
+  untouched. Afterwards the outgoing creator is an ordinary member and can
+  leave via `PUT /:id/members`.
+- `DELETE /api/projects/:id` cascades the whole board, so only the current
+  creator may call it (other members get 403 and nothing is deleted,
+  non-accessors get 404). A member who wants out leaves via
+  `PUT /:id/members`; a creator who wants out transfers first.
 
 `project.created_by` is `ON DELETE RESTRICT`, so an account cannot be deleted
 while it still owns a project — ownership has to move (or the project has to
@@ -310,7 +316,8 @@ there is no flag to recover them.
 `GET /api/public/projects/:id/board` then serves it to anyone who knows the
 project id, with no account and no token; setting `is_public` back to false
 makes that route 404 again on the very next request. Any member may flip the
-flag — the same authority they already have to delete the project.
+flag: publishing is an ordinary edit, like renaming or archiving, and is not
+owner-only the way deleting the project is.
 
 Anonymous reads run through their own unauthenticated router. `is_public` is
 not an arm of the project access predicate, so publishing never widens what an
@@ -847,8 +854,9 @@ npm run openapi:dump && npm run --prefix cli generate-api
 
 - No email verification.
 - Float `position` ordering with no automatic rebalancing.
-- No per-project roles: everyone with access to a project can rename/delete
-  it and manage its member set.
+- No per-project roles beyond the owner bit: everyone with access to a project
+  can rename, archive and publish it and manage its member set; only the owner
+  can transfer ownership or delete it.
 - `GET /api/images/:id` and `GET /api/avatars/:key` are unauthenticated
   capability URLs (unguessable UUIDs) so `<img>` tags work without auth
   headers.

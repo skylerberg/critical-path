@@ -50,6 +50,18 @@ export async function assertProjectAccess(
   return project;
 }
 
+// Ownership only. Callers must assert access first: on its own this answers 403
+// to a caller who cannot see the project, revealing that it exists.
+export function assertProjectOwnedBy(
+  project: { created_by: string | null },
+  userId: string,
+  forbiddenMessage: string
+): void {
+  if (project.created_by !== userId) {
+    throw new AppError(403, forbiddenMessage);
+  }
+}
+
 // Guards the row the caller is about to serve, so the flag can never be read
 // from a different snapshot than the payload it gates.
 export function assertPublicProject(project: { is_public: boolean }): void {

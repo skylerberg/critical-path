@@ -15,6 +15,7 @@ describe('project member commands', () => {
   let member: TestUser;
   let outsider: TestUser;
   let h: CliHarness;
+  let hMember: CliHarness;
   let projectId: string;
 
   beforeAll(async () => {
@@ -24,6 +25,10 @@ describe('project member commands', () => {
     h = await createCliHarness();
     await h.runCli(['login', '--email', user.email, '--password-stdin'], {
       stdin: `${user.password}\n`,
+    });
+    hMember = await createCliHarness();
+    await hMember.runCli(['login', '--email', member.email, '--password-stdin'], {
+      stdin: `${member.password}\n`,
     });
 
     const res = await h.runCli(['project', 'create', 'CLI Members Project', '--json']);
@@ -65,6 +70,17 @@ describe('project member commands', () => {
       { id: user.id, name: user.name, email: user.email, role: 'owner' },
       { id: member.id, name: member.name, email: member.email, role: 'member' },
     ]);
+  });
+
+  it('delete is refused for a member who is not the owner', async () => {
+    await h.runCli(['project', 'invite', projectId, '--email', member.email]);
+
+    const res = await hMember.runCli(['project', 'delete', projectId, '--force']);
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('Only the project owner can delete this project');
+
+    const list = await hMember.runCli(['project', 'list', '--json']);
+    expect(list.json<ProjectListItem[]>().map((p) => p.id)).toContain(projectId);
   });
 
   it('invite with an unknown email exits 4', async () => {
