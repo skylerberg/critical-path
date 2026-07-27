@@ -433,6 +433,66 @@ describe('Realtime end to end', () => {
       await settle();
       expect(clientB.events.slice(from)).toEqual([]);
     });
+
+    it('delivers one task_created when a task is duplicated', async () => {
+      const duplicateColumnId = await makeColumn('Duplicate a card');
+      const sourceId = await makeTask(duplicateColumnId, 1000);
+      const copyId = newId();
+      bulkTasks.push(copyId);
+      // The source card's own task_created is still in flight; without this it
+      // lands after `from` and inflates the count below.
+      await settle();
+
+      const from = clientB.events.length;
+      const res = await ctx
+        .request(userA.token)
+        .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, position: 1500 });
+      expect(res.status).toBe(201);
+
+      const event = await clientB.waitForEvent(
+        (e) => e.type === 'task_created' && e.data.id === copyId,
+        { from }
+      );
+      expect(event.project_id).toBe(projectId);
+      expect(event.data).toMatchObject({ column_id: duplicateColumnId, position: 1500 });
+
+      await settle();
+      expect(clientB.events.slice(from).filter((e) => e.type === 'task_created')).toHaveLength(1);
+      expect(clientC.events).toEqual([]);
+    });
+
+    it('delivers column_created plus one task_created per card when a column is duplicated', async () => {
+      const sourceColumnId = await makeColumn('Duplicate a column');
+      const ids = [await makeTask(sourceColumnId, 1000), await makeTask(sourceColumnId, 2000)];
+      const copyColumnId = newId();
+      bulkColumns.push(copyColumnId);
+      await settle();
+
+      const from = clientB.events.length;
+      const res = await ctx
+        .request(userA.token)
+        .post(`/api/columns/${sourceColumnId}/duplicate`, { id: copyColumnId, position: 30_000 });
+      expect(res.status).toBe(201);
+      const { tasks } = (await res.json()) as { tasks: Array<{ id: string }> };
+      bulkTasks.push(...tasks.map((task) => task.id));
+
+      const created = await clientB.waitForEvent(
+        (e) => e.type === 'column_created' && e.data.id === copyColumnId,
+        { from }
+      );
+      expect(created.project_id).toBe(projectId);
+      for (const task of tasks) {
+        await clientB.waitForEvent((e) => e.type === 'task_created' && e.data.id === task.id, {
+          from,
+        });
+      }
+
+      await settle();
+      const since = clientB.events.slice(from);
+      expect(since.filter((e) => e.type === 'task_created')).toHaveLength(ids.length);
+      expect(since.filter((e) => e.type === 'column_created')).toHaveLength(1);
+      expect(clientC.events).toEqual([]);
+    });
   });
 
   it('delivers image_created and image_deleted with image counts', async () => {

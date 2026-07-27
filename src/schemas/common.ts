@@ -111,3 +111,10 @@ export const boundedUuidArray = (max: number) =>
 export const idSchema = type({
   id: uuid,
 });
+
+// One schema for both duplicate endpoints: two distinct schema objects with the
+// same shape collide in the OpenAPI schema-name registry.
+export const duplicateSchema = type({
+  id: uuid,
+  position: finiteNumber,
+});

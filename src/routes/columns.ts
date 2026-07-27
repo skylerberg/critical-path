@@ -8,13 +8,16 @@ import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectAccess, canAccessProject } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
-import { getArchivedTasksByIds } from '../services/boardPayload';
+import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
+import { copyTasks } from '../services/projectCopy';
 import {
   idSchema,
   createColumnSchema,
   patchColumnSchema,
   columnSchema,
   deleteColumnQuerySchema,
+  duplicateSchema,
+  duplicatedColumnResponseSchema,
   moveColumnTasksSchema,
   movedTasksResponseSchema,
   archivedTasksResponseSchema,
@@ -173,6 +176,104 @@ router.post(
       }
       throw err;
     }
+  }
+);
+
+router.post(
+  '/:id/duplicate',
+  describeRoute({
+    tags: ['Columns'],
+    summary: 'Duplicate a column',
+    description:
+      'Copy a column and every live card in it into the same project. The new column keeps ' +
+      'the source’s name and done flag; each copied card keeps its title, description, due ' +
+      'date, labels, assignees, images, cover image and its position, so the cards land in ' +
+      'the same relative order. A dependency edge is copied only when both of its ends are ' +
+      'inside the copied set, so edges between two cards in the column survive and edges ' +
+      'leaving it do not. Archived cards are not copied, and neither are comments or activity ' +
+      'history — each copy’s log starts with its own created entry. The client supplies the ' +
+      'new column id and its position; a duplicate id returns 409. One column_created event is ' +
+      'published plus one task_created per copied card.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      201: {
+        description: 'The new column and its copied cards in board-payload shape',
+        content: {
+          'application/json': {
+            schema: resolver(duplicatedColumnResponseSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...conflictErrorResponse,
+      ...validationErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  jsonValidator(duplicateSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    const source = await db
+      .selectFrom('board_column')
+      .select(COLUMN_COLUMNS)
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!source) {
+      throw new AppError(404, 'Column not found');
+    }
+    await assertProjectAccess(db, user.id, source.project_id, 'Column not found');
+
+    let inserted;
+    try {
+      inserted = await db
+        .insertInto('board_column')
+        .values({
+          id: body.id,
+          project_id: source.project_id,
+          name: source.name,
+          position: body.position,
+          is_done: source.is_done,
+        })
+        .returning(COLUMN_COLUMNS)
+        .executeTakeFirstOrThrow();
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new AppError(409, 'Column id already exists');
+      }
+      throw err;
+    }
+
+    const sourceTasks = await db
+      .selectFrom('task')
+      .select('id')
+      .where('column_id', '=', id)
+      .where('archived_at', 'is', null)
+      .execute();
+
+    const taskIdMap = await copyTasks(db, {
+      sourceTaskIds: sourceTasks.map((task) => task.id),
+      projectId: source.project_id,
+      actorUserId: user.id,
+      columnIdFor: () => body.id,
+      copyAssignees: true,
+    });
+
+    const column = serializeColumn(inserted);
+    const tasks = (await fetchBoardTaskRows(db, [...taskIdMap.values()])).map((row) => row.task);
+
+    publishAfterCommit(c, 'column_created', source.project_id, column);
+    for (const task of tasks) {
+      publishAfterCommit(c, 'task_created', source.project_id, task);
+    }
+    return c.json({ column, tasks }, 201);
   }
 );
 

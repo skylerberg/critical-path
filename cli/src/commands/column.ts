@@ -4,7 +4,7 @@ import { CliError, EXIT, assertOk } from '../api/errors';
 import { confirmOrAbort } from '../prompt';
 import { resolveBoard, resolveColumn, type BoardPayload } from '../resolve';
 import { sortedColumns, sortedTasksIn } from '../board';
-import { positionForPlacement, type Placement } from '../positions';
+import { positionForPlacement, positionsForIndex, type Placement } from '../positions';
 import type { CliDeps, RuntimeContext } from '../context';
 import type { components } from '../api/api.generated';
 
@@ -174,6 +174,41 @@ export function registerColumn(program: Command, deps: CliDeps): void {
         printColumn(ctx, 'Moved', updated);
       })
     )
+  );
+
+  column.addCommand(
+    leaf('duplicate')
+      .description('Copy a column and its cards, placed directly after the original')
+      .argument('<column>', 'column id or name')
+      .option('--project <project>', 'project id or name')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const board = await resolveBoard(ctx, opts.project as string | undefined);
+          const target = resolveColumn(board, ref);
+          const columns = sortedColumns(board);
+          const index = columns.findIndex((c) => c.id === target.id);
+          const position = positionsForIndex(
+            columns.map((c) => c.position),
+            index + 1,
+            1,
+            'move a column to make room'
+          )[0];
+          const result = assertOk(
+            await ctx.api.POST('/api/columns/{id}/duplicate', {
+              params: { path: { id: target.id } },
+              body: { id: crypto.randomUUID(), position },
+            })
+          );
+          ctx.out.data(result, () => {
+            ctx.out.line(
+              `Duplicated column ${result.column.name} (${result.column.id.slice(0, 8)})`
+            );
+            if (result.tasks.length > 0) {
+              ctx.out.line(`Copied ${String(result.tasks.length)} card(s)`);
+            }
+          });
+        })
+      )
   );
 
   column.addCommand(
