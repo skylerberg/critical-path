@@ -1,4 +1,4 @@
-import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
+import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import Account from './Account.svelte';
@@ -22,6 +22,30 @@ async function bodyOf(request: Request): Promise<unknown> {
   return request.clone().json();
 }
 
+function mockRoutes(status: number, body?: unknown): void {
+  fetchMock.mockImplementation(async (input) => {
+    const request = input as Request;
+    if (new URL(request.url).pathname === '/api/auth/tokens') {
+      return jsonResponse(200, { personal_access_tokens: [] });
+    }
+    return jsonResponse(status, body);
+  });
+}
+
+function requestTo(pathname: string): Request {
+  const call = fetchMock.mock.calls.find(
+    (entry) => new URL((entry[0] as Request).url).pathname === pathname
+  );
+  if (!call) {
+    throw new Error(`No fetch call to ${pathname}`);
+  }
+  return call[0] as Request;
+}
+
+function pathsRequested(): string[] {
+  return fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+}
+
 beforeEach(async () => {
   fetchMock.mockReset();
   vi.mocked(realtime.connect).mockClear();
@@ -36,22 +60,21 @@ beforeEach(async () => {
 
 describe('Account', () => {
   it('updates the name and reflects it in the session', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { ...user, name: 'Ada L' }));
+    mockRoutes(200, { ...user, name: 'Ada L' });
     render(Account);
 
     await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'Ada L' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
 
     expect(await screen.findByText('Name updated')).toBeInTheDocument();
-    const request = requestAt(0);
+    const request = requestTo('/api/auth/me');
     expect(request.method).toBe('PATCH');
-    expect(new URL(request.url).pathname).toBe('/api/auth/me');
     expect(await bodyOf(request)).toEqual({ name: 'Ada L' });
     expect(session.user?.name).toBe('Ada L');
   });
 
   it('shows a taken message on a 409 email conflict', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(409, { error: 'duplicate' }));
+    mockRoutes(409, { error: 'duplicate' });
     render(Account);
 
     await fireEvent.input(screen.getByLabelText('Email'), {
@@ -64,7 +87,7 @@ describe('Account', () => {
   });
 
   it('changes the password, adopts the new session, and stays logged in', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { token: 'tok-2', user }));
+    mockRoutes(200, { token: 'tok-2', user });
     render(Account);
 
     await fireEvent.input(screen.getByLabelText('Current password'), {
@@ -79,8 +102,7 @@ describe('Account', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
 
     expect(await screen.findByText('Password changed')).toBeInTheDocument();
-    const request = requestAt(0);
-    expect(new URL(request.url).pathname).toBe('/api/auth/change-password');
+    const request = requestTo('/api/auth/change-password');
     expect(await bodyOf(request)).toEqual({
       current_password: 'oldpass12',
       new_password: 'newpass12',
@@ -100,7 +122,7 @@ describe('Account', () => {
   });
 
   it('shows an error when the current password is wrong', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(401, { error: 'nope' }));
+    mockRoutes(401, { error: 'nope' });
     render(Account);
 
     await fireEvent.input(screen.getByLabelText('Current password'), {
@@ -119,6 +141,7 @@ describe('Account', () => {
   });
 
   it('validates the new password locally before calling the API', async () => {
+    mockRoutes(500);
     render(Account);
 
     await fireEvent.input(screen.getByLabelText('Current password'), {
@@ -133,11 +156,11 @@ describe('Account', () => {
     expect(
       await screen.findByText('New password must be at least 8 characters')
     ).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(pathsRequested()).toEqual(['/api/auth/tokens']);
   });
 
   it('uploads a profile image and updates the session and users store', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { ...user, avatar_url: '/api/avatars/key-1' }));
+    mockRoutes(200, { ...user, avatar_url: '/api/avatars/key-1' });
     // The mocked fetch never drains the request body, and undici cannot read
     // jsdom's FormData anyway, so the sent file is asserted via this spy.
     const appendSpy = vi.spyOn(FormData.prototype, 'append');
@@ -153,9 +176,8 @@ describe('Account', () => {
 
     try {
       expect(await screen.findByText('Profile image updated')).toBeInTheDocument();
-      const request = requestAt(0);
+      const request = requestTo('/api/auth/me/avatar');
       expect(request.method).toBe('POST');
-      expect(new URL(request.url).pathname).toBe('/api/auth/me/avatar');
       expect(request.headers.get('Content-Type')).toContain('multipart/form-data');
       expect(appendSpy).toHaveBeenCalledExactlyOnceWith('file', file);
       expect(session.user?.avatar_url).toBe('/api/avatars/key-1');
@@ -170,15 +192,14 @@ describe('Account', () => {
 
   it('removes the profile image', async () => {
     session.user = { ...user, avatar_url: '/api/avatars/key-1' };
-    fetchMock.mockResolvedValue(jsonResponse(200, { ...user, avatar_url: null }));
+    mockRoutes(200, { ...user, avatar_url: null });
     render(Account);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Remove image' }));
 
     expect(await screen.findByText('Profile image removed')).toBeInTheDocument();
-    const request = requestAt(0);
+    const request = requestTo('/api/auth/me/avatar');
     expect(request.method).toBe('DELETE');
-    expect(new URL(request.url).pathname).toBe('/api/auth/me/avatar');
     expect(session.user?.avatar_url).toBeNull();
     expect(users.byId('u-1')?.avatar_url).toBeNull();
     expect(screen.queryByRole('button', { name: 'Remove image' })).not.toBeInTheDocument();
@@ -186,7 +207,7 @@ describe('Account', () => {
   });
 
   it('shows a friendly error when the image is too large and keeps the avatar state', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(413, { error: 'payload too large' }));
+    mockRoutes(413, { error: 'payload too large' });
     render(Account);
 
     const file = new File(['big'], 'big.png', { type: 'image/png' });
@@ -200,13 +221,24 @@ describe('Account', () => {
   });
 
   it('shows the feedback entry point', () => {
+    mockRoutes(500);
     render(Account);
 
     expect(screen.getByRole('heading', { name: 'Feedback' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send feedback' })).toBeInTheDocument();
   });
 
+  it('shows the personal access token section and loads the list', async () => {
+    mockRoutes(500);
+    render(Account);
+
+    expect(screen.getByRole('heading', { name: 'Personal access tokens' })).toBeInTheDocument();
+    expect(await screen.findByText('You have no personal access tokens yet.')).toBeInTheDocument();
+    expect(pathsRequested()).toContain('/api/auth/tokens');
+  });
+
   it('flags a confirmation mismatch', async () => {
+    mockRoutes(500);
     render(Account);
 
     await fireEvent.input(screen.getByLabelText('Current password'), {
@@ -221,6 +253,6 @@ describe('Account', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
 
     expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(pathsRequested()).toEqual(['/api/auth/tokens']);
   });
 });
