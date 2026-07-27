@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import { sql, type Kysely } from 'kysely';
-import type { DB } from '../db/types';
+import { sql, type Kysely, type Selectable } from 'kysely';
+import type { DB, Project } from '../db/types';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectAccess, assertTaskAccess } from '../services/authorization';
+import { collectMentionIds, notifyMentions } from '../services/mentions';
 import { publishAfterCommit } from '../services/realtime/index';
 import {
   idSchema,
@@ -62,7 +63,7 @@ async function assertOwnComment(
   db: Kysely<DB>,
   userId: string,
   commentId: string
-): Promise<{ task_id: string; project_id: string }> {
+): Promise<{ task_id: string; project: Selectable<Project> }> {
   const row = await db
     .selectFrom('task_comment')
     .innerJoin('task', 'task.id', 'task_comment.task_id')
@@ -72,11 +73,29 @@ async function assertOwnComment(
   if (!row) {
     throw new AppError(404, 'Comment not found');
   }
-  await assertProjectAccess(db, userId, row.project_id, 'Comment not found');
+  const project = await assertProjectAccess(db, userId, row.project_id, 'Comment not found');
   if (row.user_id !== userId) {
     throw new AppError(404, 'Comment not found');
   }
-  return { task_id: row.task_id, project_id: row.project_id };
+  return { task_id: row.task_id, project };
+}
+
+// Only a body that carries a mention can have added one, so an edit that
+// mentions nobody never pays for the comparison.
+async function bodyBeforeMentionEdit(
+  db: Kysely<DB>,
+  commentId: string,
+  next: TiptapDoc
+): Promise<unknown> {
+  if (collectMentionIds(next).length === 0) {
+    return null;
+  }
+  const row = await db
+    .selectFrom('task_comment')
+    .select('task_comment.body')
+    .where('task_comment.id', '=', commentId)
+    .executeTakeFirst();
+  return row?.body ?? null;
 }
 
 router.post(
@@ -86,8 +105,8 @@ router.post(
     summary: 'Create comment',
     description:
       'Post a comment on a task. The client supplies the comment id and the body is the same ' +
-      'restricted Tiptap document task descriptions use; a body with no text, image, or rule ' +
-      'is rejected. Returns 404 when the task is unknown or inaccessible.',
+      'restricted Tiptap document task descriptions use; a body with no text, image, rule, or ' +
+      'mention is rejected. Returns 404 when the task is unknown or inaccessible.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {
@@ -127,6 +146,15 @@ router.post(
       }
       throw err;
     }
+
+    await notifyMentions(c, {
+      actorUserId: user.id,
+      project,
+      taskId: task_id,
+      source: 'comment',
+      previous: null,
+      next: body,
+    });
 
     const comment = toResponse(row);
     publishAfterCommit(c, 'comment_created', project.id, {
@@ -170,7 +198,10 @@ router.patch(
     const { body } = c.req.valid('json');
     const db = c.get('db');
 
-    const { project_id } = await assertOwnComment(db, c.get('user').id, id);
+    const user = c.get('user');
+    const { task_id, project } = await assertOwnComment(db, user.id, id);
+
+    const previousBody = await bodyBeforeMentionEdit(db, id, body);
 
     const row = await db
       .updateTable('task_comment')
@@ -183,8 +214,17 @@ router.patch(
       throw new AppError(404, 'Comment not found');
     }
 
+    await notifyMentions(c, {
+      actorUserId: user.id,
+      project,
+      taskId: task_id,
+      source: 'comment',
+      previous: previousBody,
+      next: body,
+    });
+
     const comment = toResponse(row);
-    publishAfterCommit(c, 'comment_updated', project_id, comment);
+    publishAfterCommit(c, 'comment_updated', project.id, comment);
     return c.json(comment, 200);
   }
 );
@@ -214,11 +254,11 @@ router.delete(
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
-    const { task_id, project_id } = await assertOwnComment(db, c.get('user').id, id);
+    const { task_id, project } = await assertOwnComment(db, c.get('user').id, id);
 
     await db.deleteFrom('task_comment').where('task_comment.id', '=', id).execute();
 
-    publishAfterCommit(c, 'comment_deleted', project_id, {
+    publishAfterCommit(c, 'comment_deleted', project.id, {
       id,
       task_id,
       comment_count: await countForTask(db, task_id),

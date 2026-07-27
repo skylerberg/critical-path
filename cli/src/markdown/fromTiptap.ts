@@ -106,6 +106,14 @@ function phrasingFromItems(items: InlineItem[], depth: number): PhrasingContent[
       i++;
       continue;
     }
+    // One-way: Markdown has nothing to hold the mentioned user's id, so parsing
+    // this back yields plain text.
+    if (node.type === 'mention') {
+      const label = attrsOf(node).label;
+      out.push({ type: 'text', value: `@${typeof label === 'string' ? label : ''}` });
+      i++;
+      continue;
+    }
     if (node.type !== 'text') {
       const value = textContent(node);
       if (value !== '') {

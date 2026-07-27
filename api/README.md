@@ -127,7 +127,7 @@ sockets. `POST /api/auth/logout` authenticated with a PAT is a no-op returning
 Each task carries a flat, chronological comment stream. Bodies are the same
 restricted Tiptap document task descriptions use, so the allow-list, the 100 KB
 cap, and the `/api/images/:id` src rule apply unchanged; a body carrying no
-text, image, or rule is rejected as empty. `POST /api/comments`
+text, image, rule, or mention is rejected as empty. `POST /api/comments`
 (`{ id, task_id, body }`) creates one; `PATCH` and `DELETE /api/comments/:id`
 edit and remove **your own** only — anyone else's answers 404, the same as one
 that does not exist, and there is no moderation override. Any member of the
@@ -138,6 +138,33 @@ every board task carries `comment_count` so a card can show that a
 conversation exists without fetching it. Comments cascade away with their task
 and with their author's account, and are not copied when a project is
 duplicated via `POST /api/projects` with `source_project_id`.
+
+### Mentions
+
+`mention` is a node in the restricted Tiptap allow-list, so a task description
+and a comment body can both name a person inline. Its attrs are
+`{ id: <user uuid>, label: <1-200 chars> }` — the label is the writer's
+snapshot of the name, so a rename does not rewrite stored documents and a
+client is free to render the live name instead. Extra attrs are tolerated (the
+editor also writes `mentionSuggestionChar`), and a mention counts as content,
+so a comment reading only `@Alice` is not empty.
+
+Writes resolve **newly added** mentions only: the document is diffed against
+the one it replaces, so re-saving the same text resolves nobody, removing a
+mention resolves nobody, and deleting a task or a comment resolves nobody. A
+copied project keeps the mention nodes in its descriptions and resolves
+nobody — copying is not writing. Recipients are the project's creator and its
+members; a mention of anyone else (a chip pasted from another board, a member
+removed since) is stored as written and silently skipped rather than rejected,
+because a 422 would make an autosaving editor retry forever with nothing to
+point at. The writer is never a recipient of their own mention, and one
+request resolves at most 25 people.
+
+**Nothing is delivered yet.** There is no notification service, so a resolved
+mention is handed to a single post-commit seam in `src/services/mentions.ts`
+that does nothing. Delivery (email, per-user opt-out, unsubscribe) attaches
+there when the notification work lands; until then mentions are a rendering
+and resolution feature only.
 
 ### Task activity
 
@@ -469,7 +496,7 @@ id,title,column,is_done,position,labels,assignees,blocked_by,image_count,created
 
 one row per task in board order, RFC 4180 quoting, CRLF line endings. Labels,
 assignees (as emails) and blockers (as titles) are joined with `"; "`, and the
-description is flattened to plain text. Values are written exactly as the user
+description is flattened to plain text, mentions included as `@label`. Values are written exactly as the user
 typed them — a title starting with `=` is not prefixed or escaped, so treat a
 `tasks.csv` opened in a spreadsheet the same way you would treat any other
 untrusted CSV. Use `project.json` when you need exactness.
@@ -570,6 +597,12 @@ no archived cards in it, so `task archive`, `task restore`, `task show` and
 and answers `No task matching` for an archived card, by id as well as by
 title. Task descriptions are Markdown in and out, converted to the API's
 restricted Tiptap JSON (`--description-json` is the raw escape hatch).
+
+Markdown is a one-way door for mentions: `task show` and `comment list` print
+one as `@label`, and writing that text back with `task update --description` or
+`comment edit` stores plain text, dropping the link to the person for everyone.
+`--description-json` is the lossless path; comment bodies have no equivalent,
+so edit one from the web app if it contains a mention.
 
 Every command takes `--json` for machine-readable output and `--no-input` to
 fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2
