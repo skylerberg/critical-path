@@ -13,6 +13,7 @@ export interface BoardTaskPayload {
   title: string;
   description: unknown;
   position: number;
+  due_date: string | null;
   created_at: string;
   updated_at: string;
   label_ids: string[];
@@ -42,6 +43,7 @@ export async function insertTask(options: {
   title?: string;
   position?: number;
   description?: unknown;
+  dueDate?: string;
 }): Promise<string> {
   const id = crypto.randomUUID();
   await db
@@ -53,6 +55,7 @@ export async function insertTask(options: {
       title: options.title ?? 'Test task',
       position: options.position ?? 1000,
       description: options.description === undefined ? null : JSON.stringify(options.description),
+      due_date: options.dueDate ?? null,
     })
     .execute();
   return id;
