@@ -106,6 +106,7 @@ describe('Realtime end to end', () => {
       assignee_ids: [],
       blocker_ids: [],
       image_count: 0,
+      comment_count: 0,
     });
 
     await clientB.waitForEvent((e) => e.type === 'task_created' && e.data.id === taskId);
@@ -287,6 +288,51 @@ describe('Realtime end to end', () => {
     const deletedEvent = await clientB.waitForEvent((e) => e.type === 'image_deleted');
     expect(deletedEvent.project_id).toBe(projectId);
     expect(deletedEvent.data).toEqual({ task_id: taskId, image_count: 0 });
+  });
+
+  it('delivers comment_created, comment_updated, and comment_deleted with counts', async () => {
+    const commentId = newId();
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'first' }] }],
+    };
+    const createRes = await ctx
+      .request(userA.token)
+      .post('/api/comments', { id: commentId, task_id: taskId, body });
+    expect(createRes.status).toBe(201);
+
+    const createdEvent = await clientB.waitForEvent(
+      (e) => e.type === 'comment_created' && e.data.id === commentId
+    );
+    expect(createdEvent.project_id).toBe(projectId);
+    expect(createdEvent.data).toMatchObject({
+      id: commentId,
+      task_id: taskId,
+      user_id: userA.id,
+      body,
+      comment_count: 1,
+    });
+
+    const edited = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'second' }] }],
+    };
+    const patchRes = await ctx
+      .request(userA.token)
+      .patch(`/api/comments/${commentId}`, { body: edited });
+    expect(patchRes.status).toBe(200);
+    const updatedEvent = await clientB.waitForEvent((e) => e.type === 'comment_updated');
+    expect(updatedEvent.project_id).toBe(projectId);
+    expect(updatedEvent.data).toMatchObject({ id: commentId, task_id: taskId, body: edited });
+
+    const deleteRes = await ctx.request(userA.token).delete(`/api/comments/${commentId}`);
+    expect(deleteRes.status).toBe(204);
+    const deletedEvent = await clientB.waitForEvent((e) => e.type === 'comment_deleted');
+    expect(deletedEvent.project_id).toBe(projectId);
+    expect(deletedEvent.data).toEqual({ id: commentId, task_id: taskId, comment_count: 0 });
+
+    await settle();
+    expect(clientC.events).toEqual([]);
   });
 
   it('delivers task_deleted', async () => {
