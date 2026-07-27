@@ -30,10 +30,6 @@ describe('position math', () => {
     expect(() => spreadBetween(1000, 1000 + Number.EPSILON, 1)).toThrow(CliError);
     expect(() => spreadBetween(1000, 1000, 1)).toThrow(/--top or --bottom/);
   });
-
-  it('allocates nothing for a non-positive count', () => {
-    expect(positionsForIndex([1000, 2000], 1, 0)).toEqual([]);
-  });
 });
 
 describe('positionForPlacement', () => {

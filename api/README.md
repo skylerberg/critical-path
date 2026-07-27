@@ -270,6 +270,26 @@ so before confirming.
 Both emit one batched event rather than one per task — see Realtime — and
 neither bumps `updated_at`.
 
+### Bulk task create
+
+`POST /api/tasks/batch` (`{ project_id, column_id, tasks }`) creates 1 to 100
+tasks in one column of one project, for pasting a list. Every item carries an
+id the client generates, plus a title and a position; descriptions, due dates,
+labels and assignees are set afterwards through the single-task endpoints. The
+response is `{ tasks }` in request order, in the board-task shape.
+
+The batch is all or nothing: a duplicate id — already in the database or
+repeated inside the request — is a 409 that creates none of them, so a retry
+after a dropped response cannot double-create. An unknown or inaccessible
+`project_id` is a 404 and a `column_id` outside that project is a 422.
+
+Unlike the column-scoped bulk actions above, this one is **not** batched on the
+way out: each created task gets its own activity entry and its own
+`task_created` event, so a 100-line paste publishes 100 envelopes and, for
+projects with webhooks, enqueues 100 deliveries per registration (see the
+webhook fan-out note). Clients that already handle single creates need no new
+code for it.
+
 ### My tasks
 
 `GET /api/my-tasks` is the one cross-project read of tasks: every unarchived,
@@ -398,7 +418,9 @@ by the two column-scoped bulk actions; the per-task `task_updated` and
 `task_archived` events are **not** also emitted for those calls, because a
 fifty-card Done column would otherwise cost fifty envelopes and their delivery
 queries. A client that does not understand them converges on its next board
-read, which every reconnect performs.
+read, which every reconnect performs. Batching stops there: bulk task create
+has no batched counterpart and emits one `task_created` per created task, so a
+100-item request produces 100 envelopes.
 
 Delivery: project-scoped events go to sockets subscribed to that project whose
 user can access it (re-checked per event against `created_by` and
@@ -534,7 +556,8 @@ the event, the same guarantee the realtime publish already has.
 
 **Fan-out.** One mutation can be many deliveries. `task_relations_set` is
 published once per task, so a `PUT /api/projects/:id/members` that strips 200
-assignments sends 200 requests per registration. Size receivers accordingly.
+assignments sends 200 requests per registration; a 100-task bulk create sends
+100 `task_created`. Size receivers accordingly.
 
 **Secrets.** The secret is stored and returned in plaintext — the server signs
 with it, so it cannot be hashed like a session token. Everyone who can access

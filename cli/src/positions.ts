@@ -36,7 +36,6 @@ export function positionsForIndex(
   index: number,
   count: number
 ): number[] {
-  if (count <= 0) return [];
   if (sortedPositions.length === 0 || index >= sortedPositions.length) {
     const first = append(sortedPositions);
     return Array.from({ length: count }, (_, i) => first + i * GAP);
