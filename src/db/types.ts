@@ -93,6 +93,16 @@ export interface ProjectUserPosition {
   user_id: string;
 }
 
+export interface ProjectWebhook {
+  consecutive_failures: Generated<number>;
+  created_at: Generated<Timestamp>;
+  disabled_at: Timestamp | null;
+  id: string;
+  project_id: string;
+  secret: string;
+  url: string;
+}
+
 export interface Session {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp;
@@ -159,6 +169,21 @@ export interface TaskLabel {
   task_id: string;
 }
 
+export interface WebhookDelivery {
+  attempt_count: Generated<number>;
+  created_at: Generated<Timestamp>;
+  event_type: string;
+  id: string;
+  last_attempt_at: Timestamp | null;
+  last_error: string | null;
+  last_status_code: number | null;
+  next_attempt_at: Timestamp | null;
+  payload: Json;
+  redelivery_count: Generated<number>;
+  status: Generated<string>;
+  webhook_id: string;
+}
+
 export interface DB {
   app_user: AppUser;
   board_column: BoardColumn;
@@ -168,6 +193,7 @@ export interface DB {
   project: Project;
   project_member: ProjectMember;
   project_user_position: ProjectUserPosition;
+  project_webhook: ProjectWebhook;
   session: Session;
   task: Task;
   task_activity: TaskActivity;
@@ -176,4 +202,5 @@ export interface DB {
   task_dependency: TaskDependency;
   task_image: TaskImage;
   task_label: TaskLabel;
+  webhook_delivery: WebhookDelivery;
 }

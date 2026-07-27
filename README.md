@@ -416,6 +416,113 @@ the visibility set of the global `GET /api/users` listing (the per-project mode 
 project-sharers, so the event's `email` field never reaches a user who could
 not already fetch it.
 
+### Outbound webhooks
+
+A project can register up to ten HTTP(S) endpoints that receive a signed `POST`
+for every board event it emits. The vocabulary is the realtime catalogue above —
+there is no second event language.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/webhooks` | Register `{ id, project_id, url }`; the response carries the generated secret |
+| `GET` | `/api/webhooks?project_id=` | List a project's registrations with their secrets |
+| `PATCH` | `/api/webhooks/:id` | Change `url`, or disable / re-enable with `disabled_at` |
+| `DELETE` | `/api/webhooks/:id` | Remove a registration and its delivery log |
+| `POST` | `/api/webhooks/:id/rotate-secret` | Replace the signing secret |
+| `GET` | `/api/webhooks/:id/deliveries?limit=` | Delivery log, newest first, default 20, max 50 |
+| `POST` | `/api/webhooks/:id/deliveries/:deliveryId/redeliver` | Re-send one failed delivery |
+
+Every request body is one envelope:
+
+```json
+{
+  "id": "4d0f…",
+  "version": 1,
+  "type": "task_created",
+  "project_id": "9b21…",
+  "created_at": "2026-07-27T09:12:44.100Z",
+  "data": {}
+}
+```
+
+`data` is exactly the realtime `data` for that type. Headers:
+`X-Critical-Path-Event`, `X-Critical-Path-Delivery` (the envelope `id`),
+`X-Critical-Path-Webhook`, `X-Critical-Path-Timestamp` (unix seconds) and
+`X-Critical-Path-Signature: v1=<hex>`, an HMAC-SHA256 over
+`` `${timestamp}.${rawBody}` ``. Verify it against the raw body:
+
+```js
+import crypto from 'node:crypto';
+
+const expected = crypto
+  .createHmac('sha256', secret)
+  .update(`${req.headers['x-critical-path-timestamp']}.${rawBody}`)
+  .digest('hex');
+const ok = crypto.timingSafeEqual(
+  Buffer.from(`v1=${expected}`),
+  Buffer.from(req.headers['x-critical-path-signature'])
+);
+```
+
+Rejecting a timestamp more than a few minutes old is worth doing: the timestamp
+is inside the signed string, so a captured delivery cannot be replayed under a
+fresh one.
+
+**Delivered types.** `task_created`, `task_updated`, `task_deleted`,
+`task_archived`, `task_restored`, `task_relations_set`, `column_created`,
+`column_updated`, `column_deleted`, `label_created`, `label_updated`,
+`label_deleted`, `image_created`, `image_deleted`, `comment_created`,
+`comment_updated`, `comment_deleted` and `project_updated` — which is also the
+event for publishing or unpublishing a board's public link. Task activity writes
+no event of its own, so it arrives as the mutation that caused it.
+
+**Never delivered.** `user_updated` and `sessions_revoked` are not project data
+and carry an email address. `project_position_updated` is per-user. No
+registration can exist for a project at `project_created` time, and by
+`project_deleted` the registration is already gone by cascade — that type is
+also reused to evict removed members from a project that still exists, where it
+would be an outright lie.
+
+**Retries.** A non-2xx, a connection error or a 10-second timeout retries after
+30s, 2m, 10m, 1h and 6h, six attempts in all. After five consecutive deliveries
+exhaust their attempts the registration is disabled and its queued deliveries
+are terminated; re-enabling it (`PATCH { "disabled_at": null }`) clears the
+counter. Manually re-sent deliveries never count toward that threshold, so
+debugging a broken receiver cannot disable the registration you are debugging.
+*Redeliver* restarts the whole retry cycle under the original delivery id, so a
+receiver's idempotency key still matches.
+
+**Guarantees.** Delivery is at-least-once and unordered: a worker that dies
+mid-send loses its lease and another retries, and retries plus per-webhook
+batching mean two events from one request can arrive out of order. Deduplicate
+on `X-Critical-Path-Delivery` and do not infer ordering. Enqueueing is
+at-most-once — a pod that dies between commit and the post-commit hook drops
+the event, the same guarantee the realtime publish already has.
+
+**Fan-out.** One mutation can be many deliveries. `task_relations_set` is
+published once per task, so a `PUT /api/projects/:id/members` that strips 200
+assignments sends 200 requests per registration. Size receivers accordingly.
+
+**Secrets.** The secret is stored and returned in plaintext — the server signs
+with it, so it cannot be hashed like a session token. Everyone who can access
+the project can read it, which means sharing a board also shares every webhook
+secret on it. Rotation has a window: a delivery a worker already claimed signs
+with the secret it read, so accept the previous secret briefly or tolerate one
+rejected delivery that then retries under the new one.
+
+**Target restrictions.** URLs may not carry credentials or use a scheme other
+than `http`/`https`. In production `https` is required and loopback,
+private, link-local, carrier-grade NAT, multicast, reserved and cloud-metadata
+addresses are refused — both when the URL is registered and again after DNS
+resolution at connect time, so a hostname that resolves to an internal address
+is rejected rather than reached. Redirects are never followed. Outside
+production those address rules are relaxed and `http` is allowed, so a
+development server can point a webhook at its own machine.
+
+**Log retention.** Terminal deliveries are kept for seven days and then pruned;
+live retries are never pruned. The log has a `limit` but no cursor, so only the
+50 most recent entries are reachable.
+
 ### Email
 
 Password-reset and feedback emails go through the driver named by
