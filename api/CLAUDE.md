@@ -45,12 +45,18 @@ touch `gamedev@skylerberg.com` or its rows.
 10. Comments: absolute minimum, only non-obvious why.
 11. Project access is strict and centralized in `src/services/authorization.ts`:
     a project is visible to its creator (implicit, never stored as a member
-    row) and to its `project_member` rows. Every project-scoped handler asserts
-    access and answers 404 (never 403) for inaccessible rows. Access is always
-    asserted first, so 404 still hides existence and a 403 only ever reaches a
-    caller who can already see the row. The owner-only operations that answer
-    403 are `PUT /api/projects/:id/owner` and `DELETE /api/projects/:id`; every
-    other project operation stays open to any member.
+    row, always an editor) and to its `project_member` rows, each of which
+    carries a `role` of `editor` or `viewer`. **404 for a caller with no
+    access; 403 only for a caller who can already read the row.** Every
+    project-scoped read asserts access (`assertProjectAccess` /
+    `assertTaskAccess`); every project-scoped mutation asserts write
+    (`assertProjectWrite` / `assertTaskWrite`), which is the same 404 plus a
+    403 for a viewer. A new mutating route that asserts only access is a
+    defect. The narrower owner-only 403s are `PUT /api/projects/:id/owner` and
+    `DELETE /api/projects/:id`. Comments are the deliberate exception: viewers
+    may post, edit and delete their own, so the comment handlers assert access,
+    not write. Roles are normalized fail-closed — anything that is not exactly
+    `editor` reads as `viewer`.
 12. Every mutation emits a realtime event via `publishAfterCommit` from
     `src/services/realtime` (runs as a post-commit hook, so nothing is
     published on rollback). Events about rows or access that are gone

@@ -10,6 +10,7 @@ import type {
   TiptapDoc,
 } from '../schemas/index';
 import { assertPublicProject, usersWithProjectAccess } from './authorization';
+import { toMemberEntries } from './projectListItem';
 import { dueDateText } from './dueDate';
 import { unarchivedBlockerIds } from './taskRelations';
 
@@ -162,7 +163,7 @@ export async function getBoardPayload(
       jsonArrayFrom(
         eb
           .selectFrom('project_member')
-          .select('project_member.user_id')
+          .select(['project_member.user_id', 'project_member.role'])
           .whereRef('project_member.project_id', '=', 'project.id')
           .orderBy('project_member.created_at')
           .orderBy('project_member.user_id')
@@ -197,6 +198,8 @@ export async function getBoardPayload(
     .orderBy('id')
     .execute();
 
+  const members = toMemberEntries(project.member_rows);
+
   return {
     project: {
       id: project.id,
@@ -205,7 +208,8 @@ export async function getBoardPayload(
       archived_at: project.archived_at?.toISOString() ?? null,
       created_at: project.created_at.toISOString(),
       created_by: project.created_by,
-      member_ids: project.member_rows.map((row) => row.user_id),
+      member_ids: members.map((member) => member.user_id),
+      members,
       is_public: project.is_public,
     },
     columns,

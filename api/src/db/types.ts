@@ -83,6 +83,7 @@ export interface Project {
 export interface ProjectMember {
   created_at: Generated<Timestamp>;
   project_id: string;
+  role: Generated<string>;
   user_id: string;
 }
 

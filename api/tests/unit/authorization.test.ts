@@ -5,10 +5,14 @@ import {
   canAccessProject,
   assertProjectAccess,
   assertProjectOwnedBy,
+  assertProjectWrite,
   assertPublicProject,
+  assertTaskWrite,
   accessibleProjectsFilter,
   isProjectMember,
+  normalizeProjectRole,
   projectAccessIdsAmong,
+  projectRole,
   usersWithProjectAccess,
 } from '../../src/services/authorization';
 import { AppError } from '../../src/utils/errors';
@@ -27,13 +31,16 @@ async function createUser(name: string): Promise<string> {
 
 let creator: string;
 let member: string;
+let viewer: string;
 let outsider: string;
 let personalProjectId: string;
 let sharedProjectId: string;
+let sharedTaskId: string;
 
 beforeAll(async () => {
   creator = await createUser('authz creator');
   member = await createUser('authz member');
+  viewer = await createUser('authz viewer');
   outsider = await createUser('authz outsider');
 
   personalProjectId = newId();
@@ -45,9 +52,32 @@ beforeAll(async () => {
       { id: sharedProjectId, name: 'shared', created_by: creator },
     ])
     .execute();
+  // The member row omits role, so the stored default is what the editor
+  // assertions below read.
   await db
     .insertInto('project_member')
     .values({ project_id: sharedProjectId, user_id: member })
+    .execute();
+  await db
+    .insertInto('project_member')
+    .values({ project_id: sharedProjectId, user_id: viewer, role: 'viewer' })
+    .execute();
+
+  const columnId = newId();
+  sharedTaskId = newId();
+  await db
+    .insertInto('board_column')
+    .values({ id: columnId, project_id: sharedProjectId, name: 'authz col', position: 1000 })
+    .execute();
+  await db
+    .insertInto('task')
+    .values({
+      id: sharedTaskId,
+      project_id: sharedProjectId,
+      column_id: columnId,
+      title: 'authz task',
+      position: 1000,
+    })
     .execute();
 });
 
@@ -72,6 +102,7 @@ describe('canAccessProject', () => {
   it('allows members on a shared project', async () => {
     const project = { id: sharedProjectId, created_by: creator };
     expect(await canAccessProject(db, member, project)).toBe(true);
+    expect(await canAccessProject(db, viewer, project)).toBe(true);
     expect(await canAccessProject(db, outsider, project)).toBe(false);
   });
 
@@ -101,6 +132,104 @@ describe('assertProjectAccess', () => {
   it('throws 404 for a nonexistent project', async () => {
     await expect(assertProjectAccess(db, creator, newId())).rejects.toMatchObject({
       statusCode: 404,
+    });
+  });
+});
+
+describe('projectRole', () => {
+  const shared = (): { id: string; created_by: string | null } => ({
+    id: sharedProjectId,
+    created_by: creator,
+  });
+
+  it('reports the creator as an editor without reading a member row', async () => {
+    expect(await projectRole(db, creator, shared())).toBe('editor');
+    expect(await projectRole(db, creator, { id: personalProjectId, created_by: creator })).toBe(
+      'editor'
+    );
+  });
+
+  it('defaults a member row written without a role to editor', async () => {
+    expect(await projectRole(db, member, shared())).toBe('editor');
+  });
+
+  it('reports a viewer row as a viewer', async () => {
+    expect(await projectRole(db, viewer, shared())).toBe('viewer');
+  });
+
+  it('reports no role for a non-member', async () => {
+    expect(await projectRole(db, outsider, shared())).toBeNull();
+  });
+
+  it('rejects a role the check constraint does not allow', async () => {
+    await expect(
+      db
+        .updateTable('project_member')
+        .set({ role: 'admin' })
+        .where('project_id', '=', sharedProjectId)
+        .where('user_id', '=', member)
+        .execute()
+    ).rejects.toThrow();
+    expect(await projectRole(db, member, shared())).toBe('editor');
+  });
+});
+
+describe('normalizeProjectRole', () => {
+  it('grants write only for an exact editor, so a future role reads as read-only', () => {
+    expect(normalizeProjectRole('editor')).toBe('editor');
+    expect(normalizeProjectRole('viewer')).toBe('viewer');
+    expect(normalizeProjectRole('admin')).toBe('viewer');
+    expect(normalizeProjectRole('')).toBe('viewer');
+  });
+});
+
+describe('assertProjectWrite', () => {
+  it('returns the project row for the creator and for an editor member', async () => {
+    expect((await assertProjectWrite(db, creator, sharedProjectId)).id).toBe(sharedProjectId);
+    expect((await assertProjectWrite(db, member, sharedProjectId)).id).toBe(sharedProjectId);
+  });
+
+  it('throws 403 for a viewer, who can already see the project', async () => {
+    const error = await assertProjectWrite(db, viewer, sharedProjectId).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AppError);
+    expect(error).toMatchObject({ statusCode: 403, message: 'Read-only access to this project' });
+  });
+
+  it('throws 404 for an outsider and for an unknown project', async () => {
+    await expect(assertProjectWrite(db, outsider, sharedProjectId)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    await expect(assertProjectWrite(db, creator, newId())).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+
+  it('uses the caller’s not-found message for both no-access cases', async () => {
+    await expect(
+      assertProjectWrite(db, outsider, sharedProjectId, 'Column not found')
+    ).rejects.toMatchObject({ statusCode: 404, message: 'Column not found' });
+  });
+});
+
+describe('assertTaskWrite', () => {
+  it('returns the task’s project for an editor', async () => {
+    expect((await assertTaskWrite(db, member, sharedTaskId)).id).toBe(sharedProjectId);
+  });
+
+  it('throws 403 for a viewer on a task in their own project', async () => {
+    await expect(assertTaskWrite(db, viewer, sharedTaskId)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+  });
+
+  it('throws 404 for an outsider and for an unknown task', async () => {
+    await expect(assertTaskWrite(db, outsider, sharedTaskId)).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'Task not found',
+    });
+    await expect(assertTaskWrite(db, creator, newId())).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'Task not found',
     });
   });
 });
@@ -192,18 +321,20 @@ describe('accessibleProjectsFilter', () => {
     return rows.map((row) => row.id);
   }
 
-  it('returns created and member-shared projects only', async () => {
+  it('returns created and member-shared projects only, regardless of role', async () => {
     expect((await accessibleIds(creator)).sort()).toEqual(
       [personalProjectId, sharedProjectId].sort()
     );
     expect(await accessibleIds(member)).toEqual([sharedProjectId]);
+    expect(await accessibleIds(viewer)).toEqual([sharedProjectId]);
     expect(await accessibleIds(outsider)).toEqual([]);
   });
 });
 
 describe('isProjectMember', () => {
-  it('reflects membership rows', async () => {
+  it('reflects membership rows regardless of role', async () => {
     expect(await isProjectMember(db, sharedProjectId, member)).toBe(true);
+    expect(await isProjectMember(db, sharedProjectId, viewer)).toBe(true);
     expect(await isProjectMember(db, sharedProjectId, outsider)).toBe(false);
     expect(await isProjectMember(db, sharedProjectId, creator)).toBe(false);
   });
@@ -216,8 +347,8 @@ describe('projectAccessIdsAmong', () => {
   });
 
   it('keeps the creator and the members and drops everyone else', async () => {
-    const ids = await projectAccessIdsAmong(db, shared(), [creator, member, outsider]);
-    expect(ids.sort()).toEqual([creator, member].sort());
+    const ids = await projectAccessIdsAmong(db, shared(), [creator, member, viewer, outsider]);
+    expect(ids.sort()).toEqual([creator, member, viewer].sort());
   });
 
   it('returns an empty list for no candidates', async () => {
@@ -266,7 +397,7 @@ describe('usersWithProjectAccess', () => {
 
   it('returns creator and members for a shared project', async () => {
     const users = await usersWithProjectAccess(db, sharedProjectId);
-    expect(users.map((u) => u.id).sort()).toEqual([creator, member].sort());
+    expect(users.map((u) => u.id).sort()).toEqual([creator, member, viewer].sort());
     for (const user of users) {
       expect(user).toMatchObject({ avatar_url: null });
       expect(typeof user.email).toBe('string');
@@ -294,7 +425,7 @@ describe('usersWithProjectAccess', () => {
     await db.insertInto('task_assignee').values({ task_id: taskId, user_id: outsider }).execute();
 
     const users = await usersWithProjectAccess(db, sharedProjectId);
-    expect(users.map((u) => u.id).sort()).toEqual([creator, member, outsider].sort());
+    expect(users.map((u) => u.id).sort()).toEqual([creator, member, viewer, outsider].sort());
 
     await db.deleteFrom('task').where('id', '=', taskId).execute();
     await db.deleteFrom('board_column').where('id', '=', columnId).execute();

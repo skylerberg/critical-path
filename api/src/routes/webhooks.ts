@@ -5,7 +5,11 @@ import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
-import { assertProjectAccess, canAccessProject } from '../services/authorization';
+import {
+  assertCanWriteProject,
+  assertProjectAccess,
+  assertProjectWrite,
+} from '../services/authorization';
 import type { ProjectWebhook, WebhookDelivery } from '../db/types';
 import {
   MAX_WEBHOOKS_PER_PROJECT,
@@ -28,6 +32,7 @@ import {
   idSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
+  forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
   validationOrUnprocessableErrorResponse,
@@ -77,8 +82,9 @@ router.post(
       'Register an HTTP(S) endpoint that receives a signed POST for every board event in a ' +
       `project. The client supplies the webhook id. A project may hold at most ${String(MAX_WEBHOOKS_PER_PROJECT)} ` +
       'registrations, and a URL may be registered once per project. The generated signing ' +
-      'secret is in the response and stays readable by everyone who can access the project. ' +
-      'Returns 404 when the project is unknown or inaccessible.',
+      'secret is in the response and stays readable by everyone who can access the project, ' +
+      'viewers included. Registering, changing, deleting, rotating and re-sending are editors ' +
+      'only: a viewer gets 403. Returns 404 when the project is unknown or inaccessible.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {
@@ -86,6 +92,7 @@ router.post(
         content: { 'application/json': { schema: resolver(webhookSchema) } },
       },
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -108,9 +115,10 @@ router.post(
       .where('id', '=', project_id)
       .forUpdate()
       .executeTakeFirst();
-    if (!project || !(await canAccessProject(db, user.id, project))) {
+    if (!project) {
       throw new AppError(404, 'Project not found');
     }
+    await assertCanWriteProject(db, user.id, project);
 
     assertRegistrableWebhookUrl(url, targetPolicy());
 
@@ -198,6 +206,7 @@ router.patch(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -221,7 +230,7 @@ router.patch(
     if (!existing) {
       throw new AppError(404, 'Webhook not found');
     }
-    await assertProjectAccess(db, user.id, existing.project_id, 'Webhook not found');
+    await assertProjectWrite(db, user.id, existing.project_id, 'Webhook not found');
 
     const updates: { url?: string; disabled_at?: Date | null; consecutive_failures?: number } = {};
     if (body.url !== undefined) {
@@ -282,6 +291,7 @@ router.delete(
       204: { description: 'Webhook deleted' },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -301,7 +311,7 @@ router.delete(
     if (!webhook) {
       throw new AppError(404, 'Webhook not found');
     }
-    await assertProjectAccess(db, user.id, webhook.project_id, 'Webhook not found');
+    await assertProjectWrite(db, user.id, webhook.project_id, 'Webhook not found');
 
     await db.deleteFrom('project_webhook').where('id', '=', id).execute();
     return c.body(null, 204);
@@ -325,6 +335,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -344,7 +355,7 @@ router.post(
     if (!webhook) {
       throw new AppError(404, 'Webhook not found');
     }
-    await assertProjectAccess(db, user.id, webhook.project_id, 'Webhook not found');
+    await assertProjectWrite(db, user.id, webhook.project_id, 'Webhook not found');
 
     const row = await db
       .updateTable('project_webhook')
@@ -421,6 +432,7 @@ router.post(
       204: { description: 'Delivery queued for another attempt' },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...internalServerErrorResponse,
@@ -441,7 +453,7 @@ router.post(
     if (!webhook) {
       throw new AppError(404, 'Webhook not found');
     }
-    await assertProjectAccess(db, user.id, webhook.project_id, 'Webhook not found');
+    await assertProjectWrite(db, user.id, webhook.project_id, 'Webhook not found');
 
     const delivery = await db
       .selectFrom('webhook_delivery')

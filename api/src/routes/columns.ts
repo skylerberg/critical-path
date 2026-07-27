@@ -5,7 +5,7 @@ import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
-import { assertProjectAccess, canAccessProject } from '../services/authorization';
+import { assertProjectWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
@@ -23,6 +23,7 @@ import {
   archivedTasksResponseSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
+  forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
@@ -140,6 +141,7 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -153,14 +155,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await db
-      .selectFrom('project')
-      .select(['id', 'created_by'])
-      .where('id', '=', project_id)
-      .executeTakeFirst();
-    if (!project || !(await canAccessProject(db, user.id, project))) {
-      throw new AppError(404, 'Project not found');
-    }
+    await assertProjectWrite(db, user.id, project_id);
 
     try {
       const column = await db
@@ -206,6 +201,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationErrorResponse,
@@ -229,7 +225,7 @@ router.post(
     if (!source) {
       throw new AppError(404, 'Column not found');
     }
-    await assertProjectAccess(db, user.id, source.project_id, 'Column not found');
+    await assertProjectWrite(db, user.id, source.project_id, 'Column not found');
 
     let inserted;
     try {
@@ -295,6 +291,7 @@ router.patch(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...validationErrorResponse,
       ...internalServerErrorResponse,
@@ -317,7 +314,7 @@ router.patch(
     if (!existing) {
       throw new AppError(404, 'Column not found');
     }
-    await assertProjectAccess(db, user.id, existing.project_id, 'Column not found');
+    await assertProjectWrite(db, user.id, existing.project_id, 'Column not found');
 
     const updates: Partial<{ name: string; position: number; is_done: boolean }> = {};
     if (name !== undefined) updates.name = name;
@@ -373,6 +370,7 @@ router.delete(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...unprocessableErrorResponse,
@@ -396,7 +394,7 @@ router.delete(
     if (!column) {
       throw new AppError(404, 'Column not found');
     }
-    await assertProjectAccess(db, user.id, column.project_id, 'Column not found');
+    await assertProjectWrite(db, user.id, column.project_id, 'Column not found');
 
     const target =
       move_tasks_to === undefined
@@ -461,6 +459,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -483,7 +482,7 @@ router.post(
     if (!column) {
       throw new AppError(404, 'Column not found');
     }
-    await assertProjectAccess(db, user.id, column.project_id, 'Column not found');
+    await assertProjectWrite(db, user.id, column.project_id, 'Column not found');
 
     const target = await loadMoveTarget(
       db,
@@ -544,6 +543,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -563,7 +563,7 @@ router.post(
     if (!column) {
       throw new AppError(404, 'Column not found');
     }
-    await assertProjectAccess(db, user.id, column.project_id, 'Column not found');
+    await assertProjectWrite(db, user.id, column.project_id, 'Column not found');
 
     const archived = await db
       .updateTable('task')

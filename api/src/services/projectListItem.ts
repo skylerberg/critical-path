@@ -1,6 +1,12 @@
 import type { Kysely, Selectable } from 'kysely';
 import type { DB, Project } from '../db/types';
+import { normalizeProjectRole, type ProjectRole } from './authorization';
 import { publishAfterCommit } from './realtime/index';
+
+export interface ProjectMemberEntry {
+  user_id: string;
+  role: ProjectRole;
+}
 
 export type ProjectRow = Pick<
   Selectable<Project>,
@@ -17,7 +23,9 @@ export const PROJECT_COLUMNS = [
   'is_public',
 ] as const;
 
-export function toProjectResponse(row: ProjectRow, memberIds: string[]) {
+// member_ids is redundant with members and is kept only because clients from
+// before roles existed read it; it is derived here so the two cannot drift.
+export function toProjectResponse(row: ProjectRow, members: ProjectMemberEntry[]) {
   return {
     id: row.id,
     name: row.name,
@@ -25,20 +33,29 @@ export function toProjectResponse(row: ProjectRow, memberIds: string[]) {
     archived_at: row.archived_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),
     created_by: row.created_by,
-    member_ids: memberIds,
+    member_ids: members.map((member) => member.user_id),
+    members,
     is_public: row.is_public,
   };
 }
 
-export async function fetchMemberIds(db: Kysely<DB>, projectId: string): Promise<string[]> {
-  const rows = await db
-    .selectFrom('project_member')
-    .select('user_id')
-    .where('project_id', '=', projectId)
-    .orderBy('created_at')
-    .orderBy('user_id')
-    .execute();
-  return rows.map((row) => row.user_id);
+export function toMemberEntries(rows: { user_id: string; role: string }[]): ProjectMemberEntry[] {
+  return rows.map((row) => ({ user_id: row.user_id, role: normalizeProjectRole(row.role) }));
+}
+
+export async function fetchMembers(
+  db: Kysely<DB>,
+  projectId: string
+): Promise<ProjectMemberEntry[]> {
+  return toMemberEntries(
+    await db
+      .selectFrom('project_member')
+      .select(['user_id', 'role'])
+      .where('project_id', '=', projectId)
+      .orderBy('created_at')
+      .orderBy('user_id')
+      .execute()
+  );
 }
 
 async function fetchTaskCounts(
@@ -73,13 +90,13 @@ export async function publishProjectListItem(
   c: Parameters<typeof publishAfterCommit>[0],
   db: Kysely<DB>,
   row: ProjectRow,
-  memberIds: string[]
+  members: ProjectMemberEntry[]
 ): Promise<void> {
   publishAfterCommit(
     c,
     'project_updated',
     row.id,
-    { ...toProjectResponse(row, memberIds), ...(await fetchTaskCounts(db, row.id)) },
+    { ...toProjectResponse(row, members), ...(await fetchTaskCounts(db, row.id)) },
     { broadcast: true }
   );
 }

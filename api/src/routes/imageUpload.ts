@@ -4,7 +4,7 @@ import { describeRoute, resolver } from 'hono-openapi';
 import { authMiddleware } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
-import { assertTaskAccess } from '../services/authorization';
+import { assertTaskWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { sniffImageContentType } from '../services/imageSniff';
 import { storage } from '../services/storage/index';
@@ -15,6 +15,7 @@ import {
   imageResponseSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
+  forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
   payloadTooLargeErrorResponse,
@@ -65,6 +66,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...payloadTooLargeErrorResponse,
@@ -82,7 +84,7 @@ router.post(
     const db = c.get('db');
     const { id: taskId } = c.req.valid('param');
 
-    const project = await assertTaskAccess(db, c.get('user').id, taskId);
+    const project = await assertTaskWrite(db, c.get('user').id, taskId);
 
     const body = await c.req.parseBody();
     const file = body['file'];
