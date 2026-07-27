@@ -285,6 +285,67 @@ describe('board shortcuts', () => {
     expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
   });
 
+  it('duplicates the selected task with Shift+D and preventDefaults', () => {
+    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
+    selection.set('t1');
+
+    const event = press('D', { shiftKey: true });
+
+    expect(duplicateTask).toHaveBeenCalledWith('t1');
+    expect(event.defaultPrevented).toBe(true);
+    expect(selection.selectedTaskId).toBe('t1');
+  });
+
+  it('ignores autorepeat on Shift+D so a held key mints one copy', () => {
+    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
+    selection.set('t1');
+
+    press('D', { shiftKey: true });
+    const repeated = press('D', { shiftKey: true, repeat: true });
+
+    expect(duplicateTask).toHaveBeenCalledTimes(1);
+    expect(repeated.defaultPrevented).toBe(false);
+  });
+
+  it('still marks done on a held d, which is idempotent', () => {
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    selection.set('t1');
+
+    press('d', { repeat: true });
+
+    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
+  });
+
+  it('follows the shift modifier rather than the case of the key', () => {
+    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    selection.set('t1');
+
+    press('d', { shiftKey: true });
+    expect(duplicateTask).toHaveBeenCalledWith('t1');
+    expect(moveTask).not.toHaveBeenCalled();
+
+    press('D', { shiftKey: false });
+    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
+    expect(duplicateTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a modified d or Shift+D to the browser, and does nothing without a selection', () => {
+    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    selection.set('t1');
+
+    expect(press('D', { shiftKey: true, metaKey: true }).defaultPrevented).toBe(false);
+    expect(press('d', { metaKey: true }).defaultPrevented).toBe(false);
+
+    selection.clear();
+    expect(press('D', { shiftKey: true }).defaultPrevented).toBe(false);
+    expect(press('d').defaultPrevented).toBe(false);
+
+    expect(duplicateTask).not.toHaveBeenCalled();
+    expect(moveTask).not.toHaveBeenCalled();
+  });
+
   it('clears the selection on Escape, then does nothing', () => {
     selection.set('t1');
     const cleared = press('Escape');

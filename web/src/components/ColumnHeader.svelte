@@ -163,6 +163,17 @@
           role="menu"
           class="absolute top-full right-0 z-30 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
         >
+          <button
+            type="button"
+            role="menuitem"
+            class={menuItemClass}
+            onclick={() => {
+              menuOpen = false;
+              void board.duplicateColumn(column.id);
+            }}
+          >
+            Duplicate column
+          </button>
           {#if count > 0 && board.columns.length > 1}
             <button
               type="button"
@@ -188,11 +199,6 @@
             >
               Archive all cards
             </button>
-          {/if}
-          {#if count === 0}
-            <div role="menuitem" aria-disabled="true" class="px-4 py-2 text-sm text-muted">
-              This column has no cards.
-            </div>
           {/if}
         </div>
       {/if}

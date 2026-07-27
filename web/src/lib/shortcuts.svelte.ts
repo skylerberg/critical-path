@@ -169,7 +169,22 @@ class ShortcutController {
         break;
       }
       case 'd':
-        if (selectedId === null || !board.markTaskDone(selectedId)) {
+      case 'D':
+        // CapsLock inverts the character, so duplicate-versus-done comes from the
+        // modifier and never from the case of the key.
+        if (selectedId === null || event.metaKey || event.ctrlKey || event.altKey) {
+          return false;
+        }
+        if (event.shiftKey) {
+          // Held keys autorepeat, and unlike the other shortcuts this one mints a
+          // row per event: a leaned-on key would bury the column in copies.
+          if (event.repeat) {
+            return false;
+          }
+          void board.duplicateTask(selectedId);
+          break;
+        }
+        if (!board.markTaskDone(selectedId)) {
           return false;
         }
         break;

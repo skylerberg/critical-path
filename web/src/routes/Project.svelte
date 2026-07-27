@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { announcer } from '../lib/announcer.svelte';
   import { board } from '../lib/board.svelte';
-  import { noFilters, type BoardFilters } from '../lib/board-filters';
+  import { mergeFilterSearch, noFilters, type BoardFilters } from '../lib/board-filters';
   import type { ProjectView } from '../lib/router.svelte';
   import { selection } from '../lib/selection.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
@@ -78,6 +78,11 @@
     view === 'graph' ? `/projects/${projectId}/graph` : `/projects/${projectId}`
   );
   const closePath = $derived(from === 'my-tasks' ? '/my-tasks' : viewBasePath + board.filterSearch);
+  // What an overlay URL in this view carries: the live filters, plus the return marker
+  // when the card was reached from My Tasks.
+  const overlaySearch = $derived(
+    mergeFilterSearch(from === 'my-tasks' ? '?from=my-tasks' : '', board.filters)
+  );
 </script>
 
 {#if board.error !== null && board.currentProjectId === projectId}
@@ -99,7 +104,11 @@
     {/if}
   </div>
   {#if taskId !== undefined}
-    <TaskDetail {taskId} {closePath} />
+    <TaskDetail
+      {taskId}
+      {closePath}
+      taskPath={(id) => `${viewBasePath}/tasks/${id}${overlaySearch}`}
+    />
   {/if}
   {#if shortcuts.labelMenu !== null}
     <QuickLabelMenu taskId={shortcuts.labelMenu} onclose={() => (shortcuts.labelMenu = null)} />

@@ -691,6 +691,50 @@ describe('Project mounted on the live route', () => {
     }
   });
 
+  it('opens the copy on a real route that keeps the active filter', async () => {
+    const projectId = 'p-route-duplicate-filter';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
+    router.navigate(`/projects/${projectId}/tasks/t1?q=boss`, { replace: true });
+    vi.spyOn(board, 'duplicateTask').mockResolvedValue('t9');
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+
+      await waitFor(() => {
+        expect(router.path).toBe(`/projects/${projectId}/tasks/t9?q=boss`);
+      });
+      expect(router.current.name === 'project' && router.current.params.taskId).toBe('t9');
+      expect(board.filterQuery).toBe('boss');
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('opens the copy on a real route that keeps the my-tasks return path', async () => {
+    const projectId = 'p-route-duplicate-from';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
+    router.navigate(`/projects/${projectId}/tasks/t1?from=my-tasks`, { replace: true });
+    vi.spyOn(board, 'duplicateTask').mockResolvedValue('t9');
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+
+      await waitFor(() => {
+        expect(router.path).toBe(`/projects/${projectId}/tasks/t9?from=my-tasks`);
+      });
+      expect(router.current.name === 'project' && router.current.params.taskId).toBe('t9');
+
+      await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(router.path).toBe('/my-tasks');
+    } finally {
+      void unmount(app);
+    }
+  });
+
   it('closes a quick menu when the route leaves the task it points at', async () => {
     const projectId = 'p-route-menu';
     mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);

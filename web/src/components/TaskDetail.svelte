@@ -24,10 +24,13 @@
   interface Props {
     taskId: string;
     closePath: string;
+    // Built by the route, which is the only place that knows the view, the active
+    // filters and the return marker the overlay's URL has to carry.
+    taskPath: (id: string) => string;
     readonly?: boolean;
   }
 
-  let { taskId, closePath, readonly = false }: Props = $props();
+  let { taskId, closePath, taskPath, readonly = false }: Props = $props();
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const images = $derived(board.taskImages[taskId]);
@@ -45,6 +48,8 @@
   let uploadInput = $state<HTMLInputElement>();
   let confirmingDelete = $state(false);
   let removing = $state(false);
+  let duplicating = $state(false);
+  let closed = $state(false);
 
   // Deliberately local, unlike the compose drafts: this shadows a server-owned
   // value, so surviving an unmount would mean committing an abandoned edit later
@@ -69,6 +74,8 @@
       titleDraft = null;
       confirmingDelete = false;
       removing = false;
+      duplicating = false;
+      closed = false;
       baseUpdatedAt = null;
       baseTitle = null;
       conflicted = false;
@@ -93,8 +100,13 @@
   });
 
   // Cleared on unmount so a reopened overlay never flashes another card's history
-  // and no background mutation keeps refetching for a closed dialog.
-  $effect(() => () => taskActivity.reset());
+  // and no background mutation keeps refetching for a closed dialog. `closed` is
+  // set here too because most dismissals never reach close(): Back, a sidebar link
+  // and the auth redirect all just unmount the dialog.
+  $effect(() => () => {
+    closed = true;
+    taskActivity.reset();
+  });
 
   // The title and the description share one queue: overlapping writes would carry
   // the same baseline and the second would conflict against the first.
@@ -117,6 +129,7 @@
 
   // replaceState so Back skips the closed overlay instead of re-opening it.
   function close(): void {
+    closed = true;
     router.redirect(closePath);
   }
 
@@ -210,6 +223,24 @@
     removing = true;
     await board.deleteTask(taskId);
     close();
+  }
+
+  // Queued behind the title and description writes, so the server copies the text the
+  // user just typed rather than whatever an in-flight PATCH is about to replace.
+  // navigate, not redirect, so Back returns to the original card.
+  async function handleDuplicate(): Promise<void> {
+    duplicating = true;
+    const source = taskId;
+    try {
+      const id = await queueWrite(() => board.duplicateTask(source));
+      // `closed` alone would miss every dismissal that does not run close() — Back,
+      // the auth redirect — and taskId can also change under a mounted overlay.
+      if (id !== null && !closed && source === taskId) {
+        router.navigate(taskPath(id));
+      }
+    } finally {
+      duplicating = false;
+    }
   }
 
   // No confirm step: archiving is reversible, unlike delete.
@@ -495,6 +526,11 @@
             )}
           </p>
           <div class="flex gap-2">
+            <Button
+              variant="secondary"
+              disabled={duplicating}
+              onclick={() => void handleDuplicate()}>Duplicate</Button
+            >
             <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
             <Button variant="danger" onclick={() => void handleDelete()}>
               {confirmingDelete ? 'Confirm delete' : 'Delete task'}

@@ -13,7 +13,7 @@ import type {
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
-import { append, between, prepend } from './positions';
+import { append, between, positionForIndex, prepend } from './positions';
 import { router, splitPath } from './router.svelte';
 import { session } from './session.svelte';
 import { taskActivity } from './taskActivity.svelte';
@@ -419,6 +419,47 @@ class BoardStore {
     }
   }
 
+  async duplicateTask(taskId: string): Promise<string | null> {
+    const source = this.tasks.find((task) => task.id === taskId);
+    if (source === undefined) {
+      return null;
+    }
+    const siblings = this.tasksInColumn(source.column_id);
+    const position = positionForIndex(
+      siblings.map((task) => task.position),
+      siblings.findIndex((task) => task.id === taskId) + 1
+    );
+    const id = newId();
+    const now = new Date().toISOString();
+    // Labels, assignees and image_count come along because the server copies them.
+    // Edges and comments it does not copy, so they start empty on the copy.
+    this.tasks = [
+      ...this.tasks,
+      {
+        ...source,
+        id,
+        position,
+        blocker_ids: [],
+        comment_count: 0,
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+    try {
+      const created = assertOk(
+        await api.POST('/api/tasks/{id}/duplicate', {
+          params: { path: { id: taskId } },
+          body: { id, position },
+        })
+      );
+      this.tasks = this.tasks.map((task) => (task.id === id ? created : task));
+      return id;
+    } catch (error) {
+      await this.#mutationFailed(error);
+      return null;
+    }
+  }
+
   // Awaiting the create before addBlocker guarantees the row exists server-side, so
   // the blocker call can never race ahead of it (the label-race class of bug).
   // addBlocker(taskId, blockerTaskId) reads as "blockerTaskId blocks taskId", hence
@@ -668,6 +709,54 @@ class BoardStore {
           body: { is_done },
         })
       );
+    } catch (error) {
+      await this.#mutationFailed(error);
+    }
+  }
+
+  async duplicateColumn(columnId: string): Promise<void> {
+    const source = this.columns.find((column) => column.id === columnId);
+    if (source === undefined) {
+      return;
+    }
+    const position = positionForIndex(
+      this.columns.map((column) => column.position),
+      this.columns.findIndex((column) => column.id === columnId) + 1
+    );
+    const id = newId();
+    const projectId = this.currentProjectId;
+    // The copies of the cards cannot be optimistic — the server names them — but
+    // the empty column can, so it appears beside the original straight away.
+    this.columns = [
+      ...this.columns,
+      { id, name: source.name, position, is_done: source.is_done },
+    ].sort((a, b) => a.position - b.position);
+    try {
+      const data = assertOk(
+        await api.POST('/api/columns/{id}/duplicate', {
+          params: { path: { id: columnId } },
+          body: { id, position },
+        })
+      );
+      // Other mutations key off an id already on the board, so a late response is a
+      // no-op. This one appends outright, into whatever board is showing now.
+      if (this.currentProjectId !== projectId) {
+        return;
+      }
+      this.columns = this.columns.map((column) =>
+        column.id === id
+          ? {
+              id: data.column.id,
+              name: data.column.name,
+              position: data.column.position,
+              is_done: data.column.is_done,
+            }
+          : column
+      );
+      // Computed after the await so a realtime echo that landed while the request
+      // was in flight is not added a second time.
+      const held = new Set(this.tasks.map((task) => task.id));
+      this.tasks = [...this.tasks, ...data.tasks.filter((task) => !held.has(task.id))];
     } catch (error) {
       await this.#mutationFailed(error);
     }
