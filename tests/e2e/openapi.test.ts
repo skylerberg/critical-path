@@ -19,6 +19,11 @@ describe('GET /api/openapi.json', () => {
       '/api/auth/tokens/{id}',
       '/api/users',
       '/api/my-tasks',
+      '/api/webhooks',
+      '/api/webhooks/{id}',
+      '/api/webhooks/{id}/rotate-secret',
+      '/api/webhooks/{id}/deliveries',
+      '/api/webhooks/{id}/deliveries/{deliveryId}/redeliver',
     ]) {
       expect(paths).toContain(expected);
     }
@@ -149,6 +154,22 @@ describe('GET /api/openapi.json', () => {
     const entry = spec.components.schemas.TaskActivity;
     expect(entry.properties.kind.enum).toContain('archived');
     expect(entry.properties.kind.enum).toContain('restored');
+  });
+
+  it('leaves the webhook delivery payload untyped so clients can read the envelope', async () => {
+    const res = await app.request('/api/openapi.json');
+    expect(res.status).toBe(200);
+
+    const spec = await res.json();
+    expect(
+      spec.paths['/api/webhooks/{id}/deliveries'].get.responses['200'].content['application/json']
+        .schema
+    ).toEqual({ $ref: '#/components/schemas/WebhookDeliveriesResponse' });
+
+    // `object` would generate as Record<string, never> on the web side.
+    const delivery = spec.components.schemas.WebhookDelivery;
+    expect(delivery.properties.payload).toEqual({});
+    expect(delivery.required).toContain('payload');
   });
 
   it('has unique operationIds across all operations', async () => {

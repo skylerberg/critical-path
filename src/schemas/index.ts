@@ -18,3 +18,4 @@ export * from './images';
 export * from './comments';
 export * from './activity';
 export * from './feedback';
+export * from './webhooks';
