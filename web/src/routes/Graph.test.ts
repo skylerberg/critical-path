@@ -160,6 +160,37 @@ describe('Graph', () => {
     expect(screen.getByRole('link', { name: 'Open task Task a' })).toBe(anchor);
   });
 
+  it('keeps a long press on a node from raising the link menu mid-pan', async () => {
+    const projectId = 'p-graph-longpress';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, payload(projectId, [task('a', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    const anchor = screen.getByRole('link', { name: 'Open task Task a' });
+    expect(anchor.className).toContain('touch-callout-none');
+
+    const touch = new PointerEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      pointerType: 'touch',
+    });
+    anchor.dispatchEvent(touch);
+    expect(touch.defaultPrevented).toBe(true);
+
+    const mouse = new PointerEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      pointerType: 'mouse',
+    });
+    anchor.dispatchEvent(mouse);
+    expect(mouse.defaultPrevented).toBe(false);
+  });
+
   it('renders the shared filter bar on the graph view with no duplicate label chips', async () => {
     const projectId = 'p-graph-filters';
     const withLabel = { ...task('a', 'todo'), label_ids: ['l1'] };

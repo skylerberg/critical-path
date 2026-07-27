@@ -25,6 +25,14 @@ function blockAt(prelude: string): string {
 
 const reducedMotion = blockAt('@media (prefers-reduced-motion: reduce)');
 
+// Tailwind emits nothing and raises no error for a candidate whose @utility is
+// missing, so a className assertion alone would survive deleting this block.
+describe('touch-callout-none utility', () => {
+  it('turns off the native long-press callout', () => {
+    expect(blockAt('@utility touch-callout-none')).toMatch(/-webkit-touch-callout:\s*none/);
+  });
+});
+
 describe('reduced-motion stylesheet rule', () => {
   it('targets every element and pseudo-element', () => {
     expect(reducedMotion).toContain('*,');

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { suppressTouchContextMenu } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import type { BoardLabel, BoardTask } from '../lib/board-types';
   import { boardPath, link } from '../lib/router.svelte';
@@ -42,12 +43,13 @@
      invalid and unreachable by keyboard. -->
 <div
   role="presentation"
+  use:suppressTouchContextMenu
   onpointerenter={() => {
     if (!board.dragging) {
       selection.set(task.id);
     }
   }}
-  class="relative isolate block min-h-11 rounded-md border bg-canvas p-3 transition-opacity hover:border-accent {selected
+  class="relative isolate block min-h-11 touch-callout-none rounded-md border bg-canvas p-3 transition-opacity hover:border-accent {selected
     ? 'border-accent ring-2 ring-accent'
     : 'border-edge'} {dimmed ? 'opacity-30' : ''}"
 >

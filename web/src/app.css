@@ -55,6 +55,10 @@
   }
 }
 
+@utility touch-callout-none {
+  -webkit-touch-callout: none;
+}
+
 /* Unlayered so a component <style> can opt an element back in with its own !important;
    a layered !important here would outrank that. */
 @media (prefers-reduced-motion: reduce) {

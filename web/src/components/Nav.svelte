@@ -7,6 +7,7 @@
     TRIGGERS,
     type DndEvent,
   } from 'svelte-dnd-action';
+  import { suppressTouchContextMenu } from '../lib/actions';
   import { APP_NAME } from '../lib/constants';
   import { motion } from '../lib/motion.svelte';
   import { projects, type Project } from '../lib/projects.svelte';
@@ -160,10 +161,12 @@
 
 {#snippet projectLink(id: string, name: string)}
   <a
+    use:suppressTouchContextMenu
     href="/projects/{id}"
     draggable="false"
     aria-current={currentProjectId === id ? 'page' : undefined}
-    class="flex min-h-11 items-center truncate rounded-md px-3 text-sm {currentProjectId === id
+    class="flex min-h-11 touch-callout-none items-center truncate rounded-md px-3 text-sm {currentProjectId ===
+    id
       ? 'bg-accent-soft font-medium text-accent'
       : 'text-muted hover:bg-accent-soft hover:text-ink'}"
   >
