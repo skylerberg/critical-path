@@ -44,6 +44,9 @@ describe('GET /api/openapi.json', () => {
       spec.paths['/api/tasks'].post.responses['422'].content['application/json'].schema
     ).toEqual({ $ref: ref });
     expect(
+      spec.paths['/api/tasks/batch'].post.responses['422'].content['application/json'].schema
+    ).toEqual({ $ref: ref });
+    expect(
       spec.paths['/api/projects'].post.responses['422'].content['application/json'].schema
     ).toEqual({ $ref: ref });
 

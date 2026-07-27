@@ -2,15 +2,23 @@ import { CliError, EXIT } from './api/errors';
 
 const GAP = 1000;
 
-export function between(a: number, b: number): number {
-  const mid = (a + b) / 2;
-  if (!(mid > a && mid < b)) {
-    throw new CliError(
-      'No room between the neighboring positions; use --top or --bottom instead',
-      EXIT.failure
-    );
+// Spread as one block rather than repeatedly bisecting: bisecting per item
+// halves the remaining gap each time and runs out of float precision after a
+// few dozen items.
+export function spreadBetween(a: number, b: number, count: number): number[] {
+  const step = (b - a) / (count + 1);
+  const positions = Array.from({ length: count }, (_, i) => a + step * (i + 1));
+  let previous = a;
+  for (const position of positions) {
+    if (!(position > previous && position < b)) {
+      throw new CliError(
+        'No room between the neighboring positions; use --top or --bottom instead',
+        EXIT.failure
+      );
+    }
+    previous = position;
   }
-  return mid;
+  return positions;
 }
 
 export function append(positions: readonly number[]): number {
@@ -23,11 +31,20 @@ export function prepend(positions: readonly number[]): number {
   return Math.min(...positions) - GAP;
 }
 
-export function positionForIndex(sortedPositions: readonly number[], index: number): number {
-  if (sortedPositions.length === 0) return GAP;
-  if (index <= 0) return prepend(sortedPositions);
-  if (index >= sortedPositions.length) return append(sortedPositions);
-  return between(sortedPositions[index - 1], sortedPositions[index]);
+export function positionsForIndex(
+  sortedPositions: readonly number[],
+  index: number,
+  count: number
+): number[] {
+  if (sortedPositions.length === 0 || index >= sortedPositions.length) {
+    const first = append(sortedPositions);
+    return Array.from({ length: count }, (_, i) => first + i * GAP);
+  }
+  if (index <= 0) {
+    const last = prepend(sortedPositions);
+    return Array.from({ length: count }, (_, i) => last - (count - 1 - i) * GAP);
+  }
+  return spreadBetween(sortedPositions[index - 1], sortedPositions[index], count);
 }
 
 export interface Placement {
@@ -58,18 +75,28 @@ export function placementIndex(
   return sortedIds.length;
 }
 
-export function positionForPlacement(
+export function positionsForPlacement(
   placement: Placement,
   sorted: readonly { id: string; position: number }[],
-  resolveAnchor: (ref: string) => string
-): number {
+  resolveAnchor: (ref: string) => string,
+  count: number
+): number[] {
   const index = placementIndex(
     placement,
     sorted.map((item) => item.id),
     resolveAnchor
   );
-  return positionForIndex(
+  return positionsForIndex(
     sorted.map((item) => item.position),
-    index
+    index,
+    count
   );
+}
+
+export function positionForPlacement(
+  placement: Placement,
+  sorted: readonly { id: string; position: number }[],
+  resolveAnchor: (ref: string) => string
+): number {
+  return positionsForPlacement(placement, sorted, resolveAnchor, 1)[0];
 }
