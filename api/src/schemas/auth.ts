@@ -5,10 +5,10 @@ import { userSchema } from './users';
 // Deliberately no trimming: passwords are stored as typed.
 export const password = type('string').pipe((s, ctx) => {
   if (s.length < 8) {
-    return ctx.error('must be at least 8 characters');
+    return ctx.error('at least 8 characters');
   }
   if (s.length > 200) {
-    return ctx.error('must be at most 200 characters');
+    return ctx.error('at most 200 characters');
   }
   return s;
 });
