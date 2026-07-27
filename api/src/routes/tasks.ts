@@ -37,6 +37,8 @@ import {
 import {
   idSchema,
   createTaskSchema,
+  createTasksBatchSchema,
+  tasksBatchResponseSchema,
   patchTaskSchema,
   taskDetailResponseSchema,
   archivedTaskSchema,
@@ -61,11 +63,17 @@ import { AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
 
-async function fetchBoardTask(
-  db: Kysely<DB>,
-  taskId: string
-): Promise<{ task: BoardTask; project_id: string; archived_at: string | null } | undefined> {
-  const row = await db
+interface BoardTaskRow {
+  task: BoardTask;
+  project_id: string;
+  archived_at: string | null;
+}
+
+async function fetchBoardTasks(db: Kysely<DB>, taskIds: string[]): Promise<BoardTaskRow[]> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+  const rows = await db
     .selectFrom('task')
     .select((eb) => [
       'task.id',
@@ -104,14 +112,10 @@ async function fetchBoardTask(
         .whereRef('task_comment.task_id', '=', 'task.id')
         .as('comment_count'),
     ])
-    .where('task.id', '=', taskId)
-    .executeTakeFirst();
+    .where('task.id', 'in', taskIds)
+    .execute();
 
-  if (!row) {
-    return undefined;
-  }
-
-  return {
+  return rows.map((row) => ({
     task: {
       id: row.id,
       column_id: row.column_id,
@@ -129,7 +133,11 @@ async function fetchBoardTask(
     },
     project_id: row.project_id,
     archived_at: row.archived_at?.toISOString() ?? null,
-  };
+  }));
+}
+
+async function fetchBoardTask(db: Kysely<DB>, taskId: string): Promise<BoardTaskRow | undefined> {
+  return (await fetchBoardTasks(db, [taskId]))[0];
 }
 
 async function assertColumnInProject(
@@ -292,6 +300,105 @@ router.post(
     }
     publishAfterCommit(c, 'task_created', body.project_id, created.task);
     return c.json(created.task, 201);
+  }
+);
+
+router.post(
+  '/batch',
+  describeRoute({
+    tags: ['Tasks'],
+    summary: 'Create tasks in bulk',
+    description:
+      'Create between 1 and 100 tasks in one column of one project in a single request, for ' +
+      'pasting a list. The client supplies every task id, so a retry after a dropped response ' +
+      'cannot double-create. Each item carries only a title and a position: descriptions, ' +
+      'due dates, labels and assignees are set afterwards with the single-task endpoints. ' +
+      'The batch is all or nothing — a duplicate id, whether it already exists or is repeated ' +
+      'inside the batch, returns 409 and creates none of them. An unknown or inaccessible ' +
+      'project returns 404 and a column_id outside the project returns 422. Each created task ' +
+      'gets its own created activity entry and its own task_created event.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      201: {
+        description: 'Created tasks in board-payload shape, in request order',
+        content: {
+          'application/json': {
+            schema: resolver(tasksBatchResponseSchema),
+          },
+        },
+      },
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...conflictErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  jsonValidator(createTasksBatchSchema),
+  async (c) => {
+    const body = c.req.valid('json');
+    const db = c.get('db');
+    const user = c.get('user');
+    const taskIds = body.tasks.map((task) => task.id);
+
+    const project = await db
+      .selectFrom('project')
+      .select(['id', 'created_by'])
+      .where('id', '=', body.project_id)
+      .executeTakeFirst();
+    if (!project || !(await canAccessProject(db, user.id, project))) {
+      throw new AppError(404, 'Project not found');
+    }
+
+    await assertColumnInProject(db, body.column_id, body.project_id);
+
+    try {
+      await db
+        .insertInto('task')
+        .values(
+          body.tasks.map((task) => ({
+            id: task.id,
+            project_id: body.project_id,
+            column_id: body.column_id,
+            title: task.title,
+            position: task.position,
+          }))
+        )
+        .execute();
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new AppError(409, 'Task id already in use');
+      }
+      throw err;
+    }
+
+    await recordTaskActivity(
+      db,
+      user.id,
+      body.tasks.map((task) => ({
+        taskId: task.id,
+        kind: 'created' as const,
+        newValue: { text: task.title },
+      }))
+    );
+
+    const rows = await fetchBoardTasks(db, taskIds);
+    const byId = new Map(rows.map((row) => [row.task.id, row.task]));
+    // Reordered here because the read is one `in` query, whose row order is
+    // unspecified, while the response promises request order.
+    const tasks = taskIds.map((taskId) => {
+      const created = byId.get(taskId);
+      if (created === undefined) {
+        throw new AppError(500, 'Failed to load created tasks');
+      }
+      return created;
+    });
+
+    for (const task of tasks) {
+      publishAfterCommit(c, 'task_created', body.project_id, task);
+    }
+    return c.json({ tasks }, 201);
   }
 );
 
