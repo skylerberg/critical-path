@@ -86,6 +86,7 @@ describe('Tasks CRUD', () => {
         position: 1000,
         blocker_ids: [],
         image_count: 0,
+        comment_count: 0,
       });
       expect(task.label_ids.sort()).toEqual([labelA, labelB].sort());
       expect(task.assignee_ids.sort()).toEqual([user.id, assignee.id].sort());
@@ -218,6 +219,8 @@ describe('Tasks CRUD', () => {
       expect(emptyBody.project_id).toBe(projectId);
       expect(emptyBody.images).toEqual([]);
       expect(emptyBody.image_count).toBe(0);
+      expect(emptyBody.comments).toEqual([]);
+      expect(emptyBody.comment_count).toBe(0);
 
       const imageId = await fixtures.createImageRow(id, { filename: 'shot.png' });
       const res = await ctx.request(user.token).get(`/api/tasks/${id}`);

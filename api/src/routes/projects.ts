@@ -243,9 +243,9 @@ router.post(
     description:
       'Create a project with the default Backlog / To Do / In Progress / Done columns, or ' +
       'deep-copy an existing project by passing source_project_id (copies columns, labels, ' +
-      'tasks, task labels, dependencies, and images — not assignees, members, or archived ' +
-      'state; copies start personal). Returns 422 when source_project_id does not reference ' +
-      'an existing project and 404 when it references a project the caller cannot access.',
+      'tasks, task labels, dependencies, and images — not comments, assignees, members, or ' +
+      'archived state; copies start personal). Returns 422 when source_project_id does not ' +
+      'reference an existing project and 404 when it references a project the caller cannot access.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {

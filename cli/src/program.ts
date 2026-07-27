@@ -3,6 +3,7 @@ import type { CliDeps } from './context';
 import { registerAuth } from './commands/auth';
 import { registerBoardViews } from './commands/boardView';
 import { registerColumn } from './commands/column';
+import { registerComment } from './commands/comment';
 import { registerCompletion } from './commands/completion';
 import { registerConfig } from './commands/config';
 import { registerImage } from './commands/image';
@@ -23,6 +24,7 @@ export function buildProgram(deps: CliDeps): Command {
   registerLabel(program, deps);
   registerUser(program, deps);
   registerImage(program, deps);
+  registerComment(program, deps);
   registerBoardViews(program, deps);
   registerWatch(program, deps);
   registerConfig(program, deps);

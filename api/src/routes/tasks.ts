@@ -82,6 +82,11 @@ async function fetchBoardTask(
         .select((ib) => ib.fn.countAll<string>().as('count'))
         .whereRef('task_image.task_id', '=', 'task.id')
         .as('image_count'),
+      eb
+        .selectFrom('task_comment')
+        .select((cb) => cb.fn.countAll<string>().as('count'))
+        .whereRef('task_comment.task_id', '=', 'task.id')
+        .as('comment_count'),
     ])
     .where('task.id', '=', taskId)
     .executeTakeFirst();
@@ -103,6 +108,7 @@ async function fetchBoardTask(
       assignee_ids: row.assignees.map((a) => a.user_id),
       blocker_ids: row.blockers.map((b) => b.blocker_task_id),
       image_count: Number(row.image_count ?? 0),
+      comment_count: Number(row.comment_count ?? 0),
     },
     project_id: row.project_id,
   };
@@ -279,7 +285,9 @@ router.get(
   describeRoute({
     tags: ['Tasks'],
     summary: 'Get task detail',
-    description: 'Get a task in board-payload shape plus its project id and images.',
+    description:
+      'Get a task in board-payload shape plus its project id, images, and its full comment ' +
+      'stream oldest first.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -332,7 +340,31 @@ router.get(
       created_at: image.created_at.toISOString(),
     }));
 
-    return c.json({ ...result.task, project_id: result.project_id, images }, 200);
+    const commentRows = await db
+      .selectFrom('task_comment')
+      .select([
+        'task_comment.id',
+        'task_comment.task_id',
+        'task_comment.user_id',
+        'task_comment.body',
+        'task_comment.created_at',
+        'task_comment.updated_at',
+      ])
+      .where('task_comment.task_id', '=', id)
+      .orderBy('task_comment.created_at')
+      .orderBy('task_comment.id')
+      .execute();
+
+    const comments = commentRows.map((comment) => ({
+      id: comment.id,
+      task_id: comment.task_id,
+      user_id: comment.user_id,
+      body: comment.body as unknown as TiptapDoc,
+      created_at: comment.created_at.toISOString(),
+      updated_at: comment.updated_at.toISOString(),
+    }));
+
+    return c.json({ ...result.task, project_id: result.project_id, images, comments }, 200);
   }
 );
 

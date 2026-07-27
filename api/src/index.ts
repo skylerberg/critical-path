@@ -45,6 +45,7 @@ import columnsRouter from './routes/columns';
 import tasksRouter from './routes/tasks';
 import imageUploadRouter from './routes/imageUpload';
 import labelsRouter from './routes/labels';
+import commentsRouter from './routes/comments';
 import imagesRouter from './routes/images';
 import feedbackRouter from './routes/feedback';
 import publicBoardsRouter from './routes/publicBoards';
@@ -119,6 +120,7 @@ const openAPIOptions = {
       { name: 'Columns', description: 'Kanban board columns' },
       { name: 'Tasks', description: 'Tasks, dependencies, labels, and assignees' },
       { name: 'Labels', description: 'Per-project labels' },
+      { name: 'Comments', description: 'Task comment threads' },
       { name: 'Images', description: 'Task image upload and retrieval' },
       { name: 'Avatars', description: 'User profile image upload and retrieval' },
       { name: 'Feedback', description: 'User-submitted product feedback' },
@@ -155,6 +157,7 @@ app.route('/api/tasks', tasksRouter);
 // Second router on the same prefix: POST /:id/images needs its own bodyLimit.
 app.route('/api/tasks', imageUploadRouter);
 app.route('/api/labels', labelsRouter);
+app.route('/api/comments', commentsRouter);
 app.route('/api/images', imagesRouter);
 app.route('/api/avatars', avatarsRouter);
 app.route('/api/feedback', feedbackRouter);
