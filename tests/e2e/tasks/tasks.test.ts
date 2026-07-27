@@ -552,6 +552,158 @@ describe('Tasks CRUD', () => {
     });
   });
 
+  describe('due dates', () => {
+    it('creates a task with a due date and echoes the calendar day unchanged', async () => {
+      const res = await ctx
+        .request(user.token)
+        .post('/api/tasks', taskBody({ due_date: '2026-08-03' }));
+      expect(res.status).toBe(201);
+      expect((await res.json()).due_date).toBe('2026-08-03');
+    });
+
+    it('defaults due_date to null, and takes an explicit null', async () => {
+      const omitted = await ctx.request(user.token).post('/api/tasks', taskBody());
+      expect((await omitted.json()).due_date).toBeNull();
+
+      const explicit = await ctx
+        .request(user.token)
+        .post('/api/tasks', taskBody({ due_date: null }));
+      expect(explicit.status).toBe(201);
+      expect((await explicit.json()).due_date).toBeNull();
+    });
+
+    it('rejects anything that is not a real calendar day with 422', async () => {
+      for (const value of [
+        '2026-8-3',
+        '2026-02-30',
+        '2026-13-01',
+        '0000-01-01',
+        '2026-08-03T00:00:00Z',
+        'tomorrow',
+      ]) {
+        const res = await ctx.request(user.token).post('/api/tasks', taskBody({ due_date: value }));
+        expect(res.status, value).toBe(422);
+        const body = await res.json();
+        expect(body.error).toBe('Validation failed');
+        expect(Array.isArray(body.details)).toBe(true);
+      }
+    });
+
+    it('sets, keeps and clears the date through PATCH', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+
+      const set = await ctx.request(user.token).patch(`/api/tasks/${id}`, {
+        due_date: '2026-09-01',
+      });
+      expect(set.status).toBe(200);
+      expect((await set.json()).due_date).toBe('2026-09-01');
+      expect((await (await ctx.request(user.token).get(`/api/tasks/${id}`)).json()).due_date).toBe(
+        '2026-09-01'
+      );
+
+      const renamed = await ctx.request(user.token).patch(`/api/tasks/${id}`, { title: 'renamed' });
+      expect((await renamed.json()).due_date).toBe('2026-09-01');
+
+      const cleared = await ctx.request(user.token).patch(`/api/tasks/${id}`, { due_date: null });
+      expect(cleared.status).toBe(200);
+      expect((await cleared.json()).due_date).toBeNull();
+    });
+
+    it('rejects a malformed date on PATCH with 422 and leaves the stored date alone', async () => {
+      const created = await ctx
+        .request(user.token)
+        .post('/api/tasks', taskBody({ due_date: '2026-08-03' }));
+      const { id } = await created.json();
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${id}`, { due_date: 'friday' });
+      expect(res.status).toBe(422);
+
+      const after = await ctx.request(user.token).get(`/api/tasks/${id}`);
+      expect((await after.json()).due_date).toBe('2026-08-03');
+    });
+
+    // The date is card metadata, like labels and assignees: bumping updated_at would
+    // invalidate the precondition every open editor of that card is holding.
+    it('leaves updated_at untouched when only the due date changes', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { due_date: '2026-10-10' });
+      expect(res.status).toBe(200);
+      expect((await res.json()).updated_at).toBe(original.updated_at);
+    });
+
+    it('ignores expected_updated_at on a due-date-only patch', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      const bump = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { title: 'bumped' });
+      expect(bump.status).toBe(200);
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+        due_date: '2026-11-30',
+        expected_updated_at: original.updated_at,
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()).due_date).toBe('2026-11-30');
+    });
+
+    it('logs the transition in the activity stream, and nothing for an unchanged date', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+
+      for (const due_date of ['2026-08-03', '2026-08-03', '2026-09-04', null]) {
+        expect((await ctx.request(user.token).patch(`/api/tasks/${id}`, { due_date })).status).toBe(
+          200
+        );
+      }
+
+      const res = await ctx.request(user.token).get(`/api/tasks/${id}/activity`);
+      const entries = (await res.json()).activity as {
+        kind: string;
+        old_value: { text?: string } | null;
+        new_value: { text?: string } | null;
+      }[];
+      expect(entries.map((entry) => entry.kind)).toEqual([
+        'created',
+        'due_date_changed',
+        'due_date_changed',
+        'due_date_changed',
+      ]);
+      expect(entries.slice(1).map((entry) => [entry.old_value, entry.new_value])).toEqual([
+        [null, { text: '2026-08-03' }],
+        [{ text: '2026-08-03' }, { text: '2026-09-04' }],
+        [{ text: '2026-09-04' }, null],
+      ]);
+    });
+
+    // Guards the mapper as well as the select: reading the column through node-pg
+    // yields a Date at local midnight, so a server east of UTC would answer with
+    // the previous day.
+    it('answers with the stored calendar day when the process runs east of UTC', async () => {
+      vi.stubEnv('TZ', 'Pacific/Kiritimati');
+      try {
+        const created = await ctx
+          .request(user.token)
+          .post('/api/tasks', taskBody({ due_date: '2026-08-03' }));
+        const createdTask = await created.json();
+        expect(createdTask.due_date).toBe('2026-08-03');
+
+        const board = await ctx.request(user.token).get(`/api/projects/${projectId}`);
+        const tasks = (await board.json()).tasks as { id: string; due_date: string | null }[];
+        expect(tasks.find((task) => task.id === createdTask.id)?.due_date).toBe('2026-08-03');
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+  });
+
   describe('DELETE /api/tasks/:id', () => {
     it('requires auth', async () => {
       const res = await ctx.request().delete(`/api/tasks/${newId()}`);

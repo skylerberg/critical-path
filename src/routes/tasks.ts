@@ -14,6 +14,7 @@ import {
   projectAccessIdsAmong,
   type ProjectAccessFields,
 } from '../services/authorization';
+import { dueDateText } from '../services/dueDate';
 import { notifyMentions } from '../services/mentions';
 import { storage } from '../services/storage/index';
 import {
@@ -73,6 +74,7 @@ async function fetchBoardTask(
       'task.title',
       'task.description',
       'task.position',
+      dueDateText.as('due_date'),
       'task.created_at',
       'task.updated_at',
       'task.archived_at',
@@ -116,6 +118,7 @@ async function fetchBoardTask(
       title: row.title,
       description: row.description as TiptapDoc | null,
       position: row.position,
+      due_date: row.due_date,
       created_at: row.created_at.toISOString(),
       updated_at: row.updated_at.toISOString(),
       label_ids: row.labels.map((l) => l.label_id),
@@ -195,7 +198,8 @@ router.post(
       'Create a task in a column. The client supplies the task id. An unknown or inaccessible ' +
       'project returns 404. The column must belong to the project, labels must belong to the ' +
       'project, and assignees must be users with access to the project; those violations return ' +
-      '422 with a plain error body.',
+      '422 with a plain error body. due_date is an optional calendar day (YYYY-MM-DD, no time ' +
+      'and no timezone); anything else returns 422.',
     security: [{ bearerAuth: [] }],
     responses: {
       201: {
@@ -246,6 +250,7 @@ router.post(
           title: body.title,
           description: serializeDescription(body.description),
           position: body.position,
+          due_date: body.due_date ?? null,
         })
         .execute();
     } catch (err) {
@@ -395,8 +400,10 @@ router.get(
     summary: 'Get task activity',
     description:
       'The task’s activity log, oldest first: who created it, retitled it, edited its ' +
-      'description, moved it between columns, added or removed a label, an assignee or a ' +
-      'blocker, and who archived or restored it. Each entry carries the actor, the time, and ' +
+      'description, moved it between columns, set, changed or cleared its due date, added or ' +
+      'removed a label, an assignee or a blocker, and who archived or restored it. A due-date ' +
+      'entry carries the calendar day as text, with a null old value when it was first set and ' +
+      'a null new value when it was cleared. Each entry carries the actor, the time, and ' +
       'the old and new value of what changed, with column, label, user and blocker names ' +
       'snapshotted as they were at the time. The log is append-only and starts when a task ' +
       'is created, so tasks that predate this feature read as empty until they next change. ' +
@@ -436,14 +443,16 @@ router.patch(
     tags: ['Tasks'],
     summary: 'Update a task',
     description:
-      'Update title, description (a Tiptap doc, or null to clear it), or move the task by ' +
+      'Update title, description (a Tiptap doc, or null to clear it), due_date (a calendar day ' +
+      'YYYY-MM-DD, or null to clear it; omit it to leave it alone), or move the task by ' +
       'sending column_id and position together. The new column must belong to the task’s ' +
-      'project; violations return 422 with a plain error body. updated_at is bumped only when ' +
-      'the patch changes title or description — a pure move leaves it untouched. ' +
+      'project and due_date must be a real calendar day; violations return 422 with a plain ' +
+      'error body. updated_at is bumped only when the patch changes title or description — a ' +
+      'pure move or due-date change leaves it untouched. ' +
       'expected_updated_at is an optimistic-concurrency precondition on the task’s content: ' +
       'it is honored only when the patch includes title or description, a patch that only ' +
-      'moves the task is always last-write-wins and ignores it, and a precondition that does ' +
-      'not match the stored updated_at returns 409 and writes nothing.',
+      'moves the task or sets its due date is always last-write-wins and ignores it, and a ' +
+      'precondition that does not match the stored updated_at returns 409 and writes nothing.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -487,7 +496,7 @@ router.patch(
     // the pre-update row: that would pass both preconditions, and it would log two
     // transitions out of a value only one of them saw.
     const before =
-      guardsContent || body.column_id !== undefined
+      guardsContent || body.column_id !== undefined || 'due_date' in body
         ? await db
             .selectFrom('task')
             .innerJoin('board_column', 'board_column.id', 'task.column_id')
@@ -497,6 +506,7 @@ router.patch(
               'task.column_id',
               'task.updated_at',
               'board_column.name as column_name',
+              dueDateText.as('due_date'),
               // Postgres normalizes jsonb key order on storage, so only jsonb equality can
               // tell an unchanged description from a re-serialized one.
               sql<boolean>`task.description is distinct from ${nextDescription}::jsonb`.as(
@@ -527,6 +537,7 @@ router.patch(
       ...('description' in body ? { description: nextDescription } : {}),
       ...(body.column_id !== undefined ? { column_id: body.column_id } : {}),
       ...(body.position !== undefined ? { position: body.position } : {}),
+      ...('due_date' in body ? { due_date: body.due_date ?? null } : {}),
       ...(guardsContent ? { updated_at: sql<Date>`now()` } : {}),
     };
 
@@ -569,6 +580,17 @@ router.patch(
             kind: 'column_changed',
             oldValue: { id: before.column_id, name: before.column_name },
             newValue: { id: body.column_id, name: newColumn.name },
+          },
+        ]);
+      }
+      const nextDueDate = body.due_date ?? null;
+      if ('due_date' in body && nextDueDate !== before.due_date) {
+        await recordTaskActivity(db, actorId, [
+          {
+            taskId: id,
+            kind: 'due_date_changed',
+            oldValue: before.due_date === null ? null : { text: before.due_date },
+            newValue: nextDueDate === null ? null : { text: nextDueDate },
           },
         ]);
       }

@@ -16,6 +16,7 @@ function task(
     title: `Task ${id}`,
     description: null,
     position,
+    due_date: null,
     created_at: TS,
     updated_at: TS,
     label_ids: [],

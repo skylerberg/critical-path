@@ -30,6 +30,7 @@ interface PublicBoardBody {
     title: string;
     description: unknown;
     position: number;
+    due_date: string | null;
     label_ids: string[];
     assignee_ids: string[];
     blocker_ids: string[];
@@ -107,6 +108,7 @@ describe('GET /api/public/projects/:id/board', () => {
       columnId: backlog.id,
       title: 'Main',
       position: 2000,
+      dueDate: '2026-08-03',
       description: {
         type: 'doc',
         content: [
@@ -209,6 +211,7 @@ describe('GET /api/public/projects/:id/board', () => {
         title: task.title,
         description: task.description,
         position: task.position,
+        due_date: task.due_date,
         label_ids: task.label_ids,
         assignee_ids: task.assignee_ids,
         blocker_ids: task.blocker_ids,
@@ -245,8 +248,18 @@ describe('GET /api/public/projects/:id/board', () => {
     expect(Object.keys(payload).sort()).toEqual(['columns', 'labels', 'project', 'tasks', 'users']);
     expect(Object.keys(payload.project).sort()).toEqual(['description', 'id', 'name']);
     for (const task of payload.tasks) {
-      expect(Object.keys(task)).not.toContain('created_at');
-      expect(Object.keys(task)).not.toContain('updated_at');
+      expect(Object.keys(task).sort()).toEqual([
+        'assignee_ids',
+        'blocker_ids',
+        'column_id',
+        'description',
+        'due_date',
+        'id',
+        'image_count',
+        'label_ids',
+        'position',
+        'title',
+      ]);
     }
 
     expect(payload.users).toEqual([{ id: assignee.id, name: assignee.name, avatar_url: null }]);

@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
+import { dueDateText } from './dueDate';
 import { recordTaskActivity } from './taskActivity';
 import type { TiptapDoc, TiptapNode } from '../schemas/index';
 
@@ -105,7 +106,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
 
   const tasks = await db
     .selectFrom('task')
-    .select(['id', 'column_id', 'title', 'description', 'position'])
+    .select(['id', 'column_id', 'title', 'description', 'position', dueDateText.as('due_date')])
     .where('project_id', '=', input.sourceProjectId)
     .where('archived_at', 'is', null)
     .execute();
@@ -144,6 +145,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
                   rewriteDescriptionImageIds(task.description as unknown as TiptapDoc, imageIdMap)
                 ),
           position: task.position,
+          due_date: task.due_date,
         }))
       )
       .execute();
