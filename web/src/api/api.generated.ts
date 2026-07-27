@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/card-comments/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -180,7 +180,7 @@ export interface paths {
         };
         /**
          * List visible users
-         * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks. Ordered by name.
+         * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name.
          */
         get: operations["getApiUsers"];
         put?: never;
@@ -206,7 +206,7 @@ export interface paths {
         put?: never;
         /**
          * Create project
-         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not assignees, members, or archived state; copies start personal). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
+         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not comments, assignees, members, or archived state; copies start personal). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
          */
         post: operations["postApiProjects"];
         delete?: never;
@@ -241,6 +241,26 @@ export interface paths {
          * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive. Set is_public to true to publish the board read-only at GET /api/public/projects/:id/board, which serves card titles, descriptions and their embedded images, labels, blockers, and assignee names and avatars to anyone with the project id and no account. Set it back to false to stop serving it.
          */
         patch: operations["patchApiProjectsById"];
+        trace?: never;
+    };
+    "/api/projects/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export project
+         * @description Download everything in a project. The default zip holds project.json (the manifest below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes of every attached image, so the archive survives losing the account. Pass format=json for the manifest alone. The manifest is the documented, stable interchange format the importer reads back: format identifies it, version is bumped only on a breaking shape change, and ids are the original server ids — created_by, member_ids and assignee_ids resolve against users[], label_ids against labels[], column_id against columns[], and blocker_ids against tasks[]. Task descriptions are stored verbatim, so their embedded /api/images/<uuid> sources resolve by id against the flattened tasks[].images[]. Each image entry carries the archive-relative path of its file. Every project member may export; the export is free and never gated. A project whose images would exceed the 4 GiB zip ceiling answers 413 and must be exported with format=json, which carries no image bytes — fetch those from GET /api/images/{id}, one per tasks[].images[].id.
+         */
+        get: operations["getApiProjectsByIdExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/projects/{id}/position": {
@@ -831,6 +851,42 @@ export interface components {
             description?: string;
             is_public?: boolean;
             name?: string;
+        };
+        ProjectExport: {
+            columns: components["schemas"]["BoardColumn"][];
+            exported_at: string;
+            /** @constant */
+            format: "critical-path-project-export";
+            labels: components["schemas"]["BoardLabel"][];
+            project: components["schemas"]["Project"];
+            tasks: {
+                assignee_ids: string[];
+                blocker_ids: string[];
+                column_id: string;
+                comment_count: number;
+                created_at: string;
+                description: components["schemas"]["NullableTiptapDoc"];
+                id: string;
+                images: {
+                    content_type: string;
+                    created_at: string;
+                    filename: string;
+                    id: string;
+                    path: string;
+                    size_bytes: number;
+                }[];
+                label_ids: string[];
+                /** @description a finite number */
+                position: number;
+                title: string;
+                updated_at: string;
+            }[];
+            users: {
+                email: string;
+                id: string;
+                name: string;
+            }[];
+            version: number;
         };
         SetProjectPosition: {
             /** @description a finite number */
@@ -1863,6 +1919,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiProjectsByIdExport: {
+        parameters: {
+            query?: {
+                format?: "json" | "zip";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project export archive, or the manifest alone with format=json */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectExport"];
+                    "application/zip": string;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Payload Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Internal Server Error */

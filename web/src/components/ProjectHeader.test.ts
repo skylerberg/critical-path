@@ -1,9 +1,10 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ProjectHeader from './ProjectHeader.svelte';
 import { board } from '../lib/board.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
+import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
 
@@ -67,6 +68,14 @@ function current(el: HTMLElement): (string | undefined)[] {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  vi.stubGlobal(
+    'URL',
+    Object.assign(URL, { createObjectURL: () => 'blob:fake-url', revokeObjectURL: () => {} })
+  );
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  for (const toast of [...toasts.toasts]) {
+    toasts.dismiss(toast.id);
+  }
   board.reset();
   projects.reset();
   users.reset();
@@ -85,6 +94,10 @@ beforeEach(() => {
   board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
   board.tasks = [task('t1', 'Design cards', ['l1'], ['u1'])];
   users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada', avatar_url: null }];
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('ProjectHeader', () => {
@@ -166,6 +179,99 @@ describe('ProjectHeader', () => {
     expect(screen.getByText('Ada')).toBeInTheDocument();
     expect(screen.getByText('Owner')).toBeInTheDocument();
     expect(screen.getByLabelText('Add people')).toBeInTheDocument();
+  });
+
+  it('offers Export in both views', () => {
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
+
+    render(ProjectHeader, { projectId: 'p1', view: 'graph' });
+    expect(screen.getAllByRole('button', { name: 'Export' })).toHaveLength(2);
+  });
+
+  it('downloads the project and shows a busy state until the archive arrives', async () => {
+    let settle: (response: Response) => void = () => {};
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        settle = resolve;
+      })
+    );
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    const button = screen.getByRole('button', { name: 'Export' });
+    await fireEvent.click(button);
+
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(screen.getByRole('status', { name: 'Exporting' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export' })).toBe(button);
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((fetchMock.mock.calls[0][0] as Request).url).toMatch(/\/api\/projects\/p1\/export$/);
+
+    settle(
+      new Response(new Blob([new Uint8Array([0x50, 0x4b])]), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': 'attachment; filename="game-2026-07-26.zip"',
+        },
+      })
+    );
+
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(screen.queryByRole('status', { name: 'Exporting' })).toBeNull();
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('saves the manifest and says so when the project is too big to package', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(413, { error: 'Too large; use format=json' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { format: 'critical-path-project-export' }));
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    const button = screen.getByRole('button', { name: 'Export' });
+    await fireEvent.click(button);
+
+    await waitFor(() => expect(toasts.toasts).toHaveLength(1));
+    expect(toasts.toasts[0]).toMatchObject({
+      variant: 'success',
+      message: 'This project is too large to package with its images — saved as JSON.',
+    });
+    expect(button).not.toBeDisabled();
+  });
+
+  it('reports what the server said about a failed export and re-enables the button', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Something broke' }));
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    const button = screen.getByRole('button', { name: 'Export' });
+    await fireEvent.click(button);
+
+    await waitFor(() => expect(toasts.toasts).toHaveLength(1));
+    expect(toasts.toasts[0]).toMatchObject({ variant: 'error', message: 'Something broke' });
+    expect(button).not.toBeDisabled();
+  });
+
+  it('reports a deleted project without blaming the connection', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(404, { error: 'Project not found' }));
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+
+    await waitFor(() => expect(toasts.toasts).toHaveLength(1));
+    expect(toasts.toasts[0]).toMatchObject({ variant: 'error', message: 'Project not found' });
+  });
+
+  it('blames the connection only when the request never reached the server', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+
+    await waitFor(() => expect(toasts.toasts).toHaveLength(1));
+    expect(toasts.toasts[0]).toMatchObject({
+      variant: 'error',
+      message: 'Could not reach the server. Check your connection and try again.',
+    });
   });
 
   it('carries the active filters on both view tabs so switching views keeps them', () => {
