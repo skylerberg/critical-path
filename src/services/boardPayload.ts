@@ -1,8 +1,89 @@
 import type { Kysely } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB } from '../db/types';
-import type { BoardPayload, PublicBoard, PublicBoardUser, TiptapDoc } from '../schemas/index';
+import type {
+  ArchivedTask,
+  BoardPayload,
+  BoardTask,
+  PublicBoard,
+  PublicBoardUser,
+  TiptapDoc,
+} from '../schemas/index';
 import { assertPublicProject, usersWithProjectAccess } from './authorization';
+import { unarchivedBlockerIds } from './taskRelations';
+
+function projectTasksQuery(db: Kysely<DB>, projectId: string) {
+  return db
+    .selectFrom('task')
+    .select((eb) => [
+      'task.id',
+      'task.column_id',
+      'task.title',
+      'task.description',
+      'task.position',
+      'task.created_at',
+      'task.updated_at',
+      'task.archived_at',
+      jsonArrayFrom(
+        eb
+          .selectFrom('task_label')
+          .select('task_label.label_id')
+          .whereRef('task_label.task_id', '=', 'task.id')
+          .orderBy('task_label.label_id')
+      ).as('label_rows'),
+      jsonArrayFrom(
+        eb
+          .selectFrom('task_assignee')
+          .select('task_assignee.user_id')
+          .whereRef('task_assignee.task_id', '=', 'task.id')
+          .orderBy('task_assignee.user_id')
+      ).as('assignee_rows'),
+      unarchivedBlockerIds(eb).as('blocker_rows'),
+      eb
+        .selectFrom('task_image')
+        .select((ib) => ib.fn.countAll<string>().as('image_count'))
+        .whereRef('task_image.task_id', '=', 'task.id')
+        .as('image_count'),
+      eb
+        .selectFrom('task_comment')
+        .select((cb) => cb.fn.countAll<string>().as('comment_count'))
+        .whereRef('task_comment.task_id', '=', 'task.id')
+        .as('comment_count'),
+    ])
+    .where('task.project_id', '=', projectId);
+}
+
+type ProjectTaskRow = Awaited<ReturnType<ReturnType<typeof projectTasksQuery>['execute']>>[number];
+
+function toBoardTask(task: ProjectTaskRow): BoardTask {
+  return {
+    id: task.id,
+    column_id: task.column_id,
+    title: task.title,
+    description: task.description as TiptapDoc | null,
+    position: task.position,
+    created_at: task.created_at.toISOString(),
+    updated_at: task.updated_at.toISOString(),
+    label_ids: task.label_rows.map((row) => row.label_id),
+    assignee_ids: task.assignee_rows.map((row) => row.user_id),
+    blocker_ids: task.blocker_rows.map((row) => row.blocker_task_id),
+    image_count: Number(task.image_count),
+    comment_count: Number(task.comment_count),
+  };
+}
+
+export async function getArchivedTasks(db: Kysely<DB>, projectId: string): Promise<ArchivedTask[]> {
+  const rows = await projectTasksQuery(db, projectId)
+    .where('task.archived_at', 'is not', null)
+    .orderBy('task.archived_at', 'desc')
+    .orderBy('task.id')
+    .execute();
+
+  return rows.map((row) => ({
+    ...toBoardTask(row),
+    archived_at: (row.archived_at as Date).toISOString(),
+  }));
+}
 
 export async function getBoardPayload(
   db: Kysely<DB>,
@@ -42,49 +123,8 @@ export async function getBoardPayload(
     .orderBy('id')
     .execute();
 
-  const tasks = await db
-    .selectFrom('task')
-    .select((eb) => [
-      'task.id',
-      'task.column_id',
-      'task.title',
-      'task.description',
-      'task.position',
-      'task.created_at',
-      'task.updated_at',
-      jsonArrayFrom(
-        eb
-          .selectFrom('task_label')
-          .select('task_label.label_id')
-          .whereRef('task_label.task_id', '=', 'task.id')
-          .orderBy('task_label.label_id')
-      ).as('label_rows'),
-      jsonArrayFrom(
-        eb
-          .selectFrom('task_assignee')
-          .select('task_assignee.user_id')
-          .whereRef('task_assignee.task_id', '=', 'task.id')
-          .orderBy('task_assignee.user_id')
-      ).as('assignee_rows'),
-      jsonArrayFrom(
-        eb
-          .selectFrom('task_dependency')
-          .select('task_dependency.blocker_task_id')
-          .whereRef('task_dependency.blocked_task_id', '=', 'task.id')
-          .orderBy('task_dependency.blocker_task_id')
-      ).as('blocker_rows'),
-      eb
-        .selectFrom('task_image')
-        .select((ib) => ib.fn.countAll<string>().as('image_count'))
-        .whereRef('task_image.task_id', '=', 'task.id')
-        .as('image_count'),
-      eb
-        .selectFrom('task_comment')
-        .select((cb) => cb.fn.countAll<string>().as('comment_count'))
-        .whereRef('task_comment.task_id', '=', 'task.id')
-        .as('comment_count'),
-    ])
-    .where('task.project_id', '=', projectId)
+  const tasks = await projectTasksQuery(db, projectId)
+    .where('task.archived_at', 'is', null)
     .orderBy('task.position')
     .orderBy('task.id')
     .execute();
@@ -109,20 +149,7 @@ export async function getBoardPayload(
       is_public: project.is_public,
     },
     columns,
-    tasks: tasks.map((task) => ({
-      id: task.id,
-      column_id: task.column_id,
-      title: task.title,
-      description: task.description as TiptapDoc | null,
-      position: task.position,
-      created_at: task.created_at.toISOString(),
-      updated_at: task.updated_at.toISOString(),
-      label_ids: task.label_rows.map((row) => row.label_id),
-      assignee_ids: task.assignee_rows.map((row) => row.user_id),
-      blocker_ids: task.blocker_rows.map((row) => row.blocker_task_id),
-      image_count: Number(task.image_count),
-      comment_count: Number(task.comment_count),
-    })),
+    tasks: tasks.map(toBoardTask),
     labels,
   };
 }

@@ -465,6 +465,112 @@ describe('task commands', () => {
     expect(clear.json<{ assignee_ids: string[] }>().assignee_ids).toEqual([]);
   });
 
+  it('archive, archived, restore and show address a card the board no longer holds', async () => {
+    const created = await h.runCli([
+      'task',
+      'create',
+      'Shelved work',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(created.exitCode).toBe(0);
+    const shelved = created.json<BoardTask>();
+
+    const archive = await h.runCli([
+      'task',
+      'archive',
+      'Shelved work',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(archive.exitCode).toBe(0);
+    expect(archive.json<{ id: string; archived_at: string }>().id).toBe(shelved.id);
+
+    const list = await h.runCli(['task', 'list', '--project', projectId, '--json']);
+    expect(list.json<StatefulTask[]>().map((t) => t.title)).not.toContain('Shelved work');
+
+    const archived = await h.runCli(['task', 'archived', '--project', projectId, '--json']);
+    expect(archived.exitCode).toBe(0);
+    const archivedRows = archived.json<Array<{ id: string; archived_at: string }>>();
+    expect(archivedRows.map((t) => t.id)).toContain(shelved.id);
+    expect(typeof archivedRows.find((t) => t.id === shelved.id)!.archived_at).toBe('string');
+
+    const table = await h.runCli(['task', 'archived', '--project', projectId]);
+    expect(table.stdout).toContain('ARCHIVED');
+    expect(table.stdout).toContain('Shelved work');
+
+    const filtered = await h.runCli([
+      'task',
+      'archived',
+      '--project',
+      projectId,
+      '--search',
+      'no-such-title',
+    ]);
+    expect(filtered.stdout).toContain('No archived tasks');
+
+    // The board-only resolver used to fail here: the title is gone from it.
+    const show = await h.runCli(['task', 'show', 'Shelved work', '--project', projectId]);
+    expect(show.exitCode).toBe(0);
+    expect(show.stdout).toContain('Archived:');
+
+    const move = await h.runCli([
+      'task',
+      'move',
+      'Shelved work',
+      '--project',
+      projectId,
+      '--column',
+      todoId,
+    ]);
+    expect(move.exitCode).toBe(4);
+    expect(move.stderr).toContain('No task matching');
+
+    const restore = await h.runCli([
+      'task',
+      'restore',
+      'Shelved work',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(restore.exitCode).toBe(0);
+    expect(restore.json<BoardTask>().id).toBe(shelved.id);
+
+    const back = await h.runCli(['task', 'list', '--project', projectId, '--json']);
+    expect(back.json<StatefulTask[]>().map((t) => t.title)).toContain('Shelved work');
+  });
+
+  it('delete by title reaches an archived card', async () => {
+    const created = await h.runCli([
+      'task',
+      'create',
+      'Doomed archive',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    const doomed = created.json<BoardTask>();
+    expect((await h.runCli(['task', 'archive', doomed.id])).exitCode).toBe(0);
+
+    const res = await h.runCli([
+      'task',
+      'delete',
+      'Doomed archive',
+      '--project',
+      projectId,
+      '--force',
+      '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    expect(res.json<{ deleted: boolean; id: string }>()).toEqual({ deleted: true, id: doomed.id });
+
+    const archived = await h.runCli(['task', 'archived', '--project', projectId, '--json']);
+    expect(archived.json<Array<{ id: string }>>().map((t) => t.id)).not.toContain(doomed.id);
+  });
+
   it('ambiguous title refs exit 2', async () => {
     for (const title of ['Zeta duplicate one', 'Zeta duplicate two']) {
       const res = await h.runCli(['task', 'create', title, '--project', projectId]);

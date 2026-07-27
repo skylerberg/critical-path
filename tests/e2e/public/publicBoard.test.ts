@@ -217,6 +217,22 @@ describe('GET /api/public/projects/:id/board', () => {
     );
   });
 
+  it('never serves an archived task, nor names one as a blocker', async () => {
+    const board = await createProject('Archived');
+    const projectId = board.project.id;
+    const { blockerTaskId, mainTaskId } = await seedBoard(board);
+    expect((await publish(projectId, true)).status).toBe(200);
+
+    expect(
+      (await ctx.request(owner.token).post(`/api/tasks/${blockerTaskId}/archive`)).status
+    ).toBe(200);
+
+    const res = await ctx.request().get(`/api/public/projects/${projectId}/board`);
+    const payload = (await res.json()) as PublicBoardBody;
+    expect(payload.tasks.map((task) => task.id)).not.toContain(blockerTaskId);
+    expect(payload.tasks.find((task) => task.id === mainTaskId)?.blocker_ids).toEqual([]);
+  });
+
   it('drops identity fields and exposes only assigned users, without emails', async () => {
     const board = await createProject('Shaping');
     const projectId = board.project.id;

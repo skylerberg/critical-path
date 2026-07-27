@@ -51,6 +51,9 @@ export async function buildProjectExport(
         'task_image.created_at',
       ])
       .where('task.project_id', '=', projectId)
+      // The manifest is built from the board payload, which has no archived
+      // tasks; without this the zip would carry image files nothing references.
+      .where('task.archived_at', 'is', null)
       .orderBy('task_image.created_at')
       .orderBy('task_image.id')
       .execute(),
