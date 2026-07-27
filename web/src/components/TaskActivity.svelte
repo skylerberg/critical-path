@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Editor } from '@tiptap/core';
   import { board, type CommentBody, type TaskComment } from '../lib/board.svelte';
-  import { formatFullDate } from '../lib/dates';
+  import { formatFullDate, isCalendarDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { session } from '../lib/session.svelte';
   import {
@@ -121,6 +121,13 @@
     return board.labels.find((label) => label.id === labelId)?.color;
   }
 
+  // Whatever the log recorded is rendered verbatim unless it is a calendar day:
+  // formatFullDate throws on anything else.
+  function dueText(value: TaskActivityEntry['new_value']): string {
+    const text = value?.text;
+    return isCalendarDate(text) ? formatFullDate(text) : (text ?? '');
+  }
+
   // The log outlives project membership, so it names people this client cannot
   // look up, and a nameless placeholder renders as a blank byline.
   function nameOf(user: User): string {
@@ -225,11 +232,11 @@
                 {#if to?.text === undefined}
                   cleared the due date
                 {:else if from?.text === undefined}
-                  set the due date to <span class="text-ink">{formatFullDate(to.text)}</span>
+                  set the due date to <span class="text-ink">{dueText(to)}</span>
                 {:else}
                   moved the due date from
-                  <span class="text-ink">{formatFullDate(from.text)}</span>
-                  to <span class="text-ink">{formatFullDate(to.text)}</span>
+                  <span class="text-ink">{dueText(from)}</span>
+                  to <span class="text-ink">{dueText(to)}</span>
                 {/if}
               {:else if entry.kind === 'label_added' || entry.kind === 'label_removed'}
                 {@const label = entry.kind === 'label_added' ? to : from}

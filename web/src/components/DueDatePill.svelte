@@ -26,8 +26,9 @@
     done: 'bg-success/15 text-success',
   };
 
+  // py-1 is what makes the pseudo-element hit area below add up to 44px.
   const chip = $derived(
-    `inline-flex items-center gap-1 -mx-1.5 rounded-full px-1.5 py-0.5 text-xs font-medium whitespace-nowrap ${tone[status]}`
+    `pointer-events-auto inline-flex items-center gap-1 -mx-1.5 rounded-full px-1.5 py-1 text-xs font-medium whitespace-nowrap ${tone[status]}`
   );
 </script>
 
@@ -55,20 +56,21 @@
 {#if due !== null}
   {#if canComplete}
     <!-- The tap target is grown with a pseudo-element instead of an in-flow 44px
-         box, which would pad every dated card with blank space. It stops 8px up
-         and 12px down: the row's top margin and the card's bottom padding, so it
-         never covers the title above it or the card below. -->
+         box, which would pad every dated card with blank space. -->
     <button
       type="button"
       title="Due {formatFullDate(due)}"
       aria-label={`Mark “${task.title}” done (due ${label})`}
       onclick={() => board.markTaskDone(task.id)}
-      class="{chip} relative cursor-pointer after:absolute after:-inset-x-2 after:-top-2 after:-bottom-3 after:content-['']"
+      class="{chip} relative cursor-pointer after:absolute after:-inset-x-1.5 after:-top-2 after:-bottom-3 after:content-['']"
     >
       {@render face()}
     </button>
   {:else}
+    <!-- title is not an accessible name on a plain span, so the word is spelled out
+         for screen readers the way the button spells it in its aria-label. -->
     <span title="Due {formatFullDate(due)}" class={chip}>
+      <span class="sr-only">Due</span>
       {@render face()}
     </span>
   {/if}

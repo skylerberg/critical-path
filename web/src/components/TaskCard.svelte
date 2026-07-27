@@ -73,12 +73,14 @@
   <p class="text-sm font-medium break-words">{task.title}</p>
   {#if dated || blockedCount > 0 || task.image_count > 0 || commentCount > 0 || assignees.length > 0}
     <!-- Raised above the overlay link so the badges keep their hover tooltips and
-         the pill stays clickable; with no offsets it moves nothing. -->
-    <div class="relative z-10 mt-2 flex items-center gap-3">
+         the pill stays clickable; with no offsets it moves nothing. The row itself
+         stays transparent to the pointer and each child opts back in, so the blank
+         space between badges still belongs to the link. -->
+    <div class="pointer-events-none relative z-10 mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
       <DueDatePill {task} {done} {readonly} />
       {#if blockedCount > 0}
         <span
-          class="inline-flex items-center gap-1 text-xs font-medium text-danger"
+          class="pointer-events-auto inline-flex items-center gap-1 text-xs font-medium text-danger"
           title="Blocked by {blockedCount} open task{blockedCount === 1 ? '' : 's'}"
         >
           <svg
@@ -98,7 +100,7 @@
       {/if}
       {#if task.image_count > 0}
         <span
-          class="inline-flex items-center gap-1 text-xs text-muted"
+          class="pointer-events-auto inline-flex items-center gap-1 text-xs text-muted"
           title="{task.image_count} image{task.image_count === 1 ? '' : 's'}"
         >
           <svg
@@ -120,7 +122,7 @@
       {/if}
       {#if commentCount > 0}
         <span
-          class="inline-flex items-center gap-1 text-xs text-muted"
+          class="pointer-events-auto inline-flex items-center gap-1 text-xs text-muted"
           title="{commentCount} comment{commentCount === 1 ? '' : 's'}"
         >
           <svg
@@ -141,7 +143,7 @@
         </span>
       {/if}
       {#if assignees.length > 0}
-        <span class="ml-auto flex -space-x-1.5">
+        <span class="pointer-events-auto ml-auto flex -space-x-1.5">
           {#each assignees as assignee (assignee.id)}
             <Avatar name={assignee.name} src={assignee.avatar_url} size="sm" />
           {/each}

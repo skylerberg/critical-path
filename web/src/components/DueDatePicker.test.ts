@@ -85,13 +85,15 @@ describe('DueDatePicker', () => {
     });
   });
 
-  it('clearing the field from the picker itself patches null', async () => {
+  it('leaves the date alone while the field is empty mid-edit', async () => {
     board.tasks = [{ ...task, due_date: '2026-08-03' }];
     render(DueDatePicker, { taskId: 't1' });
 
     await fireEvent.change(screen.getByLabelText('Due date'), { target: { value: '' } });
 
-    expect(await patchBody()).toEqual({ due_date: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Due date')).toBeInTheDocument();
+    expect(board.tasks[0]!.due_date).toBe('2026-08-03');
   });
 
   it('collapses the revealed field when the open task changes', async () => {

@@ -160,6 +160,20 @@ describe('TaskCard', () => {
     expect(row?.className).toContain('z-10');
   });
 
+  // jsdom has no hit-testing, so this class pair is the only thing that can catch
+  // the raised row swallowing clicks across the card's full width.
+  it('leaves the gaps between badges to the overlay link', () => {
+    render(TaskCard, { task, projectId: 'p1', blockedCount: 2 });
+
+    expect(screen.getByTitle('3 images').parentElement?.className).toContain('pointer-events-none');
+    for (const badge of ['3 images', 'Blocked by 2 open tasks']) {
+      expect(screen.getByTitle(badge).className).toContain('pointer-events-auto');
+    }
+    expect(screen.getByTitle('Ada Lovelace').parentElement?.className).toContain(
+      'pointer-events-auto'
+    );
+  });
+
   describe('due date pill', () => {
     it('renders nothing at all when the task has no date', () => {
       render(TaskCard, { task, projectId: 'p1' });

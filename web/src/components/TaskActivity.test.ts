@@ -448,6 +448,23 @@ describe('TaskActivity history', () => {
     expect(items[2]).toHaveTextContent('cleared the due date');
   });
 
+  // Formatting these instead would render Jan 26, 1903 and throw out of the render.
+  it('renders a due date the log did not record as a calendar day', () => {
+    taskActivity.entries = [
+      entry('a1', 'due_date_changed', { new_value: { text: '03.08.2026' } }),
+      entry('a2', 'due_date_changed', {
+        old_value: { text: '2026-08-03' },
+        new_value: { text: 'tomorrow' },
+      }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('set the due date to 03.08.2026');
+    expect(items[1]).toHaveTextContent(/moved the due date from .*2026.* to tomorrow/);
+  });
+
   it('names a column the board no longer has', () => {
     board.columns = [];
     taskActivity.entries = [

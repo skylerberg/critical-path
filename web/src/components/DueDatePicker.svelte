@@ -22,8 +22,14 @@
     expanded = false;
   });
 
+  // A date input reports '' for any incomplete value, so clearing one segment to
+  // retype it looks exactly like a deliberate clear. Ignoring it keeps the field
+  // mounted and focused mid-edit; Remove is the only thing that clears the date.
   function set(value: string): void {
-    void board.updateTask(taskId, { due_date: value === '' ? null : value });
+    if (value === '') {
+      return;
+    }
+    void board.updateTask(taskId, { due_date: value });
   }
 
   // Collapsing is not cosmetic: leaving it expanded would keep a bare date input
@@ -37,7 +43,9 @@
 </script>
 
 {#if readonly}
-  <p class="text-sm">{due === null ? 'No due date' : formatFullDate(due)}</p>
+  {#if due !== null}
+    <p class="text-sm">{formatFullDate(due)}</p>
+  {/if}
 {:else if due === null && !expanded}
   <div>
     <button
