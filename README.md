@@ -82,7 +82,7 @@ Copied projects start personal: members are never copied from the source.
 `GET /api/users` returns the caller plus every user sharing at least one
 project with them (as creator or member on either side); `GET
 /api/users?project_id=` returns the users who can access that project plus
-users still assigned to its tasks.
+users still assigned to its tasks or still holding a comment on them.
 
 ### Task comments
 
@@ -98,8 +98,8 @@ project may comment.
 `GET /api/tasks/:id` embeds the whole stream as `comments`, oldest first, and
 every board task carries `comment_count` so a card can show that a
 conversation exists without fetching it. Comments cascade away with their task
-and with their author's account, and are not copied by
-`POST /api/projects/:id/copy`.
+and with their author's account, and are not copied when a project is
+duplicated via `POST /api/projects` with `source_project_id`.
 
 ### Public boards
 

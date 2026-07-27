@@ -177,7 +177,11 @@ router.patch(
       .set({ body: JSON.stringify(body), updated_at: sql<Date>`now()` })
       .where('task_comment.id', '=', id)
       .returningAll()
-      .executeTakeFirstOrThrow();
+      .executeTakeFirst();
+    // The row can still vanish between the ownership check and this update.
+    if (!row) {
+      throw new AppError(404, 'Comment not found');
+    }
 
     const comment = toResponse(row);
     publishAfterCommit(c, 'comment_updated', project_id, comment);
