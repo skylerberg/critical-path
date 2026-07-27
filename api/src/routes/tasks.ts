@@ -43,6 +43,7 @@ import {
   addBlockerSchema,
   setTaskLabelsSchema,
   setTaskAssigneesSchema,
+  setTaskCoverSchema,
   taskBlockerParamsSchema,
   taskActivityResponseSchema,
   boardTaskSchema,
@@ -99,6 +100,12 @@ async function fetchBoardTask(
         .whereRef('task_image.task_id', '=', 'task.id')
         .as('image_count'),
       eb
+        .selectFrom('task_image')
+        .select('task_image.id')
+        .whereRef('task_image.task_id', '=', 'task.id')
+        .where('task_image.is_cover', '=', true)
+        .as('cover_image_id'),
+      eb
         .selectFrom('task_comment')
         .select((cb) => cb.fn.countAll<string>().as('count'))
         .whereRef('task_comment.task_id', '=', 'task.id')
@@ -125,6 +132,7 @@ async function fetchBoardTask(
       assignee_ids: row.assignees.map((a) => a.user_id),
       blocker_ids: row.blockers.map((b) => b.blocker_task_id),
       image_count: Number(row.image_count ?? 0),
+      cover_image_url: row.cover_image_id == null ? null : `/api/images/${row.cover_image_id}`,
       comment_count: Number(row.comment_count ?? 0),
     },
     project_id: row.project_id,
@@ -963,6 +971,90 @@ router.put(
     ]);
 
     publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
+    return c.body(null, 204);
+  }
+);
+
+router.put(
+  '/:id/cover',
+  describeRoute({
+    tags: ['Tasks'],
+    summary: 'Set task cover image',
+    description:
+      'Choose which of the task’s images is shown on the board card face, or send a null ' +
+      'image_id to clear it. The image must belong to the task; violations return 422 with a ' +
+      'plain error body. Setting a cover replaces any previous one — a task has at most one ' +
+      'cover — and clearing an absent cover is an idempotent 204. The cover is a choice about ' +
+      'presentation, not content, so it leaves updated_at untouched.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Cover set or cleared',
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...conflictErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  jsonValidator(setTaskCoverSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const { image_id } = c.req.valid('json');
+    const db = c.get('db');
+
+    const project = await assertTaskAccess(db, c.get('user').id, id);
+
+    // Serializes cover writes per task: under READ COMMITTED the clear below only
+    // sees committed rows, so a concurrent set would survive a clear that answered
+    // 204 and published a payload disagreeing with the stored row.
+    await sql`select pg_advisory_xact_lock(hashtextextended(${id}::text, 0))`.execute(db);
+
+    if (image_id !== null) {
+      const image = await db
+        .selectFrom('task_image')
+        .select('task_image.task_id')
+        .where('task_image.id', '=', image_id)
+        .executeTakeFirst();
+      if (!image || image.task_id !== id) {
+        throw new AppError(422, 'image_id must reference an image on this task');
+      }
+    }
+
+    // Clear before set: a single `is_cover = (id = $image_id)` update trips the
+    // partial unique index as it walks the rows.
+    await db
+      .updateTable('task_image')
+      .set({ is_cover: false })
+      .where('task_image.task_id', '=', id)
+      .where('task_image.is_cover', '=', true)
+      .execute();
+
+    if (image_id !== null) {
+      try {
+        await db
+          .updateTable('task_image')
+          .set({ is_cover: true })
+          .where('task_image.id', '=', image_id)
+          .execute();
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          throw new AppError(409, 'Cover image changed concurrently; retry');
+        }
+        throw err;
+      }
+    }
+
+    const updated = await fetchBoardTask(db, id);
+    if (!updated) {
+      throw new AppError(500, 'Failed to load the updated task');
+    }
+    publishAfterCommit(c, 'task_updated', project.id, updated.task);
+
     return c.body(null, 204);
   }
 );

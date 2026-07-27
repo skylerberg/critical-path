@@ -122,6 +122,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
       'task_image.filename',
       'task_image.content_type',
       'task_image.size_bytes',
+      'task_image.is_cover',
     ])
     .where('task.project_id', '=', input.sourceProjectId)
     .where('task.archived_at', 'is', null)
@@ -216,6 +217,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
           filename: image.filename,
           content_type: image.content_type,
           size_bytes: image.size_bytes,
+          is_cover: image.is_cover,
         }))
       )
       .execute();

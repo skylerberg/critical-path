@@ -83,7 +83,7 @@ describe('POST /api/projects with source_project_id', () => {
       position: 2500,
     });
 
-    const { storageKey } = await insertTaskImage({ taskId: blockerTaskId, imageId });
+    const { storageKey } = await insertTaskImage({ taskId: blockerTaskId, imageId, isCover: true });
     await storage.put(storageKey, imageBytes, 'image/png');
 
     await insertTaskComment({ taskId: blockerTaskId, userId: user.id, text: 'not copied' });
@@ -157,12 +157,15 @@ describe('POST /api/projects with source_project_id', () => {
 
     const newImageRow = await db
       .selectFrom('task_image')
-      .select(['id', 'storage_key', 'filename', 'content_type', 'size_bytes'])
+      .select(['id', 'storage_key', 'filename', 'content_type', 'size_bytes', 'is_cover'])
       .where('task_id', '=', copiedBlocker.id)
       .executeTakeFirstOrThrow();
     expect(newImageRow.id).not.toBe(imageId);
     expect(newImageRow.storage_key).not.toBe(storageKey);
     expect(newImageRow.filename).toBe('test.png');
+    expect(newImageRow.is_cover).toBe(true);
+    expect(copiedBlocker.cover_image_url).toBe(`/api/images/${newImageRow.id}`);
+    expect(copiedBlocked.cover_image_url).toBeNull();
 
     const copiedDescription = copiedBlocker.description as TiptapImageNode;
     const imageNode = copiedDescription.content!.find((node) => node.type === 'image')!;

@@ -71,7 +71,10 @@ describe('GET /api/projects/:id board payload', () => {
       .values({ blocker_task_id: blockerTaskId, blocked_task_id: mainTaskId })
       .execute();
     await insertTaskImage({ taskId: mainTaskId });
-    await insertTaskImage({ taskId: mainTaskId });
+    const { imageId: coverImageId } = await insertTaskImage({
+      taskId: mainTaskId,
+      isCover: true,
+    });
     await insertTaskComment({ taskId: mainTaskId, userId: user.id });
     await insertTaskComment({ taskId: mainTaskId, userId: user.id, text: 'second' });
     await insertTaskComment({ taskId: mainTaskId, userId: user.id, text: 'third' });
@@ -99,6 +102,7 @@ describe('GET /api/projects/:id board payload', () => {
       assignee_ids: [user.id],
       blocker_ids: [blockerTaskId],
       image_count: 2,
+      cover_image_url: `/api/images/${coverImageId}`,
       comment_count: 3,
     });
     expect(mainTask.description).toEqual(description);
@@ -114,6 +118,7 @@ describe('GET /api/projects/:id board payload', () => {
       assignee_ids: [],
       blocker_ids: [],
       image_count: 0,
+      cover_image_url: null,
       comment_count: 0,
     });
 
