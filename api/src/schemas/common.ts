@@ -62,7 +62,13 @@ export const calendarDate = type('string').pipe((s, ctx) => {
     return ctx.error('must be a date like YYYY-MM-DD');
   }
   const parsed = new Date(`${s}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== s) {
+  // Year 0 exists in JS and round-trips cleanly, but Postgres has no year 0, so
+  // letting it through turns a 422 into a driver error at insert time.
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== s ||
+    parsed.getUTCFullYear() === 0
+  ) {
     return ctx.error('must be a valid calendar date');
   }
   return s;

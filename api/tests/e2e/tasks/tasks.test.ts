@@ -577,6 +577,7 @@ describe('Tasks CRUD', () => {
         '2026-8-3',
         '2026-02-30',
         '2026-13-01',
+        '0000-01-01',
         '2026-08-03T00:00:00Z',
         'tomorrow',
       ]) {
@@ -636,6 +637,23 @@ describe('Tasks CRUD', () => {
       expect((await res.json()).updated_at).toBe(original.updated_at);
     });
 
+    it('ignores expected_updated_at on a due-date-only patch', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      const bump = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { title: 'bumped' });
+      expect(bump.status).toBe(200);
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
+        due_date: '2026-11-30',
+        expected_updated_at: original.updated_at,
+      });
+      expect(res.status).toBe(200);
+      expect((await res.json()).due_date).toBe('2026-11-30');
+    });
+
     it('logs the transition in the activity stream, and nothing for an unchanged date', async () => {
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const { id } = await created.json();
@@ -674,13 +692,12 @@ describe('Tasks CRUD', () => {
         const created = await ctx
           .request(user.token)
           .post('/api/tasks', taskBody({ due_date: '2026-08-03' }));
-        expect((await created.json()).due_date).toBe('2026-08-03');
+        const createdTask = await created.json();
+        expect(createdTask.due_date).toBe('2026-08-03');
 
         const board = await ctx.request(user.token).get(`/api/projects/${projectId}`);
         const tasks = (await board.json()).tasks as { id: string; due_date: string | null }[];
-        expect(tasks.every((task) => task.due_date === null || task.due_date.length === 10)).toBe(
-          true
-        );
+        expect(tasks.find((task) => task.id === createdTask.id)?.due_date).toBe('2026-08-03');
       } finally {
         vi.unstubAllEnvs();
       }

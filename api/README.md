@@ -173,11 +173,13 @@ Every task carries an append-only log of what happened to it.
 with access to the project; an unknown or inaccessible task answers 404. Each
 entry is `{ id, kind, actor_user_id, old_value, new_value, created_at }`, and
 the kinds are `created`, `title_changed`, `description_changed`,
-`column_changed`, `label_added`, `label_removed`, `assignee_added`,
-`assignee_removed`, `blocker_added`, `blocker_removed`, `archived` and
-`restored`. `old_value` / `new_value` carry `{ text }` for a title, `{ doc }`
-for a description, and `{ id, name }` for a column, label, user or blocker;
-both are null for archive and restore.
+`column_changed`, `due_date_changed`, `label_added`, `label_removed`,
+`assignee_added`, `assignee_removed`, `blocker_added`, `blocker_removed`,
+`archived` and `restored`. `old_value` / `new_value` carry `{ text }` for a
+title or a due date, `{ doc }` for a description, and `{ id, name }` for a
+column, label, user or blocker; both are null for archive and restore, and a
+due date is null on the side where the card had none — old on the first set,
+new on a clear.
 
 Entries are written inside the transaction of the mutation they record, so
 they roll back with it, and only when something actually changed — re-sending
@@ -316,10 +318,10 @@ authenticated handler will answer: everything else about the project stays 401
 without a token and 404 for non-members. The response is shaped field by field
 from the ordinary board payload, so anything added to that payload later stays
 private until it is published deliberately. Public boards carry card titles,
-descriptions (with their `/api/images/:id` nodes), positions, labels,
-blockers, image counts, and the name and avatar of assigned users; member
-ids, the creator, timestamps, and email addresses are not on the wire, and
-users who are not assigned to anything are not listed at all.
+descriptions (with their `/api/images/:id` nodes), positions, due dates,
+labels, blockers, image counts, and the name and avatar of assigned users;
+member ids, the creator, timestamps, and email addresses are not on the wire,
+and users who are not assigned to anything are not listed at all.
 
 Responses are `no-store` and carry `X-Robots-Tag: noindex, nofollow`. The
 board itself is unlisted: nothing enumerates published projects. Anonymous
@@ -614,7 +616,7 @@ back:
   "tasks": [ {
     "id", "column_id", "title",
     "description": "<tiptap doc or null>",
-    "position", "created_at", "updated_at",
+    "position", "due_date", "created_at", "updated_at",
     "label_ids": [], "assignee_ids": [], "blocker_ids": [],
     "images": [ { "id", "path", "filename", "content_type", "size_bytes",
                   "created_at" } ]
@@ -647,7 +649,7 @@ back:
 then
 
 ```
-id,title,column,is_done,position,labels,assignees,blocked_by,image_count,created_at,updated_at,description
+id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,description
 ```
 
 one row per task in board order, RFC 4180 quoting, CRLF line endings. Labels,

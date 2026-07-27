@@ -19,7 +19,7 @@ const JPEG_1X1 = Buffer.from(
 );
 
 const CSV_HEADER =
-  'id,title,column,is_done,position,labels,assignees,blocked_by,image_count,created_at,updated_at,description';
+  'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,description';
 
 const ctx = new TestContext();
 const createdProjectIds: string[] = [];
@@ -99,6 +99,7 @@ function canonicalize(exportPayload: ProjectExport): unknown {
       title: task.title,
       description: task.description,
       position: task.position,
+      due_date: task.due_date,
       label_ids: [...task.label_ids].sort(),
       assignee_ids: [...task.assignee_ids].sort(),
       blocker_ids: [...task.blocker_ids].sort(),
@@ -183,6 +184,7 @@ async function reimport(
       title: task.title,
       description: task.description === null ? null : remapIds(task.description, idMap),
       position: task.position,
+      due_date: task.due_date,
       label_ids: task.label_ids.map((labelId) => idMap.get(labelId)),
       assignee_ids: task.assignee_ids,
     });
@@ -284,6 +286,7 @@ describe('GET /api/projects/:id/export', () => {
           column_id: backlogId,
           title: 'He said "hi", then\nleft',
           position: 2000,
+          due_date: '2026-08-03',
           label_ids: [bugLabelId, uiLabelId],
           assignee_ids: [owner.id, member.id],
         })
@@ -391,6 +394,8 @@ describe('GET /api/projects/:id/export', () => {
       expect(exportPayload.tasks.map((task) => task.position)).toEqual([1000, 2000, 3000]);
 
       const main = exportPayload.tasks[1];
+      expect(main.due_date).toBe('2026-08-03');
+      expect(exportPayload.tasks[0].due_date).toBeNull();
       expect(main.label_ids).toEqual([bugLabelId, uiLabelId].sort());
       expect(main.assignee_ids).toEqual([owner.id, member.id].sort());
       expect(main.blocker_ids).toEqual([blockerTaskId]);
@@ -518,18 +523,18 @@ describe('GET /api/projects/:id/export', () => {
 
       const [blocker, main, done] = exportPayload.tasks;
       expect(rows[1]).toBe(
-        `${blocker.id},Blocker task,Backlog,false,1000,,,,0,` +
+        `${blocker.id},Blocker task,Backlog,false,1000,,,,,0,` +
           `${blocker.created_at},${blocker.updated_at},`
       );
       // Assignee emails follow the users[] order, which is by name, so
       // "export-member user" precedes "export-owner user".
       expect(rows[2]).toBe(
-        `${main.id},"He said ""hi"", then\nleft",Backlog,false,2000,bug; ui,` +
+        `${main.id},"He said ""hi"", then\nleft",Backlog,false,2000,2026-08-03,bug; ui,` +
           `${member.email}; ${owner.email},Blocker task,2,` +
           `${main.created_at},${main.updated_at},"Notes\nA paragraph.\none\ntwo"`
       );
       expect(rows[3]).toBe(
-        `${done.id},Finished,Done,true,3000,,${exMember.email},,0,` +
+        `${done.id},Finished,Done,true,3000,,,${exMember.email},,0,` +
           `${done.created_at},${done.updated_at},`
       );
     });
