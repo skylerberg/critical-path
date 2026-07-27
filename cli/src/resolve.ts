@@ -9,6 +9,10 @@ export type BoardColumn = components['schemas']['BoardColumn'];
 export type BoardTask = components['schemas']['BoardTask'];
 export type BoardLabel = components['schemas']['BoardLabel'];
 export type ArchivedTask = components['schemas']['ArchivedTask'];
+export type MyTask = components['schemas']['MyTask'];
+export type MyTaskLink = components['schemas']['MyTaskLink'];
+export type MyTaskPersonGroup = components['schemas']['MyTaskPersonGroup'];
+export type MyTasksResponse = components['schemas']['MyTasksResponse'];
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -64,6 +68,10 @@ export function matchRef<T>(
 
 export async function listProjects(ctx: RuntimeContext): Promise<ProjectListItem[]> {
   return assertOk(await ctx.api.GET('/api/projects')).projects;
+}
+
+export async function listMyTasks(ctx: RuntimeContext): Promise<MyTasksResponse> {
+  return assertOk(await ctx.api.GET('/api/my-tasks'));
 }
 
 export function effectiveProjectRef(ctx: RuntimeContext, ref?: string): string {
