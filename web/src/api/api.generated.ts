@@ -439,7 +439,7 @@ export interface paths {
         post?: never;
         /**
          * Delete column
-         * @description Delete a column. An empty column returns 204. A column with tasks requires a `move_tasks_to` query parameter naming another column in the same project; its tasks are appended after the target column’s existing tasks (keeping relative order) and the response is 200 with the moved tasks’ new positions. Returns 409 when the column has tasks and no target is given, and 422 when `move_tasks_to` does not exist, belongs to another project, or equals the deleted column.
+         * @description Delete a column. An empty column returns 204. A column with tasks requires a `move_tasks_to` query parameter naming another column in the same project; its tasks are appended after the target column’s existing tasks (keeping relative order) and the response is 200 with the moved tasks’ new positions. Returns 409 when the column has tasks and no target is given, and 422 when `move_tasks_to` does not exist, belongs to another project, or equals the deleted column. Archived tasks count as tasks here, so a column that looks empty in the board payload can still require `move_tasks_to`, and `moved_tasks` can name tasks that payload never served.
          */
         delete: operations["deleteApiColumnsById"];
         options?: never;
@@ -497,6 +497,26 @@ export interface paths {
          * @description Update title, description (a Tiptap doc, or null to clear it), or move the task by sending column_id and position together. The new column must belong to the task’s project; violations return 422 with a plain error body. updated_at is bumped only when the patch changes title or description — a pure move leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
          */
         patch: operations["patchApiTasksById"];
+        trace?: never;
+    };
+    "/api/tasks/{id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get task activity
+         * @description The task’s activity log, oldest first: who created it, retitled it, edited its description, moved it between columns, added or removed a label, an assignee or a blocker, and who archived or restored it. Each entry carries the actor, the time, and the old and new value of what changed, with column, label, user and blocker names snapshotted as they were at the time. The log is append-only and starts when a task is created, so tasks that predate this feature read as empty until they next change. Consecutive description edits by one actor within a few minutes are recorded as a single entry whose old value is the text from before that session.
+         */
+        get: operations["getApiTasksByIdActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/tasks/{id}/archive": {
@@ -1135,6 +1155,25 @@ export interface components {
             /** @description a finite number */
             position?: number;
             title?: string;
+        };
+        TaskActivityResponse: {
+            activity: components["schemas"]["TaskActivity"][];
+        };
+        TaskActivity: {
+            actor_user_id: string;
+            created_at: string;
+            id: string;
+            /** @enum {unknown} */
+            kind: "archived" | "assignee_added" | "assignee_removed" | "blocker_added" | "blocker_removed" | "column_changed" | "created" | "description_changed" | "label_added" | "label_removed" | "restored" | "title_changed";
+            new_value: components["schemas"]["NullableActivityValue"];
+            old_value: components["schemas"]["NullableActivityValue"];
+        };
+        NullableActivityValue: components["schemas"]["ActivityValue"] | null;
+        ActivityValue: {
+            doc?: components["schemas"]["NullableTiptapDoc"];
+            id?: string;
+            name?: string;
+            text?: string;
         };
         SetTaskLabels: {
             label_ids: string[];
@@ -2728,7 +2767,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Column deleted; its tasks were moved to the target column */
+            /** @description Column deleted; its tasks, archived ones included, were moved to the target column */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3121,6 +3160,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiTasksByIdActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Activity entries, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskActivityResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Internal Server Error */

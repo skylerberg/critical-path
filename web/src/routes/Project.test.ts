@@ -78,6 +78,9 @@ function mockProjectApi(projectId: string, tasks: BoardTask[]): void {
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
     const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname.endsWith('/activity')) {
+      return jsonResponse(200, { activity: [] });
+    }
     const taskMatch = /^\/api\/tasks\/(.+)$/.exec(url.pathname);
     if (request.method === 'GET' && taskMatch) {
       const found = tasks.find((t) => t.id === taskMatch[1]);

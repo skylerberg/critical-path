@@ -4,11 +4,12 @@
   import type { BoardTask } from '../lib/board-types';
   import { append } from '../lib/positions';
   import { router } from '../lib/router.svelte';
+  import { taskActivity } from '../lib/taskActivity.svelte';
   import AssigneePicker from './AssigneePicker.svelte';
   import DependencyPicker from './DependencyPicker.svelte';
   import LabelPicker from './LabelPicker.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
-  import TaskComments from './TaskComments.svelte';
+  import TaskActivity from './TaskActivity.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
   import Spinner from './ui/Spinner.svelte';
@@ -68,9 +69,14 @@
       pendingWrite = Promise.resolve();
       if (authed) {
         void board.loadTaskDetail(id);
+        void taskActivity.load(id);
       }
     });
   });
+
+  // Cleared on unmount so a reopened overlay never flashes another card's history
+  // and no background mutation keeps refetching for a closed dialog.
+  $effect(() => () => taskActivity.reset());
 
   // Must stay below the reset effect: effects run in declaration order, so capturing
   // first would only be undone by the reset.
@@ -447,8 +453,8 @@
         </section>
 
         <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold text-muted">Comments</h3>
-          <TaskComments {taskId} />
+          <h3 class="text-sm font-semibold text-muted">Activity</h3>
+          <TaskActivity {taskId} />
         </section>
 
         <div
