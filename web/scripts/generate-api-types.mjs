@@ -3,54 +3,87 @@
 // filtered before codegen so stale call sites turn into TypeScript errors.
 
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import openapiTS, { astToString } from 'openapi-typescript';
 
-const SPEC_URL = process.env.SPEC_URL || 'http://localhost:3001/api/openapi.json';
+const API_REPO_DIR = process.env.API_REPO_DIR || 'critical-path-api';
+const SPEC_URL = process.env.SPEC_URL;
 const SPEC_PATH = process.env.SPEC_PATH;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUTPUT_PATH = resolve(__dirname, '..', 'src', 'api', 'api.generated.ts');
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace']);
 
-const source = SPEC_PATH ?? SPEC_URL;
-const HEADER = `// AUTO-GENERATED FROM ${source}
-// DO NOT EDIT. Regenerate with: npm run generate:api
-// Deprecated operations and schemas are filtered out at generation time.
-`;
+// Walks up rather than resolving a fixed depth: this runs both from the repo and
+// from a worktree several levels below it.
+function findDumpedSpec() {
+  let dir = __dirname;
+  for (;;) {
+    const candidate = resolve(dir, API_REPO_DIR, 'openapi.json');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
 
 // A stale spec silently drops whole endpoints from the client, and the result
 // only fails under svelte-check — never under vitest, which strips types.
 async function assertSpecIsFresh(specPath) {
   const { mtime } = await stat(specPath);
   const apiRoot = dirname(specPath);
+  const git = (args) => execFileSync('git', ['-C', apiRoot, ...args], { encoding: 'utf8' }).trim();
   let head;
   try {
-    head = execFileSync('git', ['-C', apiRoot, 'log', '-1', '--format=%cI'], {
-      encoding: 'utf8',
-    }).trim();
+    head = git(['log', '-1', '--format=%cI']);
   } catch {
     return;
   }
-  if (mtime >= new Date(head)) return;
-  throw new Error(
-    `${specPath} was written ${mtime.toISOString()}, older than that repo's HEAD commit (${head}).\n` +
-      `Run \`npm run openapi:dump\` in the api repo first, or the generated client will be missing endpoints.`
-  );
+  if (mtime < new Date(head)) {
+    throw new Error(
+      `${specPath} was written ${mtime.toISOString()}, older than that repo's HEAD commit (${head}).\n` +
+        `Run \`npm run openapi:dump\` in the api repo first, or the generated client will be missing endpoints.`
+    );
+  }
+  // A dump only ever reflects the checkout, so fetching without pulling produces a
+  // spec that is newer than HEAD and still missing everything merged upstream.
+  let behind;
+  try {
+    behind = git(['rev-list', '--count', 'HEAD..origin/main']);
+  } catch {
+    return;
+  }
+  if (behind !== '0') {
+    throw new Error(
+      `${apiRoot} is ${behind} commit(s) behind origin/main, so ${specPath} cannot describe them.\n` +
+        `Run \`git pull\` there, then \`npm run openapi:dump\`, then regenerate.`
+    );
+  }
 }
 
 async function loadSpec() {
   if (SPEC_PATH) {
     await assertSpecIsFresh(SPEC_PATH);
-    return JSON.parse(await readFile(SPEC_PATH, 'utf8'));
+    return { spec: JSON.parse(await readFile(SPEC_PATH, 'utf8')), source: SPEC_PATH };
   }
-  const res = await fetch(SPEC_URL);
+  // The dev server is whatever build someone last started, and nothing here can tell
+  // how old it is. The dumped file can be freshness-checked, so it wins by default.
+  if (!SPEC_URL) {
+    const dumped = findDumpedSpec();
+    if (dumped) {
+      await assertSpecIsFresh(dumped);
+      return { spec: JSON.parse(await readFile(dumped, 'utf8')), source: dumped };
+    }
+  }
+  const url = SPEC_URL || 'http://localhost:3001/api/openapi.json';
+  const res = await fetch(url);
   if (!res.ok) {
-    throw new Error(`Failed to fetch ${SPEC_URL}: HTTP ${res.status}`);
+    throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
   }
-  return res.json();
+  return { spec: await res.json(), source: url };
 }
 
 function filterDeprecated(spec) {
@@ -133,10 +166,14 @@ function pruneUnreachableSchemas(spec) {
 }
 
 async function main() {
-  const spec = await loadSpec();
+  const { spec, source } = await loadSpec();
   const { removedOps, removedSchemas } = filterDeprecated(spec);
   const ast = await openapiTS(spec);
-  const output = HEADER + '\n' + astToString(ast);
+  const header =
+    `// AUTO-GENERATED FROM ${source}\n` +
+    `// DO NOT EDIT. Regenerate with: npm run generate:api\n` +
+    `// Deprecated operations and schemas are filtered out at generation time.\n`;
+  const output = header + '\n' + astToString(ast);
   await mkdir(dirname(OUTPUT_PATH), { recursive: true });
   await writeFile(OUTPUT_PATH, output, 'utf8');
   console.log(
