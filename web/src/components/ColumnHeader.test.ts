@@ -103,16 +103,12 @@ describe('ColumnHeader options menu', () => {
     expect(screen.getByRole('menuitem', { name: 'Archive all cards' })).toBeInTheDocument();
   });
 
-  it('offers neither action for an empty column', async () => {
+  it('offers neither bulk action for an empty column', async () => {
     renderHeader(DONE);
     await openMenu('Done');
 
     expect(screen.queryByRole('menuitem', { name: 'Move all cards to…' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Archive all cards' })).toBeNull();
-    expect(screen.getByRole('menuitem', { name: 'This column has no cards.' })).toHaveAttribute(
-      'aria-disabled',
-      'true'
-    );
   });
 
   it('opening one column menu closes the other', async () => {

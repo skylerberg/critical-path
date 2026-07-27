@@ -296,16 +296,34 @@ describe('board shortcuts', () => {
     expect(selection.selectedTaskId).toBe('t1');
   });
 
-  it('leaves Shift+D alone with CapsLock, a modifier, or no selection', () => {
+  it('follows the shift modifier rather than the case of the key', () => {
     const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
     selection.set('t1');
 
-    expect(press('D', { shiftKey: false }).defaultPrevented).toBe(false);
+    press('d', { shiftKey: true });
+    expect(duplicateTask).toHaveBeenCalledWith('t1');
+    expect(moveTask).not.toHaveBeenCalled();
+
+    press('D', { shiftKey: false });
+    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
+    expect(duplicateTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a modified d or Shift+D to the browser, and does nothing without a selection', () => {
+    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    selection.set('t1');
+
     expect(press('D', { shiftKey: true, metaKey: true }).defaultPrevented).toBe(false);
+    expect(press('d', { metaKey: true }).defaultPrevented).toBe(false);
 
     selection.clear();
     expect(press('D', { shiftKey: true }).defaultPrevented).toBe(false);
+    expect(press('d').defaultPrevented).toBe(false);
+
     expect(duplicateTask).not.toHaveBeenCalled();
+    expect(moveTask).not.toHaveBeenCalled();
   });
 
   it('clears the selection on Escape, then does nothing', () => {

@@ -169,23 +169,19 @@ class ShortcutController {
         break;
       }
       case 'd':
-        if (selectedId === null || !board.markTaskDone(selectedId)) {
-          return false;
-        }
-        break;
       case 'D':
-        // CapsLock reports a plain press as 'D', so the shifted variant has to come
-        // from the modifier and never the character.
-        if (
-          selectedId === null ||
-          !event.shiftKey ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.altKey
-        ) {
+        // CapsLock inverts the character, so duplicate-versus-done comes from the
+        // modifier and never from the case of the key.
+        if (selectedId === null || event.metaKey || event.ctrlKey || event.altKey) {
           return false;
         }
-        void board.duplicateTask(selectedId);
+        if (event.shiftKey) {
+          void board.duplicateTask(selectedId);
+          break;
+        }
+        if (!board.markTaskDone(selectedId)) {
+          return false;
+        }
         break;
       default:
         return false;

@@ -74,6 +74,11 @@
     <Board {projectId} readonly />
   </div>
   {#if taskId !== undefined}
-    <TaskDetail {taskId} closePath={boardPath(projectId, true)} readonly />
+    <TaskDetail
+      {taskId}
+      closePath={boardPath(projectId, true)}
+      taskPath={(id) => `${boardPath(projectId, true)}/tasks/${id}`}
+      readonly
+    />
   {/if}
 {/if}

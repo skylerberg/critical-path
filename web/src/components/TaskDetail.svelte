@@ -24,10 +24,13 @@
   interface Props {
     taskId: string;
     closePath: string;
+    // Built by the route, which is the only place that knows the view, the active
+    // filters and the return marker the overlay's URL has to carry.
+    taskPath: (id: string) => string;
     readonly?: boolean;
   }
 
-  let { taskId, closePath, readonly = false }: Props = $props();
+  let { taskId, closePath, taskPath, readonly = false }: Props = $props();
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const images = $derived(board.taskImages[taskId]);
@@ -45,6 +48,8 @@
   let uploadInput = $state<HTMLInputElement>();
   let confirmingDelete = $state(false);
   let removing = $state(false);
+  let duplicating = $state(false);
+  let closed = $state(false);
 
   // Deliberately local, unlike the compose drafts: this shadows a server-owned
   // value, so surviving an unmount would mean committing an abandoned edit later
@@ -69,6 +74,8 @@
       titleDraft = null;
       confirmingDelete = false;
       removing = false;
+      duplicating = false;
+      closed = false;
       baseUpdatedAt = null;
       baseTitle = null;
       conflicted = false;
@@ -117,6 +124,7 @@
 
   // replaceState so Back skips the closed overlay instead of re-opening it.
   function close(): void {
+    closed = true;
     router.redirect(closePath);
   }
 
@@ -212,11 +220,18 @@
     close();
   }
 
+  // Queued behind the title and description writes, so the server copies the text the
+  // user just typed rather than whatever an in-flight PATCH is about to replace.
   // navigate, not redirect, so Back returns to the original card.
   async function handleDuplicate(): Promise<void> {
-    const id = await board.duplicateTask(taskId);
-    if (id !== null) {
-      router.navigate(`${closePath}/tasks/${id}`);
+    duplicating = true;
+    try {
+      const id = await queueWrite(() => board.duplicateTask(taskId));
+      if (id !== null && !closed) {
+        router.navigate(taskPath(id));
+      }
+    } finally {
+      duplicating = false;
     }
   }
 
@@ -503,7 +518,11 @@
             )}
           </p>
           <div class="flex gap-2">
-            <Button variant="secondary" onclick={() => void handleDuplicate()}>Duplicate</Button>
+            <Button
+              variant="secondary"
+              disabled={duplicating}
+              onclick={() => void handleDuplicate()}>Duplicate</Button
+            >
             <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
             <Button variant="danger" onclick={() => void handleDelete()}>
               {confirmingDelete ? 'Confirm delete' : 'Delete task'}

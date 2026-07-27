@@ -200,11 +200,6 @@
               Archive all cards
             </button>
           {/if}
-          {#if count === 0}
-            <div role="menuitem" aria-disabled="true" class="px-4 py-2 text-sm text-muted">
-              This column has no cards.
-            </div>
-          {/if}
         </div>
       {/if}
     </div>

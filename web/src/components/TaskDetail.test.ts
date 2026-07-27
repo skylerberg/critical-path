@@ -214,6 +214,18 @@ async function editTitle(value: string): Promise<void> {
   await fireEvent.blur(input);
 }
 
+function renderDetail(props: {
+  taskId: string;
+  closePath: string;
+  taskPath?: (id: string) => string;
+  readonly?: boolean;
+}): ReturnType<typeof render> {
+  return render(TaskDetail, {
+    taskPath: (id: string) => `/projects/p1/tasks/${id}`,
+    ...props,
+  });
+}
+
 // Tiptap hangs the editor off its own DOM node; nothing else exposes the instance.
 function descriptionEditor(container: HTMLElement): Editor {
   const dom = container.querySelector('.tiptap') as (HTMLElement & { editor?: Editor }) | null;
@@ -225,7 +237,7 @@ function descriptionEditor(container: HTMLElement): Editor {
 
 describe('TaskDetail', () => {
   it('renders title, labels, assignees, blocked-by, timestamps, and fetched images', async () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
     expect(screen.getByLabelText('Task title')).toHaveAttribute('autocapitalize', 'sentences');
@@ -253,7 +265,7 @@ describe('TaskDetail', () => {
   });
 
   it('loads images and comments from the one detail fetch and renders the Activity section', async () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
     await waitFor(() => expect(board.taskComments.t1).toEqual([comment]));
@@ -325,7 +337,7 @@ describe('TaskDetail', () => {
   });
 
   it('loads the activity log and interleaves it with the comments', async () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
     expect(await screen.findByText(/created this task/)).toBeInTheDocument();
@@ -337,7 +349,7 @@ describe('TaskDetail', () => {
   });
 
   it('drops the previous task’s log when the overlay switches task', async () => {
-    const { rerender } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    const { rerender } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
 
     await rerender({ taskId: 't2', closePath: '/projects/p1' });
@@ -350,7 +362,7 @@ describe('TaskDetail', () => {
   });
 
   it('drops the log on unmount and stops refetching it for the closed overlay', async () => {
-    const { unmount } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    const { unmount } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
 
     unmount();
@@ -369,7 +381,7 @@ describe('TaskDetail', () => {
   });
 
   it('renders the column select with the current column and all columns as options', () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     const select = screen.getByLabelText('Column');
     expect(select).toHaveValue('c1');
@@ -379,7 +391,7 @@ describe('TaskDetail', () => {
 
   it('moves the task to the bottom of the selected column', async () => {
     const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
 
@@ -387,7 +399,7 @@ describe('TaskDetail', () => {
   });
 
   it('requests the move menu for this task from the Move… button', async () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Move…' }));
 
@@ -396,7 +408,7 @@ describe('TaskDetail', () => {
 
   it('does not move the task when the current column is re-selected', async () => {
     const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c1' } });
 
@@ -404,7 +416,7 @@ describe('TaskDetail', () => {
   });
 
   it('shows a fallback when the task is not in the store', () => {
-    render(TaskDetail, { taskId: 'missing', closePath: '/projects/p1' });
+    renderDetail({ taskId: 'missing', closePath: '/projects/p1' });
 
     expect(screen.getByText('Task not found')).toBeInTheDocument();
   });
@@ -419,7 +431,7 @@ describe('TaskDetail', () => {
     );
     const redirectSpy = vi.spyOn(router, 'redirect').mockImplementation(() => {});
 
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
@@ -442,7 +454,7 @@ describe('TaskDetail', () => {
         : undefined
     );
 
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
 
@@ -453,30 +465,114 @@ describe('TaskDetail', () => {
     expect(paths).toContain('/api/tasks/t1/archive');
   });
 
-  it('opens the copy after duplicating, from the board and from the graph', async () => {
+  // closePath carries a query string, and is a different route entirely for a card
+  // opened from My Tasks, so no task URL can be built by appending to it.
+  it('opens the copy at the path it was handed, whatever closePath is', async () => {
     const duplicate = vi.spyOn(board, 'duplicateTask').mockResolvedValue('t9');
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
 
-    const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    const first = renderDetail({
+      taskId: 't1',
+      closePath: '/my-tasks',
+      taskPath: (id) => `/projects/p1/tasks/${id}?from=my-tasks`,
+    });
     await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/projects/p1/tasks/t9'));
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith('/projects/p1/tasks/t9?from=my-tasks')
+    );
     expect(duplicate).toHaveBeenCalledWith('t1');
     first.unmount();
 
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1/graph' });
+    renderDetail({
+      taskId: 't1',
+      closePath: '/projects/p1/graph?labels=l1',
+      taskPath: (id) => `/projects/p1/graph/tasks/${id}?labels=l1`,
+    });
     await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/projects/p1/graph/tasks/t9'));
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith('/projects/p1/graph/tasks/t9?labels=l1')
+    );
   });
 
   it('stays on the original card when the duplicate fails', async () => {
     vi.spyOn(board, 'duplicateTask').mockResolvedValue(null);
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
 
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
     await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
 
     await tick();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('disables Duplicate while the copy is in flight', async () => {
+    let finish!: (id: string | null) => void;
+    vi.spyOn(board, 'duplicateTask').mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          finish = resolve;
+        })
+    );
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const button = screen.getByRole('button', { name: 'Duplicate' });
+    await fireEvent.click(button);
+
+    await waitFor(() => expect(button).toBeDisabled());
+
+    finish('t9');
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/projects/p1/tasks/t9'));
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(button).not.toBeDisabled();
+  });
+
+  it('does not open the copy when the overlay was closed while it was in flight', async () => {
+    let finish!: (id: string | null) => void;
+    vi.spyOn(board, 'duplicateTask').mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          finish = resolve;
+        })
+    );
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    const redirect = vi.spyOn(router, 'redirect').mockImplementation(() => {});
+
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const button = screen.getByRole('button', { name: 'Duplicate' });
+    await fireEvent.click(button);
+    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    finish('t9');
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(redirect).toHaveBeenCalledWith('/projects/p1');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  // The server copies whatever the row holds when it reads it, so the PATCH the blur
+  // fired has to land before the copy is taken.
+  it('holds the duplicate until the queued title save has landed', async () => {
+    let releasePatch!: () => void;
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === '/api/tasks/t1'
+        ? new Promise<Response>((resolve) => {
+            releasePatch = () =>
+              resolve(jsonResponse(200, { ...board.tasks[0], updated_at: SERVER_UPDATED_AT }));
+          })
+        : undefined
+    );
+    const duplicate = vi.spyOn(board, 'duplicateTask').mockResolvedValue('t9');
+    vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    await editTitle('Renamed');
+    await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+
+    await tick();
+    expect(duplicate).not.toHaveBeenCalled();
+
+    releasePatch();
+    await waitFor(() => expect(duplicate).toHaveBeenCalledWith('t1'));
   });
 
   it('waits for the archive to finish before redirecting', async () => {
@@ -489,7 +585,7 @@ describe('TaskDetail', () => {
     );
     const redirectSpy = vi.spyOn(router, 'redirect').mockImplementation(() => {});
 
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
 
@@ -505,14 +601,14 @@ describe('TaskDetail', () => {
       status: 'ok',
       updated_at: SERVER_UPDATED_AT,
     });
-    const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    const first = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
     await fireEvent.input(screen.getByLabelText('Task title'), {
       target: { value: 'Design cards v2' },
     });
     first.unmount();
     expect(update).not.toHaveBeenCalled();
 
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
     const reopened = screen.getByLabelText('Task title');
     expect(reopened).toHaveValue('Design cards');
 
@@ -527,30 +623,30 @@ describe('TaskDetail', () => {
       updated_at: SERVER_UPDATED_AT,
     });
     vi.spyOn(router, 'redirect').mockImplementation(() => {});
-    const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    const first = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
     await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Scrapped' } });
 
     await fireEvent(document.querySelector('dialog')!, new Event('cancel', { cancelable: true }));
 
     first.unmount();
 
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
     expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
     expect(update).not.toHaveBeenCalled();
   });
 
   it('does not carry a title edit onto another task', async () => {
-    const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    const first = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
     await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Only t1' } });
     first.unmount();
 
-    render(TaskDetail, { taskId: 't2', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't2', closePath: '/projects/p1' });
 
     expect(screen.getByLabelText('Task title')).toHaveValue('Cut prototype');
   });
 
   it('sends the loaded updated_at as the precondition when committing a title', async () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await editTitle('Design cards v2');
 
@@ -562,7 +658,7 @@ describe('TaskDetail', () => {
   });
 
   it('advances the precondition to the response updated_at after a successful save', async () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await editTitle('Design cards v2');
     await waitFor(() => expect(taskPatches()).toHaveLength(1));
@@ -590,7 +686,7 @@ describe('TaskDetail', () => {
       }
       return undefined;
     });
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await editTitle('Design cards v2');
     await editTitle('Design cards v3');
@@ -622,7 +718,7 @@ describe('TaskDetail', () => {
       }
       return undefined;
     });
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await editTitle('Design cards v2');
     await editTitle('Design cards');
@@ -644,7 +740,7 @@ describe('TaskDetail', () => {
     mockConflict(() =>
       held.then(() => jsonResponse(409, { error: 'This task changed since you loaded it' }))
     );
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await editTitle('Design cards v2');
     await fireEvent.blur(screen.getByLabelText('Task title'));
@@ -656,7 +752,7 @@ describe('TaskDetail', () => {
   });
 
   it('does not adopt a new precondition from a column change', async () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
     await waitFor(() => expect(taskPatches()).toHaveLength(1));
@@ -671,7 +767,7 @@ describe('TaskDetail', () => {
 
   it('keeps the typed title and shows the conflict banner when the save is stale', async () => {
     mockConflict();
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await editTitle('Design cards v2');
 
@@ -681,7 +777,7 @@ describe('TaskDetail', () => {
 
   it('sends nothing further while conflicted', async () => {
     mockConflict();
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await editTitle('Design cards v2');
     await screen.findByRole('alert');
@@ -695,7 +791,7 @@ describe('TaskDetail', () => {
 
   it('reloads the server title and description and clears the banner', async () => {
     mockConflict();
-    const { container } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    const { container } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     await editTitle('Design cards v2');
     await screen.findByRole('alert');
@@ -740,7 +836,7 @@ describe('TaskDetail', () => {
       { id: 'u2', email: 'bob@example.com', name: 'Bob Barker', avatar_url: null },
       { id: 'u3', email: 'stale@example.com', name: 'Stale Assignee', avatar_url: null },
     ]);
-    const { container } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    const { container } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
     await tick();
 
     descriptionEditor(container).commands.insertContent('@');
@@ -765,7 +861,7 @@ describe('TaskDetail', () => {
   it('sends the loaded updated_at as the precondition when saving the description', async () => {
     vi.useFakeTimers();
     try {
-      const { container } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      const { container } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
       await tick();
 
       descriptionEditor(container).commands.insertContent('Draft text');
@@ -787,7 +883,7 @@ describe('TaskDetail', () => {
     mockConflict();
     vi.useFakeTimers();
     try {
-      const { container } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      const { container } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
       await tick();
       const editor = descriptionEditor(container);
 
@@ -810,7 +906,7 @@ describe('TaskDetail', () => {
 
   it('does not adopt a teammate’s realtime update as its precondition', async () => {
     mockConflict();
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     board.applyRealtime({ type: 'task_updated', project_id: 'p1', data: teammateVersion() });
     await tick();
@@ -824,7 +920,7 @@ describe('TaskDetail', () => {
   });
 
   it('offers the due date behind an add affordance, like labels and assignees', async () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     expect(screen.getByRole('heading', { name: 'Due date' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Due date')).toBeNull();
@@ -839,7 +935,7 @@ describe('TaskDetail', () => {
 
   it('lists tasks that depend on this one and removes the reverse relation', async () => {
     const spy = vi.spyOn(board, 'removeBlocker').mockResolvedValue(undefined);
-    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
 
     expect(screen.getByRole('heading', { name: 'Blocks' })).toBeInTheDocument();
     const remove = screen.getByRole('button', { name: 'Remove blocked task Playtest session' });
@@ -855,7 +951,7 @@ describe('TaskDetail readonly', () => {
   });
 
   it('renders the card as text with no editing surface and no authenticated fetches', async () => {
-    render(TaskDetail, { taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
 
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Design cards' })).toBeInTheDocument();
@@ -902,7 +998,7 @@ describe('TaskDetail readonly', () => {
         : t
     );
 
-    render(TaskDetail, { taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
 
     expect(await screen.findByText('Ship it')).toBeInTheDocument();
     expect(screen.queryByRole('toolbar', { name: 'Formatting' })).toBeNull();
@@ -924,7 +1020,7 @@ describe('TaskDetail readonly', () => {
           : t
       );
 
-      const { container } = render(TaskDetail, {
+      const { container } = renderDetail({
         taskId: 't1',
         closePath: '/public/projects/p1',
         readonly: true,
@@ -944,7 +1040,7 @@ describe('TaskDetail readonly', () => {
   it('hides sections a public card has nothing to show for', () => {
     board.tasks = [...board.tasks, task('t5', 'c1', 'Bare card')];
 
-    render(TaskDetail, { taskId: 't5', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: 't5', closePath: '/public/projects/p1', readonly: true });
 
     expect(screen.getByRole('heading', { name: 'Bare card' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Description' })).toBeNull();
@@ -958,7 +1054,7 @@ describe('TaskDetail readonly', () => {
   it('shows a published due date as plain text with nothing to edit', () => {
     board.tasks = [...board.tasks, task('t6', 'c1', 'Dated card', { due_date: '2026-08-03' })];
 
-    render(TaskDetail, { taskId: 't6', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: 't6', closePath: '/public/projects/p1', readonly: true });
 
     expect(screen.getByRole('heading', { name: 'Due date' })).toBeInTheDocument();
     expect(screen.getByText(/2026/)).toBeInTheDocument();
