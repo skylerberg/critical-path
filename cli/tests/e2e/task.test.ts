@@ -941,6 +941,32 @@ describe('task duplicate', () => {
     expect(res.stdout).toContain('Duplicated task "Printed card"');
   });
 
+  it('duplicates an archived card into a live one at the end of its column', async () => {
+    const source = await createTask('Archived original');
+    const archive = await h.runCli(['task', 'archive', source.id, '--json']);
+    expect(archive.exitCode).toBe(0);
+
+    const res = await h.runCli(['task', 'duplicate', source.id, '--json']);
+    expect(res.exitCode).toBe(0);
+    const copy = res.json<BoardTask>();
+    expect(copy.id).not.toBe(source.id);
+    expect(copy.title).toBe('Archived original');
+    expect(copy.column_id).toBe(columnId);
+
+    const live = await h.runCli([
+      'task',
+      'list',
+      '--project',
+      projectId,
+      '--column',
+      columnId,
+      '--json',
+    ]);
+    const titles = live.json<StatefulTask[]>().map((t) => t.title);
+    expect(titles.filter((t) => t === 'Archived original')).toHaveLength(1);
+    expect(titles[titles.length - 1]).toBe('Archived original');
+  });
+
   it('exits 4 for an unknown ref and 2 for an ambiguous one', async () => {
     const unknown = await h.runCli(['task', 'duplicate', 'no such card', '--project', projectId]);
     expect(unknown.exitCode).toBe(4);
