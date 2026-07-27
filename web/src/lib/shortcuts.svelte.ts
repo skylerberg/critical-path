@@ -104,7 +104,7 @@ class ShortcutController {
 
     // The task-scoped keys target the open overlay task first, else the board
     // selection (null on the graph, so they no-op there without an overlay).
-    this.#handleCommonKey(event, overlayTaskId, selectionActive, filterBarActive);
+    this.#handleCommonKey(event, overlayTaskId, selectionActive, filterBarActive, view !== null);
   };
 
   #completeChord(key: string, projectId: string | null): boolean {
@@ -179,12 +179,21 @@ class ShortcutController {
     event: KeyboardEvent,
     overlayTaskId: string | undefined,
     selectionActive: boolean,
-    filterBarActive: boolean
+    filterBarActive: boolean,
+    projectViewActive: boolean
   ): void {
     const target = overlayTaskId ?? (selectionActive ? selection.selectedTaskId : null);
     switch (event.key) {
       case '?':
         this.helpOpen = true;
+        break;
+      case '/':
+        // Project views only — elsewhere the nav entry is the way in. A modified
+        // press is the browser's quick-find, not ours.
+        if (!projectViewActive || event.metaKey || event.ctrlKey || event.altKey) {
+          return;
+        }
+        router.navigate('/search');
         break;
       case 'f':
       case 'F':

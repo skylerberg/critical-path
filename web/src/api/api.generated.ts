@@ -77,7 +77,11 @@ export interface paths {
         get: operations["getApiAuthMe"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete account
+         * @description Permanently delete the authenticated account. The current password must be re-supplied. This removes the account, every session and personal access token, every project the caller created together with its columns, tasks, labels, dependencies, comments, activity, webhooks and images, their memberships and task assignments in other people's projects, their comments and activity entries there, and their submitted feedback. Stored avatar and image objects are removed after the transaction commits. It answers 409 with a blocking_projects list while the caller still owns a project that has other members: hand each one over with PUT /api/projects/{id}/owner, or delete it, and retry. Deletion cannot be undone.
+         */
+        delete: operations["deleteApiAuthMe"];
         options?: never;
         head?: never;
         /**
@@ -719,6 +723,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search tasks across projects
+         * @description Search task titles and description text across every non-archived project the caller can access; projects they cannot access simply do not appear. Archived cards are excluded. Every word in q must match and each word matches as a prefix, so results narrow as the query grows. Mentions match on the name they display. Ranked with title matches above description matches, capped at 50 results with truncated set when more matched.
+         */
+        get: operations["getApiSearch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/labels": {
         parameters: {
             query?: never;
@@ -1050,6 +1074,16 @@ export interface components {
         PatchMe: {
             email?: string;
             name?: string;
+        };
+        DeleteAccountConflict: {
+            blocking_projects: {
+                id: string;
+                name: string;
+            }[];
+            error: string;
+        };
+        DeleteAccount: {
+            password: string;
         };
         CreatedPersonalAccessToken: {
             personal_access_token: components["schemas"]["PersonalAccessToken"];
@@ -1399,6 +1433,17 @@ export interface components {
             tasks: components["schemas"]["MyTaskLink"][];
             user_id: components["schemas"]["UserAvatarurl"];
         };
+        SearchResponse: {
+            results: components["schemas"]["SearchResult"][];
+            truncated: boolean;
+        };
+        SearchResult: {
+            column_name: string;
+            project_id: string;
+            project_name: string;
+            task_id: string;
+            title: string;
+        };
         Label: {
             color: string;
             id: string;
@@ -1697,6 +1742,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiAuthMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccount"];
+            };
+        };
+        responses: {
+            /** @description Account deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The caller still owns projects that have other members */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteAccountConflict"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
                 };
             };
             /** @description Internal Server Error */
@@ -4118,6 +4221,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MyTasksResponse"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiSearch: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching tasks, most relevant first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Authentication required or failed */

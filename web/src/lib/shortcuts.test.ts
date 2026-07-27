@@ -466,6 +466,47 @@ describe('g-chords', () => {
   });
 });
 
+describe('search shortcut', () => {
+  it('navigates to search on / from a project view', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    const event = press('/');
+    expect(navigate).toHaveBeenCalledWith('/search');
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('stays live with the task overlay open', () => {
+    router.navigate('/projects/p1/tasks/t1', { replace: true });
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    press('/');
+    expect(navigate).toHaveBeenCalledWith('/search');
+  });
+
+  it('leaves a modified press to the browser', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    const event = press('/', { metaKey: true });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does nothing off the project views', () => {
+    router.navigate('/my-tasks', { replace: true });
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    const event = press('/');
+    expect(navigate).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does not fire while a text field is focused', () => {
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    const event = press('/');
+    expect(navigate).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+});
+
 describe('overlay context', () => {
   beforeEach(() => {
     router.navigate('/projects/p1/tasks/t1', { replace: true });

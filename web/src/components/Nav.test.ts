@@ -251,6 +251,25 @@ describe('Nav sidebar', () => {
     });
   });
 
+  it('links to search from both bars and marks it current on that route', async () => {
+    render(Nav);
+
+    const before = screen.getAllByRole('link', { name: 'Search' });
+    expect(before).toHaveLength(2);
+    for (const anchor of before) {
+      expect(anchor).toHaveAttribute('href', '/search');
+      expect(anchor).not.toHaveAttribute('aria-current');
+    }
+
+    router.navigate('/search');
+
+    await waitFor(() => {
+      for (const anchor of screen.getAllByRole('link', { name: 'Search' })) {
+        expect(anchor).toHaveAttribute('aria-current', 'page');
+      }
+    });
+  });
+
   it('links the user section to the account page', () => {
     render(Nav);
 
