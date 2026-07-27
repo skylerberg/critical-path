@@ -732,7 +732,7 @@ export interface paths {
     };
     /**
      * Search tasks across projects
-     * @description Search task titles and description text across every non-archived project the caller can access; projects they cannot access simply do not appear. Archived cards are excluded. Every word in q must match and each word matches as a prefix, so results narrow as the query grows. Mentions match on the name they display. Ranked with title matches above description matches, capped at 50 results with truncated set when more matched.
+     * @description Search task titles and description text across every non-archived project the caller can access; projects they cannot access simply do not appear. Archived cards are excluded. q is trimmed and must be 2 to 200 characters. Every word in q must match, and each word matches as a prefix of an indexed word, so typing more of a word narrows the results rather than emptying them; the exception is a partially typed inflection that has outgrown the indexed word, which drops out until it is finished (a card titled "Fix the login test" matches test and testing but not testi). Mentions match on the name they display. Ranked with title matches above description matches, capped at 50 results with truncated set when more matched.
      */
     get: operations['getApiSearch'];
     put?: never;

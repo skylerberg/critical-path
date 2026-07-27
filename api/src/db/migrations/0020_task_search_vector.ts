@@ -20,6 +20,13 @@ const SEARCH_VECTOR = sql`
 `;
 
 export async function up(db: Kysely<unknown>): Promise<void> {
+  // Migrations inherit the API pool's 30s statement_timeout, which is sized for
+  // a request, not for a table rewrite plus a GIN build that must also wait out
+  // the locks still-running old pods hold. Raised rather than disabled so a
+  // migration wedged behind a lock gives the table back instead of holding
+  // ACCESS EXCLUSIVE indefinitely.
+  await sql`set local statement_timeout = '240s'`.execute(db);
+
   await db.schema
     .alterTable('task')
     .addColumn('search_vector', sql`tsvector`, (col) =>

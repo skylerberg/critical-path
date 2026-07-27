@@ -345,10 +345,15 @@ produces no rows — there is no 403 and no way to tell an inaccessible project
 from an empty one. Archived cards and tasks in archived projects are excluded,
 matching what the board and My Tasks show.
 
-Every word in `q` must match, and each word matches as a prefix, so the result
-set only narrows as the query grows. `q` is trimmed and must be 2 to 200
-characters: a single character prefix-matches most of a board. A query with no
-word characters at all (`&&&`) is a normal 200 with no results.
+Every word in `q` must match, and each word matches as a prefix, so typing more
+of a word narrows the results rather than emptying them. One case still
+flickers, and it is inherent to combining prefix matching with stemming: a
+partially typed inflection that has grown longer than the indexed word matches
+neither arm until it is complete. A card titled "Fix the login test" matches
+`test`, and again at `testing` through the stemmed arm, but not `testi` or
+`testin` in between. `q` is trimmed and must be 2 to 200 characters: a single
+character prefix-matches most of a board. A query with no word characters at
+all (`&&&`) is a normal 200 with no results.
 
 Matching runs off `task.search_vector`, a stored generated column, so a result is
 current the instant a task is created or edited — there is no indexer to fall
