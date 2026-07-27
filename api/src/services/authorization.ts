@@ -136,6 +136,32 @@ export async function projectSharerIdsAmong(
   return rows.map((row) => row.id);
 }
 
+export async function projectAccessIdsAmong(
+  db: Kysely<DB>,
+  project: ProjectAccessFields,
+  candidateUserIds: string[]
+): Promise<string[]> {
+  if (candidateUserIds.length === 0) return [];
+  const rows = await db
+    .selectFrom('app_user')
+    .select('app_user.id')
+    .where('app_user.id', 'in', candidateUserIds)
+    .where((eb) =>
+      eb.or([
+        ...(project.created_by === null ? [] : [eb('app_user.id', '=', project.created_by)]),
+        eb.exists(
+          eb
+            .selectFrom('project_member')
+            .select('project_member.user_id')
+            .where('project_member.project_id', '=', project.id)
+            .whereRef('project_member.user_id', '=', 'app_user.id')
+        ),
+      ])
+    )
+    .execute();
+  return rows.map((row) => row.id);
+}
+
 // The task_assignee, task_comment and task_activity arms keep users who lost
 // access visible while their old assignments, comments and log entries exist.
 export async function usersWithProjectAccess(

@@ -45,6 +45,11 @@ export function tiptapToPlainText(doc: TiptapDoc | null): string {
       text += '\n';
       return;
     }
+    if (node.type === 'mention') {
+      const label = node.attrs?.label;
+      text += `@${typeof label === 'string' ? label : ''}`;
+      return;
+    }
     if (node.type === 'image' || node.type === 'horizontalRule') {
       return;
     }

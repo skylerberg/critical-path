@@ -5,6 +5,7 @@ import { findTiptapDocProblem } from '../../../src/schemas/tiptap';
 
 const IMAGE_UUID = '123e4567-e89b-12d3-a456-426614174000';
 const IMAGE_SRC = `/api/images/${IMAGE_UUID}`;
+const MENTION_UUID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 
 const comprehensive = [
   '# Title',
@@ -211,6 +212,69 @@ describe('tiptapToMarkdown', () => {
     const md = tiptapToMarkdown(doc);
     expect(md).toContain('###### Hi');
     expect(md).toContain('[go](https://x.dev)');
+  });
+
+  it('renders a mention as @label, in a paragraph and in a list item', () => {
+    const mention = { type: 'mention', attrs: { id: MENTION_UUID, label: 'Alice' } };
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'cc ' }, mention, { type: 'text', text: ' please' }],
+        },
+        {
+          type: 'bulletList',
+          content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [mention] }] }],
+        },
+      ],
+    };
+    expect(findTiptapDocProblem(doc)).toBeNull();
+    const md = tiptapToMarkdown(doc);
+    expect(md).toContain('cc @Alice please');
+    expect(md).toContain('- @Alice');
+  });
+
+  it('renders a mention the server accepts outside a paragraph', () => {
+    const mention = { type: 'mention', attrs: { id: MENTION_UUID, label: 'Alice' } };
+    const doc = {
+      type: 'doc',
+      content: [
+        mention,
+        { type: 'bulletList', content: [{ type: 'listItem', content: [mention] }] },
+        { type: 'blockquote', content: [mention] },
+        { type: 'codeBlock', content: [mention] },
+      ],
+    };
+    expect(findTiptapDocProblem(doc)).toBeNull();
+    const md = tiptapToMarkdown(doc);
+    expect(md).toContain('@Alice');
+    expect(md).toContain('- @Alice');
+    expect(md).toContain('> @Alice');
+    expect(md).toContain('```\n@Alice\n```');
+  });
+
+  it('renders a mention with no usable label as a bare @', () => {
+    const doc = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'mention', attrs: { id: MENTION_UUID } }] }],
+    };
+    expect(tiptapToMarkdown(doc)).toBe('@');
+  });
+
+  it('loses the mention on a markdown round trip', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'mention', attrs: { id: MENTION_UUID, label: 'Alice' } }],
+        },
+      ],
+    };
+    const reparsed = markdownToTiptap(tiptapToMarkdown(doc));
+    expect(collect(content(reparsed), 'mention')).toEqual([]);
+    expect(collect(content(reparsed), 'text').map((node) => node.text)).toEqual(['@Alice']);
   });
 
   it('does not throw on loosely structured docs that pass the validator', () => {

@@ -20,12 +20,20 @@ function marksOf(node: Rec): Rec[] {
   return Array.isArray(node.marks) ? node.marks.filter(isRec) : [];
 }
 
+function mentionText(node: Rec): string {
+  const label = attrsOf(node).label;
+  return `@${typeof label === 'string' ? label : ''}`;
+}
+
 function textContent(node: Rec): string {
   if (typeof node.text === 'string') {
     return node.text;
   }
   if (node.type === 'hardBreak') {
     return '\n';
+  }
+  if (node.type === 'mention') {
+    return mentionText(node);
   }
   return childrenOf(node).map(textContent).join('');
 }
@@ -103,6 +111,13 @@ function phrasingFromItems(items: InlineItem[], depth: number): PhrasingContent[
     }
     if (node.type === 'image') {
       out.push(imageFrom(node));
+      i++;
+      continue;
+    }
+    // One-way: Markdown has nothing to hold the mentioned user's id, so parsing
+    // this back yields plain text.
+    if (node.type === 'mention') {
+      out.push({ type: 'text', value: mentionText(node) });
       i++;
       continue;
     }
@@ -192,6 +207,7 @@ function blocksFrom(nodes: Rec[]): BlockContent[] {
       case 'text':
       case 'hardBreak':
       case 'image':
+      case 'mention':
         inlineRun.push(node);
         break;
       case 'paragraph':
