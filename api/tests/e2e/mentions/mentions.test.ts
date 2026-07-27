@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { Hono } from 'hono';
 import { TestContext, TestUser } from '../../setup/testContext';
-import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { db, waitForLockWaiters } from '../../helpers/database';
+import { newId, uniqueEmail } from '../../helpers/fixtures';
 import { errorHandler } from '../../../src/middleware/errorHandler';
 import { transactionMiddleware } from '../../../src/middleware/transaction';
-import { mentionDelivery, notifyMentions } from '../../../src/services/mentions';
+import {
+  MAX_MENTION_RECIPIENTS,
+  mentionDelivery,
+  notifyMentions,
+} from '../../../src/services/mentions';
 import type { MentionNotification } from '../../../src/services/mentions';
 import type { Variables } from '../../../src/types/index';
 
@@ -51,6 +55,9 @@ describe('Mentions', () => {
   const ctx = new TestContext();
   const projectIds: string[] = [];
   const delivered: MentionNotification[] = [];
+  // One more member than the cap, inserted directly because signup hashes a
+  // password each time.
+  const crowd = Array.from({ length: MAX_MENTION_RECIPIENTS + 1 }, () => newId());
   let owner: TestUser;
   let member: TestUser;
   let outsider: TestUser;
@@ -113,6 +120,22 @@ describe('Mentions', () => {
       .values({ project_id: projectId, user_id: member.id })
       .execute();
 
+    await db
+      .insertInto('app_user')
+      .values(
+        crowd.map((id) => ({
+          id,
+          email: uniqueEmail('mention-crowd'),
+          name: 'mention crowd user',
+          password_hash: 'unusable',
+        }))
+      )
+      .execute();
+    await db
+      .insertInto('project_member')
+      .values(crowd.map((id) => ({ project_id: projectId, user_id: id })))
+      .execute();
+
     mentionDelivery.deliver = async (notification) => {
       delivered.push(notification);
     };
@@ -127,6 +150,7 @@ describe('Mentions', () => {
     if (projectIds.length > 0) {
       await db.deleteFrom('project').where('id', 'in', projectIds).execute();
     }
+    await db.deleteFrom('app_user').where('id', 'in', crowd).execute();
     await ctx.cleanup();
   });
 
@@ -195,6 +219,36 @@ describe('Mentions', () => {
       await createTask(owner.token, mentionDoc(member.id, member.id, member.id));
       expect(delivered).toHaveLength(1);
       expect(delivered[0].recipientUserIds).toEqual([member.id]);
+    });
+
+    it('resolves a member named by an upper-cased id', async () => {
+      await createTask(owner.token, mentionDoc(member.id.toUpperCase()));
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0].recipientUserIds).toEqual([member.id]);
+    });
+
+    it('sends nothing when a re-save only changes the casing of an id', async () => {
+      const task = await createTask(owner.token, mentionDoc(member.id));
+      delivered.length = 0;
+
+      await patchTask(owner.token, task.id, { description: mentionDoc(member.id.toUpperCase()) });
+      expect(delivered).toEqual([]);
+    });
+
+    // A pasted paragraph of foreign chips must not swallow the real mention
+    // typed after it.
+    it('resolves a member named after a capful of unreachable ids', async () => {
+      const unreachable = Array.from({ length: MAX_MENTION_RECIPIENTS }, () => newId());
+      await createTask(owner.token, mentionDoc(...unreachable, member.id));
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0].recipientUserIds).toEqual([member.id]);
+    });
+
+    it('resolves at most MAX_MENTION_RECIPIENTS people from one write', async () => {
+      await createTask(owner.token, mentionDoc(...crowd));
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0].recipientUserIds).toHaveLength(MAX_MENTION_RECIPIENTS);
+      expect(delivered[0].recipientUserIds.every((id) => crowd.includes(id))).toBe(true);
     });
 
     it('stores a mention of someone without project access and notifies nobody', async () => {
@@ -269,6 +323,54 @@ describe('Mentions', () => {
         .patch(`/api/comments/${comment.id}`, { body: mentionDoc(owner.id) });
       expect(again.status).toBe(200);
       expect(delivered).toEqual([]);
+    });
+
+    it('resolves an added mention once when two identical edits race', async () => {
+      const task = await createTask(owner.token, null);
+      const comment = await postComment(member.token, task.id, textDoc('first pass'));
+      delivered.length = 0;
+
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let locked!: () => void;
+      const lockHeld = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      // Pinning the row until both patches are parked on it is what makes this
+      // test fail if the pre-update read ever stops taking the lock.
+      const holder = db.transaction().execute(async (trx) => {
+        await trx
+          .selectFrom('task_comment')
+          .select('task_comment.id')
+          .where('task_comment.id', '=', comment.id)
+          .forUpdate()
+          .execute();
+        locked();
+        await released;
+      });
+      await Promise.race([lockHeld, holder]);
+
+      const patches = Promise.all([
+        ctx
+          .request(member.token)
+          .patch(`/api/comments/${comment.id}`, { body: mentionDoc(owner.id) }),
+        ctx
+          .request(member.token)
+          .patch(`/api/comments/${comment.id}`, { body: mentionDoc(owner.id) }),
+      ]);
+      try {
+        await waitForLockWaiters(2);
+      } finally {
+        release();
+      }
+      await holder;
+      const [a, b] = await patches;
+
+      expect([a.status, b.status]).toEqual([200, 200]);
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0].recipientUserIds).toEqual([owner.id]);
     });
 
     it('sends nothing when the comment is deleted', async () => {

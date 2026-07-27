@@ -81,7 +81,9 @@ async function assertOwnComment(
 }
 
 // Only a body that carries a mention can have added one, so an edit that
-// mentions nobody never pays for the comparison.
+// mentions nobody never pays for the comparison. It takes the lock the UPDATE
+// will take anyway, so two concurrent patches cannot both see the pre-edit body
+// and resolve the same mention twice.
 async function bodyBeforeMentionEdit(
   db: Kysely<DB>,
   commentId: string,
@@ -94,6 +96,7 @@ async function bodyBeforeMentionEdit(
     .selectFrom('task_comment')
     .select('task_comment.body')
     .where('task_comment.id', '=', commentId)
+    .forNoKeyUpdate('task_comment')
     .executeTakeFirst();
   return row?.body ?? null;
 }

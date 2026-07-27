@@ -20,6 +20,8 @@ function paragraph(...content: unknown[]): Record<string, unknown> {
 const alice = '11111111-1111-4111-8111-111111111111';
 const bob = '22222222-2222-4222-8222-222222222222';
 const carol = '33333333-3333-4333-8333-333333333333';
+// The only id here whose casing can differ at all.
+const dave = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 
 describe('collectMentionIds', () => {
   it('finds mentions nested in lists and blockquotes, first-seen order', () => {
@@ -51,6 +53,12 @@ describe('collectMentionIds', () => {
   it('ignores a mention whose id is not a string', () => {
     expect(collectMentionIds(doc([paragraph(mention(42), { type: 'mention' })]))).toEqual([]);
   });
+
+  it('collapses spellings of one id that differ only in case', () => {
+    expect(collectMentionIds(doc([paragraph(mention(dave.toUpperCase()), mention(dave))]))).toEqual(
+      [dave]
+    );
+  });
 });
 
 describe('newMentionIds', () => {
@@ -77,10 +85,17 @@ describe('newMentionIds', () => {
     ]);
   });
 
-  it('caps the fan-out of one document', () => {
+  it('returns nothing when a re-save only changes the casing of an id', () => {
+    const previous = doc([paragraph(mention(dave))]);
+    expect(newMentionIds(previous, doc([paragraph(mention(dave.toUpperCase()))]))).toEqual([]);
+  });
+
+  // The cap is applied to resolved recipients, after the access filter, so ids
+  // that can never be notified cannot starve one that can.
+  it('returns every newly added id, uncapped', () => {
     const many = Array.from({ length: MAX_MENTION_RECIPIENTS + 15 }, (_, i) =>
       mention(`${i}`.padStart(8, '0') + '-0000-4000-8000-000000000000')
     );
-    expect(newMentionIds(null, doc([paragraph(...many)]))).toHaveLength(MAX_MENTION_RECIPIENTS);
+    expect(newMentionIds(null, doc([paragraph(...many)]))).toHaveLength(many.length);
   });
 });
