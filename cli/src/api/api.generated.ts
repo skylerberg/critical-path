@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/per-card-archive/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/personal-access-tokens/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate-api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -85,6 +85,50 @@ export interface paths {
      * @description Update the name and/or email of the authenticated user. Changing the email address invalidates any outstanding password-reset tokens.
      */
     patch: operations['patchApiAuthMe'];
+    trace?: never;
+  };
+  '/api/auth/tokens': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List personal access tokens
+     * @description List the caller's personal access tokens, newest first. Secrets are never returned. Expired tokens stay listed until they are revoked.
+     */
+    get: operations['getApiAuthTokens'];
+    put?: never;
+    /**
+     * Create personal access token
+     * @description Mint a named personal access token for scripts and agents. The secret is returned once and never again; only its hash is stored. Omit `expires_at` (or send null) for a token that never expires. Tokens carry the same permissions as the user and survive password changes and resets.
+     */
+    post: operations['postApiAuthTokens'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/auth/tokens/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Revoke personal access token
+     * @description Revoke one of your personal access tokens. Any WebSocket authenticated with that token is closed; other tokens and browser sessions are untouched. Another user's token answers 404, the same as one that does not exist.
+     */
+    delete: operations['deleteApiAuthTokensById'];
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   '/api/auth/change-password': {
@@ -821,6 +865,25 @@ export interface components {
       email?: string;
       name?: string;
     };
+    CreatedPersonalAccessToken: {
+      personal_access_token: components['schemas']['PersonalAccessToken'];
+      token: string;
+    };
+    PersonalAccessToken: {
+      created_at: string;
+      expires_at: components['schemas']['UserAvatarurl'];
+      id: string;
+      name: string;
+    };
+    CreatePersonalAccessToken: {
+      /** Format: uuid */
+      id: string;
+      name: string;
+      expires_at?: components['schemas']['UserAvatarurl'];
+    };
+    PersonalAccessTokensResponse: {
+      personal_access_tokens: components['schemas']['PersonalAccessToken'][];
+    };
     ChangePassword: {
       current_password: string;
       new_password: string;
@@ -1410,6 +1473,160 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ValidationError'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  getApiAuthTokens: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Personal access tokens */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PersonalAccessTokensResponse'];
+        };
+      };
+      /** @description Authentication required or failed */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  postApiAuthTokens: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreatePersonalAccessToken'];
+      };
+    };
+    responses: {
+      /** @description Token created; the secret is in this response only */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CreatedPersonalAccessToken'];
+        };
+      };
+      /** @description Authentication required or failed */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Conflict - resource already exists */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Validation error or domain-rule violation */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  deleteApiAuthTokensById: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Token revoked */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Authentication required or failed */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
         };
       };
       /** @description Internal Server Error */

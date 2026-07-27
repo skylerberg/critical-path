@@ -61,8 +61,12 @@ touch `gamedev@skylerberg.com` or its rows.
   `src/services/realtime/transport.ts`); `/ws` is never part of the OpenAPI
   spec. Handshake: `{ type: 'auth', token }` within 10s, then
   `subscribe`/`unsubscribe` with a `project_id`; ping/pong heartbeat every 30s.
-  Session revocation publishes `sessions_revoked` on the realtime bus, which
-  closes that user's sockets with code 4401.
+  The handshake token is either a session token or a personal access token.
+  Credential revocation publishes `sessions_revoked` on the realtime bus, which
+  closes sockets with code 4401: a payload of `{ user_id }` closes that user's
+  session sockets, and one that also carries `personal_access_token_id` closes
+  only the sockets authenticated with that token. Any new publisher must keep
+  sending `user_id` — it is the dispatch fallback in `handleBusEntry`.
 - The realtime bus is in-process by default; when `REDIS_URL` is set (as in
   production, which runs 2+ replicas) publishes fan out via Redis pub/sub so
   every replica delivers to its own sockets. Rate limits also share Redis

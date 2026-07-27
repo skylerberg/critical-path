@@ -84,6 +84,44 @@ project with them (as creator or member on either side); `GET
 /api/users?project_id=` returns the users who can access that project plus
 users still assigned to its tasks or still holding a comment on them.
 
+### Personal access tokens
+
+A personal access token (PAT) is a named, long-lived credential for scripts and
+agents, separate from the 30-day browser session and individually revocable.
+Tokens carry exactly the same permissions as the user — there are no scopes —
+and are accepted anywhere a session token is, including the `/ws` handshake.
+
+- `POST /api/auth/tokens` (`{ id, name, expires_at? }`) mints one. `expires_at`
+  is an ISO-8601 timestamp strictly in the future and at most 100 years out;
+  omit it or send `null` for a token that never expires. The response is
+  `{ token, personal_access_token }` and is the **only** time the secret is
+  returned — only its sha256 hash is stored. Secrets are prefixed `cpat_`.
+- `GET /api/auth/tokens` lists the caller's tokens (`{ id, name, created_at,
+  expires_at }`), newest first, never the secret. Expired tokens stay listed
+  until revoked so they can be seen and cleaned up.
+- `DELETE /api/auth/tokens/:id` revokes one. Someone else's token id answers
+  404, the same as an unknown one.
+
+```sh
+curl -X POST http://localhost:3001/api/auth/tokens \
+  -H "Authorization: Bearer $SESSION_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"id":"'"$(uuidgen | tr A-Z a-z)"'","name":"CI runner","expires_at":null}'
+
+CRITICAL_PATH_TOKEN=cpat_… cpath board "My Project"
+```
+
+A user may hold up to 100 tokens; the next create answers 422. Changing or
+resetting the password does **not** revoke personal access tokens (matching
+GitHub, so unattended agents survive a rotation) — a token planted by an
+attacker therefore outlives account recovery, which is why the account page
+lists every token and can revoke each one. A token can also mint further tokens
+— it authenticates `POST /api/auth/tokens` like any other credential — so an
+`expires_at` bounds only that one secret, not the access it was granted;
+revocation is the only reliable control. Revoking a token closes only the
+WebSockets authenticated with that token; a password change closes only session
+sockets. `POST /api/auth/logout` authenticated with a PAT is a no-op returning
+204: it deletes a session row by token hash and a PAT is not one.
+
 ### Task comments
 
 Each task carries a flat, chronological comment stream. Bodies are the same
@@ -170,11 +208,13 @@ the old position if the user is re-added.
 ### Realtime
 
 A WebSocket endpoint listens at `/ws` on the same server (not part of the
-OpenAPI spec). Clients must send `{ "type": "auth", "token": "<session token>" }`
-within 10 seconds of connecting, then may `{ "type": "subscribe", "project_id" }` /
-`unsubscribe` to project rooms. The server pings (`{ "type": "ping" }`) every
-30 seconds and expects a `pong`; sockets are closed with code 4401 when their
-session is revoked.
+OpenAPI spec). Clients must send `{ "type": "auth", "token": "<session or
+personal access token>" }` within 10 seconds of connecting, then may
+`{ "type": "subscribe", "project_id" }` / `unsubscribe` to project rooms. The
+server pings (`{ "type": "ping" }`) every 30 seconds and expects a `pong`;
+a socket is closed with code 4401 when **its own** credential is revoked or
+expires, so revoking one personal access token leaves the browser's sockets and
+every other token's sockets connected.
 
 Every mutation emits an event after its transaction commits. The envelope is
 `{ type, project_id, data }`:

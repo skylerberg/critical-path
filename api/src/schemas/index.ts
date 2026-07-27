@@ -3,6 +3,7 @@
 export * from './common';
 export * from './errors';
 export * from './auth';
+export * from './personalAccessTokens';
 export * from './users';
 export * from './tiptap';
 export * from './board';

@@ -59,6 +59,15 @@ export interface Label {
   project_id: string;
 }
 
+export interface PersonalAccessToken {
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp | null;
+  id: string;
+  name: string;
+  token_hash: string;
+  user_id: string;
+}
+
 export interface Project {
   archived_at: Timestamp | null;
   created_at: Generated<Timestamp>;
@@ -142,6 +151,7 @@ export interface DB {
   board_column: BoardColumn;
   feedback: Feedback;
   label: Label;
+  personal_access_token: PersonalAccessToken;
   project: Project;
   project_member: ProjectMember;
   project_user_position: ProjectUserPosition;
