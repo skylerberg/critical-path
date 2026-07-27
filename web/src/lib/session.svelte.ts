@@ -115,7 +115,8 @@ class SessionStore {
     return undefined;
   };
 
-  // No logout call: a password reset already revoked every session server-side.
+  // No logout call: for the flows that reach here the server has already
+  // destroyed every session for this account, so there is nothing to log out of.
   forget(): void {
     this.#clear();
     sessionStorage.removeItem(INTENDED_PATH_KEY);

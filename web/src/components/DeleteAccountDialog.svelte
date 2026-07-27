@@ -1,6 +1,8 @@
 <script lang="ts">
   import { api, ApiError, assertOk } from '../api/client';
+  import type { components } from '../api/api.generated';
   import { apiMessage } from '../lib/apiMessages';
+  import { AVATAR_CACHE_NAME, IMAGE_CACHE_NAME } from '../lib/constants';
   import { projects } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { router } from '../lib/router.svelte';
@@ -9,6 +11,8 @@
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';
   import Modal from './ui/Modal.svelte';
+
+  type DeleteAccountConflict = components['schemas']['DeleteAccountConflict'];
 
   interface Props {
     open?: boolean;
@@ -19,26 +23,40 @@
 
   let password = $state('');
   let error = $state('');
+  let blocking = $state<DeleteAccountConflict['blocking_projects']>([]);
   let deleting = $state(false);
 
   // Nothing else in the app touches CacheStorage, and the service worker keeps
   // this account's avatar and board images on the device for weeks.
   function clearMediaCaches(): void {
     if (typeof caches === 'undefined') return;
-    void caches.delete('api-images');
-    void caches.delete('api-avatars');
+    for (const name of [IMAGE_CACHE_NAME, AVATAR_CACHE_NAME]) {
+      // A CacheStorage that refuses is not worth reporting to someone whose
+      // account is already gone.
+      void caches.delete(name).catch(() => false);
+    }
   }
 
   function close(): void {
+    // Nothing can call the request back once it is in flight, so closing must
+    // not pretend otherwise: a late failure would land on a reset dialog.
+    if (deleting) return;
     password = '';
     error = '';
+    blocking = [];
     onclose();
+  }
+
+  function submit(event: SubmitEvent): void {
+    event.preventDefault();
+    void confirm();
   }
 
   async function confirm(): Promise<void> {
     if (password === '' || deleting) return;
     deleting = true;
     error = '';
+    blocking = [];
     // The server closes this device's socket (4401) as it revokes the
     // credentials; disconnecting first keeps the revalidation from racing the
     // local teardown.
@@ -62,6 +80,9 @@
         }
       } else if (err instanceof ApiError && err.status === 409) {
         error = err.message;
+        // The server's list, not the derived one behind the dialog, which is
+        // empty until the projects store has loaded and after a failed load.
+        blocking = (err.body as Partial<DeleteAccountConflict> | null)?.blocking_projects ?? [];
         void projects.load();
       } else {
         error = apiMessage(err);
@@ -78,7 +99,7 @@
     This deletes your account, every board you created and everything in it, your memberships and
     assignments on other people's boards, and your uploaded images. It cannot be undone.
   </p>
-  <div class="mt-4">
+  <form class="mt-4" novalidate onsubmit={submit}>
     <Input
       label="Password"
       type="password"
@@ -86,12 +107,19 @@
       autocomplete="current-password"
       bind:value={password}
     />
-  </div>
+  </form>
   {#if error !== ''}
     <p role="alert" class="mt-3 text-sm text-danger">{error}</p>
   {/if}
+  {#if blocking.length > 0}
+    <ul class="mt-2 flex list-inside list-disc flex-col gap-1 text-sm text-muted">
+      {#each blocking as project (project.id)}
+        <li>{project.name}</li>
+      {/each}
+    </ul>
+  {/if}
   {#snippet footer()}
-    <Button variant="secondary" onclick={close}>Cancel</Button>
+    <Button variant="secondary" onclick={close} disabled={deleting}>Cancel</Button>
     <Button variant="danger" onclick={confirm} disabled={password === '' || deleting}>
       {deleting ? 'Deleting…' : 'Delete my account'}
     </Button>

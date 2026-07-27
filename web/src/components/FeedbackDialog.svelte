@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api, ApiError, assertOk } from '../api/client';
+  import { api, assertOk } from '../api/client';
+  import { apiMessage } from '../lib/apiMessages';
   import { newId } from '../lib/ids';
   import { router } from '../lib/router.svelte';
   import { toasts } from '../lib/toasts.svelte';
@@ -32,11 +33,7 @@
       message = '';
       onclose();
     } catch (error) {
-      toasts.error(
-        error instanceof ApiError
-          ? error.message
-          : 'Could not reach the server. Check your connection and try again.'
-      );
+      toasts.error(apiMessage(error));
     } finally {
       sending = false;
     }

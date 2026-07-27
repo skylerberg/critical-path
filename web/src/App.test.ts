@@ -106,6 +106,20 @@ describe('App chrome', () => {
     expect(await screen.findByRole('heading', { name: 'My tasks' })).toBeInTheDocument();
   });
 
+  it('leaves a signed-in route when another tab ends the session', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/my-tasks', { replace: true });
+
+    render(App);
+    await screen.findByRole('heading', { name: 'My tasks' });
+
+    localStorage.removeItem('cp.token');
+    await session.init();
+
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/login'));
+    expect(sessionStorage.getItem('cp.intendedPath')).toBe('/my-tasks');
+  });
+
   it('runs the keymap off the project routes', async () => {
     localStorage.setItem('cp.token', 'token');
     router.navigate('/my-tasks', { replace: true });

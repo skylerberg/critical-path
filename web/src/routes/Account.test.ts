@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import Account from './Account.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
@@ -10,6 +10,11 @@ import { users } from '../lib/users.svelte';
 vi.mock('../lib/realtime.svelte', () => ({
   realtime: { connect: vi.fn(), disconnect: vi.fn() },
 }));
+
+// jsdom has no CacheStorage, so the deletion path's cache eviction would
+// otherwise be a no-op no test could see.
+const cacheDelete = vi.fn<(name: string) => Promise<boolean>>().mockResolvedValue(true);
+vi.stubGlobal('caches', { delete: cacheDelete });
 
 const user = { id: 'u-1', email: 'ada@example.com', name: 'Ada', avatar_url: null };
 
@@ -47,6 +52,16 @@ function pathsRequested(): string[] {
   return fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
 }
 
+function callOrderOf(pathname: string): number {
+  const index = fetchMock.mock.calls.findIndex(
+    (call) => new URL((call[0] as Request).url).pathname === pathname
+  );
+  if (index === -1) {
+    throw new Error(`No fetch call to ${pathname}`);
+  }
+  return fetchMock.mock.invocationCallOrder[index];
+}
+
 function deleteDialog(): HTMLElement | null {
   return screen.queryByRole('dialog', { name: 'Delete account' });
 }
@@ -74,6 +89,7 @@ beforeEach(async () => {
   fetchMock.mockReset();
   vi.mocked(realtime.connect).mockClear();
   vi.mocked(realtime.disconnect).mockClear();
+  cacheDelete.mockClear();
   users.reset();
   projects.reset();
   localStorage.clear();
@@ -288,8 +304,57 @@ describe('Account', () => {
     expect(session.status).toBe('anon');
     expect(session.token).toBeNull();
     expect(localStorage.getItem('cp.token')).toBeNull();
+    expect(cacheDelete.mock.calls.flat()).toEqual(['api-images', 'api-avatars']);
     expect(vi.mocked(realtime.disconnect)).toHaveBeenCalledOnce();
     expect(vi.mocked(realtime.connect)).not.toHaveBeenCalled();
+    expect(vi.mocked(realtime.disconnect).mock.invocationCallOrder[0]).toBeLessThan(
+      callOrderOf('/api/auth/me')
+    );
+  });
+
+  it('submits the delete from the password field', async () => {
+    mockRoutes(204);
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw12345678' } });
+    const form = screen.getByLabelText('Password').closest('form');
+    if (form === null) {
+      throw new Error('The password field is not in a form, so Enter cannot submit it');
+    }
+    await fireEvent.submit(form);
+
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/login'));
+    expect(requestTo('/api/auth/me').method).toBe('DELETE');
+  });
+
+  it('keeps the dialog open while the delete is in flight', async () => {
+    let settle: (response: Response) => void = () => {};
+    fetchMock.mockImplementation(async (input) => {
+      if (new URL((input as Request).url).pathname === '/api/auth/tokens') {
+        return jsonResponse(200, { personal_access_tokens: [] });
+      }
+      return new Promise<Response>((resolve) => {
+        settle = resolve;
+      });
+    });
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    await fireEvent(
+      screen.getByRole('dialog', { name: 'Delete account' }),
+      new Event('cancel', { cancelable: true })
+    );
+    expect(deleteDialog()).not.toBeNull();
+
+    settle(jsonResponse(401, { error: 'Password is incorrect' }));
+
+    expect(await screen.findByText('Incorrect password')).toBeInTheDocument();
+    expect(deleteDialog()).not.toBeNull();
   });
 
   it('reports a wrong password in the dialog and keeps the session', async () => {
@@ -303,6 +368,7 @@ describe('Account', () => {
     expect(await screen.findByText('Incorrect password')).toBeInTheDocument();
     expect(session.status).toBe('authed');
     expect(window.location.pathname).toBe('/account');
+    expect(cacheDelete).not.toHaveBeenCalled();
     expect(vi.mocked(realtime.connect)).toHaveBeenCalledOnce();
   });
 
@@ -322,18 +388,27 @@ describe('Account', () => {
     expect(revalidation.map((request) => request.method)).toEqual(['DELETE', 'GET']);
   });
 
-  it('shows the conflict message and refetches the projects on a 409', async () => {
-    mockRoutes(409, { error: 'You still own projects: Shared Ledger.', blocking_projects: [] });
+  it('names the blocking boards from the conflict body and refetches the projects', async () => {
+    mockRoutes(409, {
+      error: 'You still own projects that other people are members of.',
+      blocking_projects: [{ id: 'p-9', name: 'Shared Ledger' }],
+    });
     render(Account);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
     await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw12345678' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
 
-    expect(await screen.findByText('You still own projects: Shared Ledger.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('You still own projects that other people are members of.')
+    ).toBeInTheDocument();
+    // The projects store is empty here, so this name can only come from the response.
+    const dialog = screen.getByRole('dialog', { name: 'Delete account' });
+    expect(within(dialog).getByText('Shared Ledger')).toBeInTheDocument();
     await vi.waitFor(() => expect(pathsRequested()).toContain('/api/projects'));
     expect(deleteDialog()).not.toBeNull();
     expect(session.status).toBe('authed');
+    expect(cacheDelete).not.toHaveBeenCalled();
   });
 
   it('disables the delete button and names the boards that still have members', () => {
