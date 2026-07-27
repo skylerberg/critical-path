@@ -225,10 +225,10 @@ carries `cover_image_url` — the `/api/images/:id` URL of that image, or null.
 clears it; the image must belong to the task, and a task has at most one cover
 (a partial unique index on `task_image.is_cover`, enforced per task). It is
 opt-in and off by default, so a board that never uses it is unchanged.
-Deleting the cover image clears the cover with it — the row cascades and the
-`image_deleted` event carries the task's remaining cover, which is then null.
-Covers are copied when a project is duplicated, and they are published on
-public boards.
+The choice lives on the image row itself, so deleting the image takes the
+cover with it; every `image_deleted` event carries whatever cover the task has
+left. Covers are copied when a project is duplicated, and they are published
+on public boards.
 
 ### Archived tasks
 
@@ -340,9 +340,9 @@ from the ordinary board payload, so anything added to that payload later stays
 private until it is published deliberately. Public boards carry card titles,
 descriptions (with their `/api/images/:id` nodes), positions, due dates,
 labels, blockers, image counts, cover images, and the name and avatar of
-assigned users;
-member ids, the creator, timestamps, and email addresses are not on the wire,
-and users who are not assigned to anything are not listed at all.
+assigned users; member ids, the creator, timestamps, and email addresses are
+not on the wire, and users who are not assigned to anything are not listed at
+all.
 
 Responses are `no-store` and carry `X-Robots-Tag: noindex, nofollow`. The
 board itself is unlisted: nothing enumerates published projects. Anonymous
@@ -729,6 +729,9 @@ back:
   sources resolve by image id against the flattened `tasks[].images[]` — build
   the id map across the whole export, not per task, and tolerate a source that
   resolves to nothing (the image may have been deleted).
+- `cover_image_url` takes the same `/api/images/<uuid>` form and resolves by
+  image id against that task's own `images[]`. An importer restores it with
+  `PUT /api/tasks/:id/cover` once the images are uploaded.
 - `path` is derived from the image id and its content type, never from
   `filename`, so an archive can never carry a traversal path or a name
   collision. It is emitted in both formats, though with `?format=json` it names

@@ -4,6 +4,7 @@ import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { insertTaskImage } from '../projects/helpers';
 import { ProjectFixtures } from './taskFixtures';
+import { subscribeBus, type BusEntry } from '../../../src/services/realtime/bus';
 
 describe('PUT /api/tasks/:id/cover', () => {
   const ctx = new TestContext();
@@ -252,9 +253,6 @@ describe('PUT /api/tasks/:id/cover', () => {
     expect(await coverRows(secondTaskId)).toEqual([secondImage]);
   });
 
-  // Without the per-task advisory lock the two clear-then-set pairs interleave:
-  // each clear sees the other's pre-image, and the losing set trips the partial
-  // unique index and answers 409 instead of last-write-wins.
   it('serializes concurrent cover writes instead of failing one', async () => {
     const taskId = await createTask();
     const { imageId: first } = await insertTaskImage({ taskId });
@@ -271,17 +269,27 @@ describe('PUT /api/tasks/:id/cover', () => {
     expect(await boardCover(taskId)).toBe(`/api/images/${covers[0]}`);
   });
 
-  it('keeps a concurrent set and clear agreeing with the stored row', async () => {
+  it('publishes the cover it committed', async () => {
     const taskId = await createTask();
     const { imageId } = await insertTaskImage({ taskId });
 
-    const responses = await Promise.all([
-      ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id: imageId }),
-      ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id: null }),
-    ]);
-    expect(responses.map((res) => res.status)).toEqual([204, 204]);
+    const seen: BusEntry[] = [];
+    const unsubscribe = subscribeBus((entry) => seen.push(entry));
+    try {
+      for (const image_id of [imageId, null]) {
+        expect(
+          (await ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id })).status
+        ).toBe(204);
+      }
+    } finally {
+      unsubscribe();
+    }
 
-    const covers = await coverRows(taskId);
-    expect(await boardCover(taskId)).toBe(covers.length === 0 ? null : `/api/images/${covers[0]}`);
+    const published = seen
+      .filter((entry) => entry.type === 'task_updated')
+      .map((entry) => entry.data as { id: string; cover_image_url: string | null })
+      .filter((task) => task.id === taskId);
+    expect(published.map((task) => task.cover_image_url)).toEqual([`/api/images/${imageId}`, null]);
+    expect(await coverRows(taskId)).toEqual([]);
   });
 });

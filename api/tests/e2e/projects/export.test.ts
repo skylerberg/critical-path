@@ -103,6 +103,7 @@ function canonicalize(exportPayload: ProjectExport): unknown {
       label_ids: [...task.label_ids].sort(),
       assignee_ids: [...task.assignee_ids].sort(),
       blocker_ids: [...task.blocker_ids].sort(),
+      cover_image_url: task.cover_image_url,
       images: [...task.images]
         .sort((a, b) => a.id.localeCompare(b.id))
         .map((image) => ({
@@ -205,6 +206,13 @@ async function reimport(
         )
       );
       expect(res.status).toBe(201);
+    }
+    const cover = task.images.find((image) => task.cover_image_url?.endsWith(image.id));
+    if (cover) {
+      const res = await client.put(`/api/tasks/${idMap.get(task.id)}/cover`, {
+        image_id: idMap.get(cover.id),
+      });
+      expect(res.status).toBe(204);
     }
     for (const blockerId of task.blocker_ids) {
       const res = await client.post(`/api/tasks/${idMap.get(task.id)}/blockers`, {
@@ -330,6 +338,10 @@ describe('GET /api/projects/:id/export', () => {
         )
       ).status
     ).toBe(201);
+    // The jpeg: a cover no description embeds is only restorable from cover_image_url.
+    expect(
+      (await client.put(`/api/tasks/${mainTaskId}/cover`, { image_id: jpegImageId })).status
+    ).toBe(204);
 
     description = {
       type: 'doc',
@@ -399,6 +411,9 @@ describe('GET /api/projects/:id/export', () => {
       expect(main.label_ids).toEqual([bugLabelId, uiLabelId].sort());
       expect(main.assignee_ids).toEqual([owner.id, member.id].sort());
       expect(main.blocker_ids).toEqual([blockerTaskId]);
+      expect(main.cover_image_url).toBe(`/api/images/${jpegImageId}`);
+      expect(main.images.map((image) => image.id)).toContain(jpegImageId);
+      expect(exportPayload.tasks[0].cover_image_url).toBeNull();
       expect(main).not.toHaveProperty('image_count');
     });
 
@@ -706,6 +721,9 @@ describe('GET /api/projects/:id/export', () => {
       expect(copiedImages).toHaveLength(2);
       expect(JSON.stringify(copy.tasks[1].description)).toContain(
         `/api/images/${copiedImages.find((image) => image.content_type === 'image/png')?.id}`
+      );
+      expect(copy.tasks[1].cover_image_url).toBe(
+        `/api/images/${copiedImages.find((image) => image.content_type === 'image/jpeg')?.id}`
       );
 
       const copyZip = await exportZip(copyId, owner.token);
