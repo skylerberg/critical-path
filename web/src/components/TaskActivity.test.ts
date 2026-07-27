@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import TaskActivity from './TaskActivity.svelte';
 import { board, type TaskComment } from '../lib/board.svelte';
+import { projects, type Project } from '../lib/projects.svelte';
 import { session } from '../lib/session.svelte';
 import { taskActivity, type TaskActivityEntry } from '../lib/taskActivity.svelte';
 import { toasts } from '../lib/toasts.svelte';
@@ -24,6 +25,22 @@ function task(commentCount: number): BoardTask {
     blocker_ids: [],
     image_count: 0,
     comment_count: commentCount,
+  };
+}
+
+function projectListItem(memberIds: string[]): Project {
+  return {
+    id: 'p1',
+    name: 'Cards',
+    description: '',
+    created_by: 'u1',
+    member_ids: memberIds,
+    is_public: false,
+    archived_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    open_task_count: 0,
+    done_task_count: 0,
+    position: null,
   };
 }
 
@@ -99,6 +116,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   mockCommentApi();
   board.reset();
+  projects.reset();
   users.reset();
   taskActivity.reset();
   toasts.toasts = [];
@@ -178,6 +196,34 @@ describe('TaskActivity comments', () => {
     await tick();
     expect(component.getComposerEditor()!.isEmpty).toBe(true);
     expect(screen.getByRole('button', { name: 'Comment' })).toBeDisabled();
+  });
+
+  it('offers only project people in the composer and posts the mention it inserts', async () => {
+    projects.projects = [projectListItem(['u2'])];
+    users.setForProject('p1', [
+      ...users.users,
+      { id: 'u3', email: 'stale@example.com', name: 'Stale Assignee', avatar_url: null },
+    ]);
+    const { component } = render(TaskActivity, { taskId: 't1' });
+    await tick();
+
+    component.getComposerEditor()!.commands.insertContent('@');
+    await screen.findByRole('listbox', { name: 'Mention a person' });
+    await waitFor(() =>
+      expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+        expect.stringContaining('Ada Lovelace'),
+        expect.stringContaining('Bob Barker'),
+      ])
+    );
+
+    await fireEvent.click(screen.getAllByRole('option')[1]);
+    await tick();
+    await fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const body = (await requestAt(0).json()) as { body: unknown };
+    expect(JSON.stringify(body.body)).toContain('"type":"mention"');
+    expect(JSON.stringify(body.body)).toContain('"id":"u2"');
   });
 
   it('submits the composer on Ctrl/Cmd + Enter', async () => {

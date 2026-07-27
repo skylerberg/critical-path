@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
+  import { currentProjectMentionCandidates } from '../lib/mentions';
   import { append } from '../lib/positions';
   import { router } from '../lib/router.svelte';
   import { taskActivity } from '../lib/taskActivity.svelte';
@@ -34,6 +35,7 @@
   );
   const dependents = $derived(board.tasks.filter((t) => t.blocker_ids.includes(taskId)));
   const columnName = $derived(board.columns.find((c) => c.id === task?.column_id)?.name ?? '');
+  const mentionUsers = $derived(currentProjectMentionCandidates());
 
   let dialog = $state<HTMLDialogElement>();
   let uploadInput = $state<HTMLInputElement>();
@@ -308,6 +310,7 @@
                 content={task.description}
                 onSave={saveDescription}
                 {uploadImage}
+                {mentionUsers}
               />
             {/if}
           {/key}

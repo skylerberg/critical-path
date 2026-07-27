@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Editor } from '@tiptap/core';
   import { board, type CommentBody, type TaskComment } from '../lib/board.svelte';
+  import { currentProjectMentionCandidates } from '../lib/mentions';
   import { session } from '../lib/session.svelte';
   import {
     descriptionText,
@@ -25,6 +26,7 @@
     | { id: string; at: string; entry: TaskActivityEntry; comment?: undefined };
 
   const comments = $derived(board.taskComments[taskId]);
+  const mentionUsers = $derived(currentProjectMentionCandidates());
   const commentCount = $derived(board.tasks.find((t) => t.id === taskId)?.comment_count ?? 0);
 
   const items: StreamItem[] = $derived(
@@ -157,6 +159,7 @@
                 content={comment.body}
                 onChange={(doc) => (editDoc = doc)}
                 placeholder="Write a comment…"
+                {mentionUsers}
               />
               <div class="flex gap-2">
                 <Button disabled={editDoc === null} onclick={() => void saveEdit(comment.id)}>
@@ -271,6 +274,7 @@
       content={null}
       onChange={(doc) => (composerDoc = doc)}
       placeholder="Write a comment…"
+      {mentionUsers}
     />
     <div class="flex">
       <Button disabled={composerDoc === null} onclick={submit}>Comment</Button>

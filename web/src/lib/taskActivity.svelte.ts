@@ -1,5 +1,6 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
+import { mentionLabel } from './mentions';
 
 export type TaskActivityEntry = components['schemas']['TaskActivity'];
 type TiptapDoc = components['schemas']['TiptapDoc'];
@@ -12,7 +13,17 @@ function nodeText(node: unknown): string {
   if (typeof node !== 'object' || node === null) {
     return '';
   }
-  const { text, content } = node as { text?: unknown; content?: unknown };
+  const { type, attrs, text, content } = node as {
+    type?: unknown;
+    attrs?: unknown;
+    text?: unknown;
+    content?: unknown;
+  };
+  // A mention carries neither text nor children, so the walk below drops it.
+  if (type === 'mention') {
+    const record = typeof attrs === 'object' && attrs !== null ? attrs : {};
+    return `@${mentionLabel(record as Record<string, unknown>)}`;
+  }
   if (typeof text === 'string') {
     return text;
   }
