@@ -8,14 +8,29 @@ import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { enforceAuthRateLimit, enforceResetRateLimit } from '../middleware/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
+import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { APP_NAME } from '../config/constants';
 import { isValidUuid } from '../types/uuid';
+import {
+  assignedTasksElsewhere,
+  deleteUnsharedProjects,
+  lockOwnedProjects,
+  memberProjectIds,
+  storageKeysOwnedBy,
+} from '../services/accountDeletion';
 import { avatarUrl } from '../services/avatars';
 import { getEmailSender } from '../services/email/index';
 import { hashPassword, verifyPassword, verifyDummyPassword } from '../services/passwords';
+import {
+  PROJECT_COLUMNS,
+  fetchMemberIds,
+  publishProjectListItem,
+} from '../services/projectListItem';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
 import { SESSIONS_REVOKED, USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
+import { storage } from '../services/storage/index';
+import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import {
   MAX_PERSONAL_ACCESS_TOKENS_PER_USER,
   generatePersonalAccessToken,
@@ -27,6 +42,8 @@ import {
   authResponseSchema,
   patchMeSchema,
   changePasswordSchema,
+  deleteAccountSchema,
+  deleteAccountConflictSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   userSchema,
@@ -62,6 +79,27 @@ function toTokenResponse(row: {
     created_at: row.created_at.toISOString(),
     expires_at: row.expires_at === null ? null : row.expires_at.toISOString(),
   };
+}
+
+const STORAGE_DELETE_BATCH = 25;
+
+// An account's keys are every image of every board it created, so unlike the
+// per-board cleanups these are batched and settled: after the rows are gone a
+// key that fails is only recoverable from this log line.
+async function deleteStorageObjects(keys: string[]): Promise<void> {
+  for (let start = 0; start < keys.length; start += STORAGE_DELETE_BATCH) {
+    const batch = keys.slice(start, start + STORAGE_DELETE_BATCH);
+    const results = await Promise.allSettled(batch.map((key) => storage.delete(key)));
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        logger.error({
+          msg: 'Account deletion left a stored object behind',
+          key: batch[index],
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    });
+  }
 }
 
 async function setPasswordAndRevokeSessions(
@@ -323,6 +361,136 @@ router.patch(
       }
       throw err;
     }
+  }
+);
+
+router.delete(
+  '/me',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Delete account',
+    description:
+      'Permanently delete the authenticated account. The current password must be re-supplied. ' +
+      'This removes the account, every session and personal access token, every project the ' +
+      'caller created together with its columns, tasks, labels, dependencies, comments, ' +
+      'activity, webhooks and images, their memberships and task assignments in other ' +
+      "people's projects, their comments and activity entries there, and their submitted " +
+      'feedback. Stored avatar and image objects are removed after the transaction commits. ' +
+      'It answers 409 with a blocking_projects list while the caller still owns a project ' +
+      'that has other members: hand each one over with PUT /api/projects/{id}/owner, or ' +
+      'delete it, and retry. Deletion cannot be undone.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Account deleted',
+      },
+      ...unauthorizedErrorResponse,
+      409: {
+        description: 'The caller still owns projects that have other members',
+        content: {
+          'application/json': {
+            schema: resolver(deleteAccountConflictSchema),
+          },
+        },
+      },
+      ...validationErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  jsonValidator(deleteAccountSchema),
+  async (c) => {
+    const { password } = c.req.valid('json');
+    const user = c.get('user');
+    const db = c.get('db');
+
+    const row = await db
+      .selectFrom('app_user')
+      .select(['password_hash', 'avatar_storage_key'])
+      .where('id', '=', user.id)
+      .executeTakeFirstOrThrow();
+
+    if (!(await verifyPassword(row.password_hash, password))) {
+      throw new AppError(401, 'Password is incorrect');
+    }
+
+    const owned = await lockOwnedProjects(db, user.id);
+    const blocking = owned
+      .filter((project) => project.shared)
+      .map((project) => ({ id: project.id, name: project.name }));
+    if (blocking.length > 0) {
+      // Returned, not thrown: errorHandler copies every AppError message into the
+      // log line, and this one names boards. Keep the guard ahead of the first
+      // write — returning commits the transaction, which is only a no-op while
+      // everything above it is a read.
+      return c.json(
+        {
+          error:
+            'You still own projects that other people are members of: ' +
+            `${blocking.map((project) => project.name).join(', ')}. ` +
+            'Transfer or delete them first.',
+          blocking_projects: blocking,
+        },
+        409
+      );
+    }
+
+    const storageKeys = await storageKeysOwnedBy(db, user.id, row.avatar_storage_key);
+    const assignedTasks = await assignedTasksElsewhere(db, user.id);
+    const affectedProjectIds = [
+      ...new Set([
+        ...(await memberProjectIds(db, user.id)),
+        ...assignedTasks.map((task) => task.project_id),
+      ]),
+    ];
+    const tokenRows = await db
+      .selectFrom('personal_access_token')
+      .select('personal_access_token.id')
+      .where('personal_access_token.user_id', '=', user.id)
+      .execute();
+
+    // project.created_by is ON DELETE RESTRICT, so the owned projects have to go
+    // explicitly and first; everything else cascades off these two statements.
+    await deleteUnsharedProjects(
+      db,
+      owned.map((project) => project.id)
+    );
+    await db.deleteFrom('app_user').where('id', '=', user.id).execute();
+
+    const survivingProjects =
+      affectedProjectIds.length === 0
+        ? []
+        : await db
+            .selectFrom('project')
+            .select(PROJECT_COLUMNS)
+            .where('id', 'in', affectedProjectIds)
+            .execute();
+    for (const project of survivingProjects) {
+      await publishProjectListItem(c, db, project, await fetchMemberIds(db, project.id));
+    }
+    publishTaskRelationsSet(
+      c,
+      await fetchTaskRelations(
+        db,
+        assignedTasks.map((task) => task.task_id)
+      )
+    );
+
+    publishAfterCommit(c, SESSIONS_REVOKED, null, { user_id: user.id });
+    // A user-scoped revoke closes session sockets only, so each token needs its
+    // own entry or a socket authenticated with it survives its deleted row.
+    for (const token of tokenRows) {
+      publishAfterCommit(c, SESSIONS_REVOKED, null, {
+        user_id: user.id,
+        personal_access_token_id: token.id,
+      });
+    }
+
+    if (storageKeys.length > 0) {
+      c.get('postCommitHooks').push(() => deleteStorageObjects(storageKeys));
+    }
+
+    return c.body(null, 204);
   }
 );
 
