@@ -7,6 +7,7 @@
   import { myTasks } from './lib/myTasks.svelte';
   import { projects } from './lib/projects.svelte';
   import { realtime } from './lib/realtime.svelte';
+  import { shortcuts } from './lib/shortcuts.svelte';
   import { toasts } from './lib/toasts.svelte';
   import Login from './routes/Login.svelte';
   import Signup from './routes/Signup.svelte';
@@ -19,6 +20,7 @@
   import PublicBoard from './routes/PublicBoard.svelte';
   import NotFound from './routes/NotFound.svelte';
   import Nav from './components/Nav.svelte';
+  import ShortcutHelp from './components/ShortcutHelp.svelte';
   import Toasts from './components/Toasts.svelte';
   import Spinner from './components/ui/Spinner.svelte';
 
@@ -44,6 +46,7 @@
       projects.reset();
       drafts.clearAll();
       realtime.disconnect();
+      shortcuts.reset();
     }
     if (session.status !== 'authed') {
       return undefined;
@@ -52,6 +55,16 @@
     void projects.load();
     realtime.connect();
     return cancelUsers;
+  });
+
+  // The shell owns the keymap so the chords and ? reach every signed-in screen, not
+  // only the project routes; the shortcut layer gates the project-scoped keys itself.
+  $effect(() => {
+    if (session.status !== 'authed') {
+      return undefined;
+    }
+    window.addEventListener('keydown', shortcuts.handleKeydown);
+    return () => window.removeEventListener('keydown', shortcuts.handleKeydown);
   });
 </script>
 
@@ -92,6 +105,11 @@
       <NotFound path={route.path} />
     {/if}
   </div>
+  <!-- Goes wherever the keymap listens: an open help state with nothing rendering it
+       swallows every key but Escape. -->
+  {#if shortcuts.helpOpen}
+    <ShortcutHelp onclose={() => (shortcuts.helpOpen = false)} />
+  {/if}
 {/if}
 
 <Toasts />

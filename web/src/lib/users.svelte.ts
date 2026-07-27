@@ -7,6 +7,12 @@ function byName(a: User, b: User): number {
   return a.name.localeCompare(b.name);
 }
 
+// `displayFor` yields a nameless placeholder for a user the caller can no longer see,
+// which renders as a blank label wherever a name is shown as text.
+export function displayName(user: User): string {
+  return user.name === '' ? 'Unknown user' : user.name;
+}
+
 class UsersStore {
   users = $state<User[]>([]);
   #projectUsers = $state<Record<string, User[]>>({});

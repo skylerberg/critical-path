@@ -44,7 +44,6 @@ describe('myTasks store', () => {
 
     expect(new URL(requestAt(0).url).pathname).toBe('/api/my-tasks');
     expect(myTasks.loaded).toBe(true);
-    expect(myTasks.loading).toBe(false);
     expect(myTasks.error).toBeNull();
     expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
     expect(myTasks.blocking.map((t) => t.id)).toEqual(['t-1']);
@@ -62,8 +61,28 @@ describe('myTasks store', () => {
     await myTasks.load();
 
     expect(myTasks.error).toBe('Boom');
+    expect(myTasks.loaded).toBe(true);
     expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
-    expect(myTasks.loading).toBe(false);
+  });
+
+  it('drops the previous error while a retry is in flight', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'Boom' }));
+    await myTasks.load();
+    expect(myTasks.error).toBe('Boom');
+
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => {
+      await gate;
+      return jsonResponse(200, payload);
+    });
+
+    const inflight = myTasks.load();
+    expect(myTasks.error).toBeNull();
+    release?.();
+    await inflight;
   });
 
   it('clears the error on a later successful load', async () => {

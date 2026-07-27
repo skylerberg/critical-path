@@ -110,7 +110,11 @@ class ShortcutController {
 
   #completeChord(key: string, projectId: string | null): boolean {
     if (key === 'p') {
-      router.navigate('/projects');
+      router.navigate('/');
+      return true;
+    }
+    if (key === 'm') {
+      router.navigate('/my-tasks');
       return true;
     }
     if (projectId === null) {

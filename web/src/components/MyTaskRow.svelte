@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { MyTask } from '../lib/myTasks.svelte';
-  import { users } from '../lib/users.svelte';
+  import { displayName, users, type User } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
   import Badge from './ui/Badge.svelte';
 
@@ -15,7 +15,23 @@
     task.assignee_ids.filter((id) => id !== selfId).map((id) => users.displayFor(id))
   );
   const waiting = $derived(task.waiting_user_ids.map((id) => users.displayFor(id)));
-  const waitingNames = $derived(waiting.map((user) => user.name).join(', '));
+
+  function names(list: User[]): string {
+    return list.map(displayName).join(', ');
+  }
+
+  const peopleLines = $derived(
+    [
+      waiting.length === 0 ? null : `Waiting on this: ${names(waiting)}`,
+      coAssignees.length === 0 ? null : `Also assigned: ${names(coAssignees)}`,
+    ].filter((line) => line !== null)
+  );
+
+  // The ::after covers the whole row, so the anchor is the only element a pointer can
+  // hit: names the row shows only as avatars ride on this title or stay unreachable.
+  const anchorTitle = $derived(
+    peopleLines.length === 0 ? undefined : [task.title, ...peopleLines].join('\n')
+  );
 </script>
 
 <article
@@ -24,6 +40,7 @@
   <p class="min-w-0 flex-1 basis-full text-sm font-medium break-words sm:basis-auto">
     <a
       href="/projects/{task.project_id}/tasks/{task.id}?from=my-tasks"
+      title={anchorTitle}
       class="after:absolute after:inset-0 focus-visible:outline-none">{task.title}</a
     >
   </p>
@@ -35,7 +52,7 @@
     </Badge>
   {/if}
   {#if waiting.length > 0}
-    <span class="inline-flex items-center gap-1" title="Waiting on this: {waitingNames}">
+    <span class="inline-flex items-center gap-1">
       <Badge variant="accent">{waiting.length} waiting</Badge>
       <span class="flex -space-x-1.5">
         {#each waiting as user (user.id)}

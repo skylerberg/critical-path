@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filtersToSearch, noFilters, parseFilters } from './board-filters';
+import { filtersToSearch, mergeFilterSearch, noFilters, parseFilters } from './board-filters';
 
 describe('parseFilters', () => {
   it('reads an empty search as no filters', () => {
@@ -66,5 +66,28 @@ describe('filtersToSearch', () => {
       query: 'boss fight',
     };
     expect(parseFilters(filtersToSearch(filters))).toEqual(filters);
+  });
+});
+
+describe('mergeFilterSearch', () => {
+  const filters = { labelIds: ['l1'], assigneeIds: [], query: '' };
+
+  it('matches filtersToSearch when there is nothing else in the search', () => {
+    expect(mergeFilterSearch('', filters)).toBe('?labels=l1');
+    expect(mergeFilterSearch('?labels=l-old&q=gone', filters)).toBe('?labels=l1');
+    expect(mergeFilterSearch('?q=gone', noFilters())).toBe('');
+  });
+
+  it('keeps the keys the filters do not own, on both sides of a filter change', () => {
+    expect(mergeFilterSearch('?from=my-tasks', filters)).toBe('?labels=l1&from=my-tasks');
+    expect(mergeFilterSearch('?from=my-tasks&q=gone', noFilters())).toBe('?from=my-tasks');
+    expect(mergeFilterSearch('?a=1&q=gone&b=2', noFilters())).toBe('?a=1&b=2');
+  });
+
+  // The store redirects whenever its output differs from the current search, so an
+  // already-canonical search must come back byte-identical or it would loop.
+  it('is idempotent', () => {
+    const once = mergeFilterSearch('?from=my-tasks&labels=l1', filters);
+    expect(mergeFilterSearch(once, filters)).toBe(once);
   });
 });

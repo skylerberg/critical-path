@@ -45,3 +45,21 @@ export function filtersToSearch(filters: BoardFilters): string {
   }
   return parts.length === 0 ? '' : `?${parts.join('&')}`;
 }
+
+const FILTER_KEYS = ['labels', 'assignees', 'q'];
+
+// Filters own three query keys; every other one belongs to whoever put it in the URL and
+// has to survive a filter rewrite. Filters lead, so one filter state still has exactly
+// one serialization for a given rest.
+export function mergeFilterSearch(search: string, filters: BoardFilters): string {
+  const rest = new URLSearchParams(search);
+  for (const key of FILTER_KEYS) {
+    rest.delete(key);
+  }
+  const others = rest.toString();
+  const mine = filtersToSearch(filters);
+  if (others === '') {
+    return mine;
+  }
+  return mine === '' ? `?${others}` : `${mine}&${others}`;
+}

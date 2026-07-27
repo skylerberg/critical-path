@@ -70,6 +70,8 @@ describe('MyTasks', () => {
     expect(anchor).toHaveAttribute('href', '/projects/p-1/tasks/t-1?from=my-tasks');
     expect(screen.getByText('Colori')).toBeInTheDocument();
     expect(screen.getByText('In Progress')).toBeInTheDocument();
+    // Nobody else is on this task, so the row has no hidden name to hang a tooltip on.
+    expect(anchor).not.toHaveAttribute('title');
   });
 
   it('keeps the waiting chip on a blocked task and hides the caller from the avatars', async () => {
@@ -92,6 +94,32 @@ describe('MyTasks', () => {
     // One avatar as the waiting person, one as the co-assignee; never the caller.
     expect(screen.getAllByTitle('Ada Lovelace')).toHaveLength(2);
     expect(screen.queryByTitle('Me')).toBeNull();
+    // Those avatars sit under the stretched link, so their own titles are unhoverable:
+    // the names have to reach the pointer through the anchor's composed title.
+    expect(screen.getByRole('link', { name: 'Task t-1' })).toHaveAttribute(
+      'title',
+      'Task t-1\nWaiting on this: Ada Lovelace\nAlso assigned: Ada Lovelace'
+    );
+  });
+
+  it('names a person the caller can no longer see rather than showing a blank', async () => {
+    mockResponse({
+      tasks: [task('t-1', 'ready', { waiting_user_ids: ['u-gone'] })],
+      you_are_waiting_on: [
+        {
+          user_id: 'u-gone',
+          tasks: [{ id: 't-8', project_id: 'p-1', title: 'Decide the format', assignee_ids: [] }],
+        },
+      ],
+    });
+
+    render(MyTasks);
+
+    expect(await screen.findByText('Unknown user')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Task t-1' })).toHaveAttribute(
+      'title',
+      'Task t-1\nWaiting on this: Unknown user'
+    );
   });
 
   it('names the people in both companion sections and lists Unassigned last', async () => {
@@ -141,6 +169,25 @@ describe('MyTasks', () => {
 
     expect(await screen.findByText('Nothing is assigned to you right now.')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Ready' })).toBeNull();
+  });
+
+  it('flags a failed refetch over the rows it could not replace', async () => {
+    mockResponse({ tasks: [task('t-1', 'ready', { title: 'Write the docs' })] });
+
+    render(MyTasks);
+    await screen.findByText('Write the docs');
+
+    fetchMock.mockImplementation(async () => jsonResponse(503, { error: 'Server exploded' }));
+    await myTasks.load();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Server exploded');
+    expect(screen.getByText('Write the docs')).toBeInTheDocument();
+
+    mockResponse({ tasks: [task('t-1', 'ready', { title: 'Write the docs' })] });
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   });
 
   it('offers a working retry after a failed load', async () => {

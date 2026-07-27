@@ -3,7 +3,7 @@
   import { myTasks, type MyTaskPersonGroup } from '../lib/myTasks.svelte';
   import { link } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
-  import { users } from '../lib/users.svelte';
+  import { displayName, users } from '../lib/users.svelte';
   import MyTaskRow from '../components/MyTaskRow.svelte';
   import Avatar from '../components/ui/Avatar.svelte';
   import Button from '../components/ui/Button.svelte';
@@ -34,7 +34,7 @@
       {:else}
         {@const user = users.displayFor(group.user_id)}
         <Avatar name={user.name} src={user.avatar_url} size="sm" />
-        <span class="text-sm font-medium">{user.name}</span>
+        <span class="text-sm font-medium">{displayName(user)}</span>
       {/if}
       <span class="text-xs text-muted">
         {group.tasks.length} task{group.tasks.length === 1 ? '' : 's'}
@@ -58,13 +58,20 @@
 <main use:link class="mx-auto flex w-full max-w-4xl flex-col gap-8 p-4 lg:p-8">
   <h1 class="text-2xl font-semibold">My tasks</h1>
 
+  <!-- Above the list rather than in place of it: nothing keeps this screen live, so a
+       failed refetch leaves stale rows on screen that must not pass for current. -->
+  {#if myTasks.error !== null}
+    <div
+      role="alert"
+      class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger bg-surface p-3"
+    >
+      <p class="text-sm text-danger">{myTasks.error}</p>
+      <Button variant="secondary" onclick={() => void myTasks.load()}>Try again</Button>
+    </div>
+  {/if}
+
   {#if !myTasks.loaded}
-    {#if myTasks.error !== null}
-      <div class="flex flex-col items-center gap-3 py-16 text-center">
-        <p class="text-muted">{myTasks.error}</p>
-        <Button variant="secondary" onclick={() => void myTasks.load()}>Try again</Button>
-      </div>
-    {:else}
+    {#if myTasks.error === null}
       <div class="flex justify-center py-16">
         <Spinner size="lg" />
       </div>

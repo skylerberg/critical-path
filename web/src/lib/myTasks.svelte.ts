@@ -2,7 +2,6 @@ import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 
 export type MyTask = components['schemas']['MyTask'];
-export type MyTaskLink = components['schemas']['MyTaskLink'];
 export type MyTaskPersonGroup = components['schemas']['MyTaskPersonGroup'];
 
 class MyTasksStore {
@@ -10,7 +9,6 @@ class MyTasksStore {
   waitingOnYou = $state<MyTaskPersonGroup[]>([]);
   youAreWaitingOn = $state<MyTaskPersonGroup[]>([]);
   loaded = $state(false);
-  loading = $state(false);
   error = $state<string | null>(null);
 
   blocking = $derived(this.tasks.filter((task) => task.bucket === 'blocking'));
@@ -22,9 +20,9 @@ class MyTasksStore {
   #fetchToken = 0;
 
   async load(): Promise<void> {
-    if (!this.loaded) {
-      this.loading = true;
-    }
+    // Cleared up front so a retry shows its loading state instead of re-rendering the
+    // failure it is already trying to clear.
+    this.error = null;
     const token = ++this.#fetchToken;
     try {
       const data = assertOk(await api.GET('/api/my-tasks'));
@@ -34,17 +32,12 @@ class MyTasksStore {
       this.tasks = data.tasks;
       this.waitingOnYou = data.waiting_on_you;
       this.youAreWaitingOn = data.you_are_waiting_on;
-      this.error = null;
       this.loaded = true;
     } catch (error) {
       if (token !== this.#fetchToken) {
         return;
       }
       this.error = error instanceof ApiError ? error.message : 'Failed to load my tasks';
-    } finally {
-      if (token === this.#fetchToken) {
-        this.loading = false;
-      }
     }
   }
 
@@ -54,7 +47,6 @@ class MyTasksStore {
     this.waitingOnYou = [];
     this.youAreWaitingOn = [];
     this.loaded = false;
-    this.loading = false;
     this.error = null;
   }
 }
