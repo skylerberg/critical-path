@@ -3,7 +3,8 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import { db } from '../../db/index';
-import { hashSessionToken } from '../sessions';
+import { authenticateBearerToken, credentialIsLive } from '../credentials';
+import type { CredentialKind } from '../credentials';
 import { logger } from '../../utils/logger';
 import { SESSIONS_REVOKED, subscribeBus } from './bus';
 import type { BusEntry } from './bus';
@@ -12,10 +13,12 @@ import {
   getSocketState,
   registerSocket,
   removeSocket,
+  socketsForCredential,
   socketsForUser,
   subscribeToProject,
   unsubscribeFromProject,
 } from './state';
+import type { RealtimeSocket } from './state';
 
 const AUTH_TIMEOUT_MS = 10_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -35,8 +38,8 @@ export interface RealtimeHandle {
   close(): void;
 }
 
-export function closeSocketsForUser(userId: string): void {
-  for (const socket of socketsForUser(userId)) {
+function closeSockets(sockets: RealtimeSocket[]): void {
+  for (const socket of sockets) {
     // close() completes asynchronously; remove now so nothing is delivered to
     // a revoked socket in the interim.
     removeSocket(socket);
@@ -44,19 +47,16 @@ export function closeSocketsForUser(userId: string): void {
   }
 }
 
-async function authenticateToken(
-  token: string
-): Promise<{ userId: string; sessionId: string } | null> {
-  const row = await db
-    .selectFrom('session')
-    .innerJoin('app_user', 'app_user.id', 'session.user_id')
-    .select(['session.id as session_id', 'session.expires_at', 'app_user.id as user_id'])
-    .where('session.token_hash', '=', hashSessionToken(token))
-    .executeTakeFirst();
-  if (!row || row.expires_at.getTime() <= Date.now()) {
-    return null;
-  }
-  return { userId: row.user_id, sessionId: row.session_id };
+// Session-scoped: a password change must not evict the user's still-valid
+// personal access tokens.
+export function closeSessionSocketsForUser(userId: string): void {
+  closeSockets(
+    socketsForUser(userId).filter((socket) => getSocketState(socket)?.credentialKind === 'session')
+  );
+}
+
+export function closeSocketsForCredential(kind: CredentialKind, id: string): void {
+  closeSockets(socketsForCredential(kind, id));
 }
 
 function errorText(err: unknown): string {
@@ -81,20 +81,15 @@ function handleConnection(ws: WebSocket): void {
     }
     missedPongs++;
     ws.send(JSON.stringify({ type: 'ping' }));
-    // Sessions are revocable DB rows; a socket must not outlive its session.
-    void db
-      .selectFrom('session')
-      .select('id')
-      .where('id', '=', state.sessionId)
-      .where('expires_at', '>', new Date())
-      .executeTakeFirst()
-      .then((row) => {
-        if (!row) {
+    // Credentials are revocable DB rows; a socket must not outlive its own.
+    void credentialIsLive(db, state.credentialKind, state.credentialId)
+      .then((live) => {
+        if (!live) {
           ws.close(CLOSE_UNAUTHORIZED, 'Session revoked');
         }
       })
       .catch((err) => {
-        logger.error({ msg: 'Realtime session re-check failed', error: errorText(err) });
+        logger.error({ msg: 'Realtime credential re-check failed', error: errorText(err) });
       });
   }, HEARTBEAT_INTERVAL_MS);
 
@@ -115,14 +110,14 @@ function handleConnection(ws: WebSocket): void {
         ws.close(CLOSE_UNAUTHORIZED, 'Expected auth message');
         return;
       }
-      const session = await authenticateToken(message.token);
-      if (!session) {
+      const credential = await authenticateBearerToken(db, message.token);
+      if (!credential) {
         ws.close(CLOSE_UNAUTHORIZED, 'Invalid or expired token');
         return;
       }
       // The auth timeout may have closed the socket while the lookup ran.
       if (ws.readyState !== OPEN) return;
-      registerSocket(ws, session.userId, session.sessionId);
+      registerSocket(ws, { kind: credential.kind, id: credential.id, userId: credential.user.id });
       ws.send(JSON.stringify({ type: 'auth_ok' }));
       return;
     }
@@ -166,9 +161,11 @@ function handleConnection(ws: WebSocket): void {
 
 function handleBusEntry(entry: BusEntry): void {
   if (entry.type === SESSIONS_REVOKED) {
-    const userId = (entry.data as { user_id?: unknown } | null)?.user_id;
-    if (typeof userId === 'string') {
-      closeSocketsForUser(userId);
+    const data = entry.data as { user_id?: unknown; personal_access_token_id?: unknown } | null;
+    if (typeof data?.personal_access_token_id === 'string') {
+      closeSocketsForCredential('personal_access_token', data.personal_access_token_id);
+    } else if (typeof data?.user_id === 'string') {
+      closeSessionSocketsForUser(data.user_id);
     }
     return;
   }

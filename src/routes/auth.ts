@@ -5,6 +5,7 @@ import type { Updateable } from 'kysely';
 import type { AppUser } from '../db/types';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
+import { paramValidator } from '../middleware/requestValidator';
 import { enforceAuthRateLimit, enforceResetRateLimit } from '../middleware/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { env } from '../config/env';
@@ -15,7 +16,11 @@ import { getEmailSender } from '../services/email/index';
 import { hashPassword, verifyPassword, verifyDummyPassword } from '../services/passwords';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
 import { SESSIONS_REVOKED, USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
-import { createSession, deleteSessionByTokenHash, hashSessionToken } from '../services/sessions';
+import {
+  MAX_PERSONAL_ACCESS_TOKENS_PER_USER,
+  generatePersonalAccessToken,
+} from '../services/personalAccessTokens';
+import { createSession, deleteSessionByTokenHash, hashBearerToken } from '../services/sessions';
 import {
   signupRequestSchema,
   loginRequestSchema,
@@ -25,16 +30,39 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   userSchema,
+  idSchema,
+  createPersonalAccessTokenSchema,
+  createdPersonalAccessTokenSchema,
+  personalAccessTokensResponseSchema,
+  badRequestErrorResponse,
   unauthorizedErrorResponse,
+  notFoundErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
   validationOrUnprocessableErrorResponse,
   tooManyRequestsErrorResponse,
   internalServerErrorResponse,
+  type PersonalAccessTokenResponse,
 } from '../schemas/index';
 import { AppContext, AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
+
+const MAX_TOKEN_LIFETIME_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+
+function toTokenResponse(row: {
+  id: string;
+  name: string;
+  created_at: Date;
+  expires_at: Date | null;
+}): PersonalAccessTokenResponse {
+  return {
+    id: row.id,
+    name: row.name,
+    created_at: row.created_at.toISOString(),
+    expires_at: row.expires_at === null ? null : row.expires_at.toISOString(),
+  };
+}
 
 async function setPasswordAndRevokeSessions(
   c: Pick<AppContext, 'get'>,
@@ -189,7 +217,7 @@ router.post(
   authMiddleware,
   async (c) => {
     const token = (c.req.header('Authorization') ?? '').substring(7);
-    await deleteSessionByTokenHash(c.get('db'), hashSessionToken(token));
+    await deleteSessionByTokenHash(c.get('db'), hashBearerToken(token));
     return c.body(null, 204);
   }
 );
@@ -295,6 +323,173 @@ router.patch(
       }
       throw err;
     }
+  }
+);
+
+router.post(
+  '/tokens',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Create personal access token',
+    description:
+      'Mint a named personal access token for scripts and agents. The secret is returned ' +
+      'once and never again; only its hash is stored. Omit `expires_at` (or send null) for a ' +
+      'token that never expires. Tokens carry the same permissions as the user and survive ' +
+      'password changes and resets.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      201: {
+        description: 'Token created; the secret is in this response only',
+        content: {
+          'application/json': {
+            schema: resolver(createdPersonalAccessTokenSchema),
+          },
+        },
+      },
+      ...unauthorizedErrorResponse,
+      ...conflictErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  jsonValidator(createPersonalAccessTokenSchema),
+  async (c) => {
+    const { id, name, expires_at } = c.req.valid('json');
+    const user = c.get('user');
+    const db = c.get('db');
+
+    const expiresAt = expires_at == null ? null : new Date(expires_at);
+    if (expiresAt !== null) {
+      if (expiresAt.getTime() <= Date.now()) {
+        throw new AppError(422, 'expires_at must be in the future');
+      }
+      if (expiresAt.getTime() > Date.now() + MAX_TOKEN_LIFETIME_MS) {
+        throw new AppError(422, 'expires_at must be within 100 years');
+      }
+    }
+
+    const { count } = await db
+      .selectFrom('personal_access_token')
+      .select((eb) => eb.fn.countAll<string>().as('count'))
+      .where('personal_access_token.user_id', '=', user.id)
+      .executeTakeFirstOrThrow();
+    if (Number(count) >= MAX_PERSONAL_ACCESS_TOKENS_PER_USER) {
+      throw new AppError(
+        422,
+        `You already have ${MAX_PERSONAL_ACCESS_TOKENS_PER_USER} personal access tokens; ` +
+          'revoke one before creating another'
+      );
+    }
+
+    const token = generatePersonalAccessToken();
+
+    try {
+      const row = await db
+        .insertInto('personal_access_token')
+        .values({
+          id,
+          user_id: user.id,
+          name,
+          token_hash: hashBearerToken(token),
+          expires_at: expiresAt,
+        })
+        .returning(['id', 'name', 'created_at', 'expires_at'])
+        .executeTakeFirstOrThrow();
+      return c.json({ token, personal_access_token: toTokenResponse(row) }, 201);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new AppError(409, 'Token id already in use');
+      }
+      throw err;
+    }
+  }
+);
+
+router.get(
+  '/tokens',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'List personal access tokens',
+    description:
+      "List the caller's personal access tokens, newest first. Secrets are never returned. " +
+      'Expired tokens stay listed until they are revoked.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Personal access tokens',
+        content: {
+          'application/json': {
+            schema: resolver(personalAccessTokensResponseSchema),
+          },
+        },
+      },
+      ...unauthorizedErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  async (c) => {
+    const rows = await c
+      .get('db')
+      .selectFrom('personal_access_token')
+      .select([
+        'personal_access_token.id',
+        'personal_access_token.name',
+        'personal_access_token.created_at',
+        'personal_access_token.expires_at',
+      ])
+      .where('personal_access_token.user_id', '=', c.get('user').id)
+      .orderBy('personal_access_token.created_at', 'desc')
+      .orderBy('personal_access_token.id')
+      .execute();
+
+    return c.json({ personal_access_tokens: rows.map(toTokenResponse) }, 200);
+  }
+);
+
+router.delete(
+  '/tokens/:id',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Revoke personal access token',
+    description:
+      'Revoke one of your personal access tokens. Any WebSocket authenticated with that token ' +
+      "is closed; other tokens and browser sessions are untouched. Another user's token " +
+      'answers 404, the same as one that does not exist.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Token revoked',
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const user = c.get('user');
+
+    const result = await c
+      .get('db')
+      .deleteFrom('personal_access_token')
+      .where('personal_access_token.id', '=', id)
+      .where('personal_access_token.user_id', '=', user.id)
+      .executeTakeFirst();
+
+    if (result.numDeletedRows === 0n) {
+      throw new AppError(404, 'Token not found');
+    }
+
+    publishAfterCommit(c, SESSIONS_REVOKED, null, {
+      user_id: user.id,
+      personal_access_token_id: id,
+    });
+    return c.body(null, 204);
   }
 );
 

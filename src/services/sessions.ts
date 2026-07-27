@@ -7,7 +7,7 @@ export function generateSessionToken(): string {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-export function hashSessionToken(token: string): string {
+export function hashBearerToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
@@ -18,7 +18,7 @@ export async function createSession(db: Kysely<DB>, userId: string): Promise<str
     .values({
       id: crypto.randomUUID(),
       user_id: userId,
-      token_hash: hashSessionToken(token),
+      token_hash: hashBearerToken(token),
       expires_at: new Date(Date.now() + env.sessionTtlDays * 24 * 60 * 60 * 1000),
     })
     .execute();

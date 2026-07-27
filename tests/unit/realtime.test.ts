@@ -16,11 +16,15 @@ import {
   unsubscribeFromProject,
   removeSocket,
   projectSockets,
+  socketsForCredential,
   socketsForUser,
   resetRealtimeState,
 } from '../../src/services/realtime/state';
 import { deliver } from '../../src/services/realtime/delivery';
-import { closeSocketsForUser } from '../../src/services/realtime/transport';
+import {
+  closeSessionSocketsForUser,
+  closeSocketsForCredential,
+} from '../../src/services/realtime/transport';
 import type { AppContext } from '../../src/types/index';
 
 class FakeSocket {
@@ -96,8 +100,12 @@ describe('realtime state', () => {
     const socket = new FakeSocket();
     expect(subscribeToProject(socket, 'p1')).toBe(false);
 
-    registerSocket(socket, 'u1', 's1');
-    expect(getSocketState(socket)).toMatchObject({ userId: 'u1', sessionId: 's1' });
+    registerSocket(socket, { kind: 'session', id: 's1', userId: 'u1' });
+    expect(getSocketState(socket)).toMatchObject({
+      userId: 'u1',
+      credentialKind: 'session',
+      credentialId: 's1',
+    });
 
     expect(subscribeToProject(socket, 'p1')).toBe(true);
     expect(projectSockets('p1')).toEqual([socket]);
@@ -111,6 +119,43 @@ describe('realtime state', () => {
     expect(projectSockets('p2')).toEqual([]);
     expect(getSocketState(socket)).toBeUndefined();
     expect(socketsForUser('u1')).toEqual([]);
+  });
+
+  it('socketsForCredential returns only that credential kind and id', () => {
+    const sessionSocket = new FakeSocket();
+    const tokenSocket = new FakeSocket();
+    const otherTokenSocket = new FakeSocket();
+    registerSocket(sessionSocket, { kind: 'session', id: 'c1', userId: 'u1' });
+    registerSocket(tokenSocket, { kind: 'personal_access_token', id: 'c1', userId: 'u1' });
+    registerSocket(otherTokenSocket, { kind: 'personal_access_token', id: 'c2', userId: 'u1' });
+
+    expect(socketsForCredential('personal_access_token', 'c1')).toEqual([tokenSocket]);
+    expect(socketsForCredential('session', 'c1')).toEqual([sessionSocket]);
+    expect(socketsForUser('u1')).toHaveLength(3);
+  });
+
+  it('closeSocketsForCredential closes only that credential and closeSessionSocketsForUser spares tokens', () => {
+    const sessionSocket = new FakeSocket();
+    const tokenSocket = new FakeSocket();
+    registerSocket(sessionSocket, { kind: 'session', id: 'c1', userId: 'u1' });
+    registerSocket(tokenSocket, { kind: 'personal_access_token', id: 'c2', userId: 'u1' });
+    subscribeToProject(sessionSocket, 'p1');
+    subscribeToProject(tokenSocket, 'p1');
+
+    closeSocketsForCredential('personal_access_token', 'c2');
+
+    expect(tokenSocket.closes).toEqual([{ code: 4401, reason: 'Session revoked' }]);
+    expect(getSocketState(tokenSocket)).toBeUndefined();
+    expect(sessionSocket.closes).toEqual([]);
+    expect(projectSockets('p1')).toEqual([sessionSocket]);
+
+    const secondToken = new FakeSocket();
+    registerSocket(secondToken, { kind: 'personal_access_token', id: 'c3', userId: 'u1' });
+    closeSessionSocketsForUser('u1');
+
+    expect(sessionSocket.closes).toEqual([{ code: 4401, reason: 'Session revoked' }]);
+    expect(secondToken.closes).toEqual([]);
+    expect(getSocketState(secondToken)).toBeDefined();
   });
 });
 
@@ -164,7 +209,7 @@ describe('realtime delivery', () => {
 
   function connect(userId: string, ...projectIds: string[]): FakeSocket {
     const socket = new FakeSocket();
-    registerSocket(socket, userId, newId());
+    registerSocket(socket, { kind: 'session', id: newId(), userId });
     for (const projectId of projectIds) {
       subscribeToProject(socket, projectId);
     }
@@ -291,11 +336,11 @@ describe('realtime delivery', () => {
     expect(socket.sent).toEqual([]);
   });
 
-  it('closeSocketsForUser closes with 4401 and drops state', () => {
+  it('closeSessionSocketsForUser closes with 4401 and drops state', () => {
     const memberSocket = connect(member, sharedProjectId);
     const creatorSocket = connect(creator, sharedProjectId);
 
-    closeSocketsForUser(member);
+    closeSessionSocketsForUser(member);
 
     expect(memberSocket.closes).toEqual([{ code: 4401, reason: 'Session revoked' }]);
     expect(getSocketState(memberSocket)).toBeUndefined();
