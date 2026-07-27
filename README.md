@@ -211,6 +211,46 @@ edges, so a restore can never introduce a cycle. Deleting a column still
 relocates its archived cards along with its visible ones, so archiving never
 turns into an accidental hard delete.
 
+### My tasks
+
+`GET /api/my-tasks` is the one cross-project read of tasks: every unarchived,
+unfinished task assigned to the caller, across every project they can access.
+There are no path params, no query params, and no pagination — bucketing and
+the person groups need the whole set to be correct.
+
+The server files each task into one of three buckets and the client may not
+re-derive them. `blocked` wins first: the task has at least one unfinished
+blocker, so there is nothing to do on it yet even if it is holding three
+people up. Otherwise `blocking`, which requires **another person** — a
+dependent that is unassigned, or assigned only to the caller, does not count,
+because the bucket means "someone else is waiting on you". Everything else is
+`ready`. Tasks come back `blocking`, then `ready`, then `blocked`, and inside
+a bucket by how many people are waiting (`waiting_user_ids.length`,
+descending), then project name, then board column and position.
+
+Each task carries its unfinished blockers as `blocked_by` and its unfinished
+dependents as `blocking`, both with their assignees, plus `waiting_user_ids` —
+the distinct other people whose unfinished work it blocks. That last one is
+the authoritative "you are the bottleneck for N people" count; nothing
+recomputes it. `assignee_ids` keeps the caller in it, so the payload stays
+faithful and the client decides what to hide.
+
+The two companion arrays group the same edges by person.
+`waiting_on_you` comes from the dependents and `you_are_waiting_on` from the
+blockers; both are built from **all** the caller's tasks, so a task filed
+under `blocked` still reports the people it holds up. Only
+`you_are_waiting_on` can carry a `user_id: null` group, listed last: an
+unassigned blocker is real information (nothing is moving it), while an
+unassigned dependent means nobody is waiting. A link assigned only to the
+caller is dropped from both.
+
+Done columns, archived tasks and **archived projects** are all excluded. The
+archived-project rule is the one judgement call: an archived project is still
+accessible everywhere else in the API, but archiving is the user's own "not
+now" signal and this screen trades completeness for signal density. A user
+whose only assignments live on an archived board therefore sees nothing, and
+there is no flag to recover them.
+
 ### Public boards
 
 `PATCH /api/projects/:id { is_public: true }` publishes a project read-only.

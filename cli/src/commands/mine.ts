@@ -1,6 +1,13 @@
 import { Command } from 'commander';
 import { leaf, withCtx } from '../kit';
-import { listMyTasks, listUsers, type MyTask, type MyTaskPersonGroup, type User } from '../resolve';
+import {
+  listMyTasks,
+  listUsers,
+  type MyTask,
+  type MyTaskLink,
+  type MyTaskPersonGroup,
+  type User,
+} from '../resolve';
 import type { CliDeps } from '../context';
 
 const BUCKETS = [
@@ -21,6 +28,12 @@ function taskRow(task: MyTask): string[] {
   return [task.id.slice(0, 8), task.project_name, task.column_name, task.title];
 }
 
+// The project is what makes the id prefix actionable: task refs resolve against one board.
+function linkRow(link: MyTaskLink, projectNames: Map<string, string>): string {
+  const cells = [link.id.slice(0, 8), projectNames.get(link.project_id), link.title];
+  return `    ${cells.filter((cell) => cell !== undefined && cell !== '').join('  ')}`;
+}
+
 export function registerMine(program: Command, deps: CliDeps): void {
   program.addCommand(
     leaf('mine')
@@ -37,6 +50,11 @@ export function registerMine(program: Command, deps: CliDeps): void {
             ctx.out.json || groupSections.every((section) => section.groups.length === 0)
               ? new Map<string, User>()
               : new Map((await listUsers(ctx)).map((user) => [user.id, user]));
+
+          // A link is always in the same project as the task it came from, so this covers every one.
+          const projectNames = new Map(
+            mine.tasks.map((task) => [task.project_id, task.project_name])
+          );
 
           ctx.out.data(mine, () => {
             if (mine.tasks.length === 0) {
@@ -79,7 +97,7 @@ export function registerMine(program: Command, deps: CliDeps): void {
                   `  ${personLabel(group, users)}  ${String(count)} task${count === 1 ? '' : 's'}`
                 );
                 for (const task of group.tasks) {
-                  ctx.out.line(`    ${task.id.slice(0, 8)}  ${task.title}`);
+                  ctx.out.line(linkRow(task, projectNames));
                 }
               }
             }

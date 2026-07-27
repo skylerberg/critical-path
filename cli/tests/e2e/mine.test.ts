@@ -17,6 +17,8 @@ describe('mine', () => {
   let blockingId: string;
   let readyId: string;
   let blockedId: string;
+  let waiterId: string;
+  let blockerId: string;
 
   beforeAll(async () => {
     owner = await tc.createUser('cli-mine');
@@ -46,8 +48,8 @@ describe('mine', () => {
     blockingId = crypto.randomUUID();
     readyId = crypto.randomUUID();
     blockedId = crypto.randomUUID();
-    const waiterId = crypto.randomUUID();
-    const blockerId = crypto.randomUUID();
+    waiterId = crypto.randomUUID();
+    blockerId = crypto.randomUUID();
     for (const [id, title, position] of [
       [blockingId, 'Ship the export API', 1000],
       [readyId, 'Write the docs', 2000],
@@ -113,6 +115,22 @@ describe('mine', () => {
     expect(paths).toEqual(['/api/my-tasks']);
   });
 
+  it('looks up names only when a person group will be printed', async () => {
+    const withGroups: string[] = [];
+    const printed = await h.runCli(['mine'], {
+      onRequest: (request) => withGroups.push(new URL(request.url).pathname),
+    });
+    expect(printed.exitCode).toBe(0);
+    expect(withGroups).toEqual(['/api/my-tasks', '/api/users']);
+
+    const withoutGroups: string[] = [];
+    const empty = await strangerHarness.runCli(['mine'], {
+      onRequest: (request) => withoutGroups.push(new URL(request.url).pathname),
+    });
+    expect(empty.exitCode).toBe(0);
+    expect(withoutGroups).toEqual(['/api/my-tasks']);
+  });
+
   it('renders every section, the waiting count column, and the people involved', async () => {
     const res = await h.runCli(['mine']);
     expect(res.exitCode).toBe(0);
@@ -132,7 +150,14 @@ describe('mine', () => {
     expect(res.stdout).toContain(`${mate.name} <${mate.email}>`);
     expect(res.stdout).toContain('1 task');
     expect(res.stdout).toContain('Unassigned');
-    expect(res.stdout).toContain('Decide on the file format');
+
+    for (const [id, title] of [
+      [waiterId, 'Wire up the importer'],
+      [blockerId, 'Decide on the file format'],
+    ] as const) {
+      const groupLine = lines.find((line) => line.includes(title))!;
+      expect(groupLine).toBe(`    ${id.slice(0, 8)}  CLI Mine Fixture  ${title}`);
+    }
   });
 
   it('says so when nothing is assigned', async () => {
