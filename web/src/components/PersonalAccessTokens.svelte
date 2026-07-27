@@ -10,7 +10,6 @@
   import Modal from './ui/Modal.svelte';
 
   type PersonalAccessToken = components['schemas']['PersonalAccessToken'];
-  type Status = { kind: 'success' | 'error'; message: string } | null;
 
   const EXPIRY_CHOICES = [
     { value: 'never', label: 'Never' },
@@ -20,27 +19,34 @@
   ] as const;
 
   let tokens = $state<PersonalAccessToken[]>([]);
-  let loading = $state(true);
+  let loaded = $state(false);
+  let loadError = $state<string | null>(null);
   let name = $state('');
   let expiry = $state<(typeof EXPIRY_CHOICES)[number]['value']>('never');
   let creating = $state(false);
-  let status = $state<Status>(null);
+  let createError = $state<string | null>(null);
   let created = $state<{ token: string; name: string } | null>(null);
   let copied = $state(false);
+  let confirmingRevokeId = $state<string | null>(null);
+  let revision = 0;
 
   onMount(() => {
     void load();
   });
 
   async function load(): Promise<void> {
-    loading = true;
+    loadError = null;
+    const seen = revision;
     try {
       const data = assertOk(await api.GET('/api/auth/tokens'));
-      tokens = data.personal_access_tokens;
+      // A create or revoke that landed while this was in flight knows more than
+      // a response the server built before it happened.
+      if (seen === revision) {
+        tokens = data.personal_access_tokens;
+      }
+      loaded = true;
     } catch (error) {
-      status = { kind: 'error', message: messageFor(error) };
-    } finally {
-      loading = false;
+      loadError = messageFor(error);
     }
   }
 
@@ -48,24 +54,25 @@
     event.preventDefault();
     const trimmed = name.trim();
     if (trimmed === '') {
-      status = { kind: 'error', message: 'Give the token a name' };
+      createError = 'Give the token a name';
       return;
     }
     creating = true;
-    status = null;
+    createError = null;
     try {
       const data = assertOk(
         await api.POST('/api/auth/tokens', {
           body: { id: newId(), name: trimmed, expires_at: expiresAt() },
         })
       );
+      revision += 1;
       tokens = [data.personal_access_token, ...tokens];
       name = '';
       expiry = 'never';
       copied = false;
       created = { token: data.token, name: data.personal_access_token.name };
     } catch (error) {
-      status = { kind: 'error', message: messageFor(error) };
+      createError = messageFor(error);
     } finally {
       creating = false;
     }
@@ -78,7 +85,17 @@
     return new Date(Date.now() + Number(expiry) * 24 * 60 * 60 * 1000).toISOString();
   }
 
+  function requestRevoke(token: PersonalAccessToken): void {
+    if (confirmingRevokeId !== token.id) {
+      confirmingRevokeId = token.id;
+      return;
+    }
+    confirmingRevokeId = null;
+    void revoke(token);
+  }
+
   async function revoke(token: PersonalAccessToken): Promise<void> {
+    revision += 1;
     tokens = tokens.filter((candidate) => candidate.id !== token.id);
     try {
       assertOk(await api.DELETE('/api/auth/tokens/{id}', { params: { path: { id: token.id } } }));
@@ -91,7 +108,7 @@
   async function copy(): Promise<void> {
     if (created === null) return;
     try {
-      await navigator.clipboard?.writeText(created.token);
+      await navigator.clipboard.writeText(created.token);
       copied = true;
     } catch {
       toasts.error('Could not copy to the clipboard');
@@ -133,17 +150,19 @@
   <Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create token'}</Button>
 </form>
 
-{#if status !== null}
-  <p
-    role={status.kind === 'error' ? 'alert' : 'status'}
-    class="text-sm {status.kind === 'error' ? 'text-danger' : 'text-accent'}"
-  >
-    {status.message}
-  </p>
+{#if createError !== null}
+  <p role="alert" class="text-sm text-danger">{createError}</p>
 {/if}
 
-{#if loading}
-  <p class="text-sm text-muted">Loading tokens…</p>
+{#if !loaded}
+  {#if loadError !== null}
+    <div class="flex flex-col items-start gap-3">
+      <p role="alert" class="text-sm text-danger">{loadError}</p>
+      <Button variant="secondary" onclick={() => void load()}>Retry</Button>
+    </div>
+  {:else}
+    <p class="text-sm text-muted">Loading tokens…</p>
+  {/if}
 {:else if tokens.length === 0}
   <p class="text-sm text-muted">You have no personal access tokens yet.</p>
 {:else}
@@ -163,7 +182,15 @@
               : `expires ${formatDate(token.expires_at)}`}
           </p>
         </div>
-        <Button variant="danger" onclick={() => revoke(token)}>Revoke</Button>
+        <Button
+          variant="danger"
+          aria-label={confirmingRevokeId === token.id
+            ? `Confirm revoke of ${token.name}`
+            : `Revoke ${token.name}`}
+          onclick={() => requestRevoke(token)}
+        >
+          {confirmingRevokeId === token.id ? 'Confirm revoke' : 'Revoke'}
+        </Button>
       </li>
     {/each}
   </ul>

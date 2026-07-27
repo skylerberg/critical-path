@@ -29,6 +29,25 @@ async function bodyOf(request: Request): Promise<unknown> {
   return request.clone().json();
 }
 
+function mockCreate(secret: string): void {
+  fetchMock.mockImplementation(async (input) => {
+    if ((input as Request).method === 'GET') {
+      return listResponse([]);
+    }
+    return jsonResponse(201, {
+      token: secret,
+      personal_access_token: token({ id: 't-new', name: 'CI' }),
+    });
+  });
+}
+
+async function createToken(): Promise<void> {
+  await screen.findByText('You have no personal access tokens yet.');
+  await fireEvent.input(screen.getByLabelText('Token name'), { target: { value: 'CI' } });
+  await fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+  await screen.findByLabelText('New personal access token');
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
   toasts.toasts = [];
@@ -36,6 +55,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('PersonalAccessTokens', () => {
@@ -57,6 +77,21 @@ describe('PersonalAccessTokens', () => {
     render(PersonalAccessTokens);
 
     expect(await screen.findByText('You have no personal access tokens yet.')).toBeInTheDocument();
+  });
+
+  it('reports a failed load instead of claiming there are no tokens, and retries', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'boom' }));
+    fetchMock.mockResolvedValueOnce(listResponse([token()]));
+    render(PersonalAccessTokens);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('boom');
+    expect(screen.queryByText('You have no personal access tokens yet.')).not.toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('CI runner')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 
   it('marks an already-expired token', async () => {
@@ -97,6 +132,48 @@ describe('PersonalAccessTokens', () => {
     });
     expect(document.body.textContent).not.toContain('cpat_supersecret');
     expect(screen.getByText('CI')).toBeInTheDocument();
+  });
+
+  it('copies the secret to the clipboard', async () => {
+    mockCreate('cpat_supersecret');
+    render(PersonalAccessTokens);
+    await createToken();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+
+    expect(writeText).toHaveBeenCalledWith('cpat_supersecret');
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+  });
+
+  it('does not claim to have copied when the clipboard is unavailable', async () => {
+    mockCreate('cpat_supersecret');
+    render(PersonalAccessTokens);
+    await createToken();
+    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+
+    await waitFor(() => {
+      expect(toasts.toasts.map((entry) => entry.message)).toContain(
+        'Could not copy to the clipboard'
+      );
+    });
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('cpat_supersecret')).toBeInTheDocument();
+  });
+
+  it('rejects a blank name without calling the API', async () => {
+    fetchMock.mockResolvedValue(listResponse([]));
+    render(PersonalAccessTokens);
+    await screen.findByText('You have no personal access tokens yet.');
+
+    await fireEvent.input(screen.getByLabelText('Token name'), { target: { value: '   ' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Give the token a name');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('sends an expiry exactly 90 days out', async () => {
@@ -180,7 +257,12 @@ describe('PersonalAccessTokens', () => {
     render(PersonalAccessTokens);
     await screen.findByText('CI runner');
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Revoke CI runner' }));
+
+    expect(screen.getByText('CI runner')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirm revoke of CI runner' }));
 
     expect(screen.queryByText('CI runner')).not.toBeInTheDocument();
     expect(requestAt(1).method).toBe('DELETE');
@@ -200,7 +282,8 @@ describe('PersonalAccessTokens', () => {
     render(PersonalAccessTokens);
     await screen.findByText('CI runner');
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Revoke CI runner' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirm revoke of CI runner' }));
 
     expect(await screen.findByText('CI runner')).toBeInTheDocument();
     expect(toasts.toasts.map((entry) => entry.message)).toContain('Could not revoke that token');

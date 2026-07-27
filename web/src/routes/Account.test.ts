@@ -22,8 +22,6 @@ async function bodyOf(request: Request): Promise<unknown> {
   return request.clone().json();
 }
 
-// Every render(Account) mounts PersonalAccessTokens, which loads on mount, so
-// the mock has to answer per URL rather than per call index.
 function mockRoutes(status: number, body?: unknown): void {
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
