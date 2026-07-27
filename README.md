@@ -355,6 +355,45 @@ board itself is unlisted: nothing enumerates published projects. Anonymous
 viewers get no realtime — there is no socket to authenticate and no room to
 scope — so the page is a one-shot fetch.
 
+### Search
+
+`GET /api/search?q=` is the other cross-project read. It matches task titles and
+the plain text of task descriptions, and returns a flat, relevance-ordered list
+with each hit's project and column inlined. Scoping goes through the same project
+access predicate as everything else, so a project the caller cannot reach simply
+produces no rows — there is no 403 and no way to tell an inaccessible project
+from an empty one. Archived cards and tasks in archived projects are excluded,
+matching what the board and My Tasks show.
+
+Every word in `q` must match, and each word matches as a prefix, so typing more
+of a word narrows the results rather than emptying them. One case still
+flickers, and it is inherent to combining prefix matching with stemming: a
+partially typed inflection that has grown longer than the indexed word matches
+neither arm until it is complete. A card titled "Fix the login test" matches
+`test`, and again at `testing` through the stemmed arm, but not `testi` or
+`testin` in between. `q` is trimmed and must be 2 to 200 characters: a single
+character prefix-matches most of a board. A query with no word characters at
+all (`&&&`) is a normal 200 with no results.
+
+Matching runs off `task.search_vector`, a stored generated column, so a result is
+current the instant a task is created or edited — there is no indexer to fall
+behind. It carries four arms: title and description text under the `english`
+configuration at weights A and B, and the same two under `simple` at C and D.
+The `simple` arms are not redundant. Prefix-matching against stemmed lexemes
+alone regresses mid-word — a user typing "authentication" gets hits at "auth",
+nothing from "authenti" through "authenticatio", then hits again at the full
+word, because the stemmed prefix grows longer than the stemmed lexeme it should
+match. The query side mirrors this: each typed token is tokenized with `simple`
+and searched as its raw prefix OR its `english` prefix, so plurals and gerunds
+still match and stopword prefixes like "the" never blank out. Change one side
+without the other and matching silently degrades.
+
+Descriptions are flattened out of the Tiptap JSON by jsonpath, both the text
+nodes and mention labels — a card whose only reference to someone is an `@`
+mention is findable by that person's name. Node type names never enter the
+index. Weighting puts title hits above description hits. Results are capped at
+50; `truncated` says whether more matched.
+
 ### Per-user project ordering
 
 Each user can order their own project list without affecting anyone else's.

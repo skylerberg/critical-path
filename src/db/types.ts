@@ -120,6 +120,7 @@ export interface Task {
   id: string;
   position: number;
   project_id: string;
+  search_vector: Generated<string | null>;
   title: string;
   updated_at: Generated<Timestamp>;
 }

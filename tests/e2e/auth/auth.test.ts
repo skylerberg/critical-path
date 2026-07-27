@@ -77,7 +77,9 @@ describe('Auth', () => {
       }
     });
 
-    it('returns a generic body for unexpected errors instead of the internal message', async () => {
+    // A NUL is rejected by the pg driver before the database sees it, so letting
+    // one through validation costs a 500 with a stack trace where 422 is right.
+    it('returns 422 for a control character rather than letting it reach the driver', async () => {
       const res = await ctx.request().post('/api/auth/signup', {
         id: newId(),
         email: uniqueEmail('null-byte'),
@@ -85,10 +87,9 @@ describe('Auth', () => {
         name: 'null\u0000byte',
       });
 
-      expect(res.status).toBe(500);
-      expect(await res.json()).toEqual({
-        error: 'An internal server error occurred. Please try again later.',
-      });
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('Validation failed');
     });
   });
 

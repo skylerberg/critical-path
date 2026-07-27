@@ -6,7 +6,7 @@ const intFromQuery = (min: number, max: number) =>
   type('string').pipe((s, ctx) => {
     const n = Number(s);
     if (!Number.isInteger(n) || n < min || n > max) {
-      return ctx.error(`must be an integer between ${min} and ${max}`);
+      return ctx.error(`an integer between ${min} and ${max}`);
     }
     return n;
   });

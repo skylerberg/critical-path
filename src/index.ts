@@ -45,6 +45,7 @@ import projectsRouter from './routes/projects';
 import columnsRouter from './routes/columns';
 import tasksRouter from './routes/tasks';
 import myTasksRouter from './routes/myTasks';
+import searchRouter from './routes/search';
 import imageUploadRouter from './routes/imageUpload';
 import labelsRouter from './routes/labels';
 import commentsRouter from './routes/comments';
@@ -127,6 +128,7 @@ const openAPIOptions = {
       { name: 'Projects', description: 'Projects, members, and board payloads' },
       { name: 'Columns', description: 'Kanban board columns' },
       { name: 'Tasks', description: 'Tasks, dependencies, labels, and assignees' },
+      { name: 'Search', description: 'Cross-project task search' },
       { name: 'Labels', description: 'Per-project labels' },
       { name: 'Comments', description: 'Task comment threads' },
       { name: 'Images', description: 'Task image upload and retrieval' },
@@ -166,6 +168,7 @@ app.route('/api/tasks', tasksRouter);
 // Second router on the same prefix: POST /:id/images needs its own bodyLimit.
 app.route('/api/tasks', imageUploadRouter);
 app.route('/api/my-tasks', myTasksRouter);
+app.route('/api/search', searchRouter);
 app.route('/api/labels', labelsRouter);
 app.route('/api/comments', commentsRouter);
 app.route('/api/images', imagesRouter);

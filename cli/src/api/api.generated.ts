@@ -743,6 +743,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/search': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Search tasks across projects
+     * @description Search task titles and description text across every non-archived project the caller can access; projects they cannot access simply do not appear. Archived cards are excluded. q is trimmed and must be 2 to 200 characters. Every word in q must match, and each word matches as a prefix of an indexed word, so typing more of a word narrows the results rather than emptying them; the exception is a partially typed inflection that has outgrown the indexed word, which drops out until it is finished (a card titled "Fix the login test" matches test and testing but not testi). Mentions match on the name they display. Ranked with title matches above description matches, capped at 50 results with truncated set when more matched.
+     */
+    get: operations['getApiSearch'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/labels': {
     parameters: {
       query?: never;
@@ -1464,6 +1484,17 @@ export interface components {
     MyTaskPersonGroup: {
       tasks: components['schemas']['MyTaskLink'][];
       user_id: components['schemas']['UserAvatarurl'];
+    };
+    SearchResponse: {
+      results: components['schemas']['SearchResult'][];
+      truncated: boolean;
+    };
+    SearchResult: {
+      column_name: string;
+      project_id: string;
+      project_name: string;
+      task_id: string;
+      title: string;
     };
     Label: {
       color: string;
@@ -4311,6 +4342,55 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['MyTasksResponse'];
+        };
+      };
+      /** @description Authentication required or failed */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  getApiSearch: {
+    parameters: {
+      query: {
+        q: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Matching tasks, most relevant first */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SearchResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
         };
       };
       /** @description Authentication required or failed */
