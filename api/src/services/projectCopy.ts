@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
+import { logger } from '../utils/logger';
 import { dueDateText } from './dueDate';
 import { recordTaskActivity } from './taskActivity';
 import type { TiptapDoc, TiptapNode } from '../schemas/index';
@@ -38,6 +39,198 @@ export function rewriteDescriptionImageIds(
   imageIdMap: Map<string, string>
 ): TiptapDoc {
   return rewriteImageSrcs(doc, imageIdMap) as TiptapDoc;
+}
+
+export interface CopyTasksInput {
+  sourceTaskIds: string[];
+  projectId: string;
+  actorUserId: string;
+  columnIdFor: (sourceColumnId: string) => string;
+  labelIdFor?: (sourceLabelId: string) => string;
+  positionFor?: (source: { position: number }) => number;
+  newIdFor?: () => string;
+  copyAssignees: boolean;
+}
+
+// Returns source task id -> new task id.
+export async function copyTasks(
+  db: Kysely<DB>,
+  input: CopyTasksInput
+): Promise<Map<string, string>> {
+  // Every select below filters on `in sourceTaskIds`, which Postgres rejects when empty.
+  if (input.sourceTaskIds.length === 0) {
+    return new Map();
+  }
+  const newIdFor = input.newIdFor ?? ((): string => crypto.randomUUID());
+  const labelIdFor = input.labelIdFor ?? ((labelId: string): string => labelId);
+  const positionFor =
+    input.positionFor ?? ((source: { position: number }): number => source.position);
+
+  const tasks = await db
+    .selectFrom('task')
+    .select([
+      'task.id',
+      'task.column_id',
+      'task.title',
+      'task.description',
+      'task.position',
+      dueDateText.as('due_date'),
+    ])
+    .where('task.id', 'in', input.sourceTaskIds)
+    .execute();
+  const taskIdMap = new Map(tasks.map((task) => [task.id, newIdFor()]));
+
+  const images = await db
+    .selectFrom('task_image')
+    .select([
+      'task_image.id',
+      'task_image.task_id',
+      'task_image.storage_key',
+      'task_image.filename',
+      'task_image.content_type',
+      'task_image.size_bytes',
+      'task_image.is_cover',
+    ])
+    .where('task_image.task_id', 'in', input.sourceTaskIds)
+    .execute();
+  const imageIdMap = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
+  const newStorageKeys = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
+
+  if (tasks.length > 0) {
+    await db
+      .insertInto('task')
+      .values(
+        tasks.map((task) => ({
+          id: taskIdMap.get(task.id) as string,
+          project_id: input.projectId,
+          column_id: input.columnIdFor(task.column_id),
+          title: task.title,
+          description:
+            task.description === null
+              ? null
+              : JSON.stringify(
+                  rewriteDescriptionImageIds(task.description as unknown as TiptapDoc, imageIdMap)
+                ),
+          position: positionFor(task),
+          due_date: task.due_date,
+        }))
+      )
+      .execute();
+
+    // The copies are new cards whose history starts here; the source's entries stay
+    // with the source.
+    await recordTaskActivity(
+      db,
+      input.actorUserId,
+      tasks.map((task) => ({
+        taskId: taskIdMap.get(task.id) as string,
+        kind: 'created' as const,
+        newValue: { text: task.title },
+      }))
+    );
+  }
+
+  const taskLabels = await db
+    .selectFrom('task_label')
+    .select(['task_label.task_id', 'task_label.label_id'])
+    .where('task_label.task_id', 'in', input.sourceTaskIds)
+    .execute();
+
+  if (taskLabels.length > 0) {
+    await db
+      .insertInto('task_label')
+      .values(
+        taskLabels.map((row) => ({
+          task_id: taskIdMap.get(row.task_id) as string,
+          label_id: labelIdFor(row.label_id),
+        }))
+      )
+      .execute();
+  }
+
+  if (input.copyAssignees) {
+    const assignees = await db
+      .selectFrom('task_assignee')
+      .select(['task_assignee.task_id', 'task_assignee.user_id'])
+      .where('task_assignee.task_id', 'in', input.sourceTaskIds)
+      .execute();
+
+    if (assignees.length > 0) {
+      await db
+        .insertInto('task_assignee')
+        .values(
+          assignees.map((row) => ({
+            task_id: taskIdMap.get(row.task_id) as string,
+            user_id: row.user_id,
+          }))
+        )
+        .execute();
+    }
+  }
+
+  const dependencies = await db
+    .selectFrom('task_dependency')
+    .select(['task_dependency.blocker_task_id', 'task_dependency.blocked_task_id'])
+    .where('task_dependency.blocked_task_id', 'in', input.sourceTaskIds)
+    .execute();
+  // Both ends have to be inside the copied set, or the copy would inherit an edge
+  // to a card nobody duplicated.
+  const copyableDependencies = dependencies.filter((row) => taskIdMap.has(row.blocker_task_id));
+
+  if (copyableDependencies.length > 0) {
+    await db
+      .insertInto('task_dependency')
+      .values(
+        copyableDependencies.map((row) => ({
+          blocker_task_id: taskIdMap.get(row.blocker_task_id) as string,
+          blocked_task_id: taskIdMap.get(row.blocked_task_id) as string,
+        }))
+      )
+      .execute();
+  }
+
+  if (images.length > 0) {
+    await db
+      .insertInto('task_image')
+      .values(
+        images.map((image) => ({
+          id: imageIdMap.get(image.id) as string,
+          task_id: taskIdMap.get(image.task_id) as string,
+          storage_key: newStorageKeys.get(image.id) as string,
+          filename: image.filename,
+          content_type: image.content_type,
+          size_bytes: image.size_bytes,
+          is_cover: image.is_cover,
+        }))
+      )
+      .execute();
+
+    // Stored objects live outside the transaction, so a partial copy has to be
+    // reclaimed by hand or the rollback strands it with no row pointing at it.
+    const attemptedKeys: string[] = [];
+    try {
+      for (const image of images) {
+        const destKey = newStorageKeys.get(image.id) as string;
+        attemptedKeys.push(destKey);
+        await storage.copy(image.storage_key, destKey);
+      }
+    } catch (err) {
+      await Promise.all(
+        attemptedKeys.map((key) =>
+          storage.delete(key).catch((cleanupErr: unknown) => {
+            logger.error({
+              msg: 'Failed to reclaim a copied image object after a failed copy',
+              storageKey: key,
+              error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+            });
+          })
+        )
+      );
+      throw err;
+    }
+  }
+
+  return taskIdMap;
 }
 
 export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Promise<void> {
@@ -104,126 +297,21 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
       .execute();
   }
 
-  const tasks = await db
+  const sourceTasks = await db
     .selectFrom('task')
-    .select(['id', 'column_id', 'title', 'description', 'position', dueDateText.as('due_date')])
-    .where('project_id', '=', input.sourceProjectId)
-    .where('archived_at', 'is', null)
-    .execute();
-  const taskIdMap = new Map(tasks.map((task) => [task.id, crypto.randomUUID()]));
-
-  const images = await db
-    .selectFrom('task_image')
-    .innerJoin('task', 'task.id', 'task_image.task_id')
-    .select([
-      'task_image.id',
-      'task_image.task_id',
-      'task_image.storage_key',
-      'task_image.filename',
-      'task_image.content_type',
-      'task_image.size_bytes',
-      'task_image.is_cover',
-    ])
-    .where('task.project_id', '=', input.sourceProjectId)
-    .where('task.archived_at', 'is', null)
-    .execute();
-  const imageIdMap = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
-  const newStorageKeys = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
-
-  if (tasks.length > 0) {
-    await db
-      .insertInto('task')
-      .values(
-        tasks.map((task) => ({
-          id: taskIdMap.get(task.id) as string,
-          project_id: input.id,
-          column_id: columnIdMap.get(task.column_id) as string,
-          title: task.title,
-          description:
-            task.description === null
-              ? null
-              : JSON.stringify(
-                  rewriteDescriptionImageIds(task.description as unknown as TiptapDoc, imageIdMap)
-                ),
-          position: task.position,
-          due_date: task.due_date,
-        }))
-      )
-      .execute();
-
-    // The copies are new cards whose history starts here; the source's entries stay
-    // with the source.
-    await recordTaskActivity(
-      db,
-      input.createdBy,
-      tasks.map((task) => ({
-        taskId: taskIdMap.get(task.id) as string,
-        kind: 'created' as const,
-        newValue: { text: task.title },
-      }))
-    );
-  }
-
-  const taskLabels = await db
-    .selectFrom('task_label')
-    .innerJoin('task', 'task.id', 'task_label.task_id')
-    .select(['task_label.task_id', 'task_label.label_id'])
+    .select('task.id')
     .where('task.project_id', '=', input.sourceProjectId)
     .where('task.archived_at', 'is', null)
     .execute();
 
-  if (taskLabels.length > 0) {
-    await db
-      .insertInto('task_label')
-      .values(
-        taskLabels.map((row) => ({
-          task_id: taskIdMap.get(row.task_id) as string,
-          label_id: labelIdMap.get(row.label_id) as string,
-        }))
-      )
-      .execute();
-  }
-
-  const dependencies = await db
-    .selectFrom('task_dependency')
-    .innerJoin('task', 'task.id', 'task_dependency.blocked_task_id')
-    .select(['task_dependency.blocker_task_id', 'task_dependency.blocked_task_id'])
-    .where('task.project_id', '=', input.sourceProjectId)
-    .where('task.archived_at', 'is', null)
-    .execute();
-  // Dependencies are same-project by domain rule; skip any corrupt cross-project row.
-  const copyableDependencies = dependencies.filter((row) => taskIdMap.has(row.blocker_task_id));
-
-  if (copyableDependencies.length > 0) {
-    await db
-      .insertInto('task_dependency')
-      .values(
-        copyableDependencies.map((row) => ({
-          blocker_task_id: taskIdMap.get(row.blocker_task_id) as string,
-          blocked_task_id: taskIdMap.get(row.blocked_task_id) as string,
-        }))
-      )
-      .execute();
-  }
-
-  if (images.length > 0) {
-    await db
-      .insertInto('task_image')
-      .values(
-        images.map((image) => ({
-          id: imageIdMap.get(image.id) as string,
-          task_id: taskIdMap.get(image.task_id) as string,
-          storage_key: newStorageKeys.get(image.id) as string,
-          filename: image.filename,
-          content_type: image.content_type,
-          size_bytes: image.size_bytes,
-          is_cover: image.is_cover,
-        }))
-      )
-      .execute();
-
-    for (const image of images) {
-      await storage.copy(image.storage_key, newStorageKeys.get(image.id) as string);
-    }
-  }
+  await copyTasks(db, {
+    sourceTaskIds: sourceTasks.map((task) => task.id),
+    projectId: input.id,
+    actorUserId: input.createdBy,
+    columnIdFor: (columnId) => columnIdMap.get(columnId) as string,
+    labelIdFor: (labelId) => labelIdMap.get(labelId) as string,
+    // A copied project starts personal: it drops its members, so keeping
+    // assignees would point every assignment at someone with no access.
+    copyAssignees: false,
+  });
 }

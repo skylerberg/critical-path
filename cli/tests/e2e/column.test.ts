@@ -4,6 +4,7 @@ import { createCliHarness, type CliHarness } from './helpers';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardPayload'];
+type BoardTask = components['schemas']['BoardTask'];
 type Column = components['schemas']['Column'];
 type ListedColumn = components['schemas']['BoardColumn'] & { task_count: number };
 
@@ -384,6 +385,97 @@ describe('column commands', () => {
 
   it('unresolvable column ref exits 4', async () => {
     const res = await h.runCli(['column', 'update', 'zz-nope', '--project', projectId, '--done']);
+    expect(res.exitCode).toBe(4);
+  });
+});
+
+describe('column duplicate', () => {
+  const tc = new TestContext();
+  let user: TestUser;
+  let h: CliHarness;
+  let projectId: string;
+
+  async function listColumns(): Promise<ListedColumn[]> {
+    const res = await h.runCli(['column', 'list', '--project', projectId, '--json']);
+    expect(res.exitCode).toBe(0);
+    return res.json<ListedColumn[]>();
+  }
+
+  beforeAll(async () => {
+    user = await tc.createUser('cli-column-duplicate');
+    h = await createCliHarness();
+    await h.runCli(['login', '--email', user.email, '--password-stdin'], {
+      stdin: `${user.password}\n`,
+    });
+    const create = await h.runCli(['project', 'create', 'CLI Column Duplicate', '--json']);
+    expect(create.exitCode).toBe(0);
+    projectId = create.json<BoardPayload>().project.id;
+  });
+
+  afterAll(async () => {
+    await tc.request(user.token).delete(`/api/projects/${projectId}`);
+    await tc.cleanup();
+  });
+
+  it('copies the column with its cards and places it after the original', async () => {
+    for (const title of ['One', 'Two']) {
+      const res = await h.runCli([
+        'task',
+        'create',
+        title,
+        '--project',
+        projectId,
+        '--column',
+        'Backlog',
+        '--json',
+      ]);
+      expect(res.exitCode).toBe(0);
+    }
+    const before = await listColumns();
+    const source = before.find((c) => c.name === 'Backlog')!;
+    const next = before[before.indexOf(source) + 1]!;
+
+    const res = await h.runCli([
+      'column',
+      'duplicate',
+      'Backlog',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    const result = res.json<{ column: Column; tasks: BoardTask[] }>();
+    expect(result.column.name).toBe('Backlog');
+    expect(result.column.id).not.toBe(source.id);
+    expect(result.column.position).toBeGreaterThan(source.position);
+    expect(result.column.position).toBeLessThan(next.position);
+    expect(result.tasks.map((t) => t.title)).toEqual(['One', 'Two']);
+    expect(result.tasks.every((t) => t.column_id === result.column.id)).toBe(true);
+
+    const after = await listColumns();
+    expect(after.filter((c) => c.name === 'Backlog').map((c) => c.task_count)).toEqual([2, 2]);
+  });
+
+  it('reports an empty column as zero cards', async () => {
+    const res = await h.runCli(['column', 'duplicate', 'To Do', '--project', projectId]);
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain('Duplicated column To Do');
+    expect(res.stdout).not.toContain('card(s)');
+
+    const json = await h.runCli([
+      'column',
+      'duplicate',
+      'In Progress',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(json.exitCode).toBe(0);
+    expect(json.json<{ tasks: unknown[] }>().tasks).toEqual([]);
+  });
+
+  it('unresolvable column ref exits 4', async () => {
+    const res = await h.runCli(['column', 'duplicate', 'zz-nope', '--project', projectId]);
     expect(res.exitCode).toBe(4);
   });
 });

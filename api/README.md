@@ -227,8 +227,8 @@ clears it; the image must belong to the task, and a task has at most one cover
 opt-in and off by default, so a board that never uses it is unchanged.
 The choice lives on the image row itself, so deleting the image takes the
 cover with it; every `image_deleted` event carries whatever cover the task has
-left. Covers are copied when a project is duplicated, and they are published
-on public boards.
+left. Covers are copied when a project, a column or a card is duplicated, and
+they are published on public boards.
 
 ### Archived tasks
 
@@ -282,6 +282,48 @@ so before confirming.
 
 Both emit one batched event rather than one per task — see Realtime — and
 neither bumps `updated_at`.
+
+### Duplicating a card or a column
+
+`POST /api/tasks/:id/duplicate` (`{ id, position }`) copies one card into the
+column it is already in, and `POST /api/columns/:id/duplicate`
+(`{ id, position }`) copies a column plus every live card in it into the same
+project. Both take a client-supplied id, so a retry cannot double-create, and
+both answer 409 on an id already in use. There is no dialog of what to carry
+over: a copy takes the title, description, due date, labels, assignees and
+images, each image copied to its own stored object so deleting one leaves the
+other intact, and the description's `/api/images/:id` srcs rewritten to point
+at the copies. A copied image keeps its cover flag, so a card with a cover
+duplicates into a card with the same cover. A column copy keeps each card's
+position, so the cards land in the same relative order, and keeps the source's
+name and done flag.
+
+Assignees are copied, deliberately unlike a project copy, which drops them
+because it also drops members: duplicating inside a project changes nothing
+about the member set, so the assignee still has access.
+
+A dependency edge is copied only when both of its ends are inside the copied
+set. For a single card that means no edges at all — inheriting its "blocks"
+edges would silently double every downstream dependency — and for a column it
+means edges between two of its cards survive while edges leaving it do not.
+
+A copy notifies nobody. It writes its `task_assignee` rows and its description
+directly rather than through `PUT /api/tasks/:id/assignees` or `PATCH
+/api/tasks/:id`, so no mention in the copied description resolves, and any
+future assignment notification hung off that endpoint cannot fire for a copy
+either — duplicating a card assigned to a teammate must not tell them they have
+been assigned something they have never seen.
+
+Comments and activity history are not copied; each copy's log starts with its
+own `created` entry, attributed to whoever duplicated it. Archived cards are
+not copied by a column duplicate, and duplicating an archived card produces a
+live one — a duplicate is always a live card.
+
+A column duplicate publishes one `column_created` plus one `task_created` per
+copied card rather than a single aggregate event, so clients that already
+handle creates need no new code; a 100-card column therefore publishes 101
+envelopes and, for projects with webhooks, enqueues 101 deliveries per
+registration.
 
 ### Bulk task create
 
@@ -905,7 +947,9 @@ cpath task update "Fix the bug" --project "My Project" --due 2026-08-03   # --cl
 cpath task move "Fix the bug" --project "My Project" --column "In Progress" --top
 cpath task done "Fix the bug" --project "My Project"
 cpath task block "Ship it" --by "Fix the bug" --project "My Project"
+cpath task duplicate "Fix the bug" --project "My Project"
 cpath task archive "Fix the bug" --project "My Project"
+cpath column duplicate "In Progress" --project "My Project"
 cpath column move-tasks "Done" --to "Backlog" --project "My Project"
 cpath column archive-tasks "Done" --project "My Project"
 cpath task archived --project "My Project" --search bug
