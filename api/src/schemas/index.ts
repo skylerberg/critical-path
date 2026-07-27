@@ -15,4 +15,5 @@ export * from './tasks';
 export * from './labels';
 export * from './images';
 export * from './comments';
+export * from './activity';
 export * from './feedback';

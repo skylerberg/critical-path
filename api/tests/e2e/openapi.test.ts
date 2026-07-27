@@ -128,6 +128,28 @@ describe('GET /api/openapi.json', () => {
     expect(Object.keys(manifest.properties.tasks.items.properties)).not.toContain('image_count');
   });
 
+  it('documents the task activity route and its one-shape value schema', async () => {
+    const res = await app.request('/api/openapi.json');
+    expect(res.status).toBe(200);
+
+    const spec = await res.json();
+    expect(Object.keys(spec.paths)).toContain('/api/tasks/{id}/activity');
+    expect(
+      spec.paths['/api/tasks/{id}/activity'].get.responses['200'].content['application/json'].schema
+    ).toEqual({ $ref: '#/components/schemas/TaskActivityResponse' });
+
+    // A union here would make the generated clients unnarrowable, and arktype
+    // refuses one that carries the Tiptap morph.
+    const value = spec.components.schemas.ActivityValue;
+    expect(value.type).toBe('object');
+    expect(Object.keys(value.properties).sort()).toEqual(['doc', 'id', 'name', 'text']);
+    expect(value.required).toBeUndefined();
+
+    const entry = spec.components.schemas.TaskActivity;
+    expect(entry.properties.kind.enum).toContain('archived');
+    expect(entry.properties.kind.enum).toContain('restored');
+  });
+
   it('has unique operationIds across all operations', async () => {
     const res = await app.request('/api/openapi.json');
     expect(res.status).toBe(200);

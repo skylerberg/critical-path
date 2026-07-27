@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
+import { recordTaskActivity } from './taskActivity';
 import type { TiptapDoc, TiptapNode } from '../schemas/index';
 
 const IMAGE_SRC_PREFIX = '/api/images/';
@@ -146,6 +147,18 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
         }))
       )
       .execute();
+
+    // The copies are new cards whose history starts here; the source's entries stay
+    // with the source.
+    await recordTaskActivity(
+      db,
+      input.createdBy,
+      tasks.map((task) => ({
+        taskId: taskIdMap.get(task.id) as string,
+        kind: 'created' as const,
+        newValue: { text: task.title },
+      }))
+    );
   }
 
   const taskLabels = await db

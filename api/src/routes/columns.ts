@@ -7,6 +7,7 @@ import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectAccess, canAccessProject } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
+import { recordTaskActivity } from '../services/taskActivity';
 import {
   idSchema,
   createColumnSchema,
@@ -212,7 +213,7 @@ router.delete(
 
     const column = await db
       .selectFrom('board_column')
-      .select(['id', 'project_id'])
+      .select(['id', 'project_id', 'name'])
       .where('id', '=', id)
       .executeTakeFirst();
     if (!column) {
@@ -220,13 +221,14 @@ router.delete(
     }
     await assertProjectAccess(db, user.id, column.project_id, 'Column not found');
 
+    let target: { id: string; project_id: string; name: string } | undefined;
     if (move_tasks_to !== undefined) {
       if (move_tasks_to === id) {
         throw new AppError(422, 'move_tasks_to must not be the column being deleted');
       }
-      const target = await db
+      target = await db
         .selectFrom('board_column')
-        .select(['id', 'project_id'])
+        .select(['id', 'project_id', 'name'])
         .where('id', '=', move_tasks_to)
         .executeTakeFirst();
       if (!target) {
@@ -271,6 +273,20 @@ router.delete(
         )}) as v(id, position)
         where task.id = v.id
       `.execute(db);
+
+      const into = target;
+      if (into !== undefined) {
+        await recordTaskActivity(
+          db,
+          user.id,
+          movedTasks.map((task) => ({
+            taskId: task.id,
+            kind: 'column_changed' as const,
+            oldValue: { id: column.id, name: column.name },
+            newValue: { id: into.id, name: into.name },
+          }))
+        );
+      }
 
       await db.deleteFrom('board_column').where('id', '=', id).execute();
 

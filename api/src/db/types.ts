@@ -10,6 +10,8 @@ export type Generated<T> =
     ? ColumnType<S, I | undefined, U>
     : ColumnType<T, T | undefined, T>;
 
+export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
+
 export type Json = JsonValue;
 
 export type JsonArray = JsonValue[];
@@ -111,6 +113,17 @@ export interface Task {
   updated_at: Generated<Timestamp>;
 }
 
+export interface TaskActivity {
+  actor_user_id: string;
+  created_at: Generated<Timestamp>;
+  id: string;
+  kind: string;
+  new_value: Json | null;
+  old_value: Json | null;
+  seq: Generated<Int8>;
+  task_id: string;
+}
+
 export interface TaskAssignee {
   task_id: string;
   user_id: string;
@@ -157,6 +170,7 @@ export interface DB {
   project_user_position: ProjectUserPosition;
   session: Session;
   task: Task;
+  task_activity: TaskActivity;
   task_assignee: TaskAssignee;
   task_comment: TaskComment;
   task_dependency: TaskDependency;

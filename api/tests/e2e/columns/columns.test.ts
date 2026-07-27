@@ -412,6 +412,40 @@ describe('DELETE /api/columns/:id', () => {
     ]);
   });
 
+  it('logs a column change on each moved task, naming the column it lost', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Vanishing', position: 1000 });
+    const targetId = await insertColumn(projectId, { name: 'Survivor', position: 2000 });
+    const taskId = await insertTask(projectId, sourceId, 1000);
+    const emptyId = await insertColumn(projectId, { name: 'Nothing here', position: 3000 });
+
+    expect(
+      (await ctx.request(token).delete(`/api/columns/${emptyId}?move_tasks_to=${targetId}`)).status
+    ).toBe(204);
+    expect(
+      (await ctx.request(token).delete(`/api/columns/${sourceId}?move_tasks_to=${targetId}`)).status
+    ).toBe(200);
+
+    const res = await ctx.request(token).get(`/api/tasks/${taskId}/activity`);
+    expect(res.status).toBe(200);
+    const { activity } = (await res.json()) as {
+      activity: Array<{
+        kind: string;
+        actor_user_id: string;
+        old_value: unknown;
+        new_value: unknown;
+      }>;
+    };
+    expect(activity).toEqual([
+      expect.objectContaining({
+        kind: 'column_changed',
+        actor_user_id: userId,
+        old_value: { id: sourceId, name: 'Vanishing' },
+        new_value: { id: targetId, name: 'Survivor' },
+      }),
+    ]);
+  });
+
   it('starts positions at 1000 when the target column is empty', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });

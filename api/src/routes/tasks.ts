@@ -16,6 +16,12 @@ import {
 } from '../services/dependencies';
 import { publishAfterCommit } from '../services/realtime/index';
 import {
+  fetchTaskActivity,
+  recordAssigneeChanges,
+  recordDescriptionChange,
+  recordTaskActivity,
+} from '../services/taskActivity';
+import {
   fetchTaskRelations,
   publishTaskRelationsSet,
   unarchivedBlockerIds,
@@ -30,6 +36,7 @@ import {
   setTaskLabelsSchema,
   setTaskAssigneesSchema,
   taskBlockerParamsSchema,
+  taskActivityResponseSchema,
   boardTaskSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
@@ -119,15 +126,16 @@ async function assertColumnInProject(
   db: Kysely<DB>,
   columnId: string,
   projectId: string
-): Promise<void> {
+): Promise<{ project_id: string; name: string }> {
   const column = await db
     .selectFrom('board_column')
-    .select('board_column.project_id')
+    .select(['board_column.project_id', 'board_column.name'])
     .where('board_column.id', '=', columnId)
     .executeTakeFirst();
   if (!column || column.project_id !== projectId) {
     throw new AppError(422, 'column_id must reference a column in the project');
   }
+  return column;
 }
 
 async function assertLabelsInProject(
@@ -272,6 +280,10 @@ router.post(
         .execute();
     }
 
+    await recordTaskActivity(db, user.id, [
+      { taskId: body.id, kind: 'created', newValue: { text: body.title } },
+    ]);
+
     const created = await fetchBoardTask(db, body.id);
     if (!created) {
       throw new AppError(500, 'Failed to load created task');
@@ -379,6 +391,48 @@ router.get(
   }
 );
 
+router.get(
+  '/:id/activity',
+  describeRoute({
+    tags: ['Tasks'],
+    summary: 'Get task activity',
+    description:
+      'The task’s activity log, oldest first: who created it, retitled it, edited its ' +
+      'description, moved it between columns, added or removed a label, an assignee or a ' +
+      'blocker, and who archived or restored it. Each entry carries the actor, the time, and ' +
+      'the old and new value of what changed, with column, label, user and blocker names ' +
+      'snapshotted as they were at the time. The log is append-only and starts when a task ' +
+      'is created, so tasks that predate this feature read as empty until they next change. ' +
+      'Consecutive description edits by one actor within a few minutes are recorded as a ' +
+      'single entry whose old value is the text from before that session.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Activity entries, oldest first',
+        content: {
+          'application/json': {
+            schema: resolver(taskActivityResponseSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const db = c.get('db');
+
+    await assertTaskAccess(db, c.get('user').id, id);
+
+    return c.json({ activity: await fetchTaskActivity(db, id) }, 200);
+  }
+);
+
 router.patch(
   '/:id',
   describeRoute({
@@ -418,38 +472,62 @@ router.patch(
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
+    const actorId = c.get('user').id;
 
-    const project = await assertTaskAccess(db, c.get('user').id, id);
+    const project = await assertTaskAccess(db, actorId, id);
 
-    if (body.column_id !== undefined) {
-      await assertColumnInProject(db, body.column_id, project.id);
-    }
+    const newColumn =
+      body.column_id === undefined
+        ? null
+        : await assertColumnInProject(db, body.column_id, project.id);
 
     // Gates the bump as well as the check: a move that moved updated_at would invalidate every
     // other open editor's precondition.
     const guardsContent = body.title !== undefined || 'description' in body;
-    if (guardsContent && body.expected_updated_at !== undefined) {
-      // Without the row lock two concurrent guarded patches both read the pre-update
-      // timestamp, both pass the check, and both commit.
-      const current = await db
-        .selectFrom('task')
-        .select('task.updated_at')
-        .where('task.id', '=', id)
-        .forNoKeyUpdate()
-        .executeTakeFirst();
-      if (!current) {
-        throw new AppError(404, 'Task not found');
-      }
-      // Compared in JS, never in SQL: timestamptz keeps microseconds the millisecond-precision
-      // ISO string a client echoes back cannot carry.
-      if (current.updated_at.getTime() !== Date.parse(body.expected_updated_at)) {
-        throw new AppError(409, 'This task changed since you loaded it');
-      }
+    const nextDescription = 'description' in body ? serializeDescription(body.description) : null;
+
+    // Read under the same lock the UPDATE takes, so two concurrent patches cannot both read
+    // the pre-update row: that would pass both preconditions, and it would log two
+    // transitions out of a value only one of them saw.
+    const before =
+      guardsContent || body.column_id !== undefined
+        ? await db
+            .selectFrom('task')
+            .innerJoin('board_column', 'board_column.id', 'task.column_id')
+            .select([
+              'task.title',
+              'task.description',
+              'task.column_id',
+              'task.updated_at',
+              'board_column.name as column_name',
+              // Postgres normalizes jsonb key order on storage, so only jsonb equality can
+              // tell an unchanged description from a re-serialized one.
+              sql<boolean>`task.description is distinct from ${nextDescription}::jsonb`.as(
+                'description_changed'
+              ),
+            ])
+            .where('task.id', '=', id)
+            .forNoKeyUpdate('task')
+            .executeTakeFirst()
+        : null;
+    if (before === undefined) {
+      throw new AppError(404, 'Task not found');
+    }
+
+    // Compared in JS, never in SQL: timestamptz keeps microseconds the millisecond-precision
+    // ISO string a client echoes back cannot carry.
+    if (
+      guardsContent &&
+      body.expected_updated_at !== undefined &&
+      before !== null &&
+      before.updated_at.getTime() !== Date.parse(body.expected_updated_at)
+    ) {
+      throw new AppError(409, 'This task changed since you loaded it');
     }
 
     const changes = {
       ...(body.title !== undefined ? { title: body.title } : {}),
-      ...('description' in body ? { description: serializeDescription(body.description) } : {}),
+      ...('description' in body ? { description: nextDescription } : {}),
       ...(body.column_id !== undefined ? { column_id: body.column_id } : {}),
       ...(body.position !== undefined ? { position: body.position } : {}),
       ...(guardsContent ? { updated_at: sql<Date>`now()` } : {}),
@@ -459,6 +537,44 @@ router.patch(
     // compile to an UPDATE with an empty SET list.
     if (Object.keys(changes).length > 0) {
       await db.updateTable('task').set(changes).where('task.id', '=', id).execute();
+    }
+
+    if (before !== null) {
+      // Written one at a time, in this order, so the entries read in the order the fields
+      // appear on the card and a rename cannot be swallowed by a coalesced description edit.
+      if (body.title !== undefined && body.title !== before.title) {
+        await recordTaskActivity(db, actorId, [
+          {
+            taskId: id,
+            kind: 'title_changed',
+            oldValue: { text: before.title },
+            newValue: { text: body.title },
+          },
+        ]);
+      }
+      if ('description' in body && before.description_changed) {
+        await recordDescriptionChange(
+          db,
+          actorId,
+          id,
+          before.description as TiptapDoc | null,
+          body.description ?? null
+        );
+      }
+      if (
+        body.column_id !== undefined &&
+        newColumn !== null &&
+        body.column_id !== before.column_id
+      ) {
+        await recordTaskActivity(db, actorId, [
+          {
+            taskId: id,
+            kind: 'column_changed',
+            oldValue: { id: before.column_id, name: before.column_name },
+            newValue: { id: body.column_id, name: newColumn.name },
+          },
+        ]);
+      }
     }
 
     const updated = await fetchBoardTask(db, id);
@@ -573,6 +689,7 @@ router.post(
     }
     const body = { ...row.task, archived_at: row.archived_at };
     if (archived) {
+      await recordTaskActivity(db, c.get('user').id, [{ taskId: id, kind: 'archived' }]);
       publishAfterCommit(c, 'task_archived', project.id, body);
     }
     return c.json(body, 200);
@@ -626,6 +743,7 @@ router.post(
     }
 
     if (restored) {
+      await recordTaskActivity(db, c.get('user').id, [{ taskId: id, kind: 'restored' }]);
       publishAfterCommit(c, 'task_restored', project.id, row.task);
       // The dependents' side of each edge is not derivable from the restored task
       // alone, so their blocker_ids have to be republished.
@@ -677,7 +795,8 @@ router.put(
     const { label_ids } = c.req.valid('json');
     const db = c.get('db');
 
-    const project = await assertTaskAccess(db, c.get('user').id, id);
+    const actorId = c.get('user').id;
+    const project = await assertTaskAccess(db, actorId, id);
 
     const desired = dedupe(label_ids);
     await assertLabelsInProject(db, desired, project.id);
@@ -686,14 +805,43 @@ router.put(
     if (desired.length > 0) {
       removal = removal.where('task_label.label_id', 'not in', desired);
     }
-    await removal.execute();
+    // `returning` on the statements that already run is the whole diff: `do nothing`
+    // returns no row for a pair that was already there.
+    const removed = await removal.returning('task_label.label_id').execute();
 
-    if (desired.length > 0) {
-      await db
-        .insertInto('task_label')
-        .values(desired.map((label_id) => ({ task_id: id, label_id })))
-        .onConflict((oc) => oc.columns(['task_id', 'label_id']).doNothing())
-        .execute();
+    const added =
+      desired.length === 0
+        ? []
+        : await db
+            .insertInto('task_label')
+            .values(desired.map((label_id) => ({ task_id: id, label_id })))
+            .onConflict((oc) => oc.columns(['task_id', 'label_id']).doNothing())
+            .returning('task_label.label_id')
+            .execute();
+
+    const changedIds = [...removed, ...added].map((row) => row.label_id);
+    if (changedIds.length > 0) {
+      const names = new Map(
+        (
+          await db
+            .selectFrom('label')
+            .select(['label.id', 'label.name'])
+            .where('label.id', 'in', changedIds)
+            .execute()
+        ).map((label) => [label.id, label.name])
+      );
+      await recordTaskActivity(db, actorId, [
+        ...removed.map((row) => ({
+          taskId: id,
+          kind: 'label_removed' as const,
+          oldValue: { id: row.label_id, name: names.get(row.label_id) ?? '' },
+        })),
+        ...added.map((row) => ({
+          taskId: id,
+          kind: 'label_added' as const,
+          newValue: { id: row.label_id, name: names.get(row.label_id) ?? '' },
+        })),
+      ]);
     }
 
     publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
@@ -730,7 +878,8 @@ router.put(
     const { user_ids } = c.req.valid('json');
     const db = c.get('db');
 
-    const project = await assertTaskAccess(db, c.get('user').id, id);
+    const actorId = c.get('user').id;
+    const project = await assertTaskAccess(db, actorId, id);
 
     const desired = dedupe(user_ids);
     const currentRows = await db
@@ -746,7 +895,9 @@ router.put(
     if (desired.length > 0) {
       removal = removal.where('task_assignee.user_id', 'not in', desired);
     }
-    await removal.execute();
+    const removed = (await removal.returning('task_assignee.user_id').execute()).map(
+      (row) => row.user_id
+    );
 
     if (desired.length > 0) {
       await db
@@ -755,6 +906,11 @@ router.put(
         .onConflict((oc) => oc.columns(['task_id', 'user_id']).doNothing())
         .execute();
     }
+
+    await recordAssigneeChanges(db, actorId, [
+      ...removed.map((userId) => ({ taskId: id, kind: 'assignee_removed' as const, userId })),
+      ...added.map((userId) => ({ taskId: id, kind: 'assignee_added' as const, userId })),
+    ]);
 
     publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);
@@ -797,7 +953,8 @@ router.post(
     const { blocker_task_id } = c.req.valid('json');
     const db = c.get('db');
 
-    const project = await assertTaskAccess(db, c.get('user').id, id);
+    const actorId = c.get('user').id;
+    const project = await assertTaskAccess(db, actorId, id);
 
     if (blocker_task_id === id) {
       throw new AppError(422, 'A task cannot block itself');
@@ -805,7 +962,7 @@ router.post(
 
     const blocker = await db
       .selectFrom('task')
-      .select(['task.project_id', 'task.archived_at'])
+      .select(['task.project_id', 'task.archived_at', 'task.title'])
       .where('task.id', '=', blocker_task_id)
       .executeTakeFirst();
     if (!blocker || blocker.project_id !== project.id) {
@@ -823,11 +980,22 @@ router.post(
       throw new AppError(409, 'Adding this blocker would create a dependency cycle', { cycle });
     }
 
-    await db
+    const inserted = await db
       .insertInto('task_dependency')
       .values({ blocker_task_id, blocked_task_id: id })
       .onConflict((oc) => oc.columns(['blocker_task_id', 'blocked_task_id']).doNothing())
-      .execute();
+      .returning('task_dependency.blocker_task_id')
+      .executeTakeFirst();
+
+    if (inserted) {
+      await recordTaskActivity(db, actorId, [
+        {
+          taskId: id,
+          kind: 'blocker_added',
+          newValue: { id: blocker_task_id, name: blocker.title },
+        },
+      ]);
+    }
 
     publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);
@@ -857,13 +1025,27 @@ router.delete(
     const { id, blockerTaskId } = c.req.valid('param');
     const db = c.get('db');
 
-    await assertTaskAccess(db, c.get('user').id, id);
+    const actorId = c.get('user').id;
+    await assertTaskAccess(db, actorId, id);
 
-    await db
+    const removed = await db
       .deleteFrom('task_dependency')
+      .using('task')
+      .whereRef('task.id', '=', 'task_dependency.blocker_task_id')
       .where('task_dependency.blocked_task_id', '=', id)
       .where('task_dependency.blocker_task_id', '=', blockerTaskId)
-      .execute();
+      .returning(['task_dependency.blocker_task_id', 'task.title'])
+      .executeTakeFirst();
+
+    if (removed) {
+      await recordTaskActivity(db, actorId, [
+        {
+          taskId: id,
+          kind: 'blocker_removed',
+          oldValue: { id: removed.blocker_task_id, name: removed.title },
+        },
+      ]);
+    }
 
     publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);

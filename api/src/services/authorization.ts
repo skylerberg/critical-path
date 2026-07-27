@@ -136,8 +136,8 @@ export async function projectSharerIdsAmong(
   return rows.map((row) => row.id);
 }
 
-// The task_assignee and task_comment arms keep users who lost access visible
-// while their old assignments and comments still exist.
+// The task_assignee, task_comment and task_activity arms keep users who lost
+// access visible while their old assignments, comments and log entries exist.
 export async function usersWithProjectAccess(
   db: Kysely<DB>,
   projectId: string
@@ -176,6 +176,14 @@ export async function usersWithProjectAccess(
             .select('task_comment.user_id')
             .where('task.project_id', '=', projectId)
             .whereRef('task_comment.user_id', '=', 'app_user.id')
+        ),
+        eb.exists(
+          eb
+            .selectFrom('task_activity')
+            .innerJoin('task', 'task.id', 'task_activity.task_id')
+            .select('task_activity.actor_user_id')
+            .where('task.project_id', '=', projectId)
+            .whereRef('task_activity.actor_user_id', '=', 'app_user.id')
         ),
       ])
     )
