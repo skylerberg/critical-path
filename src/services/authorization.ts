@@ -50,6 +50,29 @@ export async function assertProjectAccess(
   return project;
 }
 
+export function assertProjectOwnedBy(
+  project: { created_by: string | null },
+  userId: string,
+  forbiddenMessage: string
+): void {
+  if (project.created_by !== userId) {
+    throw new AppError(403, forbiddenMessage);
+  }
+}
+
+// Access is asserted first, so a caller who cannot see the project still gets
+// 404 and 403 only ever reaches someone who can already read created_by.
+export async function assertProjectOwner(
+  db: Kysely<DB>,
+  userId: string,
+  projectId: string,
+  forbiddenMessage: string
+): Promise<Selectable<Project>> {
+  const project = await assertProjectAccess(db, userId, projectId);
+  assertProjectOwnedBy(project, userId, forbiddenMessage);
+  return project;
+}
+
 // Guards the row the caller is about to serve, so the flag can never be read
 // from a different snapshot than the payload it gates.
 export function assertPublicProject(project: { is_public: boolean }): void {

@@ -227,6 +227,78 @@ describe('project access control', () => {
     });
   });
 
+  describe('owner-only deletion', () => {
+    it('refuses a member with 403 and leaves the board fully intact', async () => {
+      const board = await createProjectAs(alice, 'owner-only delete');
+      const projectId = board.project.id;
+      const taskId = await insertTask({ projectId, columnId: board.columns[0].id });
+
+      const add = await ctx
+        .request(alice.token)
+        .post(`/api/projects/${projectId}/members/by-email`, { email: bob.email });
+      expect(add.status).toBe(200);
+
+      const refused = await ctx.request(bob.token).delete(`/api/projects/${projectId}`);
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({
+        error: 'Only the project owner can delete this project',
+      });
+
+      const stillVisible = await ctx.request(bob.token).get(`/api/projects/${projectId}`);
+      expect(stillVisible.status).toBe(200);
+
+      const columns = await db
+        .selectFrom('board_column')
+        .select('id')
+        .where('project_id', '=', projectId)
+        .execute();
+      expect(columns).toHaveLength(4);
+
+      const task = await db
+        .selectFrom('task')
+        .select('id')
+        .where('id', '=', taskId)
+        .executeTakeFirst();
+      expect(task).toMatchObject({ id: taskId });
+    });
+
+    it('lets the owner delete the board a member could not', async () => {
+      const board = await createProjectAs(alice, 'owner deletes');
+      const projectId = board.project.id;
+      await ctx
+        .request(alice.token)
+        .post(`/api/projects/${projectId}/members/by-email`, { email: bob.email });
+
+      const refused = await ctx.request(bob.token).delete(`/api/projects/${projectId}`);
+      expect(refused.status).toBe(403);
+
+      const deleted = await ctx.request(alice.token).delete(`/api/projects/${projectId}`);
+      expect(deleted.status).toBe(204);
+
+      const gone = await ctx.request(alice.token).get(`/api/projects/${projectId}`);
+      expect(gone.status).toBe(404);
+    });
+
+    it('follows ownership after a transfer', async () => {
+      const board = await createProjectAs(alice, 'delete follows ownership');
+      const projectId = board.project.id;
+      await ctx
+        .request(alice.token)
+        .put(`/api/projects/${projectId}/members`, { user_ids: [bob.id] });
+
+      const transfer = await ctx
+        .request(alice.token)
+        .put(`/api/projects/${projectId}/owner`, { user_id: bob.id });
+      expect(transfer.status).toBe(200);
+
+      const aliceRefused = await ctx.request(alice.token).delete(`/api/projects/${projectId}`);
+      expect(aliceRefused.status).toBe(403);
+
+      const bobDeletes = await ctx.request(bob.token).delete(`/api/projects/${projectId}`);
+      expect(bobDeletes.status).toBe(204);
+    });
+  });
+
   describe('assignee access validation', () => {
     it('rejects newly added assignees without project access, on create and on set', async () => {
       const board = await createProjectAs(alice, 'assignee validation');
