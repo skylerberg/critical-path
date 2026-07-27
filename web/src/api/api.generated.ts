@@ -439,7 +439,7 @@ export interface paths {
         post?: never;
         /**
          * Delete column
-         * @description Delete a column. An empty column returns 204. A column with tasks requires a `move_tasks_to` query parameter naming another column in the same project; its tasks are appended after the target column’s existing tasks (keeping relative order) and the response is 200 with the moved tasks’ new positions. Returns 409 when the column has tasks and no target is given, and 422 when `move_tasks_to` does not exist, belongs to another project, or equals the deleted column.
+         * @description Delete a column. An empty column returns 204. A column with tasks requires a `move_tasks_to` query parameter naming another column in the same project; its tasks are appended after the target column’s existing tasks (keeping relative order) and the response is 200 with the moved tasks’ new positions. Returns 409 when the column has tasks and no target is given, and 422 when `move_tasks_to` does not exist, belongs to another project, or equals the deleted column. Archived tasks count as tasks here, so a column that looks empty in the board payload can still require `move_tasks_to`, and `moved_tasks` can name tasks that payload never served.
          */
         delete: operations["deleteApiColumnsById"];
         options?: never;
@@ -633,6 +633,26 @@ export interface paths {
          * @description Attach an image to a task via multipart form data. The stored content type is determined solely by magic-byte sniffing (PNG, JPEG, GIF, or WebP); the client-declared MIME type is ignored. Maximum file size 10 MB. An optional `id` field supplies the image id (server-generated when omitted).
          */
         post: operations["postApiTasksByIdImages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/my-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List my tasks across projects
+         * @description List every unarchived, unfinished task assigned to the caller across all accessible, non-archived projects. Each task carries a bucket, fixed by the server: blocked (it has at least one unfinished blocker), blocking (someone else is assigned to a task it holds up), or ready. Tasks are ordered blocking, then ready, then blocked, and within a bucket by how many people are waiting, then project name and board position. Each task also carries its unfinished blockers and dependents with their assignees, plus waiting_user_ids: the other people whose unfinished work it blocks. The companion arrays group the same edges by person — waiting_on_you from the dependents, you_are_waiting_on from the blockers, which alone can carry an unassigned group.
+         */
+        get: operations["getApiMyTasks"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1153,6 +1173,34 @@ export interface components {
         AddBlocker: {
             /** Format: uuid */
             blocker_task_id: string;
+        };
+        MyTasksResponse: {
+            tasks: components["schemas"]["MyTask"][];
+            waiting_on_you: components["schemas"]["MyTaskPersonGroup"][];
+            you_are_waiting_on: components["schemas"]["MyTaskPersonGroup"][];
+        };
+        MyTask: {
+            assignee_ids: string[];
+            blocked_by: components["schemas"]["MyTaskLink"][];
+            blocking: components["schemas"]["MyTaskLink"][];
+            /** @enum {unknown} */
+            bucket: "blocked" | "blocking" | "ready";
+            column_name: string;
+            id: string;
+            project_id: string;
+            project_name: string;
+            title: string;
+            waiting_user_ids: string[];
+        };
+        MyTaskLink: {
+            assignee_ids: string[];
+            id: string;
+            project_id: string;
+            title: string;
+        };
+        MyTaskPersonGroup: {
+            tasks: components["schemas"]["MyTaskLink"][];
+            user_id: components["schemas"]["UserAvatarurl"];
         };
         Label: {
             color: string;
@@ -2728,7 +2776,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Column deleted; its tasks were moved to the target column */
+            /** @description Column deleted; its tasks, archived ones included, were moved to the target column */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3602,6 +3650,44 @@ export interface operations {
             };
             /** @description Unprocessable request */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiMyTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assigned tasks with buckets and person-level dependency groups */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyTasksResponse"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

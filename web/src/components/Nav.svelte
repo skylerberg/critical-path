@@ -22,6 +22,7 @@
   const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
 
   const projectsActive = $derived(router.current.name === 'projects');
+  const myTasksActive = $derived(router.current.name === 'my-tasks');
   const currentProjectId = $derived(
     router.current.name === 'project' ? router.current.params.id : null
   );
@@ -90,6 +91,24 @@
   </svg>
 {/snippet}
 
+{#snippet myTasksIcon()}
+  <svg
+    class="size-5"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <polyline points="3 6 5 8 9 4" />
+    <polyline points="3 15 5 17 9 13" />
+    <line x1="13" y1="6" x2="21" y2="6" />
+    <line x1="13" y1="15" x2="21" y2="15" />
+  </svg>
+{/snippet}
+
 {#snippet feedbackIcon()}
   <svg
     class="size-5"
@@ -141,6 +160,16 @@
   class="fixed inset-y-0 left-0 z-20 hidden w-56 flex-col border-r border-edge bg-surface lg:flex"
 >
   <a href="/" class="px-4 py-5 text-lg font-semibold">{APP_NAME}</a>
+  <a
+    href="/my-tasks"
+    aria-current={myTasksActive ? 'page' : undefined}
+    class="mx-2 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium {myTasksActive
+      ? 'bg-accent-soft text-accent'
+      : 'text-muted hover:bg-accent-soft hover:text-ink'}"
+  >
+    {@render myTasksIcon()}
+    My tasks
+  </a>
   <a
     href="/"
     aria-current={projectsActive ? 'page' : undefined}
@@ -213,6 +242,16 @@
   use:link
   class="fixed inset-x-0 bottom-0 z-20 flex items-stretch border-t border-edge bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
 >
+  <a
+    href="/my-tasks"
+    aria-current={myTasksActive ? 'page' : undefined}
+    class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium {myTasksActive
+      ? 'text-accent'
+      : 'text-muted'}"
+  >
+    {@render myTasksIcon()}
+    My tasks
+  </a>
   <a
     href="/"
     aria-current={projectsActive ? 'page' : undefined}

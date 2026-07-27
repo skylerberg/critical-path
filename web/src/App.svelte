@@ -4,6 +4,7 @@
   import { users } from './lib/users.svelte';
   import { board } from './lib/board.svelte';
   import { drafts } from './lib/drafts.svelte';
+  import { myTasks } from './lib/myTasks.svelte';
   import { projects } from './lib/projects.svelte';
   import { realtime } from './lib/realtime.svelte';
   import { toasts } from './lib/toasts.svelte';
@@ -13,6 +14,7 @@
   import ForgotPassword from './routes/ForgotPassword.svelte';
   import ResetPassword from './routes/ResetPassword.svelte';
   import Projects from './routes/Projects.svelte';
+  import MyTasks from './routes/MyTasks.svelte';
   import Project from './routes/Project.svelte';
   import PublicBoard from './routes/PublicBoard.svelte';
   import NotFound from './routes/NotFound.svelte';
@@ -38,6 +40,7 @@
       // Per-account caches must not survive into the next session in this tab.
       users.reset();
       board.reset();
+      myTasks.reset();
       projects.reset();
       drafts.clearAll();
       realtime.disconnect();
@@ -73,12 +76,15 @@
       <Account />
     {:else if route.name === 'projects'}
       <Projects />
+    {:else if route.name === 'my-tasks'}
+      <MyTasks />
     {:else if route.name === 'project'}
       <Project
         projectId={route.params.id}
         view={route.params.view}
         taskId={route.params.taskId}
         filters={route.params.filters}
+        from={route.params.from}
       />
     {:else if route.name === 'public-board'}
       <PublicBoard projectId={route.params.id} taskId={route.params.taskId} />

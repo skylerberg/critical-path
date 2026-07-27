@@ -204,6 +204,17 @@ describe('Project', () => {
     expect(window.location.pathname).toBe(`/projects/${projectId}`);
   });
 
+  it('closes an overlay opened from my tasks back to that screen', async () => {
+    const projectId = 'p-shell-my-tasks-close';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'board', taskId: 't1', from: 'my-tasks' } });
+
+    await screen.findByLabelText('Task title');
+    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(window.location.pathname).toBe('/my-tasks');
+  });
+
   it('scrolls the card created by quick-add into view', async () => {
     const projectId = 'p-board-scroll';
     mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);

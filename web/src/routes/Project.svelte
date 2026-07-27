@@ -22,9 +22,10 @@
     view: ProjectView;
     taskId?: string;
     filters?: BoardFilters;
+    from?: 'my-tasks';
   }
 
-  let { projectId, view, taskId, filters = noFilters() }: Props = $props();
+  let { projectId, view, taskId, filters = noFilters(), from }: Props = $props();
 
   // Reading a prop directly makes an effect depend on the whole route object, which is
   // replaced on every query-string rewrite. These stop at a value a filter cannot
@@ -80,6 +81,7 @@
   const viewBasePath = $derived(
     view === 'graph' ? `/projects/${projectId}/graph` : `/projects/${projectId}`
   );
+  const closePath = $derived(from === 'my-tasks' ? '/my-tasks' : viewBasePath + board.filterSearch);
 </script>
 
 {#if board.error !== null && board.currentProjectId === projectId}
@@ -101,7 +103,7 @@
     {/if}
   </div>
   {#if taskId !== undefined}
-    <TaskDetail {taskId} closePath={viewBasePath + board.filterSearch} />
+    <TaskDetail {taskId} {closePath} />
   {/if}
   {#if shortcuts.labelMenu !== null}
     <QuickLabelMenu taskId={shortcuts.labelMenu} onclose={() => (shortcuts.labelMenu = null)} />
