@@ -161,6 +161,7 @@ export interface TaskImage {
   created_at: Generated<Timestamp>;
   filename: string;
   id: string;
+  is_cover: Generated<boolean>;
   size_bytes: number;
   storage_key: string;
   task_id: string;
