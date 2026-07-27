@@ -245,6 +245,25 @@ async function descriptionFrom(
   return undefined;
 }
 
+const CALENDAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function dueFrom(opts: Opts, allowClear: boolean): string | null | undefined {
+  const clearing = allowClear && opts.clearDue === true;
+  if (typeof opts.due === 'string' && clearing) {
+    throw new CliError('Pass at most one of --due, --clear-due', EXIT.usage);
+  }
+  if (clearing) {
+    return null;
+  }
+  if (typeof opts.due !== 'string') {
+    return undefined;
+  }
+  if (!CALENDAR_DATE_RE.test(opts.due)) {
+    throw new CliError('--due must be a date like YYYY-MM-DD', EXIT.invalid);
+  }
+  return opts.due;
+}
+
 function defaultColumn(board: BoardPayload): BoardColumn {
   const column = sortedColumns(board).find((c) => !c.is_done);
   if (column == null) {
@@ -442,6 +461,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
             ctx.out.line(`Column:    ${columnName}`);
             ctx.out.line(`Created:   ${detail.created_at}`);
             ctx.out.line(`Updated:   ${detail.updated_at}`);
+            if (detail.due_date != null) {
+              ctx.out.line(`Due:       ${detail.due_date}`);
+            }
             if (detail.archived_at != null) {
               ctx.out.line(`Archived:  ${detail.archived_at}`);
             }
@@ -488,6 +510,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
           '--description-json <path>',
           'read a Tiptap JSON description from a file (- for stdin)'
         )
+        .option('--due <date>', 'due date as YYYY-MM-DD')
         .option('--label <label>', 'label id or name (repeatable)', collect, [] as string[])
         .option(
           '--assignee <user>',
@@ -498,6 +521,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
     ).action(
       withCtx(deps, async (ctx, opts, title) => {
         const description = await descriptionFrom(ctx, opts, false);
+        const due = dueFrom(opts, false);
         const board = await resolveBoard(ctx, opts.project as string | undefined);
         const column =
           typeof opts.column === 'string'
@@ -519,6 +543,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
               title,
               position,
               ...(description !== undefined ? { description } : {}),
+              ...(due !== undefined ? { due_date: due } : {}),
               ...(labelIds.length > 0 ? { label_ids: labelIds } : {}),
               ...(assigneeIds.length > 0 ? { assignee_ids: assigneeIds } : {}),
             },
@@ -535,7 +560,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
 
   task.addCommand(
     taskLeaf('update')
-      .description('Update the title or description of a task')
+      .description('Update the title, description or due date of a task')
       .argument('<task>', 'task id or title')
       .option('--title <title>', 'new title')
       .option('--description <markdown>', 'new description as Markdown (drops any @mentions)')
@@ -548,13 +573,16 @@ export function registerTask(program: Command, deps: CliDeps): void {
         'read a Tiptap JSON description from a file (- for stdin)'
       )
       .option('--clear-description', 'remove the description')
+      .option('--due <date>', 'due date as YYYY-MM-DD')
+      .option('--clear-due', 'remove the due date')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
           const description = await descriptionFrom(ctx, opts, true);
+          const due = dueFrom(opts, true);
           const title = opts.title as string | undefined;
-          if (title === undefined && description === undefined) {
+          if (title === undefined && description === undefined && due === undefined) {
             throw new CliError(
-              'Pass --title, --description, --description-file, --description-json, or --clear-description',
+              'Pass --title, --description, --description-file, --description-json, --clear-description, --due, or --clear-due',
               EXIT.usage
             );
           }
@@ -563,12 +591,16 @@ export function registerTask(program: Command, deps: CliDeps): void {
             ref,
             opts.project as string | undefined
           );
-          const body: { title?: string; description?: TiptapDoc | null } = {};
+          const body: { title?: string; description?: TiptapDoc | null; due_date?: string | null } =
+            {};
           if (title !== undefined) {
             body.title = title;
           }
           if (description !== undefined) {
             body.description = description;
+          }
+          if (due !== undefined) {
+            body.due_date = due;
           }
           const updated = assertOk(
             await ctx.api.PATCH('/api/tasks/{id}', { params: { path: { id: target.id } }, body })

@@ -128,6 +128,18 @@ describe('Realtime end to end', () => {
     expect(event.data).toMatchObject({ title: 'Renamed task' });
   });
 
+  it('carries a changed due date in the task_updated payload', async () => {
+    const res = await ctx
+      .request(userA.token)
+      .patch(`/api/tasks/${taskId}`, { due_date: '2026-08-03' });
+    expect(res.status).toBe(200);
+
+    const event = await clientB.waitForEvent(
+      (e) => e.type === 'task_updated' && e.data.due_date === '2026-08-03'
+    );
+    expect(event.data).toMatchObject({ id: taskId });
+  });
+
   it('publishes no task_updated when the precondition fails', async () => {
     const before = clientB.eventsOfType('task_updated').length;
 

@@ -734,6 +734,7 @@ cpath board "My Project"                # columns with [ready]/[blocked] markers
 cpath ready --project "My Project"      # unblocked, unfinished tasks
 cpath mine                              # your tasks everywhere, ordered by who you block
 cpath task create "Fix the bug" --project "My Project" --description "See **notes**"
+cpath task update "Fix the bug" --project "My Project" --due 2026-08-03   # --clear-due removes it
 cpath task move "Fix the bug" --project "My Project" --column "In Progress" --top
 cpath task done "Fix the bug" --project "My Project"
 cpath task block "Ship it" --by "Fix the bug" --project "My Project"
@@ -755,7 +756,9 @@ no archived cards in it, so `task archive`, `task restore`, `task show` and
 (`move`, `done`, `update`, `label`, `assign`, `block`) deliberately does not,
 and answers `No task matching` for an archived card, by id as well as by
 title. Task descriptions are Markdown in and out, converted to the API's
-restricted Tiptap JSON (`--description-json` is the raw escape hatch).
+restricted Tiptap JSON (`--description-json` is the raw escape hatch). A due
+date is one calendar day and `--due` accepts `YYYY-MM-DD` only — there is no
+shorthand parsing.
 
 Markdown is a one-way door for mentions: `task show` and `comment list` print
 one as `@label`, and writing that text back with `task update --description` or

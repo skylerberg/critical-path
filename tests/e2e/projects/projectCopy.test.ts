@@ -74,6 +74,7 @@ describe('POST /api/projects with source_project_id', () => {
       title: 'Draw art',
       position: 1500,
       description,
+      dueDate: '2026-08-03',
     });
     const blockedTaskId = await insertTask({
       projectId: sourceId,
@@ -140,6 +141,7 @@ describe('POST /api/projects with source_project_id', () => {
     expect(copiedBlocker).toMatchObject({
       column_id: copiedBacklog.id,
       position: 1500,
+      due_date: '2026-08-03',
       label_ids: [copy.labels[0].id],
       assignee_ids: [],
       image_count: 1,
@@ -148,6 +150,7 @@ describe('POST /api/projects with source_project_id', () => {
     expect(copiedBlocked).toMatchObject({
       column_id: copiedDone.id,
       position: 2500,
+      due_date: null,
       blocker_ids: [copiedBlocker.id],
       assignee_ids: [],
     });

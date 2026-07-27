@@ -1,5 +1,12 @@
 import { type } from 'arktype';
-import { uuid, stringWithLength, boundedUuidArray, finiteNumber, isoDateString } from './common';
+import {
+  uuid,
+  stringWithLength,
+  boundedUuidArray,
+  calendarDate,
+  finiteNumber,
+  isoDateString,
+} from './common';
 import { nullableTiptapDocSchema } from './tiptap';
 import { boardTaskSchema } from './board';
 import { imageResponseSchema } from './images';
@@ -12,6 +19,7 @@ export const createTaskSchema = type({
   title: stringWithLength(1, 500),
   'description?': nullableTiptapDocSchema,
   position: finiteNumber,
+  'due_date?': calendarDate.or('null'),
   'label_ids?': boundedUuidArray(100),
   'assignee_ids?': boundedUuidArray(100),
 });
@@ -21,6 +29,7 @@ export const patchTaskSchema = type({
   'description?': nullableTiptapDocSchema,
   'column_id?': uuid,
   'position?': finiteNumber,
+  'due_date?': calendarDate.or('null'),
   'expected_updated_at?': isoDateString,
 });
 

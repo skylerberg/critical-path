@@ -116,6 +116,7 @@ export interface Task {
   column_id: string;
   created_at: Generated<Timestamp>;
   description: Json | null;
+  due_date: Timestamp | null;
   id: string;
   position: number;
   project_id: string;

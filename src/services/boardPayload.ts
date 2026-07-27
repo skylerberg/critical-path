@@ -10,6 +10,7 @@ import type {
   TiptapDoc,
 } from '../schemas/index';
 import { assertPublicProject, usersWithProjectAccess } from './authorization';
+import { dueDateText } from './dueDate';
 import { unarchivedBlockerIds } from './taskRelations';
 
 function projectTasksQuery(db: Kysely<DB>, projectId: string) {
@@ -21,6 +22,7 @@ function projectTasksQuery(db: Kysely<DB>, projectId: string) {
       'task.title',
       'task.description',
       'task.position',
+      dueDateText.as('due_date'),
       'task.created_at',
       'task.updated_at',
       'task.archived_at',
@@ -62,6 +64,7 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
     title: task.title,
     description: task.description as TiptapDoc | null,
     position: task.position,
+    due_date: task.due_date,
     created_at: task.created_at.toISOString(),
     updated_at: task.updated_at.toISOString(),
     label_ids: task.label_rows.map((row) => row.label_id),
@@ -197,6 +200,7 @@ export function toPublicBoard(payload: BoardPayload, users: PublicBoardUser[]): 
       title: task.title,
       description: task.description,
       position: task.position,
+      due_date: task.due_date,
       label_ids: task.label_ids,
       assignee_ids: task.assignee_ids,
       blocker_ids: task.blocker_ids,
