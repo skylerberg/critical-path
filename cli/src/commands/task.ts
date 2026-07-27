@@ -765,13 +765,16 @@ export function registerTask(program: Command, deps: CliDeps): void {
           const { board, task: target } = await resolveTaskContext(
             ctx,
             ref,
-            opts.project as string | undefined
+            opts.project as string | undefined,
+            { includeArchived: true }
           );
           const siblings = sortedTasksIn(board, target.column_id);
           const index = siblings.findIndex((t) => t.id === target.id);
+          // An archived source is off the board, so there is no card to sit below.
+          const insertAt = index === -1 ? siblings.length : index + 1;
           const position = positionsForIndex(
             siblings.map((t) => t.position),
-            index + 1,
+            insertAt,
             1,
             'move a card in this column to make room'
           )[0];
