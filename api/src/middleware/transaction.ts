@@ -19,6 +19,7 @@ export const skipAutoTransaction: MiddlewareHandler = async (_c, next) => {
 export const transactionMiddleware = createMiddleware<{ Variables: Variables }>(async (c, next) => {
   const hooks: Array<() => Promise<void>> = [];
   c.set('postCommitHooks', hooks);
+  c.set('webhookEvents', []);
 
   const skip = c.req.matchedRoutes.some((r) => r.handler === skipAutoTransaction);
 

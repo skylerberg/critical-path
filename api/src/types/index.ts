@@ -1,6 +1,7 @@
 import { Hono, Context } from 'hono';
 import { Kysely } from 'kysely';
 import type { DB } from '../db/types';
+import type { WebhookEvent } from '../services/webhooks/events';
 
 export type Variables = {
   user?: {
@@ -11,6 +12,7 @@ export type Variables = {
   };
   db: Kysely<DB>;
   postCommitHooks: Array<() => Promise<void>>;
+  webhookEvents: WebhookEvent[];
 };
 
 export type AppContext = Context<{ Variables: Required<Variables> }>;
