@@ -15,6 +15,10 @@ function zipResponse(headers: Record<string, string> = {}): Response {
   });
 }
 
+async function settleRevoke(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
   createObjectURL.mockClear();
@@ -39,7 +43,7 @@ describe('downloadProjectExport', () => {
       zipResponse({ 'Content-Disposition': 'attachment; filename="game-2026-07-26.zip"' })
     );
 
-    await downloadProjectExport('p1');
+    await expect(downloadProjectExport('p1')).resolves.toBe('zip');
 
     const request = requestAt(0);
     expect(request.url).toMatch(/\/api\/projects\/p1\/export$/);
@@ -51,8 +55,11 @@ describe('downloadProjectExport', () => {
     expect(clicks).toHaveLength(1);
     expect(clicks[0].download).toBe('game-2026-07-26.zip');
     expect(clicks[0].href).toBe('blob:fake-url');
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url');
     expect(document.querySelector('a[download]')).toBeNull();
+
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    await settleRevoke();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url');
   });
 
   it('falls back to a generic filename when the header is missing', async () => {
@@ -63,6 +70,29 @@ describe('downloadProjectExport', () => {
     expect(clicks[0].download).toBe('critical-path-export.zip');
   });
 
+  it('saves the manifest alone when the project is too large to package', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(413, { error: 'Too large; use format=json' }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { format: 'critical-path-project-export', version: 1 })
+    );
+
+    await expect(downloadProjectExport('p1')).resolves.toBe('json');
+
+    expect(requestAt(1).url).toMatch(/\/api\/projects\/p1\/export\?format=json$/);
+    expect(clicks).toHaveLength(1);
+    expect(clicks[0].download).toBe('critical-path-export.json');
+  });
+
+  it('rejects when the manifest fallback also fails', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(413, { error: 'Too large; use format=json' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Internal Server Error' }));
+
+    const error = await downloadProjectExport('p1').catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(500);
+    expect(clicks).toHaveLength(0);
+  });
+
   it('rejects without touching the DOM when the project is gone', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(404, { error: 'Project not found' }));
 
@@ -71,17 +101,20 @@ describe('downloadProjectExport', () => {
     expect((error as ApiError).status).toBe(404);
     expect((error as ApiError).message).toBe('Project not found');
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(createObjectURL).not.toHaveBeenCalled();
     expect(clicks).toHaveLength(0);
   });
 
-  it('releases the object url even when the click throws', async () => {
+  it('cleans up the anchor and the object url even when the click throws', async () => {
     fetchMock.mockResolvedValueOnce(zipResponse());
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
       throw new Error('navigation blocked');
     });
 
     await expect(downloadProjectExport('p1')).rejects.toThrow('navigation blocked');
+    expect(document.querySelector('a[download]')).toBeNull();
+    await settleRevoke();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url');
   });
 });

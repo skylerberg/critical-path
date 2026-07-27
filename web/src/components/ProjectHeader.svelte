@@ -26,12 +26,14 @@
     if (exporting) return;
     exporting = true;
     try {
-      await downloadProjectExport(projectId);
+      if ((await downloadProjectExport(projectId)) === 'json') {
+        toasts.success('This project is too large to package with its images — saved as JSON.');
+      }
     } catch (error) {
       toasts.error(
-        error instanceof ApiError && error.status === 404
-          ? 'This project is no longer available.'
-          : 'Could not export this project. Check your connection and try again.'
+        error instanceof ApiError
+          ? error.message
+          : 'Could not reach the server. Check your connection and try again.'
       );
     } finally {
       exporting = false;
@@ -124,7 +126,9 @@
       type="button"
       onclick={exportProject}
       disabled={exporting}
-      class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink disabled:cursor-default"
+      aria-label="Export"
+      aria-busy={exporting}
+      class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink disabled:pointer-events-none disabled:opacity-50"
     >
       {#if exporting}
         <Spinner size="sm" label="Exporting" />

@@ -203,6 +203,8 @@ describe('ProjectHeader', () => {
 
     await waitFor(() => expect(button).toBeDisabled());
     expect(screen.getByRole('status', { name: 'Exporting' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export' })).toBe(button);
+    expect(button).toHaveAttribute('aria-busy', 'true');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect((fetchMock.mock.calls[0][0] as Request).url).toMatch(/\/api\/projects\/p1\/export$/);
 
@@ -221,8 +223,9 @@ describe('ProjectHeader', () => {
     expect(toasts.toasts).toEqual([]);
   });
 
-  it('reports a failed export and re-enables the button', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Internal Server Error' }));
+  it('saves the manifest and says so when the project is too big to package', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(413, { error: 'Too large; use format=json' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { format: 'critical-path-project-export' }));
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
     const button = screen.getByRole('button', { name: 'Export' });
@@ -230,10 +233,45 @@ describe('ProjectHeader', () => {
 
     await waitFor(() => expect(toasts.toasts).toHaveLength(1));
     expect(toasts.toasts[0]).toMatchObject({
-      variant: 'error',
-      message: 'Could not export this project. Check your connection and try again.',
+      variant: 'success',
+      message: 'This project is too large to package with its images — saved as JSON.',
     });
     expect(button).not.toBeDisabled();
+  });
+
+  it('reports what the server said about a failed export and re-enables the button', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Something broke' }));
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    const button = screen.getByRole('button', { name: 'Export' });
+    await fireEvent.click(button);
+
+    await waitFor(() => expect(toasts.toasts).toHaveLength(1));
+    expect(toasts.toasts[0]).toMatchObject({ variant: 'error', message: 'Something broke' });
+    expect(button).not.toBeDisabled();
+  });
+
+  it('reports a deleted project without blaming the connection', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(404, { error: 'Project not found' }));
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+
+    await waitFor(() => expect(toasts.toasts).toHaveLength(1));
+    expect(toasts.toasts[0]).toMatchObject({ variant: 'error', message: 'Project not found' });
+  });
+
+  it('blames the connection only when the request never reached the server', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+
+    await waitFor(() => expect(toasts.toasts).toHaveLength(1));
+    expect(toasts.toasts[0]).toMatchObject({
+      variant: 'error',
+      message: 'Could not reach the server. Check your connection and try again.',
+    });
   });
 
   it('carries the active filters on both view tabs so switching views keeps them', () => {
