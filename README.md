@@ -158,17 +158,25 @@ the same title, label set, assignee set or blocker writes nothing. The names in
 `{ id, name }` are snapshotted at write time, so an entry still reads correctly
 after the column, label or blocker task it names is renamed or deleted; a
 client that wants a live name (or a label's color) can look the id up. Moving a
-card within its column is not an event. Deleting a column with
-`move_tasks_to` logs a `column_changed` on every task it relocates. Removing a
-project member logs an `assignee_removed` on each task their assignment was
-stripped from, attributed to the caller. Deleting a label or a task writes
-nothing to any other card's log.
+card within its column is not an event.
+
+Side effects of one card's mutation are logged on the cards they change.
+Deleting a column with `move_tasks_to` logs a `column_changed` on every task it
+relocates. Removing a project member logs an `assignee_removed` on each task
+their assignment was stripped from, attributed to the caller. Deleting a label
+logs a `label_removed` on every task that carried it, and deleting a task logs a
+`blocker_removed` on every task it was blocking — the deleted card's own log
+goes with it, but its dependents' logs outlive it. Archiving a task is not a
+blocker change: the edges survive and restoring brings them back, so only the
+archived card gets an entry.
 
 Consecutive `description_changed` entries by the same actor within five minutes
 are coalesced into one entry, whose `old_value` stays the document from before
 that session — editors autosave on an idle debounce, and one entry per save
-would carry two whole documents each time. That coalescing is the only case
-where an existing entry is rewritten; nothing else updates or deletes a row.
+would carry two whole documents each time. If the edit ends up back at the
+document the entry started from, the entry is dropped rather than left recording
+nothing. That coalescing is the only case where an existing entry is rewritten
+or removed; nothing else updates or deletes a row.
 A log cascades away with its task and with its actor's account. No realtime
 event is published for activity; every mutation that writes an entry already
 publishes its own event. The log starts at this release, so tasks created
