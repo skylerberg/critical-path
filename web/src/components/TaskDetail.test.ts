@@ -289,7 +289,7 @@ describe('TaskDetail', () => {
     }
 
     it('marks an image as the cover and shows it as pressed', async () => {
-      render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
       await screen.findByAltText('mock.png');
       expect(coverToggle()).toHaveAttribute('aria-pressed', 'false');
 
@@ -306,7 +306,7 @@ describe('TaskDetail', () => {
       board.tasks = board.tasks.map((t) =>
         t.id === 't1' ? { ...t, cover_image_url: '/api/images/img1' } : t
       );
-      render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
       await screen.findByAltText('mock.png');
       expect(coverToggle()).toHaveAttribute('aria-pressed', 'true');
 
@@ -320,7 +320,7 @@ describe('TaskDetail', () => {
       board.tasks = board.tasks.map((t) =>
         t.id === 't1' ? { ...t, cover_image_url: '/api/images/img1' } : t
       );
-      render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
       await screen.findByAltText('mock.png');
 
       await fireEvent.click(screen.getByRole('button', { name: 'Delete image mock.png' }));
@@ -329,7 +329,7 @@ describe('TaskDetail', () => {
     });
 
     it('offers no cover toggle on a read-only board', async () => {
-      render(TaskDetail, { taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+      renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
 
       await waitFor(() => expect(screen.getByRole('heading', { name: 'Column' })).toBeVisible());
       expect(screen.queryByRole('button', { name: /as cover/ })).toBeNull();

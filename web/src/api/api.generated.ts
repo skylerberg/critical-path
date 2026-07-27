@@ -442,7 +442,7 @@ export interface paths {
         put?: never;
         /**
          * Duplicate a column
-         * @description Copy a column and every live card in it into the same project. The new column keeps the source’s name and done flag; each copied card keeps its title, description, due date, labels, assignees, images and its position, so the cards land in the same relative order. A dependency edge is copied only when both of its ends are inside the copied set, so edges between two cards in the column survive and edges leaving it do not. Archived cards are not copied, and neither are comments or activity history — each copy’s log starts with its own created entry. The client supplies the new column id and its position; a duplicate id returns 409. One column_created event is published plus one task_created per copied card.
+         * @description Copy a column and every live card in it into the same project. The new column keeps the source’s name and done flag; each copied card keeps its title, description, due date, labels, assignees, images, cover image and its position, so the cards land in the same relative order. A dependency edge is copied only when both of its ends are inside the copied set, so edges between two cards in the column survive and edges leaving it do not. Archived cards are not copied, and neither are comments or activity history — each copy’s log starts with its own created entry. The client supplies the new column id and its position; a duplicate id returns 409. One column_created event is published plus one task_created per copied card.
          */
         post: operations["postApiColumnsByIdDuplicate"];
         delete?: never;
@@ -546,7 +546,7 @@ export interface paths {
         put?: never;
         /**
          * Duplicate a task
-         * @description Copy a task into the same column. The copy carries the title, description, due date, labels, assignees and images of the original, each image copied to its own stored object so deleting one leaves the other intact. It carries no dependency edges: a copy keeps an edge only when both of its ends are copied too, which one card never is. It carries no comments and no activity history either — the copy’s log starts with its own created entry. Duplicating an archived task produces a live card. The client supplies the new id and its position; a duplicate id returns 409.
+         * @description Copy a task into the same column. The copy carries the title, description, due date, labels, assignees, images and cover image of the original, each image copied to its own stored object so deleting one leaves the other intact. It carries no dependency edges: a copy keeps an edge only when both of its ends are copied too, which one card never is. It carries no comments and no activity history either — the copy’s log starts with its own created entry. Duplicating an archived task produces a live card. The client supplies the new id and its position; a duplicate id returns 409.
          */
         post: operations["postApiTasksByIdDuplicate"];
         delete?: never;

@@ -12,6 +12,7 @@ import { users } from './users.svelte';
 const CYCLE_ERROR = 'Adding this blocker would create a dependency cycle';
 const SERVER_CREATED_AT = '2026-01-15T00:00:00Z';
 const SERVER_UPDATED_AT = '2026-02-01T00:00:00Z';
+const SERVER_COVER_IMAGE_URL = '/api/images/copied-img';
 const SERVER_ARCHIVED_AT = '2026-03-01T00:00:00Z';
 
 function commentBody(text: string) {
@@ -148,6 +149,8 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
         comment_count: 0,
         created_at: SERVER_CREATED_AT,
         updated_at: SERVER_UPDATED_AT,
+        // The copy gets its own image row, so its cover never reuses the source's id.
+        cover_image_url: source.cover_image_url === null ? null : SERVER_COVER_IMAGE_URL,
       });
     }
     const duplicatedColumn = /^\/api\/columns\/([^/]+)\/duplicate$/.exec(url.pathname);
@@ -795,6 +798,21 @@ describe('board store mutations', () => {
     expect(copy.comment_count).toBe(0);
 
     await pending;
+  });
+
+  it('duplicateTask shows a cover immediately and takes the server copy of it', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1' ? { ...t, cover_image_url: '/api/images/img1' } : t
+    );
+
+    const pending = board.duplicateTask('t1');
+
+    // The source's URL stands in until the response lands: same picture, and the
+    // copy's own image has no id yet.
+    expect(board.tasksInColumn('c1')[1]!.cover_image_url).toBe('/api/images/img1');
+
+    const id = await pending;
+    expect(board.tasks.find((t) => t.id === id)?.cover_image_url).toBe(SERVER_COVER_IMAGE_URL);
   });
 
   it('duplicateTask failure toasts, resyncs, and drops the optimistic copy', async () => {
