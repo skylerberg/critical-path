@@ -180,6 +180,19 @@ describe('Project members API', () => {
         .where('task_id', '=', taskId)
         .execute();
       expect(assignees.map((row) => row.user_id)).toEqual([owner.id]);
+
+      const activityRes = await ctx.request(owner.token).get(`/api/tasks/${taskId}/activity`);
+      expect(activityRes.status).toBe(200);
+      const { activity } = (await activityRes.json()) as {
+        activity: Array<{ kind: string; actor_user_id: string; old_value: unknown }>;
+      };
+      expect(activity).toEqual([
+        expect.objectContaining({
+          kind: 'assignee_removed',
+          actor_user_id: owner.id,
+          old_value: { id: member.id, name: member.name },
+        }),
+      ]);
     });
   });
 
