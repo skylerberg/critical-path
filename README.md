@@ -139,6 +139,49 @@ conversation exists without fetching it. Comments cascade away with their task
 and with their author's account, and are not copied when a project is
 duplicated via `POST /api/projects` with `source_project_id`.
 
+### Task activity
+
+Every task carries an append-only log of what happened to it.
+`GET /api/tasks/:id/activity` serves it oldest first, unpaginated, to anyone
+with access to the project; an unknown or inaccessible task answers 404. Each
+entry is `{ id, kind, actor_user_id, old_value, new_value, created_at }`, and
+the kinds are `created`, `title_changed`, `description_changed`,
+`column_changed`, `label_added`, `label_removed`, `assignee_added`,
+`assignee_removed`, `blocker_added`, `blocker_removed`, `archived` and
+`restored`. `old_value` / `new_value` carry `{ text }` for a title, `{ doc }`
+for a description, and `{ id, name }` for a column, label, user or blocker;
+both are null for archive and restore.
+
+Entries are written inside the transaction of the mutation they record, so
+they roll back with it, and only when something actually changed — re-sending
+the same title, label set, assignee set or blocker writes nothing. The names in
+`{ id, name }` are snapshotted at write time, so an entry still reads correctly
+after the column, label or blocker task it names is renamed or deleted; a
+client that wants a live name (or a label's color) can look the id up. Moving a
+card within its column is not an event.
+
+Side effects of one card's mutation are logged on the cards they change.
+Deleting a column with `move_tasks_to` logs a `column_changed` on every task it
+relocates. Removing a project member logs an `assignee_removed` on each task
+their assignment was stripped from, attributed to the caller. Deleting a label
+logs a `label_removed` on every task that carried it, and deleting a task logs a
+`blocker_removed` on every task it was blocking — the deleted card's own log
+goes with it, but its dependents' logs outlive it. Archiving a task is not a
+blocker change: the edges survive and restoring brings them back, so only the
+archived card gets an entry.
+
+Consecutive `description_changed` entries by the same actor within five minutes
+are coalesced into one entry, whose `old_value` stays the document from before
+that session — editors autosave on an idle debounce, and one entry per save
+would carry two whole documents each time. If the edit ends up back at the
+document the entry started from, the entry is dropped rather than left recording
+nothing. That coalescing is the only case where an existing entry is rewritten
+or removed; nothing else updates or deletes a row.
+A log cascades away with its task and with its actor's account. No realtime
+event is published for activity; every mutation that writes an entry already
+publishes its own event. The log starts at this release, so tasks created
+earlier read as empty until they next change.
+
 ### Archived tasks
 
 `POST /api/tasks/:id/archive` is a soft delete: it stamps `task.archived_at`

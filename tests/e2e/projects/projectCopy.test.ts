@@ -204,6 +204,55 @@ describe('POST /api/projects with source_project_id', () => {
     expect(getRes.status).toBe(404);
   });
 
+  it('starts each copied task’s activity log at a single created entry', async () => {
+    const sourceId = newId();
+    projectIds.push(sourceId);
+    const sourceRes = await ctx
+      .request(user.token)
+      .post('/api/projects', { id: sourceId, name: 'History source' });
+    expect(sourceRes.status).toBe(201);
+    const source = (await sourceRes.json()) as BoardPayloadBody;
+
+    const taskId = newId();
+    expect(
+      (
+        await ctx.request(user.token).post('/api/tasks', {
+          id: taskId,
+          project_id: sourceId,
+          column_id: source.columns[0]!.id,
+          title: 'Original',
+          position: 1000,
+        })
+      ).status
+    ).toBe(201);
+    expect(
+      (await ctx.request(user.token).patch(`/api/tasks/${taskId}`, { title: 'Renamed' })).status
+    ).toBe(200);
+
+    const copyId = newId();
+    projectIds.push(copyId);
+    const copyRes = await ctx
+      .request(user.token)
+      .post('/api/projects', { id: copyId, name: 'Copy', source_project_id: sourceId });
+    expect(copyRes.status).toBe(201);
+    const copy = (await copyRes.json()) as BoardPayloadBody;
+
+    const activityRes = await ctx
+      .request(user.token)
+      .get(`/api/tasks/${copy.tasks[0]!.id}/activity`);
+    expect(activityRes.status).toBe(200);
+    const { activity } = (await activityRes.json()) as {
+      activity: Array<{ kind: string; actor_user_id: string; new_value: unknown }>;
+    };
+    expect(activity).toEqual([
+      expect.objectContaining({
+        kind: 'created',
+        actor_user_id: user.id,
+        new_value: { text: 'Renamed' },
+      }),
+    ]);
+  });
+
   it('never inherits the source board’s public flag', async () => {
     const sourceId = newId();
     projectIds.push(sourceId);
