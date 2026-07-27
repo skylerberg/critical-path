@@ -101,6 +101,35 @@ conversation exists without fetching it. Comments cascade away with their task
 and with their author's account, and are not copied when a project is
 duplicated via `POST /api/projects` with `source_project_id`.
 
+### Archived tasks
+
+`POST /api/tasks/:id/archive` is a soft delete: it stamps `task.archived_at`
+and the card leaves the board without losing anything.
+`POST /api/tasks/:id/restore` clears the stamp and puts it back in the column
+and position it left from, with every dependency edge intact — the
+`task_dependency` rows are never touched by either call. Both are idempotent
+and both return the task; archive returns it with its `archived_at`.
+`GET /api/projects/:id/archived-tasks` lists a project's archive, newest
+first, unpaginated.
+
+An archived task behaves as if deleted, not as if done. It is absent from
+`GET /api/projects/:id`, from the export, from a project copy, and from the
+`open_task_count` / `done_task_count` of `GET /api/projects`. It also
+disappears from the `blocker_ids` of the tasks it blocks, rather than reading
+there as a satisfied blocker the way a done task does. Only
+`GET /api/tasks/:id` still serves it, carrying `archived_at` so a client can
+tell; on every unarchived task that field is null.
+
+Archiving does not bump `updated_at`: the card's content did not change, and
+moving the timestamp would invalidate the `expected_updated_at` precondition
+of every open editor. An archived task may not be named as
+`blocker_task_id` — board reads hide it, so the edge would be undisplayable
+and unremovable — but a blocker may be added *to* an archived task, which is
+what "restore brings the edges back" means. Cycle detection walks archived
+edges, so a restore can never introduce a cycle. Deleting a column still
+relocates its archived cards along with its visible ones, so archiving never
+turns into an accidental hard delete.
+
 ### Public boards
 
 `PATCH /api/projects/:id { is_public: true }` publishes a project read-only.
@@ -154,6 +183,8 @@ Every mutation emits an event after its transaction commits. The envelope is
 | ------------------------------- | ---------------------------------------------------- |
 | `task_created` / `task_updated` | board task shape                                     |
 | `task_deleted`                  | `{ id }`                                             |
+| `task_archived`                 | board task shape plus `archived_at`                  |
+| `task_restored`                 | board task shape                                     |
 | `task_relations_set`            | `{ task_id, label_ids, assignee_ids, blocker_ids }`  |
 | `column_created` / `column_updated` | column response shape                            |
 | `column_deleted`                | `{ id, moved_tasks }`                                |
@@ -170,8 +201,11 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `user_updated`                  | public user `{ id, email, name, avatar_url }`        |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
-add/remove, and by the cascade that strips assignees when a project member is
-removed.
+add/remove, by the cascade that strips assignees when a project member is
+removed, and by restore — once per live task the restored card blocks, so
+their `blocker_ids` regain its id. Archiving emits no such fan-out: like
+`task_deleted` it carries only the archived card, and clients strip its id
+from every `blocker_ids` they hold.
 
 Delivery: project-scoped events go to sockets subscribed to that project whose
 user can access it (re-checked per event against `created_by` and
@@ -395,6 +429,9 @@ cpath task create "Fix the bug" --project "My Project" --description "See **note
 cpath task move "Fix the bug" --project "My Project" --column "In Progress" --top
 cpath task done "Fix the bug" --project "My Project"
 cpath task block "Ship it" --by "Fix the bug" --project "My Project"
+cpath task archive "Fix the bug" --project "My Project"
+cpath task archived --project "My Project" --search bug
+cpath task restore "Fix the bug" --project "My Project"
 cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Project"
 cpath config set default-project "My Project"   # makes --project optional
 cpath watch --project "My Project" | jq 'select(.type=="task_created")'
@@ -402,9 +439,13 @@ cpath watch --project "My Project" | jq 'select(.type=="task_created")'
 
 Entity references accept a UUID, a unique id prefix (>= 4 chars), an exact
 name/title (case-insensitive), or a unique substring; ambiguity is an error
-listing the candidates. Task descriptions are Markdown in and out, converted
-to the API's restricted Tiptap JSON (`--description-json` is the raw escape
-hatch).
+listing the candidates. Task references resolve against the board, which has
+no archived cards in it, so `task archive`, `task restore`, `task show` and
+`task delete` fall back to the archive on a miss; every board-shaped mutation
+(`move`, `done`, `update`, `label`, `assign`, `block`) deliberately does not,
+and answers `No task matching` for an archived card, by id as well as by
+title. Task descriptions are Markdown in and out, converted to the API's
+restricted Tiptap JSON (`--description-json` is the raw escape hatch).
 
 Every command takes `--json` for machine-readable output and `--no-input` to
 fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2

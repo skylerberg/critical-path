@@ -6,13 +6,18 @@ import { confirmOrAbort, readAllStdin } from '../prompt';
 import {
   UUID_RE,
   fetchBoard,
+  listArchivedTasks,
   listUsers,
+  matchArchivedTask,
+  matchRefOrNull,
   resolveBoard,
   resolveColumn,
   resolveLabel,
+  resolveProject,
   resolveTaskId,
   resolveTaskInBoard,
   resolveUser,
+  type ArchivedTask,
   type BoardColumn,
   type BoardPayload,
   type BoardTask,
@@ -138,24 +143,53 @@ interface TaskContext {
   task: BoardTask;
 }
 
+// Archived cards are absent from the board every task ref resolves through, so
+// the commands that must still address them opt into a second lookup.
 async function resolveTaskContext(
   ctx: RuntimeContext,
   ref: string,
-  projectRef?: string
+  projectRef?: string,
+  opts: { includeArchived?: boolean } = {}
 ): Promise<TaskContext> {
+  const archivedFallback = async (
+    board: BoardPayload,
+    match: (archived: ArchivedTask[]) => BoardTask | null
+  ): Promise<TaskContext> => {
+    if (opts.includeArchived === true) {
+      const task = match(await listArchivedTasks(ctx, board.project.id));
+      if (task != null) {
+        return { board, task };
+      }
+    }
+    throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
+  };
+
   if (UUID_RE.test(ref)) {
     const detail = assertOk(
       await ctx.api.GET('/api/tasks/{id}', { params: { path: { id: ref } } })
     );
     const board = await fetchBoard(ctx, detail.project_id);
     const task = board.tasks.find((t) => t.id.toLowerCase() === ref.toLowerCase());
-    if (task == null) {
-      throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
+    if (task != null) {
+      return { board, task };
     }
-    return { board, task };
+    return archivedFallback(
+      board,
+      (archived) => archived.find((t) => t.id.toLowerCase() === ref.toLowerCase()) ?? null
+    );
   }
   const board = await resolveBoard(ctx, projectRef);
-  return { board, task: resolveTaskInBoard(board, ref) };
+  const task = matchRefOrNull(
+    ref,
+    board.tasks,
+    'task',
+    (t) => t.id,
+    (t) => t.title
+  );
+  if (task !== null) {
+    return { board, task };
+  }
+  return archivedFallback(board, (archived) => matchArchivedTask(archived, ref));
 }
 
 async function descriptionFrom(
@@ -385,7 +419,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
       .argument('<task>', 'task id or title')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
-          const taskId = await resolveTaskId(ctx, ref, opts.project as string | undefined);
+          const taskId = await resolveTaskId(ctx, ref, opts.project as string | undefined, {
+            includeArchived: true,
+          });
           const detail = assertOk(
             await ctx.api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } })
           );
@@ -406,6 +442,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
             ctx.out.line(`Column:    ${columnName}`);
             ctx.out.line(`Created:   ${detail.created_at}`);
             ctx.out.line(`Updated:   ${detail.updated_at}`);
+            if (detail.archived_at != null) {
+              ctx.out.line(`Archived:  ${detail.archived_at}`);
+            }
             if (detail.label_ids.length > 0) {
               const names = detail.label_ids.map((id) => labelName.get(id) ?? id);
               ctx.out.line(`Labels:    ${names.join(', ')}`);
@@ -513,7 +552,11 @@ export function registerTask(program: Command, deps: CliDeps): void {
               EXIT.usage
             );
           }
-          const taskId = await resolveTaskId(ctx, ref, opts.project as string | undefined);
+          const { task: target } = await resolveTaskContext(
+            ctx,
+            ref,
+            opts.project as string | undefined
+          );
           const body: { title?: string; description?: TiptapDoc | null } = {};
           if (title !== undefined) {
             body.title = title;
@@ -522,7 +565,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
             body.description = description;
           }
           const updated = assertOk(
-            await ctx.api.PATCH('/api/tasks/{id}', { params: { path: { id: taskId } }, body })
+            await ctx.api.PATCH('/api/tasks/{id}', { params: { path: { id: target.id } }, body })
           );
           ctx.out.data(updated, () => ctx.out.line(`Updated task "${updated.title}"`));
         })
@@ -593,6 +636,75 @@ export function registerTask(program: Command, deps: CliDeps): void {
   );
 
   task.addCommand(
+    taskLeaf('archive')
+      .description('Archive a task: it leaves the board but stays restorable')
+      .argument('<task>', 'task id or title')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const { task: target } = await resolveTaskContext(
+            ctx,
+            ref,
+            opts.project as string | undefined,
+            { includeArchived: true }
+          );
+          const archived = assertOk(
+            await ctx.api.POST('/api/tasks/{id}/archive', { params: { path: { id: target.id } } })
+          );
+          ctx.out.data(archived, () => ctx.out.line(`Archived task "${archived.title}"`));
+        })
+      )
+  );
+
+  task.addCommand(
+    taskLeaf('restore')
+      .description('Restore an archived task to its column')
+      .argument('<archived-task>', 'archived task id or title')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const taskId = await resolveTaskId(ctx, ref, opts.project as string | undefined, {
+            includeArchived: true,
+          });
+          const restored = assertOk(
+            await ctx.api.POST('/api/tasks/{id}/restore', { params: { path: { id: taskId } } })
+          );
+          ctx.out.data(restored, () => ctx.out.line(`Restored task "${restored.title}"`));
+        })
+      )
+  );
+
+  task.addCommand(
+    taskLeaf('archived')
+      .description('List archived tasks')
+      .option('--search <text>', 'case-insensitive title substring')
+      .action(
+        withCtx(deps, async (ctx, opts) => {
+          const project = await resolveProject(ctx, opts.project as string | undefined);
+          const board = await fetchBoard(ctx, project.id);
+          const needle = typeof opts.search === 'string' ? opts.search.toLowerCase() : null;
+          const tasks = (await listArchivedTasks(ctx, project.id)).filter(
+            (t) => needle === null || t.title.toLowerCase().includes(needle)
+          );
+          const columnName = new Map(board.columns.map((c) => [c.id, c.name]));
+          ctx.out.data(tasks, () => {
+            if (tasks.length === 0) {
+              ctx.out.line('No archived tasks');
+              return;
+            }
+            ctx.out.table(
+              ['ID', 'ARCHIVED', 'COLUMN', 'TITLE'],
+              tasks.map((t) => [
+                t.id.slice(0, 8),
+                t.archived_at,
+                columnName.get(t.column_id) ?? '',
+                t.title,
+              ])
+            );
+          });
+        })
+      )
+  );
+
+  task.addCommand(
     taskLeaf('delete')
       .description('Delete a task')
       .argument('<task>', 'task id or title')
@@ -602,7 +714,8 @@ export function registerTask(program: Command, deps: CliDeps): void {
           const { task: target } = await resolveTaskContext(
             ctx,
             ref,
-            opts.project as string | undefined
+            opts.project as string | undefined,
+            { includeArchived: true }
           );
           await confirmOrAbort(ctx, `Delete task "${target.title}"?`, opts.force === true);
           assertOk(

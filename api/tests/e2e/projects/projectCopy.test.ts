@@ -229,6 +229,70 @@ describe('POST /api/projects with source_project_id', () => {
     expect(publicRes.status).toBe(404);
   });
 
+  it('copies neither archived tasks nor their labels, images or dependency edges', async () => {
+    const sourceId = newId();
+    projectIds.push(sourceId);
+    const sourceRes = await ctx
+      .request(user.token)
+      .post('/api/projects', { id: sourceId, name: 'Archive source' });
+    expect(sourceRes.status).toBe(201);
+    const source = (await sourceRes.json()) as BoardPayloadBody;
+    const backlog = source.columns.find((c) => c.name === 'Backlog')!;
+
+    const labelId = await insertLabel({ projectId: sourceId, name: 'shelved', color: '#445566' });
+    const keptId = await insertTask({
+      projectId: sourceId,
+      columnId: backlog.id,
+      title: 'Kept',
+      position: 1000,
+    });
+    const shelvedId = await insertTask({
+      projectId: sourceId,
+      columnId: backlog.id,
+      title: 'Shelved',
+      position: 2000,
+    });
+    const blockedId = await insertTask({
+      projectId: sourceId,
+      columnId: backlog.id,
+      title: 'Blocked by both',
+      position: 3000,
+    });
+    await db.insertInto('task_label').values({ task_id: shelvedId, label_id: labelId }).execute();
+    await insertTaskImage({ taskId: shelvedId });
+    await db
+      .insertInto('task_dependency')
+      .values([
+        { blocker_task_id: keptId, blocked_task_id: blockedId },
+        { blocker_task_id: shelvedId, blocked_task_id: blockedId },
+      ])
+      .execute();
+
+    expect((await ctx.request(user.token).post(`/api/tasks/${shelvedId}/archive`)).status).toBe(
+      200
+    );
+
+    const copyId = newId();
+    projectIds.push(copyId);
+    const copyRes = await ctx
+      .request(user.token)
+      .post('/api/projects', { id: copyId, name: 'Archive copy', source_project_id: sourceId });
+    expect(copyRes.status).toBe(201);
+    const copy = (await copyRes.json()) as BoardPayloadBody;
+
+    expect(copy.tasks.map((t) => t.title).sort()).toEqual(['Blocked by both', 'Kept']);
+    const copiedKept = copy.tasks.find((t) => t.title === 'Kept')!;
+    const copiedBlocked = copy.tasks.find((t) => t.title === 'Blocked by both')!;
+    expect(copiedBlocked.blocker_ids).toEqual([copiedKept.id]);
+    expect(copy.tasks.every((t) => t.label_ids.length === 0)).toBe(true);
+    expect(copy.tasks.every((t) => t.image_count === 0)).toBe(true);
+
+    const archivedInCopy = await ctx
+      .request(user.token)
+      .get(`/api/projects/${copyId}/archived-tasks`);
+    expect(((await archivedInCopy.json()) as { tasks: unknown[] }).tasks).toEqual([]);
+  });
+
   it('returns 422 when source_project_id does not exist', async () => {
     const res = await ctx.request(user.token).post('/api/projects', {
       id: newId(),

@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto';
 import { sortedColumns, sortedTasksIn } from '../board';
-import { effectiveProjectRef, fetchBoard, listProjects, listUsers, matchProject } from '../resolve';
+import {
+  effectiveProjectRef,
+  fetchBoard,
+  listArchivedTasks,
+  listProjects,
+  listUsers,
+  matchProject,
+} from '../resolve';
 import { readCached, writeCached } from './cache';
 import type { RuntimeContext } from '../context';
 import type { Candidate, CompletionPlan } from './plan';
@@ -77,6 +84,14 @@ async function cachedBoard(ctx: RuntimeContext, projectId: string): Promise<Boar
   });
 }
 
+async function cachedArchive(ctx: RuntimeContext, projectId: string): Promise<Candidate[]> {
+  return cached(ctx, `archive:${projectId}`, async () =>
+    toCandidates(
+      (await listArchivedTasks(ctx, projectId)).map((task) => ({ id: task.id, name: task.title }))
+    )
+  );
+}
+
 async function cachedUsers(ctx: RuntimeContext, projectId?: string): Promise<Candidate[]> {
   return cached(ctx, `users:${projectId ?? 'all'}`, async () =>
     (await listUsers(ctx, projectId)).map((user) => ({ value: user.email, description: user.name }))
@@ -106,7 +121,11 @@ export async function candidatesFor(
     }
     return cachedUsers(ctx, projectId);
   }
-  const board = await cachedBoard(ctx, await resolveProjectId(ctx, plan.projectRef));
+  const projectId = await resolveProjectId(ctx, plan.projectRef);
+  if (plan.valueKind === 'archived-task') {
+    return cachedArchive(ctx, projectId);
+  }
+  const board = await cachedBoard(ctx, projectId);
   if (plan.valueKind === 'column') {
     return board.columns;
   }

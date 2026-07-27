@@ -388,6 +388,30 @@ describe('DELETE /api/columns/:id', () => {
     ]);
   });
 
+  it('counts and relocates archived tasks instead of cascade-deleting them', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Only archived' });
+    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const taskId = await insertTask(projectId, sourceId, 1000);
+    expect((await ctx.request(token).post(`/api/tasks/${taskId}/archive`)).status).toBe(200);
+
+    const refused = await ctx.request(token).delete(`/api/columns/${sourceId}`);
+    expect(refused.status).toBe(409);
+
+    const res = await ctx
+      .request(token)
+      .delete(`/api/columns/${sourceId}?move_tasks_to=${targetId}`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).moved_tasks).toEqual([
+      { id: taskId, column_id: targetId, position: 1000 },
+    ]);
+
+    const archived = await ctx.request(token).get(`/api/projects/${projectId}/archived-tasks`);
+    expect(((await archived.json()) as { tasks: Array<Record<string, unknown>> }).tasks).toEqual([
+      expect.objectContaining({ id: taskId, column_id: targetId }),
+    ]);
+  });
+
   it('starts positions at 1000 when the target column is empty', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });

@@ -91,6 +91,7 @@ export interface Session {
 }
 
 export interface Task {
+  archived_at: Timestamp | null;
   column_id: string;
   created_at: Generated<Timestamp>;
   description: Json | null;

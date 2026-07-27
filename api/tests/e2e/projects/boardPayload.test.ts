@@ -119,4 +119,40 @@ describe('GET /api/projects/:id board payload', () => {
       { id: unusedLabelId, name: 'idea', color: '#00bb00' },
     ]);
   });
+
+  it('omits archived tasks and their edges from the payload', async () => {
+    const projectId = newId();
+    projectIds.push(projectId);
+    const createRes = await ctx
+      .request(user.token)
+      .post('/api/projects', { id: projectId, name: 'With archive' });
+    expect(createRes.status).toBe(201);
+    const board = (await createRes.json()) as BoardPayloadBody;
+    const backlog = board.columns.find((c) => c.name === 'Backlog')!;
+
+    const archivedId = await insertTask({
+      projectId,
+      columnId: backlog.id,
+      title: 'Archived',
+      position: 1000,
+    });
+    const liveId = await insertTask({
+      projectId,
+      columnId: backlog.id,
+      title: 'Live',
+      position: 2000,
+    });
+    await db
+      .insertInto('task_dependency')
+      .values({ blocker_task_id: archivedId, blocked_task_id: liveId })
+      .execute();
+    expect((await ctx.request(user.token).post(`/api/tasks/${archivedId}/archive`)).status).toBe(
+      200
+    );
+
+    const res = await ctx.request(user.token).get(`/api/projects/${projectId}`);
+    const payload = (await res.json()) as BoardPayloadBody;
+    expect(payload.tasks.map((t) => t.id)).toEqual([liveId]);
+    expect(payload.tasks[0]!.blocker_ids).toEqual([]);
+  });
 });

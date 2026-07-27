@@ -15,12 +15,17 @@ import {
   wouldCreateDependencyCycle,
 } from '../services/dependencies';
 import { publishAfterCommit } from '../services/realtime/index';
-import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
+import {
+  fetchTaskRelations,
+  publishTaskRelationsSet,
+  unarchivedBlockerIds,
+} from '../services/taskRelations';
 import {
   idSchema,
   createTaskSchema,
   patchTaskSchema,
   taskDetailResponseSchema,
+  archivedTaskSchema,
   addBlockerSchema,
   setTaskLabelsSchema,
   setTaskAssigneesSchema,
@@ -44,7 +49,7 @@ const router: AppHono = new Hono();
 async function fetchBoardTask(
   db: Kysely<DB>,
   taskId: string
-): Promise<{ task: BoardTask; project_id: string } | undefined> {
+): Promise<{ task: BoardTask; project_id: string; archived_at: string | null } | undefined> {
   const row = await db
     .selectFrom('task')
     .select((eb) => [
@@ -56,6 +61,7 @@ async function fetchBoardTask(
       'task.position',
       'task.created_at',
       'task.updated_at',
+      'task.archived_at',
       jsonArrayFrom(
         eb
           .selectFrom('task_label')
@@ -70,13 +76,7 @@ async function fetchBoardTask(
           .whereRef('task_assignee.task_id', '=', 'task.id')
           .orderBy('task_assignee.user_id')
       ).as('assignees'),
-      jsonArrayFrom(
-        eb
-          .selectFrom('task_dependency')
-          .select('task_dependency.blocker_task_id')
-          .whereRef('task_dependency.blocked_task_id', '=', 'task.id')
-          .orderBy('task_dependency.blocker_task_id')
-      ).as('blockers'),
+      unarchivedBlockerIds(eb).as('blockers'),
       eb
         .selectFrom('task_image')
         .select((ib) => ib.fn.countAll<string>().as('count'))
@@ -111,6 +111,7 @@ async function fetchBoardTask(
       comment_count: Number(row.comment_count ?? 0),
     },
     project_id: row.project_id,
+    archived_at: row.archived_at?.toISOString() ?? null,
   };
 }
 
@@ -286,8 +287,9 @@ router.get(
     tags: ['Tasks'],
     summary: 'Get task detail',
     description:
-      'Get a task in board-payload shape plus its project id, images, and its full comment ' +
-      'stream oldest first.',
+      'Get a task in board-payload shape plus its project id, archived_at (null unless the ' +
+      'task is archived), images, and its full comment stream oldest first. Archived tasks ' +
+      'are readable here even though they are absent from every board payload.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -364,7 +366,16 @@ router.get(
       updated_at: comment.updated_at.toISOString(),
     }));
 
-    return c.json({ ...result.task, project_id: result.project_id, images, comments }, 200);
+    return c.json(
+      {
+        ...result.task,
+        project_id: result.project_id,
+        archived_at: result.archived_at,
+        images,
+        comments,
+      },
+      200
+    );
   }
 );
 
@@ -513,6 +524,131 @@ router.delete(
   }
 );
 
+router.post(
+  '/:id/archive',
+  describeRoute({
+    tags: ['Tasks'],
+    summary: 'Archive a task',
+    description:
+      'Archive a task: a soft delete that keeps the row and every dependency edge but takes ' +
+      'the task out of the board payload, out of every blocker and dependent list, and out ' +
+      'of the project task counts. Archiving an already archived task is an idempotent 200 ' +
+      'that keeps the original archived_at. updated_at is not bumped — the card’s content ' +
+      'did not change.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Archived task in board-payload shape plus archived_at',
+        content: {
+          'application/json': {
+            schema: resolver(archivedTaskSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const db = c.get('db');
+
+    const project = await assertTaskAccess(db, c.get('user').id, id);
+
+    const archived = await db
+      .updateTable('task')
+      .set({ archived_at: sql<Date>`now()` })
+      .where('task.id', '=', id)
+      .where('task.archived_at', 'is', null)
+      .returning('task.id')
+      .executeTakeFirst();
+
+    const row = await fetchBoardTask(db, id);
+    if (!row || row.archived_at === null) {
+      throw new AppError(500, 'Failed to load archived task');
+    }
+    const body = { ...row.task, archived_at: row.archived_at };
+    if (archived) {
+      publishAfterCommit(c, 'task_archived', project.id, body);
+    }
+    return c.json(body, 200);
+  }
+);
+
+router.post(
+  '/:id/restore',
+  describeRoute({
+    tags: ['Tasks'],
+    summary: 'Restore an archived task',
+    description:
+      'Put an archived task back on the board in the column and position it left from, with ' +
+      'every dependency edge it had before intact. Restoring a task that is not archived is ' +
+      'an idempotent 200 that changes nothing.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Restored task in board-payload shape',
+        content: {
+          'application/json': {
+            schema: resolver(boardTaskSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const db = c.get('db');
+
+    const project = await assertTaskAccess(db, c.get('user').id, id);
+
+    const restored = await db
+      .updateTable('task')
+      .set({ archived_at: null })
+      .where('task.id', '=', id)
+      .where('task.archived_at', 'is not', null)
+      .returning('task.id')
+      .executeTakeFirst();
+
+    const row = await fetchBoardTask(db, id);
+    if (!row) {
+      throw new AppError(500, 'Failed to load restored task');
+    }
+
+    if (restored) {
+      publishAfterCommit(c, 'task_restored', project.id, row.task);
+      // The dependents' side of each edge is not derivable from the restored task
+      // alone, so their blocker_ids have to be republished.
+      const dependents = await db
+        .selectFrom('task_dependency')
+        .innerJoin('task', 'task.id', 'task_dependency.blocked_task_id')
+        .select('task_dependency.blocked_task_id')
+        .where('task_dependency.blocker_task_id', '=', id)
+        .where('task.archived_at', 'is', null)
+        .execute();
+      publishTaskRelationsSet(
+        c,
+        await fetchTaskRelations(
+          db,
+          dependents.map((dependent) => dependent.blocked_task_id)
+        )
+      );
+    }
+
+    return c.json(row.task, 200);
+  }
+);
+
 router.put(
   '/:id/labels',
   describeRoute({
@@ -632,8 +768,10 @@ router.post(
     summary: 'Add a blocker',
     description:
       'Add a dependency: the task in the body blocks the task in the path. The blocker must ' +
-      'be a different task in the same project (422 with a plain error body otherwise). ' +
-      'Adding an existing blocker is an idempotent 204. A dependency cycle returns 409. ' +
+      'be a different, unarchived task in the same project (422 with a plain error body ' +
+      'otherwise); the task being blocked may itself be archived, which is what lets a ' +
+      'restore bring its edges back. Adding an existing blocker is an idempotent 204. ' +
+      'A dependency cycle returns 409. ' +
       'On 409 the body also carries `cycle`: the offending loop as `{ id, title }` entries, ' +
       'starting at the task in the path, each entry blocking the next, ending at ' +
       '`blocker_task_id`, and repeating the first entry last. It is empty when no path is ' +
@@ -667,11 +805,16 @@ router.post(
 
     const blocker = await db
       .selectFrom('task')
-      .select('task.project_id')
+      .select(['task.project_id', 'task.archived_at'])
       .where('task.id', '=', blocker_task_id)
       .executeTakeFirst();
     if (!blocker || blocker.project_id !== project.id) {
       throw new AppError(422, 'blocker_task_id must reference a task in the same project');
+    }
+    // Board reads hide archived blockers, so allowing this would hand the task an
+    // edge no client could ever display or remove.
+    if (blocker.archived_at !== null) {
+      throw new AppError(422, 'blocker_task_id must not reference an archived task');
     }
 
     await lockProjectDependencies(db, project.id);
