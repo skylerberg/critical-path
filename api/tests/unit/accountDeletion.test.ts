@@ -3,8 +3,9 @@ import { db } from '../helpers/database';
 import { newId, uniqueEmail } from '../helpers/fixtures';
 import {
   assignedTasksElsewhere,
+  deleteUnsharedProjects,
+  lockOwnedProjects,
   memberProjectIds,
-  ownedSharedProjects,
   storageKeysOwnedBy,
 } from '../../src/services/accountDeletion';
 
@@ -109,23 +110,73 @@ afterAll(async () => {
   await db.deleteFrom('app_user').where('id', 'in', userIds).execute();
 });
 
-describe('ownedSharedProjects', () => {
-  it('returns only created projects that have a member row, oldest first', async () => {
-    expect(await ownedSharedProjects(db, owner)).toEqual([
-      { id: sharedProjectId, name: 'shared' },
-      { id: laterSharedProjectId, name: 'later shared' },
+describe('lockOwnedProjects', () => {
+  it('returns every created project, flagging the ones with a member row, oldest first', async () => {
+    expect(await lockOwnedProjects(db, owner)).toEqual([
+      { id: soloProjectId, name: 'solo', shared: false },
+      { id: sharedProjectId, name: 'shared', shared: true },
+      { id: laterSharedProjectId, name: 'later shared', shared: true },
     ]);
   });
 
   it('ignores projects the user is merely a member of', async () => {
-    expect(await ownedSharedProjects(db, other)).toEqual([
-      { id: foreignProjectId, name: 'foreign' },
+    expect(await lockOwnedProjects(db, other)).toEqual([
+      { id: foreignProjectId, name: 'foreign', shared: true },
     ]);
   });
 
   it('returns nothing for a user with no projects at all', async () => {
     const stranger = await createUser('acctdel stranger');
-    expect(await ownedSharedProjects(db, stranger)).toEqual([]);
+    expect(await lockOwnedProjects(db, stranger)).toEqual([]);
+  });
+});
+
+describe('deleteUnsharedProjects', () => {
+  async function projectExists(projectId: string): Promise<boolean> {
+    const row = await db
+      .selectFrom('project')
+      .select('id')
+      .where('id', '=', projectId)
+      .executeTakeFirst();
+    return row !== undefined;
+  }
+
+  it('deletes the ids it is given', async () => {
+    const user = await createUser('acctdel deleter');
+    const projectId = await createProject('doomed', user, new Date('2024-02-01T00:00:00Z'));
+
+    await deleteUnsharedProjects(db, [projectId]);
+
+    expect(await projectExists(projectId)).toBe(false);
+  });
+
+  it('leaves a project the user created but that was not in the id set', async () => {
+    const user = await createUser('acctdel transferee');
+    const transferred = await createProject('handed over', user, new Date('2024-02-02T00:00:00Z'));
+    const listed = await createProject('listed', user, new Date('2024-02-03T00:00:00Z'));
+
+    await deleteUnsharedProjects(db, [listed]);
+
+    expect(await projectExists(transferred)).toBe(true);
+    expect(await projectExists(listed)).toBe(false);
+  });
+
+  it('leaves a listed project that gained a member after it was listed', async () => {
+    const user = await createUser('acctdel raced');
+    const latecomer = await createUser('acctdel latecomer');
+    const projectId = await createProject('raced', user, new Date('2024-02-04T00:00:00Z'));
+    await db
+      .insertInto('project_member')
+      .values({ project_id: projectId, user_id: latecomer })
+      .execute();
+
+    await deleteUnsharedProjects(db, [projectId]);
+
+    expect(await projectExists(projectId)).toBe(true);
+  });
+
+  it('is a no-op for an empty id set', async () => {
+    await expect(deleteUnsharedProjects(db, [])).resolves.toBeUndefined();
   });
 });
 

@@ -8,13 +8,15 @@ import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { enforceAuthRateLimit, enforceResetRateLimit } from '../middleware/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
+import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { APP_NAME } from '../config/constants';
 import { isValidUuid } from '../types/uuid';
 import {
   assignedTasksElsewhere,
+  deleteUnsharedProjects,
+  lockOwnedProjects,
   memberProjectIds,
-  ownedSharedProjects,
   storageKeysOwnedBy,
 } from '../services/accountDeletion';
 import { avatarUrl } from '../services/avatars';
@@ -77,6 +79,27 @@ function toTokenResponse(row: {
     created_at: row.created_at.toISOString(),
     expires_at: row.expires_at === null ? null : row.expires_at.toISOString(),
   };
+}
+
+const STORAGE_DELETE_BATCH = 25;
+
+// An account's keys are every image of every board it created, so unlike the
+// per-board cleanups these are batched and settled: after the rows are gone a
+// key that fails is only recoverable from this log line.
+async function deleteStorageObjects(keys: string[]): Promise<void> {
+  for (let start = 0; start < keys.length; start += STORAGE_DELETE_BATCH) {
+    const batch = keys.slice(start, start + STORAGE_DELETE_BATCH);
+    const results = await Promise.allSettled(batch.map((key) => storage.delete(key)));
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        logger.error({
+          msg: 'Account deletion left a stored object behind',
+          key: batch[index],
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    });
+  }
 }
 
 async function setPasswordAndRevokeSessions(
@@ -391,7 +414,10 @@ router.delete(
       throw new AppError(401, 'Password is incorrect');
     }
 
-    const blocking = await ownedSharedProjects(db, user.id);
+    const owned = await lockOwnedProjects(db, user.id);
+    const blocking = owned
+      .filter((project) => project.shared)
+      .map((project) => ({ id: project.id, name: project.name }));
     if (blocking.length > 0) {
       // Returned, not thrown: errorHandler copies every AppError message into the
       // log line, and this one names boards. Keep the guard ahead of the first
@@ -425,7 +451,10 @@ router.delete(
 
     // project.created_by is ON DELETE RESTRICT, so the owned projects have to go
     // explicitly and first; everything else cascades off these two statements.
-    await db.deleteFrom('project').where('created_by', '=', user.id).execute();
+    await deleteUnsharedProjects(
+      db,
+      owned.map((project) => project.id)
+    );
     await db.deleteFrom('app_user').where('id', '=', user.id).execute();
 
     const survivingProjects =
@@ -458,9 +487,7 @@ router.delete(
     }
 
     if (storageKeys.length > 0) {
-      c.get('postCommitHooks').push(async () => {
-        await Promise.all(storageKeys.map((key) => storage.delete(key)));
-      });
+      c.get('postCommitHooks').push(() => deleteStorageObjects(storageKeys));
     }
 
     return c.body(null, 204);
