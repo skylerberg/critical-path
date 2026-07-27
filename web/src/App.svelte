@@ -9,6 +9,7 @@
   import { realtime } from './lib/realtime.svelte';
   import { shortcuts } from './lib/shortcuts.svelte';
   import { toasts } from './lib/toasts.svelte';
+  import { webhooks } from './lib/webhooks.svelte';
   import Login from './routes/Login.svelte';
   import Signup from './routes/Signup.svelte';
   import Account from './routes/Account.svelte';
@@ -44,6 +45,7 @@
       board.reset();
       myTasks.reset();
       projects.reset();
+      webhooks.reset();
       drafts.clearAll();
       realtime.disconnect();
       shortcuts.reset();
