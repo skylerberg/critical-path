@@ -2,7 +2,9 @@
   import { dragHandle } from 'svelte-dnd-action';
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
+  import ColumnArchiveTasksDialog from './ColumnArchiveTasksDialog.svelte';
   import ColumnDeleteDialog from './ColumnDeleteDialog.svelte';
+  import ColumnMoveTasksDialog from './ColumnMoveTasksDialog.svelte';
   import Badge from './ui/Badge.svelte';
 
   interface Props {
@@ -17,9 +19,16 @@
   let renaming = $state(false);
   let draft = $state('');
   let deleteOpen = $state(false);
+  let menuOpen = $state(false);
+  let menuEl = $state<HTMLDivElement>();
+  let moveOpen = $state(false);
+  let archiveOpen = $state(false);
 
   const badgeText = $derived(matchCount === null ? String(count) : `${matchCount} of ${count}`);
   const badgeLabel = $derived(matchCount === null ? ' tasks' : ' tasks match this filter');
+
+  const menuItemClass =
+    'flex min-h-11 w-full cursor-pointer items-center px-4 text-left text-sm hover:bg-accent-soft';
 
   function startRename(): void {
     draft = column.name;
@@ -41,7 +50,25 @@
     node.focus();
     node.select();
   };
+
+  // One header per column, so a click on another column's kebab has to reach this
+  // instance to close its menu — hence no stopPropagation on the trigger, and the
+  // containment check here to keep a click on our own menu from closing it.
+  function closeMenuOnOutsideClick(event: MouseEvent): void {
+    const target = event.target;
+    if (target instanceof Node && menuEl?.contains(target) === true) {
+      return;
+    }
+    menuOpen = false;
+  }
 </script>
+
+<svelte:window
+  onclick={closeMenuOnOutsideClick}
+  onkeydown={(event) => {
+    if (event.key === 'Escape') menuOpen = false;
+  }}
+/>
 
 <header class="flex items-center gap-1 p-2 pb-1">
   {#if !readonly}
@@ -116,6 +143,60 @@
         <path d="m8.5 12.5 2.5 2.5 5-5.5" />
       </svg>
     </button>
+    <div bind:this={menuEl} class="relative shrink-0">
+      <button
+        type="button"
+        aria-label="Options for {column.name}"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onclick={() => (menuOpen = !menuOpen)}
+        class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-accent-soft hover:text-ink"
+      >
+        <svg class="size-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.8" />
+          <circle cx="12" cy="12" r="1.8" />
+          <circle cx="19" cy="12" r="1.8" />
+        </svg>
+      </button>
+      {#if menuOpen}
+        <div
+          role="menu"
+          class="absolute top-full right-0 z-30 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
+        >
+          {#if count > 0 && board.columns.length > 1}
+            <button
+              type="button"
+              role="menuitem"
+              class={menuItemClass}
+              onclick={() => {
+                menuOpen = false;
+                moveOpen = true;
+              }}
+            >
+              Move all cards to…
+            </button>
+          {/if}
+          {#if count > 0}
+            <button
+              type="button"
+              role="menuitem"
+              class={menuItemClass}
+              onclick={() => {
+                menuOpen = false;
+                archiveOpen = true;
+              }}
+            >
+              Archive all cards
+            </button>
+          {/if}
+          {#if count === 0}
+            <div role="menuitem" aria-disabled="true" class="px-4 py-2 text-sm text-muted">
+              This column has no cards.
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
     <button
       type="button"
       onclick={() => (deleteOpen = true)}
@@ -141,6 +222,14 @@
     </button>
   {/if}
 </header>
+
+{#if moveOpen}
+  <ColumnMoveTasksDialog {column} open onclose={() => (moveOpen = false)} />
+{/if}
+
+{#if archiveOpen}
+  <ColumnArchiveTasksDialog {column} open onclose={() => (archiveOpen = false)} />
+{/if}
 
 {#if deleteOpen}
   <ColumnDeleteDialog {column} open onclose={() => (deleteOpen = false)} />
