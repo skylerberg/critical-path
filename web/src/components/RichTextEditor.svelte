@@ -17,7 +17,6 @@
     uploadImage?: (file: File) => Promise<string | null>;
     placeholder?: string;
     readonly?: boolean;
-    /** Drop the framing box and the tall minimum height, for inline read-only bodies. */
     bare?: boolean;
   }
 

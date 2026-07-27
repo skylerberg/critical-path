@@ -111,6 +111,7 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
     if (request.method === 'GET' && /^\/api\/tasks\/[^/]+$/.test(url.pathname)) {
       return jsonResponse(200, {
         ...task('t1', 'c1', 1000, 'A'),
+        comment_count: 1,
         project_id: 'p1',
         images: [],
         comments: [serverComment('resynced')],
@@ -1245,6 +1246,35 @@ describe('board store comments', () => {
     expect(new URL(requestAt(0).url).pathname).toBe('/api/comments');
   });
 
+  it('createComment re-inserts the server row when a detail fetch replaces the stream mid-flight', async () => {
+    const pending = board.createComment('t1', commentBody('hello'));
+    board.taskComments = { t1: [serverComment('landed first', 'cm0')] };
+
+    await pending;
+
+    const bodies = board.taskComments.t1!.map((c) => JSON.stringify(c.body));
+    expect(bodies).toHaveLength(2);
+    expect(bodies.some((b) => b.includes('hello'))).toBe(true);
+  });
+
+  it('createComment leaves an uncached stream uncached and loads it once posted', async () => {
+    board.taskComments = {};
+
+    await board.createComment('t1', commentBody('hello'));
+
+    expect(board.taskComments.t1).toEqual([serverComment('resynced')]);
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
+  });
+
+  it('loadTaskDetail heals the cached counts from the detail payload', async () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 7 } : t));
+
+    await board.loadTaskDetail('t1');
+
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
+    expect(board.tasks.find((t) => t.id === 't1')?.image_count).toBe(0);
+  });
+
   it('createComment failure toasts and re-fetches the detail payload', async () => {
     mockRoutes((request, url) =>
       request.method === 'POST' && url.pathname === '/api/comments'
@@ -1261,11 +1291,25 @@ describe('board store comments', () => {
   it('updateComment replaces the body and adopts the server row', async () => {
     board.taskComments = { t1: [serverComment('before', 'cm1')] };
 
-    await board.updateComment('t1', 'cm1', commentBody('after'));
+    expect(await board.updateComment('t1', 'cm1', commentBody('after'))).toBe(true);
 
     expect(board.taskComments.t1![0]!.body).toEqual(commentBody('after'));
     expect(board.taskComments.t1![0]!.updated_at).toBe(SERVER_UPDATED_AT);
     expect(new URL(requestAt(0).url).pathname).toBe('/api/comments/cm1');
+  });
+
+  it('updateComment reports failure and resyncs the body from the server', async () => {
+    board.taskComments = { t1: [serverComment('before', 'cm1')] };
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === '/api/comments/cm1'
+        ? jsonResponse(404, { error: 'Comment not found' })
+        : undefined
+    );
+
+    expect(await board.updateComment('t1', 'cm1', commentBody('after'))).toBe(false);
+
+    expect(toasts.toasts.map((t) => t.message)).toContain('Comment not found');
+    expect(board.taskComments.t1).toEqual([serverComment('resynced')]);
   });
 
   it('deleteComment removes the row and decrements the count, never below zero', async () => {

@@ -42,6 +42,10 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
   timeStyle: 'short',
 });
 
+const ownComment = comment('c1', 'u1', 'mine');
+const theirComment = comment('c2', 'u2', 'theirs', true);
+const own = `comment from ${dateFormat.format(new Date(ownComment.created_at))}`;
+
 function mockCommentApi(): void {
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
@@ -83,7 +87,7 @@ beforeEach(() => {
     { id: 'u2', email: 'bob@example.com', name: 'Bob Barker', avatar_url: null },
   ];
   session.user = { id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null };
-  board.taskComments = { t1: [comment('c1', 'u1', 'mine'), comment('c2', 'u2', 'theirs', true)] };
+  board.taskComments = { t1: [ownComment, theirComment] };
 });
 
 describe('TaskComments', () => {
@@ -107,13 +111,13 @@ describe('TaskComments', () => {
     expect(items[1]).toHaveTextContent('(edited)');
   });
 
-  it('offers Edit and Delete only on the caller’s own comments', () => {
+  it('offers Edit and Delete only on the caller’s own comments, each naming its comment', () => {
     render(TaskComments, { taskId: 't1' });
 
-    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^Edit comment from/ })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^Delete comment from/ })).toHaveLength(1);
     expect(screen.getAllByRole('listitem')[0]).toContainElement(
-      screen.getByRole('button', { name: 'Edit' })
+      screen.getByRole('button', { name: `Edit ${own}` })
     );
   });
 
@@ -187,10 +191,10 @@ describe('TaskComments', () => {
   it('requires a second click to delete, then sends the DELETE', async () => {
     render(TaskComments, { taskId: 't1' });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await fireEvent.click(screen.getByRole('button', { name: `Delete ${own}` }));
     expect(fetchMock).not.toHaveBeenCalled();
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+    await fireEvent.click(screen.getByRole('button', { name: `Confirm delete of ${own}` }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const request = requestAt(0);
@@ -199,10 +203,13 @@ describe('TaskComments', () => {
     expect(board.tasks[0]!.comment_count).toBe(1);
   });
 
-  it('replaces the body through the inline editor', async () => {
-    render(TaskComments, { taskId: 't1' });
+  it('sends the text typed into the inline editor, then closes it', async () => {
+    const { component } = render(TaskComments, { taskId: 't1' });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(screen.getByRole('button', { name: `Edit ${own}` }));
+    await tick();
+
+    component.getEditingEditor()!.commands.insertContent('rewritten ');
     await tick();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -211,7 +218,54 @@ describe('TaskComments', () => {
     const request = requestAt(0);
     expect(request.method).toBe('PATCH');
     expect(new URL(request.url).pathname).toBe('/api/comments/c1');
-    expect(JSON.stringify(await request.json())).toContain('mine');
+    const sent = JSON.stringify(await request.json());
+    expect(sent).toContain('rewritten');
+    expect(sent).toContain('mine');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
+  });
+
+  it('keeps the inline editor and its text when the save is rejected', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.method === 'PATCH') {
+        return jsonResponse(404, { error: 'Comment not found' });
+      }
+      if (new URL(request.url).pathname === '/api/tasks/t1') {
+        return jsonResponse(200, {
+          ...task(2),
+          project_id: 'p1',
+          images: [],
+          comments: [ownComment, theirComment],
+        });
+      }
+      return jsonResponse(204);
+    });
+
+    const { component } = render(TaskComments, { taskId: 't1' });
+    await fireEvent.click(screen.getByRole('button', { name: `Edit ${own}` }));
+    await tick();
+    component.getEditingEditor()!.commands.insertContent('rewritten ');
+    await tick();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(toasts.toasts.at(-1)?.message).toBe('Comment not found'));
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    expect(component.getEditingEditor()!.getText()).toContain('rewritten');
+  });
+
+  it('re-renders a body a teammate edited over the socket', async () => {
+    render(TaskComments, { taskId: 't1' });
+    expect(screen.getAllByRole('listitem')[1]).toHaveTextContent('theirs');
+
+    board.applyRealtime({
+      type: 'comment_updated',
+      project_id: 'p1',
+      data: { ...theirComment, body: comment('c2', 'u2', 'reworded').body },
+    });
+
+    await waitFor(() => expect(screen.getAllByRole('listitem')[1]).toHaveTextContent('reworded'));
+    expect(screen.getAllByRole('listitem')[1]).not.toHaveTextContent('theirs');
   });
 
   it('toasts and refetches the detail payload when the post fails', async () => {

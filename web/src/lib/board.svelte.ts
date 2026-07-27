@@ -92,6 +92,10 @@ function cycleFromApiError(error: unknown): { message: string; cycle: CycleTask[
   return steps.length === cycle.length ? { message: error.message, cycle: steps } : null;
 }
 
+function chronological(a: TaskComment, b: TaskComment): number {
+  return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+}
+
 class BoardStore {
   project = $state<BoardProject | null>(null);
   columns = $state<BoardColumn[]>([]);
@@ -790,6 +794,13 @@ class BoardStore {
       const data = assertOk(await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } }));
       this.taskImages = { ...this.taskImages, [taskId]: data.images };
       this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
+      // Heals a card badge whose realtime event was missed; short of a full
+      // board refetch this is the only authoritative read of either count.
+      this.tasks = this.tasks.map((task) =>
+        task.id === taskId
+          ? { ...task, image_count: data.image_count, comment_count: data.comment_count ?? 0 }
+          : task
+      );
     } catch (error) {
       toasts.error(error instanceof ApiError ? error.message : 'Failed to load task details');
     }
@@ -865,17 +876,22 @@ class BoardStore {
       created_at: now,
       updated_at: now,
     };
-    this.taskComments = {
-      ...this.taskComments,
-      [taskId]: [...(this.taskComments[taskId] ?? []), optimistic],
-    };
+    this.#replaceComments(taskId, (comments) => [...comments, optimistic]);
     this.#setCommentCount(taskId, (count) => count + 1);
     try {
       const created = assertOk(
         await api.POST('/api/comments', { body: { id, task_id: taskId, body } })
       );
+      // A detail fetch landing mid-flight replaces the whole stream, so the
+      // optimistic row may be gone and the server row has to be re-inserted.
+      if (this.taskComments[taskId] === undefined) {
+        await this.loadTaskDetail(taskId);
+        return;
+      }
       this.#replaceComments(taskId, (comments) =>
-        comments.map((comment) => (comment.id === id ? created : comment))
+        comments.some((comment) => comment.id === id)
+          ? comments.map((comment) => (comment.id === id ? created : comment))
+          : [...comments, created].sort(chronological)
       );
     } catch (error) {
       await this.#mutationFailed(error);
@@ -883,7 +899,9 @@ class BoardStore {
     }
   }
 
-  async updateComment(taskId: string, commentId: string, body: CommentBody): Promise<void> {
+  // Unlike its siblings this one has an outcome: a rejected edit must leave the
+  // caller's editor open, or the resync takes the user's rewrite with it.
+  async updateComment(taskId: string, commentId: string, body: CommentBody): Promise<boolean> {
     const now = new Date().toISOString();
     this.#replaceComments(taskId, (comments) =>
       comments.map((comment) =>
@@ -900,9 +918,11 @@ class BoardStore {
       this.#replaceComments(taskId, (comments) =>
         comments.map((comment) => (comment.id === commentId ? updated : comment))
       );
+      return true;
     } catch (error) {
       await this.#mutationFailed(error);
       await this.loadTaskDetail(taskId);
+      return false;
     }
   }
 
@@ -1072,9 +1092,7 @@ class BoardStore {
         this.#replaceComments(d.task_id, (comments) =>
           comments.some((c) => c.id === comment.id)
             ? comments
-            : [...comments, comment].sort(
-                (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
-              )
+            : [...comments, comment].sort(chronological)
         );
         break;
       }
