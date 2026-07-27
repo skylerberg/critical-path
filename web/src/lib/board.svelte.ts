@@ -56,6 +56,29 @@ export function positionAfterDrop(
 const CYCLE_PATH_MS = 5000;
 const MAX_CYCLE_TITLES = 6;
 const MAX_CYCLE_TITLE_CHARS = 40;
+// Mirrors the batch endpoint's own limit, so an oversized paste is refused
+// before any card is drawn.
+const MAX_BATCH_TASKS = 100;
+const BATCH_POSITION_GAP = 1000;
+
+function optimisticTask(id: string, columnId: string, title: string, position: number): BoardTask {
+  const now = new Date().toISOString();
+  return {
+    id,
+    column_id: columnId,
+    title,
+    description: null,
+    position,
+    due_date: null,
+    created_at: now,
+    updated_at: now,
+    label_ids: [],
+    assignee_ids: [],
+    blocker_ids: [],
+    image_count: 0,
+    comment_count: 0,
+  };
+}
 
 function truncateTitle(title: string): string {
   return title.length > MAX_CYCLE_TITLE_CHARS ? `${title.slice(0, MAX_CYCLE_TITLE_CHARS)}…` : title;
@@ -341,25 +364,7 @@ class BoardStore {
     }
     const id = newId();
     const position = append(this.tasksInColumn(columnId).map((task) => task.position));
-    const now = new Date().toISOString();
-    this.tasks = [
-      ...this.tasks,
-      {
-        id,
-        column_id: columnId,
-        title,
-        description: null,
-        position,
-        due_date: null,
-        created_at: now,
-        updated_at: now,
-        label_ids: [],
-        assignee_ids: [],
-        blocker_ids: [],
-        image_count: 0,
-        comment_count: 0,
-      },
-    ];
+    this.tasks = [...this.tasks, optimisticTask(id, columnId, title, position)];
     try {
       const created = assertOk(
         await api.POST('/api/tasks', {
@@ -371,6 +376,42 @@ class BoardStore {
         updated_at: created.updated_at,
       });
       return id;
+    } catch (error) {
+      await this.#mutationFailed(error);
+      return null;
+    }
+  }
+
+  async createTasks(columnId: string, titles: string[]): Promise<string[] | null> {
+    const projectId = this.currentProjectId;
+    if (projectId === null || titles.length === 0) {
+      return null;
+    }
+    if (titles.length > MAX_BATCH_TASKS) {
+      toasts.error(`Add at most ${MAX_BATCH_TASKS} tasks at a time (got ${titles.length})`);
+      return null;
+    }
+    const start = append(this.tasksInColumn(columnId).map((task) => task.position));
+    const created = titles.map((title, index) =>
+      optimisticTask(newId(), columnId, title, start + index * BATCH_POSITION_GAP)
+    );
+    this.tasks = [...this.tasks, ...created];
+    try {
+      const data = assertOk(
+        await api.POST('/api/tasks/batch', {
+          body: {
+            project_id: projectId,
+            column_id: columnId,
+            tasks: created.map((task) => ({
+              id: task.id,
+              title: task.title,
+              position: task.position,
+            })),
+          },
+        })
+      );
+      this.#adoptTimestampsFrom(data.tasks);
+      return created.map((task) => task.id);
     } catch (error) {
       await this.#mutationFailed(error);
       return null;
@@ -442,6 +483,17 @@ class BoardStore {
   // change applied optimistically while the write was in flight must survive.
   #adoptTimestamps(taskId: string, times: { created_at?: string; updated_at: string }): void {
     this.tasks = this.tasks.map((task) => (task.id === taskId ? { ...task, ...times } : task));
+  }
+
+  // Plural so a 100-card batch is one pass over the tasks, not one per card.
+  #adoptTimestampsFrom(rows: readonly BoardTask[]): void {
+    const times = new Map(rows.map((row) => [row.id, row]));
+    this.tasks = this.tasks.map((task) => {
+      const row = times.get(task.id);
+      return row === undefined
+        ? task
+        : { ...task, created_at: row.created_at, updated_at: row.updated_at };
+    });
   }
 
   async updateTask(

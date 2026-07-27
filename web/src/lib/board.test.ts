@@ -107,8 +107,21 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
       delete restored.archived_at;
       return jsonResponse(200, restored);
     }
-    // createTask and updateTask read timestamps off the response, so these two
-    // routes answer with a task rather than the catch-all 204.
+    // createTask, createTasks and updateTask read timestamps off the response, so
+    // these routes answer with a task rather than the catch-all 204.
+    if (request.method === 'POST' && url.pathname === '/api/tasks/batch') {
+      const body = (await request.clone().json()) as {
+        column_id: string;
+        tasks: { id: string; title: string; position: number }[];
+      };
+      return jsonResponse(201, {
+        tasks: body.tasks.map((item) => ({
+          ...task(item.id, body.column_id, item.position, item.title),
+          created_at: SERVER_CREATED_AT,
+          updated_at: SERVER_UPDATED_AT,
+        })),
+      });
+    }
     if (request.method === 'POST' && url.pathname === '/api/tasks') {
       const body = (await request.clone().json()) as {
         id: string;
@@ -530,6 +543,96 @@ describe('board store mutations', () => {
     const created = board.tasks.find((t) => t.title === 'New task');
     expect(created?.created_at).toBe(SERVER_CREATED_AT);
     expect(created?.updated_at).toBe(SERVER_UPDATED_AT);
+  });
+
+  it('createTasks appends the titles in order and sends one batch request', async () => {
+    const ids = await board.createTasks('c1', ['X', 'Y']);
+
+    expect(board.tasksInColumn('c1').map((t) => t.title)).toEqual(['A', 'B', 'X', 'Y']);
+    expect(board.tasksInColumn('c1').map((t) => t.position)).toEqual([1000, 2000, 3000, 4000]);
+    expect(ids).toEqual(
+      board
+        .tasksInColumn('c1')
+        .slice(2)
+        .map((t) => t.id)
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = requestAt(0);
+    expect(request.method).toBe('POST');
+    expect(new URL(request.url).pathname).toBe('/api/tasks/batch');
+    expect(await request.json()).toEqual({
+      project_id: 'p1',
+      column_id: 'c1',
+      tasks: [
+        { id: ids![0], title: 'X', position: 3000 },
+        { id: ids![1], title: 'Y', position: 4000 },
+      ],
+    });
+  });
+
+  it('createTasks adopts created_at and updated_at from the response', async () => {
+    await board.createTasks('c1', ['X', 'Y']);
+
+    for (const title of ['X', 'Y']) {
+      const created = board.tasks.find((t) => t.title === title);
+      expect(created?.created_at).toBe(SERVER_CREATED_AT);
+      expect(created?.updated_at).toBe(SERVER_UPDATED_AT);
+    }
+  });
+
+  it('createTasks inserts every card before the request resolves', async () => {
+    const pending = board.createTasks('c1', ['X', 'Y', 'Z']);
+
+    expect(board.tasksInColumn('c1').map((t) => t.title)).toEqual(['A', 'B', 'X', 'Y', 'Z']);
+    await pending;
+  });
+
+  it('createTasks failure toasts, refetches, and returns null', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/tasks/batch'
+        ? jsonResponse(422, { error: 'nope' })
+        : undefined
+    );
+
+    const ids = await board.createTasks('c1', ['X', 'Y']);
+
+    expect(ids).toBeNull();
+    expect(board.tasks.map((t) => t.id).sort()).toEqual(['t1', 't2', 't3']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestAt(1).method).toBe('GET');
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+  });
+
+  it('createTasks is a no-op with no titles', async () => {
+    const ids = await board.createTasks('c1', []);
+
+    expect(ids).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toasts.toasts).toHaveLength(0);
+    expect(board.tasks).toHaveLength(3);
+  });
+
+  it('createTasks is a no-op with no project loaded', async () => {
+    board.reset();
+
+    const ids = await board.createTasks('c1', ['X']);
+
+    expect(ids).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toasts.toasts).toHaveLength(0);
+  });
+
+  it('createTasks refuses more than 100 titles without touching the board', async () => {
+    const titles = Array.from({ length: 101 }, (_, i) => `T${i}`);
+
+    const ids = await board.createTasks('c1', titles);
+
+    expect(ids).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(board.tasks).toHaveLength(3);
+    expect(toasts.toasts).toHaveLength(1);
+    expect(toasts.toasts[0]!.message).toContain('100');
   });
 
   it('updateTask sends expected_updated_at and adopts the response updated_at', async () => {
