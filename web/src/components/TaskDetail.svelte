@@ -435,13 +435,25 @@
           {:else}
             <ul class="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {#each images as image (image.id)}
-                <li class="relative">
+                {@const isCover = task.cover_image_url === image.url}
+                <li class="relative flex flex-col gap-1">
                   <img
                     src={image.url}
                     alt={image.filename}
                     loading="lazy"
                     class="aspect-square w-full rounded-md border border-edge object-cover"
                   />
+                  <button
+                    type="button"
+                    aria-label="Use image {image.filename} as cover"
+                    aria-pressed={isCover}
+                    onclick={() => void board.setTaskCover(taskId, isCover ? null : image)}
+                    class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1 rounded-md border text-xs focus-visible:outline-2 focus-visible:outline-accent {isCover
+                      ? 'border-accent bg-accent-soft text-ink'
+                      : 'border-edge text-muted hover:bg-accent-soft'}"
+                  >
+                    {isCover ? '★' : '☆'} Cover
+                  </button>
                   <button
                     type="button"
                     aria-label="Delete image {image.filename}"

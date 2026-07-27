@@ -69,6 +69,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
     assignee_ids: [] as string[],
     blocker_ids: [] as string[],
     image_count: 0,
+    cover_image_url: null,
     due_date: null,
     comment_count: 0,
   };
@@ -355,18 +356,55 @@ describe('board event application', () => {
     expect(board.tasks[0]!.image_count).toBe(1);
   });
 
-  it('refetches an open grid on image_deleted', async () => {
-    board.tasks = [{ ...task('t1'), image_count: 2 }];
+  it('refetches an open grid on image_deleted and adopts the surviving cover', async () => {
+    board.tasks = [{ ...task('t1'), image_count: 2, cover_image_url: '/api/images/img2' }];
     board.taskImages = { t1: [image('img1'), image('img2')] };
     fetchMock.mockImplementation(async () => jsonResponse(200, { images: [image('img1')] }));
 
     board.applyRealtime({
       type: 'image_deleted',
       project_id: 'p1',
-      data: { task_id: 't1', image_count: 1 },
+      data: { task_id: 't1', image_count: 1, cover_image_url: null },
     });
     expect(board.tasks[0]!.image_count).toBe(1);
+    expect(board.tasks[0]!.cover_image_url).toBeNull();
     await vi.waitFor(() => expect(board.taskImages['t1']!.map((i) => i.id)).toEqual(['img1']));
+  });
+
+  it('keeps a cover that survives someone else deleting another image', () => {
+    board.tasks = [{ ...task('t1'), image_count: 2, cover_image_url: '/api/images/img1' }];
+
+    board.applyRealtime({
+      type: 'image_deleted',
+      project_id: 'p1',
+      data: { task_id: 't1', image_count: 1, cover_image_url: '/api/images/img1' },
+    });
+
+    expect(board.tasks[0]!.cover_image_url).toBe('/api/images/img1');
+  });
+
+  it('reads an image_deleted that predates covers as no cover, never undefined', () => {
+    board.tasks = [{ ...task('t1'), image_count: 2, cover_image_url: '/api/images/img1' }];
+
+    board.applyRealtime({
+      type: 'image_deleted',
+      project_id: 'p1',
+      data: { task_id: 't1', image_count: 1 },
+    });
+
+    expect(board.tasks[0]!.cover_image_url).toBeNull();
+  });
+
+  it('adopts a cover chosen by a teammate on task_updated', () => {
+    board.tasks = [task('t1')];
+
+    board.applyRealtime({
+      type: 'task_updated',
+      project_id: 'p1',
+      data: { ...task('t1'), cover_image_url: '/api/images/img7' },
+    });
+
+    expect(board.tasks[0]!.cover_image_url).toBe('/api/images/img7');
   });
 
   it('ignores board events for a different project', async () => {

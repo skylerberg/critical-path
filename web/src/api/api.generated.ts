@@ -663,6 +663,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{id}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set task cover image
+         * @description Choose which of the task’s images is shown on the board card face, or send a null image_id to clear it. The image must belong to the task; violations return 422 with a plain error body. Setting a cover replaces any previous one — a task has at most one cover — and clearing an absent cover is an idempotent 204. The cover is a choice about presentation, not content, so it leaves updated_at untouched.
+         */
+        put: operations["putApiTasksByIdCover"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{id}/blockers": {
         parameters: {
             query?: never;
@@ -752,7 +772,7 @@ export interface paths {
         };
         /**
          * Search tasks across projects
-         * @description Search task titles and description text across every non-archived project the caller can access; projects they cannot access simply do not appear. Archived cards are excluded. Every word in q must match and each word matches as a prefix, so results narrow as the query grows. Mentions match on the name they display. Ranked with title matches above description matches, capped at 50 results with truncated set when more matched.
+         * @description Search task titles and description text across every non-archived project the caller can access; projects they cannot access simply do not appear. Archived cards are excluded. q is trimmed and must be 2 to 200 characters. Every word in q must match, and each word matches as a prefix of an indexed word, so typing more of a word narrows the results rather than emptying them; the exception is a partially typed inflection that has outgrown the indexed word, which drops out until it is finished (a card titled "Fix the login test" matches test and testing but not testi). Mentions match on the name they display. Ranked with title matches above description matches, capped at 50 results with truncated set when more matched.
          */
         get: operations["getApiSearch"];
         put?: never;
@@ -1187,6 +1207,7 @@ export interface components {
             blocker_ids: string[];
             column_id: string;
             comment_count: number;
+            cover_image_url: components["schemas"]["UserAvatarurl"];
             created_at: string;
             description: components["schemas"]["NullableTiptapDoc"];
             due_date: components["schemas"]["UserAvatarurl"];
@@ -1227,6 +1248,7 @@ export interface components {
             blocker_ids: string[];
             column_id: string;
             comment_count: number;
+            cover_image_url: components["schemas"]["UserAvatarurl"];
             created_at: string;
             description: components["schemas"]["NullableTiptapDoc"];
             due_date: components["schemas"]["UserAvatarurl"];
@@ -1250,6 +1272,7 @@ export interface components {
                 blocker_ids: string[];
                 column_id: string;
                 comment_count: number;
+                cover_image_url: components["schemas"]["UserAvatarurl"];
                 created_at: string;
                 description: components["schemas"]["NullableTiptapDoc"];
                 due_date: components["schemas"]["UserAvatarurl"];
@@ -1366,6 +1389,7 @@ export interface components {
             column_id: string;
             comment_count: number;
             comments: components["schemas"]["Comment"][];
+            cover_image_url: components["schemas"]["UserAvatarurl"];
             created_at: string;
             description: components["schemas"]["NullableTiptapDoc"];
             due_date: components["schemas"]["UserAvatarurl"];
@@ -1429,6 +1453,9 @@ export interface components {
         };
         SetTaskAssignees: {
             user_ids: string[];
+        };
+        SetTaskCover: {
+            image_id: string | null;
         };
         DependencyCycleError: {
             cycle: components["schemas"]["CycleTask"][];
@@ -1575,6 +1602,7 @@ export interface components {
             assignee_ids: string[];
             blocker_ids: string[];
             column_id: string;
+            cover_image_url: components["schemas"]["UserAvatarurl"];
             description: components["schemas"]["NullableTiptapDoc"];
             due_date: components["schemas"]["UserAvatarurl"];
             id: string;
@@ -4052,6 +4080,84 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putApiTasksByIdCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTaskCover"];
+            };
+        };
+        responses: {
+            /** @description Cover set or cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

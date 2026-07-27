@@ -21,6 +21,7 @@ function task(id: string, assigneeIds: string[]): BoardTask {
     assignee_ids: assigneeIds,
     blocker_ids: [],
     image_count: 0,
+    cover_image_url: null,
     due_date: null,
     comment_count: 0,
   };

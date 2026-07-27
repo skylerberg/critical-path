@@ -26,7 +26,8 @@ function payload() {
         label_ids: [],
         assignee_ids: ['u-ada'],
         blocker_ids: [],
-        image_count: 0,
+        image_count: 1,
+        cover_image_url: '/api/images/img1',
       },
       {
         id: 't2',
@@ -39,6 +40,7 @@ function payload() {
         assignee_ids: [],
         blocker_ids: [],
         image_count: 0,
+        cover_image_url: null,
       },
     ],
     labels: [],
@@ -90,6 +92,17 @@ describe('PublicBoard', () => {
     expect(requestedPaths()).toEqual([`/api/public/projects/${PROJECT_ID}/board`]);
     expect(requestedPaths().some((path) => path.startsWith('/api/projects/'))).toBe(false);
     expect(requestedPaths()).not.toContain('/api/users');
+  });
+
+  it('renders a published cover image on the card', async () => {
+    mockPublicApi(jsonResponse(200, payload()));
+
+    render(PublicBoard, { props: { projectId: PROJECT_ID } });
+
+    await screen.findByText('Design cards');
+    const covers = document.querySelectorAll('img[src^="/api/images/"]');
+    expect(covers).toHaveLength(1);
+    expect(covers[0]).toHaveAttribute('src', '/api/images/img1');
   });
 
   it('offers no editing affordances', async () => {
