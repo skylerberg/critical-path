@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import type { Kysely, Selectable, Updateable } from 'kysely';
+import type { Kysely, Updateable } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
@@ -19,6 +19,13 @@ import { getArchivedTasks, getBoardPayload } from '../services/boardPayload';
 import { exportFilename, projectExportArchive } from '../services/export/archive';
 import { buildProjectExport } from '../services/export/payload';
 import { copyProject } from '../services/projectCopy';
+import {
+  PROJECT_COLUMNS,
+  fetchMemberIds,
+  publishProjectListItem,
+  toProjectResponse,
+  type ProjectRow,
+} from '../services/projectListItem';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordAssigneeChanges } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
@@ -58,45 +65,6 @@ const DEFAULT_COLUMNS = [
   { name: 'Done', is_done: true },
 ];
 
-type ProjectRow = Pick<
-  Selectable<Project>,
-  'id' | 'name' | 'description' | 'archived_at' | 'created_at' | 'created_by' | 'is_public'
->;
-
-const PROJECT_COLUMNS = [
-  'id',
-  'name',
-  'description',
-  'archived_at',
-  'created_at',
-  'created_by',
-  'is_public',
-] as const;
-
-function toProjectResponse(row: ProjectRow, memberIds: string[]) {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    archived_at: row.archived_at?.toISOString() ?? null,
-    created_at: row.created_at.toISOString(),
-    created_by: row.created_by,
-    member_ids: memberIds,
-    is_public: row.is_public,
-  };
-}
-
-async function fetchMemberIds(db: Kysely<DB>, projectId: string): Promise<string[]> {
-  const rows = await db
-    .selectFrom('project_member')
-    .select('user_id')
-    .where('project_id', '=', projectId)
-    .orderBy('created_at')
-    .orderBy('user_id')
-    .execute();
-  return rows.map((row) => row.user_id);
-}
-
 // Every project_member write decides what to write from created_by, so that
 // read has to hold the project row: without the lock an ownership transfer can
 // commit mid-request and leave the new creator holding a member row.
@@ -111,49 +79,6 @@ async function lockProject(db: Kysely<DB>, projectId: string): Promise<ProjectRo
     throw new AppError(404, 'Project not found');
   }
   return row;
-}
-
-// project_created/project_updated carry the projects-list item shape so a
-// client that just gained visibility can upsert without a refetch.
-async function fetchTaskCounts(
-  db: Kysely<DB>,
-  projectId: string
-): Promise<{ open_task_count: number; done_task_count: number }> {
-  const row = await db
-    .selectFrom('task')
-    .leftJoin('board_column', 'board_column.id', 'task.column_id')
-    .select((eb) => [
-      eb.fn
-        .count<string>('task.id')
-        .filterWhere(eb.not(eb.fn.coalesce('board_column.is_done', eb.val(false))))
-        .as('open_task_count'),
-      eb.fn
-        .count<string>('task.id')
-        .filterWhere('board_column.is_done', '=', true)
-        .as('done_task_count'),
-    ])
-    .where('task.project_id', '=', projectId)
-    .where('task.archived_at', 'is', null)
-    .executeTakeFirstOrThrow();
-  return {
-    open_task_count: Number(row.open_task_count),
-    done_task_count: Number(row.done_task_count),
-  };
-}
-
-async function publishProjectListItem(
-  c: Parameters<typeof publishAfterCommit>[0],
-  db: Kysely<DB>,
-  row: ProjectRow,
-  memberIds: string[]
-): Promise<void> {
-  publishAfterCommit(
-    c,
-    'project_updated',
-    row.id,
-    { ...toProjectResponse(row, memberIds), ...(await fetchTaskCounts(db, row.id)) },
-    { broadcast: true }
-  );
 }
 
 const router: AppHono = new Hono();

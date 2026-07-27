@@ -811,6 +811,57 @@ describe('Realtime end to end', () => {
     }
   });
 
+  it('tells the remaining members when a member deletes their account', async () => {
+    const host = await ctx.createUser('rt-host');
+    const leaver = await ctx.createUser('rt-leaver');
+    const sharedId = newId();
+    const created = await ctx
+      .request(host.token)
+      .post('/api/projects', { id: sharedId, name: 'rt shared' });
+    expect(created.status).toBe(201);
+    const sharedColumnId = ((await created.json()) as { columns: Array<{ id: string }> }).columns[0]
+      .id;
+    await ctx.request(host.token).put(`/api/projects/${sharedId}/members`, {
+      user_ids: [leaver.id],
+    });
+    const sharedTaskId = newId();
+    await ctx.request(host.token).post('/api/tasks', {
+      id: sharedTaskId,
+      project_id: sharedId,
+      column_id: sharedColumnId,
+      title: 'shared work',
+      position: 1000,
+    });
+    await ctx
+      .request(host.token)
+      .put(`/api/tasks/${sharedTaskId}/assignees`, { user_ids: [leaver.id] });
+
+    const hostClient = await connect(host.token);
+    const leaverClient = await connect(leaver.token);
+    hostClient.subscribe(sharedId);
+    leaverClient.subscribe(sharedId);
+    await waitFor(async () => projectSockets(sharedId).length === 2);
+    const quietFrom = leaverClient.events.length;
+
+    const res = await ctx
+      .request(leaver.token)
+      .delete('/api/auth/me', { password: leaver.password });
+    expect(res.status).toBe(204);
+
+    const updated = await hostClient.waitForEvent(
+      (e) => e.type === 'project_updated' && e.data.id === sharedId
+    );
+    expect(updated.data).toMatchObject({ member_ids: [] });
+    const relations = await hostClient.waitForEvent(
+      (e) => e.type === 'task_relations_set' && e.data.task_id === sharedTaskId
+    );
+    expect(relations.data).toMatchObject({ assignee_ids: [] });
+
+    await waitFor(async () => leaverClient.closeInfo !== null);
+    expect(leaverClient.closeInfo).toEqual({ code: 4401, reason: 'Session revoked' });
+    expect(leaverClient.events.length).toBe(quietFrom);
+  });
+
   it('closes sockets with 4401 when the session is revoked', async () => {
     const userD = await ctx.createUser('rt-d');
     const clientD = await connect(userD.token);

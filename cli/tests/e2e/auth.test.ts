@@ -151,6 +151,109 @@ describe('auth commands', () => {
     expect(who.exitCode).toBe(0);
   });
 
+  it('account delete removes the account and forgets the token', async () => {
+    const user = await tc.createUser('cli-auth');
+    const h = await createCliHarness();
+    await h.runCli(['login', '--email', user.email, '--password-stdin'], {
+      stdin: `${user.password}\n`,
+    });
+
+    const del = await h.runCli(['account', 'delete', '--password-stdin', '--force', '--json'], {
+      stdin: `${user.password}\n`,
+    });
+    expect(del.exitCode).toBe(0);
+    expect(del.json<{ deleted: boolean }>()).toEqual({ deleted: true });
+    expect(await h.credentials.get('http://localhost:3001')).toBeNull();
+
+    const row = await db
+      .selectFrom('app_user')
+      .select('id')
+      .where('id', '=', user.id)
+      .executeTakeFirst();
+    expect(row).toBeUndefined();
+
+    const who = await h.runCli(['whoami']);
+    expect(who.exitCode).toBe(3);
+  });
+
+  it('account delete with a wrong password exits 3 and keeps the session', async () => {
+    const user = await tc.createUser('cli-auth');
+    const h = await createCliHarness();
+    await h.runCli(['login', '--email', user.email, '--password-stdin'], {
+      stdin: `${user.password}\n`,
+    });
+    const token = await h.credentials.get('http://localhost:3001');
+
+    const del = await h.runCli(['account', 'delete', '--password-stdin', '--force'], {
+      stdin: 'wrong-password\n',
+    });
+    expect(del.exitCode).toBe(3);
+    expect(del.stderr).toContain('Incorrect password');
+    expect(del.stderr).not.toContain('cpath login');
+
+    expect(await h.credentials.get('http://localhost:3001')).toBe(token);
+    expect((await h.runCli(['whoami'])).exitCode).toBe(0);
+  });
+
+  it('account delete exits 5 and names the board while one is still shared', async () => {
+    const owner = await tc.createUser('cli-auth');
+    const member = await tc.createUser('cli-auth');
+    const projectId = crypto.randomUUID();
+    const created = await tc
+      .request(owner.token)
+      .post('/api/projects', { id: projectId, name: 'Shared Ledger' });
+    expect(created.status).toBe(201);
+    await tc.request(owner.token).put(`/api/projects/${projectId}/members`, {
+      user_ids: [member.id],
+    });
+
+    const h = await createCliHarness();
+    await h.runCli(['login', '--email', owner.email, '--password-stdin'], {
+      stdin: `${owner.password}\n`,
+    });
+    const del = await h.runCli(['account', 'delete', '--password-stdin', '--force'], {
+      stdin: `${owner.password}\n`,
+    });
+    expect(del.exitCode).toBe(5);
+    expect(del.stderr).toContain('Shared Ledger');
+
+    expect((await h.runCli(['whoami'])).exitCode).toBe(0);
+  });
+
+  it('account delete refuses --password-stdin without --force instead of hanging', async () => {
+    const user = await tc.createUser('cli-auth');
+    const h = await createCliHarness();
+    await h.runCli(['login', '--email', user.email, '--password-stdin'], {
+      stdin: `${user.password}\n`,
+    });
+
+    const requests: string[] = [];
+    const del = await h.runCli(['account', 'delete', '--password-stdin'], {
+      stdin: `${user.password}\n`,
+      onRequest: (request) => requests.push(request.method),
+    });
+    expect(del.exitCode).toBe(2);
+    expect(del.stderr).toContain('--password-stdin requires --force');
+    expect(requests).toEqual([]);
+    expect((await h.runCli(['whoami'])).exitCode).toBe(0);
+  });
+
+  it('account delete under --no-input without --force exits 2 without asking the server', async () => {
+    const user = await tc.createUser('cli-auth');
+    const h = await createCliHarness();
+    await h.runCli(['login', '--email', user.email, '--password-stdin'], {
+      stdin: `${user.password}\n`,
+    });
+
+    const requests: string[] = [];
+    const del = await h.runCli(['account', 'delete', '--no-input'], {
+      onRequest: (request) => requests.push(request.method),
+    });
+    expect(del.exitCode).toBe(2);
+    expect(requests).toEqual([]);
+    expect((await h.runCli(['whoami'])).exitCode).toBe(0);
+  });
+
   it('prompting fails cleanly under --no-input', async () => {
     const h = await createCliHarness();
     const login = await h.runCli(['login', '--no-input']);

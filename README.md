@@ -384,6 +384,7 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `project_deleted`               | `{ id }`                                             |
 | `project_position_updated`      | `{ id, position }`                                   |
 | `user_updated`                  | public user `{ id, email, name, avatar_url }`        |
+| `sessions_revoked`              | `{ user_id }`, optionally plus `personal_access_token_id` |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
 add/remove, by the cascade that strips assignees when a project member is
@@ -415,6 +416,13 @@ backing the access check are gone after commit.
 only — even though its row survives the commit: positions are per-user, so
 the event exists solely to sync the caller's other devices and must never
 reach other members.
+`sessions_revoked` is never delivered to a client: the transport intercepts it
+and closes sockets instead. A payload of `{ user_id }` closes that user's
+session sockets only; one that also carries `personal_access_token_id` closes
+only the sockets authenticated with that token. It is published by password
+change, password reset, token revocation and account deletion — the last of
+which sends one user-scoped entry plus one per token, since the user-scoped
+form deliberately spares live personal access tokens.
 `user_updated` (emitted on avatar upload/removal and on `PATCH /api/auth/me`
 name/email changes, never from password or session flows) carries
 `project_id: null` and is broadcast to the changed user's own sockets (their
@@ -587,6 +595,58 @@ Each user can have one profile image:
   fresh storage key (the old object is deleted after the transaction commits),
   so avatar URLs never change content and can be cached forever.
 
+### Account deletion
+
+`DELETE /api/auth/me` permanently destroys the calling account. The body is
+`{ "password": "…" }` and the current password must be correct — a wrong one is
+`401 { "error": "Password is incorrect" }`, the string the web client matches on
+to tell a bad password apart from a dead session. There is no undo and no
+grace period.
+
+**Owned shared boards block the delete.** `project.created_by` is
+`ON DELETE RESTRICT`, so an account that still owns a project with at least one
+member row cannot go. The endpoint answers `409` before writing anything:
+
+```json
+{
+  "error": "You still own projects that other people are members of: Team Rocket. Transfer or delete them first.",
+  "blocking_projects": [{ "id": "…", "name": "Team Rocket" }]
+}
+```
+
+Hand each board over with `PUT /api/projects/:id/owner` (then leave it via
+`PUT /api/projects/:id/members`) or delete it, and retry. The names travel in
+`blocking_projects` as well as the message so clients can link to the boards
+rather than parse prose. That branch **returns** its response rather than
+throwing an `AppError`, because the error handler copies every `AppError`
+message into the log line; keep the guard ahead of the first write, since
+returning commits the transaction.
+
+Once the guard passes, one transaction removes: the projects the caller created
+and everything inside them (columns, tasks, labels, dependencies, comments,
+activity, images, webhooks and their deliveries), then the `app_user` row, which
+cascades to sessions, personal access tokens, membership rows, per-user project
+positions, task assignments, comments and activity entries in other people's
+projects, and submitted feedback. The owned projects are deleted explicitly and
+first — the `RESTRICT` constraint means the `app_user` delete would otherwise
+raise `23503`.
+
+**Storage objects.** Postgres holds the only reference to a stored object, so
+the keys are enumerated inside the transaction and deleted from
+`postCommitHooks`: the caller's avatar plus every `task_image` in a project they
+created. Images they uploaded into someone else's project are deliberately left
+alone — `task_image` records no uploader, the row survives with its project, and
+deleting the object would blank a picture on a live card someone else still
+owns.
+
+**Realtime.** Members left behind get a `project_updated` per project the
+deleted user belonged to and a `task_relations_set` per task they were assigned
+to, both published after the deletes so the payloads carry the post-state. The
+caller's own sockets close via `sessions_revoked` — one user-scoped entry plus
+one per personal access token, because the user-scoped form closes session
+sockets only. The owned projects emit no `project_deleted`: by the guard they
+had no members, so the caller was their only viewer.
+
 ### Project export
 
 `GET /api/projects/:id/export` hands any project member everything in the
@@ -735,6 +795,12 @@ cpath login --email you@example.com
 cpath whoami
 ```
 
+`cpath account delete` destroys the account for good. It re-asks for the
+password and confirms before sending; `--force` skips the confirmation and is
+mandatory alongside `--password-stdin`, which drains stdin and so leaves
+nothing for a prompt to read. It exits 5, naming the boards, while any project
+you created still has other members — `cpath project transfer` hands one over.
+
 Everyday usage:
 
 ```sh
@@ -869,3 +935,13 @@ npm run openapi:dump && npm run --prefix cli generate-api
   a new one, and it is the same key on every board they appear on. Anyone who
   ever held the project id can read the board the moment it is published; there
   is no separate, rotatable slug.
+- Account deletion reaches database rows and storage objects, not logs. With
+  `EMAIL_DRIVER=console` the console sender writes every message it would have
+  sent into the application log, so feedback submissions (name, email, user id,
+  full text) and password-reset addresses and links outlive the account that
+  produced them and age out with the log platform's own retention.
+- Account deletion publishes no per-comment or per-activity event, so another
+  member looking at a task detail keeps seeing the deleted user's comments and
+  log entries (and `users` keeps their display name) until that client
+  refetches or reconnects. The rows are already gone; only the open view is
+  stale.
