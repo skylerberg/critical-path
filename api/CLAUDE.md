@@ -46,7 +46,11 @@ touch `gamedev@skylerberg.com` or its rows.
 11. Project access is strict and centralized in `src/services/authorization.ts`:
     a project is visible to its creator (implicit, never stored as a member
     row) and to its `project_member` rows. Every project-scoped handler asserts
-    access and answers 404 (never 403) for inaccessible rows.
+    access and answers 404 (never 403) for inaccessible rows. Access is always
+    asserted first, so 404 still hides existence and a 403 only ever reaches a
+    caller who can already see the row. The owner-only operations that answer
+    403 are `PUT /api/projects/:id/owner` and `DELETE /api/projects/:id`; every
+    other project operation stays open to any member.
 12. Every mutation emits a realtime event via `publishAfterCommit` from
     `src/services/realtime` (runs as a post-commit hook, so nothing is
     published on rollback). Events about rows or access that are gone

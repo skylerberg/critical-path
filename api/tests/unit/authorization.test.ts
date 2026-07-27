@@ -4,6 +4,7 @@ import { newId, uniqueEmail } from '../helpers/fixtures';
 import {
   canAccessProject,
   assertProjectAccess,
+  assertProjectOwnedBy,
   assertPublicProject,
   accessibleProjectsFilter,
   isProjectMember,
@@ -101,6 +102,31 @@ describe('assertProjectAccess', () => {
     await expect(assertProjectAccess(db, creator, newId())).rejects.toMatchObject({
       statusCode: 404,
     });
+  });
+});
+
+describe('assertProjectOwnedBy', () => {
+  const message = 'Only the project owner can delete this project';
+
+  function ownerError(createdBy: string | null, userId: string): unknown {
+    try {
+      assertProjectOwnedBy({ created_by: createdBy }, userId, message);
+      return null;
+    } catch (error) {
+      return error;
+    }
+  }
+
+  it('passes for the creator', () => {
+    expect(ownerError(creator, creator)).toBeNull();
+  });
+
+  it('throws 403 with the given message for anyone else', () => {
+    for (const createdBy of [creator, null]) {
+      const error = ownerError(createdBy, member);
+      expect(error).toBeInstanceOf(AppError);
+      expect(error).toMatchObject({ statusCode: 403, message });
+    }
   });
 });
 

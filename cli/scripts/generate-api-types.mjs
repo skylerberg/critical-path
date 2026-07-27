@@ -4,7 +4,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import openapiTS, { astToString } from 'openapi-typescript';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -14,7 +14,8 @@ const OUTPUT_PATH = resolve(__dirname, '..', 'src', 'api', 'api.generated.ts');
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace']);
 
-const source = SPEC_URL ?? SPEC_PATH;
+// Repo-relative so the committed header never records an absolute checkout path.
+const source = SPEC_URL ?? relative(resolve(__dirname, '..', '..'), SPEC_PATH);
 const HEADER = `// AUTO-GENERATED FROM ${source}
 // DO NOT EDIT. Regenerate with: npm run generate-api
 // Deprecated operations and schemas are filtered out at generation time.

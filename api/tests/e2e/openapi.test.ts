@@ -92,6 +92,18 @@ describe('GET /api/openapi.json', () => {
     expect(body.properties.user_id).toMatchObject({ type: 'string' });
   });
 
+  it('documents the owner-only 403 on project deletion', async () => {
+    const res = await app.request('/api/openapi.json');
+    expect(res.status).toBe(200);
+
+    const spec = await res.json();
+    const operation = spec.paths['/api/projects/{id}'].delete;
+    expect(operation.responses['403'].content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/Error',
+    });
+    expect(operation.responses['404']).toBeDefined();
+  });
+
   it('marks the public board route unauthenticated and the private one authenticated', async () => {
     const res = await app.request('/api/openapi.json');
     expect(res.status).toBe(200);

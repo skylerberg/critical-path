@@ -664,6 +664,32 @@ describe('Realtime end to end', () => {
     expect(clientC.events).toEqual([]);
   });
 
+  it('publishes no project_deleted when a member is refused the delete', async () => {
+    const guardedProjectId = newId();
+    const createRes = await ctx
+      .request(userA.token)
+      .post('/api/projects', { id: guardedProjectId, name: 'guarded project' });
+    expect(createRes.status).toBe(201);
+    const shareRes = await ctx
+      .request(userA.token)
+      .put(`/api/projects/${guardedProjectId}/members`, { user_ids: [userB.id] });
+    expect(shareRes.status).toBe(204);
+    await settle();
+
+    const refused = await ctx.request(userB.token).delete(`/api/projects/${guardedProjectId}`);
+    expect(refused.status).toBe(403);
+
+    await settle();
+    for (const client of [clientA, clientB2]) {
+      expect(
+        client.eventsOfType('project_deleted').filter((e) => e.data.id === guardedProjectId)
+      ).toEqual([]);
+    }
+
+    const cleanupRes = await ctx.request(userA.token).delete(`/api/projects/${guardedProjectId}`);
+    expect(cleanupRes.status).toBe(204);
+  });
+
   it('delivers project_updated with the new member list when a user is added', async () => {
     const sharedProjectId = newId();
     const createRes = await ctx
