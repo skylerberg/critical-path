@@ -12,6 +12,7 @@ export * from './export';
 export * from './publicBoard';
 export * from './columns';
 export * from './tasks';
+export * from './myTasks';
 export * from './labels';
 export * from './images';
 export * from './comments';

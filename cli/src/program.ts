@@ -8,6 +8,7 @@ import { registerCompletion } from './commands/completion';
 import { registerConfig } from './commands/config';
 import { registerImage } from './commands/image';
 import { registerLabel } from './commands/label';
+import { registerMine } from './commands/mine';
 import { registerProject } from './commands/project';
 import { registerTask } from './commands/task';
 import { registerToken } from './commands/token';
@@ -28,6 +29,7 @@ export function buildProgram(deps: CliDeps): Command {
   registerImage(program, deps);
   registerComment(program, deps);
   registerBoardViews(program, deps);
+  registerMine(program, deps);
   registerWatch(program, deps);
   registerConfig(program, deps);
   registerCompletion(program, deps);

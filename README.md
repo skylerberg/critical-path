@@ -508,6 +508,7 @@ Everyday usage:
 cpath project list
 cpath board "My Project"                # columns with [ready]/[blocked] markers
 cpath ready --project "My Project"      # unblocked, unfinished tasks
+cpath mine                              # your tasks everywhere, ordered by who you block
 cpath task create "Fix the bug" --project "My Project" --description "See **notes**"
 cpath task move "Fix the bug" --project "My Project" --column "In Progress" --top
 cpath task done "Fix the bug" --project "My Project"
