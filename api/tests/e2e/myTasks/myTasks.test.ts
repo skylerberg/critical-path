@@ -53,7 +53,13 @@ describe('GET /api/my-tasks', () => {
   async function createProject(
     owner: TestUser,
     name: string
-  ): Promise<{ id: string; name: string; todo: { id: string }; done: { id: string } }> {
+  ): Promise<{
+    id: string;
+    name: string;
+    backlog: { id: string };
+    todo: { id: string };
+    done: { id: string };
+  }> {
     const id = newId();
     projectIds.push(id);
     const res = await ctx.request(owner.token).post('/api/projects', { id, name });
@@ -62,6 +68,7 @@ describe('GET /api/my-tasks', () => {
     return {
       id,
       name,
+      backlog: board.columns.find((column) => column.name === 'Backlog')!,
       todo: board.columns.find((column) => column.name === 'To Do')!,
       done: board.columns.find((column) => column.name === 'Done')!,
     };
@@ -366,6 +373,100 @@ describe('GET /api/my-tasks', () => {
     const body = await fetchMine(alice);
     expect(body.tasks.map((task) => task.bucket)).toEqual(['blocking', 'ready', 'blocked']);
     expect(body.tasks.map((task) => task.id)).toEqual([blocking, ready, blocked]);
+  });
+
+  it('breaks ties by project name, then board column, then position within the column', async () => {
+    const alice = await newCaller();
+    const zulu = await createProject(alice, 'Zulu ordering');
+    const alpha = await createProject(alice, 'Alpha ordering');
+
+    const zuluTask = await insertTask({
+      projectId: zulu.id,
+      columnId: zulu.todo.id,
+      title: 'Later project',
+    });
+    const alphaLater = await insertTask({
+      projectId: alpha.id,
+      columnId: alpha.todo.id,
+      title: 'Lower in the column',
+      position: 2000,
+    });
+    const alphaEarlier = await insertTask({
+      projectId: alpha.id,
+      columnId: alpha.todo.id,
+      title: 'Top of the column',
+      position: 1000,
+    });
+    // A high position in a leftward column still outranks the whole next column.
+    const alphaBacklog = await insertTask({
+      projectId: alpha.id,
+      columnId: alpha.backlog.id,
+      title: 'Leftmost column',
+      position: 9000,
+    });
+    for (const taskId of [zuluTask, alphaLater, alphaEarlier, alphaBacklog]) {
+      await assign(taskId, alice.id);
+    }
+
+    const body = await fetchMine(alice);
+    expect(body.tasks.map((task) => task.id)).toEqual([
+      alphaBacklog,
+      alphaEarlier,
+      alphaLater,
+      zuluTask,
+    ]);
+  });
+
+  it('orders blockers and dependents by title', async () => {
+    const alice = await newCaller();
+    const project = await createProject(alice, 'Link ordering');
+    await addMember(project.id, bob.id);
+    const mine = await insertTask({
+      projectId: project.id,
+      columnId: project.todo.id,
+      title: 'Mine',
+    });
+    const zuluBlocker = await insertTask({
+      projectId: project.id,
+      columnId: project.todo.id,
+      title: 'Zulu blocker',
+    });
+    const alphaBlocker = await insertTask({
+      projectId: project.id,
+      columnId: project.todo.id,
+      title: 'Alpha blocker',
+    });
+    const zuluDependent = await insertTask({
+      projectId: project.id,
+      columnId: project.todo.id,
+      title: 'Zulu dependent',
+    });
+    const alphaDependent = await insertTask({
+      projectId: project.id,
+      columnId: project.todo.id,
+      title: 'Alpha dependent',
+    });
+    await assign(mine, alice.id);
+    await assign(zuluDependent, bob.id);
+    await assign(alphaDependent, bob.id);
+    await blocks(zuluBlocker, mine);
+    await blocks(alphaBlocker, mine);
+    await blocks(mine, zuluDependent);
+    await blocks(mine, alphaDependent);
+
+    const body = await fetchMine(alice);
+    expect(body.tasks[0].blocked_by.map((link) => link.title)).toEqual([
+      'Alpha blocker',
+      'Zulu blocker',
+    ]);
+    expect(body.tasks[0].blocking.map((link) => link.title)).toEqual([
+      'Alpha dependent',
+      'Zulu dependent',
+    ]);
+    expect(body.waiting_on_you[0].tasks.map((link) => link.title)).toEqual([
+      'Alpha dependent',
+      'Zulu dependent',
+    ]);
   });
 
   it('keeps the caller in assignee_ids of a co-assigned task', async () => {
