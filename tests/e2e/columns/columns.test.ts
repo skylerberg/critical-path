@@ -467,3 +467,426 @@ describe('DELETE /api/columns/:id', () => {
     ]);
   });
 });
+
+describe('POST /api/columns/:id/move-tasks', () => {
+  it('requires auth', async () => {
+    const res = await ctx.request().post(`/api/columns/${newId()}/move-tasks`, {
+      target_column_id: newId(),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 with a plain error body for a malformed column id', async () => {
+    const res = await ctx
+      .request(token)
+      .post('/api/columns/not-a-uuid/move-tasks', { target_column_id: newId() });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(typeof body.error).toBe('string');
+    expect(body.details).toBeUndefined();
+  });
+
+  it('returns 404 for an unknown column and for another user’s column', async () => {
+    const unknown = await ctx
+      .request(token)
+      .post(`/api/columns/${newId()}/move-tasks`, { target_column_id: newId() });
+    expect(unknown.status).toBe(404);
+
+    const stranger = await ctx.createUser('columns-stranger');
+    const strangerProject = newId();
+    const created = await ctx
+      .request(stranger.token)
+      .post('/api/projects', { id: strangerProject, name: 'not yours' });
+    expect(created.status).toBe(201);
+    const strangerColumns = (
+      (await created.json()) as { columns: Array<{ id: string }> }
+    ).columns.map((c) => c.id);
+
+    const res = await ctx.request(token).post(`/api/columns/${strangerColumns[0]}/move-tasks`, {
+      target_column_id: strangerColumns[1],
+    });
+    expect(res.status).toBe(404);
+
+    await ctx.request(stranger.token).delete(`/api/projects/${strangerProject}`);
+  });
+
+  it('returns 422 when the target is the source column', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+    await insertTask(projectId, columnId, 1000);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/move-tasks`, { target_column_id: columnId });
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.error).toContain('target_column_id');
+    expect(body.error).not.toContain('move_tasks_to');
+  });
+
+  it('returns 422 when the target does not exist', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/move-tasks`, { target_column_id: newId() });
+    expect(res.status).toBe(422);
+  });
+
+  it('returns 422 when the target belongs to another project', async () => {
+    const projectId = await createProject();
+    const otherProjectId = await createProject();
+    const columnId = await insertColumn(projectId);
+    const otherColumnId = await insertColumn(otherProjectId);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/move-tasks`, { target_column_id: otherColumnId });
+    expect(res.status).toBe(422);
+  });
+
+  it('returns 422 with details for a missing or non-uuid target_column_id', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+
+    const missing = await ctx.request(token).post(`/api/columns/${columnId}/move-tasks`, {});
+    expect(missing.status).toBe(422);
+    const missingBody = await missing.json();
+    expect(missingBody.error).toBe('Validation failed');
+    expect(Array.isArray(missingBody.details)).toBe(true);
+
+    const malformed = await ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/move-tasks`, { target_column_id: 'nope' });
+    expect(malformed.status).toBe(422);
+    expect((await malformed.json()).error).toBe('Validation failed');
+  });
+
+  it('appends the tasks after the target’s own, preserving relative order', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Source', position: 1000 });
+    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+
+    const second = await insertTask(projectId, sourceId, 2000);
+    const first = await insertTask(projectId, sourceId, 1000);
+    const existingTarget = await insertTask(projectId, targetId, 5000);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      moved_tasks: [
+        { id: first, column_id: targetId, position: 6000 },
+        { id: second, column_id: targetId, position: 7000 },
+      ],
+    });
+
+    expect(await tasksInColumn(targetId)).toEqual([
+      { id: existingTarget, column_id: targetId, position: 5000 },
+      { id: first, column_id: targetId, position: 6000 },
+      { id: second, column_id: targetId, position: 7000 },
+    ]);
+  });
+
+  it('keeps the source column, now empty', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Source' });
+    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    await insertTask(projectId, sourceId, 1000);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+    expect(res.status).toBe(200);
+
+    const column = await db
+      .selectFrom('board_column')
+      .select('id')
+      .where('id', '=', sourceId)
+      .executeTakeFirst();
+    expect(column?.id).toBe(sourceId);
+    expect(await tasksInColumn(sourceId)).toEqual([]);
+  });
+
+  it('logs a column change on each moved task', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Leaving', position: 1000 });
+    const targetId = await insertColumn(projectId, { name: 'Arriving', position: 2000 });
+    const taskId = await insertTask(projectId, sourceId, 1000);
+    const settled = await insertTask(projectId, targetId, 500);
+
+    expect(
+      (
+        await ctx
+          .request(token)
+          .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId })
+      ).status
+    ).toBe(200);
+
+    expect(await activityOf(taskId)).toEqual([
+      expect.objectContaining({
+        kind: 'column_changed',
+        actor_user_id: userId,
+        old_value: { id: sourceId, name: 'Leaving' },
+        new_value: { id: targetId, name: 'Arriving' },
+      }),
+    ]);
+    expect(await activityOf(settled)).toEqual([]);
+  });
+
+  it('returns an empty moved_tasks for an empty source column and leaves the target alone', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Nothing' });
+    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const settled = await insertTask(projectId, targetId, 1000);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ moved_tasks: [] });
+
+    expect(await tasksInColumn(targetId)).toEqual([
+      { id: settled, column_id: targetId, position: 1000 },
+    ]);
+  });
+
+  it('starts positions at 1000 when the target column is empty', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Source' });
+    const targetId = await insertColumn(projectId, { name: 'Empty target', position: 2000 });
+    const a = await insertTask(projectId, sourceId, 1000);
+    const b = await insertTask(projectId, sourceId, 2000);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+    expect(res.status).toBe(200);
+    expect((await res.json()).moved_tasks).toEqual([
+      { id: a, column_id: targetId, position: 1000 },
+      { id: b, column_id: targetId, position: 2000 },
+    ]);
+  });
+
+  it('leaves archived tasks in the source column', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Source' });
+    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const archivedId = await insertTask(projectId, sourceId, 1000);
+    const liveId = await insertTask(projectId, sourceId, 2000);
+    expect((await ctx.request(token).post(`/api/tasks/${archivedId}/archive`)).status).toBe(200);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+    expect(res.status).toBe(200);
+    expect((await res.json()).moved_tasks).toEqual([
+      { id: liveId, column_id: targetId, position: 1000 },
+    ]);
+
+    expect(await tasksInColumn(sourceId)).toEqual([
+      { id: archivedId, column_id: sourceId, position: 1000 },
+    ]);
+    const archived = await ctx.request(token).get(`/api/projects/${projectId}/archived-tasks`);
+    expect(((await archived.json()) as { tasks: Array<Record<string, unknown>> }).tasks).toEqual([
+      expect.objectContaining({ id: archivedId, column_id: sourceId }),
+    ]);
+  });
+
+  it('appends past an archived task holding the highest position in the target', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Source' });
+    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const highArchived = await insertTask(projectId, targetId, 9000);
+    expect((await ctx.request(token).post(`/api/tasks/${highArchived}/archive`)).status).toBe(200);
+    const moving = await insertTask(projectId, sourceId, 1000);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+    expect(res.status).toBe(200);
+    expect((await res.json()).moved_tasks).toEqual([
+      { id: moving, column_id: targetId, position: 10000 },
+    ]);
+  });
+});
+
+describe('POST /api/columns/:id/archive-tasks', () => {
+  async function archivedTitles(projectId: string): Promise<string[]> {
+    const res = await ctx.request(token).get(`/api/projects/${projectId}/archived-tasks`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { tasks: Array<{ title: string }> };
+    return body.tasks.map((task) => task.title);
+  }
+
+  it('requires auth', async () => {
+    const res = await ctx.request().post(`/api/columns/${newId()}/archive-tasks`);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 for a malformed column id and 404 for an unknown one', async () => {
+    const malformed = await ctx.request(token).post('/api/columns/not-a-uuid/archive-tasks');
+    expect(malformed.status).toBe(400);
+
+    const unknown = await ctx.request(token).post(`/api/columns/${newId()}/archive-tasks`);
+    expect(unknown.status).toBe(404);
+  });
+
+  it('returns 404 for a column in another user’s project', async () => {
+    const stranger = await ctx.createUser('columns-stranger-archive');
+    const strangerProject = newId();
+    const created = await ctx
+      .request(stranger.token)
+      .post('/api/projects', { id: strangerProject, name: 'not yours either' });
+    expect(created.status).toBe(201);
+    const columnId = ((await created.json()) as { columns: Array<{ id: string }> }).columns[0].id;
+
+    const res = await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`);
+    expect(res.status).toBe(404);
+
+    await ctx.request(stranger.token).delete(`/api/projects/${strangerProject}`);
+  });
+
+  it('archives every live task, keeps the column, and logs one entry per card', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId, { name: 'Done' });
+    const otherId = await insertColumn(projectId, { name: 'Todo', position: 2000 });
+    const a = await insertTask(projectId, columnId, 1000);
+    const b = await insertTask(projectId, columnId, 2000);
+    const untouched = await insertTask(projectId, otherId, 1000);
+
+    const res = await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { tasks: Array<Record<string, unknown>> };
+    expect(body.tasks).toEqual([
+      expect.objectContaining({ id: a, column_id: columnId, title: 'Task' }),
+      expect.objectContaining({ id: b, column_id: columnId }),
+    ]);
+    for (const task of body.tasks) {
+      expect(typeof task.archived_at).toBe('string');
+      expect(task).toHaveProperty('label_ids');
+      expect(task).toHaveProperty('blocker_ids');
+      expect(task).toHaveProperty('image_count');
+    }
+
+    const column = await db
+      .selectFrom('board_column')
+      .select('id')
+      .where('id', '=', columnId)
+      .executeTakeFirst();
+    expect(column?.id).toBe(columnId);
+
+    for (const id of [a, b]) {
+      expect(await activityOf(id)).toEqual([
+        expect.objectContaining({ kind: 'archived', actor_user_id: userId }),
+      ]);
+    }
+    expect(await activityOf(untouched)).toEqual([]);
+    const stillThere = await db
+      .selectFrom('task')
+      .select('archived_at')
+      .where('id', '=', untouched)
+      .executeTakeFirst();
+    expect(stillThere?.archived_at).toBeNull();
+  });
+
+  it('drops the tasks from the board payload and the project counts', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId, { name: 'Done' });
+    await insertTask(projectId, columnId, 1000);
+    await insertTask(projectId, columnId, 2000);
+
+    expect((await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`)).status).toBe(
+      200
+    );
+
+    const board = await ctx.request(token).get(`/api/projects/${projectId}`);
+    expect(((await board.json()) as { tasks: unknown[] }).tasks).toEqual([]);
+
+    const list = await ctx.request(token).get('/api/projects');
+    const project = (
+      (await list.json()) as {
+        projects: Array<{ id: string; open_task_count: number; done_task_count: number }>;
+      }
+    ).projects.find((p) => p.id === projectId);
+    expect(project?.open_task_count).toBe(0);
+    expect(project?.done_task_count).toBe(0);
+  });
+
+  it('keeps an already archived task’s stamp and leaves it out of the response', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId, { name: 'Done' });
+    const early = await insertTask(projectId, columnId, 1000);
+    const late = await insertTask(projectId, columnId, 2000);
+    expect((await ctx.request(token).post(`/api/tasks/${early}/archive`)).status).toBe(200);
+    const before = await db
+      .selectFrom('task')
+      .select('archived_at')
+      .where('id', '=', early)
+      .executeTakeFirstOrThrow();
+
+    const res = await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`);
+    expect(res.status).toBe(200);
+    const ids = ((await res.json()) as { tasks: Array<{ id: string }> }).tasks.map((t) => t.id);
+    expect(ids).toEqual([late]);
+
+    const after = await db
+      .selectFrom('task')
+      .select('archived_at')
+      .where('id', '=', early)
+      .executeTakeFirstOrThrow();
+    expect(after.archived_at?.toISOString()).toBe(before.archived_at?.toISOString());
+  });
+
+  it('is a no-op on a second call', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId, { name: 'Done' });
+    const taskId = await insertTask(projectId, columnId, 1000);
+
+    expect((await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`)).status).toBe(
+      200
+    );
+    const second = await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`);
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ tasks: [] });
+    expect(await activityOf(taskId)).toHaveLength(1);
+  });
+
+  it('takes the archived cards out of the blocker lists of the tasks they blocked', async () => {
+    const projectId = await createProject();
+    const doneId = await insertColumn(projectId, { name: 'Done' });
+    const todoId = await insertColumn(projectId, { name: 'Todo', position: 2000 });
+    const blockerId = await insertTask(projectId, doneId, 1000);
+    const blockedId = await insertTask(projectId, todoId, 1000);
+    expect(
+      (
+        await ctx
+          .request(token)
+          .post(`/api/tasks/${blockedId}/blockers`, { blocker_task_id: blockerId })
+      ).status
+    ).toBe(204);
+
+    expect((await ctx.request(token).post(`/api/columns/${doneId}/archive-tasks`)).status).toBe(
+      200
+    );
+
+    const board = await ctx.request(token).get(`/api/projects/${projectId}`);
+    const tasks = ((await board.json()) as { tasks: Array<{ id: string; blocker_ids: string[] }> })
+      .tasks;
+    expect(tasks).toEqual([expect.objectContaining({ id: blockedId, blocker_ids: [] })]);
+  });
+
+  it('lists everything it archived in the project archive', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId, { name: 'Done' });
+    await insertTask(projectId, columnId, 1000);
+    await insertTask(projectId, columnId, 2000);
+
+    expect((await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`)).status).toBe(
+      200
+    );
+    expect(await archivedTitles(projectId)).toEqual(['Task', 'Task']);
+  });
+});

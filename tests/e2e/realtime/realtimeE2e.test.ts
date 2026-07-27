@@ -260,6 +260,134 @@ describe('Realtime end to end', () => {
     expect(deletedEvent.data.moved_tasks).toMatchObject([{ id: task2Id, column_id: columnId }]);
   });
 
+  describe('column bulk actions', () => {
+    let nextPosition = 20_000;
+    const bulkColumns: string[] = [];
+    const bulkTasks: string[] = [];
+
+    async function makeColumn(name: string): Promise<string> {
+      const id = newId();
+      nextPosition += 1000;
+      const res = await ctx.request(userA.token).post('/api/columns', {
+        id,
+        project_id: projectId,
+        name,
+        position: nextPosition,
+      });
+      expect(res.status).toBe(201);
+      bulkColumns.push(id);
+      return id;
+    }
+
+    async function makeTask(columnId_: string, position: number): Promise<string> {
+      const id = newId();
+      const res = await ctx.request(userA.token).post('/api/tasks', {
+        id,
+        project_id: projectId,
+        column_id: columnId_,
+        title: `bulk ${position}`,
+        position,
+      });
+      expect(res.status).toBe(201);
+      bulkTasks.push(id);
+      return id;
+    }
+
+    // The rest of the file asserts on this project's task counts, so nothing
+    // these tests create may outlive them.
+    afterAll(async () => {
+      for (const id of bulkTasks) {
+        await ctx.request(userA.token).delete(`/api/tasks/${id}`);
+      }
+      for (const id of bulkColumns) {
+        await ctx.request(userA.token).delete(`/api/columns/${id}`);
+      }
+    });
+
+    it('delivers one batched column_tasks_moved and no per-task events', async () => {
+      const sourceId = await makeColumn('Bulk source');
+      const targetId = await makeColumn('Bulk target');
+      const first = await makeTask(sourceId, 1000);
+      const second = await makeTask(sourceId, 2000);
+
+      const from = clientB.events.length;
+      const res = await ctx
+        .request(userA.token)
+        .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+      expect(res.status).toBe(200);
+
+      const event = await clientB.waitForEvent((e) => e.type === 'column_tasks_moved', { from });
+      expect(event.project_id).toBe(projectId);
+      expect(event.data).toMatchObject({ column_id: sourceId, target_column_id: targetId });
+      expect(event.data.moved_tasks).toMatchObject([
+        { id: first, column_id: targetId },
+        { id: second, column_id: targetId },
+      ]);
+
+      await settle();
+      const since = clientB.events.slice(from);
+      expect(since.filter((e) => e.type === 'column_tasks_moved')).toHaveLength(1);
+      expect(since.filter((e) => e.type === 'task_updated')).toEqual([]);
+      expect(clientC.events).toEqual([]);
+    });
+
+    it('publishes nothing when the source column is empty', async () => {
+      const sourceId = await makeColumn('Bulk empty source');
+      const targetId = await makeColumn('Bulk empty target');
+
+      const from = clientB.events.length;
+      const res = await ctx
+        .request(userA.token)
+        .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+      expect(res.status).toBe(200);
+
+      await settle();
+      expect(clientB.events.slice(from).filter((e) => e.type === 'column_tasks_moved')).toEqual([]);
+    });
+
+    it('delivers exactly one column_tasks_archived for a three-card column', async () => {
+      const bulkColumnId = await makeColumn('Bulk archive');
+      const ids = [
+        await makeTask(bulkColumnId, 1000),
+        await makeTask(bulkColumnId, 2000),
+        await makeTask(bulkColumnId, 3000),
+      ];
+
+      const from = clientB.events.length;
+      const res = await ctx.request(userA.token).post(`/api/columns/${bulkColumnId}/archive-tasks`);
+      expect(res.status).toBe(200);
+
+      const event = await clientB.waitForEvent((e) => e.type === 'column_tasks_archived', { from });
+      expect(event.project_id).toBe(projectId);
+      expect(event.data.column_id).toBe(bulkColumnId);
+      const tasks = event.data.tasks as Array<{ id: string; archived_at: string }>;
+      expect(tasks.map((task) => task.id)).toEqual(ids);
+      expect(tasks.every((task) => typeof task.archived_at === 'string')).toBe(true);
+
+      await settle();
+      const since = clientB.events.slice(from);
+      expect(since.filter((e) => e.type === 'column_tasks_archived')).toHaveLength(1);
+      expect(since.filter((e) => e.type === 'task_archived')).toEqual([]);
+      expect(clientC.events).toEqual([]);
+    });
+
+    it('publishes nothing when every task in the column is already archived', async () => {
+      const bulkColumnId = await makeColumn('Bulk archive twice');
+      await makeTask(bulkColumnId, 1000);
+      expect(
+        (await ctx.request(userA.token).post(`/api/columns/${bulkColumnId}/archive-tasks`)).status
+      ).toBe(200);
+      await settle();
+
+      const from = clientB.events.length;
+      const res = await ctx.request(userA.token).post(`/api/columns/${bulkColumnId}/archive-tasks`);
+      expect(res.status).toBe(200);
+
+      await settle();
+      expect(clientB.events.slice(from)).toEqual([]);
+    });
+  });
+
   it('delivers image_created and image_deleted with image counts', async () => {
     const imageId = newId();
     const form = new FormData();
