@@ -14,8 +14,6 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 
 const ID_PREFIX_RE = /^[0-9a-f][0-9a-f-]{3,}$/;
 
-// Split from matchRef so a caller with a second place to look can handle a miss
-// without catching, while ambiguity stays an error either way.
 export function matchRefOrNull<T>(
   ref: string,
   items: readonly T[],
@@ -160,7 +158,6 @@ export function matchArchivedTask(archived: readonly ArchivedTask[], ref: string
   );
 }
 
-// Board first, archive second: the extra request only happens on a miss.
 export async function resolveTaskId(
   ctx: RuntimeContext,
   ref: string,

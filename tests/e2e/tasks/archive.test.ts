@@ -48,6 +48,12 @@ describe('Task archive and restore', () => {
     return (await res.json()) as BoardBody;
   }
 
+  async function updatedAt(taskId: string): Promise<string> {
+    const res = await ctx.request(user.token).get(`/api/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { updated_at: string }).updated_at;
+  }
+
   async function archivedTasks(id = projectId, token = user.token): Promise<ArchivedTaskBody[]> {
     const res = await ctx.request(token).get(`/api/projects/${id}/archived-tasks`);
     expect(res.status).toBe(200);
@@ -95,6 +101,23 @@ describe('Task archive and restore', () => {
       expect(typeof body.updated_at).toBe('string');
     });
 
+    it('leaves updated_at untouched through archive and restore', async () => {
+      const taskId = await fixtures.createTaskRow(projectId, columnId, 'stable timestamp');
+      const detail = await ctx.request(user.token).get(`/api/tasks/${taskId}`);
+      expect(detail.status).toBe(200);
+      const before = ((await detail.json()) as { updated_at: string }).updated_at;
+
+      const archive = await ctx.request(user.token).post(`/api/tasks/${taskId}/archive`);
+      expect(archive.status).toBe(200);
+      expect(((await archive.json()) as ArchivedTaskBody).updated_at).toBe(before);
+      expect(await updatedAt(taskId)).toBe(before);
+
+      const restore = await ctx.request(user.token).post(`/api/tasks/${taskId}/restore`);
+      expect(restore.status).toBe(200);
+      expect(((await restore.json()) as { updated_at: string }).updated_at).toBe(before);
+      expect(await updatedAt(taskId)).toBe(before);
+    });
+
     it('removes the task from the board payload and from the project task counts', async () => {
       const countedProjectId = await fixtures.createProject('archive counts', {
         createdBy: user.id,
@@ -128,8 +151,6 @@ describe('Task archive and restore', () => {
       const after = await ctx.request(user.token).get('/api/projects');
       const afterRows = ((await after.json()) as { projects: Array<Record<string, unknown>> })
         .projects;
-      // The project must still be listed: excluding archived rows in an outer
-      // where would turn the left joins into inner ones and drop it entirely.
       expect(afterRows.find((p) => p.id === countedProjectId)).toMatchObject({
         open_task_count: 0,
         done_task_count: 0,
@@ -291,7 +312,6 @@ describe('Task archive and restore', () => {
       const a = await fixtures.createTaskRow(cycleProjectId, cycleColumnId, 'A');
       const b = await fixtures.createTaskRow(cycleProjectId, cycleColumnId, 'B');
       const c = await fixtures.createTaskRow(cycleProjectId, cycleColumnId, 'C');
-      // A blocks B blocks C.
       await fixtures.createDependencyRow(a, b);
       await fixtures.createDependencyRow(b, c);
 

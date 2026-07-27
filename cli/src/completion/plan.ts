@@ -5,7 +5,7 @@ export interface Candidate {
   description: string;
 }
 
-export type ValueKind = 'project' | 'task' | 'column' | 'label' | 'user' | 'path';
+export type ValueKind = 'project' | 'task' | 'archived-task' | 'column' | 'label' | 'user' | 'path';
 
 export type CompletionPlan =
   | { kind: 'none' }
@@ -18,6 +18,7 @@ export type CompletionPlan =
 const VALUE_KINDS: Record<string, ValueKind> = {
   project: 'project',
   task: 'task',
+  'archived-task': 'archived-task',
   column: 'column',
   label: 'label',
   labels: 'label',

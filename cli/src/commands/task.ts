@@ -552,7 +552,11 @@ export function registerTask(program: Command, deps: CliDeps): void {
               EXIT.usage
             );
           }
-          const taskId = await resolveTaskId(ctx, ref, opts.project as string | undefined);
+          const { task: target } = await resolveTaskContext(
+            ctx,
+            ref,
+            opts.project as string | undefined
+          );
           const body: { title?: string; description?: TiptapDoc | null } = {};
           if (title !== undefined) {
             body.title = title;
@@ -561,7 +565,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
             body.description = description;
           }
           const updated = assertOk(
-            await ctx.api.PATCH('/api/tasks/{id}', { params: { path: { id: taskId } }, body })
+            await ctx.api.PATCH('/api/tasks/{id}', { params: { path: { id: target.id } }, body })
           );
           ctx.out.data(updated, () => ctx.out.line(`Updated task "${updated.title}"`));
         })
@@ -654,7 +658,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
   task.addCommand(
     taskLeaf('restore')
       .description('Restore an archived task to its column')
-      .argument('<task>', 'task id or title')
+      .argument('<archived-task>', 'archived task id or title')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
           const taskId = await resolveTaskId(ctx, ref, opts.project as string | undefined, {

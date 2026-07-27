@@ -511,7 +511,6 @@ describe('task commands', () => {
     ]);
     expect(filtered.stdout).toContain('No archived tasks');
 
-    // The board-only resolver used to fail here: the title is gone from it.
     const show = await h.runCli(['task', 'show', 'Shelved work', '--project', projectId]);
     expect(show.exitCode).toBe(0);
     expect(show.stdout).toContain('Archived:');
@@ -527,6 +526,10 @@ describe('task commands', () => {
     ]);
     expect(move.exitCode).toBe(4);
     expect(move.stderr).toContain('No task matching');
+
+    const update = await h.runCli(['task', 'update', shelved.id, '--title', 'Renamed']);
+    expect(update.exitCode).toBe(4);
+    expect(update.stderr).toContain('No task matching');
 
     const restore = await h.runCli([
       'task',

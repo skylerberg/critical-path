@@ -440,12 +440,12 @@ cpath watch --project "My Project" | jq 'select(.type=="task_created")'
 Entity references accept a UUID, a unique id prefix (>= 4 chars), an exact
 name/title (case-insensitive), or a unique substring; ambiguity is an error
 listing the candidates. Task references resolve against the board, which has
-no archived cards in it, so `task archive`, `task restore`, `task archived`,
-`task show` and `task delete` fall back to the archive on a miss; every
-board-shaped mutation (`move`, `done`, `update`, `label`, `assign`, `block`)
-deliberately does not, and answers `No task matching` for an archived card. Task descriptions are Markdown in and out, converted
-to the API's restricted Tiptap JSON (`--description-json` is the raw escape
-hatch).
+no archived cards in it, so `task archive`, `task restore`, `task show` and
+`task delete` fall back to the archive on a miss; every board-shaped mutation
+(`move`, `done`, `update`, `label`, `assign`, `block`) deliberately does not,
+and answers `No task matching` for an archived card, by id as well as by
+title. Task descriptions are Markdown in and out, converted to the API's
+restricted Tiptap JSON (`--description-json` is the raw escape hatch).
 
 Every command takes `--json` for machine-readable output and `--no-input` to
 fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2
