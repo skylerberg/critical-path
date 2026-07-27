@@ -653,3 +653,187 @@ describe('task commands', () => {
     expect(conflicting.exitCode).toBe(2);
   });
 });
+
+describe('task create - (one title per stdin line)', () => {
+  const tc = new TestContext();
+  let user: TestUser;
+  let h: CliHarness;
+  let projectId: string;
+  let backlogId: string;
+  let todoId: string;
+
+  beforeAll(async () => {
+    user = await tc.createUser('cli-task-bulk');
+    h = await createCliHarness();
+    await h.runCli(['login', '--email', user.email, '--password-stdin'], {
+      stdin: `${user.password}\n`,
+    });
+    const create = await tc.request(user.token).post('/api/projects', {
+      id: crypto.randomUUID(),
+      name: 'CLI Bulk Fixture',
+    });
+    expect(create.status).toBe(201);
+    const board = (await create.json()) as BoardPayload;
+    projectId = board.project.id;
+    const columns = [...board.columns].sort((a, b) => a.position - b.position);
+    backlogId = columns[0].id;
+    todoId = columns[1].id;
+  });
+
+  afterAll(async () => {
+    await tc.request(user.token).delete(`/api/projects/${projectId}`);
+    await tc.cleanup();
+  });
+
+  it('creates one task per non-blank line, in order, in the default column', async () => {
+    const seed = await h.runCli(['task', 'create', 'Seeded', '--project', projectId, '--json']);
+    expect(seed.exitCode).toBe(0);
+    const seeded = seed.json<BoardTask>();
+
+    const res = await h.runCli(['task', 'create', '-', '--project', projectId, '--json'], {
+      stdin: 'One\r\nTwo\n\n  Three  \n',
+    });
+    expect(res.exitCode).toBe(0);
+    const created = res.json<BoardTask[]>();
+    expect(created.map((t) => t.title)).toEqual(['One', 'Two', 'Three']);
+    expect(created.every((t) => t.column_id === backlogId)).toBe(true);
+    expect(created.every((t, i) => i === 0 || t.position > created[i - 1].position)).toBe(true);
+    expect(created[0].position).toBeGreaterThan(seeded.position);
+
+    const list = await h.runCli([
+      'task',
+      'list',
+      '--project',
+      projectId,
+      '--column',
+      backlogId,
+      '--json',
+    ]);
+    expect(list.json<StatefulTask[]>().map((t) => t.title)).toEqual([
+      'Seeded',
+      'One',
+      'Two',
+      'Three',
+    ]);
+  });
+
+  it('sends one request for the whole batch', async () => {
+    const paths: string[] = [];
+    const res = await h.runCli(['task', 'create', '-', '--project', projectId, '--json'], {
+      stdin: 'Batched one\nBatched two\nBatched three\n',
+      onRequest: (request) => {
+        if (request.method === 'POST') {
+          paths.push(new URL(request.url).pathname);
+        }
+      },
+    });
+    expect(res.exitCode).toBe(0);
+    expect(paths).toEqual(['/api/tasks/batch']);
+  });
+
+  it('honors --column and --top', async () => {
+    const seed = await h.runCli([
+      'task',
+      'create',
+      'Anchor',
+      '--project',
+      projectId,
+      '--column',
+      todoId,
+      '--json',
+    ]);
+    const anchor = seed.json<BoardTask>();
+
+    const res = await h.runCli(
+      ['task', 'create', '-', '--project', projectId, '--column', todoId, '--top', '--json'],
+      { stdin: 'Top one\nTop two\nTop three\n' }
+    );
+    expect(res.exitCode).toBe(0);
+    const created = res.json<BoardTask[]>();
+    expect(created.map((t) => t.title)).toEqual(['Top one', 'Top two', 'Top three']);
+    expect(created.every((t) => t.column_id === todoId)).toBe(true);
+    expect(created.every((t, i) => i === 0 || t.position > created[i - 1].position)).toBe(true);
+    expect(created[2].position).toBeLessThan(anchor.position);
+
+    const list = await h.runCli([
+      'task',
+      'list',
+      '--project',
+      projectId,
+      '--column',
+      todoId,
+      '--json',
+    ]);
+    expect(list.json<StatefulTask[]>().map((t) => t.title)).toEqual([
+      'Top one',
+      'Top two',
+      'Top three',
+      'Anchor',
+    ]);
+  });
+
+  it('prints a table of what it created without --json', async () => {
+    const res = await h.runCli(['task', 'create', '-', '--project', projectId], {
+      stdin: 'Tabled one\nTabled two\n',
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain('Created 2 tasks in');
+    expect(res.stdout).toContain('Tabled one');
+    expect(res.stdout).toContain('Tabled two');
+
+    const one = await h.runCli(['task', 'create', '-', '--project', projectId], {
+      stdin: 'Tabled alone\n',
+    });
+    expect(one.exitCode).toBe(0);
+    expect(one.stdout).toContain('Created 1 task in');
+  });
+
+  it('fails with exit 2 instead of draining a terminal', async () => {
+    const requests: string[] = [];
+    const res = await h.runCli(['task', 'create', '-', '--project', projectId], {
+      stdinIsTty: true,
+      onRequest: (request) => requests.push(new URL(request.url).pathname),
+    });
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toContain('Pipe one title per line');
+    expect(requests).toEqual([]);
+  });
+
+  it('fails with exit 2 on empty stdin', async () => {
+    const res = await h.runCli(['task', 'create', '-', '--project', projectId], {
+      stdin: '\n  \n',
+    });
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toContain('No task titles');
+  });
+
+  it('fails with exit 2 when combined with options the batch cannot carry', async () => {
+    for (const extra of [
+      ['--label', 'bug'],
+      ['--assignee', user.email],
+      ['--description', 'nope'],
+      ['--due', '2026-09-01'],
+    ]) {
+      const res = await h.runCli(['task', 'create', '-', '--project', projectId, ...extra], {
+        stdin: 'One\nTwo\n',
+      });
+      expect(res.exitCode, extra[0]).toBe(2);
+      expect(res.stderr, extra[0]).toContain(extra[0]);
+    }
+  });
+
+  it('rejects more than 100 titles without calling the API', async () => {
+    const titles = Array.from({ length: 101 }, (_, i) => `Over cap ${i}`);
+    const requests: string[] = [];
+    const res = await h.runCli(['task', 'create', '-', '--project', projectId], {
+      stdin: `${titles.join('\n')}\n`,
+      onRequest: (request) => requests.push(new URL(request.url).pathname),
+    });
+    expect(res.exitCode).toBe(6);
+    expect(res.stderr).toContain('at most 100');
+    expect(requests).toEqual([]);
+
+    const list = await h.runCli(['task', 'list', '--project', projectId, '--json']);
+    expect(list.json<StatefulTask[]>().some((t) => t.title.startsWith('Over cap'))).toBe(false);
+  });
+});

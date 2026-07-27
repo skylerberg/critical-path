@@ -24,6 +24,22 @@ export const createTaskSchema = type({
   'assignee_ids?': boundedUuidArray(100),
 });
 
+export const createTasksBatchItemSchema = type({
+  id: uuid,
+  title: stringWithLength(1, 500),
+  position: finiteNumber,
+});
+
+export const createTasksBatchSchema = type({
+  project_id: uuid,
+  column_id: uuid,
+  tasks: createTasksBatchItemSchema.array().atLeastLength(1).atMostLength(100),
+});
+
+export const tasksBatchResponseSchema = type({ tasks: boardTaskSchema.array() });
+
+export type TasksBatchResponse = typeof tasksBatchResponseSchema.infer;
+
 export const patchTaskSchema = type({
   'title?': stringWithLength(1, 500),
   'description?': nullableTiptapDocSchema,
