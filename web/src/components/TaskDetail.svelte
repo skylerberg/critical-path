@@ -37,7 +37,6 @@
   let dialog = $state<HTMLDialogElement>();
   let uploadInput = $state<HTMLInputElement>();
   let confirmingDelete = $state(false);
-  // Covers archiving as well as deleting: both take the card off the board.
   let removing = $state(false);
 
   // Deliberately local, unlike the compose drafts: this shadows a server-owned
@@ -201,7 +200,7 @@
     close();
   }
 
-  // No confirm step: archiving is reversible from the project header, unlike delete.
+  // No confirm step: archiving is reversible, unlike delete.
   async function handleArchive(): Promise<void> {
     removing = true;
     await board.archiveTask(taskId);

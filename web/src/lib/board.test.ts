@@ -1254,18 +1254,36 @@ describe('archive', () => {
     expect(board.archivedTasks).toEqual([]);
   });
 
-  it('loadArchived reads a 404 as an empty archive so an older API still deletes columns', async () => {
+  it('loadArchived reports a 404 rather than claiming the archive is empty', async () => {
     mockRoutes((request, url) =>
       request.method === 'GET' && url.pathname === '/api/projects/p1/archived-tasks'
-        ? jsonResponse(404, { error: 'Not Found' })
+        ? jsonResponse(404, { error: 'Project not found' })
         : undefined
     );
 
     await board.loadArchived();
 
-    expect(board.archivedTasks).toEqual([]);
-    expect(board.archivedLoaded).toBe(true);
+    expect(board.archivedError).toBe('Project not found');
+    expect(board.archivedLoaded).toBe(false);
+  });
+
+  it('loadArchived clears the previous error while a retry is in flight', async () => {
+    board.archivedError = 'nope';
+    let release!: (response: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => inFlight);
+
+    const pending = board.loadArchived();
     expect(board.archivedError).toBeNull();
+    expect(board.archivedLoading).toBe(true);
+
+    release(jsonResponse(200, { tasks: [] }));
+    await pending;
+
+    expect(board.archivedLoaded).toBe(true);
+    expect(board.archivedLoading).toBe(false);
   });
 
   it('refetchArchived is a no-op until the archive has loaded once, then re-GETs', async () => {
@@ -1351,6 +1369,37 @@ describe('archive', () => {
     await board.restoreTask('t9');
 
     expect(board.tasks.some((t) => t.id === 't9')).toBe(true);
+    expect(board.error).toBeNull();
+  });
+
+  it('restoreTask outlives an archive load that was already in flight', async () => {
+    board.archivedTasks = [archivedTask('t9', 'c1', 'Old')];
+    board.archivedLoaded = true;
+    let release!: (response: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      const url = new URL(request.url);
+      if (url.pathname === '/api/projects/p1/archived-tasks') {
+        return inFlight;
+      }
+      if (url.pathname === '/api/tasks/t9/restore') {
+        return jsonResponse(200, task('t9', 'c1', 1000, 'Old'));
+      }
+      const p = payload();
+      return jsonResponse(200, { ...p, tasks: [...p.tasks, task('t9', 'c1', 1000, 'Old')] });
+    });
+
+    const loading = board.refetchArchived();
+    await board.restoreTask('t9');
+    release(jsonResponse(200, { tasks: [archivedTask('t9', 'c1', 'Old')] }));
+    await loading;
+
+    expect(board.archivedTasks).toEqual([]);
+    expect(board.tasks.some((t) => t.id === 't9')).toBe(true);
+    expect(board.archivedLoading).toBe(false);
   });
 
   it('deleteTask purges the row from the archive as well as the board', async () => {

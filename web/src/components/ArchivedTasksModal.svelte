@@ -16,8 +16,9 @@
 
   $effect(() => {
     const projectId = board.currentProjectId;
+    const isOpen = open;
     untrack(() => {
-      if (projectId !== null) {
+      if (isOpen && projectId !== null) {
         void board.loadArchived();
       }
     });
@@ -47,15 +48,17 @@
     class="mb-3 min-h-11 w-full rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
   />
 
-  {#if board.archivedError !== null}
+  <!-- Load state, not emptiness: an optimistic archive fills archivedTasks before
+       any load has run, and that one row is not the archive. -->
+  {#if !board.archivedLoaded && board.archivedError === null}
+    <Spinner size="sm" label="Loading archived cards" />
+  {:else if board.archivedError !== null}
     <div class="flex flex-col gap-3">
       <p role="alert" class="text-sm text-danger">{board.archivedError}</p>
       <div>
         <Button variant="secondary" onclick={() => void board.loadArchived()}>Try again</Button>
       </div>
     </div>
-  {:else if board.archivedLoading && board.archivedTasks.length === 0}
-    <Spinner size="sm" label="Loading archived cards" />
   {:else if board.archivedTasks.length === 0}
     <p class="text-sm text-muted">No archived cards.</p>
   {:else if matches.length === 0}

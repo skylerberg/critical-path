@@ -129,4 +129,58 @@ describe('ArchivedTasksModal', () => {
 
     await waitFor(() => expect(screen.getByText('Recovered')).toBeInTheDocument());
   });
+
+  it('shows a loading state while a retry runs and re-renders a second failure', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Archive unavailable' }));
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+    await waitFor(() => expect(screen.getByText('Archive unavailable')).toBeInTheDocument());
+
+    let release!: (response: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => inFlight);
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Loading archived cards')).toBeInTheDocument()
+    );
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+
+    release(jsonResponse(500, { error: 'Still unavailable' }));
+    await waitFor(() => expect(screen.getByText('Still unavailable')).toBeInTheDocument());
+  });
+
+  it('waits for the first load rather than passing off an optimistically archived row', async () => {
+    board.archivedTasks = [archived('t1', 'Fix login')];
+    let release!: (response: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => inFlight);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Loading archived cards')).toBeInTheDocument()
+    );
+    expect(screen.queryByText('Fix login')).toBeNull();
+
+    release(jsonResponse(200, { tasks: [archived('t1', 'Fix login'), archived('t2', 'Older')] }));
+    await waitFor(() => expect(screen.getByText('Older')).toBeInTheDocument());
+    expect(screen.getByText('Fix login')).toBeInTheDocument();
+  });
+
+  it('fetches only once it is open, so a permanent mount costs nothing', async () => {
+    mockArchive([]);
+
+    const { rerender } = render(ArchivedTasksModal, { open: false, onclose: () => {} });
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await rerender({ open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByText('No archived cards.')).toBeInTheDocument());
+  });
 });

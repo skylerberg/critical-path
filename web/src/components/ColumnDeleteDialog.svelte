@@ -26,7 +26,9 @@
     board.archivedTasks.filter((task) => task.column_id === column.id).length
   );
   const archivedKnown = $derived(board.archivedLoaded && board.archivedError === null);
-  const checking = $derived(!archivedKnown && board.archivedLoading);
+  // Any load in flight, not just the first: archivedLoaded stays true for the whole
+  // visit, so counts from an earlier open can be arbitrarily stale.
+  const checking = $derived(board.archivedLoading);
   const targets = $derived(board.columns.filter((c) => c.id !== column.id));
   // Unknown archive state counts as "may hold cards": offering a move target is
   // harmless, telling the user the column is empty is not.

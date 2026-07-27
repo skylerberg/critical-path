@@ -124,6 +124,28 @@ describe('ColumnDeleteDialog', () => {
     );
   });
 
+  it('re-checks on every open instead of confirming against counts from an earlier one', async () => {
+    board.archivedLoaded = true;
+    const deleteColumn = vi.spyOn(board, 'deleteColumn').mockResolvedValue();
+    let release!: (response: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => inFlight);
+
+    render(ColumnDeleteDialog, { column: TODO, open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByText(/Checking/)).toBeInTheDocument());
+    expect(screen.queryByText(/empty column/)).toBeNull();
+    const confirm = screen.getByRole('button', { name: 'Delete column' });
+    expect(confirm).toBeDisabled();
+    await fireEvent.click(confirm);
+    expect(deleteColumn).not.toHaveBeenCalled();
+
+    release(jsonResponse(200, { tasks: [archived('t9', 'c1')] }));
+    await waitFor(() => expect(screen.getByText(/1 archived card/)).toBeInTheDocument());
+  });
+
   it('says the archive could not be checked but still allows the move', async () => {
     fetchMock.mockResolvedValue(jsonResponse(500, { error: 'nope' }));
     const deleteColumn = vi.spyOn(board, 'deleteColumn').mockResolvedValue();

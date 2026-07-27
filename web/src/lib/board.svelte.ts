@@ -157,7 +157,9 @@ class BoardStore {
     }
   }
 
-  async refetch(): Promise<void> {
+  // `quiet` suppresses the error page for reads that merely supplement an action
+  // that already succeeded.
+  async refetch({ quiet = false }: { quiet?: boolean } = {}): Promise<void> {
     const projectId = this.currentProjectId;
     if (projectId === null) {
       return;
@@ -190,7 +192,7 @@ class BoardStore {
       // project does not have.
       this.setFilters(this.filters);
     } catch (error) {
-      if (token !== this.#fetchToken) {
+      if (token !== this.#fetchToken || quiet) {
         return;
       }
       this.error = error instanceof ApiError ? error.message : 'Failed to load board';
@@ -205,6 +207,9 @@ class BoardStore {
     }
     const token = ++this.#archivedToken;
     this.archivedLoading = true;
+    // Cleared up front so a retry shows its loading state instead of re-rendering
+    // the failure it is already retrying.
+    this.archivedError = null;
     try {
       const data = assertOk(
         await api.GET('/api/projects/{id}/archived-tasks', { params: { path: { id: projectId } } })
@@ -217,15 +222,6 @@ class BoardStore {
       this.archivedError = null;
     } catch (error) {
       if (token !== this.#archivedToken) {
-        return;
-      }
-      // An API build without this route answers 404, and so does a board the
-      // caller cannot reach — which the board fetch already reports. Reading it
-      // as an empty archive keeps column deletion working through a rollout.
-      if (error instanceof ApiError && error.status === 404) {
-        this.archivedTasks = [];
-        this.archivedLoaded = true;
-        this.archivedError = null;
         return;
       }
       this.archivedError = error instanceof ApiError ? error.message : 'Failed to load the archive';
@@ -467,8 +463,16 @@ class BoardStore {
       );
   }
 
+  // A local archive edit outranks any load already in flight: that response was
+  // built before the edit and would put the row back.
+  #discardArchivedLoad(): void {
+    this.#archivedToken += 1;
+    this.archivedLoading = false;
+  }
+
   async deleteTask(taskId: string): Promise<void> {
     this.#dropTask(taskId);
+    this.#discardArchivedLoad();
     this.archivedTasks = this.archivedTasks.filter((task) => task.id !== taskId);
     try {
       assertOk(await api.DELETE('/api/tasks/{id}', { params: { path: { id: taskId } } }));
@@ -484,6 +488,7 @@ class BoardStore {
       return;
     }
     this.#dropTask(taskId);
+    this.#discardArchivedLoad();
     this.archivedTasks = [
       { ...task, archived_at: new Date().toISOString() },
       ...this.archivedTasks,
@@ -500,6 +505,7 @@ class BoardStore {
   }
 
   async restoreTask(taskId: string): Promise<void> {
+    this.#discardArchivedLoad();
     this.archivedTasks = this.archivedTasks.filter((t) => t.id !== taskId);
     try {
       const restored = assertOk(
@@ -510,7 +516,7 @@ class BoardStore {
         : [...this.tasks, restored];
       // The tasks this one blocks are not derivable from the response, and only
       // a board read names that direction.
-      await this.refetch();
+      await this.refetch({ quiet: true });
     } catch (error) {
       await this.#mutationFailed(error);
     }
