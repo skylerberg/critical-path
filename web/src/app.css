@@ -12,6 +12,7 @@
   --cp-on-accent: #ffffff;
   --cp-danger: #dc2626;
   --cp-success: #16a34a;
+  --cp-warning: #b45309;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -27,6 +28,7 @@
     --cp-on-accent: #ffffff;
     --cp-danger: #ef4444;
     --cp-success: #22c55e;
+    --cp-warning: #f59e0b;
   }
 }
 
@@ -42,6 +44,7 @@
   --color-on-accent: var(--cp-on-accent);
   --color-danger: var(--cp-danger);
   --color-success: var(--cp-success);
+  --color-warning: var(--cp-warning);
 }
 
 @layer base {

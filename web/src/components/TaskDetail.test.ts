@@ -30,6 +30,7 @@ function task(
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    due_date: null,
     comment_count: 0,
     ...overrides,
   };
@@ -722,6 +723,20 @@ describe('TaskDetail', () => {
     });
   });
 
+  it('offers the due date behind an add affordance, like labels and assignees', async () => {
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    expect(screen.getByRole('heading', { name: 'Due date' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Due date')).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: '+ Add due date' }));
+    await fireEvent.change(screen.getByLabelText('Due date'), {
+      target: { value: '2026-08-03' },
+    });
+
+    expect(await taskPatches()[0]!.json()).toEqual({ due_date: '2026-08-03' });
+  });
+
   it('lists tasks that depend on this one and removes the reverse relation', async () => {
     const spy = vi.spyOn(board, 'removeBlocker').mockResolvedValue(undefined);
     render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
@@ -836,5 +851,17 @@ describe('TaskDetail readonly', () => {
     expect(screen.queryByRole('heading', { name: 'Assignees' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Blocked by' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Blocks' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Due date' })).toBeNull();
+  });
+
+  it('shows a published due date as plain text with nothing to edit', () => {
+    board.tasks = [...board.tasks, task('t6', 'c1', 'Dated card', { due_date: '2026-08-03' })];
+
+    render(TaskDetail, { taskId: 't6', closePath: '/public/projects/p1', readonly: true });
+
+    expect(screen.getByRole('heading', { name: 'Due date' })).toBeInTheDocument();
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Due date')).toBeNull();
+    expect(screen.queryByRole('button', { name: '+ Add due date' })).toBeNull();
   });
 });

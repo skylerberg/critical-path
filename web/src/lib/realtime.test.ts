@@ -69,6 +69,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
     assignee_ids: [] as string[],
     blocker_ids: [] as string[],
     image_count: 0,
+    due_date: null,
     comment_count: 0,
   };
 }
@@ -224,6 +225,24 @@ describe('board event application', () => {
     });
     expect(board.tasks).toHaveLength(1);
     expect(board.tasks[0]!.title).toBe('Renamed');
+  });
+
+  it('adopts a due date set by a teammate, and its removal', () => {
+    board.tasks = [task('t1')];
+
+    board.applyRealtime({
+      type: 'task_updated',
+      project_id: 'p1',
+      data: { ...task('t1'), due_date: '2026-08-03' },
+    });
+    expect(board.tasks[0]!.due_date).toBe('2026-08-03');
+
+    board.applyRealtime({
+      type: 'task_updated',
+      project_id: 'p1',
+      data: { ...task('t1'), due_date: null },
+    });
+    expect(board.tasks[0]!.due_date).toBeNull();
   });
 
   it('removes on task_deleted and strips it from other blocker_ids', () => {

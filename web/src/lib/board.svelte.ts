@@ -350,6 +350,7 @@ class BoardStore {
         title,
         description: null,
         position,
+        due_date: null,
         created_at: now,
         updated_at: now,
         label_ids: [],
@@ -422,6 +423,21 @@ class BoardStore {
     }
   }
 
+  // False when the project has no done column, so callers can decline the action
+  // instead of offering one that would silently do nothing.
+  markTaskDone(taskId: string): boolean {
+    const doneColumn = this.columns.find((column) => column.is_done);
+    if (doneColumn === undefined) {
+      return false;
+    }
+    void this.moveTask(
+      taskId,
+      doneColumn.id,
+      append(this.tasksInColumn(doneColumn.id).map((task) => task.position))
+    );
+    return true;
+  }
+
   // Merges only the timestamps, never the whole response body: a label or assignee
   // change applied optimistically while the write was in flight must survive.
   #adoptTimestamps(taskId: string, times: { created_at?: string; updated_at: string }): void {
@@ -430,7 +446,11 @@ class BoardStore {
 
   async updateTask(
     taskId: string,
-    patch: { title?: string; description?: BoardTask['description'] },
+    patch: {
+      title?: string;
+      description?: BoardTask['description'];
+      due_date?: BoardTask['due_date'];
+    },
     expectedUpdatedAt?: string
   ): Promise<TaskUpdateOutcome> {
     this.tasks = this.tasks.map((task) => (task.id === taskId ? { ...task, ...patch } : task));

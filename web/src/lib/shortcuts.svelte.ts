@@ -1,6 +1,5 @@
 import { board } from './board.svelte';
 import type { DependencyDirection } from './dependency-types';
-import { append } from './positions';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
@@ -164,21 +163,11 @@ class ShortcutController {
         this.quickAddColumn = columnId;
         break;
       }
-      case 'd': {
-        if (selectedId === null) {
+      case 'd':
+        if (selectedId === null || !board.markTaskDone(selectedId)) {
           return false;
         }
-        const doneColumn = board.columns.find((column) => column.is_done);
-        if (doneColumn === undefined) {
-          return false;
-        }
-        void board.moveTask(
-          selectedId,
-          doneColumn.id,
-          append(board.tasksInColumn(doneColumn.id).map((task) => task.position))
-        );
         break;
-      }
       default:
         return false;
     }

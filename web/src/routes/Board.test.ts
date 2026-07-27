@@ -50,6 +50,7 @@ function task(id: string, columnId: string, position: number, title: string): Bo
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    due_date: null,
     comment_count: 0,
   };
 }
@@ -112,7 +113,7 @@ function addColumnTile(): HTMLElement {
 }
 
 function cardTitles(): string[] {
-  return [...column().querySelectorAll('a p')].map((p) => p.textContent ?? '');
+  return [...column().querySelectorAll('[data-task-id] p')].map((p) => p.textContent ?? '');
 }
 
 function alertText(): string {
@@ -139,9 +140,9 @@ describe('Board display order', () => {
 
     await screen.findByText('match a');
     expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
-    const dimmed = [...column().querySelectorAll('a')]
-      .filter((a) => a.className.includes('opacity-30'))
-      .map((a) => a.querySelector('p')?.textContent);
+    const dimmed = [...column().querySelectorAll<HTMLElement>('[data-task-id] > div')]
+      .filter((card) => card.className.includes('opacity-30'))
+      .map((card) => card.querySelector('p')?.textContent);
     expect(dimmed).toEqual(['plain one', 'plain two']);
   });
 });

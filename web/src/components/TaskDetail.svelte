@@ -2,12 +2,14 @@
   import { untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
+  import { isCalendarDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { append } from '../lib/positions';
   import { router } from '../lib/router.svelte';
   import { taskActivity } from '../lib/taskActivity.svelte';
   import AssigneePicker from './AssigneePicker.svelte';
   import DependencyPicker from './DependencyPicker.svelte';
+  import DueDatePicker from './DueDatePicker.svelte';
   import LabelPicker from './LabelPicker.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
   import TaskActivity from './TaskActivity.svelte';
@@ -328,6 +330,13 @@
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Assignees</h3>
           <AssigneePicker {taskId} {readonly} />
+        </section>
+      {/if}
+
+      {#if !readonly || isCalendarDate(task.due_date)}
+        <section class="flex flex-col gap-2">
+          <h3 class="text-sm font-semibold text-muted">Due date</h3>
+          <DueDatePicker {taskId} {readonly} />
         </section>
       {/if}
 

@@ -52,6 +52,7 @@ function task(id: string, columnId: string, position: number, title: string) {
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    due_date: null,
     comment_count: 0,
   };
 }
@@ -548,6 +549,43 @@ describe('board store mutations', () => {
 
     const body = (await requestAt(0).json()) as Record<string, unknown>;
     expect(Object.keys(body)).not.toContain('expected_updated_at');
+  });
+
+  it('updateTask applies a due date before the response and sends it unguarded', async () => {
+    const pending = board.updateTask('t1', { due_date: '2026-08-03' });
+
+    expect(board.tasks.find((t) => t.id === 't1')?.due_date).toBe('2026-08-03');
+    await pending;
+    expect(await requestAt(0).json()).toEqual({ due_date: '2026-08-03' });
+  });
+
+  it('updateTask resyncs the board rather than rolling back a failed due date', async () => {
+    mockRoutes((request) =>
+      request.method === 'PATCH' ? jsonResponse(500, { error: 'boom' }) : undefined
+    );
+
+    const outcome = await board.updateTask('t1', { due_date: '2026-08-03' });
+
+    expect(outcome).toEqual({ status: 'error' });
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['boom']);
+    expect(requestAt(1).method).toBe('GET');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p1');
+    expect(board.tasks.find((t) => t.id === 't1')?.due_date).toBeNull();
+  });
+
+  it('markTaskDone appends the task to the first done column', () => {
+    expect(board.markTaskDone('t1')).toBe(true);
+
+    const moved = board.tasks.find((t) => t.id === 't1');
+    expect(moved?.column_id).toBe('c2');
+    expect(moved?.position).toBe(2000);
+  });
+
+  it('markTaskDone declines and issues nothing when no column is done', () => {
+    board.columns = board.columns.map((column) => ({ ...column, is_done: false }));
+
+    expect(board.markTaskDone('t1')).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('updateTask reports a conflict on 409, refetches, and shows no toast', async () => {
