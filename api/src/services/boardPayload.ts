@@ -72,17 +72,39 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
   };
 }
 
-export async function getArchivedTasks(db: Kysely<DB>, projectId: string): Promise<ArchivedTask[]> {
-  const rows = await projectTasksQuery(db, projectId)
+function toArchivedTask(row: ProjectTaskRow): ArchivedTask {
+  return { ...toBoardTask(row), archived_at: (row.archived_at as Date).toISOString() };
+}
+
+// A bulk column archive stamps one archived_at across the batch, so position is
+// what keeps those rows in board order rather than uuid order.
+function archivedTasksQuery(db: Kysely<DB>, projectId: string) {
+  return projectTasksQuery(db, projectId)
     .where('task.archived_at', 'is not', null)
     .orderBy('task.archived_at', 'desc')
-    .orderBy('task.id')
+    .orderBy('task.position')
+    .orderBy('task.id');
+}
+
+export async function getArchivedTasks(db: Kysely<DB>, projectId: string): Promise<ArchivedTask[]> {
+  const rows = await archivedTasksQuery(db, projectId).execute();
+
+  return rows.map(toArchivedTask);
+}
+
+export async function getArchivedTasksByIds(
+  db: Kysely<DB>,
+  projectId: string,
+  taskIds: readonly string[]
+): Promise<ArchivedTask[]> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+  const rows = await archivedTasksQuery(db, projectId)
+    .where('task.id', 'in', [...taskIds])
     .execute();
 
-  return rows.map((row) => ({
-    ...toBoardTask(row),
-    archived_at: (row.archived_at as Date).toISOString(),
-  }));
+  return rows.map(toArchivedTask);
 }
 
 export async function getBoardPayload(

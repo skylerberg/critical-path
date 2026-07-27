@@ -30,11 +30,17 @@ export const deleteColumnQuerySchema = type({
   'move_tasks_to?': uuid,
 });
 
+export const moveColumnTasksSchema = type({
+  target_column_id: uuid,
+});
+
 export const movedTaskSchema = type({
   id: 'string',
   column_id: 'string',
   position: finiteNumber,
 });
+
+export type MovedTask = typeof movedTaskSchema.infer;
 
 export const movedTasksResponseSchema = type({
   moved_tasks: movedTaskSchema.array(),
