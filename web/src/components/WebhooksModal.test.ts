@@ -56,20 +56,52 @@ describe('WebhooksModal', () => {
         disabled_at: '2026-02-01T00:00:00.000Z',
         consecutive_failures: 5,
       }),
+      webhook({ id: 'w-3', url: 'https://c.example/h', secret: 'sec-3', consecutive_failures: 1 }),
     ]);
 
     await waitFor(() => expect(screen.getByText('https://example.com/hook')).toBeInTheDocument());
     expect(screen.getByText('sec-abc')).toBeInTheDocument();
-    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.getAllByText('Active')).toHaveLength(2);
     expect(screen.getByText('Disabled')).toBeInTheDocument();
     expect(screen.getByText('5 consecutive failures')).toBeInTheDocument();
+    expect(screen.getByText('1 consecutive failure')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete https://b.example/h' })).toBeInTheDocument();
   });
 
-  it('renders an error row when the list cannot be loaded', async () => {
+  it('renders an error row with a retry when the list cannot be loaded', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(404, { error: 'Project not found' }));
     render(WebhooksModal, { projectId: 'p-1', onclose: () => {} });
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Project not found'));
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { webhooks: [webhook()] }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => expect(screen.getByText('https://example.com/hook')).toBeInTheDocument());
+  });
+
+  it('does not paint another project’s endpoints while this project loads', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { webhooks: [webhook()] }));
+    await webhooks.load('p-1');
+
+    let settle: (response: Response) => void = () => {};
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        settle = resolve;
+      })
+    );
+    render(WebhooksModal, { projectId: 'p-2', onclose: () => {} });
+
+    expect(screen.queryByText('https://example.com/hook')).not.toBeInTheDocument();
+    expect(screen.queryByText('sec-abc')).not.toBeInTheDocument();
+    expect(screen.getByText('Loading webhooks…')).toBeInTheDocument();
+
+    settle(
+      jsonResponse(200, {
+        webhooks: [webhook({ id: 'w-2', project_id: 'p-2', url: 'https://b.example/h' })],
+      })
+    );
+    await waitFor(() => expect(screen.getByText('https://b.example/h')).toBeInTheDocument());
   });
 
   it('posts the typed URL with a generated id and the project id', async () => {
@@ -93,15 +125,33 @@ describe('WebhooksModal', () => {
     expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it('does not call the API for an empty URL', async () => {
+  it('does not call the API for an empty or malformed URL', async () => {
     renderWith([]);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const form = screen.getByRole('form', { name: 'New webhook' });
 
     await fireEvent.input(screen.getByLabelText('Endpoint URL'), { target: { value: '   ' } });
-    await fireEvent.submit(screen.getByRole('form', { name: 'New webhook' }));
+    await fireEvent.submit(form);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('alert')).toHaveTextContent('Enter the URL to call');
+
+    await fireEvent.input(screen.getByLabelText('Endpoint URL'), {
+      target: { value: 'example.com/hook' },
+    });
+    await fireEvent.submit(form);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Enter a full URL starting with http:// or https://'
+    );
+
+    await fireEvent.input(screen.getByLabelText('Endpoint URL'), {
+      target: { value: 'ftp://example.com/hook' },
+    });
+    await fireEvent.submit(form);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('shows a server rejection inline', async () => {
@@ -124,9 +174,10 @@ describe('WebhooksModal', () => {
     );
   });
 
-  it('fetches the delivery log once per expand and offers Resend only on failures', async () => {
+  it('refetches the delivery log on every expand and offers Resend only on failures', async () => {
     renderWith([webhook()]);
     await waitFor(() => expect(screen.getByText('https://example.com/hook')).toBeInTheDocument());
+    const deliveriesButton = screen.getByRole('button', { name: /^Deliveries/ });
 
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, {
@@ -136,18 +187,42 @@ describe('WebhooksModal', () => {
         ],
       })
     );
-    await fireEvent.click(screen.getByRole('button', { name: 'Deliveries' }));
+    await fireEvent.click(deliveriesButton);
 
     await waitFor(() => expect(screen.getByText('delivered')).toBeInTheDocument());
     expect(screen.getByText('failed')).toBeInTheDocument();
     expect(screen.getByText('HTTP 500')).toBeInTheDocument();
     expect(screen.getByText('boom')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /^Re-send/ })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^Resend/ })).toHaveLength(1);
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Deliveries' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Deliveries' }));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { deliveries: [delivery({ id: 'd-3', status: 'pending' })] })
+    );
+    await fireEvent.click(deliveriesButton);
+    await fireEvent.click(deliveriesButton);
+
+    await waitFor(() => expect(screen.getByText('pending')).toBeInTheDocument());
+    expect(screen.queryByText('delivered')).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('shows a retryable error when the delivery log cannot be read', async () => {
+    renderWith([webhook()]);
+    await waitFor(() => expect(screen.getByText('https://example.com/hook')).toBeInTheDocument());
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Internal Server Error' }));
+    await fireEvent.click(screen.getByRole('button', { name: /^Deliveries/ }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('Internal Server Error')
+    );
+    expect(screen.queryByText('Loading deliveries…')).not.toBeInTheDocument();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { deliveries: [delivery()] }));
+    await fireEvent.click(screen.getByRole('button', { name: /^Try again loading deliveries/ }));
+
     await waitFor(() => expect(screen.getByText('delivered')).toBeInTheDocument());
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('re-sends a failed delivery', async () => {
@@ -156,25 +231,32 @@ describe('WebhooksModal', () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, { deliveries: [delivery({ status: 'failed', last_error: 'boom' })] })
     );
-    await fireEvent.click(screen.getByRole('button', { name: 'Deliveries' }));
+    await fireEvent.click(screen.getByRole('button', { name: /^Deliveries/ }));
     await waitFor(() => expect(screen.getByText('failed')).toBeInTheDocument());
 
     fetchMock.mockResolvedValueOnce(jsonResponse(204));
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, { deliveries: [delivery({ status: 'pending', last_error: null })] })
     );
-    await fireEvent.click(screen.getByRole('button', { name: /^Re-send/ }));
+    await fireEvent.click(screen.getByRole('button', { name: /^Resend/ }));
 
     await waitFor(() => expect(screen.getByText('pending')).toBeInTheDocument());
     expect(requestAt(2).url).toContain('/api/webhooks/w-1/deliveries/d-1/redeliver');
   });
 
-  it('removes a deleted registration from the list', async () => {
+  it('deletes a registration only after the click is confirmed', async () => {
     renderWith([webhook()]);
     await waitFor(() => expect(screen.getByText('https://example.com/hook')).toBeInTheDocument());
 
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete https://example.com/hook' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('https://example.com/hook')).toBeInTheDocument();
+
     fetchMock.mockResolvedValueOnce(jsonResponse(204));
-    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Confirm delete of https://example.com/hook' })
+    );
 
     await waitFor(() =>
       expect(screen.getByText('No endpoints registered yet.')).toBeInTheDocument()
@@ -187,7 +269,7 @@ describe('WebhooksModal', () => {
     await waitFor(() => expect(screen.getByText('sec-abc')).toBeInTheDocument());
 
     fetchMock.mockResolvedValueOnce(jsonResponse(200, webhook({ secret: 'sec-new' })));
-    await fireEvent.click(screen.getByRole('button', { name: 'Rotate secret' }));
+    await fireEvent.click(screen.getByRole('button', { name: /^Rotate secret/ }));
 
     await waitFor(() => expect(screen.getByText('sec-new')).toBeInTheDocument());
   });

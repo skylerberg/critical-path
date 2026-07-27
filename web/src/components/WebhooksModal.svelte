@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { ApiError } from '../api/client';
   import { webhooks, type Webhook, type WebhookDelivery } from '../lib/webhooks.svelte';
   import Badge from './ui/Badge.svelte';
@@ -17,9 +18,17 @@
   let creating = $state(false);
   let createError = $state('');
   let expandedId = $state<string | null>(null);
+  let confirmingDeleteId = $state<string | null>(null);
+
+  // The store is a singleton that still holds the previous project's endpoints and
+  // secrets until this project's load lands, so nothing paints until it has.
+  const scoped = $derived(webhooks.currentProjectId === projectId);
+  const rows = $derived(scoped && webhooks.loaded ? webhooks.list : null);
+  const loadError = $derived(scoped ? webhooks.loadError : null);
 
   $effect(() => {
-    void webhooks.load(projectId);
+    const id = projectId;
+    untrack(() => void webhooks.load(id));
   });
 
   async function create(event: SubmitEvent): Promise<void> {
@@ -27,6 +36,10 @@
     const trimmed = url.trim();
     if (trimmed === '') {
       createError = 'Enter the URL to call';
+      return;
+    }
+    if (!isHttpUrl(trimmed)) {
+      createError = 'Enter a full URL starting with http:// or https://';
       return;
     }
     creating = true;
@@ -42,15 +55,31 @@
     }
   }
 
+  function isHttpUrl(value: string): boolean {
+    try {
+      const { protocol } = new URL(value);
+      return protocol === 'http:' || protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
+
+  function requestDelete(webhook: Webhook): void {
+    if (confirmingDeleteId !== webhook.id) {
+      confirmingDeleteId = webhook.id;
+      return;
+    }
+    confirmingDeleteId = null;
+    void webhooks.remove(webhook.id);
+  }
+
   function toggleDeliveries(webhook: Webhook): void {
     if (expandedId === webhook.id) {
       expandedId = null;
       return;
     }
     expandedId = webhook.id;
-    if (webhooks.deliveries[webhook.id] === undefined) {
-      void webhooks.loadDeliveries(webhook.id);
-    }
+    void webhooks.loadDeliveries(webhook.id);
   }
 
   function badgeVariant(delivery: WebhookDelivery): 'success' | 'danger' | 'neutral' {
@@ -71,15 +100,22 @@
       this board can read the signing secrets.
     </p>
 
-    {#if webhooks.loadError !== null}
-      <p role="alert" class="text-sm text-danger">{webhooks.loadError}</p>
-    {:else if !webhooks.loaded}
-      <p class="text-sm text-muted">Loading webhooks…</p>
-    {:else if webhooks.list.length === 0}
+    {#if rows === null}
+      {#if loadError !== null}
+        <div class="flex flex-col items-start gap-3">
+          <p role="alert" class="text-sm text-danger">{loadError}</p>
+          <Button variant="secondary" onclick={() => void webhooks.load(projectId)}>
+            Try again
+          </Button>
+        </div>
+      {:else}
+        <p class="text-sm text-muted">Loading webhooks…</p>
+      {/if}
+    {:else if rows.length === 0}
       <p class="text-sm text-muted">No endpoints registered yet.</p>
     {:else}
-      <ul class="flex flex-col divide-y divide-edge">
-        {#each webhooks.list as webhook (webhook.id)}
+      <ul class="flex max-h-[50vh] flex-col divide-y divide-edge overflow-y-auto">
+        {#each rows as webhook (webhook.id)}
           <li class="flex flex-col gap-2 py-3">
             <div class="flex flex-wrap items-center gap-2">
               <span class="min-w-0 flex-1 truncate font-mono text-sm">{webhook.url}</span>
@@ -90,7 +126,10 @@
               {/if}
               {#if webhook.consecutive_failures > 0}
                 <Badge variant="danger">
-                  {webhook.consecutive_failures} consecutive failures
+                  {webhook.consecutive_failures} consecutive failure{webhook.consecutive_failures ===
+                  1
+                    ? ''
+                    : 's'}
                 </Badge>
               {/if}
             </div>
@@ -104,11 +143,16 @@
             </div>
 
             <div class="flex flex-wrap gap-2">
-              <Button variant="secondary" onclick={() => void webhooks.rotateSecret(webhook.id)}>
+              <Button
+                variant="secondary"
+                aria-label="Rotate secret for {webhook.url}"
+                onclick={() => void webhooks.rotateSecret(webhook.id)}
+              >
                 Rotate secret
               </Button>
               <Button
                 variant="secondary"
+                aria-label="{webhook.disabled_at === null ? 'Disable' : 'Enable'} {webhook.url}"
                 onclick={() => void webhooks.setDisabled(webhook.id, webhook.disabled_at === null)}
               >
                 {webhook.disabled_at === null ? 'Disable' : 'Enable'}
@@ -116,51 +160,78 @@
               <Button
                 variant="secondary"
                 aria-expanded={expandedId === webhook.id}
+                aria-label="Deliveries for {webhook.url}"
                 onclick={() => toggleDeliveries(webhook)}
               >
                 Deliveries
               </Button>
-              <Button variant="danger" onclick={() => void webhooks.remove(webhook.id)}>
-                Delete
+              <Button
+                variant="danger"
+                aria-label="{confirmingDeleteId === webhook.id
+                  ? 'Confirm delete of'
+                  : 'Delete'} {webhook.url}"
+                onclick={() => requestDelete(webhook)}
+              >
+                {confirmingDeleteId === webhook.id ? 'Confirm delete' : 'Delete'}
               </Button>
             </div>
 
             {#if expandedId === webhook.id}
               {@const deliveries = webhooks.deliveries[webhook.id]}
-              {#if deliveries === undefined}
-                <p class="text-sm text-muted">Loading deliveries…</p>
-              {:else if deliveries.length === 0}
-                <p class="text-sm text-muted">Nothing has been sent to this endpoint yet.</p>
-              {:else}
-                <ul class="flex flex-col gap-2 border-t border-edge pt-2">
-                  {#each deliveries as delivery (delivery.id)}
-                    <li class="flex flex-col gap-1 text-sm">
-                      <div class="flex flex-wrap items-center gap-2">
-                        <Badge variant={badgeVariant(delivery)}>{delivery.status}</Badge>
-                        <span class="font-mono text-xs">{delivery.event_type}</span>
-                        <span class="text-xs text-muted">{formatTime(delivery.created_at)}</span>
-                        {#if delivery.last_status_code !== null}
-                          <span class="text-xs text-muted">
-                            HTTP {delivery.last_status_code}
-                          </span>
-                        {/if}
-                        {#if delivery.status === 'failed'}
-                          <Button
-                            variant="secondary"
-                            aria-label="Re-send {delivery.event_type} delivery"
-                            onclick={() => void webhooks.redeliver(webhook.id, delivery.id)}
-                          >
-                            Resend
-                          </Button>
-                        {/if}
-                      </div>
-                      {#if delivery.last_error !== null}
-                        <p class="truncate text-xs text-danger">{delivery.last_error}</p>
-                      {/if}
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
+              {@const deliveriesError = webhooks.deliveriesError[webhook.id]}
+              <div class="flex flex-col gap-2 border-t border-edge pt-2">
+                {#if deliveriesError !== undefined}
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p role="alert" class="text-sm text-danger">{deliveriesError}</p>
+                    <Button
+                      variant="secondary"
+                      aria-label="Try again loading deliveries for {webhook.url}"
+                      onclick={() => void webhooks.loadDeliveries(webhook.id)}
+                    >
+                      Try again
+                    </Button>
+                  </div>
+                {/if}
+                {#if deliveries !== undefined}
+                  {#if deliveries.length === 0}
+                    <p class="text-sm text-muted">Nothing has been sent to this endpoint yet.</p>
+                  {:else}
+                    <ul class="flex flex-col gap-2">
+                      {#each deliveries as delivery (delivery.id)}
+                        <li class="flex flex-col gap-1 text-sm">
+                          <div class="flex flex-wrap items-center gap-2">
+                            <Badge variant={badgeVariant(delivery)}>{delivery.status}</Badge>
+                            <span class="font-mono text-xs">{delivery.event_type}</span>
+                            <span class="text-xs text-muted">{formatTime(delivery.created_at)}</span
+                            >
+                            {#if delivery.last_status_code !== null}
+                              <span class="text-xs text-muted">
+                                HTTP {delivery.last_status_code}
+                              </span>
+                            {/if}
+                            {#if delivery.status === 'failed'}
+                              <Button
+                                variant="secondary"
+                                aria-label="Resend {delivery.event_type} delivery from {formatTime(
+                                  delivery.created_at
+                                )}"
+                                onclick={() => void webhooks.redeliver(webhook.id, delivery.id)}
+                              >
+                                Resend
+                              </Button>
+                            {/if}
+                          </div>
+                          {#if delivery.last_error !== null}
+                            <p class="truncate text-xs text-danger">{delivery.last_error}</p>
+                          {/if}
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
+                {:else if webhooks.deliveriesLoading === webhook.id}
+                  <p class="text-sm text-muted">Loading deliveries…</p>
+                {/if}
+              </div>
             {/if}
           </li>
         {/each}

@@ -6,43 +6,50 @@ import { toasts } from './toasts.svelte';
 export type Webhook = components['schemas']['Webhook'];
 export type WebhookDelivery = components['schemas']['WebhookDelivery'];
 
+function omitKey<T>(map: Record<string, T>, key: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(map).filter(([id]) => id !== key));
+}
+
 class WebhooksStore {
+  currentProjectId = $state<string | null>(null);
   list = $state<Webhook[]>([]);
   deliveries = $state<Record<string, WebhookDelivery[]>>({});
-  loaded = $state(false);
-  loading = $state(false);
-  loadError = $state<string | null>(null);
+  deliveriesError = $state<Record<string, string>>({});
   deliveriesLoading = $state<string | null>(null);
+  loaded = $state(false);
+  loadError = $state<string | null>(null);
 
-  #projectId: string | null = null;
+  // Bumped by every mutation and by reset as well as by the reads themselves, so a
+  // response the server built before a write — or before a logout — cannot land on
+  // top of what the store already knows.
+  #listToken = 0;
+  #deliveriesToken = 0;
 
   // Reports rather than throws: a client that reaches production ahead of the
   // API rollout must render an error, not break the board it is opened from.
   async load(projectId: string): Promise<void> {
-    this.#projectId = projectId;
-    this.loading = true;
+    if (projectId !== this.currentProjectId) {
+      this.#clear();
+      this.currentProjectId = projectId;
+    }
+    const token = ++this.#listToken;
     this.loadError = null;
     try {
       const data = assertOk(
         await api.GET('/api/webhooks', { params: { query: { project_id: projectId } } })
       );
+      if (token !== this.#listToken) return;
       this.list = data.webhooks;
       this.loaded = true;
     } catch (error) {
+      if (token !== this.#listToken) return;
       this.loadError = error instanceof ApiError ? error.message : 'Failed to load webhooks';
-    } finally {
-      this.loading = false;
     }
   }
 
   reset(): void {
-    this.#projectId = null;
-    this.list = [];
-    this.deliveries = {};
-    this.loaded = false;
-    this.loading = false;
-    this.loadError = null;
-    this.deliveriesLoading = null;
+    this.#clear();
+    this.currentProjectId = null;
   }
 
   async create(projectId: string, url: string): Promise<void> {
@@ -56,6 +63,7 @@ class WebhooksStore {
       consecutive_failures: 0,
       created_at: new Date().toISOString(),
     };
+    this.#listToken += 1;
     this.list = [...this.list, optimistic];
     try {
       const row = assertOk(
@@ -63,15 +71,10 @@ class WebhooksStore {
       );
       this.#replace(id, row);
     } catch (error) {
-      // Rethrown after the resync so the form can show the rejection inline;
-      // 422 is what both the target guard and the per-project cap answer.
+      // Rethrown after the resync so the form can surface the rejection inline.
       await this.load(projectId);
       throw error;
     }
-  }
-
-  async setUrl(id: string, url: string): Promise<void> {
-    await this.#patch(id, { url }, 'Failed to update the webhook URL');
   }
 
   async setDisabled(id: string, disabled: boolean): Promise<void> {
@@ -83,6 +86,7 @@ class WebhooksStore {
   }
 
   async rotateSecret(id: string): Promise<void> {
+    this.#listToken += 1;
     try {
       const row = assertOk(
         await api.POST('/api/webhooks/{id}/rotate-secret', { params: { path: { id } } })
@@ -94,10 +98,10 @@ class WebhooksStore {
   }
 
   async remove(id: string): Promise<void> {
+    this.#listToken += 1;
     this.list = this.list.filter((webhook) => webhook.id !== id);
-    this.deliveries = Object.fromEntries(
-      Object.entries(this.deliveries).filter(([webhookId]) => webhookId !== id)
-    );
+    this.deliveries = omitKey(this.deliveries, id);
+    this.deliveriesError = omitKey(this.deliveriesError, id);
     try {
       assertOk(await api.DELETE('/api/webhooks/{id}', { params: { path: { id } } }));
     } catch (error) {
@@ -106,16 +110,27 @@ class WebhooksStore {
   }
 
   async loadDeliveries(webhookId: string): Promise<void> {
+    const token = ++this.#deliveriesToken;
     this.deliveriesLoading = webhookId;
+    // Cleared up front so a retry shows its loading state instead of the failure
+    // it is already retrying.
+    this.deliveriesError = omitKey(this.deliveriesError, webhookId);
     try {
       const data = assertOk(
         await api.GET('/api/webhooks/{id}/deliveries', { params: { path: { id: webhookId } } })
       );
+      if (token !== this.#deliveriesToken) return;
       this.deliveries = { ...this.deliveries, [webhookId]: data.deliveries };
     } catch (error) {
-      toasts.error(error instanceof ApiError ? error.message : 'Failed to load deliveries');
+      if (token !== this.#deliveriesToken) return;
+      this.deliveriesError = {
+        ...this.deliveriesError,
+        [webhookId]: error instanceof ApiError ? error.message : 'Failed to load deliveries',
+      };
     } finally {
-      this.deliveriesLoading = null;
+      if (token === this.#deliveriesToken) {
+        this.deliveriesLoading = null;
+      }
     }
   }
 
@@ -142,6 +157,7 @@ class WebhooksStore {
     body: components['schemas']['PatchWebhook'],
     failMessage: string
   ): Promise<void> {
+    this.#listToken += 1;
     this.#update(id, (webhook) => ({ ...webhook, ...body }));
     try {
       const row = assertOk(
@@ -178,9 +194,20 @@ class WebhooksStore {
 
   async #mutationFailed(error: unknown, fallback: string): Promise<void> {
     toasts.error(error instanceof ApiError ? error.message : fallback);
-    if (this.#projectId !== null) {
-      await this.load(this.#projectId);
+    if (this.currentProjectId !== null) {
+      await this.load(this.currentProjectId);
     }
+  }
+
+  #clear(): void {
+    this.#listToken += 1;
+    this.#deliveriesToken += 1;
+    this.list = [];
+    this.deliveries = {};
+    this.deliveriesError = {};
+    this.deliveriesLoading = null;
+    this.loaded = false;
+    this.loadError = null;
   }
 }
 
