@@ -74,6 +74,29 @@ describe('GET /api/openapi.json', () => {
     expect(step.properties.title).toMatchObject({ type: 'string' });
   });
 
+  it('documents account deletion with a request body and a structured 409', async () => {
+    const res = await app.request('/api/openapi.json');
+    expect(res.status).toBe(200);
+
+    const spec = await res.json();
+    const operation = spec.paths['/api/auth/me'].delete;
+    expect(Object.keys(operation.responses).sort()).toEqual(['204', '401', '409', '422', '500']);
+    expect(operation.requestBody.content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/DeleteAccount',
+    });
+    expect(operation.responses['409'].content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/DeleteAccountConflict',
+    });
+
+    const body = spec.components.schemas.DeleteAccount;
+    expect(body.required).toEqual(['password']);
+    expect(body.properties.password).toMatchObject({ type: 'string' });
+
+    const conflict = spec.components.schemas.DeleteAccountConflict;
+    expect(conflict.properties.error).toMatchObject({ type: 'string' });
+    expect(conflict.properties.blocking_projects).toMatchObject({ type: 'array' });
+  });
+
   it('documents the ownership-transfer route, its 403, and its request body', async () => {
     const res = await app.request('/api/openapi.json');
     expect(res.status).toBe(200);

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { leaf, withCtx, type Opts } from '../kit';
 import { ApiError, CliError, EXIT, assertOk } from '../api/errors';
-import { promptHidden, promptText, readStdinLines } from '../prompt';
+import { confirmOrAbort, promptHidden, promptText, readStdinLines } from '../prompt';
 import type { CliDeps, RuntimeContext } from '../context';
 import type { components } from '../api/api.generated';
 
@@ -182,6 +182,49 @@ export function registerAuth(program: Command, deps: CliDeps): void {
           ctx.out.data(result.user, () =>
             ctx.out.line('Password changed; all other sessions were revoked')
           );
+        })
+      )
+  );
+
+  account.addCommand(
+    leaf('delete')
+      .description('Permanently delete the account and everything it owns')
+      .option('--password-stdin', 'read the password from the first line of stdin')
+      .option('--force', 'skip the confirmation prompt')
+      .action(
+        withCtx(deps, async (ctx, opts) => {
+          // readStdinLines drains stdin to EOF, after which confirmOrAbort's
+          // readline never fires its callback and the command hangs forever.
+          if (opts.passwordStdin === true && opts.force !== true) {
+            throw new CliError(
+              '--password-stdin requires --force (the confirmation cannot be prompted for)',
+              EXIT.usage
+            );
+          }
+          const stdinLines = opts.passwordStdin === true ? await readStdinLines(ctx) : null;
+          const password = await readPassword(ctx, stdinLines, 0, 'Password');
+          await confirmOrAbort(
+            ctx,
+            'Permanently delete your account, every project you created, and all of their tasks and images?',
+            opts.force === true
+          );
+
+          try {
+            assertOk(await ctx.api.DELETE('/api/auth/me', { body: { password } }));
+          } catch (err) {
+            // Only the re-entered password is wrong here; a dead session's 401
+            // has to stay an ApiError so the caller still gets the login hint.
+            if (
+              err instanceof ApiError &&
+              err.status === 401 &&
+              err.message === 'Password is incorrect'
+            ) {
+              throw new CliError('Incorrect password', EXIT.auth);
+            }
+            throw err;
+          }
+          await ctx.credentials.delete(ctx.baseUrl);
+          ctx.out.data({ deleted: true }, () => ctx.out.line('Account deleted'));
         })
       )
   );
