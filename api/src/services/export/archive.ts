@@ -9,8 +9,9 @@ import { ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, zipSizeUpperBound, zipStream, type ZipE
 const MANIFEST_NAME = 'project.json';
 const CSV_NAME = 'tasks.csv';
 const TOO_LARGE_MESSAGE =
-  'This project is too large to package as a zip archive; export it with ?format=json ' +
-  'and fetch the images individually.';
+  'This project is too large to package as a zip archive. Export it with ?format=json, ' +
+  'which carries no image bytes, and fetch each one from GET /api/images/<id> using the ids ' +
+  'in tasks[].images[].';
 
 export function exportFilename(projectName: string, now: Date): string {
   const slug =

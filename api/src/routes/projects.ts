@@ -403,7 +403,8 @@ router.get(
       '/api/images/<uuid> sources resolve by id against the flattened tasks[].images[]. Each ' +
       'image entry carries the archive-relative path of its file. Every project member may ' +
       'export; the export is free and never gated. A project whose images would exceed the ' +
-      '4 GiB zip ceiling answers 413 and must be exported with format=json.',
+      '4 GiB zip ceiling answers 413 and must be exported with format=json, which carries no ' +
+      'image bytes — fetch those from GET /api/images/{id}, one per tasks[].images[].id.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -433,14 +434,28 @@ router.get(
     const db = c.get('db');
     const user = c.get('user');
 
-    const payload = await getBoardPayload(db, id);
-    if (!payload || !(await canAccessProject(db, user.id, payload.project))) {
-      throw new AppError(404, 'Project not found');
-    }
-
     // One reading, so the manifest timestamp and the filename date agree.
     const now = new Date();
-    const { exportPayload, images } = await buildProjectExport(db, payload, now);
+
+    // An export is a file the user keeps and feeds to an importer, so the reads
+    // behind it take one snapshot: under read committed a concurrent edit lands
+    // between two of them and the archive is permanently self-inconsistent. It
+    // closes here — the body must not hold a connection while it streams.
+    const snapshot = await db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .execute(async (trx) => {
+        const payload = await getBoardPayload(trx, id);
+        if (!payload || !(await canAccessProject(trx, user.id, payload.project))) {
+          return null;
+        }
+        return buildProjectExport(trx, payload, now);
+      });
+
+    if (!snapshot) {
+      throw new AppError(404, 'Project not found');
+    }
+    const { exportPayload, images } = snapshot;
 
     if (format === 'json') {
       return c.json(exportPayload, 200);
@@ -450,7 +465,7 @@ router.get(
     c.header('Content-Type', 'application/zip');
     c.header(
       'Content-Disposition',
-      `attachment; filename="${exportFilename(payload.project.name, now)}"`
+      `attachment; filename="${exportFilename(exportPayload.project.name, now)}"`
     );
     return c.body(archive, 200);
   }
