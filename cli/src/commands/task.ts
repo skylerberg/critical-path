@@ -33,7 +33,7 @@ import {
   taskState,
   type TaskState,
 } from '../board';
-import { append, positionForPlacement, type Placement } from '../positions';
+import { append, positionForPlacement, positionsForPlacement, type Placement } from '../positions';
 import { markdownToTiptap, tiptapToMarkdown, type TiptapDoc } from '../markdown';
 import type { CliDeps, RuntimeContext } from '../context';
 
@@ -290,6 +290,107 @@ async function resolveUserIds(
   return ids;
 }
 
+// Mirrors the batch endpoint's own limit, so an oversized file fails before a
+// request rather than coming back as a raw schema error.
+const MAX_BATCH_TASKS = 100;
+
+function targetColumn(board: BoardPayload, opts: Opts): BoardColumn {
+  return typeof opts.column === 'string' ? resolveColumn(board, opts.column) : defaultColumn(board);
+}
+
+async function createOneTask(ctx: RuntimeContext, opts: Opts, title: string): Promise<void> {
+  const description = await descriptionFrom(ctx, opts, false);
+  const due = dueFrom(opts, false);
+  const board = await resolveBoard(ctx, opts.project as string | undefined);
+  const column = targetColumn(board, opts);
+  const position = positionForPlacement(
+    placementFrom(opts),
+    sortedTasksIn(board, column.id),
+    columnAnchorResolver(board, column)
+  );
+  const labelIds = dedupe((opts.label as string[]).map((ref) => resolveLabel(board, ref).id));
+  const assigneeIds = await resolveUserIds(ctx, opts.assignee as string[], board.project.id);
+  const created = assertOk(
+    await ctx.api.POST('/api/tasks', {
+      body: {
+        id: crypto.randomUUID(),
+        project_id: board.project.id,
+        column_id: column.id,
+        title,
+        position,
+        ...(description !== undefined ? { description } : {}),
+        ...(due !== undefined ? { due_date: due } : {}),
+        ...(labelIds.length > 0 ? { label_ids: labelIds } : {}),
+        ...(assigneeIds.length > 0 ? { assignee_ids: assigneeIds } : {}),
+      },
+    })
+  );
+  ctx.out.data(created, () =>
+    ctx.out.line(`Created task "${created.title}" (${created.id.slice(0, 8)}) in ${column.name}`)
+  );
+}
+
+async function createManyTasks(ctx: RuntimeContext, opts: Opts): Promise<void> {
+  // --label and --assignee collect into an array that defaults to [], which is
+  // truthy, so presence is length and not definedness.
+  if (
+    (opts.label as string[]).length > 0 ||
+    (opts.assignee as string[]).length > 0 ||
+    typeof opts.description === 'string' ||
+    typeof opts.descriptionFile === 'string' ||
+    typeof opts.descriptionJson === 'string' ||
+    typeof opts.due === 'string'
+  ) {
+    throw new CliError(
+      '- cannot be combined with --description, --description-file, --description-json, --due, --label, or --assignee',
+      EXIT.usage
+    );
+  }
+
+  const titles = (await readAllStdin(ctx))
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (titles.length === 0) {
+    throw new CliError('No task titles on stdin', EXIT.usage);
+  }
+  if (titles.length > MAX_BATCH_TASKS) {
+    throw new CliError(
+      `Too many titles on stdin (${String(titles.length)}); create at most ${String(MAX_BATCH_TASKS)} at a time`,
+      EXIT.invalid
+    );
+  }
+
+  const board = await resolveBoard(ctx, opts.project as string | undefined);
+  const column = targetColumn(board, opts);
+  const positions = positionsForPlacement(
+    placementFrom(opts),
+    sortedTasksIn(board, column.id),
+    columnAnchorResolver(board, column),
+    titles.length
+  );
+  const created = assertOk(
+    await ctx.api.POST('/api/tasks/batch', {
+      body: {
+        project_id: board.project.id,
+        column_id: column.id,
+        tasks: titles.map((title, index) => ({
+          id: crypto.randomUUID(),
+          title,
+          position: positions[index],
+        })),
+      },
+    })
+  );
+  ctx.out.data(created.tasks, () => {
+    ctx.out.line(`Created ${String(created.tasks.length)} tasks in ${column.name}`);
+    ctx.out.table(
+      ['ID', 'TITLE'],
+      created.tasks.map((t) => [t.id.slice(0, 8), t.title])
+    );
+  });
+}
+
 async function updateLabels(
   ctx: RuntimeContext,
   opts: Opts,
@@ -499,7 +600,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
     addPlacementOptions(
       taskLeaf('create')
         .description('Create a task (in the first non-done column by default)')
-        .argument('<title>', 'task title')
+        .argument('<title>', 'task title, or - to read one title per line from stdin (max 100)')
         .option('--column <column>', 'target column (id or name)')
         .option('--description <markdown>', 'description as Markdown (no mentions)')
         .option(
@@ -519,42 +620,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
           [] as string[]
         )
     ).action(
-      withCtx(deps, async (ctx, opts, title) => {
-        const description = await descriptionFrom(ctx, opts, false);
-        const due = dueFrom(opts, false);
-        const board = await resolveBoard(ctx, opts.project as string | undefined);
-        const column =
-          typeof opts.column === 'string'
-            ? resolveColumn(board, opts.column)
-            : defaultColumn(board);
-        const position = positionForPlacement(
-          placementFrom(opts),
-          sortedTasksIn(board, column.id),
-          columnAnchorResolver(board, column)
-        );
-        const labelIds = dedupe((opts.label as string[]).map((ref) => resolveLabel(board, ref).id));
-        const assigneeIds = await resolveUserIds(ctx, opts.assignee as string[], board.project.id);
-        const created = assertOk(
-          await ctx.api.POST('/api/tasks', {
-            body: {
-              id: crypto.randomUUID(),
-              project_id: board.project.id,
-              column_id: column.id,
-              title,
-              position,
-              ...(description !== undefined ? { description } : {}),
-              ...(due !== undefined ? { due_date: due } : {}),
-              ...(labelIds.length > 0 ? { label_ids: labelIds } : {}),
-              ...(assigneeIds.length > 0 ? { assignee_ids: assigneeIds } : {}),
-            },
-          })
-        );
-        ctx.out.data(created, () =>
-          ctx.out.line(
-            `Created task "${created.title}" (${created.id.slice(0, 8)}) in ${column.name}`
-          )
-        );
-      })
+      withCtx(deps, async (ctx, opts, title) =>
+        title === '-' ? createManyTasks(ctx, opts) : createOneTask(ctx, opts, title)
+      )
     )
   );
 

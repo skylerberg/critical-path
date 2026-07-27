@@ -820,6 +820,7 @@ cpath board "My Project"                # columns with [ready]/[blocked] markers
 cpath ready --project "My Project"      # unblocked, unfinished tasks
 cpath mine                              # your tasks everywhere, ordered by who you block
 cpath task create "Fix the bug" --project "My Project" --description "See **notes**"
+cpath task create - --project "My Project" < titles.txt   # one card per line, max 100
 cpath task update "Fix the bug" --project "My Project" --due 2026-08-03   # --clear-due removes it
 cpath task move "Fix the bug" --project "My Project" --column "In Progress" --top
 cpath task done "Fix the bug" --project "My Project"
