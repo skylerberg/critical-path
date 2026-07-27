@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/due-dates/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -275,7 +275,7 @@ export interface paths {
         post?: never;
         /**
          * Delete project
-         * @description Delete a project and everything in it. Stored image objects are removed after commit.
+         * @description Delete a project and everything in it. Only the project owner may delete: other members with access get 403 and non-accessors get 404. Stored image objects are removed after commit.
          */
         delete: operations["deleteApiProjectsById"];
         options?: never;
@@ -2417,6 +2417,15 @@ export interface operations {
             };
             /** @description Authentication required or failed */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
