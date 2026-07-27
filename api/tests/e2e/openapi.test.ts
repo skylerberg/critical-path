@@ -18,6 +18,7 @@ describe('GET /api/openapi.json', () => {
       '/api/auth/tokens',
       '/api/auth/tokens/{id}',
       '/api/users',
+      '/api/my-tasks',
     ]) {
       expect(paths).toContain(expected);
     }

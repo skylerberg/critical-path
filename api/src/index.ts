@@ -43,6 +43,7 @@ import usersRouter from './routes/users';
 import projectsRouter from './routes/projects';
 import columnsRouter from './routes/columns';
 import tasksRouter from './routes/tasks';
+import myTasksRouter from './routes/myTasks';
 import imageUploadRouter from './routes/imageUpload';
 import labelsRouter from './routes/labels';
 import commentsRouter from './routes/comments';
@@ -161,6 +162,7 @@ app.route('/api/columns', columnsRouter);
 app.route('/api/tasks', tasksRouter);
 // Second router on the same prefix: POST /:id/images needs its own bodyLimit.
 app.route('/api/tasks', imageUploadRouter);
+app.route('/api/my-tasks', myTasksRouter);
 app.route('/api/labels', labelsRouter);
 app.route('/api/comments', commentsRouter);
 app.route('/api/images', imagesRouter);
