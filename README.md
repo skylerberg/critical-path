@@ -316,7 +316,8 @@ there is no flag to recover them.
 `GET /api/public/projects/:id/board` then serves it to anyone who knows the
 project id, with no account and no token; setting `is_public` back to false
 makes that route 404 again on the very next request. Any member may flip the
-flag — the same authority they already have to delete the project.
+flag: publishing is an ordinary edit, like renaming or archiving, and is not
+owner-only the way deleting the project is.
 
 Anonymous reads run through their own unauthenticated router. `is_public` is
 not an arm of the project access predicate, so publishing never widens what an
@@ -853,8 +854,9 @@ npm run openapi:dump && npm run --prefix cli generate-api
 
 - No email verification.
 - Float `position` ordering with no automatic rebalancing.
-- No per-project roles: everyone with access to a project can rename/delete
-  it and manage its member set.
+- No per-project roles beyond the owner bit: everyone with access to a project
+  can rename, archive and publish it and manage its member set; only the owner
+  can transfer ownership or delete it.
 - `GET /api/images/:id` and `GET /api/avatars/:key` are unauthenticated
   capability URLs (unguessable UUIDs) so `<img>` tags work without auth
   headers.

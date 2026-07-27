@@ -10,7 +10,6 @@ import {
   accessibleProjectsFilter,
   assertProjectAccess,
   assertProjectOwnedBy,
-  assertProjectOwner,
   canAccessProject,
   isProjectMember,
 } from '../services/authorization';
@@ -620,12 +619,9 @@ router.delete(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await assertProjectOwner(
-      db,
-      user.id,
-      id,
-      'Only the project owner can delete this project'
-    );
+    await assertProjectAccess(db, user.id, id);
+    const project = await lockProject(db, id);
+    assertProjectOwnedBy(project, user.id, 'Only the project owner can delete this project');
 
     // Snapshot who can see the project now; post-commit the rows backing the
     // access check are gone.

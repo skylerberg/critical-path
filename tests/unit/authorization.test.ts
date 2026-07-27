@@ -5,7 +5,6 @@ import {
   canAccessProject,
   assertProjectAccess,
   assertProjectOwnedBy,
-  assertProjectOwner,
   assertPublicProject,
   accessibleProjectsFilter,
   isProjectMember,
@@ -106,45 +105,28 @@ describe('assertProjectAccess', () => {
   });
 });
 
-describe('assertProjectOwner', () => {
+describe('assertProjectOwnedBy', () => {
   const message = 'Only the project owner can delete this project';
 
-  it('returns the project row for the creator', async () => {
-    for (const projectId of [personalProjectId, sharedProjectId]) {
-      const row = await assertProjectOwner(db, creator, projectId, message);
-      expect(row.id).toBe(projectId);
-      expect(row.created_by).toBe(creator);
+  function ownerError(createdBy: string | null, userId: string): unknown {
+    try {
+      assertProjectOwnedBy({ created_by: createdBy }, userId, message);
+      return null;
+    } catch (error) {
+      return error;
     }
+  }
+
+  it('passes for the creator', () => {
+    expect(ownerError(creator, creator)).toBeNull();
   });
 
-  it('throws 403 with the given message for a member who is not the creator', async () => {
-    await expect(assertProjectOwner(db, member, sharedProjectId, message)).rejects.toBeInstanceOf(
-      AppError
-    );
-    await expect(assertProjectOwner(db, member, sharedProjectId, message)).rejects.toMatchObject({
-      statusCode: 403,
-      message,
-    });
-  });
-
-  it('throws 404 for a user without access, checking access before ownership', async () => {
-    await expect(assertProjectOwner(db, outsider, sharedProjectId, message)).rejects.toMatchObject({
-      statusCode: 404,
-    });
-  });
-
-  it('throws 404 for a nonexistent project', async () => {
-    await expect(assertProjectOwner(db, creator, newId(), message)).rejects.toMatchObject({
-      statusCode: 404,
-    });
-  });
-});
-
-describe('assertProjectOwnedBy', () => {
-  it('passes for the creator and throws 403 for anyone else', () => {
-    expect(() => assertProjectOwnedBy({ created_by: creator }, creator, 'nope')).not.toThrow();
-    expect(() => assertProjectOwnedBy({ created_by: creator }, member, 'nope')).toThrow(AppError);
-    expect(() => assertProjectOwnedBy({ created_by: null }, member, 'nope')).toThrow(AppError);
+  it('throws 403 with the given message for anyone else', () => {
+    for (const createdBy of [creator, null]) {
+      const error = ownerError(createdBy, member);
+      expect(error).toBeInstanceOf(AppError);
+      expect(error).toMatchObject({ statusCode: 403, message });
+    }
   });
 });
 
