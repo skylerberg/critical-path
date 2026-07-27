@@ -28,6 +28,7 @@ function task(
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    comment_count: 0,
     ...overrides,
   };
 }
@@ -41,6 +42,18 @@ const image = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
+const comment = {
+  id: 'cm1',
+  task_id: 't1',
+  user_id: 'u1',
+  body: {
+    type: 'doc' as const,
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'first thoughts' }] }],
+  },
+  created_at: '2026-01-03T00:00:00Z',
+  updated_at: '2026-01-03T00:00:00Z',
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -49,6 +62,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
   board.taskImages = {};
+  board.taskComments = {};
   drafts.clearAll();
   users.reset();
   board.currentProjectId = 'p1';
@@ -102,6 +116,7 @@ function mockRoutes(
         ...board.tasks[0],
         project_id: 'p1',
         images: [image],
+        comments: [comment],
       });
     }
     if (request.method === 'GET' && url.pathname === '/api/users') {
@@ -207,6 +222,15 @@ describe('TaskDetail', () => {
 
     expect(screen.getByText(/Created .+ · Updated .+/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete task' })).toBeInTheDocument();
+  });
+
+  it('loads images and comments from the one detail fetch and renders the Comments section', async () => {
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    expect(screen.getByRole('heading', { name: 'Comments' })).toBeInTheDocument();
+    await waitFor(() => expect(board.taskComments.t1).toEqual([comment]));
+    expect(board.taskImages.t1).toEqual([image]);
+    expect(await screen.findByText('first thoughts')).toBeInTheDocument();
   });
 
   it('renders the column select with the current column and all columns as options', () => {

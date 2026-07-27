@@ -12,6 +12,31 @@ const CYCLE_ERROR = 'Adding this blocker would create a dependency cycle';
 const SERVER_CREATED_AT = '2026-01-15T00:00:00Z';
 const SERVER_UPDATED_AT = '2026-02-01T00:00:00Z';
 
+function commentBody(text: string) {
+  return {
+    type: 'doc' as const,
+    content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+  };
+}
+
+// Stands in for a payload from an API pod deployed before comment_count existed.
+function legacyTask(value: ReturnType<typeof task>): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...value };
+  delete copy.comment_count;
+  return copy;
+}
+
+function serverComment(text: string, id = 'srv') {
+  return {
+    id,
+    task_id: 't1',
+    user_id: 'u-them',
+    body: commentBody(text),
+    created_at: SERVER_CREATED_AT,
+    updated_at: SERVER_CREATED_AT,
+  };
+}
+
 function task(id: string, columnId: string, position: number, title: string) {
   return {
     id,
@@ -25,6 +50,7 @@ function task(id: string, columnId: string, position: number, title: string) {
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    comment_count: 0,
   };
 }
 
@@ -81,6 +107,36 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
       const id = patchedTask[1]!;
       const existing = board.tasks.find((t) => t.id === id) ?? task(id, 'c1', 1000, 'x');
       return jsonResponse(200, { ...existing, updated_at: SERVER_UPDATED_AT });
+    }
+    if (request.method === 'GET' && /^\/api\/tasks\/[^/]+$/.test(url.pathname)) {
+      return jsonResponse(200, {
+        ...task('t1', 'c1', 1000, 'A'),
+        comment_count: 1,
+        project_id: 'p1',
+        images: [],
+        comments: [serverComment('resynced')],
+      });
+    }
+    if (request.method === 'POST' && url.pathname === '/api/comments') {
+      const body = (await request.clone().json()) as { id: string; task_id: string; body: unknown };
+      return jsonResponse(201, {
+        ...body,
+        user_id: 'u-me',
+        created_at: SERVER_CREATED_AT,
+        updated_at: SERVER_CREATED_AT,
+      });
+    }
+    const patchedComment = /^\/api\/comments\/([^/]+)$/.exec(url.pathname);
+    if (request.method === 'PATCH' && patchedComment !== null) {
+      const body = (await request.clone().json()) as { body: unknown };
+      return jsonResponse(200, {
+        id: patchedComment[1]!,
+        task_id: 't1',
+        user_id: 'u-me',
+        body: body.body,
+        created_at: SERVER_CREATED_AT,
+        updated_at: SERVER_UPDATED_AT,
+      });
     }
     return jsonResponse(204);
   });
@@ -1166,6 +1222,194 @@ describe('applyRealtime does not resurrect a deleted task', () => {
     });
 
     expect(board.tasks.find((t) => t.id === 't2')?.title).toBe('B renamed');
+  });
+});
+
+describe('board store comments', () => {
+  beforeEach(async () => {
+    await board.load('p1');
+    board.taskComments = { t1: [] };
+    fetchMock.mockClear();
+  });
+
+  it('createComment appends optimistically and bumps the count before the response resolves', async () => {
+    const pending = board.createComment('t1', commentBody('hello'));
+
+    expect(board.taskComments.t1).toHaveLength(1);
+    expect(board.taskComments.t1![0]!.body).toEqual(commentBody('hello'));
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
+
+    await pending;
+
+    expect(board.taskComments.t1).toHaveLength(1);
+    expect(board.taskComments.t1![0]!.created_at).toBe(SERVER_CREATED_AT);
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/comments');
+  });
+
+  it('createComment re-inserts the server row when a detail fetch replaces the stream mid-flight', async () => {
+    const pending = board.createComment('t1', commentBody('hello'));
+    board.taskComments = { t1: [serverComment('landed first', 'cm0')] };
+
+    await pending;
+
+    const bodies = board.taskComments.t1!.map((c) => JSON.stringify(c.body));
+    expect(bodies).toHaveLength(2);
+    expect(bodies.some((b) => b.includes('hello'))).toBe(true);
+  });
+
+  it('createComment leaves an uncached stream uncached and loads it once posted', async () => {
+    board.taskComments = {};
+
+    await board.createComment('t1', commentBody('hello'));
+
+    expect(board.taskComments.t1).toEqual([serverComment('resynced')]);
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
+  });
+
+  it('loadTaskDetail heals the cached counts from the detail payload', async () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 7 } : t));
+
+    await board.loadTaskDetail('t1');
+
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
+    expect(board.tasks.find((t) => t.id === 't1')?.image_count).toBe(0);
+  });
+
+  it('createComment failure toasts and re-fetches the detail payload', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/comments'
+        ? jsonResponse(404, { error: 'Task not found' })
+        : undefined
+    );
+
+    await board.createComment('t1', commentBody('doomed'));
+
+    expect(toasts.toasts.map((t) => t.message)).toContain('Task not found');
+    expect(board.taskComments.t1).toEqual([serverComment('resynced')]);
+  });
+
+  it('updateComment replaces the body and adopts the server row', async () => {
+    board.taskComments = { t1: [serverComment('before', 'cm1')] };
+
+    expect(await board.updateComment('t1', 'cm1', commentBody('after'))).toBe(true);
+
+    expect(board.taskComments.t1![0]!.body).toEqual(commentBody('after'));
+    expect(board.taskComments.t1![0]!.updated_at).toBe(SERVER_UPDATED_AT);
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/comments/cm1');
+  });
+
+  it('updateComment reports failure and resyncs the body from the server', async () => {
+    board.taskComments = { t1: [serverComment('before', 'cm1')] };
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === '/api/comments/cm1'
+        ? jsonResponse(404, { error: 'Comment not found' })
+        : undefined
+    );
+
+    expect(await board.updateComment('t1', 'cm1', commentBody('after'))).toBe(false);
+
+    expect(toasts.toasts.map((t) => t.message)).toContain('Comment not found');
+    expect(board.taskComments.t1).toEqual([serverComment('resynced')]);
+  });
+
+  it('deleteComment removes the row and decrements the count, never below zero', async () => {
+    board.taskComments = { t1: [serverComment('bye', 'cm1')] };
+    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 1 } : t));
+
+    await board.deleteComment('t1', 'cm1');
+
+    expect(board.taskComments.t1).toEqual([]);
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(0);
+
+    await board.deleteComment('t1', 'gone');
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(0);
+  });
+
+  it('applyRealtime appends a comment_created and skips the author’s own echo', () => {
+    board.applyRealtime({
+      type: 'comment_created',
+      project_id: 'p1',
+      data: { ...serverComment('from a teammate', 'cm9'), comment_count: 1 },
+    });
+
+    expect(board.taskComments.t1!.map((c) => c.id)).toEqual(['cm9']);
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
+
+    board.applyRealtime({
+      type: 'comment_created',
+      project_id: 'p1',
+      data: { ...serverComment('from a teammate', 'cm9'), comment_count: 1 },
+    });
+
+    expect(board.taskComments.t1).toHaveLength(1);
+  });
+
+  it('applyRealtime keeps the cached stream chronological regardless of arrival order', () => {
+    for (const [id, at] of [
+      ['late', '2026-06-01T00:00:00Z'],
+      ['early', '2026-01-01T00:00:00Z'],
+    ] as const) {
+      board.applyRealtime({
+        type: 'comment_created',
+        project_id: 'p1',
+        data: { ...serverComment(id, id), created_at: at, updated_at: at, comment_count: 1 },
+      });
+    }
+
+    expect(board.taskComments.t1!.map((c) => c.id)).toEqual(['early', 'late']);
+  });
+
+  it('applyRealtime patches a comment_updated in place and removes a comment_deleted by id', () => {
+    board.taskComments = { t1: [serverComment('before', 'cm1')] };
+
+    board.applyRealtime({
+      type: 'comment_updated',
+      project_id: 'p1',
+      data: { ...serverComment('after', 'cm1'), updated_at: SERVER_UPDATED_AT },
+    });
+
+    expect(board.taskComments.t1![0]!.body).toEqual(commentBody('after'));
+    expect(board.taskComments.t1![0]!.updated_at).toBe(SERVER_UPDATED_AT);
+
+    board.applyRealtime({
+      type: 'comment_deleted',
+      project_id: 'p1',
+      data: { id: 'cm1', task_id: 't1', comment_count: 0 },
+    });
+
+    expect(board.taskComments.t1).toEqual([]);
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('leaves the cached count intact when a task_updated payload omits comment_count', () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 4 } : t));
+    board.applyRealtime({
+      type: 'task_updated',
+      project_id: 'p1',
+      data: legacyTask(task('t1', 'c1', 1000, 'A renamed')),
+    });
+
+    expect(board.tasks.find((t) => t.id === 't1')?.title).toBe('A renamed');
+    expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(4);
+  });
+
+  it('defaults comment_count to zero when a task_created payload omits it', () => {
+    board.applyRealtime({
+      type: 'task_created',
+      project_id: 'p1',
+      data: legacyTask(task('t9', 'c1', 9000, 'New')),
+    });
+
+    expect(board.tasks.find((t) => t.id === 't9')?.comment_count).toBe(0);
+  });
+
+  it('reset clears the cached comment streams', () => {
+    board.taskComments = { t1: [serverComment('x')] };
+
+    board.reset();
+
+    expect(board.taskComments).toEqual({});
   });
 });
 

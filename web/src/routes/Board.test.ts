@@ -50,6 +50,7 @@ function task(id: string, columnId: string, position: number, title: string): Bo
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    comment_count: 0,
   };
 }
 

@@ -18,6 +18,7 @@ const task: BoardTask = {
   assignee_ids: ['u1'],
   blocker_ids: ['t9', 't8'],
   image_count: 3,
+  comment_count: 0,
 };
 
 beforeEach(() => {
@@ -53,6 +54,44 @@ describe('TaskCard', () => {
     expect(screen.queryByText('art')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Ada Lovelace')).not.toBeInTheDocument();
     expect(screen.queryByTitle(/Blocked by/)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/comment/)).not.toBeInTheDocument();
+  });
+
+  it('shows the comment badge, pluralized, only when there are comments', () => {
+    const { unmount } = render(TaskCard, {
+      task: { ...task, comment_count: 3 },
+      projectId: 'p1',
+    });
+    expect(screen.getByTitle('3 comments')).toHaveTextContent('3');
+    unmount();
+
+    render(TaskCard, { task: { ...task, comment_count: 1 }, projectId: 'p1' });
+    expect(screen.getByTitle('1 comment')).toHaveTextContent('1');
+  });
+
+  it('shows the badge row when the comment count is the only badge', () => {
+    render(TaskCard, {
+      task: {
+        ...task,
+        label_ids: [],
+        assignee_ids: [],
+        blocker_ids: [],
+        image_count: 0,
+        comment_count: 2,
+      },
+      projectId: 'p1',
+    });
+
+    expect(screen.getByTitle('2 comments')).toHaveTextContent('2');
+  });
+
+  it('renders no comment badge when the payload predates comment_count', () => {
+    const legacy: Partial<BoardTask> = { ...task };
+    delete legacy.comment_count;
+    render(TaskCard, { task: legacy as BoardTask, projectId: 'p1' });
+
+    expect(screen.queryByTitle(/comment/)).not.toBeInTheDocument();
+    expect(screen.getByText('Design cards')).toBeInTheDocument();
   });
 
   it('carries the active filters into the task link so closing the card comes back filtered', () => {

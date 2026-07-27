@@ -107,6 +107,41 @@ describe('RichTextEditor', () => {
     expect(getByRole('toolbar', { name: 'Formatting' })).toBeInTheDocument();
   });
 
+  it('reports emptiness through onChange on mount and on every edit', async () => {
+    const onChange = vi.fn();
+    const { component } = render(RichTextEditor, { content: null, onChange });
+    await tick();
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenLastCalledWith(null);
+
+    component.getEditor()!.commands.insertContent('hello');
+    await tick();
+    expect(onChange.mock.lastCall![0]).toMatchObject({ type: 'doc' });
+
+    component.getEditor()!.commands.clearContent(true);
+    await tick();
+    expect(onChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it('renders a bare read-only body with no toolbar', async () => {
+    const { container, queryByRole } = render(RichTextEditor, {
+      content: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a comment' }] }],
+      },
+      readonly: true,
+      bare: true,
+    });
+    await tick();
+
+    const tiptap = container.querySelector('.tiptap');
+    expect(tiptap).toHaveTextContent('a comment');
+    expect(tiptap).toHaveAttribute('contenteditable', 'false');
+    expect(queryByRole('toolbar')).toBeNull();
+    expect(container.querySelector('.rte-bare')).not.toBeNull();
+  });
+
   it('renders svg icons for the list buttons', async () => {
     const onSave = vi.fn();
     const { getByRole } = render(RichTextEditor, { content: null, onSave });

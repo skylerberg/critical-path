@@ -33,6 +33,7 @@ function task(id: string, columnId: string, blockerIds: string[] = []): BoardTas
     assignee_ids: [],
     blocker_ids: blockerIds,
     image_count: 0,
+    comment_count: 0,
   };
 }
 

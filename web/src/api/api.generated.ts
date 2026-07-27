@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/stale-write-guard/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/card-comments/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -396,7 +396,7 @@ export interface paths {
         };
         /**
          * Get task detail
-         * @description Get a task in board-payload shape plus its project id and images.
+         * @description Get a task in board-payload shape plus its project id, images, and its full comment stream oldest first.
          */
         get: operations["getApiTasksById"];
         put?: never;
@@ -557,6 +557,50 @@ export interface paths {
          * @description Rename or recolor a label. Label names are unique per project.
          */
         patch: operations["patchApiLabelsById"];
+        trace?: never;
+    };
+    "/api/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create comment
+         * @description Post a comment on a task. The client supplies the comment id and the body is the same restricted Tiptap document task descriptions use; a body with no text, image, or rule is rejected. Returns 404 when the task is unknown or inaccessible.
+         */
+        post: operations["postApiComments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/comments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete comment
+         * @description Delete your own comment. A comment written by anyone else answers 404, the same as one that does not exist.
+         */
+        delete: operations["deleteApiCommentsById"];
+        options?: never;
+        head?: never;
+        /**
+         * Update comment
+         * @description Replace the body of your own comment. A comment written by anyone else answers 404, the same as one that does not exist.
+         */
+        patch: operations["patchApiCommentsById"];
         trace?: never;
     };
     "/api/images/{id}": {
@@ -757,6 +801,7 @@ export interface components {
             assignee_ids: string[];
             blocker_ids: string[];
             column_id: string;
+            comment_count: number;
             created_at: string;
             description: components["schemas"]["NullableTiptapDoc"];
             id: string;
@@ -853,6 +898,8 @@ export interface components {
             assignee_ids: string[];
             blocker_ids: string[];
             column_id: string;
+            comment_count: number;
+            comments: components["schemas"]["Comment"][];
             created_at: string;
             description: components["schemas"]["NullableTiptapDoc"];
             id: string;
@@ -864,6 +911,14 @@ export interface components {
             project_id: string;
             title: string;
             updated_at: string;
+        };
+        Comment: {
+            body: components["schemas"]["TiptapDoc"];
+            created_at: string;
+            id: string;
+            task_id: string;
+            updated_at: string;
+            user_id: string;
         };
         ImageResponse: {
             content_type: string;
@@ -917,6 +972,16 @@ export interface components {
         PatchLabel: {
             color?: string;
             name?: string;
+        };
+        CreateComment: {
+            body: components["schemas"]["TiptapDoc"];
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            task_id: string;
+        };
+        PatchComment: {
+            body: components["schemas"]["TiptapDoc"];
         };
         FeedbackResponse: {
             created_at: string;
@@ -3136,6 +3201,202 @@ export interface operations {
             };
             /** @description Conflict - resource already exists */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiComments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateComment"];
+            };
+        };
+        responses: {
+            /** @description Comment created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comment"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiCommentsById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Comment deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    patchApiCommentsById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchComment"];
+            };
+        };
+        responses: {
+            /** @description Updated comment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comment"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

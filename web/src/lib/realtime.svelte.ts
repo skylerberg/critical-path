@@ -27,6 +27,9 @@ const BOARD_EVENTS = new Set([
   'label_deleted',
   'image_created',
   'image_deleted',
+  'comment_created',
+  'comment_updated',
+  'comment_deleted',
 ]);
 const PROJECT_EVENTS = new Set([
   'project_created',
