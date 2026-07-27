@@ -4,6 +4,7 @@
   import { session } from '../lib/session.svelte';
   import { users } from '../lib/users.svelte';
   import FeedbackDialog from '../components/FeedbackDialog.svelte';
+  import PersonalAccessTokens from '../components/PersonalAccessTokens.svelte';
   import Avatar from '../components/ui/Avatar.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
@@ -281,6 +282,15 @@
         </Button>
       </div>
     </form>
+  </section>
+
+  <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
+    <h2 class="text-lg font-semibold">Personal access tokens</h2>
+    <p class="text-sm text-muted">
+      Long-lived credentials for scripts, agents, and the <code>cpath</code> CLI. They have the same access
+      you do, outlive password changes, and can be revoked one at a time.
+    </p>
+    <PersonalAccessTokens />
   </section>
 
   <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
