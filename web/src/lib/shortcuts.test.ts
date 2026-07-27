@@ -66,6 +66,11 @@ describe('shortcut focus guards', () => {
     board.dragging = true;
     press('j');
     expect(selection.selectedTaskId).toBeNull();
+
+    selection.set('t1');
+    const moved = press('m');
+    expect(shortcuts.moveMenu).toBeNull();
+    expect(moved.defaultPrevented).toBe(false);
   });
 
   it('ignores keys while a text field is focused', () => {
@@ -84,6 +89,9 @@ describe('shortcut focus guards', () => {
     const typed = press('b');
     expect(shortcuts.dependencyMenu).toBeNull();
     expect(typed.defaultPrevented).toBe(false);
+    const moved = press('m');
+    expect(shortcuts.moveMenu).toBeNull();
+    expect(moved.defaultPrevented).toBe(false);
 
     board.toggleAssigneeFilter('u-other');
     const mine = press('q');
@@ -118,6 +126,10 @@ describe('shortcut focus guards', () => {
     const done = press('d');
     expect(moveTask).not.toHaveBeenCalled();
     expect(done.defaultPrevented).toBe(false);
+
+    const moved = press('m');
+    expect(shortcuts.moveMenu).toBeNull();
+    expect(moved.defaultPrevented).toBe(false);
   });
 });
 
@@ -188,6 +200,53 @@ describe('board shortcuts', () => {
     const assignee = press('a', { metaKey: true });
     expect(shortcuts.assigneeMenu).toBeNull();
     expect(assignee.defaultPrevented).toBe(false);
+  });
+
+  it('opens the move menu for the selection, under CapsLock too', () => {
+    selection.set('t1');
+    const event = press('m');
+    expect(shortcuts.moveMenu).toBe('t1');
+    expect(event.defaultPrevented).toBe(true);
+
+    shortcuts.reset();
+    selection.set('t1');
+    const caps = press('M');
+    expect(shortcuts.moveMenu).toBe('t1');
+    expect(caps.defaultPrevented).toBe(true);
+  });
+
+  it('does nothing for m without a selection', () => {
+    const event = press('m');
+    expect(shortcuts.moveMenu).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('leaves modified m presses (Cmd+M minimises) to the browser', () => {
+    selection.set('t1');
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      const event = press('m', init);
+      expect(shortcuts.moveMenu).toBeNull();
+      expect(event.defaultPrevented).toBe(false);
+    }
+  });
+
+  it('swallows selection keys while the move menu is open and closes it on Escape', () => {
+    selection.set('t1');
+    press('m');
+    expect(shortcuts.anyMenuOpen).toBe(true);
+    press('j');
+    expect(selection.selectedTaskId).toBe('t1');
+    const closed = press('Escape');
+    expect(shortcuts.moveMenu).toBeNull();
+    expect(closed.defaultPrevented).toBe(true);
+  });
+
+  it('clears an open move menu on reset', () => {
+    selection.set('t1');
+    press('m');
+    shortcuts.reset();
+    expect(shortcuts.moveMenu).toBeNull();
+    expect(shortcuts.anyMenuOpen).toBe(false);
   });
 
   it('swallows selection keys while the dependency menu is open and closes it on Escape', () => {
@@ -452,6 +511,15 @@ describe('g-chords', () => {
     expect(shortcuts.dependencyMenu).toBeNull();
   });
 
+  it('gives g then m to the my-tasks chord rather than the move menu', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    selection.set('t1');
+    press('g');
+    press('m');
+    expect(navigate).toHaveBeenLastCalledWith('/my-tasks');
+    expect(shortcuts.moveMenu).toBeNull();
+  });
+
   it('does not complete the chord after the window elapses', () => {
     vi.useFakeTimers();
     try {
@@ -485,6 +553,12 @@ describe('overlay context', () => {
     shortcuts.reset();
     press('B', { shiftKey: true });
     expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+  });
+
+  it('targets the open task with m even with no board selection', () => {
+    const event = press('m');
+    expect(shortcuts.moveMenu).toBe('t1');
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it('does not run board selection shortcuts', () => {
@@ -566,6 +640,13 @@ describe('graph view', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it('does nothing for m without an overlay (no selection to target)', () => {
+    selection.set('t1');
+    const event = press('m');
+    expect(shortcuts.moveMenu).toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('opens the help overlay with ?', () => {
     press('?');
     expect(shortcuts.helpOpen).toBe(true);
@@ -584,7 +665,7 @@ describe('graph overlay context', () => {
     router.navigate('/projects/p1/graph/tasks/t1', { replace: true });
   });
 
-  it('targets the open task with l, a and b', () => {
+  it('targets the open task with l, a, b and m', () => {
     press('l');
     expect(shortcuts.labelMenu).toBe('t1');
     shortcuts.reset();
@@ -593,6 +674,9 @@ describe('graph overlay context', () => {
     shortcuts.reset();
     press('b');
     expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    shortcuts.reset();
+    press('m');
+    expect(shortcuts.moveMenu).toBe('t1');
   });
 
   it('does not request filter focus with f', () => {

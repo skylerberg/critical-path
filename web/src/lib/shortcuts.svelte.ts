@@ -29,6 +29,7 @@ class ShortcutController {
   labelMenu = $state<string | null>(null);
   assigneeMenu = $state<string | null>(null);
   dependencyMenu = $state<{ taskId: string; direction: DependencyDirection } | null>(null);
+  moveMenu = $state<string | null>(null);
   quickAddColumn = $state<string | null>(null);
   filterFocusRequested = $state(false);
 
@@ -40,7 +41,8 @@ class ShortcutController {
       this.helpOpen ||
       this.labelMenu !== null ||
       this.assigneeMenu !== null ||
-      this.dependencyMenu !== null
+      this.dependencyMenu !== null ||
+      this.moveMenu !== null
     );
   }
 
@@ -49,6 +51,7 @@ class ShortcutController {
     this.labelMenu = null;
     this.assigneeMenu = null;
     this.dependencyMenu = null;
+    this.moveMenu = null;
   }
 
   reset(): void {
@@ -219,7 +222,8 @@ class ShortcutController {
         }
         board.clearFilters();
         break;
-      // A modified press belongs to the browser (Cmd+L, Cmd+A, Cmd+B), not to us.
+      // A modified press belongs to the browser or the OS (Cmd+L, Cmd+A, Cmd+B,
+      // Cmd+M minimises), not to us.
       case 'l':
       case 'L':
         if (target === null || event.metaKey || event.ctrlKey || event.altKey) {
@@ -242,6 +246,13 @@ class ShortcutController {
           return;
         }
         this.dependencyMenu = { taskId: target, direction: event.shiftKey ? 'blocked' : 'blocker' };
+        break;
+      case 'm':
+      case 'M':
+        if (target === null || event.metaKey || event.ctrlKey || event.altKey) {
+          return;
+        }
+        this.moveMenu = target;
         break;
       case 'g':
       case 'G':

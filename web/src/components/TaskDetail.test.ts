@@ -8,6 +8,7 @@ import { board } from '../lib/board.svelte';
 import { drafts } from '../lib/drafts.svelte';
 import { projects } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
+import { shortcuts } from '../lib/shortcuts.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -76,6 +77,7 @@ beforeEach(() => {
   board.taskImages = {};
   board.taskComments = {};
   taskActivity.reset();
+  shortcuts.reset();
   drafts.clearAll();
   projects.reset();
   users.reset();
@@ -318,6 +320,14 @@ describe('TaskDetail', () => {
     await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
 
     expect(spy).toHaveBeenCalledWith('t1', 'c2', 6000);
+  });
+
+  it('requests the move menu for this task from the Move… button', async () => {
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Move…' }));
+
+    expect(shortcuts.moveMenu).toBe('t1');
   });
 
   it('does not move the task when the current column is re-selected', async () => {
@@ -763,6 +773,7 @@ describe('TaskDetail readonly', () => {
     expect(screen.queryByLabelText('Column')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Column' })).toBeInTheDocument();
     expect(screen.getByText('Todo')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move…' })).toBeNull();
 
     expect(screen.getByText('art')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove label art' })).toBeNull();

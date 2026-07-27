@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { announcer } from '../lib/announcer.svelte';
   import { board } from '../lib/board.svelte';
   import { noFilters, type BoardFilters } from '../lib/board-filters';
   import type { ProjectView } from '../lib/router.svelte';
@@ -10,7 +11,9 @@
   import QuickAssigneeMenu from '../components/QuickAssigneeMenu.svelte';
   import QuickDependencyMenu from '../components/QuickDependencyMenu.svelte';
   import QuickLabelMenu from '../components/QuickLabelMenu.svelte';
+  import QuickMoveMenu from '../components/QuickMoveMenu.svelte';
   import TaskDetail from '../components/TaskDetail.svelte';
+  import Announcer from '../components/ui/Announcer.svelte';
   import Button from '../components/ui/Button.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import Board from './Board.svelte';
@@ -61,6 +64,7 @@
     untrack(() => {
       selection.clear();
       shortcuts.closeMenus();
+      announcer.clear();
     });
   });
 
@@ -113,4 +117,11 @@
       onclose={() => (shortcuts.dependencyMenu = null)}
     />
   {/if}
+  {#if shortcuts.moveMenu !== null}
+    <QuickMoveMenu taskId={shortcuts.moveMenu} onclose={() => (shortcuts.moveMenu = null)} />
+  {/if}
 {/if}
+
+<!-- Outside the loading branches: a region created in the same flush as its text is
+     not announced, and it has to outlive the menu that wrote to it. -->
+<Announcer />
