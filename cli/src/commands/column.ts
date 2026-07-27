@@ -177,6 +177,75 @@ export function registerColumn(program: Command, deps: CliDeps): void {
   );
 
   column.addCommand(
+    leaf('move-tasks')
+      .description('Move every card in a column to another column, keeping the column')
+      .argument('<column>', 'column id or name')
+      .option('--project <project>', 'project id or name')
+      .option('--to <column>', 'column to receive the cards')
+      .option('--force', 'skip the confirmation prompt')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          if (opts.to == null) {
+            throw new CliError('Pass --to <column>', EXIT.usage);
+          }
+          const board = await resolveBoard(ctx, opts.project as string | undefined);
+          const source = resolveColumn(board, ref);
+          const target = resolveColumn(board, opts.to as string);
+          const tasks = sortedTasksIn(board, source.id);
+          await confirmOrAbort(
+            ctx,
+            `Move ${tasks.length} card(s) from "${source.name}" to "${target.name}"?`,
+            opts.force === true
+          );
+          const result = assertOk(
+            await ctx.api.POST('/api/columns/{id}/move-tasks', {
+              params: { path: { id: source.id } },
+              body: { target_column_id: target.id },
+            })
+          );
+          ctx.out.data(result, () =>
+            ctx.out.line(`Moved ${result.moved_tasks.length} card(s) to ${target.name}`)
+          );
+        })
+      )
+  );
+
+  column.addCommand(
+    leaf('archive-tasks')
+      .description('Archive every card in a column')
+      .argument('<column>', 'column id or name')
+      .option('--project <project>', 'project id or name')
+      .option('--force', 'skip the confirmation prompt')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const board = await resolveBoard(ctx, opts.project as string | undefined);
+          const target = resolveColumn(board, ref);
+          const tasks = sortedTasksIn(board, target.id);
+          const archivingIds = new Set(tasks.map((task) => task.id));
+          const dependents = board.tasks.filter(
+            (task) =>
+              !archivingIds.has(task.id) && task.blocker_ids.some((id) => archivingIds.has(id))
+          ).length;
+          const warning =
+            dependents > 0 ? ` ${dependents} card(s) elsewhere will lose a dependency.` : '';
+          await confirmOrAbort(
+            ctx,
+            `Archive ${tasks.length} card(s) in "${target.name}"?${warning}`,
+            opts.force === true
+          );
+          const result = assertOk(
+            await ctx.api.POST('/api/columns/{id}/archive-tasks', {
+              params: { path: { id: target.id } },
+            })
+          );
+          ctx.out.data(result.tasks, () =>
+            ctx.out.line(`Archived ${result.tasks.length} card(s) in ${target.name}`)
+          );
+        })
+      )
+  );
+
+  column.addCommand(
     leaf('delete')
       .description('Delete a column, optionally moving its tasks to another column')
       .argument('<column>', 'column id or name')
@@ -205,14 +274,19 @@ export function registerColumn(program: Command, deps: CliDeps): void {
             `Delete column "${target.name}"${suffix}?`,
             opts.force === true
           );
-          const result = assertOk(
-            await ctx.api.DELETE('/api/columns/{id}', {
-              params: {
-                path: { id: target.id },
-                query: moveTo == null ? {} : { move_tasks_to: moveTo.id },
-              },
-            })
-          );
+          const res = await ctx.api.DELETE('/api/columns/{id}', {
+            params: {
+              path: { id: target.id },
+              query: moveTo == null ? {} : { move_tasks_to: moveTo.id },
+            },
+          });
+          if (moveTo == null && res.response.status === 409) {
+            throw new CliError(
+              `Column "${target.name}" shows no cards but still holds archived ones; pass --move-tasks-to <column> to move them there — restoring one later puts it in that column`,
+              EXIT.conflict
+            );
+          }
+          const result = assertOk(res);
           const moved = result?.moved_tasks ?? [];
           ctx.out.data({ deleted: true, id: target.id, moved_tasks: moved }, () => {
             const movedNote = moved.length > 0 ? ` (moved ${moved.length} task(s))` : '';
