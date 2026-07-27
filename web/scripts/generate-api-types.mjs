@@ -2,7 +2,8 @@
 // Deprecated operations/schemas — and schemas only they referenced — are
 // filtered before codegen so stale call sites turn into TypeScript errors.
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import openapiTS, { astToString } from 'openapi-typescript';
@@ -20,8 +21,29 @@ const HEADER = `// AUTO-GENERATED FROM ${source}
 // Deprecated operations and schemas are filtered out at generation time.
 `;
 
+// A stale spec silently drops whole endpoints from the client, and the result
+// only fails under svelte-check — never under vitest, which strips types.
+async function assertSpecIsFresh(specPath) {
+  const { mtime } = await stat(specPath);
+  const apiRoot = dirname(specPath);
+  let head;
+  try {
+    head = execFileSync('git', ['-C', apiRoot, 'log', '-1', '--format=%cI'], {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return;
+  }
+  if (mtime >= new Date(head)) return;
+  throw new Error(
+    `${specPath} was written ${mtime.toISOString()}, older than that repo's HEAD commit (${head}).\n` +
+      `Run \`npm run openapi:dump\` in the api repo first, or the generated client will be missing endpoints.`
+  );
+}
+
 async function loadSpec() {
   if (SPEC_PATH) {
+    await assertSpecIsFresh(SPEC_PATH);
     return JSON.parse(await readFile(SPEC_PATH, 'utf8'));
   }
   const res = await fetch(SPEC_URL);
