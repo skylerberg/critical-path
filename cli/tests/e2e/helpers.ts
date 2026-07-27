@@ -24,6 +24,7 @@ export interface CliRunHandle {
 export interface CliRunOptions {
   stdin?: string;
   env?: Record<string, string>;
+  onRequest?: (request: Request) => void;
 }
 
 export interface CliHarness {
@@ -61,7 +62,10 @@ export async function createCliHarness(): Promise<CliHarness> {
           stderr += chunk;
         },
       },
-      fetch: async (request) => app.request(request),
+      fetch: async (request) => {
+        options.onRequest?.(request);
+        return app.request(request);
+      },
       credentials,
       onInterrupt: (handler) => {
         interruptHandler = handler;
