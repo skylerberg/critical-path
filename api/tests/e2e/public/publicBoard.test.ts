@@ -256,6 +256,23 @@ describe('GET /api/public/projects/:id/board', () => {
     expect(payload.users.map((user) => user.id)).not.toContain(owner.id);
   });
 
+  it('never serves a task’s activity log to an anonymous reader', async () => {
+    const board = await createProject('History stays private');
+    const projectId = board.project.id;
+    const { mainTaskId } = await seedBoard(board);
+    expect((await publish(projectId, true)).status).toBe(200);
+
+    const payload = (await (
+      await ctx.request().get(`/api/public/projects/${projectId}/board`)
+    ).json()) as PublicBoardBody;
+    expect(JSON.stringify(payload)).not.toContain('activity');
+
+    expect((await ctx.request().get(`/api/tasks/${mainTaskId}/activity`)).status).toBe(401);
+    expect(
+      (await ctx.request(outsider.token).get(`/api/tasks/${mainTaskId}/activity`)).status
+    ).toBe(404);
+  });
+
   it('keeps descriptions and their embedded images readable without a token', async () => {
     const board = await createProject('Descriptions');
     const projectId = board.project.id;

@@ -28,6 +28,34 @@ describe('Labels API', () => {
     return (await res.json()) as { id: string; project_id: string; name: string; color: string };
   }
 
+  async function insertColumn(projectId: string): Promise<string> {
+    const id = newId();
+    await db
+      .insertInto('board_column')
+      .values({ id, project_id: projectId, name: 'To Do', position: 1000 })
+      .execute();
+    return id;
+  }
+
+  async function insertTask(
+    projectId: string,
+    columnId: string,
+    position: number
+  ): Promise<string> {
+    const id = newId();
+    await db
+      .insertInto('task')
+      .values({ id, project_id: projectId, column_id: columnId, title: 'Labeled task', position })
+      .execute();
+    return id;
+  }
+
+  async function activity(taskId: string): Promise<unknown[]> {
+    const res = await ctx.request(user.token).get(`/api/tasks/${taskId}/activity`);
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { activity: unknown[] }).activity;
+  }
+
   beforeAll(async () => {
     user = await ctx.createUser('labels');
   });
@@ -240,22 +268,8 @@ describe('Labels API', () => {
       const projectId = await createProject('labels-delete-assoc');
       const label = await createLabel(projectId, 'Attached');
 
-      const columnId = newId();
-      await db
-        .insertInto('board_column')
-        .values({ id: columnId, project_id: projectId, name: 'To Do', position: 1000 })
-        .execute();
-      const taskId = newId();
-      await db
-        .insertInto('task')
-        .values({
-          id: taskId,
-          project_id: projectId,
-          column_id: columnId,
-          title: 'Labeled task',
-          position: 1000,
-        })
-        .execute();
+      const columnId = await insertColumn(projectId);
+      const taskId = await insertTask(projectId, columnId, 1000);
       await db.insertInto('task_label').values({ task_id: taskId, label_id: label.id }).execute();
 
       const res = await ctx.request(user.token).delete(`/api/labels/${label.id}`);
@@ -274,6 +288,40 @@ describe('Labels API', () => {
         .where('id', '=', taskId)
         .executeTakeFirst();
       expect(task).toEqual({ id: taskId });
+    });
+
+    it('logs the removal on every task that carried the label, and nothing on the rest', async () => {
+      const projectId = await createProject('labels-delete-activity');
+      const label = await createLabel(projectId, 'Urgent');
+      const unattached = await createLabel(projectId, 'Nobody has this');
+      const columnId = await insertColumn(projectId);
+      const [first, second, bystander] = [
+        await insertTask(projectId, columnId, 1000),
+        await insertTask(projectId, columnId, 2000),
+        await insertTask(projectId, columnId, 3000),
+      ];
+      await db
+        .insertInto('task_label')
+        .values([
+          { task_id: first, label_id: label.id },
+          { task_id: second, label_id: label.id },
+        ])
+        .execute();
+
+      expect((await ctx.request(user.token).delete(`/api/labels/${unattached.id}`)).status).toBe(
+        204
+      );
+      expect((await ctx.request(user.token).delete(`/api/labels/${label.id}`)).status).toBe(204);
+
+      const removal = {
+        kind: 'label_removed',
+        actor_user_id: user.id,
+        old_value: { id: label.id, name: 'Urgent' },
+        new_value: null,
+      };
+      expect(await activity(first)).toEqual([expect.objectContaining(removal)]);
+      expect(await activity(second)).toEqual([expect.objectContaining(removal)]);
+      expect(await activity(bystander)).toEqual([]);
     });
   });
 });

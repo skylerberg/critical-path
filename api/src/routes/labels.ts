@@ -6,6 +6,7 @@ import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectAccess, canAccessProject } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
+import { recordTaskActivity } from '../services/taskActivity';
 import {
   createLabelSchema,
   patchLabelSchema,
@@ -179,7 +180,7 @@ router.delete(
 
     const label = await db
       .selectFrom('label')
-      .select('project_id')
+      .select(['project_id', 'name'])
       .where('id', '=', id)
       .executeTakeFirst();
     if (!label) {
@@ -187,7 +188,24 @@ router.delete(
     }
     await assertProjectAccess(db, user.id, label.project_id, 'Label not found');
 
+    // Read before the delete, which takes the associations with it by cascade.
+    const attached = await db
+      .selectFrom('task_label')
+      .select('task_id')
+      .where('label_id', '=', id)
+      .execute();
+
     await db.deleteFrom('label').where('id', '=', id).execute();
+
+    await recordTaskActivity(
+      db,
+      user.id,
+      attached.map((row) => ({
+        taskId: row.task_id,
+        kind: 'label_removed' as const,
+        oldValue: { id, name: label.name },
+      }))
+    );
 
     publishAfterCommit(c, 'label_deleted', label.project_id, { id });
     return c.body(null, 204);

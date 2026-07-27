@@ -19,6 +19,7 @@ import { exportFilename, projectExportArchive } from '../services/export/archive
 import { buildProjectExport } from '../services/export/payload';
 import { copyProject } from '../services/projectCopy';
 import { publishAfterCommit } from '../services/realtime/index';
+import { recordAssigneeChanges } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import { storage } from '../services/storage/index';
 import type { DB, Project } from '../db/types';
@@ -756,6 +757,15 @@ router.put(
         .where('user_id', 'in', removed)
         .execute();
       const stripped = await stripAssigneesForRemovedMembers(db, id, removed);
+      await recordAssigneeChanges(
+        db,
+        user.id,
+        stripped.map((entry) => ({
+          taskId: entry.task_id,
+          kind: 'assignee_removed' as const,
+          userId: entry.user_id,
+        }))
+      );
       const strippedTaskIds = [...new Set(stripped.map((entry) => entry.task_id))];
       publishTaskRelationsSet(c, await fetchTaskRelations(db, strippedTaskIds));
     }
