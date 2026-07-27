@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/mentions/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 

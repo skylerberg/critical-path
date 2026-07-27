@@ -38,6 +38,7 @@
 
   let element = $state<HTMLDivElement>();
   let fileInput = $state<HTMLInputElement>();
+  let menuEl = $state<HTMLDivElement>();
   let editor = $state<Editor | null>(null);
   let version = $state(0);
   let mention = $state<{
@@ -45,6 +46,7 @@
     index: number;
     command: (attrs: MentionNodeAttrs) => void;
   } | null>(null);
+  const menuId = $props.id();
 
   // Saves are debounced (800 ms) and flushed on blur and teardown.
   const SAVE_DEBOUNCE_MS = 800;
@@ -120,6 +122,22 @@
     mention?.command({ id: user.id, label: user.name });
   }
 
+  function mentionOptionId(user: User): string {
+    return `${menuId}-${user.id}`;
+  }
+
+  function highlightMention(index: number): void {
+    if (mention !== null && mention.index !== index) {
+      mention = { ...mention, index };
+    }
+  }
+
+  // Safe to read the DOM before Svelte re-renders: arrow keys move the highlight
+  // but never change the row set. Only about five of the eight rows fit the box.
+  function revealMentionRow(index: number): void {
+    menuEl?.querySelectorAll('button')[index]?.scrollIntoView({ block: 'nearest' });
+  }
+
   $effect(() => {
     const el = element;
     if (!el) return;
@@ -138,9 +156,9 @@
               },
             }),
             Image,
-            // Registered even where nothing can produce a mention: an editor
-            // silently drops nodes its schema does not know, and the next save
-            // would write that deletion back.
+            // Registered even where nothing can produce a mention: a schema that
+            // does not know this node fails to parse the whole document and loads
+            // an empty one, which the next save would write back.
             Mention.configure({
               HTMLAttributes: { class: 'mention' },
               renderHTML: ({ options, node }) => [
@@ -164,11 +182,15 @@
                     const open = mention;
                     if (open === null || open.items.length === 0) return false;
                     if (event.key === 'ArrowDown') {
-                      mention = { ...open, index: Math.min(open.items.length - 1, open.index + 1) };
+                      const index = Math.min(open.items.length - 1, open.index + 1);
+                      mention = { ...open, index };
+                      revealMentionRow(index);
                       return true;
                     }
                     if (event.key === 'ArrowUp') {
-                      mention = { ...open, index: Math.max(0, open.index - 1) };
+                      const index = Math.max(0, open.index - 1);
+                      mention = { ...open, index };
+                      revealMentionRow(index);
                       return true;
                     }
                     if (event.key === 'Enter' || event.key === 'Tab') {
@@ -200,7 +222,13 @@
             scheduleSave();
             onChange?.(currentDoc(updated));
           },
-          onBlur: flushSave,
+          // The suggestion plugin only closes on a transaction and a blur is not
+          // one, so the menu would otherwise outlive the editor's focus and hang
+          // over whatever is rendered below it.
+          onBlur: () => {
+            mention = null;
+            flushSave();
+          },
         })
     );
     lastSaved = JSON.stringify(currentDoc(e));
@@ -213,6 +241,21 @@
       e.destroy();
       editor = null;
     };
+  });
+
+  // Focus stays in the contenteditable, so the highlighted row is announced only
+  // if the editor points at it. ProseMirror leaves attributes it did not set alone.
+  $effect(() => {
+    const dom = editor?.view.dom;
+    if (dom === undefined) return;
+    const active = mention === null ? undefined : mention.items[mention.index];
+    if (active === undefined) {
+      dom.removeAttribute('aria-controls');
+      dom.removeAttribute('aria-activedescendant');
+      return;
+    }
+    dom.setAttribute('aria-controls', menuId);
+    dom.setAttribute('aria-activedescendant', mentionOptionId(active));
   });
 
   const s = $derived.by(() => {
@@ -373,16 +416,20 @@
   {#if mention !== null && mention.items.length > 0}
     {@const open = mention}
     <div
+      bind:this={menuEl}
+      id={menuId}
       role="listbox"
       aria-label="Mention a person"
-      class="absolute top-full left-0 z-10 mt-1 flex max-h-56 w-64 flex-col overflow-y-auto rounded-md border border-edge bg-surface shadow-lg"
+      class="absolute top-full left-0 z-10 mt-1 flex max-h-56 w-64 flex-col overflow-y-auto overscroll-contain rounded-md border border-edge bg-surface shadow-lg"
     >
       {#each open.items as user, i (user.id)}
         <button
           type="button"
           role="option"
+          id={mentionOptionId(user)}
           aria-selected={i === open.index}
           onmousedown={(event) => event.preventDefault()}
+          onpointermove={() => highlightMention(i)}
           onclick={() => commitMention(user)}
           class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 px-3 text-left text-sm {i ===
           open.index

@@ -653,6 +653,9 @@ describe('TaskDetail', () => {
     );
 
     await fireEvent.click(within(menu).getAllByRole('option')[1]);
+    // Flush rather than wait out the 800 ms autosave, which leaves waitFor almost
+    // no headroom on a loaded machine.
+    await fireEvent.blur(descriptionEditor(container).view.dom);
     await waitFor(() => expect(taskPatches()).toHaveLength(1));
     const body = (await taskPatches()[0]!.json()) as { description: unknown };
     expect(JSON.stringify(body.description)).toContain('"id":"u2"');

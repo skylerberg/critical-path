@@ -3,8 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import type { Editor } from '@tiptap/core';
+import type { components } from '../api/api.generated';
 import type { User } from '../lib/users.svelte';
 import RichTextEditor from './RichTextEditor.svelte';
+
+// The suggestion plugin resolves its items through an async path, so a listbox
+// that is about to open is still absent one tick after the keystroke.
+async function settleSuggestion(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await tick();
+}
 
 function insertedMentionAttrs(editor: Editor): Record<string, unknown> | undefined {
   const doc = editor.getJSON() as {
@@ -22,7 +30,14 @@ const alan: User = {
 };
 const zed: User = { id: 'u-zed', name: 'Zed', email: 'zed@example.com', avatar_url: null };
 
-const mentionDoc = {
+const manyUsers: User[] = Array.from({ length: 8 }, (_, i) => ({
+  id: `u-${i}`,
+  name: `Person ${i}`,
+  email: `person${i}@example.com`,
+  avatar_url: null,
+}));
+
+const mentionDoc: components['schemas']['TiptapDoc'] = {
   type: 'doc',
   content: [
     {
@@ -243,22 +258,120 @@ describe('RichTextEditor', () => {
     expect(JSON.stringify(editor.getJSON())).not.toContain('mention');
   });
 
-  it('offers nothing when there are no candidates or none match', async () => {
-    const { component, queryByRole } = render(RichTextEditor, { content: null, mentionUsers: [] });
+  it('offers nothing until the project’s people arrive, then offers them', async () => {
+    const { component, rerender, findByRole, getAllByRole, queryByRole } = render(RichTextEditor, {
+      content: null,
+      mentionUsers: [],
+    });
     await tick();
 
-    component.getEditor()!.commands.insertContent('@a');
-    await tick();
+    const editor = component.getEditor()!;
+    editor.commands.insertContent('@a');
+    await settleSuggestion();
     expect(queryByRole('listbox')).toBeNull();
 
-    component.getEditor()!.commands.insertContent('nobodyhere');
+    await rerender({ content: null, mentionUsers: [ada, alan] });
+    editor.commands.insertContent('l');
+    await findByRole('listbox');
+    await waitFor(() =>
+      expect(getAllByRole('option').map((option) => option.textContent?.trim())).toEqual([
+        expect.stringContaining('Alan Turing'),
+      ])
+    );
+  });
+
+  it('offers nothing when the query matches nobody', async () => {
+    const { component, findByRole, getAllByRole, queryByRole } = render(RichTextEditor, {
+      content: null,
+      mentionUsers: [ada, alan],
+    });
     await tick();
+
+    const editor = component.getEditor()!;
+    editor.commands.insertContent('@zzzz');
+    await settleSuggestion();
     expect(queryByRole('listbox')).toBeNull();
+
+    editor.commands.insertContent(' @a');
+    await findByRole('listbox');
+    await waitFor(() => expect(getAllByRole('option')).toHaveLength(2));
+  });
+
+  it('closes the menu when the editor loses focus', async () => {
+    const { component, findByRole, queryByRole } = render(RichTextEditor, {
+      content: null,
+      mentionUsers: [ada, alan],
+    });
+    await tick();
+
+    const editor = component.getEditor()!;
+    editor.commands.insertContent('@a');
+    await findByRole('listbox');
+
+    await fireEvent.blur(editor.view.dom);
+
+    await waitFor(() => expect(queryByRole('listbox')).toBeNull());
+  });
+
+  it('scrolls the highlighted row into view when it is past the visible rows', async () => {
+    const scrolled: Element[] = [];
+    const spy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (
+      this: Element
+    ) {
+      scrolled.push(this);
+    });
+    try {
+      const { component, findByRole, getAllByRole } = render(RichTextEditor, {
+        content: null,
+        mentionUsers: manyUsers,
+      });
+      await tick();
+
+      const editor = component.getEditor()!;
+      editor.commands.insertContent('@Person');
+      await findByRole('listbox');
+      await waitFor(() => expect(getAllByRole('option')).toHaveLength(manyUsers.length));
+
+      for (let i = 0; i < 6; i += 1) {
+        await fireEvent.keyDown(editor.view.dom, { key: 'ArrowDown' });
+      }
+
+      const options = getAllByRole('option');
+      expect(options[6]).toHaveAttribute('aria-selected', 'true');
+      expect(scrolled).toContain(options[6]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('points the editor at the highlighted option for assistive tech', async () => {
+    const { component, findByRole, getAllByRole } = render(RichTextEditor, {
+      content: null,
+      mentionUsers: [ada, alan],
+    });
+    await tick();
+
+    const editor = component.getEditor()!;
+    editor.commands.insertContent('@a');
+    const menu = await findByRole('listbox');
+    await waitFor(() => expect(getAllByRole('option')).toHaveLength(2));
+
+    const [first, second] = getAllByRole('option');
+    expect(editor.view.dom).toHaveAttribute('aria-controls', menu.id);
+    expect(editor.view.dom).toHaveAttribute('aria-activedescendant', first.id);
+
+    await fireEvent.keyDown(editor.view.dom, { key: 'ArrowDown' });
+    await waitFor(() =>
+      expect(editor.view.dom).toHaveAttribute('aria-activedescendant', second.id)
+    );
+
+    await fireEvent.keyDown(editor.view.dom, { key: 'Escape' });
+    await waitFor(() => expect(editor.view.dom).not.toHaveAttribute('aria-activedescendant'));
   });
 
   it('preserves a mention it was given, in JSON and through an HTML round trip', async () => {
     const { component, container } = render(RichTextEditor, {
-      content: mentionDoc as never,
+      content: mentionDoc,
       readonly: true,
     });
     await tick();
