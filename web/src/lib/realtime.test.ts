@@ -69,6 +69,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
     assignee_ids: [] as string[],
     blocker_ids: [] as string[],
     image_count: 0,
+    comment_count: 0,
   };
 }
 
@@ -80,6 +81,18 @@ function image(id: string) {
     content_type: 'image/png',
     size_bytes: 10,
     created_at: '2026-01-01T00:00:00Z',
+  };
+}
+
+function comment(id: string, text: string) {
+  return {
+    id,
+    task_id: 't1',
+    user_id: 'u1',
+    body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] },
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    comment_count: 1,
   };
 }
 
@@ -342,6 +355,46 @@ describe('board event application', () => {
     socket.receive({ type: 'task_created', project_id: 'p-other', data: task('tx') });
     expect(board.tasks).toHaveLength(0);
   });
+
+  it('routes the three comment events off the wire into the board store', async () => {
+    board.tasks = [task('t1')];
+    board.taskComments = { t1: [] };
+    const socket = await connectAndAuth('p1');
+
+    socket.receive({ type: 'comment_created', project_id: 'p1', data: comment('cm1', 'hello') });
+    expect(board.taskComments['t1']!.map((c) => c.id)).toEqual(['cm1']);
+    expect(board.tasks[0]!.comment_count).toBe(1);
+
+    socket.receive({
+      type: 'comment_updated',
+      project_id: 'p1',
+      data: { ...comment('cm1', 'edited'), comment_count: undefined },
+    });
+    expect(JSON.stringify(board.taskComments['t1']![0]!.body)).toContain('edited');
+
+    socket.receive({
+      type: 'comment_deleted',
+      project_id: 'p1',
+      data: { id: 'cm1', task_id: 't1', comment_count: 0 },
+    });
+    expect(board.taskComments['t1']).toEqual([]);
+    expect(board.tasks[0]!.comment_count).toBe(0);
+  });
+
+  it('ignores a comment event for a different project', async () => {
+    board.tasks = [task('t1')];
+    board.taskComments = { t1: [] };
+    const socket = await connectAndAuth('p1');
+
+    socket.receive({
+      type: 'comment_created',
+      project_id: 'p-other',
+      data: comment('cm1', 'elsewhere'),
+    });
+
+    expect(board.taskComments['t1']).toEqual([]);
+    expect(board.tasks[0]!.comment_count).toBe(0);
+  });
 });
 
 describe('project event application', () => {
@@ -403,6 +456,20 @@ describe('drag-aware queue', () => {
     board.dragging = false;
     flushSync();
     expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('holds comment events while dragging too', async () => {
+    board.tasks = [task('t1')];
+    board.taskComments = { t1: [] };
+    const socket = await connectAndAuth('p1');
+    board.dragging = true;
+
+    socket.receive({ type: 'comment_created', project_id: 'p1', data: comment('cm1', 'queued') });
+    expect(board.taskComments['t1']).toEqual([]);
+
+    board.dragging = false;
+    flushSync();
+    expect(board.taskComments['t1']!.map((c) => c.id)).toEqual(['cm1']);
   });
 });
 

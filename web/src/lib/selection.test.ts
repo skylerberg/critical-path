@@ -55,6 +55,7 @@ function task(id: string, columnId: string, position: number): BoardTask {
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    comment_count: 0,
   };
 }
 

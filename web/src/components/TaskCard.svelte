@@ -26,6 +26,9 @@
   }: Props = $props();
 
   const assignees = $derived(task.assignee_ids.map((id) => users.displayFor(id)));
+  // Coalesced despite the type: a board served by an API pod that predates comments
+  // omits the field entirely.
+  const commentCount = $derived(task.comment_count ?? 0);
   const selected = $derived(selection.selectedTaskId === task.id);
 </script>
 
@@ -55,7 +58,7 @@
     </div>
   {/if}
   <p class="text-sm font-medium break-words">{task.title}</p>
-  {#if blockedCount > 0 || task.image_count > 0 || assignees.length > 0}
+  {#if blockedCount > 0 || task.image_count > 0 || commentCount > 0 || assignees.length > 0}
     <div class="mt-2 flex items-center gap-3">
       {#if blockedCount > 0}
         <span
@@ -97,6 +100,28 @@
             <path d="m21 15-3.5-3.5L6 23" />
           </svg>
           {task.image_count}
+        </span>
+      {/if}
+      {#if commentCount > 0}
+        <span
+          class="inline-flex items-center gap-1 text-xs text-muted"
+          title="{commentCount} comment{commentCount === 1 ? '' : 's'}"
+        >
+          <svg
+            class="size-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"
+            />
+          </svg>
+          {commentCount}
         </span>
       {/if}
       {#if assignees.length > 0}

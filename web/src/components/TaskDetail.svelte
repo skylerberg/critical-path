@@ -8,6 +8,7 @@
   import DependencyPicker from './DependencyPicker.svelte';
   import LabelPicker from './LabelPicker.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
+  import TaskComments from './TaskComments.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
   import Spinner from './ui/Spinner.svelte';
@@ -66,7 +67,7 @@
       conflicted = false;
       pendingWrite = Promise.resolve();
       if (authed) {
-        void board.loadTaskImages(id);
+        void board.loadTaskDetail(id);
       }
     });
   });
@@ -436,6 +437,11 @@
               event.currentTarget.value = '';
             }}
           />
+        </section>
+
+        <section class="flex flex-col gap-2">
+          <h3 class="text-sm font-semibold text-muted">Comments</h3>
+          <TaskComments {taskId} />
         </section>
 
         <div

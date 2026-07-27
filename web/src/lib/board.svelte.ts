@@ -14,10 +14,13 @@ import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
 import { append, between, prepend } from './positions';
 import { router, splitPath } from './router.svelte';
+import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
 import { users, type User } from './users.svelte';
 
 export type TaskImage = components['schemas']['ImageResponse'];
+export type TaskComment = components['schemas']['Comment'];
+export type CommentBody = TaskComment['body'];
 
 export type TaskUpdateOutcome =
   | { status: 'ok'; updated_at: string }
@@ -210,7 +213,12 @@ class BoardStore {
           is_public: true,
         },
         columns: data.columns,
-        tasks: data.tasks.map((task) => ({ ...task, created_at: '', updated_at: '' })),
+        tasks: data.tasks.map((task) => ({
+          ...task,
+          created_at: '',
+          updated_at: '',
+          comment_count: 0,
+        })),
         labels: data.labels,
       },
       projectUsers: data.users.map((user) => ({ ...user, email: '' })),
@@ -225,6 +233,7 @@ class BoardStore {
     this.tasks = [];
     this.labels = [];
     this.taskImages = {};
+    this.taskComments = {};
     this.loading = false;
     this.error = null;
     this.errorStatus = null;
@@ -282,6 +291,7 @@ class BoardStore {
         assignee_ids: [],
         blocker_ids: [],
         image_count: 0,
+        comment_count: 0,
       },
     ];
     try {
@@ -773,13 +783,15 @@ class BoardStore {
   }
 
   taskImages = $state<Record<string, TaskImage[]>>({});
+  taskComments = $state<Record<string, TaskComment[]>>({});
 
-  async loadTaskImages(taskId: string): Promise<void> {
+  async loadTaskDetail(taskId: string): Promise<void> {
     try {
       const data = assertOk(await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } }));
       this.taskImages = { ...this.taskImages, [taskId]: data.images };
+      this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
     } catch (error) {
-      toasts.error(error instanceof ApiError ? error.message : 'Failed to load images');
+      toasts.error(error instanceof ApiError ? error.message : 'Failed to load task details');
     }
   }
 
@@ -822,7 +834,88 @@ class BoardStore {
       assertOk(await api.DELETE('/api/images/{id}', { params: { path: { id: imageId } } }));
     } catch (error) {
       await this.#mutationFailed(error);
-      await this.loadTaskImages(taskId);
+      await this.loadTaskDetail(taskId);
+    }
+  }
+
+  #setCommentCount(taskId: string, next: (current: number) => number): void {
+    this.tasks = this.tasks.map((task) =>
+      task.id === taskId ? { ...task, comment_count: next(task.comment_count ?? 0) } : task
+    );
+  }
+
+  // A no-op when the stream is not cached: the detail view fetches it on open,
+  // and seeding a partial list here would leave that view showing only fragments.
+  #replaceComments(taskId: string, next: (comments: TaskComment[]) => TaskComment[]): void {
+    const cached = this.taskComments[taskId];
+    if (cached === undefined) {
+      return;
+    }
+    this.taskComments = { ...this.taskComments, [taskId]: next(cached) };
+  }
+
+  async createComment(taskId: string, body: CommentBody): Promise<void> {
+    const id = newId();
+    const now = new Date().toISOString();
+    const optimistic: TaskComment = {
+      id,
+      task_id: taskId,
+      user_id: session.user?.id ?? '',
+      body,
+      created_at: now,
+      updated_at: now,
+    };
+    this.taskComments = {
+      ...this.taskComments,
+      [taskId]: [...(this.taskComments[taskId] ?? []), optimistic],
+    };
+    this.#setCommentCount(taskId, (count) => count + 1);
+    try {
+      const created = assertOk(
+        await api.POST('/api/comments', { body: { id, task_id: taskId, body } })
+      );
+      this.#replaceComments(taskId, (comments) =>
+        comments.map((comment) => (comment.id === id ? created : comment))
+      );
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
+    }
+  }
+
+  async updateComment(taskId: string, commentId: string, body: CommentBody): Promise<void> {
+    const now = new Date().toISOString();
+    this.#replaceComments(taskId, (comments) =>
+      comments.map((comment) =>
+        comment.id === commentId ? { ...comment, body, updated_at: now } : comment
+      )
+    );
+    try {
+      const updated = assertOk(
+        await api.PATCH('/api/comments/{id}', {
+          params: { path: { id: commentId } },
+          body: { body },
+        })
+      );
+      this.#replaceComments(taskId, (comments) =>
+        comments.map((comment) => (comment.id === commentId ? updated : comment))
+      );
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
+    }
+  }
+
+  async deleteComment(taskId: string, commentId: string): Promise<void> {
+    this.#replaceComments(taskId, (comments) =>
+      comments.filter((comment) => comment.id !== commentId)
+    );
+    this.#setCommentCount(taskId, (count) => Math.max(0, count - 1));
+    try {
+      assertOk(await api.DELETE('/api/comments/{id}', { params: { path: { id: commentId } } }));
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
     }
   }
 
@@ -834,7 +927,8 @@ class BoardStore {
     }
     switch (event.type) {
       case 'task_created': {
-        const task = event.data as BoardTask;
+        const incoming = event.data as BoardTask;
+        const task = { ...incoming, comment_count: incoming.comment_count ?? 0 };
         this.tasks = this.tasks.some((t) => t.id === task.id)
           ? this.tasks.map((t) => (t.id === task.id ? task : t))
           : [...this.tasks, task];
@@ -845,8 +939,14 @@ class BoardStore {
         // deleted (a locally-deleted task whose in-flight edit — e.g. the detail
         // overlay's autosave flushed on close — lands after our optimistic remove).
         // Re-adding it here would resurrect a phantom node in the graph.
-        const task = event.data as BoardTask;
-        this.tasks = this.tasks.map((t) => (t.id === task.id ? task : t));
+        const incoming = event.data as BoardTask;
+        // An API pod that predates comments omits comment_count; replacing the whole
+        // task with its payload would otherwise blank the badge until a full refetch.
+        this.tasks = this.tasks.map((t) =>
+          t.id === incoming.id
+            ? { ...incoming, comment_count: incoming.comment_count ?? t.comment_count }
+            : t
+        );
         break;
       }
       case 'task_deleted': {
@@ -953,8 +1053,44 @@ class BoardStore {
         // The event carries no image id, so re-fetch the grid; clearing the cache
         // entry instead would strand an open detail view on its loading spinner.
         if (this.taskImages[d.task_id] !== undefined) {
-          void this.loadTaskImages(d.task_id);
+          void this.loadTaskDetail(d.task_id);
         }
+        break;
+      }
+      case 'comment_created': {
+        const d = event.data as TaskComment & { comment_count: number };
+        this.#setCommentCount(d.task_id, () => d.comment_count);
+        const comment: TaskComment = {
+          id: d.id,
+          task_id: d.task_id,
+          user_id: d.user_id,
+          body: d.body,
+          created_at: d.created_at,
+          updated_at: d.updated_at,
+        };
+        // Skips the author's own echo, which the optimistic append already placed.
+        this.#replaceComments(d.task_id, (comments) =>
+          comments.some((c) => c.id === comment.id)
+            ? comments
+            : [...comments, comment].sort(
+                (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+              )
+        );
+        break;
+      }
+      case 'comment_updated': {
+        const d = event.data as TaskComment;
+        this.#replaceComments(d.task_id, (comments) =>
+          comments.map((c) =>
+            c.id === d.id ? { ...c, body: d.body, updated_at: d.updated_at } : c
+          )
+        );
+        break;
+      }
+      case 'comment_deleted': {
+        const d = event.data as { id: string; task_id: string; comment_count: number };
+        this.#setCommentCount(d.task_id, () => d.comment_count);
+        this.#replaceComments(d.task_id, (comments) => comments.filter((c) => c.id !== d.id));
         break;
       }
     }

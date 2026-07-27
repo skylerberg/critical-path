@@ -13,17 +13,22 @@
   interface Props {
     content: TiptapDoc | null;
     onSave?: (doc: TiptapDoc | null) => void | Promise<boolean | void>;
+    onChange?: (doc: TiptapDoc | null) => void;
     uploadImage?: (file: File) => Promise<string | null>;
     placeholder?: string;
     readonly?: boolean;
+    /** Drop the framing box and the tall minimum height, for inline read-only bodies. */
+    bare?: boolean;
   }
 
   let {
     content,
     onSave,
+    onChange,
     uploadImage,
     placeholder = 'Add a description…',
     readonly = false,
+    bare = false,
   }: Props = $props();
 
   let element = $state<HTMLDivElement>();
@@ -132,11 +137,17 @@
           onTransaction: () => {
             version += 1;
           },
-          onUpdate: scheduleSave,
+          onUpdate: ({ editor: updated }) => {
+            scheduleSave();
+            onChange?.(currentDoc(updated));
+          },
           onBlur: flushSave,
         })
     );
     lastSaved = JSON.stringify(currentDoc(e));
+    // Untracked like the construction above: a tracked read of onChange would tear
+    // the editor down and rebuild it whenever the parent re-renders.
+    untrack(() => onChange?.(currentDoc(e)));
     editor = e;
     return () => {
       flushSave();
@@ -265,7 +276,7 @@
 {/snippet}
 
 <div
-  class="rte rounded-md border border-edge bg-canvas {readonly
+  class="rte {bare ? 'rte-bare' : 'rounded-md border border-edge bg-canvas'} {readonly
     ? ''
     : 'focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30'}"
 >
@@ -322,6 +333,12 @@
     padding: 0.75rem;
     font-size: 0.875rem;
     line-height: 1.6;
+  }
+  .rte-bare :global(.tiptap) {
+    min-height: 0;
+    padding: 0;
+    font-size: 0.8125rem;
+    line-height: 1.55;
   }
   .rte :global(.tiptap > * + *) {
     margin-top: 0.5rem;
