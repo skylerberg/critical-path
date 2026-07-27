@@ -8,6 +8,16 @@ import type { CliDeps, RuntimeContext } from '../context';
 import type { components } from '../api/api.generated';
 
 type Project = components['schemas']['Project'];
+type ProjectRole = components['schemas']['ProjectMember']['role'];
+
+const ROLES: ProjectRole[] = ['editor', 'viewer'];
+
+function parseRole(value: unknown): ProjectRole {
+  if (typeof value !== 'string' || !ROLES.includes(value as ProjectRole)) {
+    throw new CliError('--role must be editor or viewer', EXIT.usage);
+  }
+  return value as ProjectRole;
+}
 
 async function patchProject(
   ctx: RuntimeContext,
@@ -153,6 +163,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
         withCtx(deps, async (ctx, _opts, ref) => {
           const target = await resolveProject(ctx, ref);
           const users = new Map((await listUsers(ctx, target.id)).map((u) => [u.id, u]));
+          const roleById = new Map(target.members.map((m) => [m.user_id, m.role]));
           const memberIds =
             target.created_by == null
               ? target.member_ids
@@ -163,7 +174,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
               id,
               name: user?.name ?? null,
               email: user?.email ?? null,
-              role: id === target.created_by ? 'owner' : 'member',
+              role: id === target.created_by ? 'owner' : (roleById.get(id) ?? 'editor'),
             };
           });
           ctx.out.data(members, () => {
@@ -201,6 +212,38 @@ export function registerProject(program: Command, deps: CliDeps): void {
           const updated = await resolveProject(ctx, target.id);
           ctx.out.data(updated, () =>
             ctx.out.line(`Set ${updated.member_ids.length} member(s) on project ${updated.name}`)
+          );
+        })
+      )
+  );
+
+  project.addCommand(
+    leaf('set-role')
+      .description('Change one member’s role without touching the member list')
+      .argument('<project>', 'project id or name')
+      .argument('<user>', 'member id, name, or email')
+      .requiredOption('--role <role>', 'editor or viewer')
+      .action(
+        withCtx(deps, async (ctx, opts, ref, userRef) => {
+          const role = parseRole(opts.role);
+          const target = await resolveProject(ctx, ref);
+          const user = await resolveUser(ctx, userRef, target.id);
+          if (user.id === target.created_by) {
+            throw new CliError(
+              `${user.name} owns this project and is always an editor`,
+              EXIT.usage
+            );
+          }
+          // No user_ids: sending the cached member list would make this a
+          // replace-all and silently evict anyone added since it was read.
+          assertOk(
+            await ctx.api.PUT('/api/projects/{id}/members', {
+              params: { path: { id: target.id } },
+              body: { roles: [{ user_id: user.id, role }] },
+            })
+          );
+          ctx.out.data({ id: user.id, role }, () =>
+            ctx.out.line(`Set ${user.name} to ${role} on project ${target.name}`)
           );
         })
       )
@@ -275,17 +318,21 @@ export function registerProject(program: Command, deps: CliDeps): void {
       .description('Add a member by email')
       .argument('<project>', 'project id or name')
       .requiredOption('--email <email>', 'email of the user to add')
+      .option('--role <role>', 'editor (default) or viewer')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
+          const role = opts.role === undefined ? undefined : parseRole(opts.role);
           const target = await resolveProject(ctx, ref);
-          const { user } = assertOk(
+          const added = assertOk(
             await ctx.api.POST('/api/projects/{id}/members/by-email', {
               params: { path: { id: target.id } },
-              body: { email: opts.email as string },
+              body: { email: opts.email as string, role },
             })
           );
-          ctx.out.data(user, () =>
-            ctx.out.line(`Added ${user.name} <${user.email}> to project ${target.name}`)
+          ctx.out.data(added, () =>
+            ctx.out.line(
+              `Added ${added.user.name} <${added.user.email}> to project ${target.name} as ${added.role}`
+            )
           );
         })
       )

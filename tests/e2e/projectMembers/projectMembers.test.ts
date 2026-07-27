@@ -209,6 +209,7 @@ describe('Project members API', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
         user: { id: member.id, email: member.email, name: member.name, avatar_url: null },
+        role: 'editor',
       });
 
       const again = await ctx

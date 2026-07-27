@@ -31,6 +31,9 @@ export interface BoardPayloadBody {
     description: string;
     archived_at: string | null;
     created_at: string;
+    created_by: string | null;
+    member_ids: string[];
+    members: { user_id: string; role: string }[];
     is_public: boolean;
   };
   columns: BoardColumnPayload[];

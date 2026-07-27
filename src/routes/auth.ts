@@ -22,11 +22,7 @@ import {
 import { avatarUrl } from '../services/avatars';
 import { getEmailSender } from '../services/email/index';
 import { hashPassword, verifyPassword, verifyDummyPassword } from '../services/passwords';
-import {
-  PROJECT_COLUMNS,
-  fetchMemberIds,
-  publishProjectListItem,
-} from '../services/projectListItem';
+import { PROJECT_COLUMNS, fetchMembers, publishProjectListItem } from '../services/projectListItem';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
 import { SESSIONS_REVOKED, USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
 import { storage } from '../services/storage/index';
@@ -466,7 +462,7 @@ router.delete(
             .where('id', 'in', affectedProjectIds)
             .execute();
     for (const project of survivingProjects) {
-      await publishProjectListItem(c, db, project, await fetchMemberIds(db, project.id));
+      await publishProjectListItem(c, db, project, await fetchMembers(db, project.id));
     }
     publishTaskRelationsSet(
       c,

@@ -7,6 +7,7 @@ type BoardPayload = components['schemas']['BoardPayload'];
 type User = components['schemas']['User'];
 type ProjectListItem = components['schemas']['ProjectListItem'];
 type Member = { id: string; name: string | null; email: string | null; role: string };
+type InviteResult = { user: User; role: string };
 
 describe('project member commands', () => {
   const tc = new TestContext();
@@ -63,12 +64,15 @@ describe('project member commands', () => {
       '--json',
     ]);
     expect(res.exitCode).toBe(0);
-    expect(res.json<User>().id).toBe(member.id);
+    expect(res.json<InviteResult>()).toMatchObject({ user: { id: member.id }, role: 'editor' });
+
+    const again = await h.runCli(['project', 'invite', projectId, '--email', member.email]);
+    expect(again.stdout).toContain(`to project CLI Members Project as editor`);
 
     const members = await h.runCli(['project', 'members', projectId, '--json']);
     expect(members.json<Member[]>()).toEqual([
       { id: user.id, name: user.name, email: user.email, role: 'owner' },
-      { id: member.id, name: member.name, email: member.email, role: 'member' },
+      { id: member.id, name: member.name, email: member.email, role: 'editor' },
     ]);
   });
 
@@ -114,6 +118,95 @@ describe('project member commands', () => {
 
     const members = await h.runCli(['project', 'members', projectId, '--json']);
     expect(members.json<Member[]>().map((m) => m.id)).toEqual([user.id]);
+  });
+
+  it('invite --role viewer stores and reports the viewer role', async () => {
+    const res = await h.runCli([
+      'project',
+      'invite',
+      projectId,
+      '--email',
+      member.email,
+      '--role',
+      'viewer',
+      '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    expect(res.json<InviteResult>().role).toBe('viewer');
+
+    const members = await h.runCli(['project', 'members', projectId, '--json']);
+    expect(members.json<Member[]>().find((m) => m.id === member.id)?.role).toBe('viewer');
+  });
+
+  it('invite with an unknown --role exits 2 without sending a request', async () => {
+    const res = await h.runCli([
+      'project',
+      'invite',
+      projectId,
+      '--email',
+      member.email,
+      '--role',
+      'nonsense',
+    ]);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toContain('--role must be editor or viewer');
+  });
+
+  it('set-members leaves an existing viewer’s role alone', async () => {
+    const res = await h.runCli(['project', 'set-members', projectId, member.email, '--json']);
+    expect(res.exitCode).toBe(0);
+
+    const members = await h.runCli(['project', 'members', projectId, '--json']);
+    expect(members.json<Member[]>().find((m) => m.id === member.id)?.role).toBe('viewer');
+  });
+
+  it('set-role flips a member between viewer and editor', async () => {
+    const promote = await h.runCli([
+      'project',
+      'set-role',
+      projectId,
+      member.email,
+      '--role',
+      'editor',
+      '--json',
+    ]);
+    expect(promote.exitCode).toBe(0);
+    let members = await h.runCli(['project', 'members', projectId, '--json']);
+    expect(members.json<Member[]>().find((m) => m.id === member.id)?.role).toBe('editor');
+
+    const demote = await h.runCli([
+      'project',
+      'set-role',
+      projectId,
+      member.email,
+      '--role',
+      'viewer',
+      '--json',
+    ]);
+    expect(demote.exitCode).toBe(0);
+    members = await h.runCli(['project', 'members', projectId, '--json']);
+    expect(members.json<Member[]>().find((m) => m.id === member.id)?.role).toBe('viewer');
+  });
+
+  it('set-role on the creator exits 2 without sending a request', async () => {
+    const res = await h.runCli(['project', 'set-role', projectId, user.email, '--role', 'viewer']);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toMatch(/always an editor/);
+  });
+
+  it('a viewer cannot edit the board but can still read and leave it', async () => {
+    const rename = await hMember.runCli(['project', 'update', projectId, '--name', 'Nope']);
+    expect(rename.exitCode).not.toBe(0);
+    expect(rename.stderr).toContain('Read-only access to this project');
+
+    const show = await hMember.runCli(['project', 'show', projectId, '--json']);
+    expect(show.exitCode).toBe(0);
+
+    const leave = await hMember.runCli(['project', 'leave', projectId, '--force', '--json']);
+    expect(leave.exitCode).toBe(0);
+
+    const list = await hMember.runCli(['project', 'list', '--json']);
+    expect(list.json<ProjectListItem[]>().map((p) => p.id)).not.toContain(projectId);
   });
 
   it('unresolvable project ref exits 4', async () => {
@@ -165,7 +258,7 @@ describe('project member commands', () => {
     expect(res.exitCode).toBe(0);
     expect(res.json<Member[]>()).toEqual([
       { id: member.id, name: member.name, email: member.email, role: 'owner' },
-      { id: user.id, name: user.name, email: user.email, role: 'member' },
+      { id: user.id, name: user.name, email: user.email, role: 'editor' },
     ]);
   });
 

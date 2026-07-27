@@ -8,8 +8,9 @@ import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
   assertProjectAccess,
+  assertProjectWrite,
   assertTaskAccess,
-  canAccessProject,
+  assertTaskWrite,
   projectAccessIdsAmong,
   type ProjectAccessFields,
 } from '../services/authorization';
@@ -49,6 +50,7 @@ import {
   duplicateSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
+  forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
   preconditionConflictErrorResponse,
@@ -145,6 +147,7 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -158,14 +161,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await db
-      .selectFrom('project')
-      .select(['id', 'created_by'])
-      .where('id', '=', body.project_id)
-      .executeTakeFirst();
-    if (!project || !(await canAccessProject(db, user.id, project))) {
-      throw new AppError(404, 'Project not found');
-    }
+    const project = await assertProjectWrite(db, user.id, body.project_id);
 
     await assertColumnInProject(db, body.column_id, body.project_id);
 
@@ -254,6 +250,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationErrorResponse,
@@ -269,7 +266,7 @@ router.post(
     const db = c.get('db');
     const actorId = c.get('user').id;
 
-    const project = await assertTaskAccess(db, actorId, id);
+    const project = await assertTaskWrite(db, actorId, id);
 
     try {
       await copyTasks(db, {
@@ -322,6 +319,7 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -336,14 +334,7 @@ router.post(
     const user = c.get('user');
     const taskIds = body.tasks.map((task) => task.id);
 
-    const project = await db
-      .selectFrom('project')
-      .select(['id', 'created_by'])
-      .where('id', '=', body.project_id)
-      .executeTakeFirst();
-    if (!project || !(await canAccessProject(db, user.id, project))) {
-      throw new AppError(404, 'Project not found');
-    }
+    await assertProjectWrite(db, user.id, body.project_id);
 
     await assertColumnInProject(db, body.column_id, body.project_id);
 
@@ -566,6 +557,7 @@ router.patch(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...preconditionConflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -581,7 +573,7 @@ router.patch(
     const db = c.get('db');
     const actorId = c.get('user').id;
 
-    const project = await assertTaskAccess(db, actorId, id);
+    const project = await assertTaskWrite(db, actorId, id);
 
     const newColumn =
       body.column_id === undefined
@@ -732,6 +724,7 @@ router.delete(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -743,7 +736,7 @@ router.delete(
     const db = c.get('db');
     const actorId = c.get('user').id;
 
-    const project = await assertTaskAccess(db, actorId, id);
+    const project = await assertTaskWrite(db, actorId, id);
 
     const images = await db
       .selectFrom('task_image')
@@ -814,6 +807,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -824,7 +818,7 @@ router.post(
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
-    const project = await assertTaskAccess(db, c.get('user').id, id);
+    const project = await assertTaskWrite(db, c.get('user').id, id);
 
     const archived = await db
       .updateTable('task')
@@ -868,6 +862,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -878,7 +873,7 @@ router.post(
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
-    const project = await assertTaskAccess(db, c.get('user').id, id);
+    const project = await assertTaskWrite(db, c.get('user').id, id);
 
     const restored = await db
       .updateTable('task')
@@ -933,6 +928,7 @@ router.put(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -947,7 +943,7 @@ router.put(
     const db = c.get('db');
 
     const actorId = c.get('user').id;
-    const project = await assertTaskAccess(db, actorId, id);
+    const project = await assertTaskWrite(db, actorId, id);
 
     const desired = dedupe(label_ids);
     await assertLabelsInProject(db, desired, project.id);
@@ -1016,6 +1012,7 @@ router.put(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -1030,7 +1027,7 @@ router.put(
     const db = c.get('db');
 
     const actorId = c.get('user').id;
-    const project = await assertTaskAccess(db, actorId, id);
+    const project = await assertTaskWrite(db, actorId, id);
 
     const desired = dedupe(user_ids);
     const currentRows = await db
@@ -1086,6 +1083,7 @@ router.put(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -1100,7 +1098,7 @@ router.put(
     const { image_id } = c.req.valid('json');
     const db = c.get('db');
 
-    const project = await assertTaskAccess(db, c.get('user').id, id);
+    const project = await assertTaskWrite(db, c.get('user').id, id);
 
     // Serializes cover writes per task: under READ COMMITTED the clear below only
     // sees committed rows, so a concurrent set would survive a clear that answered
@@ -1174,6 +1172,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...dependencyCycleErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -1189,7 +1188,7 @@ router.post(
     const db = c.get('db');
 
     const actorId = c.get('user').id;
-    const project = await assertTaskAccess(db, actorId, id);
+    const project = await assertTaskWrite(db, actorId, id);
 
     if (blocker_task_id === id) {
       throw new AppError(422, 'A task cannot block itself');
@@ -1250,6 +1249,7 @@ router.delete(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -1261,7 +1261,7 @@ router.delete(
     const db = c.get('db');
 
     const actorId = c.get('user').id;
-    await assertTaskAccess(db, actorId, id);
+    await assertTaskWrite(db, actorId, id);
 
     const removed = await db
       .deleteFrom('task_dependency')

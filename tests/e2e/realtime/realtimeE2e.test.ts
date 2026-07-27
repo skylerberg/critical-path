@@ -743,11 +743,37 @@ describe('Realtime end to end', () => {
       id: projectId,
       name: 'Renamed project',
       member_ids: [userB.id],
+      members: [{ user_id: userB.id, role: 'editor' }],
       open_task_count: 1,
       done_task_count: 0,
     });
     await settle();
     expect(clientC.events).toEqual([]);
+  });
+
+  it('delivers a demotion to the demoted member as project_updated, not an eviction', async () => {
+    const before = clientB2.events.length;
+    const demote = await ctx.request(userA.token).put(`/api/projects/${projectId}/members`, {
+      roles: [{ user_id: userB.id, role: 'viewer' }],
+    });
+    expect(demote.status).toBe(204);
+
+    const event = await clientB2.waitForEvent(
+      (e) => e.type === 'project_updated' && e.data.id === projectId,
+      { from: before }
+    );
+    expect(event.data.members).toEqual([{ user_id: userB.id, role: 'viewer' }]);
+
+    await settle();
+    expect(clientB2.events.slice(before).filter((e) => e.type === 'project_deleted')).toEqual([]);
+
+    const restore = await ctx.request(userA.token).put(`/api/projects/${projectId}/members`, {
+      roles: [{ user_id: userB.id, role: 'editor' }],
+    });
+    expect(restore.status).toBe(204);
+    // Drained here so the restore's broadcast cannot be picked up as the first
+    // match by whichever test runs next.
+    await settle();
   });
 
   it('delivers project_updated carrying is_public on publish and unpublish', async () => {
