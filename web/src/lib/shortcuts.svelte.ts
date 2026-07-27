@@ -176,6 +176,11 @@ class ShortcutController {
           return false;
         }
         if (event.shiftKey) {
+          // Held keys autorepeat, and unlike the other shortcuts this one mints a
+          // row per event: a leaned-on key would bury the column in copies.
+          if (event.repeat) {
+            return false;
+          }
           void board.duplicateTask(selectedId);
           break;
         }

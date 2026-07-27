@@ -296,6 +296,26 @@ describe('board shortcuts', () => {
     expect(selection.selectedTaskId).toBe('t1');
   });
 
+  it('ignores autorepeat on Shift+D so a held key mints one copy', () => {
+    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
+    selection.set('t1');
+
+    press('D', { shiftKey: true });
+    const repeated = press('D', { shiftKey: true, repeat: true });
+
+    expect(duplicateTask).toHaveBeenCalledTimes(1);
+    expect(repeated.defaultPrevented).toBe(false);
+  });
+
+  it('still marks done on a held d, which is idempotent', () => {
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    selection.set('t1');
+
+    press('d', { repeat: true });
+
+    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
+  });
+
   it('follows the shift modifier rather than the case of the key', () => {
     const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);

@@ -724,6 +724,7 @@ class BoardStore {
       this.columns.findIndex((column) => column.id === columnId) + 1
     );
     const id = newId();
+    const projectId = this.currentProjectId;
     // The copies of the cards cannot be optimistic — the server names them — but
     // the empty column can, so it appears beside the original straight away.
     this.columns = [
@@ -737,6 +738,11 @@ class BoardStore {
           body: { id, position },
         })
       );
+      // Other mutations key off an id already on the board, so a late response is a
+      // no-op. This one appends outright, into whatever board is showing now.
+      if (this.currentProjectId !== projectId) {
+        return;
+      }
       this.columns = this.columns.map((column) =>
         column.id === id
           ? {

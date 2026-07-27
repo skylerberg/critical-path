@@ -549,6 +549,46 @@ describe('TaskDetail', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  // Back, a sidebar link and the auth redirect all dismiss the overlay without
+  // running close(), which is the only thing the test above exercises.
+  it('does not open the copy when the overlay unmounted while it was in flight', async () => {
+    let finish!: (id: string | null) => void;
+    vi.spyOn(board, 'duplicateTask').mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          finish = resolve;
+        })
+    );
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    const view = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+    view.unmount();
+
+    finish('t9');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('does not open the copy when the overlay moved to another card in flight', async () => {
+    let finish!: (id: string | null) => void;
+    vi.spyOn(board, 'duplicateTask').mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          finish = resolve;
+        })
+    );
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    const view = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+    await view.rerender({ taskId: 't2', closePath: '/projects/p1' });
+
+    finish('t9');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   // The server copies whatever the row holds when it reads it, so the PATCH the blur
   // fired has to land before the copy is taken.
   it('holds the duplicate until the queued title save has landed', async () => {

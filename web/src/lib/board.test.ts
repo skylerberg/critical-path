@@ -872,6 +872,15 @@ describe('board store mutations', () => {
     expect(board.tasksInColumn(copyId).map((t) => t.id)).toEqual(['copy-t1', 'copy-t2']);
   });
 
+  it('duplicateColumn drops its cards when the board moved to another project', async () => {
+    const pending = board.duplicateColumn('c1');
+    board.currentProjectId = 'p2';
+
+    await pending;
+
+    expect(board.tasks.some((t) => t.id.startsWith('copy-'))).toBe(false);
+  });
+
   it('duplicateColumn failure toasts and refetches', async () => {
     mockRoutes((_request, url) =>
       url.pathname === '/api/columns/c1/duplicate'

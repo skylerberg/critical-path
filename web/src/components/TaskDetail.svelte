@@ -100,8 +100,13 @@
   });
 
   // Cleared on unmount so a reopened overlay never flashes another card's history
-  // and no background mutation keeps refetching for a closed dialog.
-  $effect(() => () => taskActivity.reset());
+  // and no background mutation keeps refetching for a closed dialog. `closed` is
+  // set here too because most dismissals never reach close(): Back, a sidebar link
+  // and the auth redirect all just unmount the dialog.
+  $effect(() => () => {
+    closed = true;
+    taskActivity.reset();
+  });
 
   // The title and the description share one queue: overlapping writes would carry
   // the same baseline and the second would conflict against the first.
@@ -225,9 +230,12 @@
   // navigate, not redirect, so Back returns to the original card.
   async function handleDuplicate(): Promise<void> {
     duplicating = true;
+    const source = taskId;
     try {
-      const id = await queueWrite(() => board.duplicateTask(taskId));
-      if (id !== null && !closed) {
+      const id = await queueWrite(() => board.duplicateTask(source));
+      // `closed` alone would miss every dismissal that does not run close() — Back,
+      // the auth redirect — and taskId can also change under a mounted overlay.
+      if (id !== null && !closed && source === taskId) {
         router.navigate(taskPath(id));
       }
     } finally {
