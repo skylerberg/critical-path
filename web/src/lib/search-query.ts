@@ -8,8 +8,9 @@ export interface SearchGroup {
   results: SearchResult[];
 }
 
-// Mirrors the server's floor; below it the request is a guaranteed 400.
+// Mirror the server's bounds; outside them the request is a guaranteed 400.
 export const SEARCH_MIN_QUERY_LENGTH = 2;
+export const SEARCH_MAX_QUERY_LENGTH = 200;
 
 export function parseSearchQuery(search: string): string {
   return new URLSearchParams(search).get('q')?.trim() ?? '';

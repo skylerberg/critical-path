@@ -1,5 +1,10 @@
 import { api, ApiError, assertOk } from '../api/client';
-import { groupByProject, SEARCH_MIN_QUERY_LENGTH, type SearchResult } from './search-query';
+import {
+  groupByProject,
+  SEARCH_MAX_QUERY_LENGTH,
+  SEARCH_MIN_QUERY_LENGTH,
+  type SearchResult,
+} from './search-query';
 
 export type SearchStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
@@ -20,7 +25,7 @@ class SearchStore {
     const token = ++this.#token;
     this.query = trimmed;
 
-    if (trimmed.length < SEARCH_MIN_QUERY_LENGTH) {
+    if (trimmed.length < SEARCH_MIN_QUERY_LENGTH || trimmed.length > SEARCH_MAX_QUERY_LENGTH) {
       this.results = [];
       this.truncated = false;
       this.error = null;
@@ -47,6 +52,10 @@ class SearchStore {
       // Broad: an offline search rejects out of fetch as a TypeError, not an
       // ApiError, and an ApiError-only catch would pin the page on the spinner.
       this.error = error instanceof ApiError ? error.message : 'Search failed';
+      // Unlike the loading path, the rows cannot stay: they answer an older
+      // query and would be read as this one's results next to the failure.
+      this.results = [];
+      this.truncated = false;
       this.status = 'error';
     }
   }

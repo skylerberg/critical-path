@@ -1,9 +1,15 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import { link, router } from '../lib/router.svelte';
-  import { SEARCH_MIN_QUERY_LENGTH, searchPath } from '../lib/search-query';
+  import {
+    SEARCH_MAX_QUERY_LENGTH,
+    SEARCH_MIN_QUERY_LENGTH,
+    searchPath,
+  } from '../lib/search-query';
   import { search } from '../lib/search.svelte';
+  import { shortcuts } from '../lib/shortcuts.svelte';
   import Button from '../components/ui/Button.svelte';
+  import Input from '../components/ui/Input.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
 
   interface Props {
@@ -15,6 +21,7 @@
   const SEARCH_DEBOUNCE_MS = 250;
 
   let typed = $state(untrack(() => q));
+  let inputElement = $state<HTMLInputElement | null>(null);
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
   // The URL is the source of truth, so a reload or a shared link replays the same
@@ -36,6 +43,17 @@
     });
   });
 
+  $effect(() => {
+    if (!shortcuts.searchFocusRequested) {
+      return;
+    }
+    untrack(() => {
+      shortcuts.searchFocusRequested = false;
+      inputElement?.focus();
+      inputElement?.select();
+    });
+  });
+
   function cancelCommit(): void {
     if (searchTimer !== null) {
       clearTimeout(searchTimer);
@@ -44,9 +62,14 @@
   }
 
   function commit(value: string): void {
+    const next = searchPath(value);
     // Replaces rather than pushes, so a run of keystrokes collapses into one
-    // history entry and Back leaves the page instead of walking the query.
-    router.redirect(searchPath(value));
+    // history entry and Back leaves the page instead of walking the query. A
+    // no-op redirect is skipped because the router hands the page a fresh route
+    // object either way, which would re-issue the identical search.
+    if (next !== router.path) {
+      router.redirect(next);
+    }
   }
 
   function scheduleCommit(value: string): void {
@@ -70,25 +93,37 @@
     }
   }
 
-  const focusOnMount = (node: HTMLInputElement): void => {
-    node.focus();
-  };
-
   onDestroy(cancelCommit);
 
-  const tooShort = $derived(
-    search.query.length > 0 && search.query.length < SEARCH_MIN_QUERY_LENGTH
-  );
-  const showSpinner = $derived(search.status === 'loading' && search.results.length === 0);
   const showResults = $derived(search.results.length > 0);
+  const showSpinner = $derived(search.status === 'loading' && !showResults);
+  const statusText = $derived.by(() => {
+    const length = search.query.length;
+    if (length > 0 && length < SEARCH_MIN_QUERY_LENGTH) {
+      return `Keep typing — searches need at least ${SEARCH_MIN_QUERY_LENGTH} characters.`;
+    }
+    if (length > SEARCH_MAX_QUERY_LENGTH) {
+      return `That is too long — searches take at most ${SEARCH_MAX_QUERY_LENGTH} characters.`;
+    }
+    if (search.status === 'idle') {
+      return 'Type to search every project you can access.';
+    }
+    if (search.status === 'loaded' && !showResults) {
+      return `No tasks match “${search.query}”.`;
+    }
+    if (showResults) {
+      return `${search.results.length} ${search.results.length === 1 ? 'result' : 'results'}`;
+    }
+    return null;
+  });
 </script>
 
 <main class="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 lg:p-8">
   <h1 class="text-2xl font-semibold">Search</h1>
 
-  <label class="relative flex items-center">
+  <div class="relative">
     <svg
-      class="pointer-events-none absolute left-3 size-4 text-muted"
+      class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -100,17 +135,19 @@
       <circle cx="11" cy="11" r="7" />
       <path d="m21 21-4.3-4.3" />
     </svg>
-    <input
-      use:focusOnMount
+    <Input
       type="search"
+      autofocus
       bind:value={typed}
+      bind:element={inputElement}
       oninput={() => scheduleCommit(typed)}
       onkeydown={handleKeydown}
       aria-label="Search tasks"
+      maxlength={SEARCH_MAX_QUERY_LENGTH}
       placeholder="Search every project — all words must match"
-      class="min-h-11 w-full rounded-md border border-edge bg-surface pr-3 pl-9 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+      class="w-full pl-9"
     />
-  </label>
+  </div>
 
   {#if search.status === 'error'}
     <div
@@ -122,23 +159,16 @@
     </div>
   {/if}
 
-  <div role="status" class="flex items-center gap-2 text-sm text-muted">
-    {#if tooShort}
-      <span>Keep typing — searches need at least {SEARCH_MIN_QUERY_LENGTH} characters.</span>
-    {:else if search.status === 'idle'}
-      <span>Type to search every project you can access.</span>
-    {:else if search.status === 'loaded' && search.results.length === 0}
-      <span>No tasks match “{search.query}”.</span>
-    {:else if showResults}
-      <span>
-        {search.results.length}
-        {search.results.length === 1 ? 'result' : 'results'}
-      </span>
+  {#if statusText !== null}
+    <div role="status" class="flex items-center gap-2 text-sm text-muted">
+      <span>{statusText}</span>
       {#if search.status === 'loading'}
-        <Spinner size="sm" label="Searching" />
+        <!-- Hidden from assistive tech: a live region nested in this one would
+             announce twice and make the region ambiguous to queries. -->
+        <span aria-hidden="true"><Spinner size="sm" /></span>
       {/if}
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   {#if showSpinner}
     <div class="flex justify-center py-16">

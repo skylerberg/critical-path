@@ -31,6 +31,7 @@ class ShortcutController {
   dependencyMenu = $state<{ taskId: string; direction: DependencyDirection } | null>(null);
   quickAddColumn = $state<string | null>(null);
   filterFocusRequested = $state(false);
+  searchFocusRequested = $state(false);
 
   #gPending = false;
   #gTimer: ReturnType<typeof setTimeout> | undefined;
@@ -55,6 +56,7 @@ class ShortcutController {
     this.closeMenus();
     this.quickAddColumn = null;
     this.filterFocusRequested = false;
+    this.searchFocusRequested = false;
     this.#gPending = false;
     clearTimeout(this.#gTimer);
   }
@@ -104,7 +106,7 @@ class ShortcutController {
 
     // The task-scoped keys target the open overlay task first, else the board
     // selection (null on the graph, so they no-op there without an overlay).
-    this.#handleCommonKey(event, overlayTaskId, selectionActive, filterBarActive, view !== null);
+    this.#handleCommonKey(event, overlayTaskId, selectionActive, filterBarActive);
   };
 
   #completeChord(key: string, projectId: string | null): boolean {
@@ -179,8 +181,7 @@ class ShortcutController {
     event: KeyboardEvent,
     overlayTaskId: string | undefined,
     selectionActive: boolean,
-    filterBarActive: boolean,
-    projectViewActive: boolean
+    filterBarActive: boolean
   ): void {
     const target = overlayTaskId ?? (selectionActive ? selection.selectedTaskId : null);
     switch (event.key) {
@@ -188,12 +189,17 @@ class ShortcutController {
         this.helpOpen = true;
         break;
       case '/':
-        // Project views only — elsewhere the nav entry is the way in. A modified
-        // press is the browser's quick-find, not ours.
-        if (!projectViewActive || event.metaKey || event.ctrlKey || event.altKey) {
+        // A modified press is the browser's quick-find, not ours.
+        if (event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
-        router.navigate('/search');
+        // Navigating to the page already on screen would throw away the query
+        // it is holding, so there the key means "back to the box".
+        if (router.current.name === 'search') {
+          this.searchFocusRequested = true;
+        } else {
+          router.navigate('/search');
+        }
         break;
       case 'f':
       case 'F':

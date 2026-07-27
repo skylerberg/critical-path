@@ -488,12 +488,21 @@ describe('search shortcut', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
-  it('does nothing off the project views', () => {
+  it('reaches search from a screen with no project', () => {
     router.navigate('/my-tasks', { replace: true });
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
     const event = press('/');
+    expect(navigate).toHaveBeenCalledWith('/search');
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('asks for the box instead of navigating when search is already open', () => {
+    router.navigate('/search?q=export', { replace: true });
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    const event = press('/');
     expect(navigate).not.toHaveBeenCalled();
-    expect(event.defaultPrevented).toBe(false);
+    expect(shortcuts.searchFocusRequested).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it('does not fire while a text field is focused', () => {

@@ -1,10 +1,12 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import Search from './Search.svelte';
 import { router } from '../lib/router.svelte';
 import { search } from '../lib/search.svelte';
-import type { SearchResult } from '../lib/search-query';
+import { searchPath, type SearchResult } from '../lib/search-query';
+import { shortcuts } from '../lib/shortcuts.svelte';
 
 const DEBOUNCE_MS = 250;
 
@@ -22,34 +24,36 @@ function respondWith(results: SearchResult[], truncated = false): void {
   fetchMock.mockImplementation(async () => jsonResponse(200, { results, truncated }));
 }
 
-let rerenderPage: ((props: { q: string }) => Promise<void>) | null = null;
-
-// The query lives in the URL, so the page only ever rewrites it; feeding the new
-// q back in is what the app shell does, and the tests have to stand in for it.
-async function syncFromUrl(): Promise<void> {
-  const route = router.current;
-  await rerenderPage?.({ q: route.name === 'search' ? route.params.q : '' });
+// The shell reads q off the live route, so the page sees every URL rewrite it
+// makes; a plain string prop would freeze the page at its initial query.
+function renderAt(q: string): void {
+  router.navigate(searchPath(q), { replace: true });
+  render(Search, {
+    props: {
+      get q(): string {
+        const route = router.current;
+        return route.name === 'search' ? route.params.q : '';
+      },
+    },
+  });
 }
 
-function renderAt(q: string): void {
-  router.navigate(q === '' ? '/search' : `/search?q=${encodeURIComponent(q)}`, { replace: true });
-  const { rerender } = render(Search, { props: { q } });
-  rerenderPage = rerender;
+function box(): HTMLElement {
+  return screen.getByRole('searchbox', { name: 'Search tasks' });
 }
 
 async function type(value: string): Promise<void> {
-  const input = screen.getByRole('searchbox', { name: 'Search tasks' });
-  await fireEvent.input(input, { target: { value } });
+  await fireEvent.input(box(), { target: { value } });
   await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
-  await syncFromUrl();
+  await tick();
 }
 
 beforeEach(() => {
   vi.useFakeTimers();
   fetchMock.mockReset();
   search.reset();
+  shortcuts.reset();
   router.beforeNavigate = undefined;
-  rerenderPage = null;
 });
 
 afterEach(() => {
@@ -61,8 +65,7 @@ describe('Search page', () => {
     respondWith([]);
     renderAt('');
 
-    const input = screen.getByRole('searchbox', { name: 'Search tasks' });
-    expect(input).toHaveFocus();
+    expect(box()).toHaveFocus();
     expect(screen.getByRole('status')).toHaveTextContent('Type to search every project');
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -71,14 +74,13 @@ describe('Search page', () => {
     respondWith([]);
     renderAt('');
 
-    const input = screen.getByRole('searchbox', { name: 'Search tasks' });
-    await fireEvent.input(input, { target: { value: 's' } });
-    await fireEvent.input(input, { target: { value: 'sh' } });
-    await fireEvent.input(input, { target: { value: 'shi' } });
+    await fireEvent.input(box(), { target: { value: 's' } });
+    await fireEvent.input(box(), { target: { value: 'sh' } });
+    await fireEvent.input(box(), { target: { value: 'shi' } });
     expect(fetchMock).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
-    await syncFromUrl();
+    await tick();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(new URL(requestAt(0).url).searchParams.get('q')).toBe('shi');
@@ -93,6 +95,82 @@ describe('Search page', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByRole('status')).toHaveTextContent('at least 2 characters');
+  });
+
+  it('commits on Enter without waiting out the debounce', async () => {
+    respondWith([]);
+    renderAt('');
+
+    await fireEvent.input(box(), { target: { value: 'export' } });
+    await fireEvent.keyDown(box(), { key: 'Enter' });
+    await tick();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(router.path).toBe('/search?q=export');
+
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-run the search when a commit lands on the URL already shown', async () => {
+    respondWith([]);
+    renderAt('');
+    await type('export');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await fireEvent.keyDown(box(), { key: 'Enter' });
+    await tick();
+    await type('export ');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(router.path).toBe('/search?q=export');
+  });
+
+  it('empties the box and the results on Escape', async () => {
+    respondWith([result('t-1', 'p-1', 'Colori', 'Ship the export API')]);
+    renderAt('');
+    await type('export');
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /Ship the export API/ })).toBeInTheDocument();
+    });
+
+    await fireEvent.keyDown(box(), { key: 'Escape' });
+    await tick();
+
+    expect(box()).toHaveValue('');
+    expect(router.path).toBe('/search');
+    expect(screen.queryByRole('link', { name: /Ship the export API/ })).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Type to search every project');
+  });
+
+  it('follows a query that changes outside the box and abandons the pending one', async () => {
+    respondWith([]);
+    renderAt('export');
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    await fireEvent.input(box(), { target: { value: 'export api' } });
+    router.navigate('/search');
+    await tick();
+
+    expect(box()).toHaveValue('');
+
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    expect(router.path).toBe('/search');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refocuses the box when the search shortcut fires on this page', async () => {
+    respondWith([]);
+    renderAt('export');
+    (box() as HTMLInputElement).blur();
+
+    shortcuts.searchFocusRequested = true;
+    await tick();
+
+    expect(box()).toHaveFocus();
+    expect(shortcuts.searchFocusRequested).toBe(false);
   });
 
   it('renders results grouped by project with deep links into the board', async () => {
@@ -132,7 +210,7 @@ describe('Search page', () => {
       expect(screen.getByRole('link', { name: /Ship the export API/ })).toBeInTheDocument();
     });
     expect(new URL(requestAt(0).url).searchParams.get('q')).toBe('export');
-    expect(screen.getByRole('searchbox', { name: 'Search tasks' })).toHaveValue('export');
+    expect(box()).toHaveValue('export');
   });
 
   it('names the query in the empty state, including a punctuation-only one', async () => {
@@ -190,6 +268,25 @@ describe('Search page', () => {
       expect(screen.getByRole('link', { name: /Ship the export API/ })).toBeInTheDocument();
     });
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('leaves no rows, count or cap notice behind when a query fails', async () => {
+    respondWith([result('t-1', 'p-1', 'Colori', 'Ship the export API')], true);
+    renderAt('');
+    await type('export');
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /Ship the export API/ })).toBeInTheDocument();
+    });
+
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'Boom' }));
+    await type('export api');
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Boom');
+    });
+    expect(screen.queryByRole('link', { name: /Ship the export API/ })).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText(/Add another word to narrow it down/)).toBeNull();
   });
 
   it('warns when the result set was capped', async () => {

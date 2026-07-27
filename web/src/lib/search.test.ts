@@ -1,6 +1,12 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { groupByProject, parseSearchQuery, searchPath, type SearchResult } from './search-query';
+import {
+  groupByProject,
+  parseSearchQuery,
+  searchPath,
+  SEARCH_MAX_QUERY_LENGTH,
+  type SearchResult,
+} from './search-query';
 import { search } from './search.svelte';
 
 function result(taskId: string, projectId: string, projectName: string): SearchResult {
@@ -78,6 +84,14 @@ describe('search store', () => {
     expect(search.query).toBe('a');
   });
 
+  it('does not call the API for a query past the maximum length', async () => {
+    await search.run('x'.repeat(SEARCH_MAX_QUERY_LENGTH + 1));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(search.status).toBe('idle');
+    expect(search.results).toEqual([]);
+  });
+
   it('clears previous results once the query falls below the minimum', async () => {
     respondWith([result('t-1', 'p-1', 'Alpha')]);
     await search.run('ship');
@@ -129,13 +143,17 @@ describe('search store', () => {
     expect(search.status).toBe('loaded');
   });
 
-  it('reports the server error message', async () => {
-    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'Boom' }));
-
+  it('reports the server error message and drops the older query rows', async () => {
+    respondWith([result('t-1', 'p-1', 'Alpha')], true);
     await search.run('ship');
+
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'Boom' }));
+    await search.run('ship it');
 
     expect(search.status).toBe('error');
     expect(search.error).toBe('Boom');
+    expect(search.results).toEqual([]);
+    expect(search.truncated).toBe(false);
   });
 
   it('reports a network rejection instead of hanging on loading', async () => {
