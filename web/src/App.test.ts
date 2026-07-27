@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import App from './App.svelte';
 import { board } from './lib/board.svelte';
+import { myTasks } from './lib/myTasks.svelte';
 import { projects } from './lib/projects.svelte';
 import { realtime } from './lib/realtime.svelte';
 import { router } from './lib/router.svelte';
 import { session } from './lib/session.svelte';
+import { shortcuts } from './lib/shortcuts.svelte';
 import { users } from './lib/users.svelte';
 
 class FakeWebSocket {
@@ -44,6 +46,9 @@ function routeResponses(): void {
     if (path === '/api/projects') {
       return jsonResponse(200, { projects: [] });
     }
+    if (path === '/api/my-tasks') {
+      return jsonResponse(200, { tasks: [], waiting_on_you: [], you_are_waiting_on: [] });
+    }
     if (path.startsWith('/api/public/projects/')) {
       return jsonResponse(200, publicBoard());
     }
@@ -61,7 +66,9 @@ beforeEach(() => {
   sessionStorage.clear();
   realtime.disconnect();
   board.reset();
+  myTasks.reset();
   projects.reset();
+  shortcuts.reset();
   users.reset();
   session.user = null;
   session.status = 'unknown';
@@ -88,5 +95,44 @@ describe('App chrome', () => {
 
     expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
     expect(navs().length).toBeGreaterThan(0);
+  });
+
+  it('renders my tasks on its own route', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/my-tasks', { replace: true });
+
+    render(App);
+
+    expect(await screen.findByRole('heading', { name: 'My tasks' })).toBeInTheDocument();
+  });
+
+  it('runs the keymap off the project routes', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/my-tasks', { replace: true });
+
+    render(App);
+    await screen.findByRole('heading', { name: 'My tasks' });
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', cancelable: true }));
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Keyboard shortcuts' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('Go to my tasks')).toBeInTheDocument();
+  });
+
+  it('routes the g m chord to my tasks from the projects list', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/', { replace: true });
+
+    render(App);
+    await screen.findByRole('heading', { name: 'Projects' });
+
+    for (const key of ['g', 'm']) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true }));
+    }
+
+    expect(await screen.findByRole('heading', { name: 'My tasks' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/my-tasks');
   });
 });

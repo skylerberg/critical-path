@@ -60,6 +60,7 @@
         { keys: ['g', 'b'], label: 'Go to board', chord: true },
         { keys: ['g', 'g'], label: 'Go to graph', chord: true },
         { keys: ['g', 'p'], label: 'Go to projects', chord: true },
+        { keys: ['g', 'm'], label: 'Go to my tasks', chord: true },
         { keys: ['?'], label: 'Show this help' },
       ],
     },

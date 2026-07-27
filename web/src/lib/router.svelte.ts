@@ -5,6 +5,7 @@ export type ProjectView = 'board' | 'graph';
 
 export type Route =
   | { name: 'projects' }
+  | { name: 'my-tasks' }
   | { name: 'login' }
   | { name: 'signup' }
   | { name: 'account' }
@@ -12,7 +13,13 @@ export type Route =
   | { name: 'reset-password'; params: { token?: string } }
   | {
       name: 'project';
-      params: { id: string; view: ProjectView; taskId?: string; filters: BoardFilters };
+      params: {
+        id: string;
+        view: ProjectView;
+        taskId?: string;
+        filters: BoardFilters;
+        from?: 'my-tasks';
+      };
     }
   | { name: 'public-board'; params: { id: string; taskId?: string } }
   | { name: 'not-found'; path: string };
@@ -47,13 +54,29 @@ export function splitPath(path: string): { pathname: string; search: string } {
     : { pathname: withoutHash.slice(0, queryAt), search: withoutHash.slice(queryAt) };
 }
 
+// A closed literal rather than a free-form path, so the return link can never
+// become a redirect primitive.
+function overlayFrom(search: string): { from?: 'my-tasks' } {
+  return new URLSearchParams(search).get('from') === 'my-tasks' ? { from: 'my-tasks' } : {};
+}
+
 function projectRoute(id: string, view: ProjectView, search: string, taskId?: string): Route {
-  return { name: 'project', params: { id, view, taskId, filters: parseFilters(search) } };
+  return {
+    name: 'project',
+    params: {
+      id,
+      view,
+      taskId,
+      filters: parseFilters(search),
+      ...(taskId === undefined ? {} : overlayFrom(search)),
+    },
+  };
 }
 
 export function matchRoute(pathname: string, search = ''): Route {
   const path = pathname !== '/' ? pathname.replace(/\/+$/, '') : pathname;
   if (path === '/' || path === '') return { name: 'projects' };
+  if (path === '/my-tasks') return { name: 'my-tasks' };
   if (path === '/login') return { name: 'login' };
   if (path === '/signup') return { name: 'signup' };
   if (path === '/account') return { name: 'account' };

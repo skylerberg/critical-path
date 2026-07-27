@@ -390,7 +390,10 @@ describe('g-chords', () => {
     expect(navigate).toHaveBeenLastCalledWith('/projects/p1/graph');
     press('g');
     press('p');
-    expect(navigate).toHaveBeenLastCalledWith('/projects');
+    expect(navigate).toHaveBeenLastCalledWith('/');
+    press('g');
+    press('m');
+    expect(navigate).toHaveBeenLastCalledWith('/my-tasks');
   });
 
   it('keeps the active filter on every in-project jump', () => {
@@ -410,7 +413,24 @@ describe('g-chords', () => {
 
     press('g');
     press('p');
-    expect(navigate).toHaveBeenLastCalledWith('/projects');
+    expect(navigate).toHaveBeenLastCalledWith('/');
+  });
+
+  it('reaches both cross-project screens from a route with no project', () => {
+    router.navigate('/my-tasks', { replace: true });
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    press('g');
+    press('p');
+    expect(navigate).toHaveBeenLastCalledWith('/');
+    press('g');
+    press('m');
+    expect(navigate).toHaveBeenLastCalledWith('/my-tasks');
+
+    press('m');
+    press('g');
+    press('b');
+    expect(navigate).toHaveBeenCalledTimes(2);
   });
 
   it('completes the chord under CapsLock rather than opening the dependency menu', () => {

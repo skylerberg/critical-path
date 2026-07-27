@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { SOURCES, TRIGGERS, type DndEvent, type Options } from 'svelte-dnd-action';
 import Nav from './Nav.svelte';
 import { motion } from '../lib/motion.svelte';
@@ -229,6 +229,25 @@ describe('Nav sidebar', () => {
       await fireEvent.keyDown(item, { key: 'ArrowDown' });
       expect(sidebarProjectNames()).toEqual(['B', 'A', 'C']);
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('links to my tasks and marks it current on that route', async () => {
+    render(Nav);
+
+    const before = screen.getAllByRole('link', { name: 'My tasks' });
+    expect(before.length).toBeGreaterThan(0);
+    for (const anchor of before) {
+      expect(anchor).toHaveAttribute('href', '/my-tasks');
+      expect(anchor).not.toHaveAttribute('aria-current');
+    }
+
+    router.navigate('/my-tasks');
+
+    await waitFor(() => {
+      for (const anchor of screen.getAllByRole('link', { name: 'My tasks' })) {
+        expect(anchor).toHaveAttribute('aria-current', 'page');
+      }
     });
   });
 

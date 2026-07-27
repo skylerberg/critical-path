@@ -659,6 +659,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/my-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List my tasks across projects
+         * @description List every unarchived, unfinished task assigned to the caller across all accessible, non-archived projects. Each task carries a bucket, fixed by the server: blocked (it has at least one unfinished blocker), blocking (someone else is assigned to a task it holds up), or ready. Tasks are ordered blocking, then ready, then blocked, and within a bucket by how many people are waiting, then project name and board position. Each task also carries its unfinished blockers and dependents with their assignees, plus waiting_user_ids: the other people whose unfinished work it blocks. The companion arrays group the same edges by person — waiting_on_you from the dependents, you_are_waiting_on from the blockers, which alone can carry an unassigned group.
+         */
+        get: operations["getApiMyTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/labels": {
         parameters: {
             query?: never;
@@ -1192,6 +1212,34 @@ export interface components {
         AddBlocker: {
             /** Format: uuid */
             blocker_task_id: string;
+        };
+        MyTasksResponse: {
+            tasks: components["schemas"]["MyTask"][];
+            waiting_on_you: components["schemas"]["MyTaskPersonGroup"][];
+            you_are_waiting_on: components["schemas"]["MyTaskPersonGroup"][];
+        };
+        MyTask: {
+            assignee_ids: string[];
+            blocked_by: components["schemas"]["MyTaskLink"][];
+            blocking: components["schemas"]["MyTaskLink"][];
+            /** @enum {unknown} */
+            bucket: "blocked" | "blocking" | "ready";
+            column_name: string;
+            id: string;
+            project_id: string;
+            project_name: string;
+            title: string;
+            waiting_user_ids: string[];
+        };
+        MyTaskLink: {
+            assignee_ids: string[];
+            id: string;
+            project_id: string;
+            title: string;
+        };
+        MyTaskPersonGroup: {
+            tasks: components["schemas"]["MyTaskLink"][];
+            user_id: components["schemas"]["UserAvatarurl"];
         };
         Label: {
             color: string;
@@ -3699,6 +3747,44 @@ export interface operations {
             };
             /** @description Unprocessable request */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiMyTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assigned tasks with buckets and person-level dependency groups */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyTasksResponse"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

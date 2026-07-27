@@ -16,10 +16,11 @@ import type { ProjectView } from '../lib/router.svelte';
 
 const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
 
-// The shortcut layer reads the live route, so the shell keymap tests must drive the
-// router to the same view/overlay the component is rendered with. Navigating rather
-// than assigning `router.current` keeps `router.path` on the project, which is what a
-// filter key then rewrites.
+// The app shell owns the window listener, so these call the handler directly. The
+// shortcut layer reads the live route, so they must still drive the router to the same
+// view/overlay the component is rendered with: navigating rather than assigning
+// `router.current` keeps `router.path` on the project, which is what a filter key
+// then rewrites.
 function pressKey(
   key: string,
   id: string,
@@ -30,7 +31,7 @@ function pressKey(
   const base = view === 'graph' ? `/projects/${id}/graph` : `/projects/${id}`;
   const path = taskId === undefined ? base : `${base}/tasks/${taskId}`;
   router.navigate(path + board.filterSearch, { replace: true });
-  window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...init }));
+  shortcuts.handleKeydown(new KeyboardEvent('keydown', { key, cancelable: true, ...init }));
 }
 
 function task(id: string, columnId: string, title: string): BoardTask {
@@ -261,7 +262,8 @@ describe('Project', () => {
     expect(restored).not.toHaveFocus();
   });
 
-  it('runs the keymap from the shell on the board view', async () => {
+  // The dialog itself is the app shell's; the shell route only has to route the key.
+  it('routes ? to the shared help state', async () => {
     const projectId = 'p-shell-board-keys';
     mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
 
@@ -269,11 +271,8 @@ describe('Project', () => {
 
     await screen.findByRole('heading', { name: 'Rulebook' });
     pressKey('?', projectId, 'board');
-    expect(
-      await screen.findByRole('heading', { level: 2, name: 'Keyboard shortcuts' })
-    ).toBeInTheDocument();
-    expect(screen.getByText('Toggle my tasks in the filter')).toBeInTheDocument();
-    expect(screen.getByText('Clear all filters')).toBeInTheDocument();
+    expect(shortcuts.helpOpen).toBe(true);
+    expect(screen.queryByRole('heading', { level: 2, name: 'Keyboard shortcuts' })).toBeNull();
   });
 
   it('toggles the my-tasks filter with q and clears it with x from the board shell', async () => {
@@ -483,6 +482,9 @@ describe('Project mounted on the live route', () => {
         get filters() {
           return router.current.name === 'project' ? router.current.params.filters : noFilters();
         },
+        get from() {
+          return router.current.name === 'project' ? router.current.params.from : undefined;
+        },
       },
     });
   }
@@ -504,6 +506,46 @@ describe('Project mounted on the live route', () => {
       await waitFor(() => {
         expect(board.hasActiveFilters).toBe(false);
       });
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  // The board's filter rewrite runs on mount and owns the query string, so the return
+  // path only survives if that rewrite leaves the keys it does not own alone.
+  it('keeps the my-tasks return path through mount and closes back to it', async () => {
+    const projectId = 'p-route-from';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
+    router.navigate(`/projects/${projectId}/tasks/t1?from=my-tasks`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      expect(router.path).toBe(`/projects/${projectId}/tasks/t1?from=my-tasks`);
+
+      await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+      expect(window.location.pathname).toBe('/my-tasks');
+      expect(router.path).toBe('/my-tasks');
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('keeps the return path alongside a filter the board writes', async () => {
+    const projectId = 'p-route-from-filter';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
+    router.navigate(`/projects/${projectId}/tasks/t1?from=my-tasks`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+
+      board.setFilterQuery('boss');
+
+      expect(router.path).toBe(`/projects/${projectId}/tasks/t1?q=boss&from=my-tasks`);
+      await tick();
+      expect(router.current.name === 'project' && router.current.params.from).toBe('my-tasks');
     } finally {
       void unmount(app);
     }

@@ -8,6 +8,7 @@ describe('matchRoute', () => {
   });
 
   it('matches static routes', () => {
+    expect(matchRoute('/my-tasks')).toEqual({ name: 'my-tasks' });
     expect(matchRoute('/login')).toEqual({ name: 'login' });
     expect(matchRoute('/signup')).toEqual({ name: 'signup' });
     expect(matchRoute('/account')).toEqual({ name: 'account' });
@@ -67,6 +68,25 @@ describe('matchRoute', () => {
         taskId: 't9',
         filters: { labelIds: [], assigneeIds: ['u1'], query: '' },
       },
+    });
+  });
+
+  it('reads the my-tasks return path off a task overlay and nowhere else', () => {
+    expect(matchRoute('/projects/p1/tasks/t9', '?from=my-tasks')).toEqual({
+      name: 'project',
+      params: { id: 'p1', view: 'board', taskId: 't9', filters: noFilters(), from: 'my-tasks' },
+    });
+    expect(matchRoute('/projects/p1/graph/tasks/t9', '?from=my-tasks')).toEqual({
+      name: 'project',
+      params: { id: 'p1', view: 'graph', taskId: 't9', filters: noFilters(), from: 'my-tasks' },
+    });
+    expect(matchRoute('/projects/p1/tasks/t9', '?from=elsewhere')).toEqual({
+      name: 'project',
+      params: { id: 'p1', view: 'board', taskId: 't9', filters: noFilters() },
+    });
+    expect(matchRoute('/projects/p1', '?from=my-tasks')).toEqual({
+      name: 'project',
+      params: { id: 'p1', view: 'board', filters: noFilters() },
     });
   });
 

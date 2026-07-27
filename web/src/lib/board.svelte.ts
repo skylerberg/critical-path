@@ -1,6 +1,6 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
-import { filtersToSearch, noFilters, type BoardFilters } from './board-filters';
+import { filtersToSearch, mergeFilterSearch, noFilters, type BoardFilters } from './board-filters';
 import type {
   ArchivedTask,
   BoardColumn,
@@ -852,7 +852,7 @@ class BoardStore {
       return;
     }
     const { pathname, search } = splitPath(router.path);
-    const next = this.filterSearch;
+    const next = mergeFilterSearch(search, this.filters);
     if (search === next) {
       return;
     }

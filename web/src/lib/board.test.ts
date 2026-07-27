@@ -935,6 +935,19 @@ describe('filters in the query string', () => {
     expect(router.path).toBe('/projects/p1/tasks/t1?labels=l1');
   });
 
+  it('leaves query keys it does not own in the address bar', () => {
+    router.navigate('/projects/p1/tasks/t1?from=my-tasks', { replace: true });
+
+    board.setFilters(parseFilters('?from=my-tasks'));
+    expect(router.path).toBe('/projects/p1/tasks/t1?from=my-tasks');
+
+    board.toggleLabelFilter('l1');
+    expect(router.path).toBe('/projects/p1/tasks/t1?labels=l1&from=my-tasks');
+
+    board.clearFilters();
+    expect(router.path).toBe('/projects/p1/tasks/t1?from=my-tasks');
+  });
+
   it('drops the query string again when the filters are cleared', () => {
     board.setFilterQuery('boss');
     expect(router.path).toBe('/projects/p1?q=boss');

@@ -10,7 +10,6 @@
   import QuickAssigneeMenu from '../components/QuickAssigneeMenu.svelte';
   import QuickDependencyMenu from '../components/QuickDependencyMenu.svelte';
   import QuickLabelMenu from '../components/QuickLabelMenu.svelte';
-  import ShortcutHelp from '../components/ShortcutHelp.svelte';
   import TaskDetail from '../components/TaskDetail.svelte';
   import Button from '../components/ui/Button.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
@@ -22,9 +21,10 @@
     view: ProjectView;
     taskId?: string;
     filters?: BoardFilters;
+    from?: 'my-tasks';
   }
 
-  let { projectId, view, taskId, filters = noFilters() }: Props = $props();
+  let { projectId, view, taskId, filters = noFilters(), from }: Props = $props();
 
   // Reading a prop directly makes an effect depend on the whole route object, which is
   // replaced on every query-string rewrite. These stop at a value a filter cannot
@@ -53,16 +53,9 @@
     void users.loadForProject(currentProjectId);
   });
 
-  // The shell owns the keymap so the quick menus and global keys reach both views and
-  // the task overlay; the shortcut layer gates board-only nav keys by the route view.
-  $effect(() => {
-    window.addEventListener('keydown', shortcuts.handleKeydown);
-    return () => window.removeEventListener('keydown', shortcuts.handleKeydown);
-  });
-
   // A quick menu holds a task id, so it goes with the selection on every move — not
   // just a project switch: closing the overlay must not leave a menu open over a card
-  // that is no longer there, owning the keymap.
+  // that is no longer there.
   $effect(() => {
     void routeKey;
     untrack(() => {
@@ -80,6 +73,7 @@
   const viewBasePath = $derived(
     view === 'graph' ? `/projects/${projectId}/graph` : `/projects/${projectId}`
   );
+  const closePath = $derived(from === 'my-tasks' ? '/my-tasks' : viewBasePath + board.filterSearch);
 </script>
 
 {#if board.error !== null && board.currentProjectId === projectId}
@@ -101,7 +95,7 @@
     {/if}
   </div>
   {#if taskId !== undefined}
-    <TaskDetail {taskId} closePath={viewBasePath + board.filterSearch} />
+    <TaskDetail {taskId} {closePath} />
   {/if}
   {#if shortcuts.labelMenu !== null}
     <QuickLabelMenu taskId={shortcuts.labelMenu} onclose={() => (shortcuts.labelMenu = null)} />
@@ -118,8 +112,5 @@
       direction={shortcuts.dependencyMenu.direction}
       onclose={() => (shortcuts.dependencyMenu = null)}
     />
-  {/if}
-  {#if shortcuts.helpOpen}
-    <ShortcutHelp onclose={() => (shortcuts.helpOpen = false)} />
   {/if}
 {/if}
