@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { leaf, withCtx, type Opts } from '../kit';
 import { CliError, EXIT, assertOk } from '../api/errors';
-import { confirmOrAbort } from '../prompt';
+import { confirmOrAbort, readAllStdin } from '../prompt';
 import {
   UUID_RE,
   fetchBoard,
@@ -156,14 +156,6 @@ async function resolveTaskContext(
   }
   const board = await resolveBoard(ctx, projectRef);
   return { board, task: resolveTaskInBoard(board, ref) };
-}
-
-async function readAllStdin(ctx: RuntimeContext): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of ctx.deps.stdin) {
-    chunks.push(Buffer.from(chunk as string | Buffer));
-  }
-  return Buffer.concat(chunks).toString('utf8');
 }
 
 async function descriptionFrom(

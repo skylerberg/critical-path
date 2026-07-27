@@ -82,7 +82,24 @@ Copied projects start personal: members are never copied from the source.
 `GET /api/users` returns the caller plus every user sharing at least one
 project with them (as creator or member on either side); `GET
 /api/users?project_id=` returns the users who can access that project plus
-users still assigned to its tasks.
+users still assigned to its tasks or still holding a comment on them.
+
+### Task comments
+
+Each task carries a flat, chronological comment stream. Bodies are the same
+restricted Tiptap document task descriptions use, so the allow-list, the 100 KB
+cap, and the `/api/images/:id` src rule apply unchanged; a body carrying no
+text, image, or rule is rejected as empty. `POST /api/comments`
+(`{ id, task_id, body }`) creates one; `PATCH` and `DELETE /api/comments/:id`
+edit and remove **your own** only — anyone else's answers 404, the same as one
+that does not exist, and there is no moderation override. Any member of the
+project may comment.
+
+`GET /api/tasks/:id` embeds the whole stream as `comments`, oldest first, and
+every board task carries `comment_count` so a card can show that a
+conversation exists without fetching it. Comments cascade away with their task
+and with their author's account, and are not copied when a project is
+duplicated via `POST /api/projects` with `source_project_id`.
 
 ### Public boards
 
@@ -144,6 +161,9 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `label_deleted`                 | `{ id }`                                             |
 | `image_created`                 | image response plus `{ task_id, image_count }`       |
 | `image_deleted`                 | `{ task_id, image_count }`                           |
+| `comment_created`               | comment row plus `{ comment_count }`                 |
+| `comment_updated`               | comment row                                          |
+| `comment_deleted`               | `{ id, task_id, comment_count }`                     |
 | `project_created` / `project_updated` | projects-list item (with `member_ids` and task counts, without the per-user `position`) |
 | `project_deleted`               | `{ id }`                                             |
 | `project_position_updated`      | `{ id, position }`                                   |
@@ -290,6 +310,7 @@ cpath task create "Fix the bug" --project "My Project" --description "See **note
 cpath task move "Fix the bug" --project "My Project" --column "In Progress" --top
 cpath task done "Fix the bug" --project "My Project"
 cpath task block "Ship it" --by "Fix the bug" --project "My Project"
+cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Project"
 cpath config set default-project "My Project"   # makes --project optional
 cpath watch --project "My Project" | jq 'select(.type=="task_created")'
 ```

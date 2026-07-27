@@ -140,6 +140,25 @@ function nodeProblem(node: unknown, path: string, depth: number): string | null 
   return null;
 }
 
+function hasVisibleContent(nodes: TiptapNode[] | undefined): boolean {
+  for (const node of nodes ?? []) {
+    if (node.type === 'image' || node.type === 'horizontalRule') {
+      return true;
+    }
+    if (node.type === 'text' && (node.text ?? '').trim() !== '') {
+      return true;
+    }
+    if (hasVisibleContent(node.content)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function isEmptyTiptapDoc(doc: TiptapDoc): boolean {
+  return !hasVisibleContent(doc.content);
+}
+
 export function findTiptapDocProblem(doc: unknown): string | null {
   const serializedBytes = Buffer.byteLength(JSON.stringify(doc), 'utf8');
   if (serializedBytes > TIPTAP_MAX_SERIALIZED_BYTES) {

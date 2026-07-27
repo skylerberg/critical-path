@@ -31,6 +31,7 @@ export const boardTaskSchema = type({
   assignee_ids: 'string[]',
   blocker_ids: 'string[]',
   image_count: 'number',
+  comment_count: 'number',
 });
 
 export type BoardTask = typeof boardTaskSchema.infer;

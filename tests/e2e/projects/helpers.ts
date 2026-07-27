@@ -19,6 +19,7 @@ export interface BoardTaskPayload {
   assignee_ids: string[];
   blocker_ids: string[];
   image_count: number;
+  comment_count: number;
 }
 
 export interface BoardPayloadBody {
@@ -95,6 +96,27 @@ export async function insertTaskImage(options: {
     })
     .execute();
   return { imageId, storageKey };
+}
+
+export async function insertTaskComment(options: {
+  taskId: string;
+  userId: string;
+  text?: string;
+}): Promise<string> {
+  const id = crypto.randomUUID();
+  await db
+    .insertInto('task_comment')
+    .values({
+      id,
+      task_id: options.taskId,
+      user_id: options.userId,
+      body: JSON.stringify({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: options.text ?? 'hi' }] }],
+      }),
+    })
+    .execute();
+  return id;
 }
 
 export async function deleteProjects(projectIds: string[]): Promise<void> {
