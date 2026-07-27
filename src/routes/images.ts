@@ -111,9 +111,16 @@ router.delete(
       .select((eb) => eb.fn.countAll<string>().as('count'))
       .where('task_id', '=', row.task_id)
       .executeTakeFirstOrThrow();
+    const cover = await db
+      .selectFrom('task_image')
+      .select('task_image.id')
+      .where('task_image.task_id', '=', row.task_id)
+      .where('task_image.is_cover', '=', true)
+      .executeTakeFirst();
     publishAfterCommit(c, 'image_deleted', row.project_id, {
       task_id: row.task_id,
       image_count: Number(count),
+      cover_image_url: cover === undefined ? null : `/api/images/${cover.id}`,
     });
 
     return c.body(null, 204);

@@ -106,6 +106,7 @@ describe('Realtime end to end', () => {
       assignee_ids: [],
       blocker_ids: [],
       image_count: 0,
+      cover_image_url: null,
       comment_count: 0,
     });
 
@@ -457,11 +458,56 @@ describe('Realtime end to end', () => {
       image_count: 1,
     });
 
+    const beforeCover = clientB.events.length;
+    const coverRes = await ctx
+      .request(userA.token)
+      .put(`/api/tasks/${taskId}/cover`, { image_id: imageId });
+    expect(coverRes.status).toBe(204);
+    const coveredEvent = await clientB.waitForEvent(
+      (e) => e.type === 'task_updated' && e.data.id === taskId,
+      { from: beforeCover }
+    );
+    expect(coveredEvent.data).toMatchObject({ cover_image_url: `/api/images/${imageId}` });
+
     const deleteRes = await ctx.request(userA.token).delete(`/api/images/${imageId}`);
     expect(deleteRes.status).toBe(204);
     const deletedEvent = await clientB.waitForEvent((e) => e.type === 'image_deleted');
     expect(deletedEvent.project_id).toBe(projectId);
-    expect(deletedEvent.data).toEqual({ task_id: taskId, image_count: 0 });
+    expect(deletedEvent.data).toEqual({
+      task_id: taskId,
+      image_count: 0,
+      cover_image_url: null,
+    });
+  });
+
+  it('delivers image_deleted with the cover that survived the delete', async () => {
+    const coverId = newId();
+    const otherId = newId();
+    for (const [id, filename] of [
+      [coverId, 'cover.png'],
+      [otherId, 'other.png'],
+    ] as const) {
+      const form = new FormData();
+      form.append('file', new File([new Uint8Array(PNG_1X1)], filename, { type: 'image/png' }));
+      form.append('id', id);
+      const res = await ctx.request(userA.token).postMultipart(`/api/tasks/${taskId}/images`, form);
+      expect(res.status).toBe(201);
+    }
+    const coverRes = await ctx
+      .request(userA.token)
+      .put(`/api/tasks/${taskId}/cover`, { image_id: coverId });
+    expect(coverRes.status).toBe(204);
+
+    const from = clientB.events.length;
+    const deleteRes = await ctx.request(userA.token).delete(`/api/images/${otherId}`);
+    expect(deleteRes.status).toBe(204);
+
+    const deletedEvent = await clientB.waitForEvent((e) => e.type === 'image_deleted', { from });
+    expect(deletedEvent.data).toEqual({
+      task_id: taskId,
+      image_count: 1,
+      cover_image_url: `/api/images/${coverId}`,
+    });
   });
 
   it('delivers comment_created, comment_updated, and comment_deleted with counts', async () => {

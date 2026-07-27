@@ -28,6 +28,7 @@ export const publicBoardTaskSchema = type({
   assignee_ids: 'string[]',
   blocker_ids: 'string[]',
   image_count: 'number',
+  cover_image_url: 'string | null',
 });
 
 export const publicBoardSchema = type({

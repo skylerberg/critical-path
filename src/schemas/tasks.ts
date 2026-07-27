@@ -78,6 +78,10 @@ export const setTaskAssigneesSchema = type({
   user_ids: boundedUuidArray(100),
 });
 
+export const setTaskCoverSchema = type({
+  image_id: uuid.or('null'),
+});
+
 export const taskBlockerParamsSchema = type({
   id: uuid,
   blockerTaskId: uuid,

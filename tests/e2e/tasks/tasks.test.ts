@@ -69,6 +69,7 @@ describe('Tasks CRUD', () => {
         position: 1000,
         blocker_ids: [],
         image_count: 0,
+        cover_image_url: null,
         comment_count: 0,
       });
       expect(task.label_ids.sort()).toEqual([labelA, labelB].sort());
@@ -202,6 +203,7 @@ describe('Tasks CRUD', () => {
       expect(emptyBody.project_id).toBe(projectId);
       expect(emptyBody.images).toEqual([]);
       expect(emptyBody.image_count).toBe(0);
+      expect(emptyBody.cover_image_url).toBeNull();
       expect(emptyBody.comments).toEqual([]);
       expect(emptyBody.comment_count).toBe(0);
 

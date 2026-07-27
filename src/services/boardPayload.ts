@@ -47,6 +47,12 @@ function projectTasksQuery(db: Kysely<DB>, projectId: string) {
         .whereRef('task_image.task_id', '=', 'task.id')
         .as('image_count'),
       eb
+        .selectFrom('task_image')
+        .select('task_image.id')
+        .whereRef('task_image.task_id', '=', 'task.id')
+        .where('task_image.is_cover', '=', true)
+        .as('cover_image_id'),
+      eb
         .selectFrom('task_comment')
         .select((cb) => cb.fn.countAll<string>().as('comment_count'))
         .whereRef('task_comment.task_id', '=', 'task.id')
@@ -71,6 +77,7 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
     assignee_ids: task.assignee_rows.map((row) => row.user_id),
     blocker_ids: task.blocker_rows.map((row) => row.blocker_task_id),
     image_count: Number(task.image_count),
+    cover_image_url: task.cover_image_id == null ? null : `/api/images/${task.cover_image_id}`,
     comment_count: Number(task.comment_count),
   };
 }
@@ -205,6 +212,7 @@ export function toPublicBoard(payload: BoardPayload, users: PublicBoardUser[]): 
       assignee_ids: task.assignee_ids,
       blocker_ids: task.blocker_ids,
       image_count: task.image_count,
+      cover_image_url: task.cover_image_url,
     })),
     labels: payload.labels.map((label) => ({
       id: label.id,
