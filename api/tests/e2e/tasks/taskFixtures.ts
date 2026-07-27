@@ -22,11 +22,14 @@ export class ProjectFixtures {
 
   async createProject(
     name = 'tasks e2e project',
-    options: { createdBy?: string; memberIds?: string[] } = {}
+    options: { createdBy?: string; memberIds?: string[]; archivedAt?: Date } = {}
   ): Promise<string> {
     const id = newId();
     const createdBy = options.createdBy ?? (await this.fallbackOwner());
-    await db.insertInto('project').values({ id, name, created_by: createdBy }).execute();
+    await db
+      .insertInto('project')
+      .values({ id, name, created_by: createdBy, archived_at: options.archivedAt ?? null })
+      .execute();
     const memberIds = (options.memberIds ?? []).filter((userId) => userId !== createdBy);
     if (memberIds.length > 0) {
       await db
@@ -62,11 +65,24 @@ export class ProjectFixtures {
     return id;
   }
 
-  async createTaskRow(projectId: string, columnId: string, title = 'seeded task'): Promise<string> {
+  async createTaskRow(
+    projectId: string,
+    columnId: string,
+    title = 'seeded task',
+    opts: { description?: unknown; archivedAt?: Date } = {}
+  ): Promise<string> {
     const id = newId();
     await db
       .insertInto('task')
-      .values({ id, project_id: projectId, column_id: columnId, title, position: 1000 })
+      .values({
+        id,
+        project_id: projectId,
+        column_id: columnId,
+        title,
+        position: 1000,
+        description: opts.description === undefined ? null : JSON.stringify(opts.description),
+        archived_at: opts.archivedAt ?? null,
+      })
       .execute();
     return id;
   }
