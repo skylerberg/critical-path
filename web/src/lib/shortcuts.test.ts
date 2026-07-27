@@ -285,6 +285,29 @@ describe('board shortcuts', () => {
     expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
   });
 
+  it('duplicates the selected task with Shift+D and preventDefaults', () => {
+    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
+    selection.set('t1');
+
+    const event = press('D', { shiftKey: true });
+
+    expect(duplicateTask).toHaveBeenCalledWith('t1');
+    expect(event.defaultPrevented).toBe(true);
+    expect(selection.selectedTaskId).toBe('t1');
+  });
+
+  it('leaves Shift+D alone with CapsLock, a modifier, or no selection', () => {
+    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
+    selection.set('t1');
+
+    expect(press('D', { shiftKey: false }).defaultPrevented).toBe(false);
+    expect(press('D', { shiftKey: true, metaKey: true }).defaultPrevented).toBe(false);
+
+    selection.clear();
+    expect(press('D', { shiftKey: true }).defaultPrevented).toBe(false);
+    expect(duplicateTask).not.toHaveBeenCalled();
+  });
+
   it('clears the selection on Escape, then does nothing', () => {
     selection.set('t1');
     const cleared = press('Escape');

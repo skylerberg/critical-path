@@ -431,6 +431,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/columns/{id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a column
+         * @description Copy a column and every live card in it into the same project. The new column keeps the source’s name and done flag; each copied card keeps its title, description, due date, labels, assignees, images and its position, so the cards land in the same relative order. A dependency edge is copied only when both of its ends are inside the copied set, so edges between two cards in the column survive and edges leaving it do not. Archived cards are not copied, and neither are comments or activity history — each copy’s log starts with its own created entry. The client supplies the new column id and its position; a duplicate id returns 409. One column_created event is published plus one task_created per copied card.
+         */
+        post: operations["postApiColumnsByIdDuplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/columns/{id}": {
         parameters: {
             query?: never;
@@ -509,6 +529,26 @@ export interface paths {
          * @description Create a task in a column. The client supplies the task id. An unknown or inaccessible project returns 404. The column must belong to the project, labels must belong to the project, and assignees must be users with access to the project; those violations return 422 with a plain error body. due_date is an optional calendar day (YYYY-MM-DD, no time and no timezone); anything else returns 422.
          */
         post: operations["postApiTasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a task
+         * @description Copy a task into the same column. The copy carries the title, description, due date, labels, assignees and images of the original, each image copied to its own stored object so deleting one leaves the other intact. It carries no dependency edges: a copy keeps an edge only when both of its ends are copied too, which one card never is. It carries no comments and no activity history either — the copy’s log starts with its own created entry. Duplicating an archived task produces a live card. The client supplies the new id and its position; a duplicate id returns 409.
+         */
+        post: operations["postApiTasksByIdDuplicate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1330,6 +1370,16 @@ export interface components {
             /** Format: uuid */
             project_id: string;
             is_done?: boolean;
+        };
+        DuplicatedColumnResponse: {
+            column: components["schemas"]["Column"];
+            tasks: components["schemas"]["BoardTask"][];
+        };
+        Duplicate: {
+            /** Format: uuid */
+            id: string;
+            /** @description a finite number */
+            position: number;
         };
         PatchColumn: {
             is_done?: boolean;
@@ -3178,6 +3228,86 @@ export interface operations {
             };
         };
     };
+    postApiColumnsByIdDuplicate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Duplicate"];
+            };
+        };
+        responses: {
+            /** @description The new column and its copied cards in board-payload shape */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DuplicatedColumnResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     deleteApiColumnsById: {
         parameters: {
             query?: {
@@ -3519,6 +3649,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiTasksByIdDuplicate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Duplicate"];
+            };
+        };
+        responses: {
+            /** @description The copy, in board-payload shape */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardTask"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
                 };
             };
             /** @description Internal Server Error */

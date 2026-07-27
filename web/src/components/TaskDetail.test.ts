@@ -453,6 +453,32 @@ describe('TaskDetail', () => {
     expect(paths).toContain('/api/tasks/t1/archive');
   });
 
+  it('opens the copy after duplicating, from the board and from the graph', async () => {
+    const duplicate = vi.spyOn(board, 'duplicateTask').mockResolvedValue('t9');
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    const first = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/projects/p1/tasks/t9'));
+    expect(duplicate).toHaveBeenCalledWith('t1');
+    first.unmount();
+
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1/graph' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/projects/p1/graph/tasks/t9'));
+  });
+
+  it('stays on the original card when the duplicate fails', async () => {
+    vi.spyOn(board, 'duplicateTask').mockResolvedValue(null);
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
+
+    await tick();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('waits for the archive to finish before redirecting', async () => {
     let resolveArchive: (() => void) | undefined;
     const archiveSpy = vi.spyOn(board, 'archiveTask').mockImplementation(

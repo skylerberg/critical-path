@@ -173,6 +173,20 @@ class ShortcutController {
           return false;
         }
         break;
+      case 'D':
+        // CapsLock reports a plain press as 'D', so the shifted variant has to come
+        // from the modifier and never the character.
+        if (
+          selectedId === null ||
+          !event.shiftKey ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.altKey
+        ) {
+          return false;
+        }
+        void board.duplicateTask(selectedId);
+        break;
       default:
         return false;
     }

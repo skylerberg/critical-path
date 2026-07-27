@@ -136,6 +136,39 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
         updated_at: SERVER_UPDATED_AT,
       });
     }
+    const duplicatedTask = /^\/api\/tasks\/([^/]+)\/duplicate$/.exec(url.pathname);
+    if (request.method === 'POST' && duplicatedTask !== null) {
+      const source = board.tasks.find((t) => t.id === duplicatedTask[1]!)!;
+      const body = (await request.clone().json()) as { id: string; position: number };
+      return jsonResponse(201, {
+        ...source,
+        id: body.id,
+        position: body.position,
+        blocker_ids: [],
+        comment_count: 0,
+        created_at: SERVER_CREATED_AT,
+        updated_at: SERVER_UPDATED_AT,
+      });
+    }
+    const duplicatedColumn = /^\/api\/columns\/([^/]+)\/duplicate$/.exec(url.pathname);
+    if (request.method === 'POST' && duplicatedColumn !== null) {
+      const sourceId = duplicatedColumn[1]!;
+      const source = board.columns.find((c) => c.id === sourceId)!;
+      const body = (await request.clone().json()) as { id: string; position: number };
+      return jsonResponse(201, {
+        column: {
+          id: body.id,
+          project_id: 'p1',
+          name: source.name,
+          position: body.position,
+          is_done: source.is_done,
+          created_at: SERVER_CREATED_AT,
+        },
+        tasks: board.tasks
+          .filter((t) => t.column_id === sourceId)
+          .map((t) => ({ ...t, id: `copy-${t.id}`, column_id: body.id, blocker_ids: [] })),
+      });
+    }
     const patchedTask = /^\/api\/tasks\/([^/]+)$/.exec(url.pathname);
     if (request.method === 'PATCH' && patchedTask !== null) {
       const id = patchedTask[1]!;
@@ -718,6 +751,121 @@ describe('board store mutations', () => {
     expect(outcome).toEqual({ status: 'error' });
     expect(toasts.toasts.map((t) => t.message)).toEqual(['boom']);
     expect(requestAt(1).method).toBe('GET');
+  });
+
+  it('duplicateTask inserts the copy below the source and POSTs the id and position', async () => {
+    const id = await board.duplicateTask('t1');
+
+    expect(id).not.toBeNull();
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', id, 't2']);
+    const copy = board.tasks.find((t) => t.id === id);
+    expect(copy?.position).toBe(1500);
+    expect(copy?.title).toBe('A');
+    expect(copy?.label_ids).toEqual(['l1']);
+    expect(copy?.created_at).toBe(SERVER_CREATED_AT);
+    expect(copy?.updated_at).toBe(SERVER_UPDATED_AT);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = requestAt(0);
+    expect(request.method).toBe('POST');
+    expect(new URL(request.url).pathname).toBe('/api/tasks/t1/duplicate');
+    expect(await request.json()).toEqual({ id, position: 1500 });
+  });
+
+  it('duplicateTask appends when the source is the last card in its column', async () => {
+    const id = await board.duplicateTask('t2');
+
+    expect(board.tasks.find((t) => t.id === id)?.position).toBe(3000);
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', id]);
+  });
+
+  it('duplicateTask shows the copy before the response, without blockers or comments', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1' ? { ...t, blocker_ids: ['t3'], comment_count: 2, assignee_ids: ['u1'] } : t
+    );
+
+    const pending = board.duplicateTask('t1');
+
+    const copy = board.tasksInColumn('c1')[1]!;
+    expect(copy.id).not.toBe('t1');
+    expect(copy.title).toBe('A');
+    expect(copy.label_ids).toEqual(['l1']);
+    expect(copy.assignee_ids).toEqual(['u1']);
+    expect(copy.blocker_ids).toEqual([]);
+    expect(copy.comment_count).toBe(0);
+
+    await pending;
+  });
+
+  it('duplicateTask failure toasts, resyncs, and drops the optimistic copy', async () => {
+    mockRoutes((_request, url) =>
+      url.pathname === '/api/tasks/t1/duplicate' ? jsonResponse(422, { error: 'nope' }) : undefined
+    );
+
+    const id = await board.duplicateTask('t1');
+
+    expect(id).toBeNull();
+    expect(board.tasks.map((t) => t.id).sort()).toEqual(['t1', 't2', 't3']);
+    expect(requestAt(1).method).toBe('GET');
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+  });
+
+  it('duplicateTask is a no-op for a task the board does not hold', async () => {
+    const id = await board.duplicateTask('missing');
+
+    expect(id).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('duplicateColumn shows the empty copy beside the source, then merges its cards', async () => {
+    const pending = board.duplicateColumn('c1');
+
+    expect(board.columns.map((c) => [c.name, c.position])).toEqual([
+      ['Todo', 1000],
+      ['Todo', 1500],
+      ['Done', 2000],
+      ['Empty', 3000],
+    ]);
+    const copyId = board.columns[1]!.id;
+    expect(board.tasks.filter((t) => t.column_id === copyId)).toEqual([]);
+
+    await pending;
+
+    expect(board.tasksInColumn(copyId).map((t) => t.id)).toEqual(['copy-t1', 'copy-t2']);
+    const request = requestAt(0);
+    expect(request.method).toBe('POST');
+    expect(new URL(request.url).pathname).toBe('/api/columns/c1/duplicate');
+    expect(await request.json()).toEqual({ id: copyId, position: 1500 });
+  });
+
+  it('duplicateColumn does not re-add a card a realtime echo already delivered', async () => {
+    const pending = board.duplicateColumn('c1');
+    const copyId = board.columns[1]!.id;
+
+    board.applyRealtime({
+      type: 'task_created',
+      project_id: 'p1',
+      data: { ...task('copy-t1', copyId, 1000, 'A'), title: 'A' },
+    } as never);
+
+    await pending;
+
+    expect(board.tasks.filter((t) => t.id === 'copy-t1')).toHaveLength(1);
+    expect(board.tasksInColumn(copyId).map((t) => t.id)).toEqual(['copy-t1', 'copy-t2']);
+  });
+
+  it('duplicateColumn failure toasts and refetches', async () => {
+    mockRoutes((_request, url) =>
+      url.pathname === '/api/columns/c1/duplicate'
+        ? jsonResponse(500, { error: 'boom' })
+        : undefined
+    );
+
+    await board.duplicateColumn('c1');
+
+    expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
+    expect(requestAt(1).method).toBe('GET');
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['boom']);
   });
 
   it('deleteColumn moves tasks optimistically then applies the 200 moved_tasks positions', async () => {

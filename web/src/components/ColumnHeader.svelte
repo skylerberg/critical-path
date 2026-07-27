@@ -163,6 +163,17 @@
           role="menu"
           class="absolute top-full right-0 z-30 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
         >
+          <button
+            type="button"
+            role="menuitem"
+            class={menuItemClass}
+            onclick={() => {
+              menuOpen = false;
+              void board.duplicateColumn(column.id);
+            }}
+          >
+            Duplicate column
+          </button>
           {#if count > 0 && board.columns.length > 1}
             <button
               type="button"

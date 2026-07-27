@@ -76,6 +76,24 @@ describe('ColumnHeader options menu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it('duplicates the column from the menu and closes it', async () => {
+    const duplicate = vi.spyOn(board, 'duplicateColumn').mockResolvedValue(undefined);
+    renderHeader(TODO);
+    await openMenu();
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate column' }));
+
+    expect(duplicate).toHaveBeenCalledWith('c1');
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('offers the duplicate action for an empty column too', async () => {
+    renderHeader(DONE);
+    await openMenu('Done');
+
+    expect(screen.getByRole('menuitem', { name: 'Duplicate column' })).toBeInTheDocument();
+  });
+
   it('hides the move action when there is nowhere to move to', async () => {
     board.columns = [TODO];
     renderHeader(TODO);

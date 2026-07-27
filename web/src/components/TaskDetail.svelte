@@ -212,6 +212,14 @@
     close();
   }
 
+  // navigate, not redirect, so Back returns to the original card.
+  async function handleDuplicate(): Promise<void> {
+    const id = await board.duplicateTask(taskId);
+    if (id !== null) {
+      router.navigate(`${closePath}/tasks/${id}`);
+    }
+  }
+
   // No confirm step: archiving is reversible, unlike delete.
   async function handleArchive(): Promise<void> {
     removing = true;
@@ -495,6 +503,7 @@
             )}
           </p>
           <div class="flex gap-2">
+            <Button variant="secondary" onclick={() => void handleDuplicate()}>Duplicate</Button>
             <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
             <Button variant="danger" onclick={() => void handleDelete()}>
               {confirmingDelete ? 'Confirm delete' : 'Delete task'}
