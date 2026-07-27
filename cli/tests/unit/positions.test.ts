@@ -30,6 +30,13 @@ describe('position math', () => {
     expect(() => spreadBetween(1000, 1000 + Number.EPSILON, 1)).toThrow(CliError);
     expect(() => spreadBetween(1000, 1000, 1)).toThrow(/--top or --bottom/);
   });
+
+  it('names the caller-supplied remedy for commands without placement flags', () => {
+    expect(() => spreadBetween(1000, 1000, 1, 'make room')).toThrow(
+      /No room between the neighboring positions; make room/
+    );
+    expect(() => positionsForIndex([1000, 1000], 1, 1, 'make room')).toThrow(/make room/);
+  });
 });
 
 describe('positionForPlacement', () => {

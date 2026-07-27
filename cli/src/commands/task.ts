@@ -33,7 +33,13 @@ import {
   taskState,
   type TaskState,
 } from '../board';
-import { append, positionForPlacement, positionsForPlacement, type Placement } from '../positions';
+import {
+  append,
+  positionForPlacement,
+  positionsForIndex,
+  positionsForPlacement,
+  type Placement,
+} from '../positions';
 import { markdownToTiptap, tiptapToMarkdown, type TiptapDoc } from '../markdown';
 import type { CliDeps, RuntimeContext } from '../context';
 
@@ -746,6 +752,38 @@ export function registerTask(program: Command, deps: CliDeps): void {
             })
           );
           ctx.out.data(moved, () => ctx.out.line(`Marked "${moved.title}" done (${column.name})`));
+        })
+      )
+  );
+
+  task.addCommand(
+    taskLeaf('duplicate')
+      .description('Copy a task directly below the original')
+      .argument('<task>', 'task id or title')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const { board, task: target } = await resolveTaskContext(
+            ctx,
+            ref,
+            opts.project as string | undefined
+          );
+          const siblings = sortedTasksIn(board, target.column_id);
+          const index = siblings.findIndex((t) => t.id === target.id);
+          const position = positionsForIndex(
+            siblings.map((t) => t.position),
+            index + 1,
+            1,
+            'move a card in this column to make room'
+          )[0];
+          const created = assertOk(
+            await ctx.api.POST('/api/tasks/{id}/duplicate', {
+              params: { path: { id: target.id } },
+              body: { id: crypto.randomUUID(), position },
+            })
+          );
+          ctx.out.data(created, () =>
+            ctx.out.line(`Duplicated task "${created.title}" (${created.id.slice(0, 8)})`)
+          );
         })
       )
   );

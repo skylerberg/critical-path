@@ -13,55 +13,57 @@ import { assertPublicProject, usersWithProjectAccess } from './authorization';
 import { dueDateText } from './dueDate';
 import { unarchivedBlockerIds } from './taskRelations';
 
-function projectTasksQuery(db: Kysely<DB>, projectId: string) {
-  return db
-    .selectFrom('task')
-    .select((eb) => [
-      'task.id',
-      'task.column_id',
-      'task.title',
-      'task.description',
-      'task.position',
-      dueDateText.as('due_date'),
-      'task.created_at',
-      'task.updated_at',
-      'task.archived_at',
-      jsonArrayFrom(
-        eb
-          .selectFrom('task_label')
-          .select('task_label.label_id')
-          .whereRef('task_label.task_id', '=', 'task.id')
-          .orderBy('task_label.label_id')
-      ).as('label_rows'),
-      jsonArrayFrom(
-        eb
-          .selectFrom('task_assignee')
-          .select('task_assignee.user_id')
-          .whereRef('task_assignee.task_id', '=', 'task.id')
-          .orderBy('task_assignee.user_id')
-      ).as('assignee_rows'),
-      unarchivedBlockerIds(eb).as('blocker_rows'),
+function boardTasksQuery(db: Kysely<DB>) {
+  return db.selectFrom('task').select((eb) => [
+    'task.id',
+    'task.project_id',
+    'task.column_id',
+    'task.title',
+    'task.description',
+    'task.position',
+    dueDateText.as('due_date'),
+    'task.created_at',
+    'task.updated_at',
+    'task.archived_at',
+    jsonArrayFrom(
       eb
-        .selectFrom('task_image')
-        .select((ib) => ib.fn.countAll<string>().as('image_count'))
-        .whereRef('task_image.task_id', '=', 'task.id')
-        .as('image_count'),
+        .selectFrom('task_label')
+        .select('task_label.label_id')
+        .whereRef('task_label.task_id', '=', 'task.id')
+        .orderBy('task_label.label_id')
+    ).as('label_rows'),
+    jsonArrayFrom(
       eb
-        .selectFrom('task_image')
-        .select('task_image.id')
-        .whereRef('task_image.task_id', '=', 'task.id')
-        .where('task_image.is_cover', '=', true)
-        .as('cover_image_id'),
-      eb
-        .selectFrom('task_comment')
-        .select((cb) => cb.fn.countAll<string>().as('comment_count'))
-        .whereRef('task_comment.task_id', '=', 'task.id')
-        .as('comment_count'),
-    ])
-    .where('task.project_id', '=', projectId);
+        .selectFrom('task_assignee')
+        .select('task_assignee.user_id')
+        .whereRef('task_assignee.task_id', '=', 'task.id')
+        .orderBy('task_assignee.user_id')
+    ).as('assignee_rows'),
+    unarchivedBlockerIds(eb).as('blocker_rows'),
+    eb
+      .selectFrom('task_image')
+      .select((ib) => ib.fn.countAll<string>().as('image_count'))
+      .whereRef('task_image.task_id', '=', 'task.id')
+      .as('image_count'),
+    eb
+      .selectFrom('task_image')
+      .select('task_image.id')
+      .whereRef('task_image.task_id', '=', 'task.id')
+      .where('task_image.is_cover', '=', true)
+      .as('cover_image_id'),
+    eb
+      .selectFrom('task_comment')
+      .select((cb) => cb.fn.countAll<string>().as('comment_count'))
+      .whereRef('task_comment.task_id', '=', 'task.id')
+      .as('comment_count'),
+  ]);
 }
 
-type ProjectTaskRow = Awaited<ReturnType<ReturnType<typeof projectTasksQuery>['execute']>>[number];
+function projectTasksQuery(db: Kysely<DB>, projectId: string) {
+  return boardTasksQuery(db).where('task.project_id', '=', projectId);
+}
+
+type ProjectTaskRow = Awaited<ReturnType<ReturnType<typeof boardTasksQuery>['execute']>>[number];
 
 function toBoardTask(task: ProjectTaskRow): BoardTask {
   return {
@@ -84,6 +86,32 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
 
 function toArchivedTask(row: ProjectTaskRow): ArchivedTask {
   return { ...toBoardTask(row), archived_at: (row.archived_at as Date).toISOString() };
+}
+
+export interface BoardTaskRow {
+  task: BoardTask;
+  project_id: string;
+  archived_at: string | null;
+}
+
+export async function fetchBoardTaskRows(
+  db: Kysely<DB>,
+  taskIds: readonly string[]
+): Promise<BoardTaskRow[]> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+  const rows = await boardTasksQuery(db)
+    .where('task.id', 'in', [...taskIds])
+    .orderBy('task.position')
+    .orderBy('task.id')
+    .execute();
+
+  return rows.map((row) => ({
+    task: toBoardTask(row),
+    project_id: row.project_id,
+    archived_at: row.archived_at?.toISOString() ?? null,
+  }));
 }
 
 // A bulk column archive stamps one archived_at across the batch, so position is
