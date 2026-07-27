@@ -34,13 +34,13 @@ function pressKey(
   shortcuts.handleKeydown(new KeyboardEvent('keydown', { key, cancelable: true, ...init }));
 }
 
-function task(id: string, columnId: string, title: string): BoardTask {
+function task(id: string, columnId: string, title: string, position = 1000): BoardTask {
   return {
     id,
     column_id: columnId,
     title,
     description: null,
-    position: 1000,
+    position,
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
     label_ids: [],
@@ -90,6 +90,13 @@ function mockProjectApi(projectId: string, tasks: BoardTask[]): void {
     }
     return jsonResponse(200, payload(projectId, tasks));
   });
+}
+
+// Spinner is role="status" as well, so the announcer's region is picked out by aria-live.
+function liveRegions(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll('[role="status"][aria-live="polite"]')).map(
+    (region) => region.textContent ?? ''
+  );
 }
 
 function requestedPaths(): string[] {
@@ -385,6 +392,137 @@ describe('Project', () => {
     // query has to be scoped to the quick menu's own dialog.
     const menu = heading.closest('dialog')!;
     expect(within(menu).getByLabelText('Search tasks this one blocks')).toHaveFocus();
+  });
+
+  it('moves the board selection through the m menu and announces where it landed', async () => {
+    const projectId = 'p-shell-board-move';
+    mockProjectApi(projectId, [
+      task('t1', 'todo', 'Design cards'),
+      task('t2', 'done', 'Cut cards', 1000),
+      task('t3', 'done', 'Print rules', 2000),
+    ]);
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+
+    render(Project, { props: { projectId, view: 'board' } });
+
+    await screen.findByText('Design cards');
+    selection.set('t1');
+    pressKey('m', projectId, 'board');
+
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' });
+    const menu = heading.closest('dialog')!;
+    expect(within(menu).getByLabelText('Search columns')).toHaveFocus();
+
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Bottom/ }));
+
+    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 3000);
+    expect(shortcuts.moveMenu).toBeNull();
+    await waitFor(() => {
+      expect(screen.getAllByRole('status').map((region) => region.textContent)).toContain(
+        'Moved "Design cards" to Done, position 3 of 3'
+      );
+    });
+  });
+
+  // jsdom implements neither showModal nor inertness, so only the presence of the
+  // in-overlay region is checkable here; that it is the one spoken is manual.
+  it('announces a move made from the graph overlay inside the overlay dialog', async () => {
+    const projectId = 'p-shell-graph-move';
+    mockProjectApi(projectId, [
+      task('t1', 'todo', 'Design cards'),
+      task('t2', 'done', 'Cut cards', 1000),
+      task('t3', 'done', 'Print rules', 2000),
+    ]);
+    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+
+    render(Project, { props: { projectId, view: 'graph', taskId: 't1' } });
+
+    await screen.findByLabelText('Task title');
+    pressKey('m', projectId, 'graph', 't1');
+
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' });
+    const menu = heading.closest('dialog')!;
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Top/ }));
+
+    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 0);
+    const overlay = screen.getByLabelText('Task title').closest('dialog')!;
+    await waitFor(() => {
+      expect(
+        within(overlay)
+          .getAllByRole('status')
+          .map((region) => region.textContent)
+      ).toContain('Moved "Design cards" to Done, position 1 of 3');
+    });
+  });
+
+  it('opens the move menu from the overlay Move… button', async () => {
+    const projectId = 'p-shell-move-button';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'board', taskId: 't1' } });
+
+    await screen.findByLabelText('Task title');
+    await fireEvent.click(screen.getByRole('button', { name: 'Move…' }));
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' })
+    ).toBeInTheDocument();
+  });
+
+  // A live region created in the same flush as its text is not announced, so it has
+  // to outlive the loading and error shells rather than sit inside the ready branch.
+  it('keeps the live region mounted while the board is still loading', async () => {
+    const projectId = 'p-shell-announcer-mount';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    const { container } = render(Project, { props: { projectId, view: 'board' } });
+
+    expect(screen.getByLabelText('Loading')).toBeInTheDocument();
+    expect(liveRegions(container)).toHaveLength(1);
+
+    await screen.findByText('Design cards');
+  });
+
+  it('clears a stale announcement when the shell switches project', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const id = /^\/api\/projects\/(.+)$/.exec(new URL((input as Request).url).pathname)?.[1];
+      if (id === undefined) {
+        return jsonResponse(200, { users: [] });
+      }
+      return jsonResponse(
+        200,
+        payload(id, [
+          task('t1', 'todo', 'Design cards'),
+          task('t2', 'done', 'Cut cards', 1000),
+          task('t3', 'done', 'Print rules', 2000),
+        ])
+      );
+    });
+    vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+
+    const projectId = 'p-shell-announcer-clear';
+    const view = render(Project, { props: { projectId, view: 'board' } });
+    await screen.findByText('Design cards');
+    selection.set('t1');
+    pressKey('m', projectId, 'board');
+
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' });
+    const menu = heading.closest('dialog')!;
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Bottom/ }));
+    await waitFor(() => {
+      expect(liveRegions(view.container)).toContain(
+        'Moved "Design cards" to Done, position 3 of 3'
+      );
+    });
+
+    await view.rerender({ projectId: 'p-shell-announcer-next', view: 'board' });
+
+    await waitFor(() => {
+      expect(liveRegions(view.container)).toEqual(['']);
+    });
   });
 });
 

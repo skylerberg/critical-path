@@ -6,6 +6,7 @@
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { append } from '../lib/positions';
   import { router } from '../lib/router.svelte';
+  import { shortcuts } from '../lib/shortcuts.svelte';
   import { taskActivity } from '../lib/taskActivity.svelte';
   import AssigneePicker from './AssigneePicker.svelte';
   import DependencyPicker from './DependencyPicker.svelte';
@@ -13,6 +14,7 @@
   import LabelPicker from './LabelPicker.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
   import TaskActivity from './TaskActivity.svelte';
+  import Announcer from './ui/Announcer.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
   import Spinner from './ui/Spinner.svelte';
@@ -287,16 +289,19 @@
         {#if readonly}
           <p class="text-sm">{columnName}</p>
         {:else}
-          <select
-            aria-label="Column"
-            value={task.column_id}
-            onchange={changeColumn}
-            class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
-          >
-            {#each board.columns as column (column.id)}
-              <option value={column.id}>{column.name}</option>
-            {/each}
-          </select>
+          <div class="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Column"
+              value={task.column_id}
+              onchange={changeColumn}
+              class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
+            >
+              {#each board.columns as column (column.id)}
+                <option value={column.id}>{column.name}</option>
+              {/each}
+            </select>
+            <Button variant="secondary" onclick={() => (shortcuts.moveMenu = taskId)}>Move…</Button>
+          </div>
         {/if}
       </section>
 
@@ -486,5 +491,7 @@
         </div>
       {/if}
     {/if}
+    <!-- The shell's copy is inert behind this dialog, so the overlay needs its own. -->
+    <Announcer />
   </div>
 </dialog>

@@ -35,6 +35,7 @@
         { keys: ['b'], label: 'Add a task that blocks the selection' },
         { keys: ['Shift+B'], label: 'Add a task the selection blocks' },
         { keys: ['d'], label: 'Move selected task to done' },
+        { keys: ['m'], label: 'Move the selected task to a column and position' },
       ],
     },
     {
