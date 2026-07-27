@@ -72,6 +72,10 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
   };
 }
 
+function toArchivedTask(row: ProjectTaskRow): ArchivedTask {
+  return { ...toBoardTask(row), archived_at: (row.archived_at as Date).toISOString() };
+}
+
 export async function getArchivedTasks(db: Kysely<DB>, projectId: string): Promise<ArchivedTask[]> {
   const rows = await projectTasksQuery(db, projectId)
     .where('task.archived_at', 'is not', null)
@@ -79,10 +83,25 @@ export async function getArchivedTasks(db: Kysely<DB>, projectId: string): Promi
     .orderBy('task.id')
     .execute();
 
-  return rows.map((row) => ({
-    ...toBoardTask(row),
-    archived_at: (row.archived_at as Date).toISOString(),
-  }));
+  return rows.map(toArchivedTask);
+}
+
+export async function getArchivedTasksByIds(
+  db: Kysely<DB>,
+  projectId: string,
+  taskIds: readonly string[]
+): Promise<ArchivedTask[]> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+  const rows = await projectTasksQuery(db, projectId)
+    .where('task.id', 'in', [...taskIds])
+    .where('task.archived_at', 'is not', null)
+    .orderBy('task.position')
+    .orderBy('task.id')
+    .execute();
+
+  return rows.map(toArchivedTask);
 }
 
 export async function getBoardPayload(

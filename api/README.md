@@ -238,6 +238,26 @@ edges, so a restore can never introduce a cycle. Deleting a column still
 relocates its archived cards along with its visible ones, so archiving never
 turns into an accidental hard delete.
 
+### Bulk column actions
+
+`POST /api/columns/:id/move-tasks` (`{ target_column_id }`) empties a column
+into another one in the same project without deleting it: live tasks are
+appended after the target's existing tasks keeping their relative order, and
+the response is the same `{ moved_tasks }` shape `DELETE` returns. Unlike
+`DELETE`, archived cards stay put — the source column survives, so the column
+they were archived from still exists to restore them into.
+
+`POST /api/columns/:id/archive-tasks` archives every live task in the column
+in one statement with one `archived_at`, and answers with them in the
+`GET /api/projects/:id/archived-tasks` shape. Already archived tasks keep
+their original stamp and are absent from the response, so a repeat call is an
+empty-bodied no-op. Archiving a column full of blockers is how a whole set of
+dependency edges disappears at once; clients are expected to say so before
+confirming.
+
+Both emit one batched event rather than one per task — see Realtime — and
+neither bumps `updated_at`.
+
 ### My tasks
 
 `GET /api/my-tasks` is the one cross-project read of tasks: every unarchived,
@@ -338,6 +358,8 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `task_relations_set`            | `{ task_id, label_ids, assignee_ids, blocker_ids }`  |
 | `column_created` / `column_updated` | column response shape                            |
 | `column_deleted`                | `{ id, moved_tasks }`                                |
+| `column_tasks_moved`            | `{ column_id, target_column_id, moved_tasks }`       |
+| `column_tasks_archived`         | `{ column_id, tasks }`                               |
 | `label_created` / `label_updated` | label row                                          |
 | `label_deleted`                 | `{ id }`                                             |
 | `image_created`                 | image response plus `{ task_id, image_count }`       |
@@ -356,6 +378,13 @@ removed, and by restore — once per live task the restored card blocks, so
 their `blocker_ids` regain its id. Archiving emits no such fan-out: like
 `task_deleted` it carries only the archived card, and clients strip its id
 from every `blocker_ids` they hold.
+
+`column_tasks_moved` and `column_tasks_archived` are the batched form emitted
+by the two column-scoped bulk actions; the per-task `task_updated` and
+`task_archived` events are **not** also emitted for those calls, because a
+fifty-card Done column would otherwise cost fifty envelopes and their delivery
+queries. A client that does not understand them converges on its next board
+read, which every reconnect performs.
 
 Delivery: project-scoped events go to sockets subscribed to that project whose
 user can access it (re-checked per event against `created_by` and
@@ -582,6 +611,8 @@ cpath task move "Fix the bug" --project "My Project" --column "In Progress" --to
 cpath task done "Fix the bug" --project "My Project"
 cpath task block "Ship it" --by "Fix the bug" --project "My Project"
 cpath task archive "Fix the bug" --project "My Project"
+cpath column move-tasks "Done" --to "Backlog" --project "My Project"
+cpath column archive-tasks "Done" --project "My Project"
 cpath task archived --project "My Project" --search bug
 cpath task restore "Fix the bug" --project "My Project"
 cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Project"
