@@ -44,6 +44,7 @@ function task(
     assignee_ids: assigneeIds,
     blocker_ids: [],
     image_count: 0,
+    due_date: null,
     comment_count: 0,
   };
 }

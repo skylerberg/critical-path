@@ -22,6 +22,7 @@ function payload() {
         title: 'Design cards',
         description: null,
         position: 1000,
+        due_date: '2020-01-04',
         label_ids: [],
         assignee_ids: ['u-ada'],
         blocker_ids: [],
@@ -33,6 +34,7 @@ function payload() {
         title: 'Pick a name',
         description: null,
         position: 1000,
+        due_date: null,
         label_ids: [],
         assignee_ids: [],
         blocker_ids: [],
@@ -99,6 +101,18 @@ describe('PublicBoard', () => {
     expect(screen.queryByRole('button', { name: '+ Add column' })).toBeNull();
     expect(screen.queryByTitle('Rename column')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete column' })).toBeNull();
+  });
+
+  it('shows a published due date as an inert pill', async () => {
+    mockPublicApi(jsonResponse(200, payload()));
+
+    render(PublicBoard, { props: { projectId: PROJECT_ID } });
+
+    await screen.findByText('Design cards');
+    const pills = screen.getAllByTitle(/^Due /);
+    expect(pills).toHaveLength(1);
+    expect(pills[0]).toHaveTextContent('2020');
+    expect(pills[0]!.tagName).toBe('SPAN');
   });
 
   it('mounts a noindex robots tag while rendered and removes it on unmount', async () => {

@@ -220,6 +220,7 @@
                   {readonly}
                   labels={labelsFor(task)}
                   blockedCount={openBlockerCount(task)}
+                  done={doneColumnIds.has(task.column_id)}
                   dimmed={board.hasActiveFilters && !board.taskMatchesFilters(task)}
                 />
               </div>

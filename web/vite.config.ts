@@ -93,5 +93,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/vitest-setup.ts'],
+    // Pinned west of Greenwich so the due-date assertions can actually fail: a
+    // local-vs-UTC mixup is invisible on a machine already running at UTC.
+    env: { TZ: 'America/Los_Angeles' },
   },
 });

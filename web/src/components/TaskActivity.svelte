@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Editor } from '@tiptap/core';
   import { board, type CommentBody, type TaskComment } from '../lib/board.svelte';
+  import { formatFullDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { session } from '../lib/session.svelte';
   import {
@@ -220,6 +221,16 @@
               {:else if entry.kind === 'column_changed'}
                 moved this from <span class="text-ink">{from?.name ?? ''}</span> to
                 <span class="text-ink">{to?.name ?? ''}</span>
+              {:else if entry.kind === 'due_date_changed'}
+                {#if to?.text === undefined}
+                  cleared the due date
+                {:else if from?.text === undefined}
+                  set the due date to <span class="text-ink">{formatFullDate(to.text)}</span>
+                {:else}
+                  moved the due date from
+                  <span class="text-ink">{formatFullDate(from.text)}</span>
+                  to <span class="text-ink">{formatFullDate(to.text)}</span>
+                {/if}
               {:else if entry.kind === 'label_added' || entry.kind === 'label_removed'}
                 {@const label = entry.kind === 'label_added' ? to : from}
                 {@const color = labelColor(label?.id)}

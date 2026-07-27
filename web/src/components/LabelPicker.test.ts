@@ -17,6 +17,7 @@ const task: BoardTask = {
   assignee_ids: [],
   blocker_ids: [],
   image_count: 0,
+  due_date: null,
   comment_count: 0,
 };
 

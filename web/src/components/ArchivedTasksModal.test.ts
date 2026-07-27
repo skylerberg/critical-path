@@ -24,6 +24,7 @@ function archived(id: string, title: string, columnId = 'c1'): ArchivedTask {
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    due_date: null,
     comment_count: 0,
     archived_at: ARCHIVED_AT,
   };
@@ -70,6 +71,18 @@ describe('ArchivedTasksModal', () => {
 
     await waitFor(() => expect(screen.getByText('Orphan')).toBeInTheDocument());
     expect(screen.getByText(ARCHIVED_LABEL)).toBeInTheDocument();
+  });
+
+  // A card that is off the board is not overdue, so it must not carry the pill's
+  // urgency into the archive.
+  it('says nothing about a due date the archived card still holds', async () => {
+    mockArchive([{ ...archived('t1', 'Old idea'), due_date: '2020-01-04' }]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByText('Old idea')).toBeInTheDocument());
+    expect(screen.queryByTitle(/^Due /)).toBeNull();
+    expect(screen.queryByText(/2020/)).toBeNull();
   });
 
   it('filters rows by title and explains an empty result', async () => {

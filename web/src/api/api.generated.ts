@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/bulk-column-actions/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/due-dates/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -296,7 +296,7 @@ export interface paths {
         };
         /**
          * List archived tasks
-         * @description List every archived task in a project in board-payload shape plus archived_at, most recently archived first. Unpaginated and unfiltered — clients search it themselves, the same way they do the board payload.
+         * @description List every archived task in a project in board-payload shape plus archived_at, most recently archived first and then in board position order, so a column archived in one call lists the way it was returned. Unpaginated and unfiltered — clients search it themselves, the same way they do the board payload.
          */
         get: operations["getApiProjectsByIdArchivedTasks"];
         put?: never;
@@ -502,7 +502,7 @@ export interface paths {
         put?: never;
         /**
          * Create a task
-         * @description Create a task in a column. The client supplies the task id. An unknown or inaccessible project returns 404. The column must belong to the project, labels must belong to the project, and assignees must be users with access to the project; those violations return 422 with a plain error body.
+         * @description Create a task in a column. The client supplies the task id. An unknown or inaccessible project returns 404. The column must belong to the project, labels must belong to the project, and assignees must be users with access to the project; those violations return 422 with a plain error body. due_date is an optional calendar day (YYYY-MM-DD, no time and no timezone); anything else returns 422.
          */
         post: operations["postApiTasks"];
         delete?: never;
@@ -534,7 +534,7 @@ export interface paths {
         head?: never;
         /**
          * Update a task
-         * @description Update title, description (a Tiptap doc, or null to clear it), or move the task by sending column_id and position together. The new column must belong to the task’s project; violations return 422 with a plain error body. updated_at is bumped only when the patch changes title or description — a pure move leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
+         * @description Update title, description (a Tiptap doc, or null to clear it), due_date (a calendar day YYYY-MM-DD, or null to clear it; omit it to leave it alone), or move the task by sending column_id and position together. The new column must belong to the task’s project and due_date must be a real calendar day; violations return 422 with a plain error body. updated_at is bumped only when the patch changes title or description — a pure move or due-date change leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task or sets its due date is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
          */
         patch: operations["patchApiTasksById"];
         trace?: never;
@@ -548,7 +548,7 @@ export interface paths {
         };
         /**
          * Get task activity
-         * @description The task’s activity log, oldest first: who created it, retitled it, edited its description, moved it between columns, added or removed a label, an assignee or a blocker, and who archived or restored it. Each entry carries the actor, the time, and the old and new value of what changed, with column, label, user and blocker names snapshotted as they were at the time. The log is append-only and starts when a task is created, so tasks that predate this feature read as empty until they next change. Consecutive description edits by one actor within a few minutes are recorded as a single entry whose old value is the text from before that session.
+         * @description The task’s activity log, oldest first: who created it, retitled it, edited its description, moved it between columns, set, changed or cleared its due date, added or removed a label, an assignee or a blocker, and who archived or restored it. A due-date entry carries the calendar day as text, with a null old value when it was first set and a null new value when it was cleared. Each entry carries the actor, the time, and the old and new value of what changed, with column, label, user and blocker names snapshotted as they were at the time. The log is append-only and starts when a task is created, so tasks that predate this feature read as empty until they next change. Consecutive description edits by one actor within a few minutes are recorded as a single entry whose old value is the text from before that session.
          */
         get: operations["getApiTasksByIdActivity"];
         put?: never;
@@ -988,7 +988,7 @@ export interface paths {
         };
         /**
          * Get public board
-         * @description Serve a read-only board for a project whose is_public flag is set. Unauthenticated: anyone holding the project id can read it. The payload carries columns, labels, and tasks with their descriptions, labels, blockers, image counts, and assignee ids, plus the name and avatar of each assigned user. Member ids, the creator, timestamps, and email addresses are never included. Projects that are private, unknown, or deleted are all 404.
+         * @description Serve a read-only board for a project whose is_public flag is set. Unauthenticated: anyone holding the project id can read it. The payload carries columns, labels, and tasks with their descriptions, due dates, labels, blockers, image counts, and assignee ids, plus the name and avatar of each assigned user. Member ids, the creator, timestamps, and email addresses are never included. Projects that are private, unknown, or deleted are all 404.
          */
         get: operations["getApiPublicProjectsByIdBoard"];
         put?: never;
@@ -1135,6 +1135,7 @@ export interface components {
             comment_count: number;
             created_at: string;
             description: components["schemas"]["NullableTiptapDoc"];
+            due_date: components["schemas"]["UserAvatarurl"];
             id: string;
             image_count: number;
             label_ids: string[];
@@ -1174,6 +1175,7 @@ export interface components {
             comment_count: number;
             created_at: string;
             description: components["schemas"]["NullableTiptapDoc"];
+            due_date: components["schemas"]["UserAvatarurl"];
             id: string;
             image_count: number;
             label_ids: string[];
@@ -1196,6 +1198,7 @@ export interface components {
                 comment_count: number;
                 created_at: string;
                 description: components["schemas"]["NullableTiptapDoc"];
+                due_date: components["schemas"]["UserAvatarurl"];
                 id: string;
                 images: {
                     content_type: string;
@@ -1282,6 +1285,7 @@ export interface components {
             title: string;
             assignee_ids?: string[];
             description?: components["schemas"]["NullableTiptapDoc"];
+            due_date?: components["schemas"]["UserAvatarurl"];
             label_ids?: string[];
         };
         TaskDetailResponse: {
@@ -1293,6 +1297,7 @@ export interface components {
             comments: components["schemas"]["Comment"][];
             created_at: string;
             description: components["schemas"]["NullableTiptapDoc"];
+            due_date: components["schemas"]["UserAvatarurl"];
             id: string;
             image_count: number;
             images: components["schemas"]["ImageResponse"][];
@@ -1323,6 +1328,7 @@ export interface components {
             /** Format: uuid */
             column_id?: string;
             description?: components["schemas"]["NullableTiptapDoc"];
+            due_date?: components["schemas"]["UserAvatarurl"];
             expected_updated_at?: string;
             /** @description a finite number */
             position?: number;
@@ -1336,7 +1342,7 @@ export interface components {
             created_at: string;
             id: string;
             /** @enum {unknown} */
-            kind: "archived" | "assignee_added" | "assignee_removed" | "blocker_added" | "blocker_removed" | "column_changed" | "created" | "description_changed" | "label_added" | "label_removed" | "restored" | "title_changed";
+            kind: "archived" | "assignee_added" | "assignee_removed" | "blocker_added" | "blocker_removed" | "column_changed" | "created" | "description_changed" | "due_date_changed" | "label_added" | "label_removed" | "restored" | "title_changed";
             new_value: components["schemas"]["NullableActivityValue"];
             old_value: components["schemas"]["NullableActivityValue"];
         };
@@ -1488,6 +1494,7 @@ export interface components {
             blocker_ids: string[];
             column_id: string;
             description: components["schemas"]["NullableTiptapDoc"];
+            due_date: components["schemas"]["UserAvatarurl"];
             id: string;
             image_count: number;
             label_ids: string[];

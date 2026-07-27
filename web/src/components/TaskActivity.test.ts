@@ -24,6 +24,7 @@ function task(commentCount: number): BoardTask {
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    due_date: null,
     comment_count: commentCount,
   };
 }
@@ -427,6 +428,24 @@ describe('TaskActivity history', () => {
     expect(items[1]).toHaveTextContent('mine');
     expect(items[2]).toHaveTextContent('archived this task');
     expect(items[3]).toHaveTextContent('theirs');
+  });
+
+  it('reads a due date as words, in every direction it can change', () => {
+    taskActivity.entries = [
+      entry('a1', 'due_date_changed', { new_value: { text: '2026-08-03' } }),
+      entry('a2', 'due_date_changed', {
+        old_value: { text: '2026-08-03' },
+        new_value: { text: '2027-01-04' },
+      }),
+      entry('a3', 'due_date_changed', { old_value: { text: '2027-01-04' } }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent(/Bob Barker .* set the due date to .*2026/);
+    expect(items[1]).toHaveTextContent(/moved the due date from .*2026.* to .*2027/);
+    expect(items[2]).toHaveTextContent('cleared the due date');
   });
 
   it('names a column the board no longer has', () => {

@@ -1,9 +1,11 @@
 import '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import TaskCard from './TaskCard.svelte';
 import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
+import { todayISO } from '../lib/dates';
+import { router } from '../lib/router.svelte';
 import { users } from '../lib/users.svelte';
 
 const task: BoardTask = {
@@ -18,6 +20,7 @@ const task: BoardTask = {
   assignee_ids: ['u1'],
   blocker_ids: ['t9', 't8'],
   image_count: 3,
+  due_date: null,
   comment_count: 0,
 };
 
@@ -26,6 +29,25 @@ beforeEach(() => {
   users.reset();
   users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null }];
 });
+
+// Relative to the real today, so the colour bands stay meaningful as time passes.
+function dueIn(days: number): BoardTask {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return { ...task, due_date: todayISO(date) };
+}
+
+function card(): HTMLElement {
+  const element = screen.getByRole('link').parentElement;
+  if (element === null) {
+    throw new Error('The overlay link has no card container');
+  }
+  return element;
+}
+
+function pill(): HTMLElement {
+  return screen.getByTitle(/^Due /);
+}
 
 describe('TaskCard', () => {
   it('renders title, label chips, assignee avatar, blocked and image badges, and the link', () => {
@@ -125,6 +147,106 @@ describe('TaskCard', () => {
   it('dims the card when filtered out', () => {
     render(TaskCard, { task, projectId: 'p1', dimmed: true });
 
-    expect(screen.getByRole('link').className).toContain('opacity-30');
+    expect(card().className).toContain('opacity-30');
+  });
+
+  // The overlay link paints over its in-flow siblings, so without this the badge
+  // and avatar tooltips stop reaching the pointer on every card, dated or not.
+  it('raises the badge row above the overlay link', () => {
+    render(TaskCard, { task, projectId: 'p1' });
+
+    const row = screen.getByTitle('3 images').parentElement;
+    expect(row?.className).toContain('relative');
+    expect(row?.className).toContain('z-10');
+  });
+
+  describe('due date pill', () => {
+    it('renders nothing at all when the task has no date', () => {
+      render(TaskCard, { task, projectId: 'p1' });
+
+      expect(screen.queryByTitle(/^Due /)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('renders nothing when the payload predates due_date', () => {
+      const legacy: Partial<BoardTask> = { ...task };
+      delete legacy.due_date;
+      render(TaskCard, { task: legacy as BoardTask, projectId: 'p1' });
+
+      expect(screen.queryByTitle(/^Due /)).not.toBeInTheDocument();
+      expect(screen.getByText('Design cards')).toBeInTheDocument();
+    });
+
+    it('adds no badge row to an otherwise bare undated card', () => {
+      render(TaskCard, {
+        task: { ...task, label_ids: [], assignee_ids: [], blocker_ids: [], image_count: 0 },
+        projectId: 'p1',
+      });
+
+      expect(document.querySelector('.z-10')).toBeNull();
+    });
+
+    it('colours a past date as overdue', () => {
+      render(TaskCard, { task: dueIn(-2), projectId: 'p1' });
+
+      expect(pill().className).toContain('text-danger');
+    });
+
+    it('colours today and tomorrow as due soon, with relative wording', () => {
+      const { unmount } = render(TaskCard, { task: dueIn(0), projectId: 'p1' });
+      expect(pill()).toHaveTextContent('Today');
+      expect(pill().className).toContain('text-warning');
+      unmount();
+
+      render(TaskCard, { task: dueIn(1), projectId: 'p1' });
+      expect(pill()).toHaveTextContent('Tomorrow');
+      expect(pill().className).toContain('text-warning');
+    });
+
+    it('leaves a distant date neutral', () => {
+      render(TaskCard, { task: dueIn(30), projectId: 'p1' });
+
+      expect(pill().className).toContain('text-muted');
+      expect(pill().className).not.toContain('text-warning');
+      expect(pill().className).not.toContain('text-danger');
+    });
+
+    it('marks the task done on click, without navigating', () => {
+      board.columns = [
+        { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+        { id: 'c2', name: 'Done', position: 2000, is_done: true },
+      ];
+      const markTaskDone = vi.spyOn(board, 'markTaskDone').mockReturnValue(true);
+      const navigate = vi.spyOn(router, 'navigate');
+      render(TaskCard, { task: dueIn(-2), projectId: 'p1' });
+
+      void fireEvent.click(screen.getByRole('button'));
+
+      expect(markTaskDone).toHaveBeenCalledWith('t1');
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('is inert once the task is done, and reads as complete', () => {
+      board.columns = [{ id: 'c2', name: 'Done', position: 2000, is_done: true }];
+      render(TaskCard, { task: dueIn(-2), projectId: 'p1', done: true });
+
+      expect(pill().className).toContain('text-success');
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('is inert with no done column to move the task into', () => {
+      board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+      render(TaskCard, { task: dueIn(-2), projectId: 'p1' });
+
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('is inert on a read-only board', () => {
+      board.columns = [{ id: 'c2', name: 'Done', position: 2000, is_done: true }];
+      render(TaskCard, { task: dueIn(-2), projectId: 'p1', readonly: true });
+
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+      expect(pill().className).toContain('text-danger');
+    });
   });
 });
