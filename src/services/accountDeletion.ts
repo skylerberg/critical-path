@@ -1,24 +1,58 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 
-export async function ownedSharedProjects(
-  db: Kysely<DB>,
-  userId: string
-): Promise<Array<{ id: string; name: string }>> {
+export interface OwnedProject {
+  id: string;
+  name: string;
+  shared: boolean;
+}
+
+// Locked because the delete is keyed to this snapshot: an ownership transfer
+// can hand the caller someone else's board mid-request, and a member add on a
+// row in here has to wait rather than slip in behind the shared check.
+export async function lockOwnedProjects(db: Kysely<DB>, userId: string): Promise<OwnedProject[]> {
   return await db
     .selectFrom('project')
-    .select(['project.id', 'project.name'])
+    .select((eb) => [
+      'project.id',
+      'project.name',
+      eb
+        .exists(
+          eb
+            .selectFrom('project_member')
+            .select('project_member.user_id')
+            .whereRef('project_member.project_id', '=', 'project.id')
+        )
+        .$castTo<boolean>()
+        .as('shared'),
+    ])
     .where('project.created_by', '=', userId)
-    .where((eb) =>
-      eb.exists(
-        eb
-          .selectFrom('project_member')
-          .select('project_member.user_id')
-          .whereRef('project_member.project_id', '=', 'project.id')
-      )
-    )
     .orderBy('project.created_at')
     .orderBy('project.id')
+    .forUpdate()
+    .execute();
+}
+
+// Deliberately narrower than "everything created_by the user": a board that
+// became theirs after the guard read must survive, so that created_by's
+// ON DELETE RESTRICT aborts the account delete instead of taking it down.
+export async function deleteUnsharedProjects(db: Kysely<DB>, projectIds: string[]): Promise<void> {
+  if (projectIds.length === 0) {
+    return;
+  }
+  await db
+    .deleteFrom('project')
+    .where('id', 'in', projectIds)
+    .where((eb) =>
+      eb.not(
+        eb.exists(
+          eb
+            .selectFrom('project_member')
+            .select('project_member.user_id')
+            .whereRef('project_member.project_id', '=', 'project.id')
+        )
+      )
+    )
     .execute();
 }
 

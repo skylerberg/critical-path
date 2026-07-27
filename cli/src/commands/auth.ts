@@ -212,7 +212,13 @@ export function registerAuth(program: Command, deps: CliDeps): void {
           try {
             assertOk(await ctx.api.DELETE('/api/auth/me', { body: { password } }));
           } catch (err) {
-            if (err instanceof ApiError && err.status === 401) {
+            // Only the re-entered password is wrong here; a dead session's 401
+            // has to stay an ApiError so the caller still gets the login hint.
+            if (
+              err instanceof ApiError &&
+              err.status === 401 &&
+              err.message === 'Password is incorrect'
+            ) {
               throw new CliError('Incorrect password', EXIT.auth);
             }
             throw err;

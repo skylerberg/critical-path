@@ -195,6 +195,17 @@ describe('auth commands', () => {
     expect((await h.runCli(['whoami'])).exitCode).toBe(0);
   });
 
+  it('account delete on a dead session keeps the login hint', async () => {
+    const h = await createCliHarness();
+    const del = await h.runCli(['account', 'delete', '--password-stdin', '--force'], {
+      stdin: 'whatever\n',
+      env: { CRITICAL_PATH_TOKEN: 'not-a-real-token' },
+    });
+    expect(del.exitCode).toBe(3);
+    expect(del.stderr).not.toContain('Incorrect password');
+    expect(del.stderr).toContain('cpath login');
+  });
+
   it('account delete exits 5 and names the board while one is still shared', async () => {
     const owner = await tc.createUser('cli-auth');
     const member = await tc.createUser('cli-auth');

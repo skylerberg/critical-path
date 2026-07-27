@@ -631,13 +631,24 @@ projects, and submitted feedback. The owned projects are deleted explicitly and
 first — the `RESTRICT` constraint means the `app_user` delete would otherwise
 raise `23503`.
 
+The guard locks the caller's projects and the delete is keyed to that locked
+snapshot, dropping only rows that are still memberless. It does **not** delete
+by `created_by`: a concurrent `PUT /api/projects/:id/owner` can make the caller
+the owner of a populated board between the guard and the delete, and a
+predicate delete would destroy it and leave the `RESTRICT` with nothing to
+refuse. Keyed to the snapshot, that board survives, the `app_user` delete raises
+`23503`, the whole request rolls back with a `500`, and the retry gets the `409`
+it should have got.
+
 **Storage objects.** Postgres holds the only reference to a stored object, so
 the keys are enumerated inside the transaction and deleted from
 `postCommitHooks`: the caller's avatar plus every `task_image` in a project they
 created. Images they uploaded into someone else's project are deliberately left
 alone — `task_image` records no uploader, the row survives with its project, and
 deleting the object would blank a picture on a live card someone else still
-owns.
+owns. An account's key set is unbounded, so the hook deletes in batches and
+settles each one: a key that fails is logged individually, because after the
+rows are gone the log line is the only trace of the orphan.
 
 **Realtime.** Members left behind get a `project_updated` per project the
 deleted user belonged to and a `task_relations_set` per task they were assigned

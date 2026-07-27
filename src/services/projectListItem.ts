@@ -41,7 +41,7 @@ export async function fetchMemberIds(db: Kysely<DB>, projectId: string): Promise
   return rows.map((row) => row.user_id);
 }
 
-export async function fetchTaskCounts(
+async function fetchTaskCounts(
   db: Kysely<DB>,
   projectId: string
 ): Promise<{ open_task_count: number; done_task_count: number }> {
