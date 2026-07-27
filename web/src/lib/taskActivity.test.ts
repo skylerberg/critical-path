@@ -86,6 +86,26 @@ describe('taskActivity store', () => {
     expect(taskActivity.loading).toBe(false);
   });
 
+  it('keeps the loaded log when a refresh fails', async () => {
+    await taskActivity.load('t1');
+    fetchMock.mockResolvedValue(jsonResponse(500, { error: 'boom' }));
+
+    await taskActivity.load('t1');
+
+    expect(taskActivity.error).toBe(true);
+    expect(taskActivity.entries).toEqual(activityFor('t1'));
+  });
+
+  it('empties the log when a refresh finds the task gone', async () => {
+    await taskActivity.load('t1');
+    fetchMock.mockResolvedValue(jsonResponse(404, { error: 'Task not found' }));
+
+    await taskActivity.load('t1');
+
+    expect(taskActivity.error).toBe(false);
+    expect(taskActivity.entries).toEqual([]);
+  });
+
   it('treats a missing task as an empty log', async () => {
     fetchMock.mockResolvedValue(jsonResponse(404, { error: 'Task not found' }));
 

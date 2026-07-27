@@ -154,6 +154,12 @@ function mockRoutes(
   });
 }
 
+function activityRequests(taskId: string): Request[] {
+  return fetchMock.mock.calls
+    .map((call) => call[0] as Request)
+    .filter((request) => new URL(request.url).pathname === `/api/tasks/${taskId}/activity`);
+}
+
 function taskPatches(): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
@@ -261,11 +267,8 @@ describe('TaskDetail', () => {
     expect(created).toBeLessThan(written);
   });
 
-  it('drops the previous task’s log when the overlay switches task, and on unmount', async () => {
-    const { rerender, unmount } = render(TaskDetail, {
-      taskId: 't1',
-      closePath: '/projects/p1',
-    });
+  it('drops the previous task’s log when the overlay switches task', async () => {
+    const { rerender } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
 
     await rerender({ taskId: 't2', closePath: '/projects/p1' });
@@ -275,9 +278,25 @@ describe('TaskDetail', () => {
         (call) => new URL((call[0] as Request).url).pathname === '/api/tasks/t2/activity'
       )
     ).toBe(true);
+  });
+
+  it('drops the log on unmount and stops refetching it for the closed overlay', async () => {
+    const { unmount } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
 
     unmount();
+    await tick();
     expect(taskActivity.entries).toEqual([]);
+
+    const sent = activityRequests('t1').length;
+    vi.useFakeTimers();
+    try {
+      taskActivity.invalidate('t1');
+      await vi.runAllTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(activityRequests('t1')).toHaveLength(sent);
   });
 
   it('renders the column select with the current column and all columns as options', () => {

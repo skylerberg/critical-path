@@ -109,9 +109,13 @@ class TaskActivityStore {
         return;
       }
       // A deleted task has no log to show, and neither does an API that predates
-      // one; both are an empty list rather than a failure worth reporting.
-      this.error = !(error instanceof ApiError && error.status === 404);
-      this.entries = [];
+      // one; both are an empty list rather than a failure worth reporting. Any
+      // other failure keeps the entries, since this also runs as a refresh.
+      const gone = error instanceof ApiError && error.status === 404;
+      this.error = !gone;
+      if (gone) {
+        this.entries = [];
+      }
     } finally {
       if (token === this.#token) {
         this.loading = false;

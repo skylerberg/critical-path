@@ -7,7 +7,7 @@
     taskActivity,
     type TaskActivityEntry,
   } from '../lib/taskActivity.svelte';
-  import { users } from '../lib/users.svelte';
+  import { users, type User } from '../lib/users.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
   import Avatar from './ui/Avatar.svelte';
   import Button from './ui/Button.svelte';
@@ -117,6 +117,12 @@
   function labelColor(labelId: string | undefined): string | undefined {
     return board.labels.find((label) => label.id === labelId)?.color;
   }
+
+  // The log outlives project membership, so it names people this client cannot
+  // look up, and a nameless placeholder renders as a blank byline.
+  function nameOf(user: User): string {
+    return user.name === '' ? 'Unknown user' : user.name;
+  }
 </script>
 
 {#if taskActivity.error}
@@ -125,20 +131,21 @@
 
 {#if loading && items.length === 0}
   <Spinner size="sm" label="Loading activity" />
-{:else if items.length === 0}
+{:else if items.length === 0 && !taskActivity.error}
   <p class="text-sm text-muted">No activity yet.</p>
-{:else}
+{:else if items.length > 0}
   <ul class="flex flex-col gap-4">
     {#each items as item (item.id)}
       {#if item.comment !== undefined}
         {@const comment = item.comment}
         {@const author = users.displayFor(comment.user_id)}
+        {@const authorName = nameOf(author)}
         {@const written = dateFormat.format(new Date(comment.created_at))}
         <li class="flex gap-2">
-          <Avatar name={author.name} src={author.avatar_url} size="sm" />
+          <Avatar name={authorName} src={author.avatar_url} size="sm" />
           <div class="flex min-w-0 flex-1 flex-col gap-1">
             <p class="flex flex-wrap items-baseline gap-x-2 text-xs text-muted">
-              <span class="font-medium text-ink">{author.name}</span>
+              <span class="font-medium text-ink">{authorName}</span>
               <span>{written}</span>
               {#if comment.updated_at !== comment.created_at}
                 <span>(edited)</span>
@@ -189,13 +196,14 @@
       {:else if item.entry !== undefined}
         {@const entry = item.entry}
         {@const actor = users.displayFor(entry.actor_user_id)}
+        {@const actorName = nameOf(actor)}
         {@const from = entry.old_value}
         {@const to = entry.new_value}
         <li class="flex gap-2">
-          <Avatar name={actor.name} src={actor.avatar_url} size="sm" />
+          <Avatar name={actorName} src={actor.avatar_url} size="sm" />
           <div class="flex min-w-0 flex-1 flex-col gap-1">
             <p class="flex flex-wrap items-baseline gap-x-2 text-xs text-muted">
-              <span class="font-medium text-ink">{actor.name}</span>
+              <span class="font-medium text-ink">{actorName}</span>
               <span>{dateFormat.format(new Date(entry.created_at))}</span>
             </p>
             <p class="flex flex-wrap items-center gap-x-1 text-sm text-muted">

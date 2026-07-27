@@ -443,12 +443,34 @@ describe('TaskActivity history', () => {
     expect(screen.getByText('what it said')).toBeInTheDocument();
   });
 
-  it('reports a failed log load inline rather than as a toast', () => {
+  it('reports a failed log load inline rather than as a toast, without calling it empty', () => {
     taskActivity.error = true;
 
     render(TaskActivity, { taskId: 't1' });
 
     expect(screen.getByText('The history of this task could not be loaded.')).toBeInTheDocument();
+    expect(screen.queryByText('No activity yet.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
     expect(toasts.toasts).toEqual([]);
+  });
+
+  it('keeps a loaded log on screen behind a failed refresh', () => {
+    taskActivity.error = true;
+    taskActivity.entries = [entry('a1', 'archived')];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    expect(screen.getByText('The history of this task could not be loaded.')).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('archived this task');
+  });
+
+  it('names an actor the users store cannot resolve', () => {
+    taskActivity.entries = [entry('a1', 'archived', { actor_user_id: 'departed' })];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const item = screen.getAllByRole('listitem')[0];
+    expect(item).toHaveTextContent('Unknown user');
+    expect(item).toHaveTextContent('archived this task');
   });
 });

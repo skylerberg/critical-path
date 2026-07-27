@@ -74,10 +74,6 @@
     });
   });
 
-  // Cleared on unmount so a reopened overlay never flashes another card's history
-  // and no background mutation keeps refetching for a closed dialog.
-  $effect(() => () => taskActivity.reset());
-
   // Must stay below the reset effect: effects run in declaration order, so capturing
   // first would only be undone by the reset.
   $effect(() => {
@@ -89,6 +85,10 @@
       }
     });
   });
+
+  // Cleared on unmount so a reopened overlay never flashes another card's history
+  // and no background mutation keeps refetching for a closed dialog.
+  $effect(() => () => taskActivity.reset());
 
   // The title and the description share one queue: overlapping writes would carry
   // the same baseline and the second would conflict against the first.

@@ -416,8 +416,8 @@ class BoardStore {
     } catch (error) {
       await this.#mutationFailed(error);
     } finally {
-      // Refreshed in `finally` here and at every other write: a failed mutation
-      // resyncs the board, and the log has to end up showing what the server kept.
+      // In `finally`, not on success: a failed move resyncs the board, and the log
+      // has to end up showing what the server kept.
       taskActivity.invalidate(taskId);
     }
   }
