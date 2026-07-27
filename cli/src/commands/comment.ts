@@ -7,10 +7,10 @@ import { listUsers, resolveTaskId } from '../resolve';
 import { markdownToTiptap, tiptapToMarkdown, type TiptapDoc } from '../markdown';
 import type { CliDeps, RuntimeContext } from '../context';
 
-function bodyLeaf(name: string): Command {
+function bodyLeaf(name: string, mentions: string): Command {
   return leaf(name).option(
     '--body-file <path>',
-    'read the Markdown body from a file (- for stdin)'
+    `read the Markdown body from a file (- for stdin, ${mentions})`
   );
 }
 
@@ -67,10 +67,10 @@ export function registerComment(program: Command, deps: CliDeps): void {
   );
 
   comment.addCommand(
-    bodyLeaf('add')
+    bodyLeaf('add', 'no mentions')
       .description('Post a comment on a task')
       .argument('<task>', 'task id or title')
-      .argument('[body]', 'comment body as Markdown')
+      .argument('[body]', 'comment body as Markdown (no mentions)')
       .option('--project <project>', 'project id or name (needed for task refs that are not ids)')
       .action(
         withCtx(deps, async (ctx, opts, taskRef, body) => {
@@ -87,10 +87,10 @@ export function registerComment(program: Command, deps: CliDeps): void {
   );
 
   comment.addCommand(
-    bodyLeaf('edit')
+    bodyLeaf('edit', 'drops any @mentions')
       .description('Replace the body of one of your own comments')
       .argument('<commentId>', 'comment id (from comment list)')
-      .argument('[body]', 'new comment body as Markdown')
+      .argument('[body]', 'new comment body as Markdown (drops any @mentions)')
       .action(
         withCtx(deps, async (ctx, opts, commentId, body) => {
           const doc = await bodyFrom(ctx, opts, body);

@@ -496,10 +496,11 @@ id,title,column,is_done,position,labels,assignees,blocked_by,image_count,created
 
 one row per task in board order, RFC 4180 quoting, CRLF line endings. Labels,
 assignees (as emails) and blockers (as titles) are joined with `"; "`, and the
-description is flattened to plain text, mentions included as `@label`. Values are written exactly as the user
-typed them — a title starting with `=` is not prefixed or escaped, so treat a
-`tasks.csv` opened in a spreadsheet the same way you would treat any other
-untrusted CSV. Use `project.json` when you need exactness.
+description is flattened to plain text, mentions included as `@label`. Values
+are written exactly as the user typed them — a title starting with `=` is not
+prefixed or escaped, so treat a `tasks.csv` opened in a spreadsheet the same way
+you would treat any other untrusted CSV. Use `project.json` when you need
+exactness.
 
 The archive is plain zip, not zip64, so a project whose images would push it
 past 4 GiB answers 413 and has to be exported with `?format=json` plus one

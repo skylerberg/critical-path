@@ -1,8 +1,8 @@
 import { projectAccessIdsAmong, type ProjectAccessFields } from './authorization';
 import type { AppContext } from '../types/index';
 
-// Membership already bounds who can be notified; this keeps an adversarial
-// document from making the lookup itself expensive.
+// Membership already bounds who can be notified; this bounds the fan-out of a
+// single write on a project with a large membership.
 export const MAX_MENTION_RECIPIENTS = 25;
 
 export type MentionSource = 'description' | 'comment';
@@ -15,9 +15,7 @@ export interface MentionNotification {
   recipientUserIds: string[];
 }
 
-// The single seam where notification delivery attaches. Nothing is sent today —
-// there is no notification service yet — so a resolved mention is handed here
-// and dropped.
+// The single seam where notification delivery attaches.
 export const mentionDelivery: {
   deliver: (notification: MentionNotification) => Promise<void>;
 } = {
@@ -33,7 +31,9 @@ function collectInto(node: unknown, ids: Set<string>): void {
   if (node.type === 'mention') {
     const id = isRecord(node.attrs) ? node.attrs.id : undefined;
     if (typeof id === 'string') {
-      ids.add(id);
+      // A uuid validates in any casing but Postgres only ever gives one back
+      // lower-cased, so every id is canonicalized before it is compared.
+      ids.add(id.toLowerCase());
     }
   }
   if (Array.isArray(node.content)) {
@@ -51,14 +51,11 @@ export function collectMentionIds(doc: unknown): string[] {
   return [...ids];
 }
 
-// Only mentions the previous document did not already carry are new. Without
-// this every debounced description autosave would re-notify everyone named in
-// the document.
+// Without the diff every debounced description autosave would re-notify
+// everyone named in the document.
 export function newMentionIds(previous: unknown, next: unknown): string[] {
   const before = new Set(collectMentionIds(previous));
-  return collectMentionIds(next)
-    .filter((id) => !before.has(id))
-    .slice(0, MAX_MENTION_RECIPIENTS);
+  return collectMentionIds(next).filter((id) => !before.has(id));
 }
 
 export async function notifyMentions(
@@ -79,7 +76,7 @@ export async function notifyMentions(
   // notified: rejecting it would leave a pasted foreign chip failing every
   // autosave with no way for the writer to find it.
   const allowed = new Set(await projectAccessIdsAmong(c.get('db'), args.project, added));
-  const recipientUserIds = added.filter((id) => allowed.has(id));
+  const recipientUserIds = added.filter((id) => allowed.has(id)).slice(0, MAX_MENTION_RECIPIENTS);
   if (recipientUserIds.length === 0) return;
 
   const notification: MentionNotification = {

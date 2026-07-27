@@ -235,6 +235,25 @@ describe('tiptapToMarkdown', () => {
     expect(md).toContain('- @Alice');
   });
 
+  it('renders a mention the server accepts outside a paragraph', () => {
+    const mention = { type: 'mention', attrs: { id: MENTION_UUID, label: 'Alice' } };
+    const doc = {
+      type: 'doc',
+      content: [
+        mention,
+        { type: 'bulletList', content: [{ type: 'listItem', content: [mention] }] },
+        { type: 'blockquote', content: [mention] },
+        { type: 'codeBlock', content: [mention] },
+      ],
+    };
+    expect(findTiptapDocProblem(doc)).toBeNull();
+    const md = tiptapToMarkdown(doc);
+    expect(md).toContain('@Alice');
+    expect(md).toContain('- @Alice');
+    expect(md).toContain('> @Alice');
+    expect(md).toContain('```\n@Alice\n```');
+  });
+
   it('renders a mention with no usable label as a bare @', () => {
     const doc = {
       type: 'doc',
