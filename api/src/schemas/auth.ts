@@ -42,6 +42,17 @@ export const changePasswordSchema = type({
   new_password: password,
 });
 
+// Plain string, not `password`: a re-entry field must answer 401 for a wrong
+// password, never 422 because the stored one predates the length rules.
+export const deleteAccountSchema = type({
+  password: 'string',
+});
+
+export const deleteAccountConflictSchema = type({
+  error: 'string',
+  blocking_projects: type({ id: 'string', name: 'string' }).array(),
+});
+
 export const forgotPasswordSchema = type({
   email,
 });

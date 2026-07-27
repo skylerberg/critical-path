@@ -79,8 +79,8 @@ export class TestApiClient {
     return this.makeRequest('PATCH', path, body);
   }
 
-  delete(path: string): Promise<Response> {
-    return this.makeRequest('DELETE', path);
+  delete(path: string, body?: unknown): Promise<Response> {
+    return this.makeRequest('DELETE', path, body);
   }
 
   // For JSON that JSON.stringify cannot produce, e.g. 1e999 (Infinity).
