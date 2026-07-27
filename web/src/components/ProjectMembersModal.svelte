@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { projects } from '../lib/projects.svelte';
+  import { isProjectOwner, projects } from '../lib/projects.svelte';
   import { boardPath, router } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
   import { toasts } from '../lib/toasts.svelte';
@@ -22,7 +22,7 @@
   const canLeave = $derived(
     session.user !== null && (project?.member_ids.includes(session.user.id) ?? false)
   );
-  const isOwner = $derived(session.user !== null && project?.created_by === session.user.id);
+  const isOwner = $derived(project !== undefined && isProjectOwner(project));
 
   let transferTargetId = $state<string | null>(null);
   let transferring = $state(false);

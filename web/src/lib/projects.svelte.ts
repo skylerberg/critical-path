@@ -34,6 +34,10 @@ function byPosition(a: Project, b: Project): number {
   return byCreation(a, b);
 }
 
+export function isProjectOwner(project: Project): boolean {
+  return project.created_by === session.user?.id;
+}
+
 class ProjectsStore {
   projects = $state<Project[]>([]);
   loaded = $state(false);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { projects, type Project } from '../lib/projects.svelte';
+  import { isProjectOwner, projects, type Project } from '../lib/projects.svelte';
   import { link, router } from '../lib/router.svelte';
   import ProjectMembersModal from '../components/ProjectMembersModal.svelte';
   import Badge from '../components/ui/Badge.svelte';
@@ -163,14 +163,16 @@
         >
           {project.archived_at === null ? 'Archive' : 'Unarchive'}
         </button>
-        <button
-          type="button"
-          role="menuitem"
-          class="{menuItemClass} text-danger"
-          onclick={() => (deleteTarget = project)}
-        >
-          Delete
-        </button>
+        {#if isProjectOwner(project)}
+          <button
+            type="button"
+            role="menuitem"
+            class="{menuItemClass} text-danger"
+            onclick={() => (deleteTarget = project)}
+          >
+            Delete
+          </button>
+        {/if}
       </div>
     {/if}
   </div>

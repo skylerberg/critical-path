@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { projects, type Project } from './projects.svelte';
+import { isProjectOwner, projects, type Project } from './projects.svelte';
 import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
@@ -260,6 +260,24 @@ describe('projects store', () => {
 
     expect(projects.projects).toEqual([item]);
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+  });
+
+  it('keeps the board and shows the server message when delete is refused', async () => {
+    const item = project({ created_by: 'u-other' });
+    await loadWith([item]);
+    fetchMock.mockImplementation(async (input) => {
+      if ((input as Request).method === 'DELETE') {
+        return jsonResponse(403, { error: 'Only the project owner can delete this project' });
+      }
+      return jsonResponse(200, { projects: [item] });
+    });
+
+    await projects.remove('p-1');
+
+    expect(projects.projects).toEqual([item]);
+    expect(toasts.toasts.map((t) => t.message)).toEqual([
+      'Only the project owner can delete this project',
+    ]);
   });
 
   it('reset clears all state', async () => {
@@ -581,5 +599,22 @@ describe('projects store', () => {
 
     expect(projects.projects[0]!.position).toBe(500);
     expect(projects.projects[0]!.name).toBe('New');
+  });
+});
+
+describe('isProjectOwner', () => {
+  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+
+  it('is true only for the signed-in creator', () => {
+    session.user = me;
+    expect(isProjectOwner(project({ created_by: me.id }))).toBe(true);
+    expect(isProjectOwner(project({ created_by: 'u-other' }))).toBe(false);
+    expect(isProjectOwner(project({ created_by: null }))).toBe(false);
+  });
+
+  it('is false while nobody is signed in', () => {
+    session.user = null;
+    expect(isProjectOwner(project({ created_by: me.id }))).toBe(false);
+    expect(isProjectOwner(project({ created_by: null }))).toBe(false);
   });
 });
