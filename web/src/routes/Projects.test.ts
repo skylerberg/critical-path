@@ -33,10 +33,14 @@ function project(overrides: Partial<Project> = {}): Project {
   };
 }
 
+const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
+
 const activeProject = project({
   id: 'p-active',
   name: 'Alpha',
   description: 'A deck-building game',
+  created_by: me.id,
   open_task_count: 5,
   done_task_count: 3,
 });
@@ -46,9 +50,6 @@ const archivedProject = project({
   archived_at: '2026-02-01T00:00:00.000Z',
   created_at: '2026-01-03T00:00:00.000Z',
 });
-
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
-const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -250,15 +251,34 @@ describe('Projects', () => {
     expect(body.name).toBe('Alpha copy');
   });
 
-  it('opens the delete confirmation from the card menu', async () => {
+  it('opens the delete confirmation from the card menu of a board you own', async () => {
     fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [activeProject] }));
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Alpha' }));
+    expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
 
     expect(screen.getByText(/This permanently removes the project/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete project' })).toBeInTheDocument();
+  });
+
+  it('hides only Delete on a board created by someone else', async () => {
+    const theirs = project({
+      id: 'p-theirs',
+      name: 'Ada Game',
+      created_by: ada.id,
+      member_ids: [me.id],
+    });
+    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [theirs] }));
+    render(Projects);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for Ada Game' }));
+
+    expect(screen.queryByRole('menuitem', { name: 'Delete' })).toBeNull();
+    for (const name of ['Rename', 'Copy', 'Share', 'Archive']) {
+      expect(screen.getByRole('menuitem', { name })).toBeInTheDocument();
+    }
   });
 
   it('lists the owner and members in the members modal', async () => {
