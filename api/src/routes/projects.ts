@@ -4,7 +4,7 @@ import type { Kysely, Selectable, Updateable } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
-import { paramValidator } from '../middleware/requestValidator';
+import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
   accessibleProjectsFilter,
@@ -15,6 +15,8 @@ import {
 import { avatarUrl } from '../services/avatars';
 import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
 import { getBoardPayload } from '../services/boardPayload';
+import { exportFilename, projectExportArchive } from '../services/export/archive';
+import { buildProjectExport } from '../services/export/payload';
 import { copyProject } from '../services/projectCopy';
 import { publishAfterCommit } from '../services/realtime/index';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
@@ -32,11 +34,14 @@ import {
   setProjectOwnerSchema,
   addProjectMemberByEmailSchema,
   projectMemberUserResponseSchema,
+  projectExportQuerySchema,
+  projectExportSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
+  payloadTooLargeErrorResponse,
   validationErrorResponse,
   validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
@@ -378,6 +383,76 @@ router.get(
       throw new AppError(404, 'Project not found');
     }
     return c.json(payload, 200);
+  }
+);
+
+router.get(
+  '/:id/export',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'Export project',
+    description:
+      'Download everything in a project. The default zip holds project.json (the manifest ' +
+      'below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes ' +
+      'of every attached image, so the archive survives losing the account. Pass format=json ' +
+      'for the manifest alone. The manifest is the documented, stable interchange format the ' +
+      'importer reads back: format identifies it, version is bumped only on a breaking shape ' +
+      'change, and ids are the original server ids — created_by, member_ids and assignee_ids ' +
+      'resolve against users[], label_ids against labels[], column_id against columns[], and ' +
+      'blocker_ids against tasks[]. Task descriptions are stored verbatim, so their embedded ' +
+      '/api/images/<uuid> sources resolve by id against the flattened tasks[].images[]. Each ' +
+      'image entry carries the archive-relative path of its file. Every project member may ' +
+      'export; the export is free and never gated. A project whose images would exceed the ' +
+      '4 GiB zip ceiling answers 413 and must be exported with format=json.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Project export archive, or the manifest alone with format=json',
+        content: {
+          'application/json': {
+            schema: resolver(projectExportSchema),
+          },
+          'application/zip': {
+            schema: { type: 'string', format: 'binary' },
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...payloadTooLargeErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  queryValidator(projectExportQuerySchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const { format } = c.req.valid('query');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    const payload = await getBoardPayload(db, id);
+    if (!payload || !(await canAccessProject(db, user.id, payload.project))) {
+      throw new AppError(404, 'Project not found');
+    }
+
+    // One reading, so the manifest timestamp and the filename date agree.
+    const now = new Date();
+    const { exportPayload, images } = await buildProjectExport(db, payload, now);
+
+    if (format === 'json') {
+      return c.json(exportPayload, 200);
+    }
+
+    const archive = projectExportArchive(exportPayload, images, now);
+    c.header('Content-Type', 'application/zip');
+    c.header(
+      'Content-Disposition',
+      `attachment; filename="${exportFilename(payload.project.name, now)}"`
+    );
+    return c.body(archive, 200);
   }
 );
 

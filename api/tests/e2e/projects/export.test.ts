@@ -1,0 +1,737 @@
+import { promises as fs } from 'fs';
+import path from 'path';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { unzipSync } from 'fflate';
+import { TestContext, type TestUser } from '../../setup/testContext';
+import { newId } from '../../helpers/fixtures';
+import { insertTaskImage } from './helpers';
+import { db } from '../../../src/db/index';
+import { env } from '../../../src/config/env';
+import type { ProjectExport, TiptapDoc } from '../../../src/schemas/index';
+
+const PNG_1X1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64'
+);
+const JPEG_1X1 = Buffer.from(
+  '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==',
+  'base64'
+);
+
+const CSV_HEADER =
+  'id,title,column,is_done,position,labels,assignees,blocked_by,image_count,created_at,updated_at,description';
+
+const ctx = new TestContext();
+const createdProjectIds: string[] = [];
+
+function imageForm(bytes: Buffer, filename: string, mimeType: string, id: string): FormData {
+  const form = new FormData();
+  form.append('file', new File([new Uint8Array(bytes)], filename, { type: mimeType }));
+  form.append('id', id);
+  return form;
+}
+
+async function createProject(user: TestUser, name: string): Promise<string> {
+  const id = newId();
+  const res = await ctx.request(user.token).post('/api/projects', { id, name });
+  expect(res.status).toBe(201);
+  createdProjectIds.push(id);
+  return id;
+}
+
+async function columnsOf(projectId: string, token: string): Promise<Array<{ id: string }>> {
+  const res = await ctx.request(token).get(`/api/projects/${projectId}`);
+  expect(res.status).toBe(200);
+  return (await res.json()).columns;
+}
+
+async function exportJson(projectId: string, token: string): Promise<ProjectExport> {
+  const res = await ctx.request(token).get(`/api/projects/${projectId}/export?format=json`);
+  expect(res.status).toBe(200);
+  return await res.json();
+}
+
+// TextDecoder silently eats a leading BOM, which is exactly what this file has
+// to assert is present.
+function decode(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('utf8');
+}
+
+async function exportZip(
+  projectId: string,
+  token: string
+): Promise<{ response: Response; files: Record<string, Uint8Array> }> {
+  const response = await ctx.request(token).get(`/api/projects/${projectId}/export`);
+  expect(response.status).toBe(200);
+  const files = unzipSync(new Uint8Array(await response.arrayBuffer()));
+  return { response, files };
+}
+
+// UUIDs never collide with other content, so a textual substitution is enough
+// to rewrite every reference — including the ones inside descriptions.
+function remapIds<T>(value: T, idMap: Map<string, string>): T {
+  let json = JSON.stringify(value);
+  for (const [oldId, replacement] of idMap) {
+    json = json.split(oldId).join(replacement);
+  }
+  return JSON.parse(json);
+}
+
+function canonicalize(exportPayload: ProjectExport): unknown {
+  return {
+    format: exportPayload.format,
+    version: exportPayload.version,
+    project: {
+      id: exportPayload.project.id,
+      name: exportPayload.project.name,
+      description: exportPayload.project.description,
+      archived_at: exportPayload.project.archived_at,
+      created_by: exportPayload.project.created_by,
+      member_ids: [...exportPayload.project.member_ids].sort(),
+      is_public: exportPayload.project.is_public,
+    },
+    users: exportPayload.users,
+    columns: exportPayload.columns,
+    labels: exportPayload.labels,
+    tasks: exportPayload.tasks.map((task) => ({
+      id: task.id,
+      column_id: task.column_id,
+      title: task.title,
+      description: task.description,
+      position: task.position,
+      label_ids: [...task.label_ids].sort(),
+      assignee_ids: [...task.assignee_ids].sort(),
+      blocker_ids: [...task.blocker_ids].sort(),
+      images: [...task.images]
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((image) => ({
+          id: image.id,
+          path: image.path,
+          filename: image.filename,
+          content_type: image.content_type,
+          size_bytes: image.size_bytes,
+        })),
+    })),
+  };
+}
+
+// Rebuilds a project from an export using nothing but the public API — the
+// standing proof that the manifest carries everything an importer needs.
+async function reimport(
+  user: TestUser,
+  exportPayload: ProjectExport,
+  files: Record<string, Uint8Array>
+): Promise<{ projectId: string; idMap: Map<string, string> }> {
+  const client = ctx.request(user.token);
+  const idMap = new Map<string, string>();
+  const projectId = await createProject(user, exportPayload.project.name);
+  idMap.set(exportPayload.project.id, projectId);
+
+  if (exportPayload.project.description !== '') {
+    const res = await client.patch(`/api/projects/${projectId}`, {
+      description: exportPayload.project.description,
+    });
+    expect(res.status).toBe(200);
+  }
+  if (exportPayload.project.member_ids.length > 0) {
+    const res = await client.put(`/api/projects/${projectId}/members`, {
+      user_ids: exportPayload.project.member_ids,
+    });
+    expect(res.status).toBe(204);
+  }
+
+  for (const column of await columnsOf(projectId, user.token)) {
+    expect((await client.delete(`/api/columns/${column.id}`)).status).toBe(204);
+  }
+  for (const column of exportPayload.columns) {
+    idMap.set(column.id, newId());
+    const res = await client.post('/api/columns', {
+      id: idMap.get(column.id),
+      project_id: projectId,
+      name: column.name,
+      position: column.position,
+      is_done: column.is_done,
+    });
+    expect(res.status).toBe(201);
+  }
+
+  for (const label of exportPayload.labels) {
+    idMap.set(label.id, newId());
+    const res = await client.post('/api/labels', {
+      id: idMap.get(label.id),
+      project_id: projectId,
+      name: label.name,
+      color: label.color,
+    });
+    expect(res.status).toBe(201);
+  }
+
+  // Image ids are minted before the tasks so descriptions can be rewritten to
+  // point at the images this import is about to upload.
+  for (const task of exportPayload.tasks) {
+    for (const image of task.images) {
+      idMap.set(image.id, newId());
+    }
+    idMap.set(task.id, newId());
+  }
+
+  for (const task of exportPayload.tasks) {
+    const res = await client.post('/api/tasks', {
+      id: idMap.get(task.id),
+      project_id: projectId,
+      column_id: idMap.get(task.column_id),
+      title: task.title,
+      description: task.description === null ? null : remapIds(task.description, idMap),
+      position: task.position,
+      label_ids: task.label_ids.map((labelId) => idMap.get(labelId)),
+      assignee_ids: task.assignee_ids,
+    });
+    expect(res.status).toBe(201);
+  }
+
+  for (const task of exportPayload.tasks) {
+    for (const image of task.images) {
+      const bytes = files[image.path];
+      expect(bytes).toBeDefined();
+      const res = await client.postMultipart(
+        `/api/tasks/${idMap.get(task.id)}/images`,
+        imageForm(
+          Buffer.from(bytes),
+          image.filename,
+          image.content_type,
+          idMap.get(image.id) as string
+        )
+      );
+      expect(res.status).toBe(201);
+    }
+    for (const blockerId of task.blocker_ids) {
+      const res = await client.post(`/api/tasks/${idMap.get(task.id)}/blockers`, {
+        blocker_task_id: idMap.get(blockerId),
+      });
+      expect(res.status).toBe(204);
+    }
+  }
+
+  return { projectId, idMap };
+}
+
+describe('GET /api/projects/:id/export', () => {
+  let owner: TestUser;
+  let member: TestUser;
+  let stranger: TestUser;
+  let exMember: TestUser;
+  let projectId: string;
+  let backlogId: string;
+  let doneId: string;
+  let blockerTaskId: string;
+  let mainTaskId: string;
+  let doneTaskId: string;
+  let bugLabelId: string;
+  let uiLabelId: string;
+  let pngImageId: string;
+  let jpegImageId: string;
+  let description: TiptapDoc;
+
+  beforeAll(async () => {
+    owner = await ctx.createUser('export-owner');
+    member = await ctx.createUser('export-member');
+    stranger = await ctx.createUser('export-stranger');
+    exMember = await ctx.createUser('export-ex-member');
+    const client = ctx.request(owner.token);
+
+    projectId = await createProject(owner, 'My Project! 🎉');
+    expect(
+      (
+        await client.put(`/api/projects/${projectId}/members`, {
+          user_ids: [member.id, exMember.id],
+        })
+      ).status
+    ).toBe(204);
+
+    const columns = await columnsOf(projectId, owner.token);
+    backlogId = columns[0].id;
+    doneId = columns[columns.length - 1].id;
+
+    bugLabelId = newId();
+    uiLabelId = newId();
+    for (const [id, name, color] of [
+      [bugLabelId, 'bug', '#ff0000'],
+      [uiLabelId, 'ui', '#00ff00'],
+    ]) {
+      const res = await client.post('/api/labels', { id, project_id: projectId, name, color });
+      expect(res.status).toBe(201);
+    }
+
+    blockerTaskId = newId();
+    mainTaskId = newId();
+    doneTaskId = newId();
+    expect(
+      (
+        await client.post('/api/tasks', {
+          id: blockerTaskId,
+          project_id: projectId,
+          column_id: backlogId,
+          title: 'Blocker task',
+          position: 1000,
+        })
+      ).status
+    ).toBe(201);
+    expect(
+      (
+        await client.post('/api/tasks', {
+          id: mainTaskId,
+          project_id: projectId,
+          column_id: backlogId,
+          title: 'He said "hi", then\nleft',
+          position: 2000,
+          label_ids: [bugLabelId, uiLabelId],
+          assignee_ids: [owner.id, member.id],
+        })
+      ).status
+    ).toBe(201);
+    expect(
+      (
+        await client.post('/api/tasks', {
+          id: doneTaskId,
+          project_id: projectId,
+          column_id: doneId,
+          title: 'Finished',
+          position: 3000,
+          assignee_ids: [exMember.id],
+        })
+      ).status
+    ).toBe(201);
+    expect(
+      (
+        await client.post(`/api/tasks/${mainTaskId}/blockers`, {
+          blocker_task_id: blockerTaskId,
+        })
+      ).status
+    ).toBe(204);
+
+    pngImageId = newId();
+    jpegImageId = newId();
+    expect(
+      (
+        await client.postMultipart(
+          `/api/tasks/${mainTaskId}/images`,
+          imageForm(PNG_1X1, 'pixel.png', 'image/png', pngImageId)
+        )
+      ).status
+    ).toBe(201);
+    expect(
+      (
+        await client.postMultipart(
+          `/api/tasks/${mainTaskId}/images`,
+          imageForm(JPEG_1X1, 'photo.jpg', 'image/jpeg', jpegImageId)
+        )
+      ).status
+    ).toBe(201);
+
+    description = {
+      type: 'doc',
+      content: [
+        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Notes' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'A paragraph.' }] },
+        {
+          type: 'bulletList',
+          content: [
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one' }] }],
+            },
+            {
+              type: 'listItem',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'two' }] }],
+            },
+          ],
+        },
+        { type: 'image', attrs: { src: `/api/images/${pngImageId}` } },
+      ],
+    };
+    expect((await client.patch(`/api/tasks/${mainTaskId}`, { description })).status).toBe(200);
+
+    // Removing a member through the API also strips their assignments, so the
+    // orphaned-assignee state has to be written directly.
+    await db
+      .deleteFrom('project_member')
+      .where('project_id', '=', projectId)
+      .where('user_id', '=', exMember.id)
+      .execute();
+  });
+
+  afterAll(async () => {
+    if (createdProjectIds.length > 0) {
+      const rows = await db
+        .selectFrom('task_image')
+        .innerJoin('task', 'task.id', 'task_image.task_id')
+        .select('task_image.storage_key')
+        .where('task.project_id', 'in', createdProjectIds)
+        .execute();
+      await Promise.all(
+        rows.map((row) => fs.rm(path.join(env.storageDiskRoot, row.storage_key), { force: true }))
+      );
+      await db.deleteFrom('project').where('id', 'in', createdProjectIds).execute();
+    }
+    await ctx.cleanup();
+  });
+
+  describe('format=json', () => {
+    it('returns a versioned envelope with the project, columns, labels and tasks', async () => {
+      const exportPayload = await exportJson(projectId, owner.token);
+
+      expect(exportPayload.format).toBe('critical-path-project-export');
+      expect(exportPayload.version).toBe(1);
+      expect(Number.isNaN(Date.parse(exportPayload.exported_at))).toBe(false);
+
+      const board = await (await ctx.request(owner.token).get(`/api/projects/${projectId}`)).json();
+      expect(exportPayload.project).toEqual(board.project);
+      expect(exportPayload.columns).toEqual(board.columns);
+      expect(exportPayload.labels.map((label) => label.name)).toEqual(['bug', 'ui']);
+      expect(exportPayload.tasks.map((task) => task.position)).toEqual([1000, 2000, 3000]);
+
+      const main = exportPayload.tasks[1];
+      expect(main.label_ids).toEqual([bugLabelId, uiLabelId].sort());
+      expect(main.assignee_ids).toEqual([owner.id, member.id].sort());
+      expect(main.blocker_ids).toEqual([blockerTaskId]);
+      expect(main).not.toHaveProperty('image_count');
+    });
+
+    it('lists every image by archive path and never leaks a storage key', async () => {
+      const res = await ctx
+        .request(owner.token)
+        .get(`/api/projects/${projectId}/export?format=json`);
+      const body = await res.text();
+      const exportPayload: ProjectExport = JSON.parse(body);
+
+      const images = exportPayload.tasks.flatMap((task) => task.images);
+      expect(images).toHaveLength(2);
+      expect(images.find((image) => image.id === pngImageId)).toEqual({
+        id: pngImageId,
+        path: `images/${pngImageId}.png`,
+        filename: 'pixel.png',
+        content_type: 'image/png',
+        size_bytes: PNG_1X1.length,
+        created_at: expect.any(String),
+      });
+      expect(images.find((image) => image.id === jpegImageId)?.path).toBe(
+        `images/${jpegImageId}.jpg`
+      );
+      expect(exportPayload.tasks[0].images).toEqual([]);
+
+      const storageKeys = await db
+        .selectFrom('task_image')
+        .innerJoin('task', 'task.id', 'task_image.task_id')
+        .select('task_image.storage_key')
+        .where('task.project_id', '=', projectId)
+        .execute();
+      expect(storageKeys).toHaveLength(2);
+      expect(body).not.toContain('storage_key');
+      for (const row of storageKeys) {
+        expect(body).not.toContain(row.storage_key);
+      }
+    });
+
+    it('resolves every user reference without exposing avatar urls', async () => {
+      const exportPayload = await exportJson(projectId, owner.token);
+
+      const byId = new Map(exportPayload.users.map((user) => [user.id, user]));
+      expect(byId.get(owner.id)).toEqual({ id: owner.id, email: owner.email, name: owner.name });
+      expect(byId.has(member.id)).toBe(true);
+      expect(byId.has(exMember.id)).toBe(true);
+      for (const user of exportPayload.users) {
+        expect(Object.keys(user).sort()).toEqual(['email', 'id', 'name']);
+      }
+
+      expect(byId.has(exportPayload.project.created_by as string)).toBe(true);
+      for (const id of exportPayload.project.member_ids) {
+        expect(byId.has(id)).toBe(true);
+      }
+      for (const task of exportPayload.tasks) {
+        for (const id of task.assignee_ids) {
+          expect(byId.has(id)).toBe(true);
+        }
+      }
+    });
+
+    it('keeps description image sources byte-identical and resolvable', async () => {
+      const exportPayload = await exportJson(projectId, owner.token);
+      const main = exportPayload.tasks[1];
+
+      expect(main.description).toEqual(description);
+      expect(JSON.stringify(main.description)).toContain(`/api/images/${pngImageId}`);
+      expect(main.images.some((image) => image.id === pngImageId)).toBe(true);
+    });
+  });
+
+  describe('zip archive', () => {
+    it('serves an attachment named after the project with an ASCII slug and the export date', async () => {
+      const res = await ctx.request(owner.token).get(`/api/projects/${projectId}/export`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('application/zip');
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      const today = new Date().toISOString().slice(0, 10);
+      expect(res.headers.get('content-disposition')).toMatch(
+        new RegExp(`^attachment; filename="my-project-\\d{4}-\\d{2}-\\d{2}\\.zip"$`)
+      );
+      expect(res.headers.get('content-disposition')).toContain(today);
+    });
+
+    it('holds the manifest, the csv, and the real bytes of every image', async () => {
+      const { files } = await exportZip(projectId, owner.token);
+
+      expect(Object.keys(files).sort()).toEqual(
+        [
+          'project.json',
+          'tasks.csv',
+          `images/${pngImageId}.png`,
+          `images/${jpegImageId}.jpg`,
+        ].sort()
+      );
+      expect(Buffer.from(files[`images/${pngImageId}.png`])).toEqual(PNG_1X1);
+      expect(Buffer.from(files[`images/${jpegImageId}.jpg`])).toEqual(JPEG_1X1);
+    });
+
+    it('packages the same manifest the json format returns', async () => {
+      const { files } = await exportZip(projectId, owner.token);
+      const fromZip = JSON.parse(decode(files['project.json'])) as ProjectExport;
+      const fromJson = await exportJson(projectId, owner.token);
+
+      expect(fromZip.exported_at).toBeTypeOf('string');
+      delete (fromZip as Partial<ProjectExport>).exported_at;
+      delete (fromJson as Partial<ProjectExport>).exported_at;
+      expect(fromZip).toEqual(fromJson);
+    });
+
+    it('writes a spreadsheet-ready csv with one row per task', async () => {
+      const { files } = await exportZip(projectId, owner.token);
+      const exportPayload = await exportJson(projectId, owner.token);
+      const csv = decode(files['tasks.csv']);
+
+      expect(csv.startsWith('\ufeff')).toBe(true);
+      expect(csv.endsWith('\r\n')).toBe(true);
+
+      const rows = csv.slice(1).split('\r\n');
+      expect(rows.filter(Boolean)).toHaveLength(4);
+      expect(rows[0]).toBe(CSV_HEADER);
+
+      const [blocker, main, done] = exportPayload.tasks;
+      expect(rows[1]).toBe(
+        `${blocker.id},Blocker task,Backlog,false,1000,,,,0,` +
+          `${blocker.created_at},${blocker.updated_at},`
+      );
+      // Assignee emails follow the users[] order, which is by name, so
+      // "export-member user" precedes "export-owner user".
+      expect(rows[2]).toBe(
+        `${main.id},"He said ""hi"", then\nleft",Backlog,false,2000,bug; ui,` +
+          `${member.email}; ${owner.email},Blocker task,2,` +
+          `${main.created_at},${main.updated_at},"Notes\nA paragraph.\none\ntwo"`
+      );
+      expect(rows[3]).toBe(
+        `${done.id},Finished,Done,true,3000,,${exMember.email},,0,` +
+          `${done.created_at},${done.updated_at},`
+      );
+    });
+
+    it('still produces a readable archive when a storage object is missing', async () => {
+      const orphanProjectId = await createProject(owner, 'Orphaned image project');
+      const columns = await columnsOf(orphanProjectId, owner.token);
+      const taskId = newId();
+      expect(
+        (
+          await ctx.request(owner.token).post('/api/tasks', {
+            id: taskId,
+            project_id: orphanProjectId,
+            column_id: columns[0].id,
+            title: 'Task with a lost image',
+            position: 1000,
+          })
+        ).status
+      ).toBe(201);
+      const { imageId } = await insertTaskImage({ taskId });
+
+      const { files } = await exportZip(orphanProjectId, owner.token);
+      const manifest = JSON.parse(decode(files['project.json'])) as ProjectExport;
+
+      expect(manifest.tasks[0].images.map((image) => image.id)).toEqual([imageId]);
+      expect(Object.keys(files).sort()).toEqual(['project.json', 'tasks.csv']);
+    });
+
+    it('exports an empty project as a manifest plus a header-only csv', async () => {
+      const emptyProjectId = await createProject(owner, 'Empty');
+
+      const { files } = await exportZip(emptyProjectId, owner.token);
+      const manifest = JSON.parse(decode(files['project.json'])) as ProjectExport;
+
+      expect(Object.keys(files).sort()).toEqual(['project.json', 'tasks.csv']);
+      expect(manifest.tasks).toEqual([]);
+      expect(manifest.labels).toEqual([]);
+      expect(manifest.columns).toHaveLength(4);
+      expect(decode(files['tasks.csv'])).toBe(`\ufeff${CSV_HEADER}\r\n`);
+    });
+
+    it('refuses to write an archive that would overflow the 32-bit zip fields', async () => {
+      const hugeProjectId = await createProject(owner, 'Huge');
+      const columns = await columnsOf(hugeProjectId, owner.token);
+      const taskId = newId();
+      expect(
+        (
+          await ctx.request(owner.token).post('/api/tasks', {
+            id: taskId,
+            project_id: hugeProjectId,
+            column_id: columns[0].id,
+            title: 'Enormous',
+            position: 1000,
+          })
+        ).status
+      ).toBe(201);
+      for (let i = 0; i < 3; i++) {
+        await db
+          .insertInto('task_image')
+          .values({
+            id: newId(),
+            task_id: taskId,
+            storage_key: newId(),
+            filename: `huge-${i}.png`,
+            content_type: 'image/png',
+            size_bytes: 2_000_000_000,
+          })
+          .execute();
+      }
+
+      const res = await ctx.request(owner.token).get(`/api/projects/${hugeProjectId}/export`);
+      expect(res.status).toBe(413);
+      expect((await res.json()).error).toContain('format=json');
+
+      const jsonRes = await ctx
+        .request(owner.token)
+        .get(`/api/projects/${hugeProjectId}/export?format=json`);
+      expect(jsonRes.status).toBe(200);
+    });
+  });
+
+  describe('round trip', () => {
+    it('rebuilds an identical board from the archive alone', async () => {
+      const original = await exportJson(projectId, owner.token);
+      const { files } = await exportZip(projectId, owner.token);
+
+      // The orphaned assignee has no project access, so a faithful import has
+      // to re-add them as a member before it can restore the assignment.
+      const importable: ProjectExport = {
+        ...original,
+        project: { ...original.project, member_ids: [member.id, exMember.id] },
+      };
+
+      const { projectId: copyId, idMap } = await reimport(owner, importable, files);
+      const copy = await exportJson(copyId, owner.token);
+
+      expect(canonicalize(copy)).toEqual(canonicalize(remapIds(importable, idMap)));
+
+      // Equality alone would also hold if the manifest dropped a relation on
+      // both sides, so pin what the rebuilt board must actually contain.
+      expect(copy.columns).toHaveLength(4);
+      expect(copy.labels.map((label) => label.name)).toEqual(['bug', 'ui']);
+      expect(copy.tasks).toHaveLength(3);
+      expect(copy.tasks.flatMap((task) => task.blocker_ids)).toHaveLength(1);
+      expect(copy.tasks.flatMap((task) => task.assignee_ids)).toHaveLength(3);
+      expect(copy.tasks.flatMap((task) => task.label_ids)).toHaveLength(2);
+
+      const copiedImages = copy.tasks.flatMap((task) => task.images);
+      expect(copiedImages).toHaveLength(2);
+      expect(JSON.stringify(copy.tasks[1].description)).toContain(
+        `/api/images/${copiedImages.find((image) => image.content_type === 'image/png')?.id}`
+      );
+
+      const copyZip = await exportZip(copyId, owner.token);
+      for (const image of copiedImages) {
+        expect(Buffer.from(copyZip.files[image.path])).toEqual(
+          image.content_type === 'image/png' ? PNG_1X1 : JPEG_1X1
+        );
+      }
+    });
+
+    it('reproduces the same csv after a round trip', async () => {
+      const original = await exportJson(projectId, owner.token);
+      const { files } = await exportZip(projectId, owner.token);
+      const importable: ProjectExport = {
+        ...original,
+        project: { ...original.project, member_ids: [member.id, exMember.id] },
+      };
+
+      const { projectId: copyId, idMap } = await reimport(owner, importable, files);
+      const copyZip = await exportZip(copyId, owner.token);
+
+      const stripVolatile = (csv: string): string[] =>
+        csv.split('\r\n').map((line) => line.replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, 'TIMESTAMP'));
+
+      expect(stripVolatile(decode(copyZip.files['tasks.csv']))).toEqual(
+        stripVolatile(remapIds(decode(files['tasks.csv']), idMap))
+      );
+    });
+  });
+
+  describe('access control and validation', () => {
+    it('requires authentication', async () => {
+      expect((await ctx.request().get(`/api/projects/${projectId}/export`)).status).toBe(401);
+    });
+
+    it('hides the project from users without access', async () => {
+      expect(
+        (await ctx.request(stranger.token).get(`/api/projects/${projectId}/export`)).status
+      ).toBe(404);
+      expect(
+        (await ctx.request(stranger.token).get(`/api/projects/${projectId}/export?format=json`))
+          .status
+      ).toBe(404);
+    });
+
+    it('lets any project member export', async () => {
+      const exportPayload = await exportJson(projectId, member.token);
+      expect(exportPayload.project.id).toBe(projectId);
+    });
+
+    it('accepts an explicit format=zip', async () => {
+      const res = await ctx
+        .request(owner.token)
+        .get(`/api/projects/${projectId}/export?format=zip`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('application/zip');
+    });
+
+    it('rejects an unknown format with 400', async () => {
+      const res = await ctx
+        .request(owner.token)
+        .get(`/api/projects/${projectId}/export?format=xml`);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBeTypeOf('string');
+    });
+
+    it('rejects a malformed project id with 400', async () => {
+      expect((await ctx.request(owner.token).get('/api/projects/not-a-uuid/export')).status).toBe(
+        400
+      );
+    });
+
+    it('returns 404 for an unknown project', async () => {
+      expect((await ctx.request(owner.token).get(`/api/projects/${newId()}/export`)).status).toBe(
+        404
+      );
+    });
+
+    it('still exports an archived project', async () => {
+      const archivedProjectId = await createProject(owner, 'Archived');
+      const archivedAt = new Date().toISOString();
+      expect(
+        (
+          await ctx
+            .request(owner.token)
+            .patch(`/api/projects/${archivedProjectId}`, { archived_at: archivedAt })
+        ).status
+      ).toBe(200);
+
+      const exportPayload = await exportJson(archivedProjectId, owner.token);
+      expect(exportPayload.project.archived_at).toBe(archivedAt);
+    });
+  });
+});

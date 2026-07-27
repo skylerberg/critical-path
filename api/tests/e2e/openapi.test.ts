@@ -97,6 +97,35 @@ describe('GET /api/openapi.json', () => {
     expect(spec.paths['/api/projects/{id}'].get.security).toEqual([{ bearerAuth: [] }]);
   });
 
+  it('documents the project export route and its manifest schema', async () => {
+    const res = await app.request('/api/openapi.json');
+    expect(res.status).toBe(200);
+
+    const spec = await res.json();
+    expect(Object.keys(spec.paths)).toContain('/api/projects/{id}/export');
+
+    const content = spec.paths['/api/projects/{id}/export'].get.responses['200'].content;
+    expect(Object.keys(content).sort()).toEqual(['application/json', 'application/zip']);
+    expect(content['application/zip'].schema).toEqual({ type: 'string', format: 'binary' });
+    expect(content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/ProjectExport',
+    });
+
+    const manifest = spec.components.schemas.ProjectExport;
+    expect(Object.keys(manifest.properties).sort()).toEqual([
+      'columns',
+      'exported_at',
+      'format',
+      'labels',
+      'project',
+      'tasks',
+      'users',
+      'version',
+    ]);
+    expect(Object.keys(manifest.properties.tasks.items.properties)).toContain('images');
+    expect(Object.keys(manifest.properties.tasks.items.properties)).not.toContain('image_count');
+  });
+
   it('has unique operationIds across all operations', async () => {
     const res = await app.request('/api/openapi.json');
     expect(res.status).toBe(200);
