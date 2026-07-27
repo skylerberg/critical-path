@@ -23,6 +23,7 @@ export const publicBoardTaskSchema = type({
   title: 'string',
   description: nullableTiptapDocSchema,
   position: finiteNumber,
+  due_date: 'string | null',
   label_ids: 'string[]',
   assignee_ids: 'string[]',
   blocker_ids: 'string[]',

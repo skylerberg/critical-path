@@ -25,6 +25,7 @@ export const boardTaskSchema = type({
   title: 'string',
   description: nullableTiptapDocSchema,
   position: finiteNumber,
+  due_date: 'string | null',
   created_at: 'string',
   updated_at: 'string',
   label_ids: 'string[]',

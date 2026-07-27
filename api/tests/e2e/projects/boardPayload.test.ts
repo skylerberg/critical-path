@@ -55,6 +55,7 @@ describe('GET /api/projects/:id board payload', () => {
       title: 'Main',
       position: 2000,
       description,
+      dueDate: '2026-08-03',
     });
 
     await db
@@ -93,6 +94,7 @@ describe('GET /api/projects/:id board payload', () => {
       column_id: toDo.id,
       title: 'Main',
       position: 2000,
+      due_date: '2026-08-03',
       label_ids: [usedLabelId],
       assignee_ids: [user.id],
       blocker_ids: [blockerTaskId],
@@ -107,6 +109,7 @@ describe('GET /api/projects/:id board payload', () => {
     expect(blockerTask).toMatchObject({
       column_id: backlog.id,
       description: null,
+      due_date: null,
       label_ids: [],
       assignee_ids: [],
       blocker_ids: [],

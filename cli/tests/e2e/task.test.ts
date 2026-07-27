@@ -596,4 +596,60 @@ describe('task commands', () => {
     ]);
     expect(res.exitCode).toBe(2);
   });
+
+  it('sets, shows, changes and clears a due date', async () => {
+    const created = await h.runCli([
+      'task',
+      'create',
+      'Dated task',
+      '--project',
+      projectId,
+      '--due',
+      '2026-08-03',
+      '--json',
+    ]);
+    expect(created.exitCode).toBe(0);
+    const dated = created.json<BoardTask>();
+    expect(dated.due_date).toBe('2026-08-03');
+
+    const shown = await h.runCli(['task', 'show', dated.id]);
+    expect(shown.stdout).toContain('Due:       2026-08-03');
+
+    const changed = await h.runCli(['task', 'update', dated.id, '--due', '2026-09-01', '--json']);
+    expect(changed.exitCode).toBe(0);
+    expect(changed.json<BoardTask>().due_date).toBe('2026-09-01');
+
+    const cleared = await h.runCli(['task', 'update', dated.id, '--clear-due', '--json']);
+    expect(cleared.exitCode).toBe(0);
+    expect(cleared.json<BoardTask>().due_date).toBeNull();
+
+    const undated = await h.runCli(['task', 'show', dated.id]);
+    expect(undated.stdout).not.toContain('Due:');
+  });
+
+  it('rejects a due date it cannot parse rather than guessing', async () => {
+    const created = await h.runCli([
+      'task',
+      'create',
+      'Never created',
+      '--project',
+      projectId,
+      '--due',
+      'tomorrow',
+    ]);
+    expect(created.exitCode).toBe(6);
+    expect(created.stderr).toContain('YYYY-MM-DD');
+
+    const conflicting = await h.runCli([
+      'task',
+      'update',
+      'Alpha task',
+      '--project',
+      projectId,
+      '--due',
+      '2026-09-01',
+      '--clear-due',
+    ]);
+    expect(conflicting.exitCode).toBe(2);
+  });
 });

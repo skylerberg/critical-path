@@ -22,7 +22,8 @@ router.get(
     description:
       'Serve a read-only board for a project whose is_public flag is set. Unauthenticated: ' +
       'anyone holding the project id can read it. The payload carries columns, labels, and ' +
-      'tasks with their descriptions, labels, blockers, image counts, and assignee ids, plus ' +
+      'tasks with their descriptions, due dates, labels, blockers, image counts, and assignee ' +
+      'ids, plus ' +
       'the name and avatar of each assigned user. Member ids, the creator, timestamps, and ' +
       'email addresses are never included. Projects that are private, unknown, or deleted are ' +
       'all 404.',
