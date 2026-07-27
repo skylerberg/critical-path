@@ -397,7 +397,7 @@ class BoardStore {
     );
     this.tasks = [...this.tasks, ...created];
     try {
-      assertOk(
+      const data = assertOk(
         await api.POST('/api/tasks/batch', {
           body: {
             project_id: projectId,
@@ -410,6 +410,7 @@ class BoardStore {
           },
         })
       );
+      this.#adoptTimestampsFrom(data.tasks);
       return created.map((task) => task.id);
     } catch (error) {
       await this.#mutationFailed(error);
@@ -482,6 +483,17 @@ class BoardStore {
   // change applied optimistically while the write was in flight must survive.
   #adoptTimestamps(taskId: string, times: { created_at?: string; updated_at: string }): void {
     this.tasks = this.tasks.map((task) => (task.id === taskId ? { ...task, ...times } : task));
+  }
+
+  // Plural so a 100-card batch is one pass over the tasks, not one per card.
+  #adoptTimestampsFrom(rows: readonly BoardTask[]): void {
+    const times = new Map(rows.map((row) => [row.id, row]));
+    this.tasks = this.tasks.map((task) => {
+      const row = times.get(task.id);
+      return row === undefined
+        ? task
+        : { ...task, created_at: row.created_at, updated_at: row.updated_at };
+    });
   }
 
   async updateTask(

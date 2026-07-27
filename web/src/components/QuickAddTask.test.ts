@@ -7,6 +7,8 @@ import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';
 import { toasts } from '../lib/toasts.svelte';
 
+const SERVER_TIME = '2026-01-15T00:00:00Z';
+
 const payload = {
   project: {
     id: 'p1',
@@ -19,6 +21,28 @@ const payload = {
   tasks: [],
   labels: [],
 };
+
+async function batchResponse(request: Request): Promise<Response> {
+  const body = (await request.clone().json()) as {
+    column_id: string;
+    tasks: { id: string; title: string; position: number }[];
+  };
+  return jsonResponse(201, {
+    tasks: body.tasks.map((item) => ({
+      ...item,
+      column_id: body.column_id,
+      description: null,
+      due_date: null,
+      created_at: SERVER_TIME,
+      updated_at: SERVER_TIME,
+      label_ids: [],
+      assignee_ids: [],
+      blocker_ids: [],
+      image_count: 0,
+      comment_count: 0,
+    })),
+  });
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -36,6 +60,9 @@ beforeEach(async () => {
     const request = input as Request;
     if (request.method === 'GET') {
       return jsonResponse(200, payload);
+    }
+    if (new URL(request.url).pathname === '/api/tasks/batch') {
+      return batchResponse(request);
     }
     return jsonResponse(201, {});
   });
@@ -237,10 +264,37 @@ describe('QuickAddTask multi-line paste', () => {
     const input = await openComposer();
     await fireEvent.input(input, { target: { value: 'Half typed' } });
 
-    await fireEvent(input, pasteEvent(input, 'Alpha\nBeta'));
+    // jsdom runs no paste default action, so the preserved draft only means
+    // something alongside the preventDefault that preserves it in a browser.
+    const event = pasteEvent(input, 'Alpha\nBeta');
+    await fireEvent(input, event);
 
+    expect(event.defaultPrevented).toBe(true);
     expect(drafts.get(draftKey.quickAddTask('c1'))).toBe('Half typed');
     expect(input).toHaveValue('Half typed');
+  });
+
+  it('does not scroll when the paste is over the batch limit', async () => {
+    const input = await openComposer();
+    await fireEvent(input, pasteEvent(input, 'Alpha\nBeta'));
+    await waitFor(() => {
+      expect(toasts.toasts.map((t) => t.message)).toContain('Added 2 tasks');
+    });
+    const card = document.createElement('div');
+    card.setAttribute('data-task-id', board.tasksInColumn('c1').at(-1)!.id);
+    document.body.appendChild(card);
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+
+    const lines = Array.from({ length: 101 }, (_, i) => `T${i}`).join('\n');
+    await fireEvent(input, pasteEvent(input, lines));
+
+    await waitFor(() => {
+      expect(toasts.toasts.some((t) => t.message.includes('at most 100'))).toBe(true);
+    });
+    expect(scrollSpy).not.toHaveBeenCalled();
+    expect(board.tasksInColumn('c1')).toHaveLength(2);
+    card.remove();
+    scrollSpy.mockRestore();
   });
 
   it('scrolls the last created card into view', async () => {

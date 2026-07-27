@@ -55,7 +55,6 @@
       .split(/\r\n|\r|\n/)
       .map((line) => line.trim())
       .filter((line) => line !== '');
-    // One line is left to the browser, so the composer behaves as it always has.
     if (lines.length < 2) {
       return;
     }
@@ -64,10 +63,14 @@
   }
 
   async function addMany(lines: string[]): Promise<void> {
+    const before = board.tasksInColumn(columnId).length;
     const pending = board.createTasks(columnId, lines);
-    await scrollToNewestCard();
-    // Only once the batch has landed: createTasks resolves to null after having
-    // toasted its own error and dropped every optimistic card.
+    // A refused batch inserts nothing, and scrolling then would jump to an
+    // unrelated card that merely sits at the bottom.
+    if (board.tasksInColumn(columnId).length > before) {
+      await scrollToNewestCard();
+    }
+    // Waits, so a batch that fails is never announced as a success.
     if ((await pending) !== null) {
       toasts.success(`Added ${lines.length} tasks`);
     }

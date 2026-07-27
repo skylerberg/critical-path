@@ -107,8 +107,21 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
       delete restored.archived_at;
       return jsonResponse(200, restored);
     }
-    // createTask and updateTask read timestamps off the response, so these two
-    // routes answer with a task rather than the catch-all 204.
+    // createTask, createTasks and updateTask read timestamps off the response, so
+    // these routes answer with a task rather than the catch-all 204.
+    if (request.method === 'POST' && url.pathname === '/api/tasks/batch') {
+      const body = (await request.clone().json()) as {
+        column_id: string;
+        tasks: { id: string; title: string; position: number }[];
+      };
+      return jsonResponse(201, {
+        tasks: body.tasks.map((item) => ({
+          ...task(item.id, body.column_id, item.position, item.title),
+          created_at: SERVER_CREATED_AT,
+          updated_at: SERVER_UPDATED_AT,
+        })),
+      });
+    }
     if (request.method === 'POST' && url.pathname === '/api/tasks') {
       const body = (await request.clone().json()) as {
         id: string;
@@ -556,6 +569,16 @@ describe('board store mutations', () => {
         { id: ids![1], title: 'Y', position: 4000 },
       ],
     });
+  });
+
+  it('createTasks adopts created_at and updated_at from the response', async () => {
+    await board.createTasks('c1', ['X', 'Y']);
+
+    for (const title of ['X', 'Y']) {
+      const created = board.tasks.find((t) => t.title === title);
+      expect(created?.created_at).toBe(SERVER_CREATED_AT);
+      expect(created?.updated_at).toBe(SERVER_UPDATED_AT);
+    }
   });
 
   it('createTasks inserts every card before the request resolves', async () => {
