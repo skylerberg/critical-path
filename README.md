@@ -238,6 +238,86 @@ Each user can have one profile image:
   fresh storage key (the old object is deleted after the transaction commits),
   so avatar URLs never change content and can be cached forever.
 
+### Project export
+
+`GET /api/projects/:id/export` hands any project member everything in the
+project. It is free, always available, and gated by nothing but ordinary
+project access (404 for anyone else).
+
+The default response is `application/zip`, streamed, with
+`Content-Disposition: attachment; filename="<slug>-<YYYY-MM-DD>.zip"`:
+
+```
+project.json          the manifest below
+tasks.csv             one row per task, for spreadsheets
+images/<image-id>.png the real bytes of every attached image
+```
+
+Images ship as files, not URLs, so the archive keeps working after the account
+or the storage bucket goes away. `?format=json` returns `project.json` alone.
+
+`project.json` is the stable, documented interchange format the importer reads
+back:
+
+```jsonc
+{
+  "format": "critical-path-project-export",
+  "version": 1,
+  "exported_at": "2026-07-26T12:00:00.000Z",
+  "project": { "id", "name", "description", "archived_at", "created_at",
+               "created_by", "member_ids", "is_public" },
+  "users":   [ { "id", "email", "name" } ],
+  "columns": [ { "id", "name", "position", "is_done" } ],
+  "labels":  [ { "id", "name", "color" } ],
+  "tasks": [ {
+    "id", "column_id", "title",
+    "description": "<tiptap doc or null>",
+    "position", "created_at", "updated_at",
+    "label_ids": [], "assignee_ids": [], "blocker_ids": [],
+    "images": [ { "id", "path", "filename", "content_type", "size_bytes",
+                  "created_at" } ]
+  } ]
+}
+```
+
+- `version` is bumped only on a breaking shape change.
+- Ids are the original server ids. `created_by`, `member_ids` and
+  `assignee_ids` resolve against `users[]`, `label_ids` against `labels[]`,
+  `column_id` against `columns[]`, and `blocker_ids` against `tasks[]`. A
+  `blocker_ids` entry that resolves to nothing is a corrupt cross-project row
+  and should be dropped, exactly as project copy drops it.
+- Ordering is the board's: columns and tasks by position, labels and users by
+  name.
+- `description` is stored verbatim, so its embedded `/api/images/<uuid>`
+  sources resolve by image id against the flattened `tasks[].images[]` — build
+  the id map across the whole export, not per task, and tolerate a source that
+  resolves to nothing (the image may have been deleted).
+- `path` is derived from the image id and its content type, never from
+  `filename`, so an archive can never carry a traversal path or a name
+  collision. It is emitted in both formats, though with `?format=json` it names
+  a file that response does not contain.
+- `images[]` lists every stored image row. If the storage object has gone
+  missing the manifest still lists it, the file is left out of the archive, and
+  a warning is logged.
+- There is no comment model, so nothing about comments is exported.
+
+`tasks.csv` is the human view: a UTF-8 BOM (so Excel reads non-ASCII titles),
+then
+
+```
+id,title,column,is_done,position,labels,assignees,blocked_by,image_count,created_at,updated_at,description
+```
+
+one row per task in board order, RFC 4180 quoting, CRLF line endings. Labels,
+assignees (as emails) and blockers (as titles) are joined with `"; "`, and the
+description is flattened to plain text. Values are written exactly as the user
+typed them — a title starting with `=` is not prefixed or escaped, so treat a
+`tasks.csv` opened in a spreadsheet the same way you would treat any other
+untrusted CSV. Use `project.json` when you need exactness.
+
+The archive is plain zip, not zip64, so a project whose images would push it
+past 4 GiB answers 413 and has to be exported with `?format=json`.
+
 ## Database workflow
 
 Migrations live in `src/db/migrations/` (Kysely `Migrator`, numbered
