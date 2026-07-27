@@ -16,6 +16,7 @@ import type { RealtimeEvent } from './realtime-types';
 import { append, between, prepend } from './positions';
 import { router, splitPath } from './router.svelte';
 import { session } from './session.svelte';
+import { taskActivity } from './taskActivity.svelte';
 import { toasts } from './toasts.svelte';
 import { users, type User } from './users.svelte';
 
@@ -414,6 +415,10 @@ class BoardStore {
       );
     } catch (error) {
       await this.#mutationFailed(error);
+    } finally {
+      // In `finally`, not on success: a failed move resyncs the board, and the log
+      // has to end up showing what the server kept.
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -450,6 +455,8 @@ class BoardStore {
       }
       await this.#mutationFailed(error);
       return { status: 'error' };
+    } finally {
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -501,6 +508,8 @@ class BoardStore {
     } catch (error) {
       this.archivedTasks = this.archivedTasks.filter((t) => t.id !== taskId);
       await this.#mutationFailed(error);
+    } finally {
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -519,6 +528,8 @@ class BoardStore {
       await this.refetch({ quiet: true });
     } catch (error) {
       await this.#mutationFailed(error);
+    } finally {
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -639,6 +650,10 @@ class BoardStore {
       }
     } catch (error) {
       await this.#mutationFailed(error);
+    } finally {
+      for (const task of [...movedLive, ...movedArchived]) {
+        taskActivity.invalidate(task.id);
+      }
     }
   }
 
@@ -700,6 +715,8 @@ class BoardStore {
       );
     } catch (error) {
       await this.#mutationFailed(error);
+    } finally {
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -716,6 +733,8 @@ class BoardStore {
       );
     } catch (error) {
       await this.#mutationFailed(error);
+    } finally {
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -770,6 +789,8 @@ class BoardStore {
     } catch (error) {
       await this.#cycleConflictOrFail(error);
       return false;
+    } finally {
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -787,6 +808,8 @@ class BoardStore {
       );
     } catch (error) {
       await this.#mutationFailed(error);
+    } finally {
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -1095,6 +1118,7 @@ class BoardStore {
             ? { ...incoming, comment_count: incoming.comment_count ?? t.comment_count }
             : t
         );
+        taskActivity.invalidate(incoming.id);
         break;
       }
       case 'task_deleted': {
@@ -1109,6 +1133,7 @@ class BoardStore {
         this.archivedTasks = this.archivedTasks.some((t) => t.id === archived.id)
           ? this.archivedTasks.map((t) => (t.id === archived.id ? archived : t))
           : [archived, ...this.archivedTasks];
+        taskActivity.invalidate(archived.id);
         break;
       }
       case 'task_restored': {
@@ -1117,6 +1142,7 @@ class BoardStore {
         this.tasks = this.tasks.some((t) => t.id === restored.id)
           ? this.tasks.map((t) => (t.id === restored.id ? restored : t))
           : [...this.tasks, restored];
+        taskActivity.invalidate(restored.id);
         break;
       }
       case 'task_relations_set': {
@@ -1136,6 +1162,7 @@ class BoardStore {
               }
             : t
         );
+        taskActivity.invalidate(d.task_id);
         break;
       }
       case 'column_created':
@@ -1163,6 +1190,9 @@ class BoardStore {
         };
         this.tasks = this.tasks.map(relocate).filter((t) => t.column_id !== d.id);
         this.archivedTasks = this.archivedTasks.map(relocate).filter((t) => t.column_id !== d.id);
+        for (const movedTask of d.moved_tasks) {
+          taskActivity.invalidate(movedTask.id);
+        }
         break;
       }
       case 'label_created':

@@ -5,6 +5,7 @@ import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
 import { router } from './router.svelte';
+import { taskActivity } from './taskActivity.svelte';
 import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
 
@@ -126,6 +127,9 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
       const existing = board.tasks.find((t) => t.id === id) ?? task(id, 'c1', 1000, 'x');
       return jsonResponse(200, { ...existing, updated_at: SERVER_UPDATED_AT });
     }
+    if (request.method === 'GET' && /^\/api\/tasks\/[^/]+\/activity$/.test(url.pathname)) {
+      return jsonResponse(200, { activity: [] });
+    }
     if (request.method === 'GET' && /^\/api\/tasks\/[^/]+$/.test(url.pathname)) {
       return jsonResponse(200, {
         ...task('t1', 'c1', 1000, 'A'),
@@ -163,6 +167,7 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  taskActivity.reset();
   for (const toast of [...toasts.toasts]) {
     toasts.dismiss(toast.id);
   }
@@ -1714,6 +1719,96 @@ describe('board store comments', () => {
     board.reset();
 
     expect(board.taskComments).toEqual({});
+  });
+});
+
+describe('board store activity refresh', () => {
+  // The store only refetches for the task it holds, and only once per refresh
+  // window, so every test here opens t1 and steps past that window first.
+  async function openLog(): Promise<void> {
+    vi.useFakeTimers();
+    await board.load('p1');
+    await taskActivity.load('t1');
+    vi.advanceTimersByTime(1000);
+    fetchMock.mockClear();
+  }
+
+  function requestLines(): string[] {
+    return fetchMock.mock.calls.map((call) => {
+      const request = call[0] as Request;
+      return `${request.method} ${new URL(request.url).pathname}`;
+    });
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('refetches the log after the patch that changed the task', async () => {
+    await openLog();
+
+    await board.updateTask('t1', { title: 'renamed' });
+
+    expect(requestLines()).toEqual(['PATCH /api/tasks/t1', 'GET /api/tasks/t1/activity']);
+  });
+
+  it('refetches the log after the label write, not before it', async () => {
+    await openLog();
+
+    await board.setTaskLabels('t1', ['l1']);
+
+    expect(requestLines()).toEqual(['PUT /api/tasks/t1/labels', 'GET /api/tasks/t1/activity']);
+  });
+
+  it('refetches after a move, an archive and a blocker change', async () => {
+    await openLog();
+
+    await board.moveTask('t1', 'c2', 3000);
+    vi.advanceTimersByTime(1000);
+    await board.removeBlocker('t1', 't2');
+    vi.advanceTimersByTime(1000);
+    await board.archiveTask('t1');
+
+    expect(requestLines().filter((line) => line.endsWith('/activity'))).toEqual([
+      'GET /api/tasks/t1/activity',
+      'GET /api/tasks/t1/activity',
+      'GET /api/tasks/t1/activity',
+    ]);
+  });
+
+  it('leaves the log alone when another task changes', async () => {
+    await openLog();
+
+    await board.updateTask('t2', { title: 'not the open one' });
+    board.applyRealtime({
+      type: 'task_relations_set',
+      project_id: 'p1',
+      data: { task_id: 't2', label_ids: [], assignee_ids: [], blocker_ids: [] },
+    });
+    await vi.runAllTimersAsync();
+
+    expect(requestLines()).toEqual(['PATCH /api/tasks/t2']);
+  });
+
+  it('refetches when a teammate’s relation change arrives over the socket', async () => {
+    await openLog();
+
+    board.applyRealtime({
+      type: 'task_relations_set',
+      project_id: 'p1',
+      data: { task_id: 't1', label_ids: ['l1'], assignee_ids: [], blocker_ids: [] },
+    });
+    await vi.runAllTimersAsync();
+
+    expect(requestLines()).toEqual(['GET /api/tasks/t1/activity']);
+  });
+
+  it('refetches every task a deleted column relocated', async () => {
+    await openLog();
+
+    await board.deleteColumn('c1', 'c2');
+
+    expect(requestLines()).toContain('GET /api/tasks/t1/activity');
   });
 });
 

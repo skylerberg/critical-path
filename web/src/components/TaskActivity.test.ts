@@ -2,9 +2,10 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import TaskComments from './TaskComments.svelte';
+import TaskActivity from './TaskActivity.svelte';
 import { board, type TaskComment } from '../lib/board.svelte';
 import { session } from '../lib/session.svelte';
+import { taskActivity, type TaskActivityEntry } from '../lib/taskActivity.svelte';
 import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -34,6 +35,26 @@ function comment(id: string, userId: string, text: string, edited = false): Task
     body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] },
     created_at: `2026-01-0${id.slice(-1)}T00:00:00.000Z`,
     updated_at: edited ? '2026-02-01T00:00:00.000Z' : `2026-01-0${id.slice(-1)}T00:00:00.000Z`,
+  };
+}
+
+function entry(
+  id: string,
+  kind: TaskActivityEntry['kind'],
+  values: {
+    old_value?: TaskActivityEntry['old_value'];
+    new_value?: TaskActivityEntry['new_value'];
+    created_at?: string;
+    actor_user_id?: string;
+  } = {}
+): TaskActivityEntry {
+  return {
+    id,
+    kind,
+    actor_user_id: values.actor_user_id ?? 'u2',
+    old_value: values.old_value ?? null,
+    new_value: values.new_value ?? null,
+    created_at: values.created_at ?? '2026-01-01T12:00:00.000Z',
   };
 }
 
@@ -79,6 +100,7 @@ beforeEach(() => {
   mockCommentApi();
   board.reset();
   users.reset();
+  taskActivity.reset();
   toasts.toasts = [];
   board.currentProjectId = 'p1';
   board.tasks = [task(2)];
@@ -90,9 +112,9 @@ beforeEach(() => {
   board.taskComments = { t1: [ownComment, theirComment] };
 });
 
-describe('TaskComments', () => {
+describe('TaskActivity comments', () => {
   it('renders comments oldest first with author names and timestamps', () => {
-    render(TaskComments, { taskId: 't1' });
+    render(TaskActivity, { taskId: 't1' });
 
     const items = screen.getAllByRole('listitem');
     expect(items).toHaveLength(2);
@@ -104,7 +126,7 @@ describe('TaskComments', () => {
   });
 
   it('marks only an edited comment as edited', () => {
-    render(TaskComments, { taskId: 't1' });
+    render(TaskActivity, { taskId: 't1' });
 
     const items = screen.getAllByRole('listitem');
     expect(items[0]).not.toHaveTextContent('(edited)');
@@ -112,7 +134,7 @@ describe('TaskComments', () => {
   });
 
   it('offers Edit and Delete only on the caller’s own comments, each naming its comment', () => {
-    render(TaskComments, { taskId: 't1' });
+    render(TaskActivity, { taskId: 't1' });
 
     expect(screen.getAllByRole('button', { name: /^Edit comment from/ })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: /^Delete comment from/ })).toHaveLength(1);
@@ -123,17 +145,17 @@ describe('TaskComments', () => {
 
   it('shows a spinner while a task with comments has none cached, and a note when empty', () => {
     board.taskComments = {};
-    const { unmount } = render(TaskComments, { taskId: 't1' });
-    expect(screen.getByRole('status', { name: 'Loading comments' })).toBeInTheDocument();
+    const { unmount } = render(TaskActivity, { taskId: 't1' });
+    expect(screen.getByRole('status', { name: 'Loading activity' })).toBeInTheDocument();
     unmount();
 
     board.taskComments = { t1: [] };
-    render(TaskComments, { taskId: 't1' });
-    expect(screen.getByText('No comments yet.')).toBeInTheDocument();
+    render(TaskActivity, { taskId: 't1' });
+    expect(screen.getByText('No activity yet.')).toBeInTheDocument();
   });
 
   it('enables Comment only once the composer has content, then posts and clears it', async () => {
-    const { component } = render(TaskComments, { taskId: 't1' });
+    const { component } = render(TaskActivity, { taskId: 't1' });
     await tick();
 
     const button = screen.getByRole('button', { name: 'Comment' });
@@ -159,7 +181,7 @@ describe('TaskComments', () => {
   });
 
   it('submits the composer on Ctrl/Cmd + Enter', async () => {
-    const { component, container } = render(TaskComments, { taskId: 't1' });
+    const { component, container } = render(TaskActivity, { taskId: 't1' });
     await tick();
     component.getComposerEditor()!.commands.insertContent('shortcut');
     await tick();
@@ -175,7 +197,7 @@ describe('TaskComments', () => {
   it('starts a fresh composer when the overlay switches task', async () => {
     board.tasks = [task(2), { ...task(0), id: 't2' }];
     board.taskComments = { ...board.taskComments, t2: [] };
-    const { component, rerender } = render(TaskComments, { taskId: 't1' });
+    const { component, rerender } = render(TaskActivity, { taskId: 't1' });
     await tick();
     component.getComposerEditor()!.commands.insertContent('half-written');
     await tick();
@@ -189,7 +211,7 @@ describe('TaskComments', () => {
   });
 
   it('requires a second click to delete, then sends the DELETE', async () => {
-    render(TaskComments, { taskId: 't1' });
+    render(TaskActivity, { taskId: 't1' });
 
     await fireEvent.click(screen.getByRole('button', { name: `Delete ${own}` }));
     expect(fetchMock).not.toHaveBeenCalled();
@@ -204,7 +226,7 @@ describe('TaskComments', () => {
   });
 
   it('sends the text typed into the inline editor, then closes it', async () => {
-    const { component } = render(TaskComments, { taskId: 't1' });
+    const { component } = render(TaskActivity, { taskId: 't1' });
 
     await fireEvent.click(screen.getByRole('button', { name: `Edit ${own}` }));
     await tick();
@@ -241,7 +263,7 @@ describe('TaskComments', () => {
       return jsonResponse(204);
     });
 
-    const { component } = render(TaskComments, { taskId: 't1' });
+    const { component } = render(TaskActivity, { taskId: 't1' });
     await fireEvent.click(screen.getByRole('button', { name: `Edit ${own}` }));
     await tick();
     component.getEditingEditor()!.commands.insertContent('rewritten ');
@@ -255,7 +277,7 @@ describe('TaskComments', () => {
   });
 
   it('re-renders a body a teammate edited over the socket', async () => {
-    render(TaskComments, { taskId: 't1' });
+    render(TaskActivity, { taskId: 't1' });
     expect(screen.getAllByRole('listitem')[1]).toHaveTextContent('theirs');
 
     board.applyRealtime({
@@ -282,7 +304,7 @@ describe('TaskComments', () => {
       });
     });
 
-    const { component } = render(TaskComments, { taskId: 't1' });
+    const { component } = render(TaskActivity, { taskId: 't1' });
     await tick();
     component.getComposerEditor()!.commands.insertContent('doomed');
     await tick();
@@ -297,5 +319,158 @@ describe('TaskComments', () => {
       ).toBe(true)
     );
     expect(board.taskComments.t1).toEqual([]);
+  });
+});
+
+describe('TaskActivity history', () => {
+  beforeEach(() => {
+    board.taskComments = { t1: [] };
+  });
+
+  it('renders a sentence and an actor for every kind', () => {
+    taskActivity.entries = [
+      entry('a1', 'created', { new_value: { text: 'Design cards' } }),
+      entry('a2', 'title_changed', {
+        old_value: { text: 'Old name' },
+        new_value: { text: 'New name' },
+      }),
+      entry('a3', 'column_changed', {
+        old_value: { id: 'c1', name: 'Backlog' },
+        new_value: { id: 'c2', name: 'In Progress' },
+      }),
+      entry('a4', 'assignee_added', { new_value: { id: 'u1', name: 'Ada Lovelace' } }),
+      entry('a5', 'assignee_removed', { old_value: { id: 'u1', name: 'Ada Lovelace' } }),
+      entry('a6', 'blocker_added', { new_value: { id: 't9', name: 'Ship the API' } }),
+      entry('a7', 'blocker_removed', { old_value: { id: 't9', name: 'Ship the API' } }),
+      entry('a8', 'archived'),
+      entry('a9', 'restored'),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const items = screen.getAllByRole('listitem');
+    expect(items).toHaveLength(9);
+    expect(items[0]).toHaveTextContent('Bob Barker');
+    expect(items[0]).toHaveTextContent('created this task');
+    expect(items[1]).toHaveTextContent('renamed this from “Old name” to “New name”');
+    expect(items[2]).toHaveTextContent('moved this from Backlog to In Progress');
+    expect(items[3]).toHaveTextContent('assigned Ada Lovelace');
+    expect(items[4]).toHaveTextContent('unassigned Ada Lovelace');
+    expect(items[5]).toHaveTextContent('added Ship the API as a blocker');
+    expect(items[6]).toHaveTextContent('removed Ship the API as a blocker');
+    expect(items[7]).toHaveTextContent('archived this task');
+    expect(items[8]).toHaveTextContent('restored this task');
+    expect(items[0]).toHaveTextContent(dateFormat.format(new Date('2026-01-01T12:00:00.000Z')));
+  });
+
+  it('interleaves entries with comments in time order', () => {
+    board.taskComments = { t1: [ownComment, theirComment] };
+    taskActivity.entries = [
+      entry('a1', 'created', {
+        new_value: { text: 'Design cards' },
+        created_at: '2025-12-31T00:00:00.000Z',
+      }),
+      entry('a2', 'archived', { created_at: '2026-01-01T12:00:00.000Z' }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const items = screen.getAllByRole('listitem');
+    expect(items).toHaveLength(4);
+    expect(items[0]).toHaveTextContent('created this task');
+    expect(items[1]).toHaveTextContent('mine');
+    expect(items[2]).toHaveTextContent('archived this task');
+    expect(items[3]).toHaveTextContent('theirs');
+  });
+
+  it('names a column the board no longer has', () => {
+    board.columns = [];
+    taskActivity.entries = [
+      entry('a1', 'column_changed', {
+        old_value: { id: 'gone', name: 'Deleted column' },
+        new_value: { id: 'c9', name: 'Somewhere else' },
+      }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent(
+      'moved this from Deleted column to Somewhere else'
+    );
+  });
+
+  it('shows a label’s color only while the label still exists', () => {
+    board.labels = [{ id: 'l1', name: 'bug', color: '#ff0000' }];
+    taskActivity.entries = [
+      entry('a1', 'label_added', { new_value: { id: 'l1', name: 'bug' } }),
+      entry('a2', 'label_removed', { old_value: { id: 'l2', name: 'gone' } }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('added the label bug');
+    expect(items[1]).toHaveTextContent('removed the label gone');
+    const dots = items[0]!.querySelectorAll<HTMLElement>('[aria-hidden="true"]');
+    expect(dots).toHaveLength(1);
+    expect(dots[0]!.style.backgroundColor).toBe('rgb(255, 0, 0)');
+    expect(items[1]!.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
+  });
+
+  it('discloses the previous description only when there was one', async () => {
+    taskActivity.entries = [
+      entry('a1', 'description_changed', {
+        old_value: {
+          doc: {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'what it said' }] }],
+          },
+        },
+        new_value: { doc: null },
+      }),
+      entry('a2', 'description_changed', {
+        old_value: { doc: null },
+        new_value: { doc: { type: 'doc' } },
+      }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const disclosures = screen.getAllByText('Show the previous description');
+    expect(disclosures).toHaveLength(1);
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('edited the description');
+    await fireEvent.click(disclosures[0]!);
+    expect(screen.getByText('what it said')).toBeInTheDocument();
+  });
+
+  it('reports a failed log load inline rather than as a toast, without calling it empty', () => {
+    taskActivity.error = true;
+
+    render(TaskActivity, { taskId: 't1' });
+
+    expect(screen.getByText('The history of this task could not be loaded.')).toBeInTheDocument();
+    expect(screen.queryByText('No activity yet.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('keeps a loaded log on screen behind a failed refresh', () => {
+    taskActivity.error = true;
+    taskActivity.entries = [entry('a1', 'archived')];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    expect(screen.getByText('The history of this task could not be loaded.')).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('archived this task');
+  });
+
+  it('names an actor the users store cannot resolve', () => {
+    taskActivity.entries = [entry('a1', 'archived', { actor_user_id: 'departed' })];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const item = screen.getAllByRole('listitem')[0];
+    expect(item).toHaveTextContent('Unknown user');
+    expect(item).toHaveTextContent('archived this task');
   });
 });

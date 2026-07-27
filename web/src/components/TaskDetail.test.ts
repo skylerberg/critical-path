@@ -7,6 +7,7 @@ import TaskDetail from './TaskDetail.svelte';
 import { board } from '../lib/board.svelte';
 import { drafts } from '../lib/drafts.svelte';
 import { router } from '../lib/router.svelte';
+import { taskActivity } from '../lib/taskActivity.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
 
@@ -54,6 +55,15 @@ const comment = {
   updated_at: '2026-01-03T00:00:00Z',
 };
 
+const activityEntry = {
+  id: 'ac1',
+  kind: 'created' as const,
+  actor_user_id: 'u1',
+  old_value: null,
+  new_value: { text: 'Design cards' },
+  created_at: '2026-01-01T00:00:00.000Z',
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -63,6 +73,7 @@ beforeEach(() => {
   board.reset();
   board.taskImages = {};
   board.taskComments = {};
+  taskActivity.reset();
   drafts.clearAll();
   users.reset();
   board.currentProjectId = 'p1';
@@ -119,6 +130,11 @@ function mockRoutes(
         comments: [comment],
       });
     }
+    if (request.method === 'GET' && url.pathname.endsWith('/activity')) {
+      return jsonResponse(200, {
+        activity: url.pathname === '/api/tasks/t1/activity' ? [activityEntry] : [],
+      });
+    }
     if (request.method === 'GET' && url.pathname === '/api/users') {
       return jsonResponse(200, { users: users.users });
     }
@@ -136,6 +152,12 @@ function mockRoutes(
     }
     return jsonResponse(204);
   });
+}
+
+function activityRequests(taskId: string): Request[] {
+  return fetchMock.mock.calls
+    .map((call) => call[0] as Request)
+    .filter((request) => new URL(request.url).pathname === `/api/tasks/${taskId}/activity`);
 }
 
 function taskPatches(): Request[] {
@@ -224,13 +246,57 @@ describe('TaskDetail', () => {
     expect(screen.getByRole('button', { name: 'Delete task' })).toBeInTheDocument();
   });
 
-  it('loads images and comments from the one detail fetch and renders the Comments section', async () => {
+  it('loads images and comments from the one detail fetch and renders the Activity section', async () => {
     render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
 
-    expect(screen.getByRole('heading', { name: 'Comments' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
     await waitFor(() => expect(board.taskComments.t1).toEqual([comment]));
     expect(board.taskImages.t1).toEqual([image]);
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
+  });
+
+  it('loads the activity log and interleaves it with the comments', async () => {
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
+    expect(await screen.findByText(/created this task/)).toBeInTheDocument();
+    const stream = screen.getAllByRole('listitem').filter((item) => item.textContent !== null);
+    const created = stream.findIndex((item) => item.textContent!.includes('created this task'));
+    const written = stream.findIndex((item) => item.textContent!.includes('first thoughts'));
+    expect(created).toBeGreaterThanOrEqual(0);
+    expect(created).toBeLessThan(written);
+  });
+
+  it('drops the previous task’s log when the overlay switches task', async () => {
+    const { rerender } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
+
+    await rerender({ taskId: 't2', closePath: '/projects/p1' });
+    await waitFor(() => expect(taskActivity.entries).toEqual([]));
+    expect(
+      fetchMock.mock.calls.some(
+        (call) => new URL((call[0] as Request).url).pathname === '/api/tasks/t2/activity'
+      )
+    ).toBe(true);
+  });
+
+  it('drops the log on unmount and stops refetching it for the closed overlay', async () => {
+    const { unmount } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
+
+    unmount();
+    await tick();
+    expect(taskActivity.entries).toEqual([]);
+
+    const sent = activityRequests('t1').length;
+    vi.useFakeTimers();
+    try {
+      taskActivity.invalidate('t1');
+      await vi.runAllTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(activityRequests('t1')).toHaveLength(sent);
   });
 
   it('renders the column select with the current column and all columns as options', () => {
