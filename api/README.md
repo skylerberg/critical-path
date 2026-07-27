@@ -432,6 +432,12 @@ there is no second event language.
 | `GET` | `/api/webhooks/:id/deliveries?limit=` | Delivery log, newest first, default 20, max 50 |
 | `POST` | `/api/webhooks/:id/deliveries/:deliveryId/redeliver` | Re-send one failed delivery |
 
+The five mutating routes above are the one deliberate exception to "every
+mutation emits a realtime event": a registration is not board data, no client
+caches it across sessions, and publishing one would put the signing secret on
+the realtime bus and make webhooks fire about themselves. Clients load the list
+when they open it.
+
 Every request body is one envelope:
 
 ```json
@@ -454,19 +460,29 @@ Every request body is one envelope:
 ```js
 import crypto from 'node:crypto';
 
-const expected = crypto
-  .createHmac('sha256', secret)
-  .update(`${req.headers['x-critical-path-timestamp']}.${rawBody}`)
-  .digest('hex');
-const ok = crypto.timingSafeEqual(
-  Buffer.from(`v1=${expected}`),
-  Buffer.from(req.headers['x-critical-path-signature'])
-);
+const TOLERANCE_SECONDS = 300;
+
+function verify(headers, rawBody, secret) {
+  const signature = headers['x-critical-path-signature'];
+  const timestamp = Number(headers['x-critical-path-timestamp']);
+  if (typeof signature !== 'string' || !Number.isFinite(timestamp)) return false;
+  if (Math.abs(Date.now() / 1000 - timestamp) > TOLERANCE_SECONDS) return false;
+
+  const expected = `v1=${crypto
+    .createHmac('sha256', secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest('hex')}`;
+  // timingSafeEqual throws on a length mismatch, which is exactly what a forged
+  // header looks like, so compare digests of equal length instead.
+  return crypto.timingSafeEqual(
+    crypto.createHash('sha256').update(expected).digest(),
+    crypto.createHash('sha256').update(signature).digest()
+  );
+}
 ```
 
-Rejecting a timestamp more than a few minutes old is worth doing: the timestamp
-is inside the signed string, so a captured delivery cannot be replayed under a
-fresh one.
+The timestamp check matters: it is inside the signed string, so a captured
+delivery cannot be replayed under a fresh one.
 
 **Delivered types.** `task_created`, `task_updated`, `task_deleted`,
 `task_archived`, `task_restored`, `task_relations_set`, `column_created`,

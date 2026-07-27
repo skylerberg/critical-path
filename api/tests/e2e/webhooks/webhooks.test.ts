@@ -260,6 +260,22 @@ describe('Webhooks API', () => {
       expect(stillTerminal.next_attempt_at).toBeNull();
     });
 
+    it('leaves the failure count alone when disabled_at: null is a no-op', async () => {
+      const projectId = await createProject('wh-patch-noop-enable');
+      const webhook = await createWebhook(projectId);
+      await db
+        .updateTable('project_webhook')
+        .set({ consecutive_failures: 4 })
+        .where('id', '=', webhook.id)
+        .execute();
+
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/webhooks/${webhook.id}`, { url: uniqueUrl(), disabled_at: null });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as WebhookBody).consecutive_failures).toBe(4);
+    });
+
     it('answers 404 for another user’s webhook', async () => {
       const projectId = await createProject('wh-patch-foreign');
       const webhook = await createWebhook(projectId);

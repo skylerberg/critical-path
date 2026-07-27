@@ -16,6 +16,7 @@ import {
   MAX_PER_WEBHOOK_PER_TICK,
   claimDueDeliveries,
   pruneDeliveries,
+  recordFailure,
   runDueDeliveries,
   type LookupAll,
   type TargetPolicy,
@@ -41,6 +42,7 @@ describe('Webhook delivery', () => {
   let port: number;
   let received: ReceivedRequest[] = [];
   let responseStatus = 200;
+  let redirectTo: string | null = null;
   let counter = 0;
 
   function receiverUrl(path = '/hook', host = 'webhook-receiver.test'): string {
@@ -149,6 +151,11 @@ describe('Webhook delivery', () => {
         req.on('data', (chunk: Buffer) => chunks.push(chunk));
         req.on('end', () => {
           received.push({ headers: req.headers, body: Buffer.concat(chunks).toString('utf8') });
+          if (redirectTo !== null) {
+            res.writeHead(302, { Location: `http://127.0.0.1:${String(port)}${redirectTo}` });
+            res.end();
+            return;
+          }
           res.writeHead(responseStatus, { 'Content-Type': 'text/plain' });
           res.end(responseStatus === 200 ? 'ok' : 'receiver exploded');
         });
@@ -169,6 +176,7 @@ describe('Webhook delivery', () => {
     }
     received = [];
     responseStatus = 200;
+    redirectTo = null;
   });
 
   afterAll(async () => {
@@ -446,6 +454,76 @@ describe('Webhook delivery', () => {
     expect(stranded?.status).toBe('failed');
     expect(stranded?.next_attempt_at).toBeNull();
     expect(stranded?.last_error).toBe('Webhook disabled after repeated failures');
+  });
+
+  it('abandons the rest of a claimed group when auto-disable trips mid-batch', async () => {
+    const project = await createProject('wh-autodisable-group');
+    const webhookId = await registerWebhook(project.id);
+    await db
+      .updateTable('project_webhook')
+      .set({ consecutive_failures: MAX_CONSECUTIVE_FAILURES - 1 })
+      .where('id', '=', webhookId)
+      .execute();
+    const doomed = await seedDelivery(webhookId, {
+      attempt_count: MAX_ATTEMPTS - 1,
+      created_at: new Date(Date.now() - 60_000),
+    });
+    const siblings: string[] = [];
+    for (let i = 0; i < MAX_PER_WEBHOOK_PER_TICK - 1; i++) {
+      siblings.push(await seedDelivery(webhookId));
+    }
+    responseStatus = 500;
+
+    await runDueDeliveries({ policy: permissive, resolve: stubResolve });
+
+    expect((await webhookRow(webhookId)).disabled_at).not.toBeNull();
+    expect(received).toHaveLength(1);
+
+    const all = await rows(webhookId);
+    expect(all.find((r) => r.id === doomed)?.status).toBe('failed');
+    for (const id of siblings) {
+      const row = all.find((r) => r.id === id);
+      expect(row?.status).toBe('failed');
+      expect(row?.next_attempt_at).toBeNull();
+    }
+    expect(await claimDueDeliveries(CLAIM_BATCH)).toHaveLength(0);
+  });
+
+  it('does not put an in-flight delivery back to pending after a manual disable', async () => {
+    const project = await createProject('wh-disable-inflight');
+    const webhookId = await registerWebhook(project.id);
+    const deliveryId = await seedDelivery(webhookId);
+
+    const [claimed] = await claimDueDeliveries(CLAIM_BATCH);
+    expect(claimed.id).toBe(deliveryId);
+
+    expect(
+      (
+        await ctx
+          .request(user.token)
+          .patch(`/api/webhooks/${webhookId}`, { disabled_at: new Date().toISOString() })
+      ).status
+    ).toBe(200);
+
+    await recordFailure(claimed, { statusCode: 500, error: 'Receiver responded 500' });
+
+    const [row] = await rows(webhookId);
+    expect(row.status).toBe('failed');
+    expect(row.next_attempt_at).toBeNull();
+  });
+
+  it('never follows a redirect', async () => {
+    const project = await createProject('wh-redirect');
+    const webhookId = await registerWebhook(project.id);
+    await seedDelivery(webhookId);
+    redirectTo = '/redirected';
+
+    await runDueDeliveries({ policy: permissive, resolve: stubResolve });
+
+    expect(received).toHaveLength(1);
+    const [row] = await rows(webhookId);
+    expect(row.status).toBe('pending');
+    expect(row.last_status_code).toBe(302);
   });
 
   it('clears the failure count on the next success', async () => {

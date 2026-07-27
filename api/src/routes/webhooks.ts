@@ -23,6 +23,8 @@ import {
   webhookSchema,
   webhooksListResponseSchema,
   webhookDeliveriesResponseSchema,
+  type WebhookResponse,
+  type WebhookDeliveryResponse,
   idSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
@@ -35,7 +37,7 @@ import { AppHono } from '../types/index';
 
 const DEFAULT_DELIVERY_LIMIT = 20;
 
-function toWebhookResponse(row: Selectable<ProjectWebhook>) {
+function toWebhookResponse(row: Selectable<ProjectWebhook>): WebhookResponse {
   return {
     id: row.id,
     project_id: row.project_id,
@@ -47,7 +49,7 @@ function toWebhookResponse(row: Selectable<ProjectWebhook>) {
   };
 }
 
-function toDeliveryResponse(row: Selectable<WebhookDelivery>) {
+function toDeliveryResponse(row: Selectable<WebhookDelivery>): WebhookDeliveryResponse {
   return {
     id: row.id,
     webhook_id: row.webhook_id,
@@ -97,10 +99,14 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
+    // Locked for the rest of the transaction: the per-project cap below has no
+    // constraint behind it, so two concurrent registrations would both read a
+    // pre-cap count and both insert.
     const project = await db
       .selectFrom('project')
       .select(['id', 'created_by'])
       .where('id', '=', project_id)
+      .forUpdate()
       .executeTakeFirst();
     if (!project || !(await canAccessProject(db, user.id, project))) {
       throw new AppError(404, 'Project not found');
@@ -225,8 +231,12 @@ router.patch(
     if (body.disabled_at !== undefined) {
       if (body.disabled_at === null) {
         updates.disabled_at = null;
-        // A re-enabled webhook would otherwise auto-disable on its first failure.
-        updates.consecutive_failures = 0;
+        // A re-enabled webhook would otherwise auto-disable on its first failure
+        // — but only on the transition, or a client that resubmits the whole
+        // record on every patch would keep a dead endpoint alive forever.
+        if (existing.disabled_at !== null) {
+          updates.consecutive_failures = 0;
+        }
       } else {
         updates.disabled_at = new Date(body.disabled_at);
       }
