@@ -2,6 +2,7 @@ import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import { filtersToSearch, noFilters, type BoardFilters } from './board-filters';
 import type {
+  ArchivedTask,
   BoardColumn,
   BoardLabel,
   BoardProject,
@@ -114,11 +115,16 @@ class BoardStore {
   // In the store rather than the view so it survives switching views and back.
   graphShowDone = $state(false);
   cyclePath = $state<CycleTask[] | null>(null);
+  archivedTasks = $state<ArchivedTask[]>([]);
+  archivedLoading = $state(false);
+  archivedLoaded = $state(false);
+  archivedError = $state<string | null>(null);
 
   // Monotonic tokens rather than project-id checks: ids cannot tell a stale
   // request apart from a fresh one across a P1->P2->P1 flip.
   #loadToken = 0;
   #fetchToken = 0;
+  #archivedToken = 0;
   #cyclePathTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Filters are adopted before the first await, so a link built from the store during
@@ -192,6 +198,59 @@ class BoardStore {
     }
   }
 
+  async loadArchived(): Promise<void> {
+    const projectId = this.currentProjectId;
+    if (projectId === null) {
+      return;
+    }
+    const token = ++this.#archivedToken;
+    this.archivedLoading = true;
+    try {
+      const data = assertOk(
+        await api.GET('/api/projects/{id}/archived-tasks', { params: { path: { id: projectId } } })
+      );
+      if (token !== this.#archivedToken) {
+        return;
+      }
+      this.archivedTasks = data.tasks;
+      this.archivedLoaded = true;
+      this.archivedError = null;
+    } catch (error) {
+      if (token !== this.#archivedToken) {
+        return;
+      }
+      // An API build without this route answers 404, and so does a board the
+      // caller cannot reach — which the board fetch already reports. Reading it
+      // as an empty archive keeps column deletion working through a rollout.
+      if (error instanceof ApiError && error.status === 404) {
+        this.archivedTasks = [];
+        this.archivedLoaded = true;
+        this.archivedError = null;
+        return;
+      }
+      this.archivedError = error instanceof ApiError ? error.message : 'Failed to load the archive';
+    } finally {
+      if (token === this.#archivedToken) {
+        this.archivedLoading = false;
+      }
+    }
+  }
+
+  // A client that never opened the archive pays nothing for the resync.
+  async refetchArchived(): Promise<void> {
+    if (!this.archivedLoaded) {
+      return;
+    }
+    await this.loadArchived();
+  }
+
+  // refetch() can only repair the board, so every "reload everything" backstop
+  // has to come through here instead.
+  async resync(): Promise<void> {
+    await this.refetch();
+    await this.refetchArchived();
+  }
+
   // Placeholders stand in for the identity and timestamp fields the public
   // payload withholds; nothing the read-only UI renders reads them.
   async #fetchPublic(projectId: string): Promise<{
@@ -232,10 +291,15 @@ class BoardStore {
   reset(): void {
     this.#loadToken += 1;
     this.#fetchToken += 1;
+    this.#archivedToken += 1;
     this.project = null;
     this.columns = [];
     this.tasks = [];
     this.labels = [];
+    this.archivedTasks = [];
+    this.archivedLoading = false;
+    this.archivedLoaded = false;
+    this.archivedError = null;
     this.taskImages = {};
     this.taskComments = {};
     this.loading = false;
@@ -393,7 +457,7 @@ class BoardStore {
     }
   }
 
-  async deleteTask(taskId: string): Promise<void> {
+  #dropTask(taskId: string): void {
     this.tasks = this.tasks
       .filter((task) => task.id !== taskId)
       .map((task) =>
@@ -401,8 +465,52 @@ class BoardStore {
           ? { ...task, blocker_ids: task.blocker_ids.filter((id) => id !== taskId) }
           : task
       );
+  }
+
+  async deleteTask(taskId: string): Promise<void> {
+    this.#dropTask(taskId);
+    this.archivedTasks = this.archivedTasks.filter((task) => task.id !== taskId);
     try {
       assertOk(await api.DELETE('/api/tasks/{id}', { params: { path: { id: taskId } } }));
+    } catch (error) {
+      await this.#mutationFailed(error);
+    }
+  }
+
+  async archiveTask(taskId: string): Promise<void> {
+    // Captured before the drop: nothing else holds the row afterwards.
+    const task = this.tasks.find((t) => t.id === taskId);
+    if (task === undefined) {
+      return;
+    }
+    this.#dropTask(taskId);
+    this.archivedTasks = [
+      { ...task, archived_at: new Date().toISOString() },
+      ...this.archivedTasks,
+    ];
+    try {
+      const archived = assertOk(
+        await api.POST('/api/tasks/{id}/archive', { params: { path: { id: taskId } } })
+      );
+      this.archivedTasks = this.archivedTasks.map((t) => (t.id === taskId ? archived : t));
+    } catch (error) {
+      this.archivedTasks = this.archivedTasks.filter((t) => t.id !== taskId);
+      await this.#mutationFailed(error);
+    }
+  }
+
+  async restoreTask(taskId: string): Promise<void> {
+    this.archivedTasks = this.archivedTasks.filter((t) => t.id !== taskId);
+    try {
+      const restored = assertOk(
+        await api.POST('/api/tasks/{id}/restore', { params: { path: { id: taskId } } })
+      );
+      this.tasks = this.tasks.some((t) => t.id === restored.id)
+        ? this.tasks.map((t) => (t.id === restored.id ? restored : t))
+        : [...this.tasks, restored];
+      // The tasks this one blocks are not derivable from the response, and only
+      // a board read names that direction.
+      await this.refetch();
     } catch (error) {
       await this.#mutationFailed(error);
     }
@@ -473,23 +581,33 @@ class BoardStore {
     }
   }
 
+  // The server relocates every row in the column, archived ones included, so
+  // leaving them behind would strand them on a column id the board no longer has.
   async deleteColumn(columnId: string, moveTasksTo?: string): Promise<void> {
-    const moved = this.tasksInColumn(columnId);
+    const movedLive = this.tasksInColumn(columnId);
+    const movedArchived = this.archivedTasks.filter((task) => task.column_id === columnId);
     this.columns = this.columns.filter((column) => column.id !== columnId);
-    if (moveTasksTo !== undefined && moved.length > 0) {
+    if (moveTasksTo !== undefined && movedLive.length + movedArchived.length > 0) {
       const targetPositions = this.tasksInColumn(moveTasksTo).map((task) => task.position);
       const base = targetPositions.length > 0 ? Math.max(...targetPositions) : 0;
-      const movedPositions = new Map(
-        moved.map((task, index) => [task.id, base + (index + 1) * 1000])
+      // Position then id, the order the server relocates in.
+      const relocating = [...movedLive, ...movedArchived].sort(
+        (a, b) => a.position - b.position || a.id.localeCompare(b.id)
       );
-      this.tasks = this.tasks.map((task) => {
+      const movedPositions = new Map(
+        relocating.map((task, index) => [task.id, base + (index + 1) * 1000])
+      );
+      const place = <T extends { id: string; column_id: string; position: number }>(task: T): T => {
         const newPosition = movedPositions.get(task.id);
         return newPosition === undefined
           ? task
           : { ...task, column_id: moveTasksTo, position: newPosition };
-      });
+      };
+      this.tasks = this.tasks.map(place);
+      this.archivedTasks = this.archivedTasks.map(place);
     } else {
       this.tasks = this.tasks.filter((task) => task.column_id !== columnId);
+      this.archivedTasks = this.archivedTasks.filter((task) => task.column_id !== columnId);
     }
     try {
       const data = assertOk(
@@ -502,12 +620,16 @@ class BoardStore {
       );
       if (data !== undefined) {
         const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
-        this.tasks = this.tasks.map((task) => {
+        const apply = <T extends { id: string; column_id: string; position: number }>(
+          task: T
+        ): T => {
           const movedTask = byId.get(task.id);
           return movedTask === undefined
             ? task
             : { ...task, column_id: movedTask.column_id, position: movedTask.position };
-        });
+        };
+        this.tasks = this.tasks.map(apply);
+        this.archivedTasks = this.archivedTasks.map(apply);
       }
     } catch (error) {
       await this.#mutationFailed(error);
@@ -971,13 +1093,24 @@ class BoardStore {
       }
       case 'task_deleted': {
         const { id } = event.data as { id: string };
-        this.tasks = this.tasks
-          .filter((t) => t.id !== id)
-          .map((t) =>
-            t.blocker_ids.includes(id)
-              ? { ...t, blocker_ids: t.blocker_ids.filter((b) => b !== id) }
-              : t
-          );
+        this.#dropTask(id);
+        this.archivedTasks = this.archivedTasks.filter((t) => t.id !== id);
+        break;
+      }
+      case 'task_archived': {
+        const archived = event.data as ArchivedTask;
+        this.#dropTask(archived.id);
+        this.archivedTasks = this.archivedTasks.some((t) => t.id === archived.id)
+          ? this.archivedTasks.map((t) => (t.id === archived.id ? archived : t))
+          : [archived, ...this.archivedTasks];
+        break;
+      }
+      case 'task_restored': {
+        const restored = event.data as BoardTask;
+        this.archivedTasks = this.archivedTasks.filter((t) => t.id !== restored.id);
+        this.tasks = this.tasks.some((t) => t.id === restored.id)
+          ? this.tasks.map((t) => (t.id === restored.id ? restored : t))
+          : [...this.tasks, restored];
         break;
       }
       case 'task_relations_set': {
@@ -1016,12 +1149,14 @@ class BoardStore {
         };
         this.columns = this.columns.filter((c) => c.id !== d.id);
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
-        this.tasks = this.tasks
-          .map((t) => {
-            const m = moved.get(t.id);
-            return m === undefined ? t : { ...t, column_id: m.column_id, position: m.position };
-          })
-          .filter((t) => t.column_id !== d.id);
+        const relocate = <T extends { id: string; column_id: string; position: number }>(
+          task: T
+        ): T => {
+          const m = moved.get(task.id);
+          return m === undefined ? task : { ...task, column_id: m.column_id, position: m.position };
+        };
+        this.tasks = this.tasks.map(relocate).filter((t) => t.column_id !== d.id);
+        this.archivedTasks = this.archivedTasks.map(relocate).filter((t) => t.column_id !== d.id);
         break;
       }
       case 'label_created':
@@ -1116,7 +1251,7 @@ class BoardStore {
 
   async #mutationFailed(error: unknown): Promise<void> {
     toasts.error(error instanceof ApiError ? error.message : 'Something went wrong');
-    await this.refetch();
+    await this.resync();
   }
 
   async #cycleConflictOrFail(error: unknown): Promise<void> {

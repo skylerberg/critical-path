@@ -288,6 +288,49 @@ describe('TaskDetail', () => {
     await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith('/projects/p1'));
   });
 
+  it('archives without a confirm step, then redirects once the card is off the board', async () => {
+    const redirectSpy = vi.spyOn(router, 'redirect').mockImplementation(() => {});
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/tasks/t1/archive'
+        ? jsonResponse(200, {
+            ...task('t1', 'c1', 'Design cards'),
+            archived_at: '2026-03-01T12:00:00Z',
+          })
+        : undefined
+    );
+
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith('/projects/p1'));
+    expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
+    const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+    expect(paths).toContain('/api/tasks/t1/archive');
+  });
+
+  it('waits for the archive to finish before redirecting', async () => {
+    let resolveArchive: (() => void) | undefined;
+    const archiveSpy = vi.spyOn(board, 'archiveTask').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveArchive = resolve;
+        })
+    );
+    const redirectSpy = vi.spyOn(router, 'redirect').mockImplementation(() => {});
+
+    render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+
+    expect(archiveSpy).toHaveBeenCalledWith('t1');
+    expect(redirectSpy).not.toHaveBeenCalled();
+
+    resolveArchive?.();
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith('/projects/p1'));
+  });
+
   it('discards an uncommitted title edit when the overlay closes', async () => {
     const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
       status: 'ok',

@@ -37,7 +37,8 @@
   let dialog = $state<HTMLDialogElement>();
   let uploadInput = $state<HTMLInputElement>();
   let confirmingDelete = $state(false);
-  let deleting = $state(false);
+  // Covers archiving as well as deleting: both take the card off the board.
+  let removing = $state(false);
 
   // Deliberately local, unlike the compose drafts: this shadows a server-owned
   // value, so surviving an unmount would mean committing an abandoned edit later
@@ -61,7 +62,7 @@
     untrack(() => {
       titleDraft = null;
       confirmingDelete = false;
-      deleting = false;
+      removing = false;
       baseUpdatedAt = null;
       baseTitle = null;
       conflicted = false;
@@ -140,14 +141,14 @@
   }
 
   function saveDescription(doc: TiptapDoc | null): Promise<boolean> {
-    // The editor flushes pending saves on teardown; skip that doomed PATCH once a
-    // delete is under way so it cannot 404 (or resurrect the task on refetch).
-    if (deleting) return Promise.resolve(true);
+    // The editor flushes pending saves on teardown; skip that doomed PATCH once the
+    // card is on its way off the board so it cannot 404 (or resurrect it on refetch).
+    if (removing) return Promise.resolve(true);
     const id = taskId;
     return queueWrite(async () => {
       // Re-checked here because the queue can hold this past a delete, a conflict or
       // an in-place task change.
-      if (conflicted || deleting || id !== taskId) return true;
+      if (conflicted || removing || id !== taskId) return true;
       const outcome = await board.updateTask(id, { description: doc }, baseUpdatedAt ?? undefined);
       if (outcome.status === 'ok') {
         baseUpdatedAt = outcome.updated_at;
@@ -195,8 +196,15 @@
     // Await the DELETE before closing: navigating away first aborts the in-flight
     // request, and the failure path's refetch then races the server commit and
     // resurrects the task.
-    deleting = true;
+    removing = true;
     await board.deleteTask(taskId);
+    close();
+  }
+
+  // No confirm step: archiving is reversible from the project header, unlike delete.
+  async function handleArchive(): Promise<void> {
+    removing = true;
+    await board.archiveTask(taskId);
     close();
   }
 
@@ -452,9 +460,12 @@
               new Date(task.updated_at)
             )}
           </p>
-          <Button variant="danger" onclick={() => void handleDelete()}>
-            {confirmingDelete ? 'Confirm delete' : 'Delete task'}
-          </Button>
+          <div class="flex gap-2">
+            <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
+            <Button variant="danger" onclick={() => void handleDelete()}>
+              {confirmingDelete ? 'Confirm delete' : 'Delete task'}
+            </Button>
+          </div>
         </div>
       {/if}
     {/if}

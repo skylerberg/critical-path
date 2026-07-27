@@ -181,6 +181,17 @@ describe('ProjectHeader', () => {
     expect(screen.getByLabelText('Add people')).toBeInTheDocument();
   });
 
+  it('opens the archive from the Archived cards button', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { tasks: [] }));
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Archived cards' }));
+
+    expect(screen.getByLabelText('Search archived cards')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('No archived cards.')).toBeInTheDocument());
+  });
+
   it('offers Export in both views', () => {
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
     expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
