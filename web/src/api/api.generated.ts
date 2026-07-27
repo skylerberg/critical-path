@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/mentions/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -734,7 +734,7 @@ export interface paths {
         put?: never;
         /**
          * Create comment
-         * @description Post a comment on a task. The client supplies the comment id and the body is the same restricted Tiptap document task descriptions use; a body with no text, image, or rule is rejected. Returns 404 when the task is unknown or inaccessible.
+         * @description Post a comment on a task. The client supplies the comment id and the body is the same restricted Tiptap document task descriptions use; a body with no text, image, rule, or mention is rejected. Returns 404 when the task is unknown or inaccessible.
          */
         post: operations["postApiComments"];
         delete?: never;

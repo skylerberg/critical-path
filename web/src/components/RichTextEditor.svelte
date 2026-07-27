@@ -1,12 +1,16 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { Snippet } from 'svelte';
-  import { Editor, type ChainedCommands, type JSONContent } from '@tiptap/core';
+  import { Editor, mergeAttributes, type ChainedCommands, type JSONContent } from '@tiptap/core';
   import StarterKit from '@tiptap/starter-kit';
   import Image from '@tiptap/extension-image';
+  import { Mention, type MentionNodeAttrs } from '@tiptap/extension-mention';
   import { Placeholder } from '@tiptap/extensions';
   import type { BoardTask } from '../lib/board-types';
+  import { filterMentionCandidates, mentionLabel } from '../lib/mentions';
   import { toasts } from '../lib/toasts.svelte';
+  import type { User } from '../lib/users.svelte';
+  import Avatar from './ui/Avatar.svelte';
 
   type TiptapDoc = NonNullable<BoardTask['description']>;
 
@@ -15,6 +19,7 @@
     onSave?: (doc: TiptapDoc | null) => void | Promise<boolean | void>;
     onChange?: (doc: TiptapDoc | null) => void;
     uploadImage?: (file: File) => Promise<string | null>;
+    mentionUsers?: User[];
     placeholder?: string;
     readonly?: boolean;
     bare?: boolean;
@@ -25,6 +30,7 @@
     onSave,
     onChange,
     uploadImage,
+    mentionUsers = [],
     placeholder = 'Add a description…',
     readonly = false,
     bare = false,
@@ -34,6 +40,11 @@
   let fileInput = $state<HTMLInputElement>();
   let editor = $state<Editor | null>(null);
   let version = $state(0);
+  let mention = $state<{
+    items: User[];
+    index: number;
+    command: (attrs: MentionNodeAttrs) => void;
+  } | null>(null);
 
   // Saves are debounced (800 ms) and flushed on blur and teardown.
   const SAVE_DEBOUNCE_MS = 800;
@@ -105,6 +116,10 @@
     return true;
   }
 
+  function commitMention(user: User): void {
+    mention?.command({ id: user.id, label: user.name });
+  }
+
   $effect(() => {
     const el = element;
     if (!el) return;
@@ -123,6 +138,51 @@
               },
             }),
             Image,
+            // Registered even where nothing can produce a mention: an editor
+            // silently drops nodes its schema does not know, and the next save
+            // would write that deletion back.
+            Mention.configure({
+              HTMLAttributes: { class: 'mention' },
+              renderHTML: ({ options, node }) => [
+                'span',
+                mergeAttributes(options.HTMLAttributes),
+                `@${mentionLabel(node.attrs)}`,
+              ],
+              renderText: ({ node }) => `@${mentionLabel(node.attrs)}`,
+              suggestion: {
+                // Read per keystroke, never at construction: the editor is built
+                // once, inside untrack, so a value captured here would be frozen.
+                items: ({ query }) => filterMentionCandidates(mentionUsers, query),
+                render: () => ({
+                  onStart: (props) => {
+                    mention = { items: props.items, index: 0, command: props.command };
+                  },
+                  onUpdate: (props) => {
+                    mention = { items: props.items, index: 0, command: props.command };
+                  },
+                  onKeyDown: ({ event }) => {
+                    const open = mention;
+                    if (open === null || open.items.length === 0) return false;
+                    if (event.key === 'ArrowDown') {
+                      mention = { ...open, index: Math.min(open.items.length - 1, open.index + 1) };
+                      return true;
+                    }
+                    if (event.key === 'ArrowUp') {
+                      mention = { ...open, index: Math.max(0, open.index - 1) };
+                      return true;
+                    }
+                    if (event.key === 'Enter' || event.key === 'Tab') {
+                      commitMention(open.items[open.index]);
+                      return true;
+                    }
+                    return false;
+                  },
+                  onExit: () => {
+                    mention = null;
+                  },
+                }),
+              },
+            }),
             Placeholder.configure({ placeholder }),
           ],
           content: (content ?? null) as JSONContent | null,
@@ -275,7 +335,7 @@
 {/snippet}
 
 <div
-  class="rte {bare ? 'rte-bare' : 'rounded-md border border-edge bg-canvas'} {readonly
+  class="rte relative {bare ? 'rte-bare' : 'rounded-md border border-edge bg-canvas'} {readonly
     ? ''
     : 'focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30'}"
 >
@@ -309,6 +369,33 @@
     </div>
   {/if}
   <div bind:this={element}></div>
+
+  {#if mention !== null && mention.items.length > 0}
+    {@const open = mention}
+    <div
+      role="listbox"
+      aria-label="Mention a person"
+      class="absolute top-full left-0 z-10 mt-1 flex max-h-56 w-64 flex-col overflow-y-auto rounded-md border border-edge bg-surface shadow-lg"
+    >
+      {#each open.items as user, i (user.id)}
+        <button
+          type="button"
+          role="option"
+          aria-selected={i === open.index}
+          onmousedown={(event) => event.preventDefault()}
+          onclick={() => commitMention(user)}
+          class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 px-3 text-left text-sm {i ===
+          open.index
+            ? 'bg-accent-soft'
+            : 'hover:bg-accent-soft'}"
+        >
+          <Avatar name={user.name} src={user.avatar_url} size="sm" />
+          <span class="min-w-0 flex-1 truncate font-medium">{user.name}</span>
+          <span class="min-w-0 truncate text-xs text-muted">{user.email}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 </div>
 
 {#if !readonly}
@@ -395,6 +482,14 @@
   }
   .rte :global(.tiptap img.ProseMirror-selectednode) {
     outline: 2px solid var(--cp-accent);
+  }
+  .rte :global(.tiptap .mention) {
+    background: var(--cp-accent-soft);
+    color: var(--cp-accent-strong);
+    border-radius: 0.25rem;
+    padding: 0.05rem 0.25rem;
+    font-weight: 500;
+    white-space: nowrap;
   }
   .rte :global(.tiptap hr) {
     border-top: 1px solid var(--cp-edge);

@@ -1,11 +1,12 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import type { Editor } from '@tiptap/core';
 import TaskDetail from './TaskDetail.svelte';
 import { board } from '../lib/board.svelte';
 import { drafts } from '../lib/drafts.svelte';
+import { projects } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
 import { users } from '../lib/users.svelte';
@@ -75,6 +76,7 @@ beforeEach(() => {
   board.taskComments = {};
   taskActivity.reset();
   drafts.clearAll();
+  projects.reset();
   users.reset();
   board.currentProjectId = 'p1';
   board.project = {
@@ -614,6 +616,46 @@ describe('TaskDetail', () => {
       title: 'Their title v2',
       expected_updated_at: '2026-05-05T00:00:00Z',
     });
+  });
+
+  it('offers the project’s people in the description editor and saves the mention', async () => {
+    projects.projects = [
+      {
+        id: 'p1',
+        name: 'Game',
+        description: '',
+        created_by: 'u1',
+        member_ids: ['u2'],
+        is_public: false,
+        archived_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        open_task_count: 0,
+        done_task_count: 0,
+        position: null,
+      },
+    ];
+    users.setForProject('p1', [
+      ...users.users,
+      { id: 'u2', email: 'bob@example.com', name: 'Bob Barker', avatar_url: null },
+      { id: 'u3', email: 'stale@example.com', name: 'Stale Assignee', avatar_url: null },
+    ]);
+    const { container } = render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+    await tick();
+
+    descriptionEditor(container).commands.insertContent('@');
+    const menu = await screen.findByRole('listbox', { name: 'Mention a person' });
+    await waitFor(() =>
+      expect(
+        within(menu)
+          .getAllByRole('option')
+          .map((option) => option.textContent)
+      ).toEqual([expect.stringContaining('Ada Lovelace'), expect.stringContaining('Bob Barker')])
+    );
+
+    await fireEvent.click(within(menu).getAllByRole('option')[1]);
+    await waitFor(() => expect(taskPatches()).toHaveLength(1));
+    const body = (await taskPatches()[0]!.json()) as { description: unknown };
+    expect(JSON.stringify(body.description)).toContain('"id":"u2"');
   });
 
   it('sends the loaded updated_at as the precondition when saving the description', async () => {
