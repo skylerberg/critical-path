@@ -114,7 +114,10 @@ A user may hold up to 100 tokens; the next create answers 422. Changing or
 resetting the password does **not** revoke personal access tokens (matching
 GitHub, so unattended agents survive a rotation) — a token planted by an
 attacker therefore outlives account recovery, which is why the account page
-lists every token and can revoke each one. Revoking a token closes only the
+lists every token and can revoke each one. A token can also mint further tokens
+— it authenticates `POST /api/auth/tokens` like any other credential — so an
+`expires_at` bounds only that one secret, not the access it was granted;
+revocation is the only reliable control. Revoking a token closes only the
 WebSockets authenticated with that token; a password change closes only session
 sockets. `POST /api/auth/logout` authenticated with a PAT is a no-op returning
 204: it deletes a session row by token hash and a PAT is not one.
@@ -454,19 +457,6 @@ platforms:
 ```sh
 cpath login --email you@example.com
 cpath whoami
-```
-
-For anything unattended, mint a personal access token instead of reusing the
-browser session — it does not expire in 30 days and is revocable on its own.
-`token create` prints the secret on stdout and nothing else, so it can be
-captured directly; every other line goes to stderr, and the secret is never
-shown again or written to disk:
-
-```sh
-export CRITICAL_PATH_TOKEN=$(cpath token create "deploy bot")
-cpath token create "ci" --expires-in-days 90
-cpath token list
-cpath token revoke "deploy bot" --force
 ```
 
 Everyday usage:
