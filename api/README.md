@@ -218,7 +218,7 @@ and position it left from, with every dependency edge intact — the
 `task_dependency` rows are never touched by either call. Both are idempotent
 and both return the task; archive returns it with its `archived_at`.
 `GET /api/projects/:id/archived-tasks` lists a project's archive, newest
-first, unpaginated.
+first and then in board position order, unpaginated.
 
 An archived task behaves as if deleted, not as if done. It is absent from
 `GET /api/projects/:id`, from the export, from a project copy, and from the
@@ -249,11 +249,15 @@ they were archived from still exists to restore them into.
 
 `POST /api/columns/:id/archive-tasks` archives every live task in the column
 in one statement with one `archived_at`, and answers with them in the
-`GET /api/projects/:id/archived-tasks` shape. Already archived tasks keep
-their original stamp and are absent from the response, so a repeat call is an
-empty-bodied no-op. Archiving a column full of blockers is how a whole set of
-dependency edges disappears at once; clients are expected to say so before
-confirming.
+`GET /api/projects/:id/archived-tasks` shape and order — the whole batch ties
+on that one stamp, and the tie breaks on board position, so the archive lists
+the batch the same way the response did. Already archived tasks keep their
+original stamp and are absent from the response, so a repeat call is a no-op
+200 with an empty `tasks` array. The archived cards stay in the column, so
+deleting that column afterwards still needs `move_tasks_to` even though every
+board read now shows it empty. Archiving a column full of blockers is how a
+whole set of dependency edges disappears at once; clients are expected to say
+so before confirming.
 
 Both emit one batched event rather than one per task — see Realtime — and
 neither bumps `updated_at`.

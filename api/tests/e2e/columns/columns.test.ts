@@ -51,6 +51,15 @@ async function activityOf(taskId: string): Promise<unknown[]> {
   return ((await res.json()) as { activity: unknown[] }).activity;
 }
 
+async function updatedAt(taskId: string): Promise<string> {
+  const row = await db
+    .selectFrom('task')
+    .select('updated_at')
+    .where('id', '=', taskId)
+    .executeTakeFirstOrThrow();
+  return row.updated_at.toISOString();
+}
+
 function tasksInColumn(columnId: string) {
   return db
     .selectFrom('task')
@@ -695,6 +704,20 @@ describe('POST /api/columns/:id/move-tasks', () => {
     ]);
   });
 
+  it('leaves updated_at untouched on the tasks it moves', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Source' });
+    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const taskId = await insertTask(projectId, sourceId, 1000);
+    const before = await updatedAt(taskId);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+    expect(res.status).toBe(200);
+    expect(await updatedAt(taskId)).toBe(before);
+  });
+
   it('appends past an archived task holding the highest position in the target', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });
@@ -714,11 +737,11 @@ describe('POST /api/columns/:id/move-tasks', () => {
 });
 
 describe('POST /api/columns/:id/archive-tasks', () => {
-  async function archivedTitles(projectId: string): Promise<string[]> {
+  async function archivedIds(projectId: string): Promise<string[]> {
     const res = await ctx.request(token).get(`/api/projects/${projectId}/archived-tasks`);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { tasks: Array<{ title: string }> };
-    return body.tasks.map((task) => task.title);
+    const body = (await res.json()) as { tasks: Array<{ id: string }> };
+    return body.tasks.map((task) => task.id);
   }
 
   it('requires auth', async () => {
@@ -878,15 +901,33 @@ describe('POST /api/columns/:id/archive-tasks', () => {
     expect(tasks).toEqual([expect.objectContaining({ id: blockedId, blocker_ids: [] })]);
   });
 
-  it('lists everything it archived in the project archive', async () => {
+  it('lists everything it archived in the project archive, in the order it returned them', async () => {
     const projectId = await createProject();
     const columnId = await insertColumn(projectId, { name: 'Done' });
-    await insertTask(projectId, columnId, 1000);
-    await insertTask(projectId, columnId, 2000);
+    const inBoardOrder = [];
+    for (const position of [1000, 2000, 3000, 4000]) {
+      inBoardOrder.push(await insertTask(projectId, columnId, position));
+    }
 
-    expect((await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`)).status).toBe(
-      200
+    const res = await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`);
+    expect(res.status).toBe(200);
+    const returned = ((await res.json()) as { tasks: Array<{ id: string }> }).tasks.map(
+      (t) => t.id
     );
-    expect(await archivedTitles(projectId)).toEqual(['Task', 'Task']);
+    expect(returned).toEqual(inBoardOrder);
+    expect(await archivedIds(projectId)).toEqual(returned);
+  });
+
+  it('leaves updated_at untouched on the cards it archives', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId, { name: 'Done' });
+    const taskId = await insertTask(projectId, columnId, 1000);
+    const before = await updatedAt(taskId);
+
+    const res = await ctx.request(token).post(`/api/columns/${columnId}/archive-tasks`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { tasks: Array<{ updated_at: string }> };
+    expect(body.tasks[0]?.updated_at).toBe(before);
+    expect(await updatedAt(taskId)).toBe(before);
   });
 });

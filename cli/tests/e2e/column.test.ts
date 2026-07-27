@@ -244,13 +244,80 @@ describe('column commands', () => {
         'Bulk first'
       );
       const stillArchived = await h.runCli(['task', 'archived', '--project', projectId, '--json']);
-      expect(
-        stillArchived
-          .json<{ title: string }[]>()
-          .map((task) => task.title)
-          .sort()
-      ).toEqual(['Bulk first', 'Bulk second']);
+      expect(stillArchived.json<{ title: string }[]>().map((task) => task.title)).toEqual([
+        'Bulk first',
+        'Bulk second',
+      ]);
       expect((await listColumns()).find((c) => c.name === 'Bulk Dst')?.task_count).toBe(0);
+    });
+
+    it('archive-tasks counts the cards elsewhere that lose a dependency before confirming', async () => {
+      const dstId = (await listColumns()).find((c) => c.name === 'Bulk Dst')!.id;
+      const blockerId = await addTask(sourceId, 'Bulk blocker', 1000);
+      const dependentId = await addTask(dstId, 'Bulk dependent', 1000);
+      const link = await tc
+        .request(user.token)
+        .post(`/api/tasks/${dependentId}/blockers`, { blocker_task_id: blockerId });
+      expect(link.status).toBe(204);
+
+      const res = await h.runCli([
+        'column',
+        'archive-tasks',
+        'Bulk Src',
+        '--project',
+        projectId,
+        '--no-input',
+      ]);
+      expect(res.exitCode).toBe(2);
+      expect(res.stderr).toContain('Archive 1 card(s) in "Bulk Src"?');
+      expect(res.stderr).toContain('1 card(s) elsewhere will lose a dependency.');
+    });
+
+    it('archive-tasks says nothing about dependencies when nothing depends on the column', async () => {
+      const res = await h.runCli([
+        'column',
+        'archive-tasks',
+        'Bulk Dst',
+        '--project',
+        projectId,
+        '--no-input',
+      ]);
+      expect(res.exitCode).toBe(2);
+      expect(res.stderr).toContain('Archive 1 card(s) in "Bulk Dst"?');
+      expect(res.stderr).not.toContain('lose a dependency');
+    });
+
+    it('delete of a column archive-tasks emptied explains the archived cards it still holds', async () => {
+      expect(
+        (await h.runCli(['column', 'create', 'Bulk Gone', '--project', projectId])).exitCode
+      ).toBe(0);
+      const goneId = (await listColumns()).find((c) => c.name === 'Bulk Gone')!.id;
+      await addTask(goneId, 'Bulk leftover', 1000);
+      expect(
+        (
+          await h.runCli([
+            'column',
+            'archive-tasks',
+            'Bulk Gone',
+            '--project',
+            projectId,
+            '--force',
+          ])
+        ).exitCode
+      ).toBe(0);
+      expect((await listColumns()).find((c) => c.name === 'Bulk Gone')?.task_count).toBe(0);
+
+      const res = await h.runCli([
+        'column',
+        'delete',
+        'Bulk Gone',
+        '--project',
+        projectId,
+        '--force',
+      ]);
+      expect(res.exitCode).toBe(5);
+      expect(res.stderr).toContain('archived');
+      expect(res.stderr).toContain('--move-tasks-to');
     });
   });
 
