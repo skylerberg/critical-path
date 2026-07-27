@@ -395,7 +395,7 @@ export interface paths {
     post?: never;
     /**
      * Delete column
-     * @description Delete a column. An empty column returns 204. A column with tasks requires a `move_tasks_to` query parameter naming another column in the same project; its tasks are appended after the target column’s existing tasks (keeping relative order) and the response is 200 with the moved tasks’ new positions. Returns 409 when the column has tasks and no target is given, and 422 when `move_tasks_to` does not exist, belongs to another project, or equals the deleted column.
+     * @description Delete a column. An empty column returns 204. A column with tasks requires a `move_tasks_to` query parameter naming another column in the same project; its tasks are appended after the target column’s existing tasks (keeping relative order) and the response is 200 with the moved tasks’ new positions. Returns 409 when the column has tasks and no target is given, and 422 when `move_tasks_to` does not exist, belongs to another project, or equals the deleted column. Archived tasks count as tasks here, so a column that looks empty in the board payload can still require `move_tasks_to`, and `moved_tasks` can name tasks that payload never served.
      */
     delete: operations['deleteApiColumnsById'];
     options?: never;
@@ -2513,7 +2513,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Column deleted; its tasks were moved to the target column */
+      /** @description Column deleted; its tasks, archived ones included, were moved to the target column */
       200: {
         headers: {
           [name: string]: unknown;
