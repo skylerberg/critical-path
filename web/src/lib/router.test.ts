@@ -15,6 +15,15 @@ describe('matchRoute', () => {
     expect(matchRoute('/forgot-password')).toEqual({ name: 'forgot-password' });
   });
 
+  it('reads the search query out of the query string', () => {
+    expect(matchRoute('/search')).toEqual({ name: 'search', params: { q: '' } });
+    expect(matchRoute('/search', '?q=export%20api')).toEqual({
+      name: 'search',
+      params: { q: 'export api' },
+    });
+    expect(matchRoute('/search', '?q=%20%20')).toEqual({ name: 'search', params: { q: '' } });
+  });
+
   it('reads the reset-password token from the query string', () => {
     expect(matchRoute('/reset-password')).toEqual({ name: 'reset-password', params: {} });
     expect(matchRoute('/reset-password', '?token=abc123')).toEqual({

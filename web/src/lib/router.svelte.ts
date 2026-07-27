@@ -1,11 +1,13 @@
 import type { Action } from 'svelte/action';
 import { parseFilters, type BoardFilters } from './board-filters';
+import { parseSearchQuery } from './search-query';
 
 export type ProjectView = 'board' | 'graph';
 
 export type Route =
   | { name: 'projects' }
   | { name: 'my-tasks' }
+  | { name: 'search'; params: { q: string } }
   | { name: 'login' }
   | { name: 'signup' }
   | { name: 'account' }
@@ -77,6 +79,7 @@ export function matchRoute(pathname: string, search = ''): Route {
   const path = pathname !== '/' ? pathname.replace(/\/+$/, '') : pathname;
   if (path === '/' || path === '') return { name: 'projects' };
   if (path === '/my-tasks') return { name: 'my-tasks' };
+  if (path === '/search') return { name: 'search', params: { q: parseSearchQuery(search) } };
   if (path === '/login') return { name: 'login' };
   if (path === '/signup') return { name: 'signup' };
   if (path === '/account') return { name: 'account' };

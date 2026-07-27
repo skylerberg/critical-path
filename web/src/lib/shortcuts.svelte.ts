@@ -32,6 +32,7 @@ class ShortcutController {
   moveMenu = $state<string | null>(null);
   quickAddColumn = $state<string | null>(null);
   filterFocusRequested = $state(false);
+  searchFocusRequested = $state(false);
 
   #gPending = false;
   #gTimer: ReturnType<typeof setTimeout> | undefined;
@@ -58,6 +59,7 @@ class ShortcutController {
     this.closeMenus();
     this.quickAddColumn = null;
     this.filterFocusRequested = false;
+    this.searchFocusRequested = false;
     this.#gPending = false;
     clearTimeout(this.#gTimer);
   }
@@ -188,6 +190,19 @@ class ShortcutController {
     switch (event.key) {
       case '?':
         this.helpOpen = true;
+        break;
+      case '/':
+        // A modified press is the browser's quick-find, not ours.
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+          return;
+        }
+        // Navigating to the page already on screen would throw away the query
+        // it is holding, so there the key means "back to the box".
+        if (router.current.name === 'search') {
+          this.searchFocusRequested = true;
+        } else {
+          router.navigate('/search');
+        }
         break;
       case 'f':
       case 'F':

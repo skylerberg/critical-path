@@ -23,6 +23,7 @@
 
   const projectsActive = $derived(router.current.name === 'projects');
   const myTasksActive = $derived(router.current.name === 'my-tasks');
+  const searchActive = $derived(router.current.name === 'search');
   const currentProjectId = $derived(
     router.current.name === 'project' ? router.current.params.id : null
   );
@@ -109,6 +110,22 @@
   </svg>
 {/snippet}
 
+{#snippet searchIcon()}
+  <svg
+    class="size-5"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="11" cy="11" r="7" />
+    <path d="m21 21-4.3-4.3" />
+  </svg>
+{/snippet}
+
 {#snippet feedbackIcon()}
   <svg
     class="size-5"
@@ -179,6 +196,16 @@
   >
     {@render projectsIcon()}
     Projects
+  </a>
+  <a
+    href="/search"
+    aria-current={searchActive ? 'page' : undefined}
+    class="mx-2 flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium {searchActive
+      ? 'bg-accent-soft text-accent'
+      : 'text-muted hover:bg-accent-soft hover:text-ink'}"
+  >
+    {@render searchIcon()}
+    Search
   </a>
 
   <div
@@ -261,6 +288,16 @@
   >
     {@render projectsIcon()}
     Projects
+  </a>
+  <a
+    href="/search"
+    aria-current={searchActive ? 'page' : undefined}
+    class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium {searchActive
+      ? 'text-accent'
+      : 'text-muted'}"
+  >
+    {@render searchIcon()}
+    Search
   </a>
   {#if session.user}
     <a
