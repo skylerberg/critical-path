@@ -135,5 +135,53 @@ describe('GET /api/users', () => {
       const ids = body.users.map((u: { id: string }) => u.id);
       expect(ids.sort()).toEqual([alice.id, bob.id, carol.id, stranger.id].sort());
     });
+
+    it('keeps a non-member comment author listed until their comment is gone', async () => {
+      const outsider = await ctx.createUser('users-commenter');
+      const columnId = newId();
+      await db
+        .insertInto('board_column')
+        .values({ id: columnId, project_id: sharedProjectId, name: 'comment col', position: 2000 })
+        .execute();
+      const taskId = newId();
+      await db
+        .insertInto('task')
+        .values({
+          id: taskId,
+          project_id: sharedProjectId,
+          column_id: columnId,
+          title: 'commented',
+          position: 1000,
+        })
+        .execute();
+      const commentId = newId();
+      await db
+        .insertInto('task_comment')
+        .values({
+          id: commentId,
+          task_id: taskId,
+          user_id: outsider.id,
+          body: JSON.stringify({
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'drive-by' }] }],
+          }),
+        })
+        .execute();
+
+      const withComment = await ctx
+        .request(bob.token)
+        .get(`/api/users?project_id=${sharedProjectId}`);
+      expect(withComment.status).toBe(200);
+      const listed = (await withComment.json()).users.map((u: { id: string }) => u.id);
+      expect(listed).toContain(outsider.id);
+
+      await db.deleteFrom('task_comment').where('id', '=', commentId).execute();
+
+      const withoutComment = await ctx
+        .request(bob.token)
+        .get(`/api/users?project_id=${sharedProjectId}`);
+      const remaining = (await withoutComment.json()).users.map((u: { id: string }) => u.id);
+      expect(remaining).not.toContain(outsider.id);
+    });
   });
 });

@@ -106,6 +106,15 @@ export interface TaskAssignee {
   user_id: string;
 }
 
+export interface TaskComment {
+  body: Json;
+  created_at: Generated<Timestamp>;
+  id: string;
+  task_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
 export interface TaskDependency {
   blocked_task_id: string;
   blocker_task_id: string;
@@ -138,6 +147,7 @@ export interface DB {
   session: Session;
   task: Task;
   task_assignee: TaskAssignee;
+  task_comment: TaskComment;
   task_dependency: TaskDependency;
   task_image: TaskImage;
   task_label: TaskLabel;

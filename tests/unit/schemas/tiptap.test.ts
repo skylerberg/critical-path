@@ -4,7 +4,9 @@ import {
   tiptapDocSchema,
   nullableTiptapDocSchema,
   findTiptapDocProblem,
+  isEmptyTiptapDoc,
   TIPTAP_MAX_SERIALIZED_BYTES,
+  type TiptapDoc,
 } from '../../../src/schemas/tiptap';
 
 const imageId = '550e8400-e29b-41d4-a716-446655440000';
@@ -173,5 +175,39 @@ describe('findTiptapDocProblem', () => {
       doc([paragraph(text('x', [{ type: 'link', attrs: { href: 'javascript:alert(1)' } }]))])
     );
     expect(problem).toContain('doc.content[0].content[0].marks[0]');
+  });
+});
+
+describe('isEmptyTiptapDoc', () => {
+  const asDoc = (input: unknown): TiptapDoc => input as TiptapDoc;
+
+  it('treats a document with no content as empty', () => {
+    expect(isEmptyTiptapDoc(asDoc({ type: 'doc' }))).toBe(true);
+  });
+
+  it('treats a lone empty paragraph as empty', () => {
+    expect(isEmptyTiptapDoc(asDoc(doc([{ type: 'paragraph' }])))).toBe(true);
+  });
+
+  it('treats whitespace-only text as empty', () => {
+    expect(isEmptyTiptapDoc(asDoc(doc([paragraph(text('   \n\t'))])))).toBe(true);
+  });
+
+  it('treats text as non-empty', () => {
+    expect(isEmptyTiptapDoc(asDoc(doc([paragraph(text('hi'))])))).toBe(false);
+  });
+
+  it('treats a nested image as non-empty', () => {
+    const nested = doc([
+      {
+        type: 'blockquote',
+        content: [{ type: 'image', attrs: { src: `/api/images/${imageId}` } }],
+      },
+    ]);
+    expect(isEmptyTiptapDoc(asDoc(nested))).toBe(false);
+  });
+
+  it('treats a horizontal rule as non-empty', () => {
+    expect(isEmptyTiptapDoc(asDoc(doc([{ type: 'horizontalRule' }])))).toBe(false);
   });
 });

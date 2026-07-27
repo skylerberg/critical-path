@@ -3,6 +3,7 @@ import { uuid, stringWithLength, boundedUuidArray, finiteNumber, isoDateString }
 import { nullableTiptapDocSchema } from './tiptap';
 import { boardTaskSchema } from './board';
 import { imageResponseSchema } from './images';
+import { commentSchema } from './comments';
 
 export const createTaskSchema = type({
   id: uuid,
@@ -26,6 +27,7 @@ export const patchTaskSchema = type({
 export const taskDetailResponseSchema = boardTaskSchema.merge({
   project_id: 'string',
   images: imageResponseSchema.array(),
+  comments: commentSchema.array(),
 });
 
 export type TaskDetailResponse = typeof taskDetailResponseSchema.infer;

@@ -8,6 +8,7 @@ import {
   deleteProjects,
   insertLabel,
   insertTask,
+  insertTaskComment,
   insertTaskImage,
 } from './helpers';
 
@@ -84,6 +85,8 @@ describe('POST /api/projects with source_project_id', () => {
     const { storageKey } = await insertTaskImage({ taskId: blockerTaskId, imageId });
     await storage.put(storageKey, imageBytes, 'image/png');
 
+    await insertTaskComment({ taskId: blockerTaskId, userId: user.id, text: 'not copied' });
+
     await db
       .insertInto('task_label')
       .values({ task_id: blockerTaskId, label_id: labelId })
@@ -140,6 +143,7 @@ describe('POST /api/projects with source_project_id', () => {
       label_ids: [copy.labels[0].id],
       assignee_ids: [],
       image_count: 1,
+      comment_count: 0,
     });
     expect(copiedBlocked).toMatchObject({
       column_id: copiedDone.id,

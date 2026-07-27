@@ -7,6 +7,7 @@ import {
   deleteProjects,
   insertLabel,
   insertTask,
+  insertTaskComment,
   insertTaskImage,
 } from './helpers';
 
@@ -24,7 +25,7 @@ describe('GET /api/projects/:id board payload', () => {
     await ctx.cleanup();
   });
 
-  it('returns project, columns, tasks with relation ids and image counts, and labels', async () => {
+  it('returns project, columns, tasks with relation ids and image/comment counts, and labels', async () => {
     const projectId = newId();
     projectIds.push(projectId);
     const createRes = await ctx
@@ -70,6 +71,9 @@ describe('GET /api/projects/:id board payload', () => {
       .execute();
     await insertTaskImage({ taskId: mainTaskId });
     await insertTaskImage({ taskId: mainTaskId });
+    await insertTaskComment({ taskId: mainTaskId, userId: user.id });
+    await insertTaskComment({ taskId: mainTaskId, userId: user.id, text: 'second' });
+    await insertTaskComment({ taskId: mainTaskId, userId: user.id, text: 'third' });
 
     const res = await ctx.request(user.token).get(`/api/projects/${projectId}`);
     expect(res.status).toBe(200);
@@ -93,6 +97,7 @@ describe('GET /api/projects/:id board payload', () => {
       assignee_ids: [user.id],
       blocker_ids: [blockerTaskId],
       image_count: 2,
+      comment_count: 3,
     });
     expect(mainTask.description).toEqual(description);
     expect(typeof mainTask.created_at).toBe('string');
@@ -106,6 +111,7 @@ describe('GET /api/projects/:id board payload', () => {
       assignee_ids: [],
       blocker_ids: [],
       image_count: 0,
+      comment_count: 0,
     });
 
     expect(payload.labels).toEqual([

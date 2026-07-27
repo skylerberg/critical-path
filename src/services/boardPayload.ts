@@ -78,6 +78,11 @@ export async function getBoardPayload(
         .select((ib) => ib.fn.countAll<string>().as('image_count'))
         .whereRef('task_image.task_id', '=', 'task.id')
         .as('image_count'),
+      eb
+        .selectFrom('task_comment')
+        .select((cb) => cb.fn.countAll<string>().as('comment_count'))
+        .whereRef('task_comment.task_id', '=', 'task.id')
+        .as('comment_count'),
     ])
     .where('task.project_id', '=', projectId)
     .orderBy('task.position')
@@ -116,6 +121,7 @@ export async function getBoardPayload(
       assignee_ids: task.assignee_rows.map((row) => row.user_id),
       blocker_ids: task.blocker_rows.map((row) => row.blocker_task_id),
       image_count: Number(task.image_count),
+      comment_count: Number(task.comment_count),
     })),
     labels,
   };
