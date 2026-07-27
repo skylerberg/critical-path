@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { suppressTouchContextMenu } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import type { BoardLabel, BoardTask } from '../lib/board-types';
   import { boardPath, link } from '../lib/router.svelte';
@@ -53,10 +54,11 @@
 >
   <a
     use:link
+    use:suppressTouchContextMenu
     href={`${boardPath(projectId, readonly)}/tasks/${task.id}${board.filterSearch}`}
     draggable="false"
     aria-label={task.title}
-    class="absolute inset-0 rounded-md"
+    class="absolute inset-0 touch-callout-none rounded-md select-none"
   ></a>
   {#if labels.length > 0}
     <div class="mb-1.5 flex flex-wrap gap-1">

@@ -270,6 +270,32 @@ describe('Nav sidebar', () => {
     });
   });
 
+  it('keeps the long-press that starts a project drag from raising the link menu', () => {
+    projects.projects = [project({ id: 'p-a', name: 'A', position: 1000 })];
+
+    render(Nav);
+
+    const anchor = screen.getByRole('link', { name: 'A' });
+    expect(anchor.className).toContain('touch-callout-none');
+    expect(anchor.className).toContain('select-none');
+
+    const touch = new PointerEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      pointerType: 'touch',
+    });
+    anchor.dispatchEvent(touch);
+    expect(touch.defaultPrevented).toBe(true);
+
+    const mouse = new PointerEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      pointerType: 'mouse',
+    });
+    anchor.dispatchEvent(mouse);
+    expect(mouse.defaultPrevented).toBe(false);
+  });
+
   it('links the user section to the account page', () => {
     render(Nav);
 

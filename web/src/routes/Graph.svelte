@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-  import { focusIf } from '../lib/actions';
+  import { focusIf, suppressTouchContextMenu } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
   import { draftKey, drafts } from '../lib/drafts.svelte';
@@ -760,10 +760,11 @@
           <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
             <a
               use:link
+              use:suppressTouchContextMenu
               href="/projects/{projectId}/graph/tasks/{n.id}{board.filterSearch}"
               draggable="false"
               aria-label="Open task {n.title}"
-              class="flex h-full w-full cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3"
+              class="flex h-full w-full touch-callout-none cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3 select-none"
             >
               <span class="truncate text-[13px] font-medium {n.isDone ? 'text-muted' : 'text-ink'}">
                 {n.title}

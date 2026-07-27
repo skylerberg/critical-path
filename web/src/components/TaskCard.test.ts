@@ -1,5 +1,5 @@
 import '../api/testUtils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import TaskCard from './TaskCard.svelte';
 import { board } from '../lib/board.svelte';
@@ -172,6 +172,43 @@ describe('TaskCard', () => {
     expect(screen.getByTitle('Ada Lovelace').parentElement?.className).toContain(
       'pointer-events-auto'
     );
+  });
+
+  describe('long-press link menu', () => {
+    function contextMenu(target: Element, pointerType: string): boolean {
+      const event = new PointerEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        pointerType,
+      });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    }
+
+    it('suppresses the native callout on the overlay link', () => {
+      render(TaskCard, { task, projectId: 'p1' });
+
+      expect(screen.getByRole('link').className).toContain('touch-callout-none');
+      expect(screen.getByRole('link').className).toContain('select-none');
+    });
+
+    it('cancels a touch context menu but leaves right-click alone', () => {
+      render(TaskCard, { task, projectId: 'p1' });
+
+      expect(contextMenu(screen.getByRole('link'), 'touch')).toBe(true);
+      expect(contextMenu(screen.getByRole('link'), 'mouse')).toBe(false);
+    });
+
+    it('cancels a touch context menu on the listener-less clone dragged under the finger', () => {
+      render(TaskCard, { task, projectId: 'p1' });
+      const clone = card().cloneNode(true) as HTMLElement;
+      document.body.append(clone);
+      onTestFinished(() => clone.remove());
+
+      const anchor = clone.querySelector('a');
+      expect(anchor).not.toBeNull();
+      expect(contextMenu(anchor!, 'touch')).toBe(true);
+    });
   });
 
   describe('due date pill', () => {
