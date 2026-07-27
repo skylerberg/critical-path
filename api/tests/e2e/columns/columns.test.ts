@@ -45,6 +45,12 @@ async function insertTask(projectId: string, columnId: string, position: number)
   return id;
 }
 
+async function activityOf(taskId: string): Promise<unknown[]> {
+  const res = await ctx.request(token).get(`/api/tasks/${taskId}/activity`);
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { activity: unknown[] }).activity;
+}
+
 function tasksInColumn(columnId: string) {
   return db
     .selectFrom('task')
@@ -417,26 +423,20 @@ describe('DELETE /api/columns/:id', () => {
     const sourceId = await insertColumn(projectId, { name: 'Vanishing', position: 1000 });
     const targetId = await insertColumn(projectId, { name: 'Survivor', position: 2000 });
     const taskId = await insertTask(projectId, sourceId, 1000);
+    const settled = await insertTask(projectId, targetId, 500);
     const emptyId = await insertColumn(projectId, { name: 'Nothing here', position: 3000 });
 
     expect(
       (await ctx.request(token).delete(`/api/columns/${emptyId}?move_tasks_to=${targetId}`)).status
     ).toBe(204);
+    expect(await activityOf(taskId)).toEqual([]);
+    expect(await activityOf(settled)).toEqual([]);
+
     expect(
       (await ctx.request(token).delete(`/api/columns/${sourceId}?move_tasks_to=${targetId}`)).status
     ).toBe(200);
 
-    const res = await ctx.request(token).get(`/api/tasks/${taskId}/activity`);
-    expect(res.status).toBe(200);
-    const { activity } = (await res.json()) as {
-      activity: Array<{
-        kind: string;
-        actor_user_id: string;
-        old_value: unknown;
-        new_value: unknown;
-      }>;
-    };
-    expect(activity).toEqual([
+    expect(await activityOf(taskId)).toEqual([
       expect.objectContaining({
         kind: 'column_changed',
         actor_user_id: userId,
@@ -444,6 +444,7 @@ describe('DELETE /api/columns/:id', () => {
         new_value: { id: targetId, name: 'Survivor' },
       }),
     ]);
+    expect(await activityOf(settled)).toEqual([]);
   });
 
   it('starts positions at 1000 when the target column is empty', async () => {

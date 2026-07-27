@@ -184,6 +184,17 @@ describe('Task activity', () => {
       expect(entries[1]!.new_value).toEqual({ doc: second });
     });
 
+    it('drops the coalesced entry when the edit ends back where it started', async () => {
+      const taskId = await createTask('undone');
+
+      await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${taskId}`, { description: validDescription('a false start') });
+      await ctx.request(user.token).patch(`/api/tasks/${taskId}`, { description: null });
+
+      expect(await kinds(taskId)).toEqual(['created']);
+    });
+
     it('starts a new description entry after another entry or another actor intervenes', async () => {
       const taskId = await createTask('interrupted');
       const first = validDescription('draft one');
@@ -342,6 +353,30 @@ describe('Task activity', () => {
       ]);
       expect(entries[1]!.new_value).toEqual({ id: blockerId, name: 'the blocker' });
       expect(entries[2]!.old_value).toEqual({ id: blockerId, name: 'the blocker' });
+    });
+
+    it('records the removal on the dependents when the blocker task is deleted', async () => {
+      const taskId = await createTask('outlives its blocker');
+      const untouched = await createTask('unrelated');
+      const blockerId = await createTask('deleted blocker');
+
+      await ctx
+        .request(user.token)
+        .post(`/api/tasks/${taskId}/blockers`, { blocker_task_id: blockerId });
+      expect((await ctx.request(user.token).delete(`/api/tasks/${blockerId}`)).status).toBe(204);
+
+      const entries = await activity(taskId);
+      expect(entries.map((entry) => entry.kind)).toEqual([
+        'created',
+        'blocker_added',
+        'blocker_removed',
+      ]);
+      expect(entries[2]).toMatchObject({
+        actor_user_id: user.id,
+        old_value: { id: blockerId, name: 'deleted blocker' },
+        new_value: null,
+      });
+      expect(await kinds(untouched)).toEqual(['created']);
     });
 
     it('leaves the blocker task’s own log untouched', async () => {

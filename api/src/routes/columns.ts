@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import { sql } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
@@ -25,6 +25,7 @@ import {
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
+import type { DB } from '../db/types';
 import type { ColumnResponse } from '../schemas/index';
 
 const router: AppHono = new Hono();
@@ -40,6 +41,29 @@ function serializeColumn(row: {
   created_at: Date;
 }): ColumnResponse {
   return { ...row, created_at: row.created_at.toISOString() };
+}
+
+async function loadMoveTarget(
+  db: Kysely<DB>,
+  moveTasksTo: string,
+  deletedColumnId: string,
+  projectId: string
+): Promise<{ id: string; name: string }> {
+  if (moveTasksTo === deletedColumnId) {
+    throw new AppError(422, 'move_tasks_to must not be the column being deleted');
+  }
+  const target = await db
+    .selectFrom('board_column')
+    .select(['id', 'project_id', 'name'])
+    .where('id', '=', moveTasksTo)
+    .executeTakeFirst();
+  if (!target) {
+    throw new AppError(422, 'move_tasks_to column does not exist');
+  }
+  if (target.project_id !== projectId) {
+    throw new AppError(422, 'move_tasks_to column belongs to another project');
+  }
+  return { id: target.id, name: target.name };
 }
 
 router.post(
@@ -221,23 +245,10 @@ router.delete(
     }
     await assertProjectAccess(db, user.id, column.project_id, 'Column not found');
 
-    let target: { id: string; project_id: string; name: string } | undefined;
-    if (move_tasks_to !== undefined) {
-      if (move_tasks_to === id) {
-        throw new AppError(422, 'move_tasks_to must not be the column being deleted');
-      }
-      target = await db
-        .selectFrom('board_column')
-        .select(['id', 'project_id', 'name'])
-        .where('id', '=', move_tasks_to)
-        .executeTakeFirst();
-      if (!target) {
-        throw new AppError(422, 'move_tasks_to column does not exist');
-      }
-      if (target.project_id !== column.project_id) {
-        throw new AppError(422, 'move_tasks_to column belongs to another project');
-      }
-    }
+    const target =
+      move_tasks_to === undefined
+        ? undefined
+        : await loadMoveTarget(db, move_tasks_to, id, column.project_id);
 
     const tasks = await db
       .selectFrom('task')
@@ -248,45 +259,42 @@ router.delete(
       .execute();
 
     if (tasks.length > 0) {
-      if (move_tasks_to === undefined) {
+      if (target === undefined) {
         throw new AppError(409, 'Column has tasks; provide move_tasks_to');
       }
 
       const { max } = await db
         .selectFrom('task')
         .select((eb) => eb.fn.max<number | null>('position').as('max'))
-        .where('column_id', '=', move_tasks_to)
+        .where('column_id', '=', target.id)
         .executeTakeFirstOrThrow();
       const base = max ?? 0;
 
       const movedTasks = tasks.map((task, index) => ({
         id: task.id,
-        column_id: move_tasks_to,
+        column_id: target.id,
         position: base + (index + 1) * 1000,
       }));
 
       await sql`
         update task
-        set column_id = ${move_tasks_to}::uuid, position = v.position
+        set column_id = ${target.id}::uuid, position = v.position
         from (values ${sql.join(
           movedTasks.map((task) => sql`(${task.id}::uuid, ${task.position}::float8)`)
         )}) as v(id, position)
         where task.id = v.id
       `.execute(db);
 
-      const into = target;
-      if (into !== undefined) {
-        await recordTaskActivity(
-          db,
-          user.id,
-          movedTasks.map((task) => ({
-            taskId: task.id,
-            kind: 'column_changed' as const,
-            oldValue: { id: column.id, name: column.name },
-            newValue: { id: into.id, name: into.name },
-          }))
-        );
-      }
+      await recordTaskActivity(
+        db,
+        user.id,
+        movedTasks.map((task) => ({
+          taskId: task.id,
+          kind: 'column_changed' as const,
+          oldValue: { id: column.id, name: column.name },
+          newValue: { id: target.id, name: target.name },
+        }))
+      );
 
       await db.deleteFrom('board_column').where('id', '=', id).execute();
 

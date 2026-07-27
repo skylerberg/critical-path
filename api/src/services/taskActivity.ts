@@ -84,9 +84,16 @@ export async function recordDescriptionChange(
   oldDoc: TiptapDoc | null,
   newDoc: TiptapDoc | null
 ): Promise<void> {
+  const nextValue = serializeValue({ doc: newDoc });
   const last = await db
     .selectFrom('task_activity')
-    .select(['id', 'kind', 'actor_user_id'])
+    .select([
+      'id',
+      'kind',
+      'actor_user_id',
+      // jsonb equality, because Postgres normalizes key order on storage.
+      sql<boolean>`old_value is not distinct from ${nextValue}::jsonb`.as('back_to_old_value'),
+    ])
     .where('task_id', '=', taskId)
     .where('created_at', '>', sql<Date>`now() - ${DESCRIPTION_COALESCE_INTERVAL}::interval`)
     .orderBy('created_at', 'desc')
@@ -95,9 +102,14 @@ export async function recordDescriptionChange(
     .executeTakeFirst();
 
   if (last?.kind === 'description_changed' && last.actor_user_id === actorUserId) {
+    if (last.back_to_old_value) {
+      // Undoing inside the window leaves the entry recording no change at all.
+      await db.deleteFrom('task_activity').where('id', '=', last.id).execute();
+      return;
+    }
     await db
       .updateTable('task_activity')
-      .set({ new_value: serializeValue({ doc: newDoc }), created_at: sql<Date>`now()` })
+      .set({ new_value: nextValue, created_at: sql<Date>`now()` })
       .where('id', '=', last.id)
       .execute();
     return;

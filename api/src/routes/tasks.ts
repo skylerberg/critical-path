@@ -610,8 +610,9 @@ router.delete(
   async (c) => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
+    const actorId = c.get('user').id;
 
-    const project = await assertTaskAccess(db, c.get('user').id, id);
+    const project = await assertTaskAccess(db, actorId, id);
 
     const images = await db
       .selectFrom('task_image')
@@ -619,14 +620,33 @@ router.delete(
       .where('task_image.task_id', '=', id)
       .execute();
 
+    // Read before the delete, which takes the edges with it by cascade.
+    const dependents = await db
+      .selectFrom('task_dependency')
+      .select('task_dependency.blocked_task_id')
+      .where('task_dependency.blocker_task_id', '=', id)
+      .execute();
+
     const deleted = await db
       .deleteFrom('task')
       .where('task.id', '=', id)
-      .returning('task.id')
+      .returning('task.title')
       .executeTakeFirst();
     if (!deleted) {
       throw new AppError(404, 'Task not found');
     }
+
+    // This card's own log dies with it; the cards it was blocking outlive it and would
+    // otherwise show a blocker that vanished with nothing to explain it.
+    await recordTaskActivity(
+      db,
+      actorId,
+      dependents.map((dependent) => ({
+        taskId: dependent.blocked_task_id,
+        kind: 'blocker_removed' as const,
+        oldValue: { id, name: deleted.title },
+      }))
+    );
 
     if (images.length > 0) {
       const keys = images.map((image) => image.storage_key);
@@ -805,8 +825,8 @@ router.put(
     if (desired.length > 0) {
       removal = removal.where('task_label.label_id', 'not in', desired);
     }
-    // `returning` on the statements that already run is the whole diff: `do nothing`
-    // returns no row for a pair that was already there.
+    // `do nothing` returns no row for a pair that was already there, so `returning`
+    // yields the exact added and removed sets.
     const removed = await removal.returning('task_label.label_id').execute();
 
     const added =
