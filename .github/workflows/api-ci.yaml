@@ -45,4 +45,7 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run type-check
+      # The root scripts cover src/ and tests/ only, and npm test runs the CLI
+      # suites through tsx, which strips types without checking them.
+      - run: npm run --prefix cli check
       - run: npm test
