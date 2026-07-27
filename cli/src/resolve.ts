@@ -8,18 +8,19 @@ export type BoardPayload = components['schemas']['BoardPayload'];
 export type BoardColumn = components['schemas']['BoardColumn'];
 export type BoardTask = components['schemas']['BoardTask'];
 export type BoardLabel = components['schemas']['BoardLabel'];
+export type ArchivedTask = components['schemas']['ArchivedTask'];
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const ID_PREFIX_RE = /^[0-9a-f][0-9a-f-]{3,}$/;
 
-export function matchRef<T>(
+export function matchRefOrNull<T>(
   ref: string,
   items: readonly T[],
   kind: string,
   getId: (item: T) => string,
   getName: (item: T) => string
-): T {
+): T | null {
   const lower = ref.toLowerCase();
   const tiers: T[][] = [
     items.filter((item) => getId(item).toLowerCase() === lower),
@@ -44,7 +45,21 @@ export function matchRef<T>(
       );
     }
   }
-  throw new CliError(`No ${kind} matching "${ref}"`, EXIT.notFound);
+  return null;
+}
+
+export function matchRef<T>(
+  ref: string,
+  items: readonly T[],
+  kind: string,
+  getId: (item: T) => string,
+  getName: (item: T) => string
+): T {
+  const match = matchRefOrNull(ref, items, kind, getId, getName);
+  if (match === null) {
+    throw new CliError(`No ${kind} matching "${ref}"`, EXIT.notFound);
+  }
+  return match;
 }
 
 export async function listProjects(ctx: RuntimeContext): Promise<ProjectListItem[]> {
@@ -122,16 +137,51 @@ export function resolveLabel(board: BoardPayload, ref: string): BoardLabel {
   );
 }
 
+export async function listArchivedTasks(
+  ctx: RuntimeContext,
+  projectId: string
+): Promise<ArchivedTask[]> {
+  return assertOk(
+    await ctx.api.GET('/api/projects/{id}/archived-tasks', {
+      params: { path: { id: projectId } },
+    })
+  ).tasks;
+}
+
+export function matchArchivedTask(archived: readonly ArchivedTask[], ref: string): ArchivedTask {
+  return matchRef(
+    ref,
+    archived,
+    'task',
+    (t) => t.id,
+    (t) => t.title
+  );
+}
+
 export async function resolveTaskId(
   ctx: RuntimeContext,
   ref: string,
-  projectRef?: string
+  projectRef?: string,
+  opts: { includeArchived?: boolean } = {}
 ): Promise<string> {
   if (UUID_RE.test(ref)) {
     return ref;
   }
   const board = await resolveBoard(ctx, projectRef);
-  return resolveTaskInBoard(board, ref).id;
+  const task = matchRefOrNull(
+    ref,
+    board.tasks,
+    'task',
+    (t) => t.id,
+    (t) => t.title
+  );
+  if (task !== null) {
+    return task.id;
+  }
+  if (opts.includeArchived === true) {
+    return matchArchivedTask(await listArchivedTasks(ctx, board.project.id), ref).id;
+  }
+  throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
 }
 
 export async function listUsers(ctx: RuntimeContext, projectId?: string): Promise<User[]> {

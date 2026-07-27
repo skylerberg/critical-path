@@ -33,6 +33,7 @@ describe('completion commands', () => {
   let h: CliHarness;
   let projectId: string;
   let secondProjectId: string;
+  let archiveProjectId: string;
 
   async function complete(words: string[]): Promise<{ exitCode: number; values: string[] }> {
     const res = await h.runCli(['__complete', '--', 'cpath', ...words]);
@@ -54,10 +55,17 @@ describe('completion commands', () => {
     expect(second.exitCode).toBe(0);
     secondProjectId = second.json<BoardPayload>().project.id;
 
+    const third = await h.runCli(['project', 'create', 'Completion Archive', '--json']);
+    expect(third.exitCode).toBe(0);
+    archiveProjectId = third.json<BoardPayload>().project.id;
+
     for (const argv of [
       ['label', 'create', 'urgent', '--project', projectId, '--color', '#ff0000'],
       ['task', 'create', 'Alpha task', '--project', projectId, '--description', SECRET_DESCRIPTION],
       ['task', 'create', 'Beta task', '--project', projectId],
+      ['task', 'create', 'Shelved work', '--project', archiveProjectId],
+      ['task', 'create', 'Still live', '--project', archiveProjectId],
+      ['task', 'archive', 'Shelved work', '--project', archiveProjectId],
     ]) {
       expect((await h.runCli(argv)).exitCode).toBe(0);
     }
@@ -66,6 +74,7 @@ describe('completion commands', () => {
   afterAll(async () => {
     await tc.request(user.token).delete(`/api/projects/${projectId}`);
     await tc.request(user.token).delete(`/api/projects/${secondProjectId}`);
+    await tc.request(user.token).delete(`/api/projects/${archiveProjectId}`);
     await tc.cleanup();
   });
 
@@ -128,6 +137,14 @@ describe('completion commands', () => {
 
     const assignees = await complete(['task', 'list', '--project', projectId, '--assignee', '']);
     expect(assignees.values).toContain(user.email);
+  });
+
+  it('completes restore from the archive and every other task argument from the board', async () => {
+    const restore = await complete(['task', 'restore', '--project', archiveProjectId, '']);
+    expect(restore.values).toEqual(['Shelved work']);
+
+    const move = await complete(['task', 'move', '--project', archiveProjectId, '']);
+    expect(move.values).toEqual(['Still live']);
   });
 
   it('filters entity candidates case-insensitively', async () => {

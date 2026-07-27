@@ -14,7 +14,7 @@ import {
 } from '../services/authorization';
 import { avatarUrl } from '../services/avatars';
 import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
-import { getBoardPayload } from '../services/boardPayload';
+import { getArchivedTasks, getBoardPayload } from '../services/boardPayload';
 import { exportFilename, projectExportArchive } from '../services/export/archive';
 import { buildProjectExport } from '../services/export/payload';
 import { copyProject } from '../services/projectCopy';
@@ -27,6 +27,7 @@ import {
   projectSchema,
   projectsListResponseSchema,
   boardPayloadSchema,
+  archivedTasksResponseSchema,
   createProjectSchema,
   patchProjectSchema,
   setProjectPositionSchema,
@@ -130,6 +131,7 @@ async function fetchTaskCounts(
         .as('done_task_count'),
     ])
     .where('task.project_id', '=', projectId)
+    .where('task.archived_at', 'is', null)
     .executeTakeFirstOrThrow();
   return {
     open_task_count: Number(row.open_task_count),
@@ -162,7 +164,8 @@ router.get(
     description:
       'List projects the caller can access (created by them or shared with them as a member) ' +
       "with member ids, open and done task counts, and the caller's personal sort position " +
-      '(null when never set). Ordered by position (nulls last), then created_at, then id.',
+      '(null when never set). Archived tasks count toward neither total. Ordered by position ' +
+      '(nulls last), then created_at, then id.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -207,13 +210,18 @@ router.get(
             .orderBy('project_member.created_at')
             .orderBy('project_member.user_id')
         ).as('member_rows'),
+        // Archived rows are excluded inside the aggregate, never in the outer
+        // where: that would turn the left joins into inner ones and drop every
+        // project whose tasks are all archived.
         eb.fn
           .count<string>('task.id')
           .filterWhere(eb.not(eb.fn.coalesce('board_column.is_done', eb.val(false))))
+          .filterWhere('task.archived_at', 'is', null)
           .as('open_task_count'),
         eb.fn
           .count<string>('task.id')
           .filterWhere('board_column.is_done', '=', true)
+          .filterWhere('task.archived_at', 'is', null)
           .as('done_task_count'),
       ])
       .where(accessibleProjectsFilter(user.id))
@@ -248,8 +256,9 @@ router.post(
     description:
       'Create a project with the default Backlog / To Do / In Progress / Done columns, or ' +
       'deep-copy an existing project by passing source_project_id (copies columns, labels, ' +
-      'tasks, task labels, dependencies, and images — not comments, assignees, members, or ' +
-      'archived state; copies start personal). Returns 422 when source_project_id does not ' +
+      'tasks, task labels, dependencies, and images — not comments, assignees, members, ' +
+      'archived cards, or the archived state of the project itself; copies start personal). ' +
+      'Returns 422 when source_project_id does not ' +
       'reference an existing project and 404 when it references a project the caller cannot access.',
     security: [{ bearerAuth: [] }],
     responses: {
@@ -354,7 +363,8 @@ router.get(
     summary: 'Get board payload',
     description:
       'Get a project with its columns, tasks (including label, assignee, and blocker ids ' +
-      'plus image counts), and labels in one payload.',
+      'plus image counts), and labels in one payload. Archived tasks are excluded, as are ' +
+      'archived tasks appearing as blockers of the tasks that are included.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -387,6 +397,43 @@ router.get(
 );
 
 router.get(
+  '/:id/archived-tasks',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'List archived tasks',
+    description:
+      'List every archived task in a project in board-payload shape plus archived_at, most ' +
+      'recently archived first. Unpaginated and unfiltered — clients search it themselves, ' +
+      'the same way they do the board payload.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Archived tasks, newest first',
+        content: {
+          'application/json': {
+            schema: resolver(archivedTasksResponseSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const db = c.get('db');
+
+    await assertProjectAccess(db, c.get('user').id, id);
+
+    return c.json({ tasks: await getArchivedTasks(db, id) }, 200);
+  }
+);
+
+router.get(
   '/:id/export',
   describeRoute({
     tags: ['Projects'],
@@ -394,7 +441,8 @@ router.get(
     description:
       'Download everything in a project. The default zip holds project.json (the manifest ' +
       'below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes ' +
-      'of every attached image, so the archive survives losing the account. Pass format=json ' +
+      'of every attached image, so the archive survives losing the account. Archived cards ' +
+      'are not exported, matching every other read of the board. Pass format=json ' +
       'for the manifest alone. The manifest is the documented, stable interchange format the ' +
       'importer reads back: format identifies it, version is bumped only on a breaking shape ' +
       'change, and ids are the original server ids — created_by, member_ids and assignee_ids ' +

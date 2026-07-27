@@ -345,6 +345,111 @@ describe('Realtime end to end', () => {
     expect(event.data).toEqual({ id: task2Id });
   });
 
+  // The shared project's task counts are asserted further down, so anything
+  // these tests add has to leave again.
+  async function withTemporaryTasks(
+    titles: string[],
+    run: (ids: string[]) => Promise<void>
+  ): Promise<void> {
+    const ids: string[] = [];
+    try {
+      for (const [index, title] of titles.entries()) {
+        const id = newId();
+        const res = await ctx.request(userA.token).post('/api/tasks', {
+          id,
+          project_id: projectId,
+          column_id: columnId,
+          title,
+          position: 10_000 + index * 1000,
+        });
+        expect(res.status).toBe(201);
+        ids.push(id);
+      }
+      await run(ids);
+    } finally {
+      for (const id of ids) {
+        await ctx.request(userA.token).delete(`/api/tasks/${id}`);
+      }
+    }
+  }
+
+  it('delivers task_archived with the archived shape and task_restored with the board shape', async () => {
+    await withTemporaryTasks(['Archive me', 'Depends on it'], async ([blockerId, dependentId]) => {
+      expect(
+        (
+          await ctx
+            .request(userA.token)
+            .post(`/api/tasks/${dependentId}/blockers`, { blocker_task_id: blockerId })
+        ).status
+      ).toBe(204);
+
+      const archiveRes = await ctx.request(userA.token).post(`/api/tasks/${blockerId}/archive`);
+      expect(archiveRes.status).toBe(200);
+      const archivedEvent = await clientB.waitForEvent(
+        (e) => e.type === 'task_archived' && e.data.id === blockerId
+      );
+      expect(archivedEvent.project_id).toBe(projectId);
+      expect(archivedEvent.data).toMatchObject({ id: blockerId, title: 'Archive me' });
+      expect(typeof archivedEvent.data.archived_at).toBe('string');
+
+      // Delivery is an unawaited post-commit hook, so the blocker-add event has
+      // to be allowed to land before the cursor for the restore fan-out is taken.
+      await settle();
+      const relationsBefore = clientB.events.length;
+
+      const restoreRes = await ctx.request(userA.token).post(`/api/tasks/${blockerId}/restore`);
+      expect(restoreRes.status).toBe(200);
+      const restoredEvent = await clientB.waitForEvent(
+        (e) => e.type === 'task_restored' && e.data.id === blockerId
+      );
+      expect(restoredEvent.data.archived_at).toBeUndefined();
+      // Only this fan-out puts the restored id back in the dependent's
+      // blocker_ids; nothing the client already holds names that direction.
+      const relationsEvent = await clientB.waitForEvent(
+        (e) => e.type === 'task_relations_set' && e.data.task_id === dependentId,
+        { from: relationsBefore }
+      );
+      expect(relationsEvent.data.blocker_ids).toEqual([blockerId]);
+
+      await settle();
+      expect(clientB2.eventsOfType('task_archived')).toEqual([]);
+      expect(clientB2.eventsOfType('task_restored')).toEqual([]);
+    });
+  });
+
+  it('leaves an archived blocker out of a later task_relations_set', async () => {
+    await withTemporaryTasks(
+      ['Shelved blocker', 'Live blocker', 'Blocked by both'],
+      async ([archivedBlockerId, liveBlockerId, blockedId]) => {
+        for (const blocker of [archivedBlockerId, liveBlockerId]) {
+          expect(
+            (
+              await ctx
+                .request(userA.token)
+                .post(`/api/tasks/${blockedId}/blockers`, { blocker_task_id: blocker })
+            ).status
+          ).toBe(204);
+        }
+        expect(
+          (await ctx.request(userA.token).post(`/api/tasks/${archivedBlockerId}/archive`)).status
+        ).toBe(200);
+
+        await settle();
+        const before = clientB.events.length;
+        expect(
+          (await ctx.request(userA.token).put(`/api/tasks/${blockedId}/labels`, { label_ids: [] }))
+            .status
+        ).toBe(204);
+
+        const event = await clientB.waitForEvent(
+          (e) => e.type === 'task_relations_set' && e.data.task_id === blockedId,
+          { from: before }
+        );
+        expect(event.data.blocker_ids).toEqual([liveBlockerId]);
+      }
+    );
+  });
+
   it('broadcasts project_updated with member_ids to unsubscribed members but not outsiders', async () => {
     const res = await ctx
       .request(userA.token)

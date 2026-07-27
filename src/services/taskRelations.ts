@@ -1,8 +1,22 @@
-import type { Kysely } from 'kysely';
+import type { ExpressionBuilder, Kysely } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB } from '../db/types';
 import type { AppContext } from '../types/index';
 import { publishAfterCommit } from './realtime/index';
+
+// An archived blocker leaves the list entirely rather than reading as satisfied,
+// unlike a done one, which stays and merely stops counting as open.
+export function unarchivedBlockerIds(eb: ExpressionBuilder<DB, 'task'>) {
+  return jsonArrayFrom(
+    eb
+      .selectFrom('task_dependency')
+      .innerJoin('task as blocker', 'blocker.id', 'task_dependency.blocker_task_id')
+      .select('task_dependency.blocker_task_id')
+      .whereRef('task_dependency.blocked_task_id', '=', 'task.id')
+      .where('blocker.archived_at', 'is', null)
+      .orderBy('task_dependency.blocker_task_id')
+  );
+}
 
 export interface TaskRelations {
   task_id: string;
@@ -38,13 +52,7 @@ export async function fetchTaskRelations(
           .whereRef('task_assignee.task_id', '=', 'task.id')
           .orderBy('task_assignee.user_id')
       ).as('assignees'),
-      jsonArrayFrom(
-        eb
-          .selectFrom('task_dependency')
-          .select('task_dependency.blocker_task_id')
-          .whereRef('task_dependency.blocked_task_id', '=', 'task.id')
-          .orderBy('task_dependency.blocker_task_id')
-      ).as('blockers'),
+      unarchivedBlockerIds(eb).as('blockers'),
     ])
     .where('task.id', 'in', taskIds)
     .execute();

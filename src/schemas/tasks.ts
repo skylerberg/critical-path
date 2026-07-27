@@ -26,11 +26,20 @@ export const patchTaskSchema = type({
 
 export const taskDetailResponseSchema = boardTaskSchema.merge({
   project_id: 'string',
+  archived_at: 'string | null',
   images: imageResponseSchema.array(),
   comments: commentSchema.array(),
 });
 
 export type TaskDetailResponse = typeof taskDetailResponseSchema.infer;
+
+export const archivedTaskSchema = boardTaskSchema.merge({ archived_at: 'string' });
+
+export type ArchivedTask = typeof archivedTaskSchema.infer;
+
+export const archivedTasksResponseSchema = type({ tasks: archivedTaskSchema.array() });
+
+export type ArchivedTasksResponse = typeof archivedTasksResponseSchema.infer;
 
 export const addBlockerSchema = type({
   blocker_task_id: uuid,

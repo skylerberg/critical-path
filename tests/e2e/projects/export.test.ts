@@ -611,6 +611,66 @@ describe('GET /api/projects/:id/export', () => {
     });
   });
 
+  describe('archived tasks', () => {
+    it('leaves an archived card and its image bytes out of both formats', async () => {
+      const archiveProjectId = await createProject(owner, 'Archive export');
+      const columns = await columnsOf(archiveProjectId, owner.token);
+      const client = ctx.request(owner.token);
+
+      const liveTaskId = newId();
+      const archivedTaskId = newId();
+      for (const [id, title, position] of [
+        [liveTaskId, 'Stays visible', 1000],
+        [archivedTaskId, 'Shelved work', 2000],
+      ] as const) {
+        expect(
+          (
+            await client.post('/api/tasks', {
+              id,
+              project_id: archiveProjectId,
+              column_id: columns[0].id,
+              title,
+              position,
+            })
+          ).status
+        ).toBe(201);
+      }
+
+      const liveImageId = newId();
+      const archivedImageId = newId();
+      expect(
+        (
+          await client.postMultipart(
+            `/api/tasks/${liveTaskId}/images`,
+            imageForm(PNG_1X1, 'live.png', 'image/png', liveImageId)
+          )
+        ).status
+      ).toBe(201);
+      expect(
+        (
+          await client.postMultipart(
+            `/api/tasks/${archivedTaskId}/images`,
+            imageForm(JPEG_1X1, 'shelved.jpg', 'image/jpeg', archivedImageId)
+          )
+        ).status
+      ).toBe(201);
+
+      expect((await client.post(`/api/tasks/${archivedTaskId}/archive`)).status).toBe(200);
+
+      const manifest = await exportJson(archiveProjectId, owner.token);
+      expect(manifest.tasks.map((task) => task.id)).toEqual([liveTaskId]);
+      expect(manifest.tasks.flatMap((task) => task.images.map((image) => image.id))).toEqual([
+        liveImageId,
+      ]);
+
+      const { files } = await exportZip(archiveProjectId, owner.token);
+      expect(Object.keys(files).sort()).toEqual(
+        ['project.json', 'tasks.csv', `images/${liveImageId}.png`].sort()
+      );
+      expect(decode(files['tasks.csv'])).not.toContain('Shelved work');
+    });
+  });
+
   describe('round trip', () => {
     it('rebuilds an identical board from the archive alone', async () => {
       const original = await exportJson(projectId, owner.token);
