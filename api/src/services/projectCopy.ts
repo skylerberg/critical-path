@@ -106,6 +106,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
     .selectFrom('task')
     .select(['id', 'column_id', 'title', 'description', 'position'])
     .where('project_id', '=', input.sourceProjectId)
+    .where('archived_at', 'is', null)
     .execute();
   const taskIdMap = new Map(tasks.map((task) => [task.id, crypto.randomUUID()]));
 
@@ -121,6 +122,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
       'task_image.size_bytes',
     ])
     .where('task.project_id', '=', input.sourceProjectId)
+    .where('task.archived_at', 'is', null)
     .execute();
   const imageIdMap = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
   const newStorageKeys = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
@@ -151,6 +153,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
     .innerJoin('task', 'task.id', 'task_label.task_id')
     .select(['task_label.task_id', 'task_label.label_id'])
     .where('task.project_id', '=', input.sourceProjectId)
+    .where('task.archived_at', 'is', null)
     .execute();
 
   if (taskLabels.length > 0) {
@@ -170,6 +173,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
     .innerJoin('task', 'task.id', 'task_dependency.blocked_task_id')
     .select(['task_dependency.blocker_task_id', 'task_dependency.blocked_task_id'])
     .where('task.project_id', '=', input.sourceProjectId)
+    .where('task.archived_at', 'is', null)
     .execute();
   // Dependencies are same-project by domain rule; skip any corrupt cross-project row.
   const copyableDependencies = dependencies.filter((row) => taskIdMap.has(row.blocker_task_id));
