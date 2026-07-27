@@ -1,0 +1,87 @@
+import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../api/client';
+import { downloadProjectExport } from './export';
+import { session } from './session.svelte';
+
+const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:fake-url');
+const revokeObjectURL = vi.fn();
+let clicks: HTMLAnchorElement[] = [];
+
+function zipResponse(headers: Record<string, string> = {}): Response {
+  return new Response(new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04])]), {
+    status: 200,
+    headers: { 'Content-Type': 'application/zip', ...headers },
+  });
+}
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  createObjectURL.mockClear();
+  revokeObjectURL.mockClear();
+  clicks = [];
+  vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement
+  ) {
+    clicks.push(this);
+  });
+  session.adopt('test-token', { id: 'u1', email: 'a@example.com', name: 'A', avatar_url: null });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('downloadProjectExport', () => {
+  it('saves the archive under the filename the server sent', async () => {
+    fetchMock.mockResolvedValueOnce(
+      zipResponse({ 'Content-Disposition': 'attachment; filename="game-2026-07-26.zip"' })
+    );
+
+    await downloadProjectExport('p1');
+
+    const request = requestAt(0);
+    expect(request.url).toMatch(/\/api\/projects\/p1\/export$/);
+    expect(request.method).toBe('GET');
+    expect(request.headers.get('Authorization')).toBe('Bearer test-token');
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob);
+    expect(clicks).toHaveLength(1);
+    expect(clicks[0].download).toBe('game-2026-07-26.zip');
+    expect(clicks[0].href).toBe('blob:fake-url');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url');
+    expect(document.querySelector('a[download]')).toBeNull();
+  });
+
+  it('falls back to a generic filename when the header is missing', async () => {
+    fetchMock.mockResolvedValueOnce(zipResponse());
+
+    await downloadProjectExport('p1');
+
+    expect(clicks[0].download).toBe('critical-path-export.zip');
+  });
+
+  it('rejects without touching the DOM when the project is gone', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(404, { error: 'Project not found' }));
+
+    const error = await downloadProjectExport('p1').catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(404);
+    expect((error as ApiError).message).toBe('Project not found');
+
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(clicks).toHaveLength(0);
+  });
+
+  it('releases the object url even when the click throws', async () => {
+    fetchMock.mockResolvedValueOnce(zipResponse());
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
+      throw new Error('navigation blocked');
+    });
+
+    await expect(downloadProjectExport('p1')).rejects.toThrow('navigation blocked');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url');
+  });
+});

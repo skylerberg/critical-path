@@ -1,11 +1,15 @@
 <script lang="ts">
+  import { ApiError } from '../api/client';
   import { board } from '../lib/board.svelte';
+  import { downloadProjectExport } from '../lib/export';
   import { projects } from '../lib/projects.svelte';
   import { link, type ProjectView } from '../lib/router.svelte';
+  import { toasts } from '../lib/toasts.svelte';
   import FilterBar from './FilterBar.svelte';
   import LabelManager from './LabelManager.svelte';
   import ProjectMembersModal from './ProjectMembersModal.svelte';
   import Badge from './ui/Badge.svelte';
+  import Spinner from './ui/Spinner.svelte';
 
   interface Props {
     projectId: string;
@@ -16,6 +20,23 @@
 
   let labelsOpen = $state(false);
   let shareOpen = $state(false);
+  let exporting = $state(false);
+
+  async function exportProject(): Promise<void> {
+    if (exporting) return;
+    exporting = true;
+    try {
+      await downloadProjectExport(projectId);
+    } catch (error) {
+      toasts.error(
+        error instanceof ApiError && error.status === 404
+          ? 'This project is no longer available.'
+          : 'Could not export this project. Check your connection and try again.'
+      );
+    } finally {
+      exporting = false;
+    }
+  }
 
   const boardActive = $derived(view === 'board');
   const graphActive = $derived(view === 'graph');
@@ -98,6 +119,32 @@
         <line x1="23" y1="11" x2="17" y2="11" />
       </svg>
       Share
+    </button>
+    <button
+      type="button"
+      onclick={exportProject}
+      disabled={exporting}
+      class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink disabled:cursor-default"
+    >
+      {#if exporting}
+        <Spinner size="sm" label="Exporting" />
+      {:else}
+        <svg
+          class="size-4"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+      {/if}
+      Export
     </button>
     <FilterBar />
   </div>
