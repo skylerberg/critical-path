@@ -43,22 +43,22 @@
      invalid and unreachable by keyboard. -->
 <div
   role="presentation"
+  use:suppressTouchContextMenu
   onpointerenter={() => {
     if (!board.dragging) {
       selection.set(task.id);
     }
   }}
-  class="relative isolate block min-h-11 rounded-md border bg-canvas p-3 transition-opacity hover:border-accent {selected
+  class="relative isolate block min-h-11 touch-callout-none rounded-md border bg-canvas p-3 transition-opacity hover:border-accent {selected
     ? 'border-accent ring-2 ring-accent'
     : 'border-edge'} {dimmed ? 'opacity-30' : ''}"
 >
   <a
     use:link
-    use:suppressTouchContextMenu
     href={`${boardPath(projectId, readonly)}/tasks/${task.id}${board.filterSearch}`}
     draggable="false"
     aria-label={task.title}
-    class="absolute inset-0 touch-callout-none rounded-md select-none"
+    class="absolute inset-0 rounded-md"
   ></a>
   {#if labels.length > 0}
     <div class="mb-1.5 flex flex-wrap gap-1">

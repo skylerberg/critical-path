@@ -277,7 +277,6 @@ describe('Nav sidebar', () => {
 
     const anchor = screen.getByRole('link', { name: 'A' });
     expect(anchor.className).toContain('touch-callout-none');
-    expect(anchor.className).toContain('select-none');
 
     const touch = new PointerEvent('contextmenu', {
       bubbles: true,

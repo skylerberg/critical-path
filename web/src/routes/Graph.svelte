@@ -764,7 +764,7 @@
               href="/projects/{projectId}/graph/tasks/{n.id}{board.filterSearch}"
               draggable="false"
               aria-label="Open task {n.title}"
-              class="flex h-full w-full touch-callout-none cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3 select-none"
+              class="flex h-full w-full touch-callout-none cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3"
             >
               <span class="truncate text-[13px] font-medium {n.isDone ? 'text-muted' : 'text-ink'}">
                 {n.title}

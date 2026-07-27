@@ -173,7 +173,6 @@ describe('Graph', () => {
     });
     const anchor = screen.getByRole('link', { name: 'Open task Task a' });
     expect(anchor.className).toContain('touch-callout-none');
-    expect(anchor.className).toContain('select-none');
 
     const touch = new PointerEvent('contextmenu', {
       bubbles: true,

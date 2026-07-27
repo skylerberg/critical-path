@@ -165,7 +165,7 @@
     href="/projects/{id}"
     draggable="false"
     aria-current={currentProjectId === id ? 'page' : undefined}
-    class="flex min-h-11 touch-callout-none items-center truncate rounded-md px-3 text-sm select-none {currentProjectId ===
+    class="flex min-h-11 touch-callout-none items-center truncate rounded-md px-3 text-sm {currentProjectId ===
     id
       ? 'bg-accent-soft font-medium text-accent'
       : 'text-muted hover:bg-accent-soft hover:text-ink'}"

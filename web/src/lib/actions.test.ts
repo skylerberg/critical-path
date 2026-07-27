@@ -26,6 +26,10 @@ describe('suppressTouchContextMenu', () => {
     expect(contextMenu(anchor(), 'touch')).toBe(true);
   });
 
+  it('cancels the long-press menu on a stylus', () => {
+    expect(contextMenu(anchor(), 'pen')).toBe(true);
+  });
+
   it('leaves a mouse right-click alone so open-in-new-tab and copy-link still work', () => {
     expect(contextMenu(anchor(), 'mouse')).toBe(false);
   });
@@ -56,5 +60,35 @@ describe('suppressTouchContextMenu', () => {
     document.body.append(clone);
 
     expect(contextMenu(clone as Element, 'touch')).toBe(true);
+  });
+
+  describe('on an engine that dispatches contextmenu as a plain MouseEvent', () => {
+    function pointer(target: Element, type: string, pointerType: string, pointerId: number): void {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType, pointerId }));
+    }
+
+    function mouseContextMenu(target: Element): boolean {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    }
+
+    it('cancels the menu while a finger is down and stops once it lifts', () => {
+      const element = anchor();
+
+      pointer(element, 'pointerdown', 'touch', 1);
+      expect(mouseContextMenu(element)).toBe(true);
+
+      pointer(element, 'pointerup', 'touch', 1);
+      expect(mouseContextMenu(element)).toBe(false);
+    });
+
+    it('leaves a right-click alone, because its pointerdown lands first', () => {
+      const element = anchor();
+
+      pointer(element, 'pointerdown', 'mouse', 2);
+
+      expect(mouseContextMenu(element)).toBe(false);
+    });
   });
 });

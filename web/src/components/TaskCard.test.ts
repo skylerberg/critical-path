@@ -185,18 +185,26 @@ describe('TaskCard', () => {
       return event.defaultPrevented;
     }
 
-    it('suppresses the native callout on the overlay link', () => {
+    it('suppresses the native callout across the whole card, not just the link', () => {
       render(TaskCard, { task, projectId: 'p1' });
 
-      expect(screen.getByRole('link').className).toContain('touch-callout-none');
-      expect(screen.getByRole('link').className).toContain('select-none');
+      expect(card().className).toContain('touch-callout-none');
     });
 
     it('cancels a touch context menu but leaves right-click alone', () => {
       render(TaskCard, { task, projectId: 'p1' });
 
       expect(contextMenu(screen.getByRole('link'), 'touch')).toBe(true);
+      expect(contextMenu(screen.getByRole('link'), 'pen')).toBe(true);
       expect(contextMenu(screen.getByRole('link'), 'mouse')).toBe(false);
+    });
+
+    // An assignee avatar is an <img>, which raises a callout of its own.
+    it('cancels a touch context menu on the badges raised above the link', () => {
+      render(TaskCard, { task, projectId: 'p1', blockedCount: 2 });
+
+      expect(contextMenu(screen.getByTitle('Ada Lovelace'), 'touch')).toBe(true);
+      expect(contextMenu(screen.getByTitle('Blocked by 2 open tasks'), 'touch')).toBe(true);
     });
 
     it('cancels a touch context menu on the listener-less clone dragged under the finger', () => {

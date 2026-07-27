@@ -19,14 +19,35 @@ export function focusIf(node: HTMLElement, { active, onfocused }: FocusIfParams)
 
 const TOUCH_CONTEXT_MENU_MARKER = 'data-no-touch-context-menu';
 
+const directPointers = new Set<number>();
 let contextMenuGuardInstalled = false;
 
-function onContextMenu(event: PointerEvent): void {
-  if (event.pointerType !== 'touch') {
+function isDirectInput(pointerType: string): boolean {
+  return pointerType === 'touch' || pointerType === 'pen';
+}
+
+function trackPointerDown(event: PointerEvent): void {
+  if (isDirectInput(event.pointerType)) {
+    directPointers.add(event.pointerId);
+  } else {
+    directPointers.clear();
+  }
+}
+
+function forgetPointer(event: PointerEvent): void {
+  directPointers.delete(event.pointerId);
+}
+
+function onContextMenu(event: MouseEvent): void {
+  const target = event.target;
+  if (!(target instanceof Element) || !target.closest(`[${TOUCH_CONTEXT_MENU_MARKER}]`)) {
     return;
   }
-  const target = event.target;
-  if (target instanceof Element && target.closest(`[${TOUCH_CONTEXT_MENU_MARKER}]`)) {
+  // Engines that still dispatch contextmenu as a plain MouseEvent carry no
+  // pointerType, so fall back to whether a finger or stylus is currently down.
+  const direct =
+    event instanceof PointerEvent ? isDirectInput(event.pointerType) : directPointers.size > 0;
+  if (direct) {
     event.preventDefault();
   }
 }
@@ -45,6 +66,9 @@ export function suppressTouchContextMenu(node: HTMLElement): void {
   }
   contextMenuGuardInstalled = true;
   document.addEventListener('contextmenu', onContextMenu, { capture: true });
+  document.addEventListener('pointerdown', trackPointerDown, { capture: true });
+  document.addEventListener('pointerup', forgetPointer, { capture: true });
+  document.addEventListener('pointercancel', forgetPointer, { capture: true });
 }
 
 /**
