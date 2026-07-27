@@ -4,6 +4,8 @@ import { authMiddleware } from '../middleware/auth';
 import { queryValidator } from '../middleware/requestValidator';
 import { SEARCH_RESULT_LIMIT, searchTasks } from '../services/search';
 import {
+  SEARCH_QUERY_MAX_LENGTH,
+  SEARCH_QUERY_MIN_LENGTH,
   searchQuerySchema,
   searchResponseSchema,
   badRequestErrorResponse,
@@ -22,10 +24,14 @@ router.get(
     description:
       'Search task titles and description text across every non-archived project the caller ' +
       'can access; projects they cannot access simply do not appear. Archived cards are ' +
-      'excluded. Every word in q must match and each word matches as a prefix, so results ' +
-      'narrow as the query grows. Mentions match on the name they display. Ranked with title ' +
-      `matches above description matches, capped at ${SEARCH_RESULT_LIMIT} results with ` +
-      'truncated set when more matched.',
+      `excluded. q is trimmed and must be ${SEARCH_QUERY_MIN_LENGTH} to ` +
+      `${SEARCH_QUERY_MAX_LENGTH} characters. Every word in q must match, and each word ` +
+      'matches as a prefix of an indexed word, so typing more of a word narrows the results ' +
+      'rather than emptying them; the exception is a partially typed inflection that has ' +
+      'outgrown the indexed word, which drops out until it is finished (a card titled "Fix ' +
+      'the login test" matches test and testing but not testi). Mentions match on the name ' +
+      `they display. Ranked with title matches above description matches, capped at ` +
+      `${SEARCH_RESULT_LIMIT} results with truncated set when more matched.`,
     security: [{ bearerAuth: [] }],
     responses: {
       200: {

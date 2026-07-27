@@ -87,7 +87,7 @@ describe('GET /api/search', () => {
     expect(res.status).toBe(401);
   });
 
-  it('rejects a missing, too short, blank, or over-long q', async () => {
+  it('rejects a missing, too short, blank, over-long, or control-bearing q', async () => {
     const caller = await newCaller();
     const client = ctx.request(caller.token);
 
@@ -96,6 +96,8 @@ describe('GET /api/search', () => {
       '/api/search?q=a',
       '/api/search?q=%20%20',
       `/api/search?q=${'x'.repeat(201)}`,
+      // A NUL reaching the driver is a 500, not a 400.
+      '/api/search?q=a%00b',
     ]) {
       const res = await client.get(path);
       expect(res.status).toBe(400);
@@ -190,10 +192,12 @@ describe('GET /api/search', () => {
   it('ranks a title match above a description-only match', async () => {
     const caller = await newCaller();
     const project = await projectFor(caller, 'Ranking board');
+    // Seeded title-first so the `updated_at desc` tie-break argues for the
+    // opposite order: only the weighting can produce the expectation below.
+    const titledId = await fixtures.createTaskRow(project.id, project.columnId, 'Telemetry work');
     const buriedId = await fixtures.createTaskRow(project.id, project.columnId, 'Weekly review', {
       description: validDescription('the telemetry rollout is blocked'),
     });
-    const titledId = await fixtures.createTaskRow(project.id, project.columnId, 'Telemetry work');
 
     const body = await search(caller, 'telemetry');
     expect(body.results.map((row) => row.task_id)).toEqual([titledId, buriedId]);
