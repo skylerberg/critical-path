@@ -511,6 +511,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create tasks in bulk
+         * @description Create between 1 and 100 tasks in one column of one project in a single request, for pasting a list. The client supplies every task id, so a retry after a dropped response cannot double-create. Each item carries only a title and a position: descriptions, due dates, labels and assignees are set afterwards with the single-task endpoints. The batch is all or nothing — a duplicate id, whether it already exists or is repeated inside the batch, returns 409 and creates none of them. An unknown or inaccessible project returns 404 and a column_id outside the project returns 422. Each created task gets its own created activity entry and its own task_created event.
+         */
+        post: operations["postApiTasksBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{id}": {
         parameters: {
             query?: never;
@@ -1287,6 +1307,23 @@ export interface components {
             description?: components["schemas"]["NullableTiptapDoc"];
             due_date?: components["schemas"]["UserAvatarurl"];
             label_ids?: string[];
+        };
+        TasksBatchResponse: {
+            tasks: components["schemas"]["BoardTask"][];
+        };
+        CreateTasksBatch: {
+            /** Format: uuid */
+            column_id: string;
+            /** Format: uuid */
+            project_id: string;
+            tasks: components["schemas"]["CreateTasksBatchItem"][];
+        };
+        CreateTasksBatchItem: {
+            /** Format: uuid */
+            id: string;
+            /** @description a finite number */
+            position: number;
+            title: string;
         };
         TaskDetailResponse: {
             archived_at: components["schemas"]["UserAvatarurl"];
@@ -3315,6 +3352,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BoardTask"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiTasksBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTasksBatch"];
+            };
+        };
+        responses: {
+            /** @description Created tasks in board-payload shape, in request order */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TasksBatchResponse"];
                 };
             };
             /** @description Authentication required or failed */

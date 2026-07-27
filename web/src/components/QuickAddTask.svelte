@@ -4,6 +4,7 @@
   import { board } from '../lib/board.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { motion } from '../lib/motion.svelte';
+  import { toasts } from '../lib/toasts.svelte';
   import Button from './ui/Button.svelte';
 
   interface Props {
@@ -23,19 +24,10 @@
     drafts.set(key, '');
   }
 
-  async function submit(event: SubmitEvent): Promise<void> {
-    event.preventDefault();
-    const trimmed = (title ?? '').trim();
-    if (trimmed === '') {
-      return;
-    }
-    void board.createTask(columnId, trimmed);
-    // createTask pushes the optimistic task synchronously, so the column's bottom
-    // card is the new one; awaiting its returned id would stall the scroll on the API.
+  // The store pushes its optimistic rows synchronously, so the column's bottom
+  // card is the newest one; awaiting the API would stall the scroll behind it.
+  async function scrollToNewestCard(): Promise<void> {
     const created = board.tasksInColumn(columnId).at(-1);
-    // Only the text is cleared: this composer stays open for rapid entry.
-    drafts.set(key, '');
-    input?.focus();
     if (created === undefined) {
       return;
     }
@@ -43,6 +35,42 @@
     document
       .querySelector(`[data-task-id="${created.id}"]`)
       ?.scrollIntoView({ block: 'nearest', behavior: motion.reduced ? 'auto' : 'smooth' });
+  }
+
+  async function submit(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    const trimmed = (title ?? '').trim();
+    if (trimmed === '') {
+      return;
+    }
+    void board.createTask(columnId, trimmed);
+    // Only the text is cleared: this composer stays open for rapid entry.
+    drafts.set(key, '');
+    input?.focus();
+    await scrollToNewestCard();
+  }
+
+  function paste(event: ClipboardEvent): void {
+    const lines = (event.clipboardData?.getData('text/plain') ?? '')
+      .split(/\r\n|\r|\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
+    // One line is left to the browser, so the composer behaves as it always has.
+    if (lines.length < 2) {
+      return;
+    }
+    event.preventDefault();
+    void addMany(lines);
+  }
+
+  async function addMany(lines: string[]): Promise<void> {
+    const pending = board.createTasks(columnId, lines);
+    await scrollToNewestCard();
+    // Only once the batch has landed: createTasks resolves to null after having
+    // toasted its own error and dropped every optimistic card.
+    if ((await pending) !== null) {
+      toasts.success(`Added ${lines.length} tasks`);
+    }
   }
 
   function close(): void {
@@ -58,6 +86,7 @@
         bind:this={input}
         value={title ?? ''}
         oninput={(event) => drafts.set(key, event.currentTarget.value)}
+        onpaste={paste}
         use:focusIf={{ active: openedHere, onfocused: () => (openedHere = false) }}
         aria-label="Task title"
         placeholder="Task title"

@@ -1,10 +1,11 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import QuickAddTask from './QuickAddTask.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';
+import { toasts } from '../lib/toasts.svelte';
 
 const payload = {
   project: {
@@ -28,6 +29,9 @@ beforeEach(async () => {
   board.reset();
   drafts.clearAll();
   motion.reduced = false;
+  for (const toast of [...toasts.toasts]) {
+    toasts.dismiss(toast.id);
+  }
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
     if (request.method === 'GET') {
@@ -149,6 +153,117 @@ describe('QuickAddTask', () => {
     expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '+ Add task' })).toBeInTheDocument();
     expect(drafts.get(draftKey.quickAddTask('c1'))).toBeNull();
+  });
+});
+
+describe('QuickAddTask multi-line paste', () => {
+  async function openComposer(): Promise<HTMLElement> {
+    render(QuickAddTask, { columnId: 'c1' });
+    await fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
+    return screen.getByLabelText('Task title');
+  }
+
+  function pasteEvent(input: HTMLElement, text: string): Event {
+    return createEvent.paste(input, { clipboardData: { getData: () => text } });
+  }
+
+  it('creates one task per line', async () => {
+    const input = await openComposer();
+
+    const event = pasteEvent(input, 'Alpha\r\nBeta\n\n  Gamma  ');
+    await fireEvent(input, event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(board.tasksInColumn('c1').map((t) => t.title)).toEqual(['Alpha', 'Beta', 'Gamma']);
+    expect(board.tasksInColumn('c1').map((t) => t.position)).toEqual([1000, 2000, 3000]);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    const request = fetchMock.mock.calls[0]![0] as Request;
+    expect(request.method).toBe('POST');
+    expect(new URL(request.url).pathname).toBe('/api/tasks/batch');
+    expect(await request.json()).toMatchObject({
+      project_id: 'p1',
+      column_id: 'c1',
+      tasks: [
+        { title: 'Alpha', position: 1000 },
+        { title: 'Beta', position: 2000 },
+        { title: 'Gamma', position: 3000 },
+      ],
+    });
+
+    expect(screen.getByLabelText('Task title')).toBeInTheDocument();
+    expect(input).toHaveFocus();
+    await waitFor(() => {
+      expect(toasts.toasts.map((t) => t.message)).toEqual(['Added 3 tasks']);
+    });
+    expect(toasts.toasts[0]!.variant).toBe('success');
+  });
+
+  it('shows no success toast when the batch fails', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      if (request.method === 'GET') {
+        return jsonResponse(200, payload);
+      }
+      return jsonResponse(422, { error: 'nope' });
+    });
+    const input = await openComposer();
+
+    await fireEvent(input, pasteEvent(input, 'Alpha\nBeta'));
+
+    await waitFor(() => {
+      expect(toasts.toasts.map((t) => t.message)).toContain('nope');
+    });
+    expect(board.tasks).toHaveLength(0);
+    expect(toasts.toasts.some((t) => /^Added /.test(t.message))).toBe(false);
+  });
+
+  it('leaves a single-line paste to the browser', async () => {
+    const input = await openComposer();
+
+    for (const text of ['Only one', 'Only one\n']) {
+      const event = pasteEvent(input, text);
+      await fireEvent(input, event);
+
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(board.tasks).toHaveLength(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the typed draft', async () => {
+    const input = await openComposer();
+    await fireEvent.input(input, { target: { value: 'Half typed' } });
+
+    await fireEvent(input, pasteEvent(input, 'Alpha\nBeta'));
+
+    expect(drafts.get(draftKey.quickAddTask('c1'))).toBe('Half typed');
+    expect(input).toHaveValue('Half typed');
+  });
+
+  it('scrolls the last created card into view', async () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const input = await openComposer();
+
+    // The paste handler yields at tick() before its DOM query, so the card stub
+    // for the last created id can be attached synchronously after dispatch.
+    const pasted = fireEvent(input, pasteEvent(input, 'Alpha\nBeta\nGamma'));
+    const last = board.tasksInColumn('c1').at(-1);
+    expect(last?.title).toBe('Gamma');
+    const card = document.createElement('div');
+    card.setAttribute('data-task-id', last!.id);
+    document.body.appendChild(card);
+    await pasted;
+
+    await waitFor(() => {
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(scrollSpy.mock.contexts[0]).toBe(card);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    card.remove();
+    scrollSpy.mockRestore();
   });
 });
 
