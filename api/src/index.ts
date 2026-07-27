@@ -109,12 +109,17 @@ const openAPIOptions = {
         bearerAuth: {
           type: 'http' as const,
           scheme: 'bearer',
-          description: 'Opaque session token from signup or login',
+          description:
+            'Opaque session token from signup or login, or a personal access token (cpat_…) ' +
+            'from POST /api/auth/tokens',
         },
       },
     },
     tags: [
-      { name: 'Auth', description: 'Signup, login, and session management' },
+      {
+        name: 'Auth',
+        description: 'Signup, login, session management, and personal access tokens',
+      },
       { name: 'Users', description: 'Visible users' },
       { name: 'Projects', description: 'Projects, members, and board payloads' },
       { name: 'Columns', description: 'Kanban board columns' },

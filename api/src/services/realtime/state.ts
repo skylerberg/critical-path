@@ -1,3 +1,5 @@
+import type { CredentialKind } from '../credentials';
+
 export interface RealtimeSocket {
   readyState: number;
   send(data: string): void;
@@ -7,15 +9,24 @@ export interface RealtimeSocket {
 
 export interface SocketState {
   userId: string;
-  sessionId: string;
+  credentialKind: CredentialKind;
+  credentialId: string;
   projectIds: Set<string>;
 }
 
 const socketStates = new Map<RealtimeSocket, SocketState>();
 const projectRooms = new Map<string, Set<RealtimeSocket>>();
 
-export function registerSocket(socket: RealtimeSocket, userId: string, sessionId: string): void {
-  socketStates.set(socket, { userId, sessionId, projectIds: new Set() });
+export function registerSocket(
+  socket: RealtimeSocket,
+  credential: { kind: CredentialKind; id: string; userId: string }
+): void {
+  socketStates.set(socket, {
+    userId: credential.userId,
+    credentialKind: credential.kind,
+    credentialId: credential.id,
+    projectIds: new Set(),
+  });
 }
 
 export function getSocketState(socket: RealtimeSocket): SocketState | undefined {
@@ -69,6 +80,12 @@ export function authedSocketEntries(): Array<[RealtimeSocket, SocketState]> {
 export function socketsForUser(userId: string): RealtimeSocket[] {
   return authedSocketEntries()
     .filter(([, state]) => state.userId === userId)
+    .map(([socket]) => socket);
+}
+
+export function socketsForCredential(kind: CredentialKind, id: string): RealtimeSocket[] {
+  return authedSocketEntries()
+    .filter(([, state]) => state.credentialKind === kind && state.credentialId === id)
     .map(([socket]) => socket);
 }
 
