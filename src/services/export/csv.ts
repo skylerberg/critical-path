@@ -60,31 +60,34 @@ export function tiptapToPlainText(doc: TiptapDoc | null): string {
   return text.replace(/\n+$/, '');
 }
 
+type NameIndex = Map<string, { order: number; name: string }>;
+
+function nameIndex(named: Array<{ id: string; name: string }>): NameIndex {
+  return new Map(named.map(({ id, name }, order) => [id, { order, name }]));
+}
+
 // The id lists are ordered by id, which is meaningless to a reader and unstable
 // across a re-import, so names come out in the order of the collection that
 // names them: labels and users by name, blockers by board position.
-function resolveNames(ids: string[], ordered: Array<[string, string]>): string {
-  const wanted = new Set(ids);
-  return ordered
-    .filter(([id]) => wanted.has(id))
-    .map(([, name]) => name)
+function resolveNames(ids: string[], index: NameIndex): string {
+  const found: Array<{ order: number; name: string }> = [];
+  for (const id of ids) {
+    const entry = index.get(id);
+    if (entry !== undefined) {
+      found.push(entry);
+    }
+  }
+  return found
+    .sort((a, b) => a.order - b.order)
+    .map((entry) => entry.name)
     .join('; ');
 }
 
 export function tasksCsv(exportPayload: ProjectExport): string {
   const columns = new Map(exportPayload.columns.map((column) => [column.id, column]));
-  const labelNames: Array<[string, string]> = exportPayload.labels.map((label) => [
-    label.id,
-    label.name,
-  ]);
-  const userEmails: Array<[string, string]> = exportPayload.users.map((user) => [
-    user.id,
-    user.email,
-  ]);
-  const taskTitles: Array<[string, string]> = exportPayload.tasks.map((task) => [
-    task.id,
-    task.title,
-  ]);
+  const labelNames = nameIndex(exportPayload.labels);
+  const userEmails = nameIndex(exportPayload.users.map(({ id, email }) => ({ id, name: email })));
+  const taskTitles = nameIndex(exportPayload.tasks.map(({ id, title }) => ({ id, name: title })));
 
   const rows = [TASKS_CSV_HEADER];
   for (const task of exportPayload.tasks) {

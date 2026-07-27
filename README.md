@@ -254,7 +254,9 @@ images/<image-id>.png the real bytes of every attached image
 ```
 
 Images ship as files, not URLs, so the archive keeps working after the account
-or the storage bucket goes away. `?format=json` returns `project.json` alone.
+or the storage bucket goes away. `?format=json` returns `project.json` alone —
+no image bytes; fetch those from `GET /api/images/:id`, one per
+`tasks[].images[].id`.
 
 `project.json` is the stable, documented interchange format the importer reads
 back:
@@ -316,7 +318,10 @@ typed them — a title starting with `=` is not prefixed or escaped, so treat a
 untrusted CSV. Use `project.json` when you need exactness.
 
 The archive is plain zip, not zip64, so a project whose images would push it
-past 4 GiB answers 413 and has to be exported with `?format=json`.
+past 4 GiB answers 413 and has to be exported with `?format=json` plus one
+`GET /api/images/:id` per image. With a 10 MB per-image upload cap that ceiling
+is roughly 430 full-size images in one project, so it is reachable; widening the
+writer to zip64 is the fix if anyone hits it.
 
 ## Database workflow
 
