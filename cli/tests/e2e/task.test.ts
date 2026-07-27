@@ -780,6 +780,23 @@ describe('task create - (one title per stdin line)', () => {
     expect(res.stdout).toContain('Created 2 tasks in');
     expect(res.stdout).toContain('Tabled one');
     expect(res.stdout).toContain('Tabled two');
+
+    const one = await h.runCli(['task', 'create', '-', '--project', projectId], {
+      stdin: 'Tabled alone\n',
+    });
+    expect(one.exitCode).toBe(0);
+    expect(one.stdout).toContain('Created 1 task in');
+  });
+
+  it('fails with exit 2 instead of draining a terminal', async () => {
+    const requests: string[] = [];
+    const res = await h.runCli(['task', 'create', '-', '--project', projectId], {
+      stdinIsTty: true,
+      onRequest: (request) => requests.push(new URL(request.url).pathname),
+    });
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toContain('Pipe one title per line');
+    expect(requests).toEqual([]);
   });
 
   it('fails with exit 2 on empty stdin', async () => {

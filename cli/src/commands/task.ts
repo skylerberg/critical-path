@@ -347,6 +347,14 @@ async function createManyTasks(ctx: RuntimeContext, opts: Opts): Promise<void> {
     );
   }
 
+  // Draining a terminal would look like a hang until the user guessed Ctrl-D.
+  if (ctx.deps.stdin.isTTY === true) {
+    throw new CliError(
+      'Pipe one title per line into `task create -` (e.g. `task create - < titles.txt`)',
+      EXIT.usage
+    );
+  }
+
   const titles = (await readAllStdin(ctx))
     .split(/\r\n|\r|\n/)
     .map((line) => line.trim())
@@ -383,7 +391,8 @@ async function createManyTasks(ctx: RuntimeContext, opts: Opts): Promise<void> {
     })
   );
   ctx.out.data(created.tasks, () => {
-    ctx.out.line(`Created ${String(created.tasks.length)} tasks in ${column.name}`);
+    const count = created.tasks.length;
+    ctx.out.line(`Created ${String(count)} task${count === 1 ? '' : 's'} in ${column.name}`);
     ctx.out.table(
       ['ID', 'TITLE'],
       created.tasks.map((t) => [t.id.slice(0, 8), t.title])

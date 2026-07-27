@@ -23,6 +23,7 @@ export interface CliRunHandle {
 
 export interface CliRunOptions {
   stdin?: string;
+  stdinIsTty?: boolean;
   env?: Record<string, string>;
   onRequest?: (request: Request) => void;
 }
@@ -42,7 +43,10 @@ export async function createCliHarness(): Promise<CliHarness> {
     let stdout = '';
     let stderr = '';
     let interruptHandler: (() => void) | null = null;
-    const stdin = new PassThrough();
+    const stdin: PassThrough & { isTTY?: boolean } = new PassThrough();
+    if (options.stdinIsTty === true) {
+      stdin.isTTY = true;
+    }
     stdin.end(options.stdin ?? '');
     const deps: CliDeps = {
       env: {

@@ -117,33 +117,35 @@ describe('Realtime end to end', () => {
 
   it('delivers one task_created per task in a batch', async () => {
     const ids = [newId(), newId(), newId()];
-    const res = await ctx.request(userA.token).post('/api/tasks/batch', {
-      project_id: projectId,
-      column_id: columnId,
-      tasks: ids.map((id, index) => ({
-        id,
-        title: `Batch ${index}`,
-        position: 4000 + index * 1000,
-      })),
-    });
-    expect(res.status).toBe(201);
+    try {
+      const res = await ctx.request(userA.token).post('/api/tasks/batch', {
+        project_id: projectId,
+        column_id: columnId,
+        tasks: ids.map((id, index) => ({
+          id,
+          title: `Batch ${index}`,
+          position: 4000 + index * 1000,
+        })),
+      });
+      expect(res.status).toBe(201);
 
-    for (const id of ids) {
-      await clientB.waitForEvent((e) => e.type === 'task_created' && e.data.id === id);
-    }
-    await settle();
+      for (const id of ids) {
+        await clientB.waitForEvent((e) => e.type === 'task_created' && e.data.id === id);
+      }
+      await settle();
 
-    const delivered = clientB
-      .eventsOfType('task_created')
-      .filter((e) => ids.includes(e.data.id as string));
-    expect(delivered).toHaveLength(3);
-    expect(delivered.map((e) => e.data.id as string).sort()).toEqual([...ids].sort());
-    expect(delivered.every((e) => e.project_id === projectId)).toBe(true);
-
-    // Later cases assert on this project's task counts, so nothing created here
-    // may outlive the test.
-    for (const id of ids) {
-      expect((await ctx.request(userA.token).delete(`/api/tasks/${id}`)).status).toBe(204);
+      const delivered = clientB
+        .eventsOfType('task_created')
+        .filter((e) => ids.includes(e.data.id as string));
+      expect(delivered).toHaveLength(3);
+      expect(delivered.map((e) => e.data.id as string).sort()).toEqual([...ids].sort());
+      expect(delivered.every((e) => e.project_id === projectId)).toBe(true);
+    } finally {
+      // Later cases assert on this project's task counts, so nothing created
+      // here may outlive the test, failure included.
+      for (const id of ids) {
+        await ctx.request(userA.token).delete(`/api/tasks/${id}`);
+      }
     }
   });
 
