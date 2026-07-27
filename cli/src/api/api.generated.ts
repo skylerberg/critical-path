@@ -296,7 +296,7 @@ export interface paths {
     };
     /**
      * List archived tasks
-     * @description List every archived task in a project in board-payload shape plus archived_at, most recently archived first. Unpaginated and unfiltered — clients search it themselves, the same way they do the board payload.
+     * @description List every archived task in a project in board-payload shape plus archived_at, most recently archived first and then in board position order, so a column archived in one call lists the way it was returned. Unpaginated and unfiltered — clients search it themselves, the same way they do the board payload.
      */
     get: operations['getApiProjectsByIdArchivedTasks'];
     put?: never;

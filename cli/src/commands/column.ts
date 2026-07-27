@@ -274,14 +274,19 @@ export function registerColumn(program: Command, deps: CliDeps): void {
             `Delete column "${target.name}"${suffix}?`,
             opts.force === true
           );
-          const result = assertOk(
-            await ctx.api.DELETE('/api/columns/{id}', {
-              params: {
-                path: { id: target.id },
-                query: moveTo == null ? {} : { move_tasks_to: moveTo.id },
-              },
-            })
-          );
+          const res = await ctx.api.DELETE('/api/columns/{id}', {
+            params: {
+              path: { id: target.id },
+              query: moveTo == null ? {} : { move_tasks_to: moveTo.id },
+            },
+          });
+          if (moveTo == null && res.response.status === 409) {
+            throw new CliError(
+              `Column "${target.name}" shows no cards but still holds archived ones; pass --move-tasks-to <column> to move them there — restoring one later puts it in that column`,
+              EXIT.conflict
+            );
+          }
+          const result = assertOk(res);
           const moved = result?.moved_tasks ?? [];
           ctx.out.data({ deleted: true, id: target.id, moved_tasks: moved }, () => {
             const movedNote = moved.length > 0 ? ` (moved ${moved.length} task(s))` : '';
