@@ -29,7 +29,8 @@ router.get(
       'Without project_id, list the caller and every user sharing at least one project ' +
       'with them (as creator or member on either side). With project_id (the caller must ' +
       'have access to the project — 404 otherwise), list users who can access that project ' +
-      'plus users still assigned to its tasks. Ordered by name.',
+      'plus users still assigned to its tasks or still holding a comment on them. Ordered ' +
+      'by name.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {

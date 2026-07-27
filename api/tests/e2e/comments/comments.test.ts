@@ -217,6 +217,24 @@ describe('Comments API', () => {
       expect(row.body).toEqual(docWith('mine'));
     });
 
+    it('gives the project creator no moderation override over a member’s comment', async () => {
+      const { taskId } = await createTaskFixture();
+      const created = await postComment(member.token, taskId, 'from a member');
+
+      const res = await ctx
+        .request(owner.token)
+        .patch(`/api/comments/${created.id}`, { body: docWith('moderated') });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'Comment not found' });
+
+      const row = await db
+        .selectFrom('task_comment')
+        .select('body')
+        .where('id', '=', created.id)
+        .executeTakeFirstOrThrow();
+      expect(row.body).toEqual(docWith('from a member'));
+    });
+
     it('returns 404 for a user with no project access', async () => {
       const { taskId } = await createTaskFixture();
       const created = await postComment(owner.token, taskId, 'mine');
@@ -251,6 +269,22 @@ describe('Comments API', () => {
 
       const res = await ctx.request(member.token).delete(`/api/comments/${created.id}`);
       expect(res.status).toBe(404);
+
+      const row = await db
+        .selectFrom('task_comment')
+        .select('id')
+        .where('id', '=', created.id)
+        .executeTakeFirst();
+      expect(row).toBeDefined();
+    });
+
+    it('gives the project creator no moderation override over a member’s comment', async () => {
+      const { taskId } = await createTaskFixture();
+      const created = await postComment(member.token, taskId, 'from a member');
+
+      const res = await ctx.request(owner.token).delete(`/api/comments/${created.id}`);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'Comment not found' });
 
       const row = await db
         .selectFrom('task_comment')

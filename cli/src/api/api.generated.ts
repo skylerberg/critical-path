@@ -180,7 +180,7 @@ export interface paths {
     };
     /**
      * List visible users
-     * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks. Ordered by name.
+     * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name.
      */
     get: operations['getApiUsers'];
     put?: never;
@@ -206,7 +206,7 @@ export interface paths {
     put?: never;
     /**
      * Create project
-     * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not assignees, members, or archived state; copies start personal). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
+     * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not comments, assignees, members, or archived state; copies start personal). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
      */
     post: operations['postApiProjects'];
     delete?: never;
