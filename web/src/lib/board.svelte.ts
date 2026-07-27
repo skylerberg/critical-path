@@ -460,12 +460,14 @@ class BoardStore {
     }
   }
 
-  #dropTask(taskId: string): void {
+  // Plural so emptying a column is one pass over the tasks, not one per card.
+  #dropTasks(taskIds: readonly string[]): void {
+    const dropped = new Set(taskIds);
     this.tasks = this.tasks
-      .filter((task) => task.id !== taskId)
+      .filter((task) => !dropped.has(task.id))
       .map((task) =>
-        task.blocker_ids.includes(taskId)
-          ? { ...task, blocker_ids: task.blocker_ids.filter((id) => id !== taskId) }
+        task.blocker_ids.some((id) => dropped.has(id))
+          ? { ...task, blocker_ids: task.blocker_ids.filter((id) => !dropped.has(id)) }
           : task
       );
   }
@@ -478,7 +480,7 @@ class BoardStore {
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    this.#dropTask(taskId);
+    this.#dropTasks([taskId]);
     this.#discardArchivedLoad();
     this.archivedTasks = this.archivedTasks.filter((task) => task.id !== taskId);
     try {
@@ -494,7 +496,7 @@ class BoardStore {
     if (task === undefined) {
       return;
     }
-    this.#dropTask(taskId);
+    this.#dropTasks([taskId]);
     this.#discardArchivedLoad();
     this.archivedTasks = [
       { ...task, archived_at: new Date().toISOString() },
@@ -653,6 +655,85 @@ class BoardStore {
     } finally {
       for (const task of [...movedLive, ...movedArchived]) {
         taskActivity.invalidate(task.id);
+      }
+    }
+  }
+
+  // Archived cards stay put, matching the server: the column survives, so it is
+  // still there to restore them into.
+  async moveTasksToColumn(columnId: string, targetColumnId: string): Promise<void> {
+    const moved = this.tasksInColumn(columnId);
+    if (this.currentProjectId === null || moved.length === 0) {
+      return;
+    }
+    const targetPositions = this.tasksInColumn(targetColumnId).map((task) => task.position);
+    const base = targetPositions.length > 0 ? Math.max(...targetPositions) : 0;
+    const optimistic = new Map(
+      moved.map((task, index) => [task.id, base + (index + 1) * 1000] as const)
+    );
+    this.tasks = this.tasks.map((task) => {
+      const position = optimistic.get(task.id);
+      return position === undefined ? task : { ...task, column_id: targetColumnId, position };
+    });
+    try {
+      const data = assertOk(
+        await api.POST('/api/columns/{id}/move-tasks', {
+          params: { path: { id: columnId } },
+          body: { target_column_id: targetColumnId },
+        })
+      );
+      const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
+      this.tasks = this.tasks.map((task) => {
+        const movedTask = byId.get(task.id);
+        return movedTask === undefined
+          ? task
+          : { ...task, column_id: movedTask.column_id, position: movedTask.position };
+      });
+      // The reconcile leaves an unlisted task alone, so one the server refused to
+      // move — already archived, per an event we have not seen — would otherwise
+      // sit in the target column forever.
+      if (data.moved_tasks.length !== moved.length) {
+        await this.resync();
+      }
+    } catch (error) {
+      await this.#mutationFailed(error);
+    } finally {
+      for (const task of moved) {
+        taskActivity.invalidate(task.id);
+      }
+    }
+  }
+
+  async archiveTasksInColumn(columnId: string): Promise<void> {
+    const archiving = this.tasksInColumn(columnId);
+    if (this.currentProjectId === null || archiving.length === 0) {
+      return;
+    }
+    const archivingIds = archiving.map((task) => task.id);
+    this.#dropTasks(archivingIds);
+    this.#discardArchivedLoad();
+    const now = new Date().toISOString();
+    this.archivedTasks = [
+      ...archiving.map((task) => ({ ...task, archived_at: now })),
+      ...this.archivedTasks,
+    ];
+    try {
+      const data = assertOk(
+        await api.POST('/api/columns/{id}/archive-tasks', { params: { path: { id: columnId } } })
+      );
+      const byId = new Map(data.tasks.map((task) => [task.id, task]));
+      this.archivedTasks = this.archivedTasks.map((task) => byId.get(task.id) ?? task);
+      // A card we dropped from the board but the server did not archive is gone
+      // from both lists until something else refetches.
+      if (data.tasks.length !== archiving.length) {
+        await this.resync();
+      }
+    } catch (error) {
+      this.archivedTasks = this.archivedTasks.filter((task) => !archivingIds.includes(task.id));
+      await this.#mutationFailed(error);
+    } finally {
+      for (const id of archivingIds) {
+        taskActivity.invalidate(id);
       }
     }
   }
@@ -1123,13 +1204,13 @@ class BoardStore {
       }
       case 'task_deleted': {
         const { id } = event.data as { id: string };
-        this.#dropTask(id);
+        this.#dropTasks([id]);
         this.archivedTasks = this.archivedTasks.filter((t) => t.id !== id);
         break;
       }
       case 'task_archived': {
         const archived = event.data as ArchivedTask;
-        this.#dropTask(archived.id);
+        this.#dropTasks([archived.id]);
         this.archivedTasks = this.archivedTasks.some((t) => t.id === archived.id)
           ? this.archivedTasks.map((t) => (t.id === archived.id ? archived : t))
           : [archived, ...this.archivedTasks];
@@ -1192,6 +1273,33 @@ class BoardStore {
         this.archivedTasks = this.archivedTasks.map(relocate).filter((t) => t.column_id !== d.id);
         for (const movedTask of d.moved_tasks) {
           taskActivity.invalidate(movedTask.id);
+        }
+        break;
+      }
+      case 'column_tasks_moved': {
+        const d = event.data as {
+          moved_tasks: { id: string; column_id: string; position: number }[];
+        };
+        const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
+        this.tasks = this.tasks.map((t) => {
+          const m = moved.get(t.id);
+          return m === undefined ? t : { ...t, column_id: m.column_id, position: m.position };
+        });
+        for (const movedTask of d.moved_tasks) {
+          taskActivity.invalidate(movedTask.id);
+        }
+        break;
+      }
+      case 'column_tasks_archived': {
+        const d = event.data as { column_id: string; tasks: ArchivedTask[] };
+        this.#dropTasks(d.tasks.map((t) => t.id));
+        const incoming = new Map(d.tasks.map((t) => [t.id, t]));
+        this.archivedTasks = [
+          ...d.tasks.filter((t) => !this.archivedTasks.some((held) => held.id === t.id)),
+          ...this.archivedTasks.map((held) => incoming.get(held.id) ?? held),
+        ];
+        for (const task of d.tasks) {
+          taskActivity.invalidate(task.id);
         }
         break;
       }

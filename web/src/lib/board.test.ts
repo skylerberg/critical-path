@@ -1514,6 +1514,231 @@ describe('archive', () => {
   });
 });
 
+describe('column bulk actions', () => {
+  function archivedTask(id: string, columnId = 'c1', title = 'A') {
+    return { ...task(id, columnId, 1000, title), archived_at: SERVER_ARCHIVED_AT };
+  }
+
+  function pathsRequested(): string[] {
+    return fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+  }
+
+  // t1 sits in c1 and is blocked by t3 in c2, so archiving c2 has a dependent.
+  function blockedPayload(): BoardPayload {
+    const base = payload();
+    return {
+      ...base,
+      tasks: base.tasks.map((t) => (t.id === 't1' ? { ...t, blocker_ids: ['t3'] } : t)),
+    };
+  }
+
+  beforeEach(async () => {
+    await board.load('p1');
+    fetchMock.mockClear();
+  });
+
+  it('moveTasksToColumn appends the cards optimistically and keeps every column', async () => {
+    const pending = board.moveTasksToColumn('c1', 'c2');
+
+    expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
+    expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
+      ['t3', 1000],
+      ['t1', 2000],
+      ['t2', 3000],
+    ]);
+    expect(board.tasksInColumn('c1')).toEqual([]);
+
+    await pending;
+
+    const request = requestAt(0);
+    expect(request.method).toBe('POST');
+    expect(new URL(request.url).pathname).toBe('/api/columns/c1/move-tasks');
+    expect(await request.json()).toEqual({ target_column_id: 'c2' });
+  });
+
+  it('moveTasksToColumn adopts the positions the server sent back', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
+        ? jsonResponse(200, {
+            moved_tasks: [
+              { id: 't1', column_id: 'c2', position: 8000 },
+              { id: 't2', column_id: 'c2', position: 9000 },
+            ],
+          })
+        : undefined
+    );
+
+    await board.moveTasksToColumn('c1', 'c2');
+
+    expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
+      ['t3', 1000],
+      ['t1', 8000],
+      ['t2', 9000],
+    ]);
+    expect(pathsRequested()).toEqual(['/api/columns/c1/move-tasks']);
+  });
+
+  it('moveTasksToColumn resyncs when the server moved fewer cards than we did', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
+        ? jsonResponse(200, { moved_tasks: [{ id: 't1', column_id: 'c2', position: 8000 }] })
+        : undefined
+    );
+
+    await board.moveTasksToColumn('c1', 'c2');
+
+    expect(pathsRequested()).toEqual(['/api/columns/c1/move-tasks', '/api/projects/p1']);
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2']);
+  });
+
+  it('moveTasksToColumn toasts and resyncs on failure', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
+        ? jsonResponse(500, { error: 'boom' })
+        : undefined
+    );
+
+    await board.moveTasksToColumn('c1', 'c2');
+
+    expect(toasts.toasts.map((t) => t.message)).toContain('boom');
+    expect(pathsRequested()).toContain('/api/projects/p1');
+  });
+
+  it('moveTasksToColumn on an empty column issues no request', async () => {
+    await board.moveTasksToColumn('c3', 'c1');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('archiveTasksInColumn drops the cards, strips their blocker edges, and archives them', async () => {
+    mockRoutes((request, url) => {
+      if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
+        return jsonResponse(200, blockedPayload());
+      }
+      if (request.method === 'POST' && url.pathname === '/api/columns/c2/archive-tasks') {
+        return jsonResponse(200, { tasks: [archivedTask('t3', 'c2', 'C')] });
+      }
+      return undefined;
+    });
+    await board.refetch();
+    fetchMock.mockClear();
+    expect(board.tasks.find((t) => t.id === 't1')?.blocker_ids).toEqual(['t3']);
+
+    await board.archiveTasksInColumn('c2');
+
+    expect(board.tasks.some((t) => t.id === 't3')).toBe(false);
+    expect(board.tasks.find((t) => t.id === 't1')?.blocker_ids).toEqual([]);
+    expect(board.archivedTasks.map((t) => [t.id, t.archived_at])).toEqual([
+      ['t3', SERVER_ARCHIVED_AT],
+    ]);
+    expect(pathsRequested()).toEqual(['/api/columns/c2/archive-tasks']);
+  });
+
+  it('archiveTasksInColumn resyncs when the response covers a different set', async () => {
+    board.archivedLoaded = true;
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/columns/c1/archive-tasks'
+        ? jsonResponse(200, { tasks: [archivedTask('t1', 'c1', 'A')] })
+        : undefined
+    );
+
+    await board.archiveTasksInColumn('c1');
+
+    expect(pathsRequested()).toEqual([
+      '/api/columns/c1/archive-tasks',
+      '/api/projects/p1',
+      '/api/projects/p1/archived-tasks',
+    ]);
+  });
+
+  it('archiveTasksInColumn clears the provisional rows and resyncs on failure', async () => {
+    board.archivedLoaded = true;
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/columns/c2/archive-tasks'
+        ? jsonResponse(500, { error: 'boom' })
+        : undefined
+    );
+
+    await board.archiveTasksInColumn('c2');
+
+    expect(board.archivedTasks).toEqual([]);
+    expect(toasts.toasts.map((t) => t.message)).toContain('boom');
+    expect(pathsRequested()).toContain('/api/projects/p1');
+    expect(pathsRequested()).toContain('/api/projects/p1/archived-tasks');
+  });
+
+  it('archiveTasksInColumn on an empty column issues no request', async () => {
+    await board.archiveTasksInColumn('c3');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(board.archivedTasks).toEqual([]);
+  });
+
+  it('applyRealtime column_tasks_moved relocates the listed cards and keeps the columns', () => {
+    board.applyRealtime({
+      type: 'column_tasks_moved',
+      project_id: 'p1',
+      data: {
+        column_id: 'c1',
+        target_column_id: 'c2',
+        moved_tasks: [
+          { id: 't1', column_id: 'c2', position: 4000 },
+          { id: 't2', column_id: 'c2', position: 5000 },
+        ],
+      },
+    });
+
+    expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
+    expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
+      ['t3', 1000],
+      ['t1', 4000],
+      ['t2', 5000],
+    ]);
+  });
+
+  it('applyRealtime column_tasks_archived drops the cards once, even on a self-echo', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === '/api/projects/p1'
+        ? jsonResponse(200, blockedPayload())
+        : undefined
+    );
+    await board.refetch();
+    const event = {
+      type: 'column_tasks_archived',
+      project_id: 'p1',
+      data: { column_id: 'c2', tasks: [archivedTask('t3', 'c2', 'C')] },
+    } as const;
+
+    board.applyRealtime(event);
+    board.applyRealtime(event);
+
+    expect(board.tasks.some((t) => t.id === 't3')).toBe(false);
+    expect(board.tasks.find((t) => t.id === 't1')?.blocker_ids).toEqual([]);
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t3']);
+  });
+
+  it('ignores both bulk events aimed at another project', () => {
+    board.applyRealtime({
+      type: 'column_tasks_moved',
+      project_id: 'p2',
+      data: {
+        column_id: 'c1',
+        target_column_id: 'c2',
+        moved_tasks: [{ id: 't1', column_id: 'c2', position: 4000 }],
+      },
+    });
+    board.applyRealtime({
+      type: 'column_tasks_archived',
+      project_id: 'p2',
+      data: { column_id: 'c2', tasks: [archivedTask('t3', 'c2', 'C')] },
+    });
+
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2']);
+    expect(board.tasks.some((t) => t.id === 't3')).toBe(true);
+    expect(board.archivedTasks).toEqual([]);
+  });
+});
+
 describe('applyRealtime does not resurrect a deleted task', () => {
   beforeEach(async () => {
     await board.load('p1');

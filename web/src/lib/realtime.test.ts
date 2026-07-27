@@ -476,6 +476,54 @@ describe('drag-aware queue', () => {
     expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
   });
 
+  it('treats column_tasks_moved as a board event: project-filtered, queued, then applied', async () => {
+    board.columns = [
+      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+      { id: 'c2', name: 'Done', position: 2000, is_done: true },
+    ];
+    board.tasks = [task('t1', 'c1')];
+    const socket = await connectAndAuth('p1');
+    const data = {
+      column_id: 'c1',
+      target_column_id: 'c2',
+      moved_tasks: [{ id: 't1', column_id: 'c2', position: 3000 }],
+    };
+
+    socket.receive({ type: 'column_tasks_moved', project_id: 'p2', data });
+    expect(board.tasks[0]!.column_id).toBe('c1');
+
+    board.dragging = true;
+    socket.receive({ type: 'column_tasks_moved', project_id: 'p1', data });
+    expect(board.tasks[0]!.column_id).toBe('c1');
+
+    board.dragging = false;
+    flushSync();
+    expect(board.tasks[0]).toMatchObject({ column_id: 'c2', position: 3000 });
+    expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2']);
+  });
+
+  it('treats column_tasks_archived as a board event: project-filtered, queued, then applied', async () => {
+    board.tasks = [task('t1', 'c1'), { ...task('t2', 'c2'), blocker_ids: ['t1'] }];
+    const socket = await connectAndAuth('p1');
+    const data = {
+      column_id: 'c1',
+      tasks: [{ ...task('t1', 'c1'), archived_at: '2026-03-01T00:00:00Z' }],
+    };
+
+    socket.receive({ type: 'column_tasks_archived', project_id: 'p2', data });
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1', 't2']);
+
+    board.dragging = true;
+    socket.receive({ type: 'column_tasks_archived', project_id: 'p1', data });
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1', 't2']);
+
+    board.dragging = false;
+    flushSync();
+    expect(board.tasks.map((t) => t.id)).toEqual(['t2']);
+    expect(board.tasks[0]!.blocker_ids).toEqual([]);
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
   it('treats task_restored as a board event: project-filtered, queued, then applied', async () => {
     board.archivedTasks = [{ ...task('t1'), archived_at: '2026-03-01T00:00:00Z' }];
     const socket = await connectAndAuth('p1');
