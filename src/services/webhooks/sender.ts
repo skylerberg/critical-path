@@ -48,11 +48,12 @@ export function sendDelivery(options: SendDeliveryOptions): Promise<SendResult> 
 
   return new Promise<SendResult>((resolve_) => {
     let settled = false;
-    const settle = (result: SendResult): void => {
+    function settle(result: SendResult): void {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
       resolve_(result);
-    };
+    }
 
     const request = transport.request(
       target,
@@ -77,13 +78,7 @@ export function sendDelivery(options: SendDeliveryOptions): Promise<SendResult> 
         const statusCode = response.statusCode ?? 0;
         const chunks: Buffer[] = [];
         let received = 0;
-        response.on('data', (chunk: Buffer) => {
-          if (received < MAX_ERROR_BODY_BYTES) {
-            chunks.push(chunk);
-            received += chunk.length;
-          }
-        });
-        response.on('end', () => {
+        const finish = (): void => {
           if (statusCode >= 200 && statusCode < 300) {
             settle({ ok: true, statusCode });
             return;
@@ -94,16 +89,30 @@ export function sendDelivery(options: SendDeliveryOptions): Promise<SendResult> 
             statusCode,
             error: `Receiver responded ${String(statusCode)}${text === '' ? '' : `: ${text}`}`,
           });
+        };
+        response.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+          received += chunk.length;
+          // Stop at the cap rather than draining: an endless body would
+          // otherwise hold the socket for as long as the receiver likes.
+          if (received >= MAX_ERROR_BODY_BYTES) {
+            finish();
+            response.destroy();
+          }
         });
+        response.on('end', finish);
         response.on('error', (err: Error) => {
           settle({ ok: false, statusCode, error: err.message });
         });
       }
     );
 
-    request.setTimeout(SEND_TIMEOUT_MS, () => {
-      request.destroy(new Error(`Timed out after ${String(SEND_TIMEOUT_MS)}ms`));
-    });
+    // An absolute deadline, not request.setTimeout: that is a socket inactivity
+    // timer, so a receiver trickling bytes never trips it and never settles.
+    const deadline = setTimeout(() => {
+      settle({ ok: false, error: `Timed out after ${String(SEND_TIMEOUT_MS)}ms` });
+      request.destroy();
+    }, SEND_TIMEOUT_MS);
     request.on('error', (err: Error) => {
       settle({ ok: false, error: err.message });
     });

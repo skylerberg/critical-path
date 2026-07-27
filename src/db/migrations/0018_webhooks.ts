@@ -32,8 +32,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('payload', 'jsonb', (col) => col.notNull())
     .addColumn('status', 'text', (col) => col.notNull().defaultTo('pending'))
     .addColumn('attempt_count', 'integer', (col) => col.notNull().defaultTo(0))
-    // A manual resend resets attempt_count, so this counter carries the history
-    // and keeps resends from driving auto-disable.
     .addColumn('redelivery_count', 'integer', (col) => col.notNull().defaultTo(0))
     .addColumn('next_attempt_at', 'timestamptz')
     .addColumn('last_attempt_at', 'timestamptz')
@@ -53,6 +51,13 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .on('webhook_delivery')
     .column('next_attempt_at')
     .where(sql.ref('status'), '=', 'pending')
+    .execute();
+
+  await db.schema
+    .createIndex('webhook_delivery_prune_idx')
+    .on('webhook_delivery')
+    .column('created_at')
+    .where(sql.ref('status'), '!=', 'pending')
     .execute();
 }
 

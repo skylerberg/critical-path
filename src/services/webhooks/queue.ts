@@ -112,8 +112,15 @@ export async function claimDueDeliveries(limit: number): Promise<DeliveryRow[]> 
   return result.rows;
 }
 
+// Every writer in this module takes project_webhook before webhook_delivery, so
+// two records of the same webhook cannot deadlock; keep that order.
 export async function recordSuccess(delivery: DeliveryRow, statusCode: number): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    await trx
+      .updateTable('project_webhook')
+      .set({ consecutive_failures: 0 })
+      .where('id', '=', delivery.webhook_id)
+      .execute();
     await trx
       .updateTable('webhook_delivery')
       .set({
@@ -124,25 +131,35 @@ export async function recordSuccess(delivery: DeliveryRow, statusCode: number): 
       })
       .where('id', '=', delivery.id)
       .execute();
-    await trx
-      .updateTable('project_webhook')
-      .set({ consecutive_failures: 0 })
-      .where('id', '=', delivery.webhook_id)
-      .execute();
   });
+}
+
+export interface FailureOutcome {
+  webhookDisabled: boolean;
 }
 
 export async function recordFailure(
   delivery: DeliveryRow,
   outcome: { statusCode?: number; error: string }
-): Promise<void> {
+): Promise<FailureOutcome> {
   const lastError = outcome.error.slice(0, MAX_ERROR_CHARS);
   const lastStatusCode = outcome.statusCode ?? null;
   // attempt_count is already post-increment: the claim bumped it.
   const exhausted = delivery.attempt_count >= MAX_ATTEMPTS;
 
-  await db.transaction().execute(async (trx) => {
-    if (!exhausted) {
+  return db.transaction().execute(async (trx): Promise<FailureOutcome> => {
+    // Locked, not just read: a row put back to pending on a webhook disabled
+    // mid-send is unreachable to both the claim and the prune, and would flood
+    // the receiver the moment it came back.
+    const webhook = await trx
+      .selectFrom('project_webhook')
+      .select('disabled_at')
+      .where('id', '=', delivery.webhook_id)
+      .forUpdate()
+      .executeTakeFirst();
+    const active = webhook !== undefined && webhook.disabled_at === null;
+
+    if (!exhausted && active) {
       const backoff =
         BACKOFF_SECONDS[Math.min(delivery.attempt_count - 1, BACKOFF_SECONDS.length - 1)];
       await trx
@@ -155,7 +172,7 @@ export async function recordFailure(
         })
         .where('id', '=', delivery.id)
         .execute();
-      return;
+      return { webhookDisabled: false };
     }
 
     await trx
@@ -169,30 +186,37 @@ export async function recordFailure(
       .where('id', '=', delivery.id)
       .execute();
 
+    if (!active) {
+      return { webhookDisabled: true };
+    }
+
     // Resend is a human poking a receiver they already know is broken; letting
     // it drive auto-disable would turn the debugging tool into a self-destruct.
     if (delivery.redelivery_count > 0) {
-      return;
+      return { webhookDisabled: false };
     }
 
-    const webhook = await trx
+    const updated = await trx
       .updateTable('project_webhook')
       .set((eb) => ({ consecutive_failures: eb('consecutive_failures', '+', 1) }))
       .where('id', '=', delivery.webhook_id)
       .returning('consecutive_failures')
       .executeTakeFirst();
-    if (webhook !== undefined && webhook.consecutive_failures >= MAX_CONSECUTIVE_FAILURES) {
-      await trx
-        .updateTable('project_webhook')
-        .set({ disabled_at: new Date() })
-        .where('id', '=', delivery.webhook_id)
-        .execute();
-      await failPendingDeliveries(
-        trx,
-        delivery.webhook_id,
-        'Webhook disabled after repeated failures'
-      );
+    if (updated === undefined || updated.consecutive_failures < MAX_CONSECUTIVE_FAILURES) {
+      return { webhookDisabled: false };
     }
+
+    await trx
+      .updateTable('project_webhook')
+      .set({ disabled_at: new Date() })
+      .where('id', '=', delivery.webhook_id)
+      .execute();
+    await failPendingDeliveries(
+      trx,
+      delivery.webhook_id,
+      'Webhook disabled after repeated failures'
+    );
+    return { webhookDisabled: true };
   });
 }
 

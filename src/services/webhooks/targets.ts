@@ -29,6 +29,7 @@ for (const [network, prefix] of [
   ['203.0.113.0', 24],
   ['224.0.0.0', 4],
   ['240.0.0.0', 4],
+  ['192.88.99.0', 24],
 ] as const) {
   blockList.addSubnet(network, prefix, 'ipv4');
 }
@@ -38,8 +39,11 @@ for (const [network, prefix] of [
   ['fc00::', 7],
   ['fe80::', 10],
   ['ff00::', 8],
-  // NAT64: without it a synthesised prefix tunnels straight to a private v4 address.
+  // NAT64, 6to4 and Teredo all embed an IPv4 address; without them a
+  // synthesised prefix tunnels straight to a private v4 target.
   ['64:ff9b::', 96],
+  ['2002::', 16],
+  ['2001::', 32],
 ] as const) {
   blockList.addSubnet(network, prefix, 'ipv6');
 }

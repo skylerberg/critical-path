@@ -73,13 +73,17 @@ describe('assertRegistrableWebhookUrl', () => {
     }
   });
 
-  it('rejects bracketed IPv6 literals, including IPv4-mapped and NAT64 forms', () => {
+  it('rejects bracketed IPv6 literals, including every IPv4-embedding form', () => {
     for (const url of [
       'http://[::1]/x',
       'http://[fd00::1]/x',
       'http://[fe80::1]/x',
       'http://[::ffff:10.0.0.1]/x',
       'http://[64:ff9b::a00:1]/x',
+      // 6to4 (embedding 169.254.169.254), Teredo, and the 6to4 relay anycast.
+      'http://[2002:a9fe:a9fe::]/x',
+      'http://[2001:0:53aa:64c:0:0:a00:1]/x',
+      'http://192.88.99.1/x',
     ]) {
       expect(rejection(url, strict).message).toMatch(/private, loopback, or reserved/);
     }

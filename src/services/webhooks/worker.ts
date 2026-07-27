@@ -19,6 +19,10 @@ export interface RunDueDeliveriesOptions {
 
 const TICK_MS = 5000;
 const PRUNE_EVERY_TICKS = 120;
+// A tick that never finishes would hold the no-overlap latch and silently stop
+// this replica for good. Overrunning the budget only overlaps ticks, which the
+// SKIP LOCKED lease already tolerates across replicas.
+const TICK_BUDGET_MS = 120_000;
 
 export async function runDueDeliveries(options: RunDueDeliveriesOptions = {}): Promise<number> {
   const claimed = await claimDueDeliveries(CLAIM_BATCH);
@@ -26,10 +30,13 @@ export async function runDueDeliveries(options: RunDueDeliveriesOptions = {}): P
 
   const policy = options.policy ?? targetPolicy();
   const webhookIds = [...new Set(claimed.map((row) => row.webhook_id))];
+  // Disabled since the claim means the disable path has already terminated
+  // these rows; sending them would resurrect a backlog on a dead receiver.
   const webhooks = await db
     .selectFrom('project_webhook')
     .select(['id', 'url', 'secret'])
     .where('id', 'in', webhookIds)
+    .where('disabled_at', 'is', null)
     .execute();
   const byId = new Map(webhooks.map((webhook) => [webhook.id, webhook]));
 
@@ -52,7 +59,7 @@ export async function runDueDeliveries(options: RunDueDeliveriesOptions = {}): P
         const webhook = byId.get(group[0].webhook_id);
         if (webhook === undefined) continue;
         for (const delivery of group) {
-          await deliverOne(delivery, webhook, policy, options.resolve);
+          if (await deliverOne(delivery, webhook, policy, options.resolve)) break;
         }
       }
     }
@@ -61,12 +68,14 @@ export async function runDueDeliveries(options: RunDueDeliveriesOptions = {}): P
   return claimed.length;
 }
 
+// True means the webhook is no longer active: the caller drops the rest of its
+// group rather than POST to an endpoint just declared dead.
 async function deliverOne(
   delivery: DeliveryRow,
   webhook: { id: string; url: string; secret: string },
   policy: TargetPolicy,
   resolve: LookupAll | undefined
-): Promise<void> {
+): Promise<boolean> {
   try {
     const result = await sendDelivery({
       url: webhook.url,
@@ -78,19 +87,28 @@ async function deliverOne(
     });
     if (result.ok) {
       await recordSuccess(delivery, result.statusCode ?? 0);
-    } else {
-      await recordFailure(delivery, {
-        statusCode: result.statusCode,
-        error: result.error ?? 'Delivery failed',
-      });
+      return false;
     }
+    const { webhookDisabled } = await recordFailure(delivery, {
+      statusCode: result.statusCode,
+      error: result.error ?? 'Delivery failed',
+    });
+    return webhookDisabled;
   } catch (err) {
     logger.error({
       msg: 'Webhook delivery failed to record',
       delivery_id: delivery.id,
       error: err instanceof Error ? err.message : String(err),
     });
+    return false;
   }
+}
+
+function logTickFailure(err: unknown): void {
+  logger.error({
+    msg: 'Webhook worker tick failed',
+    error: err instanceof Error ? err.message : String(err),
+  });
 }
 
 export function startWebhookWorker(): { close: () => void } {
@@ -103,17 +121,27 @@ export function startWebhookWorker(): { close: () => void } {
     ticks += 1;
     const shouldPrune = ticks % PRUNE_EVERY_TICKS === 0;
     void (async () => {
-      try {
+      const tick = (async () => {
         await runDueDeliveries();
         if (shouldPrune) {
           await pruneDeliveries();
         }
+      })().catch(logTickFailure);
+      let budget: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          tick,
+          new Promise<never>((_, reject) => {
+            budget = setTimeout(
+              () => reject(new Error(`Tick exceeded ${String(TICK_BUDGET_MS)}ms`)),
+              TICK_BUDGET_MS
+            );
+          }),
+        ]);
       } catch (err) {
-        logger.error({
-          msg: 'Webhook worker tick failed',
-          error: err instanceof Error ? err.message : String(err),
-        });
+        logTickFailure(err);
       } finally {
+        clearTimeout(budget);
         running = false;
       }
     })();
