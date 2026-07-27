@@ -1538,6 +1538,17 @@ describe('column bulk actions', () => {
   });
 
   it('moveTasksToColumn appends the cards optimistically and keeps every column', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
+        ? jsonResponse(200, {
+            moved_tasks: [
+              { id: 't1', column_id: 'c2', position: 2000 },
+              { id: 't2', column_id: 'c2', position: 3000 },
+            ],
+          })
+        : undefined
+    );
+
     const pending = board.moveTasksToColumn('c1', 'c2');
 
     expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
@@ -1554,6 +1565,8 @@ describe('column bulk actions', () => {
     expect(request.method).toBe('POST');
     expect(new URL(request.url).pathname).toBe('/api/columns/c1/move-tasks');
     expect(await request.json()).toEqual({ target_column_id: 'c2' });
+    expect(pathsRequested()).toEqual(['/api/columns/c1/move-tasks']);
+    expect(board.tasksInColumn('c1')).toEqual([]);
   });
 
   it('moveTasksToColumn adopts the positions the server sent back', async () => {
@@ -1589,6 +1602,23 @@ describe('column bulk actions', () => {
 
     expect(pathsRequested()).toEqual(['/api/columns/c1/move-tasks', '/api/projects/p1']);
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2']);
+  });
+
+  it('moveTasksToColumn resyncs when the server moved a card we did not send', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
+        ? jsonResponse(200, {
+            moved_tasks: [
+              { id: 't1', column_id: 'c2', position: 8000 },
+              { id: 't9', column_id: 'c2', position: 9000 },
+            ],
+          })
+        : undefined
+    );
+
+    await board.moveTasksToColumn('c1', 'c2');
+
+    expect(pathsRequested()).toEqual(['/api/columns/c1/move-tasks', '/api/projects/p1']);
   });
 
   it('moveTasksToColumn toasts and resyncs on failure', async () => {
@@ -1639,6 +1669,25 @@ describe('column bulk actions', () => {
     mockRoutes((request, url) =>
       request.method === 'POST' && url.pathname === '/api/columns/c1/archive-tasks'
         ? jsonResponse(200, { tasks: [archivedTask('t1', 'c1', 'A')] })
+        : undefined
+    );
+
+    await board.archiveTasksInColumn('c1');
+
+    expect(pathsRequested()).toEqual([
+      '/api/columns/c1/archive-tasks',
+      '/api/projects/p1',
+      '/api/projects/p1/archived-tasks',
+    ]);
+  });
+
+  it('archiveTasksInColumn resyncs when the response swaps one card for another', async () => {
+    board.archivedLoaded = true;
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/columns/c1/archive-tasks'
+        ? jsonResponse(200, {
+            tasks: [archivedTask('t1', 'c1', 'A'), archivedTask('t9', 'c1', 'Z')],
+          })
         : undefined
     );
 

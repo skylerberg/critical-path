@@ -20,6 +20,7 @@
   let draft = $state('');
   let deleteOpen = $state(false);
   let menuOpen = $state(false);
+  let menuEl = $state<HTMLDivElement>();
   let moveOpen = $state(false);
   let archiveOpen = $state(false);
 
@@ -49,10 +50,21 @@
     node.focus();
     node.select();
   };
+
+  // One header per column, so a click on another column's kebab has to reach this
+  // instance to close its menu — hence no stopPropagation on the trigger, and the
+  // containment check here to keep a click on our own menu from closing it.
+  function closeMenuOnOutsideClick(event: MouseEvent): void {
+    const target = event.target;
+    if (target instanceof Node && menuEl?.contains(target) === true) {
+      return;
+    }
+    menuOpen = false;
+  }
 </script>
 
 <svelte:window
-  onclick={() => (menuOpen = false)}
+  onclick={closeMenuOnOutsideClick}
   onkeydown={(event) => {
     if (event.key === 'Escape') menuOpen = false;
   }}
@@ -131,15 +143,13 @@
         <path d="m8.5 12.5 2.5 2.5 5-5.5" />
       </svg>
     </button>
-    <div class="relative shrink-0">
+    <div bind:this={menuEl} class="relative shrink-0">
       <button
         type="button"
-        aria-label="Column options"
+        aria-label="Options for {column.name}"
+        aria-haspopup="menu"
         aria-expanded={menuOpen}
-        onclick={(event) => {
-          event.stopPropagation();
-          menuOpen = !menuOpen;
-        }}
+        onclick={() => (menuOpen = !menuOpen)}
         class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-accent-soft hover:text-ink"
       >
         <svg class="size-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -180,7 +190,9 @@
             </button>
           {/if}
           {#if count === 0}
-            <p class="px-4 py-2 text-sm text-muted">This column has no cards.</p>
+            <div role="menuitem" aria-disabled="true" class="px-4 py-2 text-sm text-muted">
+              This column has no cards.
+            </div>
           {/if}
         </div>
       {/if}

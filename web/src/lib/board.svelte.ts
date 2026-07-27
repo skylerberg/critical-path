@@ -691,8 +691,9 @@ class BoardStore {
       });
       // The reconcile leaves an unlisted task alone, so one the server refused to
       // move — already archived, per an event we have not seen — would otherwise
-      // sit in the target column forever.
-      if (data.moved_tasks.length !== moved.length) {
+      // sit in the target column forever. Sets, not counts: an id we did not send
+      // can mask one the server skipped.
+      if (byId.size !== moved.length || moved.some((task) => !byId.has(task.id))) {
         await this.resync();
       }
     } catch (error) {
@@ -724,12 +725,14 @@ class BoardStore {
       const byId = new Map(data.tasks.map((task) => [task.id, task]));
       this.archivedTasks = this.archivedTasks.map((task) => byId.get(task.id) ?? task);
       // A card we dropped from the board but the server did not archive is gone
-      // from both lists until something else refetches.
-      if (data.tasks.length !== archiving.length) {
+      // from both lists until something else refetches. Sets, not counts: an id we
+      // did not send can mask one the server skipped.
+      if (byId.size !== archivingIds.length || archivingIds.some((id) => !byId.has(id))) {
         await this.resync();
       }
     } catch (error) {
-      this.archivedTasks = this.archivedTasks.filter((task) => !archivingIds.includes(task.id));
+      const dropped = new Set(archivingIds);
+      this.archivedTasks = this.archivedTasks.filter((task) => !dropped.has(task.id));
       await this.#mutationFailed(error);
     } finally {
       for (const id of archivingIds) {
@@ -1294,8 +1297,9 @@ class BoardStore {
         const d = event.data as { column_id: string; tasks: ArchivedTask[] };
         this.#dropTasks(d.tasks.map((t) => t.id));
         const incoming = new Map(d.tasks.map((t) => [t.id, t]));
+        const heldIds = new Set(this.archivedTasks.map((t) => t.id));
         this.archivedTasks = [
-          ...d.tasks.filter((t) => !this.archivedTasks.some((held) => held.id === t.id)),
+          ...d.tasks.filter((t) => !heldIds.has(t.id)),
           ...this.archivedTasks.map((held) => incoming.get(held.id) ?? held),
         ];
         for (const task of d.tasks) {

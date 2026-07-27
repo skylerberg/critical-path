@@ -30,8 +30,8 @@ function renderHeader(column: BoardColumn, readonly = false) {
   return render(ColumnHeader, { column, count, matchCount: null, readonly });
 }
 
-async function openMenu(): Promise<void> {
-  await fireEvent.click(screen.getByRole('button', { name: 'Column options' }));
+async function openMenu(name = 'Todo'): Promise<void> {
+  await fireEvent.click(screen.getByRole('button', { name: `Options for ${name}` }));
 }
 
 beforeEach(() => {
@@ -85,15 +85,55 @@ describe('ColumnHeader options menu', () => {
 
   it('offers neither action for an empty column', async () => {
     renderHeader(DONE);
+    await openMenu('Done');
+
+    expect(screen.queryByRole('menuitem', { name: 'Move all cards to…' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Archive all cards' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'This column has no cards.' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+  });
+
+  it('opening one column menu closes the other', async () => {
+    board.tasks = [task('t1', 'c1'), task('t2', 'c2')];
+    renderHeader(TODO);
+    renderHeader(DONE);
+
+    await openMenu();
+    await openMenu('Done');
+
+    expect(screen.queryAllByRole('menu')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Options for Todo' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+  });
+
+  it('closes on a click outside and on Escape', async () => {
+    renderHeader(TODO);
+
+    await openMenu();
+    await fireEvent.click(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    await openMenu();
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('stays open while the menu itself is clicked', async () => {
+    renderHeader(TODO);
     await openMenu();
 
-    expect(screen.queryByRole('menuitem')).toBeNull();
-    expect(screen.getByText('This column has no cards.')).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('menu'));
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 
   it('is absent on a read-only board', () => {
     renderHeader(TODO, true);
 
-    expect(screen.queryByRole('button', { name: 'Column options' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Options for Todo' })).toBeNull();
   });
 });
