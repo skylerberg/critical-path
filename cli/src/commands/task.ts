@@ -479,8 +479,11 @@ export function registerTask(program: Command, deps: CliDeps): void {
         .description('Create a task (in the first non-done column by default)')
         .argument('<title>', 'task title')
         .option('--column <column>', 'target column (id or name)')
-        .option('--description <markdown>', 'description as Markdown')
-        .option('--description-file <path>', 'read the Markdown description from a file')
+        .option('--description <markdown>', 'description as Markdown (no mentions)')
+        .option(
+          '--description-file <path>',
+          'read the Markdown description from a file (no mentions)'
+        )
         .option(
           '--description-json <path>',
           'read a Tiptap JSON description from a file (- for stdin)'
@@ -535,8 +538,11 @@ export function registerTask(program: Command, deps: CliDeps): void {
       .description('Update the title or description of a task')
       .argument('<task>', 'task id or title')
       .option('--title <title>', 'new title')
-      .option('--description <markdown>', 'new description as Markdown')
-      .option('--description-file <path>', 'read the Markdown description from a file')
+      .option('--description <markdown>', 'new description as Markdown (drops any @mentions)')
+      .option(
+        '--description-file <path>',
+        'read the Markdown description from a file (drops any @mentions)'
+      )
       .option(
         '--description-json <path>',
         'read a Tiptap JSON description from a file (- for stdin)'
