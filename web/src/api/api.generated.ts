@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/account-deletion/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -77,7 +77,11 @@ export interface paths {
         get: operations["getApiAuthMe"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete account
+         * @description Permanently delete the authenticated account. The current password must be re-supplied. This removes the account, every session and personal access token, every project the caller created together with its columns, tasks, labels, dependencies, comments, activity, webhooks and images, their memberships and task assignments in other people's projects, their comments and activity entries there, and their submitted feedback. Stored avatar and image objects are removed after the transaction commits. It answers 409 with a blocking_projects list while the caller still owns a project that has other members: hand each one over with PUT /api/projects/{id}/owner, or delete it, and retry. Deletion cannot be undone.
+         */
+        delete: operations["deleteApiAuthMe"];
         options?: never;
         head?: never;
         /**
@@ -1051,6 +1055,16 @@ export interface components {
             email?: string;
             name?: string;
         };
+        DeleteAccountConflict: {
+            blocking_projects: {
+                id: string;
+                name: string;
+            }[];
+            error: string;
+        };
+        DeleteAccount: {
+            password: string;
+        };
         CreatedPersonalAccessToken: {
             personal_access_token: components["schemas"]["PersonalAccessToken"];
             token: string;
@@ -1697,6 +1711,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiAuthMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccount"];
+            };
+        };
+        responses: {
+            /** @description Account deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The caller still owns projects that have other members */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteAccountConflict"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
                 };
             };
             /** @description Internal Server Error */

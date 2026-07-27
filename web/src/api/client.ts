@@ -26,9 +26,11 @@ export function setAuthHooks(hooks: AuthHooks): void {
   authHooks = hooks;
 }
 
-// A wrong current password answers 401 without invalidating the session, so it
-// must not trip the global logout handler.
-const SESSION_SAFE_401 = new Set(['/api/auth/change-password']);
+// A wrong password answers 401 without invalidating the session, so it must not
+// trip the global logout handler. Keyed by method as well as path because
+// GET /api/auth/me shares a pathname with the delete and its 401 is exactly how
+// a revoked token is detected.
+const SESSION_SAFE_401 = new Set(['POST /api/auth/change-password', 'DELETE /api/auth/me']);
 
 const bearerAuth: Middleware = {
   onRequest({ request }) {
@@ -41,7 +43,7 @@ const bearerAuth: Middleware = {
     if (
       response.status === 401 &&
       request.headers.has('Authorization') &&
-      !SESSION_SAFE_401.has(new URL(request.url).pathname)
+      !SESSION_SAFE_401.has(`${request.method} ${new URL(request.url).pathname}`)
     ) {
       authHooks?.onUnauthorized();
     }

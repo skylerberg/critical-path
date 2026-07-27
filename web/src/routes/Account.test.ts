@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import Account from './Account.svelte';
+import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
 import { session } from '../lib/session.svelte';
 import { users } from '../lib/users.svelte';
@@ -46,11 +47,35 @@ function pathsRequested(): string[] {
   return fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
 }
 
+function deleteDialog(): HTMLElement | null {
+  return screen.queryByRole('dialog', { name: 'Delete account' });
+}
+
+function seedProject(overrides: Partial<Project>): void {
+  projects.projects = [
+    {
+      id: 'p-1',
+      name: 'Shared Ledger',
+      description: '',
+      archived_at: null,
+      created_by: user.id,
+      member_ids: [],
+      is_public: false,
+      created_at: '2026-01-01T00:00:00.000Z',
+      open_task_count: 0,
+      done_task_count: 0,
+      position: null,
+      ...overrides,
+    },
+  ];
+}
+
 beforeEach(async () => {
   fetchMock.mockReset();
   vi.mocked(realtime.connect).mockClear();
   vi.mocked(realtime.disconnect).mockClear();
   users.reset();
+  projects.reset();
   localStorage.clear();
   sessionStorage.clear();
   window.history.replaceState(null, '', '/account');
@@ -235,6 +260,102 @@ describe('Account', () => {
     expect(screen.getByRole('heading', { name: 'Personal access tokens' })).toBeInTheDocument();
     expect(await screen.findByText('You have no personal access tokens yet.')).toBeInTheDocument();
     expect(pathsRequested()).toContain('/api/auth/tokens');
+  });
+
+  it('opens the delete dialog without issuing a request', async () => {
+    mockRoutes(500);
+    render(Account);
+    expect(deleteDialog()).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+
+    expect(deleteDialog()).not.toBeNull();
+    expect(pathsRequested()).toEqual(['/api/auth/tokens']);
+  });
+
+  it('deletes the account, clears the session, and lands on the login page', async () => {
+    mockRoutes(204);
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw12345678' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/login'));
+    const request = requestTo('/api/auth/me');
+    expect(request.method).toBe('DELETE');
+    expect(await bodyOf(request)).toEqual({ password: 'pw12345678' });
+    expect(session.status).toBe('anon');
+    expect(session.token).toBeNull();
+    expect(localStorage.getItem('cp.token')).toBeNull();
+    expect(vi.mocked(realtime.disconnect)).toHaveBeenCalledOnce();
+    expect(vi.mocked(realtime.connect)).not.toHaveBeenCalled();
+  });
+
+  it('reports a wrong password in the dialog and keeps the session', async () => {
+    mockRoutes(401, { error: 'Password is incorrect' });
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+
+    expect(await screen.findByText('Incorrect password')).toBeInTheDocument();
+    expect(session.status).toBe('authed');
+    expect(window.location.pathname).toBe('/account');
+    expect(vi.mocked(realtime.connect)).toHaveBeenCalledOnce();
+  });
+
+  it('revalidates instead of blaming the password when the session is already dead', async () => {
+    mockRoutes(401, { error: 'Invalid or expired token' });
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw12345678' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+
+    await vi.waitFor(() => expect(session.status).toBe('anon'));
+    expect(screen.queryByText('Incorrect password')).not.toBeInTheDocument();
+    const revalidation = fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => new URL(request.url).pathname === '/api/auth/me');
+    expect(revalidation.map((request) => request.method)).toEqual(['DELETE', 'GET']);
+  });
+
+  it('shows the conflict message and refetches the projects on a 409', async () => {
+    mockRoutes(409, { error: 'You still own projects: Shared Ledger.', blocking_projects: [] });
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw12345678' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+
+    expect(await screen.findByText('You still own projects: Shared Ledger.')).toBeInTheDocument();
+    await vi.waitFor(() => expect(pathsRequested()).toContain('/api/projects'));
+    expect(deleteDialog()).not.toBeNull();
+    expect(session.status).toBe('authed');
+  });
+
+  it('disables the delete button and names the boards that still have members', () => {
+    seedProject({ member_ids: ['u-2'] });
+    mockRoutes(500);
+    render(Account);
+
+    expect(screen.getByRole('link', { name: 'Shared Ledger' })).toHaveAttribute(
+      'href',
+      '/projects/p-1'
+    );
+    expect(screen.getByRole('button', { name: 'Delete account' })).toBeDisabled();
+    expect(deleteDialog()).toBeNull();
+  });
+
+  it('leaves the delete button enabled for a solo board', () => {
+    seedProject({ member_ids: [] });
+    mockRoutes(500);
+    render(Account);
+
+    expect(screen.getByRole('button', { name: 'Delete account' })).toBeEnabled();
+    expect(screen.queryByText('Shared Ledger')).not.toBeInTheDocument();
   });
 
   it('flags a confirmation mismatch', async () => {

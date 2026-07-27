@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ApiError } from '../api/client';
+  import { apiMessage } from '../lib/apiMessages';
   import { APP_NAME } from '../lib/constants';
   import { link, router } from '../lib/router.svelte';
   import { consumeIntendedPath, session } from '../lib/session.svelte';
@@ -58,7 +59,7 @@
       }
       return error.message;
     }
-    return 'Could not reach the server. Check your connection and try again.';
+    return apiMessage(error);
   }
 </script>
 

@@ -1,8 +1,12 @@
 <script lang="ts">
   import { api, ApiError, assertOk } from '../api/client';
+  import { apiMessage } from '../lib/apiMessages';
+  import { projects } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
+  import { link } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
   import { users } from '../lib/users.svelte';
+  import DeleteAccountDialog from '../components/DeleteAccountDialog.svelte';
   import FeedbackDialog from '../components/FeedbackDialog.svelte';
   import PersonalAccessTokens from '../components/PersonalAccessTokens.svelte';
   import Avatar from '../components/ui/Avatar.svelte';
@@ -24,6 +28,13 @@
   let savingEmail = $state(false);
 
   let feedbackOpen = $state(false);
+  let deleteOpen = $state(false);
+
+  const blockingProjects = $derived(
+    projects.projects.filter(
+      (project) => project.created_by === session.user?.id && project.member_ids.length > 0
+    )
+  );
 
   let currentPassword = $state('');
   let newPassword = $state('');
@@ -46,7 +57,7 @@
       name = user.name;
       nameStatus = { kind: 'success', message: 'Name updated' };
     } catch (error) {
-      nameStatus = { kind: 'error', message: messageFor(error) };
+      nameStatus = { kind: 'error', message: apiMessage(error) };
     } finally {
       savingName = false;
     }
@@ -108,7 +119,7 @@
     if (error instanceof ApiError && error.status === 422) {
       return 'That file is not a supported image (PNG, JPEG, GIF, or WebP)';
     }
-    return messageFor(error);
+    return apiMessage(error);
   }
 
   async function submitEmail(event: SubmitEvent): Promise<void> {
@@ -129,7 +140,7 @@
       const message =
         error instanceof ApiError && error.status === 409
           ? 'That email is taken'
-          : messageFor(error);
+          : apiMessage(error);
       emailStatus = { kind: 'error', message };
     } finally {
       savingEmail = false;
@@ -171,19 +182,12 @@
       const message =
         error instanceof ApiError && error.status === 401
           ? 'Incorrect current password'
-          : messageFor(error);
+          : apiMessage(error);
       passwordStatus = { kind: 'error', message };
     } finally {
       realtime.connect();
       savingPassword = false;
     }
-  }
-
-  function messageFor(error: unknown): string {
-    if (error instanceof ApiError) {
-      return error.message;
-    }
-    return 'Could not reach the server. Check your connection and try again.';
   }
 </script>
 
@@ -302,6 +306,40 @@
       <Button variant="secondary" onclick={() => (feedbackOpen = true)}>Send feedback</Button>
     </div>
   </section>
+
+  <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
+    <h2 class="text-lg font-semibold text-danger">Delete account</h2>
+    <p class="text-sm text-muted">
+      Deleting your account is permanent. It removes your account, every board you created and
+      everything in it, your memberships and assignments on other people's boards, and the images
+      you uploaded. There is no undo.
+    </p>
+    {#if blockingProjects.length > 0}
+      <p class="text-sm text-muted">You still own boards that other people are members of:</p>
+      <ul class="flex list-inside list-disc flex-col gap-1 text-sm" use:link>
+        {#each blockingProjects as project (project.id)}
+          <li>
+            <a href="/projects/{project.id}" class="font-medium text-accent hover:underline">
+              {project.name}
+            </a>
+          </li>
+        {/each}
+      </ul>
+      <p class="text-sm text-muted">
+        Transfer these boards to another member or delete them first.
+      </p>
+    {/if}
+    <div class="flex justify-end">
+      <Button
+        variant="danger"
+        disabled={blockingProjects.length > 0}
+        onclick={() => (deleteOpen = true)}
+      >
+        Delete account
+      </Button>
+    </div>
+  </section>
 </main>
 
 <FeedbackDialog open={feedbackOpen} onclose={() => (feedbackOpen = false)} />
+<DeleteAccountDialog open={deleteOpen} onclose={() => (deleteOpen = false)} />
