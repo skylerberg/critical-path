@@ -9,6 +9,7 @@
   import FilterBar from './FilterBar.svelte';
   import LabelManager from './LabelManager.svelte';
   import ProjectMembersModal from './ProjectMembersModal.svelte';
+  import WebhooksModal from './WebhooksModal.svelte';
   import Badge from './ui/Badge.svelte';
   import Spinner from './ui/Spinner.svelte';
 
@@ -22,6 +23,7 @@
   let labelsOpen = $state(false);
   let shareOpen = $state(false);
   let archiveOpen = $state(false);
+  let webhooksOpen = $state(false);
   let exporting = $state(false);
 
   async function exportProject(): Promise<void> {
@@ -147,6 +149,27 @@
     </button>
     <button
       type="button"
+      onclick={() => (webhooksOpen = true)}
+      class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink"
+    >
+      <svg
+        class="size-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M9 6.5a3 3 0 1 1 4.2 2.75L16 15" />
+        <path d="M18.5 12a3 3 0 1 1-1.6 5.5H11" />
+        <path d="M8.5 21a3 3 0 1 1-2.6-4.5L9 11" />
+      </svg>
+      Webhooks
+    </button>
+    <button
+      type="button"
       onclick={exportProject}
       disabled={exporting}
       aria-label="Export"
@@ -187,4 +210,8 @@
 
 {#if archiveOpen}
   <ArchivedTasksModal open onclose={() => (archiveOpen = false)} />
+{/if}
+
+{#if webhooksOpen}
+  <WebhooksModal {projectId} onclose={() => (webhooksOpen = false)} />
 {/if}

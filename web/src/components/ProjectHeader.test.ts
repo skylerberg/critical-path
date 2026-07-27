@@ -6,6 +6,7 @@ import { board } from '../lib/board.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
+import { webhooks } from '../lib/webhooks.svelte';
 import type { BoardTask } from '../lib/board-types';
 
 function project(overrides: Partial<Project> = {}): Project {
@@ -79,6 +80,7 @@ beforeEach(() => {
   board.reset();
   projects.reset();
   users.reset();
+  webhooks.reset();
   board.currentProjectId = 'p1';
   board.project = {
     id: 'p1',
@@ -179,6 +181,32 @@ describe('ProjectHeader', () => {
     expect(screen.getByText('Ada')).toBeInTheDocument();
     expect(screen.getByText('Owner')).toBeInTheDocument();
     expect(screen.getByLabelText('Add people')).toBeInTheDocument();
+  });
+
+  it('opens the webhooks modal from the Webhooks button', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        webhooks: [
+          {
+            id: 'w-1',
+            project_id: 'p1',
+            url: 'https://example.com/hook',
+            secret: 'sec-abc',
+            disabled_at: null,
+            consecutive_failures: 0,
+            created_at: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+      })
+    );
+
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Webhooks' }));
+
+    expect(screen.getByLabelText('Endpoint URL')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('https://example.com/hook')).toBeInTheDocument());
+    expect((fetchMock.mock.calls[0][0] as Request).url).toContain('/api/webhooks?project_id=p1');
   });
 
   it('opens the archive from the Archived cards button', async () => {
