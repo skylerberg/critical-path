@@ -35,6 +35,7 @@ interface PublicBoardBody {
     assignee_ids: string[];
     blocker_ids: string[];
     image_count: number;
+    cover_image_url: string | null;
   }>;
   labels: Array<{ id: string; name: string; color: string }>;
   users: Array<{ id: string; name: string; avatar_url: string | null }>;
@@ -102,6 +103,10 @@ describe('GET /api/public/projects/:id/board', () => {
       .postMultipart(`/api/tasks/${blockerTaskId}/images`, imageForm());
     expect(uploadRes.status).toBe(201);
     const { id: imageId } = (await uploadRes.json()) as { id: string };
+    const coverRes = await ctx
+      .request(owner.token)
+      .put(`/api/tasks/${blockerTaskId}/cover`, { image_id: imageId });
+    expect(coverRes.status).toBe(204);
 
     const mainTaskId = await insertTask({
       projectId,
@@ -177,7 +182,10 @@ describe('GET /api/public/projects/:id/board', () => {
       assignee_ids: [assignee.id],
       blocker_ids: [seeded.blockerTaskId],
       image_count: 0,
+      cover_image_url: null,
     });
+    const blocker = payload.tasks.find((task) => task.id === seeded.blockerTaskId)!;
+    expect(blocker.cover_image_url).toBe(`/api/images/${seeded.imageId}`);
     expect(payload.labels.map((label) => label.id).sort()).toEqual(
       [seeded.labelId, seeded.unusedLabelId].sort()
     );
@@ -216,6 +224,7 @@ describe('GET /api/public/projects/:id/board', () => {
         assignee_ids: task.assignee_ids,
         blocker_ids: task.blocker_ids,
         image_count: task.image_count,
+        cover_image_url: task.cover_image_url,
       }))
     );
   });
@@ -252,6 +261,7 @@ describe('GET /api/public/projects/:id/board', () => {
         'assignee_ids',
         'blocker_ids',
         'column_id',
+        'cover_image_url',
         'description',
         'due_date',
         'id',

@@ -20,6 +20,7 @@ export interface BoardTaskPayload {
   assignee_ids: string[];
   blocker_ids: string[];
   image_count: number;
+  cover_image_url: string | null;
   comment_count: number;
 }
 
@@ -84,6 +85,7 @@ export async function insertTaskImage(options: {
   imageId?: string;
   storageKey?: string;
   filename?: string;
+  isCover?: boolean;
 }): Promise<{ imageId: string; storageKey: string }> {
   const imageId = options.imageId ?? crypto.randomUUID();
   const storageKey = options.storageKey ?? crypto.randomUUID();
@@ -96,6 +98,7 @@ export async function insertTaskImage(options: {
       filename: options.filename ?? 'test.png',
       content_type: 'image/png',
       size_bytes: 4,
+      is_cover: options.isCover ?? false,
     })
     .execute();
   return { imageId, storageKey };
