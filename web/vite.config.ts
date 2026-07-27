@@ -5,6 +5,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { svelteTesting } from '@testing-library/svelte/vite';
+import { AVATAR_CACHE_NAME, IMAGE_CACHE_NAME } from './src/lib/constants';
 
 export default defineConfig({
   plugins: [
@@ -44,7 +45,7 @@ export default defineConfig({
             urlPattern: ({ url }) => url.pathname.startsWith('/api/images/'),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'api-images',
+              cacheName: IMAGE_CACHE_NAME,
               expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [200] },
             },
@@ -53,7 +54,7 @@ export default defineConfig({
             urlPattern: ({ url }) => url.pathname.startsWith('/api/avatars/'),
             handler: 'CacheFirst',
             options: {
-              cacheName: 'api-avatars',
+              cacheName: AVATAR_CACHE_NAME,
               expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [200] },
             },

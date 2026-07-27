@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ApiError } from '../api/client';
+  import { apiMessage } from '../lib/apiMessages';
   import { board } from '../lib/board.svelte';
   import { downloadProjectExport } from '../lib/export';
   import { projects } from '../lib/projects.svelte';
@@ -34,11 +34,7 @@
         toasts.success('This project is too large to package with its images — saved as JSON.');
       }
     } catch (error) {
-      toasts.error(
-        error instanceof ApiError
-          ? error.message
-          : 'Could not reach the server. Check your connection and try again.'
-      );
+      toasts.error(apiMessage(error));
     } finally {
       exporting = false;
     }

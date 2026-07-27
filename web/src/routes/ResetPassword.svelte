@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, ApiError, assertOk } from '../api/client';
+  import { apiMessage } from '../lib/apiMessages';
   import { APP_NAME } from '../lib/constants';
   import { link, router } from '../lib/router.svelte';
   import { toasts } from '../lib/toasts.svelte';
@@ -44,10 +45,7 @@
       if (err instanceof ApiError && err.status === 422) {
         invalidToken = true;
       } else {
-        error =
-          err instanceof ApiError
-            ? err.message
-            : 'Could not reach the server. Check your connection and try again.';
+        error = apiMessage(err);
       }
       submitting = false;
     }

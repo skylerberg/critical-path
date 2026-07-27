@@ -59,6 +59,18 @@
     return cancelUsers;
   });
 
+  // A session can end without this tab navigating — another tab logging out or
+  // deleting the account — which otherwise leaves a signed-in screen rendered.
+  $effect(() => {
+    if (session.status !== 'anon') {
+      return;
+    }
+    const redirected = session.guardRoute(router.current, router.path);
+    if (typeof redirected === 'string') {
+      router.redirect(redirected);
+    }
+  });
+
   // The shell owns the keymap so the chords and ? reach every signed-in screen, not
   // only the project routes; the shortcut layer gates the project-scoped keys itself.
   $effect(() => {

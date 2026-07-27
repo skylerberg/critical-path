@@ -95,6 +95,19 @@ describe('auth middleware', () => {
     expect(onUnauthorized).toHaveBeenCalledOnce();
   });
 
+  it('keeps a 401 from DELETE /api/auth/me out of the global handler but not a GET', async () => {
+    setAuthHooks({ getToken: () => 'tok-1', onUnauthorized });
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(jsonResponse(401, { error: 'Password is incorrect' }))
+    );
+
+    await api.DELETE('/api/auth/me', { body: { password: 'nope' } });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+
+    await api.GET('/api/auth/me');
+    expect(onUnauthorized).toHaveBeenCalledOnce();
+  });
+
   it('ignores 401 responses on anonymous requests', async () => {
     setAuthHooks({ getToken: () => null, onUnauthorized });
     fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Invalid credentials' }));

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, ApiError, assertOk } from '../api/client';
+  import { api, assertOk } from '../api/client';
   import type { components } from '../api/api.generated';
+  import { apiMessage } from '../lib/apiMessages';
   import { newId } from '../lib/ids';
   import { toasts } from '../lib/toasts.svelte';
   import Badge from './ui/Badge.svelte';
@@ -46,7 +47,7 @@
       }
       loaded = true;
     } catch (error) {
-      loadError = messageFor(error);
+      loadError = apiMessage(error);
     }
   }
 
@@ -72,7 +73,7 @@
       copied = false;
       created = { token: data.token, name: data.personal_access_token.name };
     } catch (error) {
-      createError = messageFor(error);
+      createError = apiMessage(error);
     } finally {
       creating = false;
     }
@@ -121,13 +122,6 @@
 
   function formatDate(value: string): string {
     return new Date(value).toLocaleDateString();
-  }
-
-  function messageFor(error: unknown): string {
-    if (error instanceof ApiError) {
-      return error.message;
-    }
-    return 'Could not reach the server. Check your connection and try again.';
   }
 </script>
 
