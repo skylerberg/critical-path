@@ -837,3 +837,142 @@ describe('task create - (one title per stdin line)', () => {
     expect(list.json<StatefulTask[]>().some((t) => t.title.startsWith('Over cap'))).toBe(false);
   });
 });
+
+describe('task duplicate', () => {
+  const tc = new TestContext();
+  let user: TestUser;
+  let h: CliHarness;
+  let projectId: string;
+  let columnId: string;
+
+  beforeAll(async () => {
+    user = await tc.createUser('cli-task-duplicate');
+    h = await createCliHarness();
+    await h.runCli(['login', '--email', user.email, '--password-stdin'], {
+      stdin: `${user.password}\n`,
+    });
+    const create = await tc.request(user.token).post('/api/projects', {
+      id: crypto.randomUUID(),
+      name: 'CLI Duplicate Fixture',
+    });
+    expect(create.status).toBe(201);
+    const board = (await create.json()) as BoardPayload;
+    projectId = board.project.id;
+    columnId = [...board.columns].sort((a, b) => a.position - b.position)[0].id;
+  });
+
+  afterAll(async () => {
+    await tc.request(user.token).delete(`/api/projects/${projectId}`);
+    await tc.cleanup();
+  });
+
+  async function createTask(title: string): Promise<BoardTask> {
+    const res = await h.runCli([
+      'task',
+      'create',
+      title,
+      '--project',
+      projectId,
+      '--column',
+      columnId,
+      '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    return res.json<BoardTask>();
+  }
+
+  it('places the copy between the original and the next card', async () => {
+    const first = await createTask('Duplicate me');
+    const second = await createTask('Next card');
+
+    const res = await h.runCli([
+      'task',
+      'duplicate',
+      'Duplicate me',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    const copy = res.json<BoardTask>();
+    expect(copy.id).not.toBe(first.id);
+    expect(copy.title).toBe('Duplicate me');
+    expect(copy.column_id).toBe(columnId);
+    expect(copy.position).toBeGreaterThan(first.position);
+    expect(copy.position).toBeLessThan(second.position);
+
+    const list = await h.runCli([
+      'task',
+      'list',
+      '--project',
+      projectId,
+      '--column',
+      columnId,
+      '--json',
+    ]);
+    expect(list.json<StatefulTask[]>().map((t) => t.title)).toEqual([
+      'Duplicate me',
+      'Duplicate me',
+      'Next card',
+    ]);
+  });
+
+  it('appends when the original is last, resolving by id prefix', async () => {
+    const last = await createTask('Last card');
+
+    const res = await h.runCli([
+      'task',
+      'duplicate',
+      last.id.slice(0, 8),
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(res.exitCode).toBe(0);
+    const copy = res.json<BoardTask>();
+    expect(copy.position).toBeGreaterThan(last.position);
+    expect(copy.title).toBe('Last card');
+  });
+
+  it('reports the copy without --json', async () => {
+    const source = await createTask('Printed card');
+    const res = await h.runCli(['task', 'duplicate', source.id]);
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain('Duplicated task "Printed card"');
+  });
+
+  it('duplicates an archived card into a live one at the end of its column', async () => {
+    const source = await createTask('Archived original');
+    const archive = await h.runCli(['task', 'archive', source.id, '--json']);
+    expect(archive.exitCode).toBe(0);
+
+    const res = await h.runCli(['task', 'duplicate', source.id, '--json']);
+    expect(res.exitCode).toBe(0);
+    const copy = res.json<BoardTask>();
+    expect(copy.id).not.toBe(source.id);
+    expect(copy.title).toBe('Archived original');
+    expect(copy.column_id).toBe(columnId);
+
+    const live = await h.runCli([
+      'task',
+      'list',
+      '--project',
+      projectId,
+      '--column',
+      columnId,
+      '--json',
+    ]);
+    const titles = live.json<StatefulTask[]>().map((t) => t.title);
+    expect(titles.filter((t) => t === 'Archived original')).toHaveLength(1);
+    expect(titles[titles.length - 1]).toBe('Archived original');
+  });
+
+  it('exits 4 for an unknown ref and 2 for an ambiguous one', async () => {
+    const unknown = await h.runCli(['task', 'duplicate', 'no such card', '--project', projectId]);
+    expect(unknown.exitCode).toBe(4);
+
+    const ambiguous = await h.runCli(['task', 'duplicate', 'duplicate me', '--project', projectId]);
+    expect(ambiguous.exitCode).toBe(2);
+    expect(ambiguous.stderr).toContain('Ambiguous');
+  });
+});

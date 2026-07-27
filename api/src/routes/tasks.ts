@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql, type Kysely } from 'kysely';
-import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB } from '../db/types';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
@@ -14,8 +13,10 @@ import {
   projectAccessIdsAmong,
   type ProjectAccessFields,
 } from '../services/authorization';
+import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
 import { dueDateText } from '../services/dueDate';
 import { notifyMentions } from '../services/mentions';
+import { copyTasks } from '../services/projectCopy';
 import { storage } from '../services/storage/index';
 import {
   findDependencyCyclePath,
@@ -29,11 +30,7 @@ import {
   recordDescriptionChange,
   recordTaskActivity,
 } from '../services/taskActivity';
-import {
-  fetchTaskRelations,
-  publishTaskRelationsSet,
-  unarchivedBlockerIds,
-} from '../services/taskRelations';
+import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import {
   idSchema,
   createTaskSchema,
@@ -49,103 +46,24 @@ import {
   taskBlockerParamsSchema,
   taskActivityResponseSchema,
   boardTaskSchema,
+  duplicateSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
   preconditionConflictErrorResponse,
   dependencyCycleErrorResponse,
+  validationErrorResponse,
   validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
   type TiptapDoc,
-  type BoardTask,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
 
-interface BoardTaskRow {
-  task: BoardTask;
-  project_id: string;
-  archived_at: string | null;
-}
-
-async function fetchBoardTasks(db: Kysely<DB>, taskIds: string[]): Promise<BoardTaskRow[]> {
-  if (taskIds.length === 0) {
-    return [];
-  }
-  const rows = await db
-    .selectFrom('task')
-    .select((eb) => [
-      'task.id',
-      'task.project_id',
-      'task.column_id',
-      'task.title',
-      'task.description',
-      'task.position',
-      dueDateText.as('due_date'),
-      'task.created_at',
-      'task.updated_at',
-      'task.archived_at',
-      jsonArrayFrom(
-        eb
-          .selectFrom('task_label')
-          .select('task_label.label_id')
-          .whereRef('task_label.task_id', '=', 'task.id')
-          .orderBy('task_label.label_id')
-      ).as('labels'),
-      jsonArrayFrom(
-        eb
-          .selectFrom('task_assignee')
-          .select('task_assignee.user_id')
-          .whereRef('task_assignee.task_id', '=', 'task.id')
-          .orderBy('task_assignee.user_id')
-      ).as('assignees'),
-      unarchivedBlockerIds(eb).as('blockers'),
-      eb
-        .selectFrom('task_image')
-        .select((ib) => ib.fn.countAll<string>().as('count'))
-        .whereRef('task_image.task_id', '=', 'task.id')
-        .as('image_count'),
-      eb
-        .selectFrom('task_image')
-        .select('task_image.id')
-        .whereRef('task_image.task_id', '=', 'task.id')
-        .where('task_image.is_cover', '=', true)
-        .as('cover_image_id'),
-      eb
-        .selectFrom('task_comment')
-        .select((cb) => cb.fn.countAll<string>().as('count'))
-        .whereRef('task_comment.task_id', '=', 'task.id')
-        .as('comment_count'),
-    ])
-    .where('task.id', 'in', taskIds)
-    .execute();
-
-  return rows.map((row) => ({
-    task: {
-      id: row.id,
-      column_id: row.column_id,
-      title: row.title,
-      description: row.description as TiptapDoc | null,
-      position: row.position,
-      due_date: row.due_date,
-      created_at: row.created_at.toISOString(),
-      updated_at: row.updated_at.toISOString(),
-      label_ids: row.labels.map((l) => l.label_id),
-      assignee_ids: row.assignees.map((a) => a.user_id),
-      blocker_ids: row.blockers.map((b) => b.blocker_task_id),
-      image_count: Number(row.image_count ?? 0),
-      cover_image_url: row.cover_image_id == null ? null : `/api/images/${row.cover_image_id}`,
-      comment_count: Number(row.comment_count ?? 0),
-    },
-    project_id: row.project_id,
-    archived_at: row.archived_at?.toISOString() ?? null,
-  }));
-}
-
 async function fetchBoardTask(db: Kysely<DB>, taskId: string): Promise<BoardTaskRow | undefined> {
-  return (await fetchBoardTasks(db, [taskId]))[0];
+  return (await fetchBoardTaskRows(db, [taskId]))[0];
 }
 
 async function assertColumnInProject(
@@ -312,6 +230,74 @@ router.post(
 );
 
 router.post(
+  '/:id/duplicate',
+  describeRoute({
+    tags: ['Tasks'],
+    summary: 'Duplicate a task',
+    description:
+      'Copy a task into the same column. The copy carries the title, description, due date, ' +
+      'labels, assignees, images and cover image of the original, each image copied to its own ' +
+      'stored object so deleting one leaves the other intact. It carries no dependency edges: ' +
+      'a copy keeps an edge only when both of its ends are copied too, which one card never ' +
+      'is. It carries no comments and no activity history either — the copy’s log starts ' +
+      'with its own created entry. Duplicating an archived task produces a live card. The ' +
+      'client supplies the new id and its position; a duplicate id returns 409.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      201: {
+        description: 'The copy, in board-payload shape',
+        content: {
+          'application/json': {
+            schema: resolver(boardTaskSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...conflictErrorResponse,
+      ...validationErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  jsonValidator(duplicateSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const db = c.get('db');
+    const actorId = c.get('user').id;
+
+    const project = await assertTaskAccess(db, actorId, id);
+
+    try {
+      await copyTasks(db, {
+        sourceTaskIds: [id],
+        projectId: project.id,
+        actorUserId: actorId,
+        columnIdFor: (columnId) => columnId,
+        positionFor: () => body.position,
+        newIdFor: () => body.id,
+        copyAssignees: true,
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new AppError(409, 'Task id already in use');
+      }
+      throw err;
+    }
+
+    const created = await fetchBoardTask(db, body.id);
+    if (!created) {
+      throw new AppError(500, 'Failed to load duplicated task');
+    }
+    publishAfterCommit(c, 'task_created', project.id, created.task);
+    return c.json(created.task, 201);
+  }
+);
+
+router.post(
   '/batch',
   describeRoute({
     tags: ['Tasks'],
@@ -391,10 +377,10 @@ router.post(
       }))
     );
 
-    const rows = await fetchBoardTasks(db, taskIds);
+    const rows = await fetchBoardTaskRows(db, taskIds);
     const byId = new Map(rows.map((row) => [row.task.id, row.task]));
-    // Reordered here because the read is one `in` query, whose row order is
-    // unspecified, while the response promises request order.
+    // Reordered here because the read makes no promise about row order while
+    // the response promises request order.
     const tasks = taskIds.map((taskId) => {
       const created = byId.get(taskId);
       if (created === undefined) {

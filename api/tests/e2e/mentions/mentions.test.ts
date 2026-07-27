@@ -269,6 +269,17 @@ describe('Mentions', () => {
       expect(res.status).toBe(204);
       expect(delivered).toEqual([]);
     });
+
+    it('sends nothing when the task is duplicated', async () => {
+      const task = await createTask(owner.token, mentionDoc(member.id));
+      delivered.length = 0;
+
+      const res = await ctx
+        .request(owner.token)
+        .post(`/api/tasks/${task.id}/duplicate`, { id: newId(), position: 2000 });
+      expect(res.status).toBe(201);
+      expect(delivered).toEqual([]);
+    });
   });
 
   describe('comment bodies', () => {

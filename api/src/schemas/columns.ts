@@ -1,5 +1,6 @@
 import { type } from 'arktype';
 import { uuid, stringWithLength, finiteNumber } from './common';
+import { boardTaskSchema } from './board';
 
 export const createColumnSchema = type({
   id: uuid,
@@ -47,3 +48,10 @@ export const movedTasksResponseSchema = type({
 });
 
 export type MovedTasksResponse = typeof movedTasksResponseSchema.infer;
+
+export const duplicatedColumnResponseSchema = type({
+  column: columnSchema,
+  tasks: boardTaskSchema.array(),
+});
+
+export type DuplicatedColumnResponse = typeof duplicatedColumnResponseSchema.infer;
