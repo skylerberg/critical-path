@@ -7,7 +7,14 @@ import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
-import { assertProjectAccess, assertTaskAccess, canAccessProject } from '../services/authorization';
+import {
+  assertProjectAccess,
+  assertTaskAccess,
+  canAccessProject,
+  projectAccessIdsAmong,
+  type ProjectAccessFields,
+} from '../services/authorization';
+import { notifyMentions } from '../services/mentions';
 import { storage } from '../services/storage/index';
 import {
   findDependencyCyclePath,
@@ -160,29 +167,10 @@ async function assertLabelsInProject(
 async function assertAssigneesHaveProjectAccess(
   db: Kysely<DB>,
   userIds: string[],
-  project: { id: string; created_by: string | null }
+  project: ProjectAccessFields
 ): Promise<void> {
-  if (userIds.length === 0) {
-    return;
-  }
-  const rows = await db
-    .selectFrom('app_user')
-    .select('app_user.id')
-    .where('app_user.id', 'in', userIds)
-    .where((eb) =>
-      eb.or([
-        ...(project.created_by === null ? [] : [eb('app_user.id', '=', project.created_by)]),
-        eb.exists(
-          eb
-            .selectFrom('project_member')
-            .select('project_member.user_id')
-            .where('project_member.project_id', '=', project.id)
-            .whereRef('project_member.user_id', '=', 'app_user.id')
-        ),
-      ])
-    )
-    .execute();
-  if (rows.length !== userIds.length) {
+  const withAccess = await projectAccessIdsAmong(db, project, userIds);
+  if (withAccess.length !== userIds.length) {
     throw new AppError(422, 'assignee user ids must reference users with access to the project');
   }
 }
@@ -283,6 +271,15 @@ router.post(
     await recordTaskActivity(db, user.id, [
       { taskId: body.id, kind: 'created', newValue: { text: body.title } },
     ]);
+
+    await notifyMentions(c, {
+      actorUserId: user.id,
+      project,
+      taskId: body.id,
+      source: 'description',
+      previous: null,
+      next: body.description ?? null,
+    });
 
     const created = await fetchBoardTask(db, body.id);
     if (!created) {
@@ -575,6 +572,17 @@ router.patch(
           },
         ]);
       }
+    }
+
+    if ('description' in body && before !== null) {
+      await notifyMentions(c, {
+        actorUserId: actorId,
+        project,
+        taskId: id,
+        source: 'description',
+        previous: before.description,
+        next: body.description ?? null,
+      });
     }
 
     const updated = await fetchBoardTask(db, id);

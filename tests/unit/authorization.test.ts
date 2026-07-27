@@ -7,6 +7,7 @@ import {
   assertPublicProject,
   accessibleProjectsFilter,
   isProjectMember,
+  projectAccessIdsAmong,
   usersWithProjectAccess,
 } from '../../src/services/authorization';
 import { AppError } from '../../src/utils/errors';
@@ -179,6 +180,55 @@ describe('isProjectMember', () => {
     expect(await isProjectMember(db, sharedProjectId, member)).toBe(true);
     expect(await isProjectMember(db, sharedProjectId, outsider)).toBe(false);
     expect(await isProjectMember(db, sharedProjectId, creator)).toBe(false);
+  });
+});
+
+describe('projectAccessIdsAmong', () => {
+  const shared = (): { id: string; created_by: string | null } => ({
+    id: sharedProjectId,
+    created_by: creator,
+  });
+
+  it('keeps the creator and the members and drops everyone else', async () => {
+    const ids = await projectAccessIdsAmong(db, shared(), [creator, member, outsider]);
+    expect(ids.sort()).toEqual([creator, member].sort());
+  });
+
+  it('returns an empty list for no candidates', async () => {
+    expect(await projectAccessIdsAmong(db, shared(), [])).toEqual([]);
+  });
+
+  it('drops a user who is only a task assignee', async () => {
+    const columnId = newId();
+    const taskId = newId();
+    await db
+      .insertInto('board_column')
+      .values({ id: columnId, project_id: sharedProjectId, name: 'col', position: 1000 })
+      .execute();
+    await db
+      .insertInto('task')
+      .values({
+        id: taskId,
+        project_id: sharedProjectId,
+        column_id: columnId,
+        title: 'task',
+        position: 1000,
+      })
+      .execute();
+    await db.insertInto('task_assignee').values({ task_id: taskId, user_id: outsider }).execute();
+
+    expect(await projectAccessIdsAmong(db, shared(), [outsider])).toEqual([]);
+
+    await db.deleteFrom('task').where('id', '=', taskId).execute();
+    await db.deleteFrom('board_column').where('id', '=', columnId).execute();
+  });
+
+  it('matches only members when the project has no creator', async () => {
+    const ids = await projectAccessIdsAmong(db, { id: sharedProjectId, created_by: null }, [
+      creator,
+      member,
+    ]);
+    expect(ids).toEqual([member]);
   });
 });
 

@@ -134,6 +134,51 @@ describe('task descriptions', () => {
     expect(await fetchDescription(res.json<BoardTask>().id)).toEqual(doc);
   });
 
+  it('shows a mention as @label and loses it when the Markdown is written back', async () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'ask ' },
+            { type: 'mention', attrs: { id: user.id, label: user.name } },
+          ],
+        },
+      ],
+    };
+    const path = join(tempDir, 'mention.json');
+    await writeFile(path, JSON.stringify(doc));
+    const created = await h.runCli([
+      'task',
+      'create',
+      'Mention described',
+      '--project',
+      projectId,
+      '--description-json',
+      path,
+      '--json',
+    ]);
+    expect(created.exitCode).toBe(0);
+    const taskId = created.json<BoardTask>().id;
+    expect(await fetchDescription(taskId)).toEqual(doc);
+
+    const shown = await h.runCli(['task', 'show', taskId]);
+    expect(shown.exitCode).toBe(0);
+    expect(shown.stdout).toContain(`ask @${user.name}`);
+
+    const rewritten = await h.runCli([
+      'task',
+      'update',
+      taskId,
+      '--description',
+      `ask @${user.name}`,
+      '--json',
+    ]);
+    expect(rewritten.exitCode).toBe(0);
+    expect(await fetchDescription(taskId)).toEqual(markdownToTiptap(`ask @${user.name}`));
+  });
+
   it('update --description replaces and --clear-description nulls it', async () => {
     const md = 'Replaced with ~~old~~ **new** text';
     const update = await h.runCli([

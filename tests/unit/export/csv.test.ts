@@ -106,6 +106,26 @@ describe('tiptapToPlainText', () => {
     expect(tiptapToPlainText(doc)).toBe('before\nafter');
   });
 
+  it('writes a mention as its label', () => {
+    const doc: TiptapDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'ask ' },
+            {
+              type: 'mention',
+              attrs: { id: '8f14e45f-ceea-467a-9b0e-8e3f5c9f1a2b', label: 'Alice' },
+            },
+            { type: 'text', text: ' first' },
+          ],
+        },
+      ],
+    };
+    expect(tiptapToPlainText(doc)).toBe('ask @Alice first');
+  });
+
   it('leaks no markup from marks', () => {
     const doc: TiptapDoc = {
       type: 'doc',

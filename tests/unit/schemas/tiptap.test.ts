@@ -5,11 +5,14 @@ import {
   nullableTiptapDocSchema,
   findTiptapDocProblem,
   isEmptyTiptapDoc,
+  MENTION_LABEL_MAX_LENGTH,
   TIPTAP_MAX_SERIALIZED_BYTES,
   type TiptapDoc,
 } from '../../../src/schemas/tiptap';
 
 const imageId = '550e8400-e29b-41d4-a716-446655440000';
+const userId = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+const mentionAttrs = { id: userId, label: 'Alice' };
 
 function doc(content: unknown[]): { type: 'doc'; content: unknown[] } {
   return { type: 'doc', content };
@@ -99,6 +102,56 @@ describe('tiptapDocSchema', () => {
 
   it('rejects an image without a src', () => {
     expectRejected(doc([{ type: 'image' }]), 'image src');
+  });
+
+  it('accepts a mention, including the extra attr the editor always writes', () => {
+    const input = doc([
+      paragraph(
+        text('cc '),
+        { type: 'mention', attrs: { id: userId, label: 'Alice' } },
+        { type: 'mention', attrs: { id: userId, label: 'Alice', mentionSuggestionChar: '@' } }
+      ),
+    ]);
+    expect(tiptapDocSchema(input)).toEqual(input);
+  });
+
+  it('accepts a mention nested in a list item and in a blockquote', () => {
+    const nested = doc([
+      {
+        type: 'bulletList',
+        content: [
+          { type: 'listItem', content: [paragraph({ type: 'mention', attrs: mentionAttrs })] },
+        ],
+      },
+      { type: 'blockquote', content: [paragraph({ type: 'mention', attrs: mentionAttrs })] },
+    ]);
+    expect(tiptapDocSchema(nested)).toEqual(nested);
+  });
+
+  it('rejects a mention without a user id', () => {
+    expectRejected(doc([paragraph({ type: 'mention' })]), 'mention attrs.id');
+    expectRejected(doc([paragraph({ type: 'mention', attrs: { label: 'Alice' } })]), 'attrs.id');
+    expectRejected(
+      doc([paragraph({ type: 'mention', attrs: { id: 'alice', label: 'Alice' } })]),
+      'attrs.id'
+    );
+  });
+
+  it('rejects a mention whose label is missing, empty, or too long', () => {
+    for (const label of [undefined, '', 42, 'a'.repeat(MENTION_LABEL_MAX_LENGTH + 1)]) {
+      expectRejected(doc([paragraph({ type: 'mention', attrs: { id: userId, label } })]), 'label');
+    }
+    const longest = { id: userId, label: 'a'.repeat(MENTION_LABEL_MAX_LENGTH) };
+    expect(tiptapDocSchema(doc([paragraph({ type: 'mention', attrs: longest })]))).toEqual(
+      doc([paragraph({ type: 'mention', attrs: longest })])
+    );
+  });
+
+  it('rejects a mention carrying text', () => {
+    expectRejected(
+      doc([paragraph({ type: 'mention', attrs: mentionAttrs, text: '@Alice' })]),
+      'only text nodes'
+    );
   });
 
   it('rejects unknown node types', () => {
@@ -209,5 +262,11 @@ describe('isEmptyTiptapDoc', () => {
 
   it('treats a horizontal rule as non-empty', () => {
     expect(isEmptyTiptapDoc(asDoc(doc([{ type: 'horizontalRule' }])))).toBe(false);
+  });
+
+  it('treats a mention as non-empty, alone or beside whitespace', () => {
+    const mention = { type: 'mention', attrs: mentionAttrs };
+    expect(isEmptyTiptapDoc(asDoc(doc([paragraph(mention)])))).toBe(false);
+    expect(isEmptyTiptapDoc(asDoc(doc([paragraph(mention, text(' '))])))).toBe(false);
   });
 });

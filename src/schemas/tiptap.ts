@@ -2,6 +2,8 @@ import { type } from 'arktype';
 import { isValidUuid } from '../types/uuid';
 
 export const TIPTAP_MAX_SERIALIZED_BYTES = 100 * 1024;
+// Matches the bound on app_user.name, which is what a mention label snapshots.
+export const MENTION_LABEL_MAX_LENGTH = 200;
 
 const NODE_TYPES = new Set([
   'doc',
@@ -16,6 +18,7 @@ const NODE_TYPES = new Set([
   'horizontalRule',
   'hardBreak',
   'image',
+  'mention',
 ]);
 const MARK_TYPES = new Set(['bold', 'italic', 'strike', 'code', 'link']);
 const LINK_HREF_PATTERN = /^(https?:|mailto:)/;
@@ -115,6 +118,16 @@ function nodeProblem(node: unknown, path: string, depth: number): string | null 
       return `${path} image src must be an ${IMAGE_SRC_PREFIX}<uuid> URL`;
     }
   }
+  if (nodeType === 'mention') {
+    const attrs = isRecord(node.attrs) ? node.attrs : undefined;
+    if (typeof attrs?.id !== 'string' || !isValidUuid(attrs.id)) {
+      return `${path} mention attrs.id must be a user id`;
+    }
+    const label = attrs.label;
+    if (typeof label !== 'string' || label === '' || label.length > MENTION_LABEL_MAX_LENGTH) {
+      return `${path} mention attrs.label must be 1 to ${MENTION_LABEL_MAX_LENGTH} characters`;
+    }
+  }
   if ('marks' in node) {
     if (!Array.isArray(node.marks)) {
       return `${path}.marks must be an array`;
@@ -142,7 +155,9 @@ function nodeProblem(node: unknown, path: string, depth: number): string | null 
 
 function hasVisibleContent(nodes: TiptapNode[] | undefined): boolean {
   for (const node of nodes ?? []) {
-    if (node.type === 'image' || node.type === 'horizontalRule') {
+    // A mention is an atom carrying no text, and Tiptap's own emptiness check
+    // counts it, so a comment reading only "@Bob" must not be rejected as empty.
+    if (node.type === 'image' || node.type === 'horizontalRule' || node.type === 'mention') {
       return true;
     }
     if (node.type === 'text' && (node.text ?? '').trim() !== '') {
