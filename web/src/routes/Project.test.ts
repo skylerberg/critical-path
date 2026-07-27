@@ -92,6 +92,13 @@ function mockProjectApi(projectId: string, tasks: BoardTask[]): void {
   });
 }
 
+// Spinner is role="status" as well, so the announcer's region is picked out by aria-live.
+function liveRegions(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll('[role="status"][aria-live="polite"]')).map(
+    (region) => region.textContent ?? ''
+  );
+}
+
 function requestedPaths(): string[] {
   return fetchMock.mock.calls.map((call) => {
     const url = new URL((call[0] as Request).url);
@@ -407,7 +414,7 @@ describe('Project', () => {
     expect(within(menu).getByLabelText('Search columns')).toHaveFocus();
 
     await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
-    await fireEvent.click(within(menu).getByRole('button', { name: 'Bottom' }));
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Bottom/ }));
 
     expect(moveTask).toHaveBeenCalledWith('t1', 'done', 3000);
     expect(shortcuts.moveMenu).toBeNull();
@@ -437,7 +444,7 @@ describe('Project', () => {
     const heading = await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' });
     const menu = heading.closest('dialog')!;
     await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
-    await fireEvent.click(within(menu).getByRole('button', { name: 'Top' }));
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Top/ }));
 
     expect(moveTask).toHaveBeenCalledWith('t1', 'done', 0);
     const overlay = screen.getByLabelText('Task title').closest('dialog')!;
@@ -462,6 +469,60 @@ describe('Project', () => {
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' })
     ).toBeInTheDocument();
+  });
+
+  // A live region created in the same flush as its text is not announced, so it has
+  // to outlive the loading and error shells rather than sit inside the ready branch.
+  it('keeps the live region mounted while the board is still loading', async () => {
+    const projectId = 'p-shell-announcer-mount';
+    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+
+    const { container } = render(Project, { props: { projectId, view: 'board' } });
+
+    expect(screen.getByLabelText('Loading')).toBeInTheDocument();
+    expect(liveRegions(container)).toHaveLength(1);
+
+    await screen.findByText('Design cards');
+  });
+
+  it('clears a stale announcement when the shell switches project', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const id = /^\/api\/projects\/(.+)$/.exec(new URL((input as Request).url).pathname)?.[1];
+      if (id === undefined) {
+        return jsonResponse(200, { users: [] });
+      }
+      return jsonResponse(
+        200,
+        payload(id, [
+          task('t1', 'todo', 'Design cards'),
+          task('t2', 'done', 'Cut cards', 1000),
+          task('t3', 'done', 'Print rules', 2000),
+        ])
+      );
+    });
+    vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+
+    const projectId = 'p-shell-announcer-clear';
+    const view = render(Project, { props: { projectId, view: 'board' } });
+    await screen.findByText('Design cards');
+    selection.set('t1');
+    pressKey('m', projectId, 'board');
+
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' });
+    const menu = heading.closest('dialog')!;
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Bottom/ }));
+    await waitFor(() => {
+      expect(liveRegions(view.container)).toContain(
+        'Moved "Design cards" to Done, position 3 of 3'
+      );
+    });
+
+    await view.rerender({ projectId: 'p-shell-announcer-next', view: 'board' });
+
+    await waitFor(() => {
+      expect(liveRegions(view.container)).toEqual(['']);
+    });
   });
 });
 

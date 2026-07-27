@@ -26,6 +26,7 @@
   let highlightedKey = $state<string | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement>();
+  let committed = false;
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const targetColumn = $derived(
@@ -66,17 +67,30 @@
           current: column.id === task?.column_id,
         }));
     }
-    // The leading card's "Before" row is dropped: Top is already that slot, and
-    // two rows with one outcome reads as a bug.
+    // The leading card gets no "Before" row of its own — Top is already that slot —
+    // so the boundary rows name the cards they abut instead: the labels are also the
+    // search corpus, and typing a card's title has to find the slot next to it.
+    const first = others[0];
+    const last = others[others.length - 1];
     const places: Row[] = [
-      { key: 'top', label: 'Top', kind: 'place', target: { kind: 'top' } },
+      {
+        key: 'top',
+        label: first === undefined ? 'Top' : `Top (before "${first.title}")`,
+        kind: 'place',
+        target: { kind: 'top' },
+      },
       ...others.slice(1).map<Row>((t) => ({
         key: `before:${t.id}`,
         label: `Before "${t.title}"`,
         kind: 'place',
         target: { kind: 'before', anchorId: t.id },
       })),
-      { key: 'bottom', label: 'Bottom', kind: 'place', target: { kind: 'bottom' } },
+      {
+        key: 'bottom',
+        label: last === undefined ? 'Bottom' : `Bottom (after "${last.title}")`,
+        kind: 'place',
+        target: { kind: 'bottom' },
+      },
     ];
     return places.filter((row) => matches(row.label));
   });
@@ -112,9 +126,12 @@
 
   function commit(column: BoardColumn, target: Target): void {
     const moving = task;
-    if (moving === undefined) {
+    // onclose() only asks the shell to drop the menu; this component stays mounted
+    // until that flush, so without the latch a second activation PATCHes again.
+    if (moving === undefined || committed) {
       return;
     }
+    committed = true;
     const rest = board.tasksInColumn(column.id).filter((t) => t.id !== taskId);
     const index = placeIndex(target, rest);
     void board.moveTask(
@@ -180,6 +197,24 @@
     }
   }
 
+  // Bound to every focusable control in the menu, including the back button, whose
+  // Escape would otherwise reach the window keymap and close the menu outright.
+  function unwind(event: KeyboardEvent): void {
+    if (event.key !== 'Escape' || (query.trim() === '' && columnId === null)) {
+      return;
+    }
+    // preventDefault suppresses the enclosing <dialog>'s close request so only the
+    // query or the step unwinds; stopPropagation keeps it away from window shortcuts.
+    event.preventDefault();
+    event.stopPropagation();
+    if (query.trim() !== '') {
+      query = '';
+      highlightedKey = null;
+    } else {
+      back();
+    }
+  }
+
   function onkeydown(event: KeyboardEvent, rowIndex?: number): void {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       if (rows.length === 0) {
@@ -191,24 +226,16 @@
       highlightedKey = rows[next]!.key;
       revealHighlighted();
     } else if (event.key === 'Enter') {
-      // A composing IME commits its candidate with Enter; that keystroke is not
-      // a selection.
-      if (event.isComposing) {
+      // A composing IME commits its candidate with Enter, and a held Enter auto-repeats
+      // after ~250ms; neither is a choice. The repeat matters here because choosing a
+      // column swaps in the position rows on the same input, already highlighting Top.
+      if (event.isComposing || event.repeat) {
         return;
       }
       event.preventDefault();
       activate(rows[rowIndex ?? activeIndex]);
-    } else if (event.key === 'Escape' && (query.trim() !== '' || columnId !== null)) {
-      // preventDefault suppresses the enclosing <dialog>'s close request so only the
-      // query or the step unwinds; stopPropagation keeps it away from window shortcuts.
-      event.preventDefault();
-      event.stopPropagation();
-      if (query.trim() !== '') {
-        query = '';
-        highlightedKey = null;
-      } else {
-        back();
-      }
+    } else {
+      unwind(event);
     }
   }
 </script>
@@ -217,7 +244,8 @@
   <div class="flex flex-col gap-2">
     {#if targetColumn !== undefined}
       <!-- Touch has no Escape, so the way back to the column list has to be tappable. -->
-      <Button variant="ghost" class="self-start px-2" onclick={back}>← Columns</Button>
+      <Button variant="ghost" class="self-start" onclick={back} onkeydown={unwind}>← Columns</Button
+      >
     {/if}
     <Input
       bind:value={query}

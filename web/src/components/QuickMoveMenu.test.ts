@@ -1,6 +1,7 @@
 import '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import QuickMoveMenu from './QuickMoveMenu.svelte';
 import { announcer } from '../lib/announcer.svelte';
 import { board } from '../lib/board.svelte';
@@ -90,7 +91,11 @@ describe('QuickMoveMenu', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: 'Move to Doing — Design cards' })
     ).toBeVisible();
-    expect(rowLabels('Positions')).toEqual(['Top', 'Before "Print rules"', 'Bottom']);
+    expect(rowLabels('Positions')).toEqual([
+      'Top (before "Cut cards")',
+      'Before "Print rules"',
+      'Bottom (after "Print rules")',
+    ]);
     expect(screen.getByLabelText('Search positions')).toHaveFocus();
   });
 
@@ -100,13 +105,26 @@ describe('QuickMoveMenu', () => {
     await chooseColumn('Todo');
 
     // "Write blurb" is the leading card, so Top is already its slot.
-    expect(rowLabels('Positions')).toEqual(['Top', 'Before "Sleeve cards"', 'Bottom']);
+    expect(rowLabels('Positions')).toEqual([
+      'Top (before "Write blurb")',
+      'Before "Sleeve cards"',
+      'Bottom (after "Sleeve cards")',
+    ]);
+  });
+
+  it("finds the leading card's slot by typing its title", async () => {
+    open();
+    await chooseColumn('Doing');
+
+    await fireEvent.input(screen.getByLabelText('Search positions'), { target: { value: 'cut' } });
+
+    expect(rowLabels('Positions')).toEqual(['Top (before "Cut cards")']);
   });
 
   it.each([
-    ['Top', 0],
+    ['Top (before "Cut cards")', 0],
     ['Before "Print rules"', 1500],
-    ['Bottom', 3000],
+    ['Bottom (after "Print rules")', 3000],
   ])('places the card at %s', async (row, position) => {
     open();
     await chooseColumn('Doing');
@@ -154,15 +172,19 @@ describe('QuickMoveMenu', () => {
 
     const input = screen.getByLabelText('Search positions');
     await fireEvent.keyDown(input, { key: 'ArrowDown' });
-    expect(rowLabels('Positions')).toEqual(['Top', 'Before "Print rules"', 'Bottom']);
+    expect(rowLabels('Positions')).toEqual([
+      'Top (before "Cut cards")',
+      'Before "Print rules"',
+      'Bottom (after "Print rules")',
+    ]);
 
     board.tasks = [...board.tasks, task('t6', 'doing', 'New card', 500)];
     await waitFor(() => {
       expect(rowLabels('Positions')).toEqual([
-        'Top',
+        'Top (before "New card")',
         'Before "Cut cards"',
         'Before "Print rules"',
-        'Bottom',
+        'Bottom (after "Print rules")',
       ]);
     });
 
@@ -193,7 +215,10 @@ describe('QuickMoveMenu', () => {
 
     const input = screen.getByLabelText<HTMLInputElement>('Search positions');
     await fireEvent.input(input, { target: { value: 'print' } });
-    expect(rowLabels('Positions')).toEqual(['Before "Print rules"']);
+    expect(rowLabels('Positions')).toEqual([
+      'Before "Print rules"',
+      'Bottom (after "Print rules")',
+    ]);
 
     await fireEvent.keyDown(input, { key: 'Escape' });
     expect(input.value).toBe('');
@@ -212,6 +237,58 @@ describe('QuickMoveMenu', () => {
 
     expect(screen.getByLabelText('Search columns')).toBeInTheDocument();
     expect(rowLabels('Destination columns')).toEqual(['Todo current', 'Doing', 'Done']);
+  });
+
+  it('unwinds one step on Escape from the back button instead of letting it escape', async () => {
+    open();
+    await chooseColumn('Doing');
+    const onWindowKeydown = vi.fn();
+    window.addEventListener('keydown', onWindowKeydown);
+
+    try {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      screen.getByRole('button', { name: '← Columns' }).dispatchEvent(event);
+      await tick();
+
+      expect(screen.getByLabelText('Search columns')).toBeInTheDocument();
+      expect(event.defaultPrevented).toBe(true);
+      expect(onWindowKeydown).not.toHaveBeenCalled();
+      expect(onclose).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', onWindowKeydown);
+    }
+  });
+
+  it('ignores an auto-repeated Enter, so holding it cannot skip the position step', async () => {
+    open();
+    await fireEvent.input(screen.getByLabelText('Search columns'), { target: { value: 'doing' } });
+
+    await fireEvent.keyDown(screen.getByLabelText('Search columns'), { key: 'Enter' });
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.keyDown(input, { key: 'Enter', repeat: true });
+
+    expect(moveTask).not.toHaveBeenCalled();
+    expect(rowLabels('Positions')).toEqual([
+      'Top (before "Cut cards")',
+      'Before "Print rules"',
+      'Bottom (after "Print rules")',
+    ]);
+  });
+
+  it('moves once when a row is activated twice before the menu unmounts', async () => {
+    open();
+    await chooseColumn('Doing');
+
+    const row = screen.getByRole('button', { name: 'Bottom (after "Print rules")' });
+    row.click();
+    row.click();
+
+    expect(moveTask).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledTimes(1);
   });
 
   it('closes when the task is deleted under the open menu', async () => {
@@ -236,15 +313,15 @@ describe('QuickMoveMenu', () => {
     expect(onclose).not.toHaveBeenCalled();
   });
 
-  it('closes without throwing when the move fails', async () => {
-    const rejected = Promise.reject(new Error('nope'));
-    // Handled here so the component's fire-and-forget call is not an unhandled rejection.
-    rejected.catch(() => undefined);
-    moveTask.mockReturnValue(rejected);
+  it('closes and announces without waiting for the move to settle', async () => {
+    moveTask.mockReturnValue(new Promise<void>(() => undefined));
     open();
 
     await chooseColumn('Done');
 
     expect(onclose).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(announcer.message).toBe('Moved "Design cards" to Done, position 1 of 1');
+    });
   });
 });
