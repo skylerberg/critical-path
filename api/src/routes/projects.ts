@@ -9,6 +9,8 @@ import { AppError, isUniqueViolation } from '../utils/errors';
 import {
   accessibleProjectsFilter,
   assertProjectAccess,
+  assertProjectOwnedBy,
+  assertProjectOwner,
   canAccessProject,
   isProjectMember,
 } from '../services/authorization';
@@ -596,7 +598,9 @@ router.delete(
     tags: ['Projects'],
     summary: 'Delete project',
     description:
-      'Delete a project and everything in it. Stored image objects are removed after commit.',
+      'Delete a project and everything in it. Only the project owner may delete: other members ' +
+      'with access get 403 and non-accessors get 404. Stored image objects are removed after ' +
+      'commit.',
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
@@ -604,6 +608,7 @@ router.delete(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -615,7 +620,12 @@ router.delete(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await assertProjectAccess(db, user.id, id);
+    const project = await assertProjectOwner(
+      db,
+      user.id,
+      id,
+      'Only the project owner can delete this project'
+    );
 
     // Snapshot who can see the project now; post-commit the rows backing the
     // access check are gone.
@@ -900,9 +910,7 @@ router.put(
 
     await assertProjectAccess(db, user.id, id);
     const project = await lockProject(db, id);
-    if (project.created_by !== user.id) {
-      throw new AppError(403, 'Only the project owner can transfer ownership');
-    }
+    assertProjectOwnedBy(project, user.id, 'Only the project owner can transfer ownership');
 
     if (user_id === user.id) {
       return c.json(toProjectResponse(project, await fetchMemberIds(db, id)), 200);
