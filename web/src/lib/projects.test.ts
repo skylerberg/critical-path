@@ -262,7 +262,8 @@ describe('projects store', () => {
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
   });
 
-  it('keeps the board and shows the server message when delete is refused', async () => {
+  it('still sends the DELETE for a board it does not own, and restores it on refusal', async () => {
+    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
     const item = project({ created_by: 'u-other' });
     await loadWith([item]);
     fetchMock.mockImplementation(async (input) => {
@@ -274,6 +275,7 @@ describe('projects store', () => {
 
     await projects.remove('p-1');
 
+    expect(requestAt(1).method).toBe('DELETE');
     expect(projects.projects).toEqual([item]);
     expect(toasts.toasts.map((t) => t.message)).toEqual([
       'Only the project owner can delete this project',
