@@ -18,6 +18,8 @@ const BOARD_EVENTS = new Set([
   'task_created',
   'task_updated',
   'task_deleted',
+  'task_archived',
+  'task_restored',
   'task_relations_set',
   'column_created',
   'column_updated',
@@ -177,7 +179,7 @@ class RealtimeClient {
         if (board.dragging) {
           this.#needsBoardRefetch = true;
         } else {
-          void board.refetch();
+          void board.resync();
         }
       }
     }
@@ -282,7 +284,9 @@ class RealtimeClient {
     this.#queue = [];
     if (this.#needsBoardRefetch) {
       this.#needsBoardRefetch = false;
-      void board.refetch();
+      // This branch discards the whole queued batch, archive events included, so
+      // it has to reload the archive as well as the board.
+      void board.resync();
       return;
     }
     for (const event of queued) {

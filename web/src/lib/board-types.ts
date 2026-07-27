@@ -8,3 +8,5 @@ export type BoardTask = BoardPayload['tasks'][number];
 export type BoardLabel = BoardPayload['labels'][number];
 export type PublicBoardPayload =
   paths['/api/public/projects/{id}/board']['get']['responses']['200']['content']['application/json'];
+export type ArchivedTask =
+  paths['/api/projects/{id}/archived-tasks']['get']['responses']['200']['content']['application/json']['tasks'][number];

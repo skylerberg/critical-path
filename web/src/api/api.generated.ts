@@ -200,13 +200,13 @@ export interface paths {
         };
         /**
          * List projects
-         * @description List projects the caller can access (created by them or shared with them as a member) with member ids, open and done task counts, and the caller's personal sort position (null when never set). Ordered by position (nulls last), then created_at, then id.
+         * @description List projects the caller can access (created by them or shared with them as a member) with member ids, open and done task counts, and the caller's personal sort position (null when never set). Archived tasks count toward neither total. Ordered by position (nulls last), then created_at, then id.
          */
         get: operations["getApiProjects"];
         put?: never;
         /**
          * Create project
-         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not comments, assignees, members, or archived state; copies start personal). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
+         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not comments, assignees, members, archived cards, or the archived state of the project itself; copies start personal). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
          */
         post: operations["postApiProjects"];
         delete?: never;
@@ -224,7 +224,7 @@ export interface paths {
         };
         /**
          * Get board payload
-         * @description Get a project with its columns, tasks (including label, assignee, and blocker ids plus image counts), and labels in one payload.
+         * @description Get a project with its columns, tasks (including label, assignee, and blocker ids plus image counts), and labels in one payload. Archived tasks are excluded, as are archived tasks appearing as blockers of the tasks that are included.
          */
         get: operations["getApiProjectsById"];
         put?: never;
@@ -243,6 +243,26 @@ export interface paths {
         patch: operations["patchApiProjectsById"];
         trace?: never;
     };
+    "/api/projects/{id}/archived-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List archived tasks
+         * @description List every archived task in a project in board-payload shape plus archived_at, most recently archived first. Unpaginated and unfiltered — clients search it themselves, the same way they do the board payload.
+         */
+        get: operations["getApiProjectsByIdArchivedTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{id}/export": {
         parameters: {
             query?: never;
@@ -252,7 +272,7 @@ export interface paths {
         };
         /**
          * Export project
-         * @description Download everything in a project. The default zip holds project.json (the manifest below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes of every attached image, so the archive survives losing the account. Pass format=json for the manifest alone. The manifest is the documented, stable interchange format the importer reads back: format identifies it, version is bumped only on a breaking shape change, and ids are the original server ids — created_by, member_ids and assignee_ids resolve against users[], label_ids against labels[], column_id against columns[], and blocker_ids against tasks[]. Task descriptions are stored verbatim, so their embedded /api/images/<uuid> sources resolve by id against the flattened tasks[].images[]. Each image entry carries the archive-relative path of its file. Every project member may export; the export is free and never gated. A project whose images would exceed the 4 GiB zip ceiling answers 413 and must be exported with format=json, which carries no image bytes — fetch those from GET /api/images/{id}, one per tasks[].images[].id.
+         * @description Download everything in a project. The default zip holds project.json (the manifest below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes of every attached image, so the archive survives losing the account. Archived cards are not exported, matching every other read of the board. Pass format=json for the manifest alone. The manifest is the documented, stable interchange format the importer reads back: format identifies it, version is bumped only on a breaking shape change, and ids are the original server ids — created_by, member_ids and assignee_ids resolve against users[], label_ids against labels[], column_id against columns[], and blocker_ids against tasks[]. Task descriptions are stored verbatim, so their embedded /api/images/<uuid> sources resolve by id against the flattened tasks[].images[]. Each image entry carries the archive-relative path of its file. Every project member may export; the export is free and never gated. A project whose images would exceed the 4 GiB zip ceiling answers 413 and must be exported with format=json, which carries no image bytes — fetch those from GET /api/images/{id}, one per tasks[].images[].id.
          */
         get: operations["getApiProjectsByIdExport"];
         put?: never;
@@ -416,7 +436,7 @@ export interface paths {
         };
         /**
          * Get task detail
-         * @description Get a task in board-payload shape plus its project id, images, and its full comment stream oldest first.
+         * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), images, and its full comment stream oldest first. Archived tasks are readable here even though they are absent from every board payload.
          */
         get: operations["getApiTasksById"];
         put?: never;
@@ -433,6 +453,46 @@ export interface paths {
          * @description Update title, description (a Tiptap doc, or null to clear it), or move the task by sending column_id and position together. The new column must belong to the task’s project; violations return 422 with a plain error body. updated_at is bumped only when the patch changes title or description — a pure move leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
          */
         patch: operations["patchApiTasksById"];
+        trace?: never;
+    };
+    "/api/tasks/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive a task
+         * @description Archive a task: a soft delete that keeps the row and every dependency edge but takes the task out of the board payload, out of every blocker and dependent list, and out of the project task counts. Archiving an already archived task is an idempotent 200 that keeps the original archived_at. updated_at is not bumped — the card’s content did not change.
+         */
+        post: operations["postApiTasksByIdArchive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore an archived task
+         * @description Put an archived task back on the board in the column and position it left from, with every dependency edge it had before intact. Restoring a task that is not archived is an idempotent 200 that changes nothing.
+         */
+        post: operations["postApiTasksByIdRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/tasks/{id}/labels": {
@@ -486,7 +546,7 @@ export interface paths {
         put?: never;
         /**
          * Add a blocker
-         * @description Add a dependency: the task in the body blocks the task in the path. The blocker must be a different task in the same project (422 with a plain error body otherwise). Adding an existing blocker is an idempotent 204. A dependency cycle returns 409. On 409 the body also carries `cycle`: the offending loop as `{ id, title }` entries, starting at the task in the path, each entry blocking the next, ending at `blocker_task_id`, and repeating the first entry last. It is empty when no path is recoverable.
+         * @description Add a dependency: the task in the body blocks the task in the path. The blocker must be a different, unarchived task in the same project (422 with a plain error body otherwise); the task being blocked may itself be archived, which is what lets a restore bring its edges back. Adding an existing blocker is an idempotent 204. A dependency cycle returns 409. On 409 the body also carries `cycle`: the offending loop as `{ id, title }` entries, starting at the task in the path, each entry blocking the next, ending at `blocker_task_id`, and repeating the first entry last. It is empty when no path is recoverable.
          */
         post: operations["postApiTasksByIdBlockers"];
         delete?: never;
@@ -852,6 +912,25 @@ export interface components {
             is_public?: boolean;
             name?: string;
         };
+        ArchivedTasksResponse: {
+            tasks: components["schemas"]["ArchivedTask"][];
+        };
+        ArchivedTask: {
+            archived_at: string;
+            assignee_ids: string[];
+            blocker_ids: string[];
+            column_id: string;
+            comment_count: number;
+            created_at: string;
+            description: components["schemas"]["NullableTiptapDoc"];
+            id: string;
+            image_count: number;
+            label_ids: string[];
+            /** @description a finite number */
+            position: number;
+            title: string;
+            updated_at: string;
+        };
         ProjectExport: {
             columns: components["schemas"]["BoardColumn"][];
             exported_at: string;
@@ -951,6 +1030,7 @@ export interface components {
             label_ids?: string[];
         };
         TaskDetailResponse: {
+            archived_at: components["schemas"]["UserAvatarurl"];
             assignee_ids: string[];
             blocker_ids: string[];
             column_id: string;
@@ -1932,6 +2012,64 @@ export interface operations {
             };
         };
     };
+    getApiProjectsByIdArchivedTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived tasks, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchivedTasksResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getApiProjectsByIdExport: {
         parameters: {
             query?: {
@@ -2766,6 +2904,122 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiTasksByIdArchive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived task in board-payload shape plus archived_at */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchivedTask"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiTasksByIdRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Restored task in board-payload shape */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardTask"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Internal Server Error */

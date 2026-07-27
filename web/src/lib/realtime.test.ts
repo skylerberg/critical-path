@@ -458,6 +458,78 @@ describe('drag-aware queue', () => {
     expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
   });
 
+  it('treats task_archived as a board event: project-filtered, queued, then applied', async () => {
+    board.tasks = [task('t1')];
+    const socket = await connectAndAuth('p1');
+    const archived = { ...task('t1'), archived_at: '2026-03-01T00:00:00Z' };
+
+    socket.receive({ type: 'task_archived', project_id: 'p2', data: archived });
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+
+    board.dragging = true;
+    socket.receive({ type: 'task_archived', project_id: 'p1', data: archived });
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+
+    board.dragging = false;
+    flushSync();
+    expect(board.tasks).toHaveLength(0);
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('treats task_restored as a board event: project-filtered, queued, then applied', async () => {
+    board.archivedTasks = [{ ...task('t1'), archived_at: '2026-03-01T00:00:00Z' }];
+    const socket = await connectAndAuth('p1');
+
+    socket.receive({ type: 'task_restored', project_id: 'p2', data: task('t1') });
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
+    expect(board.tasks).toHaveLength(0);
+
+    board.dragging = true;
+    socket.receive({ type: 'task_restored', project_id: 'p1', data: task('t1') });
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
+
+    board.dragging = false;
+    flushSync();
+    expect(board.archivedTasks).toHaveLength(0);
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('reloads the archive as well as the board when the queued batch is discarded', async () => {
+    board.archivedLoaded = true;
+    const socket = await connectAndAuth('p1');
+    board.dragging = true;
+
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname === '/api/projects') {
+        return jsonResponse(200, { projects: [] });
+      }
+      if (url.pathname === '/api/projects/p1/archived-tasks') {
+        return jsonResponse(200, { tasks: [] });
+      }
+      return jsonResponse(200, boardPayload());
+    });
+
+    // Re-authenticating mid-drag defers the self-heal and drops the queued batch,
+    // so the flush has to reload rather than replay.
+    socket.serverClose();
+    vi.advanceTimersByTime(1000);
+    const socket2 = latestSocket();
+    socket2.open();
+    socket2.receive({ type: 'auth_ok' });
+
+    board.dragging = false;
+    flushSync();
+    for (let i = 0; i < 20; i++) {
+      await Promise.resolve();
+    }
+
+    const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+    expect(paths).toContain('/api/projects/p1');
+    expect(paths).toContain('/api/projects/p1/archived-tasks');
+  });
+
   it('holds comment events while dragging too', async () => {
     board.tasks = [task('t1')];
     board.taskComments = { t1: [] };
@@ -474,8 +546,9 @@ describe('drag-aware queue', () => {
 });
 
 describe('reconnect', () => {
-  it('reconnects with backoff and refetches board + projects on re-auth', async () => {
+  it('reconnects with backoff and refetches board + projects + archive on re-auth', async () => {
     board.currentProjectId = 'p1';
+    board.archivedLoaded = true;
     realtime.connect();
     const socket = latestSocket();
     socket.open();
@@ -486,6 +559,9 @@ describe('reconnect', () => {
       const url = new URL((input as Request).url);
       if (url.pathname === '/api/projects') {
         return jsonResponse(200, { projects: [] });
+      }
+      if (url.pathname === '/api/projects/p1/archived-tasks') {
+        return jsonResponse(200, { tasks: [] });
       }
       return jsonResponse(200, boardPayload());
     });
@@ -501,13 +577,14 @@ describe('reconnect', () => {
     socket2.receive({ type: 'auth_ok' });
 
     // openapi-fetch invokes fetch after an awaited request-middleware microtask.
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 20; i++) {
       await Promise.resolve();
     }
 
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
     expect(paths).toContain('/api/projects');
     expect(paths).toContain('/api/projects/p1');
+    expect(paths).toContain('/api/projects/p1/archived-tasks');
   });
 
   it('does not refetch on the very first connect', async () => {

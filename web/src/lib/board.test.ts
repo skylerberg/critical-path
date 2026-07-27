@@ -11,6 +11,7 @@ import { users } from './users.svelte';
 const CYCLE_ERROR = 'Adding this blocker would create a dependency cycle';
 const SERVER_CREATED_AT = '2026-01-15T00:00:00Z';
 const SERVER_UPDATED_AT = '2026-02-01T00:00:00Z';
+const SERVER_ARCHIVED_AT = '2026-03-01T00:00:00Z';
 
 function commentBody(text: string) {
   return {
@@ -86,6 +87,23 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
     }
     if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
       return jsonResponse(200, payload());
+    }
+    if (request.method === 'GET' && url.pathname === '/api/projects/p1/archived-tasks') {
+      return jsonResponse(200, { tasks: [] });
+    }
+    const archivedTask = /^\/api\/tasks\/([^/]+)\/archive$/.exec(url.pathname);
+    if (request.method === 'POST' && archivedTask !== null) {
+      const id = archivedTask[1]!;
+      const existing = board.tasks.find((t) => t.id === id) ?? task(id, 'c1', 1000, 'x');
+      return jsonResponse(200, { ...existing, archived_at: SERVER_ARCHIVED_AT });
+    }
+    const restoredTask = /^\/api\/tasks\/([^/]+)\/restore$/.exec(url.pathname);
+    if (request.method === 'POST' && restoredTask !== null) {
+      const id = restoredTask[1]!;
+      const source = board.archivedTasks.find((t) => t.id === id) ?? task(id, 'c1', 1000, 'x');
+      const restored: Record<string, unknown> = { ...source };
+      delete restored.archived_at;
+      return jsonResponse(200, restored);
     }
     // createTask and updateTask read timestamps off the response, so these two
     // routes answer with a task rather than the catch-all 204.
@@ -1189,6 +1207,292 @@ describe('deleteTask', () => {
     await board.deleteTask('t1');
 
     expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
+  });
+});
+
+describe('archive', () => {
+  function archivedTask(id: string, columnId = 'c1', title = 'A') {
+    return { ...task(id, columnId, 1000, title), archived_at: SERVER_ARCHIVED_AT };
+  }
+
+  function pathsRequested(): string[] {
+    return fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+  }
+
+  beforeEach(async () => {
+    await board.load('p1');
+    fetchMock.mockClear();
+  });
+
+  it('loadArchived fills archivedTasks and marks the archive loaded', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === '/api/projects/p1/archived-tasks'
+        ? jsonResponse(200, { tasks: [archivedTask('t9', 'c1', 'Old')] })
+        : undefined
+    );
+
+    await board.loadArchived();
+
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t9']);
+    expect(board.archivedLoaded).toBe(true);
+    expect(board.archivedLoading).toBe(false);
+    expect(board.archivedError).toBeNull();
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p1/archived-tasks');
+  });
+
+  it('loadArchived records the error and stays unloaded on failure', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === '/api/projects/p1/archived-tasks'
+        ? jsonResponse(500, { error: 'nope' })
+        : undefined
+    );
+
+    await board.loadArchived();
+
+    expect(board.archivedError).toBe('nope');
+    expect(board.archivedLoaded).toBe(false);
+    expect(board.archivedTasks).toEqual([]);
+  });
+
+  it('loadArchived reports a 404 rather than claiming the archive is empty', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === '/api/projects/p1/archived-tasks'
+        ? jsonResponse(404, { error: 'Project not found' })
+        : undefined
+    );
+
+    await board.loadArchived();
+
+    expect(board.archivedError).toBe('Project not found');
+    expect(board.archivedLoaded).toBe(false);
+  });
+
+  it('loadArchived clears the previous error while a retry is in flight', async () => {
+    board.archivedError = 'nope';
+    let release!: (response: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => inFlight);
+
+    const pending = board.loadArchived();
+    expect(board.archivedError).toBeNull();
+    expect(board.archivedLoading).toBe(true);
+
+    release(jsonResponse(200, { tasks: [] }));
+    await pending;
+
+    expect(board.archivedLoaded).toBe(true);
+    expect(board.archivedLoading).toBe(false);
+  });
+
+  it('refetchArchived is a no-op until the archive has loaded once, then re-GETs', async () => {
+    await board.refetchArchived();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await board.loadArchived();
+    fetchMock.mockClear();
+
+    await board.refetchArchived();
+    expect(pathsRequested()).toEqual(['/api/projects/p1/archived-tasks']);
+  });
+
+  it('resync reloads the board and, once loaded, the archive', async () => {
+    await board.resync();
+    expect(pathsRequested()).toEqual(['/api/projects/p1']);
+
+    await board.loadArchived();
+    fetchMock.mockClear();
+
+    await board.resync();
+    expect(pathsRequested()).toEqual(['/api/projects/p1', '/api/projects/p1/archived-tasks']);
+  });
+
+  it('archiveTask drops the card, strips its blocker references, and adopts the server timestamp', async () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't2' ? { ...t, blocker_ids: ['t1'] } : t));
+
+    await board.archiveTask('t1');
+
+    expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
+    expect(board.tasks.find((t) => t.id === 't2')?.blocker_ids).toEqual([]);
+    expect(board.archivedTasks.map((t) => [t.id, t.archived_at])).toEqual([
+      ['t1', SERVER_ARCHIVED_AT],
+    ]);
+    expect(requestAt(0).method).toBe('POST');
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/tasks/t1/archive');
+  });
+
+  it('archiveTask on failure clears the optimistic row, toasts, and resyncs', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/tasks/t1/archive'
+        ? jsonResponse(500, { error: 'boom' })
+        : undefined
+    );
+
+    await board.archiveTask('t1');
+
+    expect(board.archivedTasks).toEqual([]);
+    expect(toasts.toasts.map((t) => t.message)).toContain('boom');
+    expect(pathsRequested()).toContain('/api/projects/p1');
+  });
+
+  it('restoreTask puts the card back and refetches for the dependents it regains', async () => {
+    board.archivedTasks = [archivedTask('t9', 'c1', 'Old')];
+    board.archivedLoaded = true;
+    mockRoutes((request, url) => {
+      if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
+        const p = payload();
+        return jsonResponse(200, {
+          ...p,
+          tasks: [...p.tasks, task('t9', 'c1', 1000, 'Old')],
+        });
+      }
+      return undefined;
+    });
+    fetchMock.mockClear();
+
+    await board.restoreTask('t9');
+
+    expect(board.archivedTasks).toEqual([]);
+    expect(board.tasks.some((t) => t.id === 't9')).toBe(true);
+    expect(pathsRequested()).toEqual(['/api/tasks/t9/restore', '/api/projects/p1']);
+  });
+
+  it('restoreTask leaves the card on the board even when the follow-up refetch fails', async () => {
+    board.archivedTasks = [archivedTask('t9', 'c1', 'Old')];
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === '/api/projects/p1'
+        ? jsonResponse(500, { error: 'offline' })
+        : undefined
+    );
+
+    await board.restoreTask('t9');
+
+    expect(board.tasks.some((t) => t.id === 't9')).toBe(true);
+    expect(board.error).toBeNull();
+  });
+
+  it('restoreTask outlives an archive load that was already in flight', async () => {
+    board.archivedTasks = [archivedTask('t9', 'c1', 'Old')];
+    board.archivedLoaded = true;
+    let release!: (response: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      const url = new URL(request.url);
+      if (url.pathname === '/api/projects/p1/archived-tasks') {
+        return inFlight;
+      }
+      if (url.pathname === '/api/tasks/t9/restore') {
+        return jsonResponse(200, task('t9', 'c1', 1000, 'Old'));
+      }
+      const p = payload();
+      return jsonResponse(200, { ...p, tasks: [...p.tasks, task('t9', 'c1', 1000, 'Old')] });
+    });
+
+    const loading = board.refetchArchived();
+    await board.restoreTask('t9');
+    release(jsonResponse(200, { tasks: [archivedTask('t9', 'c1', 'Old')] }));
+    await loading;
+
+    expect(board.archivedTasks).toEqual([]);
+    expect(board.tasks.some((t) => t.id === 't9')).toBe(true);
+    expect(board.archivedLoading).toBe(false);
+  });
+
+  it('deleteTask purges the row from the archive as well as the board', async () => {
+    board.archivedTasks = [archivedTask('t9')];
+
+    await board.deleteTask('t9');
+
+    expect(board.archivedTasks).toEqual([]);
+  });
+
+  it('deleteColumn relocates archived cards with the live ones, and drops them without a target', async () => {
+    board.archivedTasks = [{ ...archivedTask('t9', 'c1', 'Old'), position: 1500 }];
+    mockRoutes((request, url) =>
+      request.method === 'DELETE' && url.pathname === '/api/columns/c1'
+        ? jsonResponse(200, {
+            moved_tasks: [
+              { id: 't1', column_id: 'c2', position: 4000 },
+              { id: 't9', column_id: 'c2', position: 5000 },
+              { id: 't2', column_id: 'c2', position: 6000 },
+            ],
+          })
+        : undefined
+    );
+
+    // t1 (1000), t9 (1500), t2 (2000) relocate in position order after t3 (1000).
+    const pending = board.deleteColumn('c1', 'c2');
+    expect(board.archivedTasks[0]).toMatchObject({ column_id: 'c2', position: 3000 });
+    await pending;
+    expect(board.archivedTasks[0]).toMatchObject({ column_id: 'c2', position: 5000 });
+
+    board.archivedTasks = [archivedTask('t8', 'c3', 'Gone')];
+    await board.deleteColumn('c3');
+    expect(board.archivedTasks).toEqual([]);
+  });
+
+  it('applyRealtime task_archived moves the card into the archive without duplicating it', () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't2' ? { ...t, blocker_ids: ['t1'] } : t));
+    const event = { type: 'task_archived', project_id: 'p1', data: archivedTask('t1') } as const;
+
+    board.applyRealtime(event);
+    board.applyRealtime(event);
+
+    expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
+    expect(board.tasks.find((t) => t.id === 't2')?.blocker_ids).toEqual([]);
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('applyRealtime task_restored moves the card back onto the board', () => {
+    board.applyRealtime({ type: 'task_archived', project_id: 'p1', data: archivedTask('t1') });
+    board.applyRealtime({
+      type: 'task_restored',
+      project_id: 'p1',
+      data: task('t1', 'c1', 1000, 'A'),
+    });
+
+    expect(board.archivedTasks).toEqual([]);
+    expect(board.tasks.some((t) => t.id === 't1')).toBe(true);
+  });
+
+  it('applyRealtime task_deleted and column_deleted keep the archive consistent', () => {
+    board.archivedTasks = [archivedTask('t8'), archivedTask('t9')];
+
+    board.applyRealtime({ type: 'task_deleted', project_id: 'p1', data: { id: 't8' } });
+    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t9']);
+
+    board.applyRealtime({
+      type: 'column_deleted',
+      project_id: 'p1',
+      data: { id: 'c1', moved_tasks: [{ id: 't9', column_id: 'c2', position: 7000 }] },
+    });
+    expect(board.archivedTasks).toEqual([
+      expect.objectContaining({ id: 't9', column_id: 'c2', position: 7000 }),
+    ]);
+
+    board.archivedTasks = [archivedTask('t7', 'c2')];
+    board.applyRealtime({
+      type: 'column_deleted',
+      project_id: 'p1',
+      data: { id: 'c2', moved_tasks: [] },
+    });
+    expect(board.archivedTasks).toEqual([]);
+  });
+
+  it('reset clears every archive field', async () => {
+    await board.loadArchived();
+    board.archivedError = 'stale';
+
+    board.reset();
+
+    expect(board.archivedTasks).toEqual([]);
+    expect(board.archivedLoaded).toBe(false);
+    expect(board.archivedLoading).toBe(false);
+    expect(board.archivedError).toBeNull();
   });
 });
 
