@@ -48,7 +48,6 @@ import { AppContext, AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
 
-// Keeps an absurd year from landing outside timestamptz range, which would be a 500.
 const MAX_TOKEN_LIFETIME_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 
 function toTokenResponse(row: {

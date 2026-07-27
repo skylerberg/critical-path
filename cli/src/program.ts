@@ -10,7 +10,6 @@ import { registerImage } from './commands/image';
 import { registerLabel } from './commands/label';
 import { registerProject } from './commands/project';
 import { registerTask } from './commands/task';
-import { registerToken } from './commands/token';
 import { registerUser } from './commands/user';
 import { registerWatch } from './commands/watch';
 
@@ -19,7 +18,6 @@ export function buildProgram(deps: CliDeps): Command {
     .description('CLI for Critical Path, the project-management app')
     .version('0.1.0');
   registerAuth(program, deps);
-  registerToken(program, deps);
   registerProject(program, deps);
   registerColumn(program, deps);
   registerTask(program, deps);

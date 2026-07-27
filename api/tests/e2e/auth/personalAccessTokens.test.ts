@@ -228,6 +228,32 @@ describe('Personal access tokens', () => {
       ]);
     });
 
+    it('lists newest first', async () => {
+      const user = await ctx.createUser('pat-order');
+      const now = Date.now();
+      const rows = [
+        { name: 'middle', created_at: new Date(now - 60_000) },
+        { name: 'oldest', created_at: new Date(now - 120_000) },
+        { name: 'newest', created_at: new Date(now) },
+      ];
+      await db
+        .insertInto('personal_access_token')
+        .values(
+          rows.map((row) => ({
+            id: newId(),
+            user_id: user.id,
+            name: row.name,
+            token_hash: sha256Hex(`order-${user.id}-${row.name}`),
+            expires_at: null,
+            created_at: row.created_at,
+          }))
+        )
+        .execute();
+
+      const listed = await listTokens(user.token);
+      expect(listed.map((token) => token.name)).toEqual(['newest', 'middle', 'oldest']);
+    });
+
     it('never shows another user tokens', async () => {
       const owner = await ctx.createUser('pat-owner');
       const other = await ctx.createUser('pat-other');
