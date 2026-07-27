@@ -1,0 +1,41 @@
+import { sql } from 'kysely';
+import type { Kysely } from 'kysely';
+
+// `strict` avoids the duplicate values lax `$.**` yields; the attrs.label arm is
+// what keeps a card that only names someone through a mention findable by that
+// name.
+const DESCRIPTION_TEXT = sql`
+  jsonb_path_query_array(coalesce(description, '{}'::jsonb), 'strict $.**.text') ||
+  jsonb_path_query_array(coalesce(description, '{}'::jsonb), 'strict $.**.attrs.label')
+`;
+
+// The 'simple' arms are not redundant with the 'english' ones: prefix matching
+// against stemmed lexemes alone drops out mid-word (typed 'authenti' cannot
+// match the indexed 'authent'), which an as-you-type box cannot tolerate.
+const SEARCH_VECTOR = sql`
+  setweight(to_tsvector('english', title), 'A') ||
+  setweight(jsonb_to_tsvector('english', ${DESCRIPTION_TEXT}, '["string"]'), 'B') ||
+  setweight(to_tsvector('simple', title), 'C') ||
+  setweight(jsonb_to_tsvector('simple', ${DESCRIPTION_TEXT}, '["string"]'), 'D')
+`;
+
+export async function up(db: Kysely<unknown>): Promise<void> {
+  await db.schema
+    .alterTable('task')
+    .addColumn('search_vector', sql`tsvector`, (col) =>
+      col.generatedAlwaysAs(SEARCH_VECTOR).stored()
+    )
+    .execute();
+
+  await db.schema
+    .createIndex('task_search_vector_idx')
+    .on('task')
+    .using('gin')
+    .column('search_vector')
+    .execute();
+}
+
+export async function down(db: Kysely<unknown>): Promise<void> {
+  await db.schema.dropIndex('task_search_vector_idx').execute();
+  await db.schema.alterTable('task').dropColumn('search_vector').execute();
+}
