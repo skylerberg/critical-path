@@ -22,6 +22,7 @@ function task(id: string, columnId: string, position: number): BoardTask {
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    cover_image_url: null,
     due_date: null,
     comment_count: 0,
   };

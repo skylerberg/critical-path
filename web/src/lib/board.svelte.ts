@@ -76,6 +76,7 @@ function optimisticTask(id: string, columnId: string, title: string, position: n
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    cover_image_url: null,
     comment_count: 0,
   };
 }
@@ -894,6 +895,24 @@ class BoardStore {
     }
   }
 
+  // Takes the image rather than its id so the store never rebuilds the URL the
+  // server owns.
+  async setTaskCover(taskId: string, image: TaskImage | null): Promise<void> {
+    this.tasks = this.tasks.map((task) =>
+      task.id === taskId ? { ...task, cover_image_url: image?.url ?? null } : task
+    );
+    try {
+      assertOk(
+        await api.PUT('/api/tasks/{id}/cover', {
+          params: { path: { id: taskId } },
+          body: { image_id: image?.id ?? null },
+        })
+      );
+    } catch (error) {
+      await this.#mutationFailed(error);
+    }
+  }
+
   async addBlocker(taskId: string, blockerTaskId: string): Promise<boolean> {
     const target = this.tasks.find((task) => task.id === taskId);
     if (target === undefined || target.blocker_ids.includes(blockerTaskId)) {
@@ -1101,11 +1120,16 @@ class BoardStore {
       const data = assertOk(await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } }));
       this.taskImages = { ...this.taskImages, [taskId]: data.images };
       this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
-      // Heals a card badge whose realtime event was missed; short of a full
-      // board refetch this is the only authoritative read of either count.
+      // Heals a card face whose realtime event was missed; short of a full board
+      // refetch this is the only authoritative read of the counts and the cover.
       this.tasks = this.tasks.map((task) =>
         task.id === taskId
-          ? { ...task, image_count: data.image_count, comment_count: data.comment_count ?? 0 }
+          ? {
+              ...task,
+              image_count: data.image_count,
+              comment_count: data.comment_count ?? 0,
+              cover_image_url: data.cover_image_url ?? null,
+            }
           : task
       );
     } catch (error) {
@@ -1141,12 +1165,19 @@ class BoardStore {
   }
 
   async deleteTaskImage(taskId: string, imageId: string): Promise<void> {
+    const removed = (this.taskImages[taskId] ?? []).find((image) => image.id === imageId);
     this.taskImages = {
       ...this.taskImages,
       [taskId]: (this.taskImages[taskId] ?? []).filter((image) => image.id !== imageId),
     };
     this.tasks = this.tasks.map((task) =>
-      task.id === taskId ? { ...task, image_count: Math.max(0, task.image_count - 1) } : task
+      task.id === taskId
+        ? {
+            ...task,
+            image_count: Math.max(0, task.image_count - 1),
+            cover_image_url: task.cover_image_url === removed?.url ? null : task.cover_image_url,
+          }
+        : task
     );
     try {
       assertOk(await api.DELETE('/api/images/{id}', { params: { path: { id: imageId } } }));
@@ -1421,9 +1452,17 @@ class BoardStore {
         break;
       }
       case 'image_deleted': {
-        const d = event.data as { task_id: string; image_count: number };
+        // An API pod that predates covers omits cover_image_url; coalescing keeps
+        // undefined out of a `string | null` field.
+        const d = event.data as {
+          task_id: string;
+          image_count: number;
+          cover_image_url?: string | null;
+        };
         this.tasks = this.tasks.map((t) =>
-          t.id === d.task_id ? { ...t, image_count: d.image_count } : t
+          t.id === d.task_id
+            ? { ...t, image_count: d.image_count, cover_image_url: d.cover_image_url ?? null }
+            : t
         );
         // The event carries no image id, so re-fetch the grid; clearing the cache
         // entry instead would strand an open detail view on its loading spinner.

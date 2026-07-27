@@ -46,7 +46,14 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: {
               cacheName: IMAGE_CACHE_NAME,
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              // A cover puts a full-size original here on every board view, so
+              // without the purge flag a quota error can evict the whole origin,
+              // taking the precached app shell with it.
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+                purgeOnQuotaError: true,
+              },
               cacheableResponse: { statuses: [200] },
             },
           },

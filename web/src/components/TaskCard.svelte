@@ -60,6 +60,18 @@
     aria-label={task.title}
     class="absolute inset-0 rounded-md"
   ></a>
+  <!-- Truthy, not `!== null`: an API pod that predates covers omits the key, and
+       `src={undefined}` would render an empty box on every card. -->
+  {#if task.cover_image_url}
+    <img
+      src={task.cover_image_url}
+      alt=""
+      draggable="false"
+      loading="lazy"
+      decoding="async"
+      class="mb-2 aspect-video w-full rounded object-cover"
+    />
+  {/if}
   {#if labels.length > 0}
     <div class="mb-1.5 flex flex-wrap gap-1">
       {#each labels as label (label.id)}

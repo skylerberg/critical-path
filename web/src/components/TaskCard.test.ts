@@ -20,6 +20,7 @@ const task: BoardTask = {
   assignee_ids: ['u1'],
   blocker_ids: ['t9', 't8'],
   image_count: 3,
+  cover_image_url: null,
   due_date: null,
   comment_count: 0,
 };
@@ -114,6 +115,46 @@ describe('TaskCard', () => {
 
     expect(screen.queryByTitle(/comment/)).not.toBeInTheDocument();
     expect(screen.getByText('Design cards')).toBeInTheDocument();
+  });
+
+  describe('cover image', () => {
+    it('renders the cover above the title, alongside the image badge', () => {
+      render(TaskCard, { task: { ...task, cover_image_url: '/api/images/img1' }, projectId: 'p1' });
+
+      const cover = card().querySelector('img');
+      expect(cover).toHaveAttribute('src', '/api/images/img1');
+      expect(cover).toHaveAttribute('loading', 'lazy');
+      expect(cover).toHaveAttribute('alt', '');
+      const title = screen.getByText('Design cards');
+      expect(cover?.compareDocumentPosition(title)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(screen.getByTitle('3 images')).toBeInTheDocument();
+    });
+
+    it('renders no image at all without a cover', () => {
+      render(TaskCard, { task, projectId: 'p1' });
+
+      expect(card().querySelector('img')).toBeNull();
+    });
+
+    // Every other fixture sets the field, so only this can catch a `!== null` guard.
+    it('renders no image when the payload predates cover_image_url', () => {
+      const legacy: Partial<BoardTask> = { ...task };
+      delete legacy.cover_image_url;
+      render(TaskCard, { task: legacy as BoardTask, projectId: 'p1' });
+
+      expect(card().querySelector('img')).toBeNull();
+      expect(screen.getByText('Design cards')).toBeInTheDocument();
+    });
+
+    it('shows the cover on a read-only board too', () => {
+      render(TaskCard, {
+        task: { ...task, cover_image_url: '/api/images/img1' },
+        projectId: 'p1',
+        readonly: true,
+      });
+
+      expect(card().querySelector('img')).toHaveAttribute('src', '/api/images/img1');
+    });
   });
 
   it('carries the active filters into the task link so closing the card comes back filtered', () => {

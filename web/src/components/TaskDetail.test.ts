@@ -31,6 +31,7 @@ function task(
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    cover_image_url: null,
     due_date: null,
     comment_count: 0,
     ...overrides,
@@ -258,6 +259,69 @@ describe('TaskDetail', () => {
     await waitFor(() => expect(board.taskComments.t1).toEqual([comment]));
     expect(board.taskImages.t1).toEqual([image]);
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
+  });
+
+  describe('cover image', () => {
+    function coverToggle(): HTMLElement {
+      return screen.getByRole('button', { name: 'Use image mock.png as cover' });
+    }
+
+    function coverRequests(): Request[] {
+      return fetchMock.mock.calls
+        .map((call) => call[0] as Request)
+        .filter((request) => new URL(request.url).pathname === '/api/tasks/t1/cover');
+    }
+
+    function coverOfT1(): string | null | undefined {
+      return board.tasks.find((t) => t.id === 't1')?.cover_image_url;
+    }
+
+    it('marks an image as the cover and shows it as pressed', async () => {
+      render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      await screen.findByAltText('mock.png');
+      expect(coverToggle()).toHaveAttribute('aria-pressed', 'false');
+
+      await fireEvent.click(coverToggle());
+
+      expect(coverRequests()).toHaveLength(1);
+      expect(coverRequests()[0]!.method).toBe('PUT');
+      expect(await coverRequests()[0]!.json()).toEqual({ image_id: 'img1' });
+      expect(coverOfT1()).toBe('/api/images/img1');
+      await waitFor(() => expect(coverToggle()).toHaveAttribute('aria-pressed', 'true'));
+    });
+
+    it('clears the cover when the current one is toggled off', async () => {
+      board.tasks = board.tasks.map((t) =>
+        t.id === 't1' ? { ...t, cover_image_url: '/api/images/img1' } : t
+      );
+      render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      await screen.findByAltText('mock.png');
+      expect(coverToggle()).toHaveAttribute('aria-pressed', 'true');
+
+      await fireEvent.click(coverToggle());
+
+      expect(await coverRequests()[0]!.json()).toEqual({ image_id: null });
+      expect(coverOfT1()).toBeNull();
+    });
+
+    it('clears the card cover when the cover image is deleted', async () => {
+      board.tasks = board.tasks.map((t) =>
+        t.id === 't1' ? { ...t, cover_image_url: '/api/images/img1' } : t
+      );
+      render(TaskDetail, { taskId: 't1', closePath: '/projects/p1' });
+      await screen.findByAltText('mock.png');
+
+      await fireEvent.click(screen.getByRole('button', { name: 'Delete image mock.png' }));
+
+      expect(coverOfT1()).toBeNull();
+    });
+
+    it('offers no cover toggle on a read-only board', async () => {
+      render(TaskDetail, { taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'Column' })).toBeVisible());
+      expect(screen.queryByRole('button', { name: /as cover/ })).toBeNull();
+    });
   });
 
   it('loads the activity log and interleaves it with the comments', async () => {

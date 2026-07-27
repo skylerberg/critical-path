@@ -52,6 +52,7 @@ function task(id: string, columnId: string, position: number, title: string) {
     assignee_ids: [],
     blocker_ids: [],
     image_count: 0,
+    cover_image_url: null,
     due_date: null,
     comment_count: 0,
   };
@@ -359,6 +360,7 @@ describe('board store readonly mode', () => {
         assignee_ids: ['u-ada'],
         blocker_ids: [],
         image_count: 2,
+        cover_image_url: '/api/images/img1',
       },
     ],
     labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
@@ -394,6 +396,7 @@ describe('board store readonly mode', () => {
     expect(board.project?.is_public).toBe(true);
     expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2']);
     expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+    expect(board.tasks[0]?.cover_image_url).toBe('/api/images/img1');
     expect(board.labels.map((l) => l.id)).toEqual(['l1']);
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
     expect(paths).toEqual(['/api/public/projects/p1/board']);
@@ -1962,6 +1965,88 @@ describe('applyRealtime does not resurrect a deleted task', () => {
   });
 });
 
+describe('board store cover images', () => {
+  const cover = {
+    id: 'img1',
+    url: '/api/images/img1',
+    filename: 'shot.png',
+    content_type: 'image/png',
+    size_bytes: 4,
+    created_at: SERVER_CREATED_AT,
+  };
+  const other = { ...cover, id: 'img2', url: '/api/images/img2', filename: 'other.png' };
+
+  beforeEach(async () => {
+    await board.load('p1');
+    board.taskImages = { t1: [cover, other] };
+    fetchMock.mockClear();
+  });
+
+  function coverOf(taskId: string): string | null | undefined {
+    return board.tasks.find((t) => t.id === taskId)?.cover_image_url;
+  }
+
+  it('setTaskCover applies the url before the request resolves and PUTs the image id', async () => {
+    const pending = board.setTaskCover('t1', cover);
+
+    expect(coverOf('t1')).toBe('/api/images/img1');
+    await pending;
+    const request = requestAt(0);
+    expect(request.method).toBe('PUT');
+    expect(new URL(request.url).pathname).toBe('/api/tasks/t1/cover');
+    expect(await request.json()).toEqual({ image_id: 'img1' });
+  });
+
+  it('setTaskCover clears the card and sends a null image_id', async () => {
+    await board.setTaskCover('t1', cover);
+    fetchMock.mockClear();
+
+    await board.setTaskCover('t1', null);
+
+    expect(coverOf('t1')).toBeNull();
+    expect(await requestAt(0).json()).toEqual({ image_id: null });
+  });
+
+  it('setTaskCover toasts and refetches the board when the request fails', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'PUT' && url.pathname === '/api/tasks/t1/cover'
+        ? jsonResponse(404, { error: 'Task not found' })
+        : undefined
+    );
+
+    await board.setTaskCover('t1', cover);
+
+    expect(toasts.toasts.map((t) => t.message)).toContain('Task not found');
+    expect(requestAt(1).method).toBe('GET');
+    expect(coverOf('t1')).toBeNull();
+  });
+
+  it('createTask starts a task with no cover', async () => {
+    await board.createTask('c1', 'New task');
+
+    expect(board.tasks.find((t) => t.title === 'New task')?.cover_image_url).toBeNull();
+  });
+
+  it('deleteTaskImage clears the cover it just removed, without waiting for a refetch', async () => {
+    await board.setTaskCover('t1', cover);
+    fetchMock.mockClear();
+
+    const pending = board.deleteTaskImage('t1', 'img1');
+
+    expect(coverOf('t1')).toBeNull();
+    await pending;
+  });
+
+  it('deleteTaskImage leaves a cover that is not the deleted image', async () => {
+    await board.setTaskCover('t1', cover);
+    fetchMock.mockClear();
+
+    await board.deleteTaskImage('t1', 'img2');
+
+    expect(coverOf('t1')).toBe('/api/images/img1');
+  });
+});
+
 describe('board store comments', () => {
   beforeEach(async () => {
     await board.load('p1');
@@ -2003,13 +2088,16 @@ describe('board store comments', () => {
     expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
   });
 
-  it('loadTaskDetail heals the cached counts from the detail payload', async () => {
-    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 7 } : t));
+  it('loadTaskDetail heals the cached counts and cover from the detail payload', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1' ? { ...t, comment_count: 7, cover_image_url: '/api/images/gone' } : t
+    );
 
     await board.loadTaskDetail('t1');
 
     expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
     expect(board.tasks.find((t) => t.id === 't1')?.image_count).toBe(0);
+    expect(board.tasks.find((t) => t.id === 't1')?.cover_image_url).toBeNull();
   });
 
   it('createComment failure toasts and re-fetches the detail payload', async () => {
