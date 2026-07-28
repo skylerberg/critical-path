@@ -8,10 +8,14 @@ import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
   accessibleProjectsFilter,
+  assertCanWriteProject,
   assertProjectAccess,
   assertProjectOwnedBy,
+  assertProjectWrite,
   canAccessProject,
   isProjectMember,
+  READ_ONLY_MESSAGE,
+  type ProjectRole,
 } from '../services/authorization';
 import { avatarUrl } from '../services/avatars';
 import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
@@ -21,8 +25,9 @@ import { buildProjectExport } from '../services/export/payload';
 import { copyProject } from '../services/projectCopy';
 import {
   PROJECT_COLUMNS,
-  fetchMemberIds,
+  fetchMembers,
   publishProjectListItem,
+  toMemberEntries,
   toProjectResponse,
   type ProjectRow,
 } from '../services/projectListItem';
@@ -81,6 +86,32 @@ async function lockProject(db: Kysely<DB>, projectId: string): Promise<ProjectRo
   return row;
 }
 
+async function removeMembers(
+  c: Parameters<typeof publishAfterCommit>[0],
+  db: Kysely<DB>,
+  project: ProjectRow,
+  actorUserId: string,
+  removed: string[]
+): Promise<void> {
+  await db
+    .deleteFrom('project_member')
+    .where('project_id', '=', project.id)
+    .where('user_id', 'in', removed)
+    .execute();
+  const stripped = await stripAssigneesForRemovedMembers(db, project.id, removed);
+  await recordAssigneeChanges(
+    db,
+    actorUserId,
+    stripped.map((entry) => ({
+      taskId: entry.task_id,
+      kind: 'assignee_removed' as const,
+      userId: entry.user_id,
+    }))
+  );
+  const strippedTaskIds = [...new Set(stripped.map((entry) => entry.task_id))];
+  publishTaskRelationsSet(c, await fetchTaskRelations(db, strippedTaskIds));
+}
+
 const router: AppHono = new Hono();
 
 router.get(
@@ -90,7 +121,7 @@ router.get(
     summary: 'List projects',
     description:
       'List projects the caller can access (created by them or shared with them as a member) ' +
-      "with member ids, open and done task counts, and the caller's personal sort position " +
+      "with member ids, member roles, open and done task counts, and the caller's personal sort position " +
       '(null when never set). Archived tasks count toward neither total. Ordered by position ' +
       '(nulls last), then created_at, then id.',
     security: [{ bearerAuth: [] }],
@@ -132,7 +163,7 @@ router.get(
         jsonArrayFrom(
           eb
             .selectFrom('project_member')
-            .select('project_member.user_id')
+            .select(['project_member.user_id', 'project_member.role'])
             .whereRef('project_member.project_id', '=', 'project.id')
             .orderBy('project_member.created_at')
             .orderBy('project_member.user_id')
@@ -161,10 +192,7 @@ router.get(
     return c.json(
       {
         projects: rows.map((row) => ({
-          ...toProjectResponse(
-            row,
-            row.member_rows.map((member) => member.user_id)
-          ),
+          ...toProjectResponse(row, toMemberEntries(row.member_rows)),
           open_task_count: Number(row.open_task_count),
           done_task_count: Number(row.done_task_count),
           position: row.position,
@@ -457,7 +485,8 @@ router.patch(
       'unarchive. Set is_public to true to publish the board read-only at ' +
       'GET /api/public/projects/:id/board, which serves card titles, descriptions and their ' +
       'embedded images, labels, blockers, and assignee names and avatars to anyone with the ' +
-      'project id and no account. Set it back to false to stop serving it.',
+      'project id and no account. Set it back to false to stop serving it. Editors only: a ' +
+      'viewer gets 403 and non-accessors 404.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -470,6 +499,7 @@ router.patch(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -484,7 +514,7 @@ router.patch(
     const db = c.get('db');
     const user = c.get('user');
 
-    await assertProjectAccess(db, user.id, id);
+    await assertProjectWrite(db, user.id, id);
 
     const updates: Updateable<Project> = {};
     if (body.name !== undefined) updates.name = body.name;
@@ -510,9 +540,9 @@ router.patch(
       throw new AppError(404, 'Project not found');
     }
 
-    const memberIds = await fetchMemberIds(db, id);
-    await publishProjectListItem(c, db, row, memberIds);
-    return c.json(toProjectResponse(row, memberIds), 200);
+    const members = await fetchMembers(db, id);
+    await publishProjectListItem(c, db, row, members);
+    return c.json(toProjectResponse(row, members), 200);
   }
 );
 
@@ -544,13 +574,13 @@ router.delete(
     const db = c.get('db');
     const user = c.get('user');
 
-    await assertProjectAccess(db, user.id, id);
+    await assertProjectWrite(db, user.id, id);
     const project = await lockProject(db, id);
     assertProjectOwnedBy(project, user.id, 'Only the project owner can delete this project');
 
     // Snapshot who can see the project now; post-commit the rows backing the
     // access check are gone.
-    const recipients = new Set<string>(await fetchMemberIds(db, id));
+    const recipients = new Set<string>((await fetchMembers(db, id)).map((m) => m.user_id));
     if (project.created_by !== null) {
       recipients.add(project.created_by);
     }
@@ -635,11 +665,15 @@ router.put(
     tags: ['Projects'],
     summary: 'Set project members',
     description:
-      'Replace the full member set of a project. Anyone with access may call; non-accessors ' +
-      'get 404. The creator has implicit access and is never stored as a member: their id is ' +
-      'silently stripped from user_ids if present. Every other id must reference an existing ' +
-      'user (422 with a plain error body otherwise). A member may omit themselves to leave ' +
-      'the project. Removed members lose their task assignments in the project.',
+      'Replace the full member set of a project, change member roles, or both. Editors may ' +
+      'call; a viewer may only use it to remove themselves and gets 403 for anything else; ' +
+      'non-accessors get 404. Omit user_ids to change roles only, which cannot add or remove ' +
+      'anyone however stale the caller’s member list is. The creator has implicit access, is ' +
+      'always an editor, and is never stored as a member: their id is silently stripped from ' +
+      'both user_ids and roles if present. Every newly added id must reference an existing ' +
+      'user and every roles entry must name someone in the resulting member set (422 with a ' +
+      'plain error body otherwise). A retained member with no roles entry keeps their stored ' +
+      'role. Removed members lose their task assignments in the project.',
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
@@ -647,6 +681,7 @@ router.put(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -657,56 +692,105 @@ router.put(
   jsonValidator(setProjectMembersSchema),
   async (c) => {
     const { id } = c.req.valid('param');
-    const { user_ids } = c.req.valid('json');
+    const { user_ids, roles } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
 
     await assertProjectAccess(db, user.id, id);
     const project = await lockProject(db, id);
+    const current = await fetchMembers(db, id);
 
-    const desired = [...new Set(user_ids)].filter((userId) => userId !== project.created_by);
+    const callerRole: ProjectRole =
+      project.created_by === user.id
+        ? 'editor'
+        : (current.find((member) => member.user_id === user.id)?.role ?? 'viewer');
 
-    if (desired.length > 0) {
+    // Before any domain validation: a viewer must not be able to drive the
+    // user-existence check below and read it as an oracle, and must not be able
+    // to evict anyone else even with a stale cached member list.
+    if (callerRole !== 'editor') {
+      // `roles` is refused rather than ignored: leaving is the only thing this can
+      // mean for a viewer, and answering 204 to a body asking for something else
+      // would report a role change that never happened.
+      if (user_ids === undefined || user_ids.includes(user.id) || roles !== undefined) {
+        throw new AppError(403, READ_ONLY_MESSAGE);
+      }
+      await removeMembers(c, db, project, user.id, [user.id]);
+      publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: [user.id] });
+      await publishProjectListItem(c, db, project, await fetchMembers(db, id));
+      return c.body(null, 204);
+    }
+
+    const desired = [...new Set(user_ids ?? current.map((member) => member.user_id))].filter(
+      (userId) => userId !== project.created_by
+    );
+    const desiredSet = new Set(desired);
+
+    const roleByUser = new Map(
+      (roles ?? [])
+        .filter((entry) => entry.user_id !== project.created_by)
+        .map((entry) => [entry.user_id, entry.role])
+    );
+    for (const userId of roleByUser.keys()) {
+      if (!desiredSet.has(userId)) {
+        throw new AppError(422, 'roles must reference users in the member set');
+      }
+    }
+
+    const currentIds = new Set(current.map((member) => member.user_id));
+    const added = desired.filter((userId) => !currentIds.has(userId));
+    const removed = current
+      .filter((member) => !desiredSet.has(member.user_id))
+      .map((member) => member.user_id);
+    // A retained member with no roles entry keeps their stored role, which is
+    // what makes a user_ids-only body from an older client non-destructive.
+    const roleChanges = current.flatMap((member) => {
+      const next = roleByUser.get(member.user_id);
+      return desiredSet.has(member.user_id) && next !== undefined && next !== member.role
+        ? [{ user_id: member.user_id, role: next }]
+        : [];
+    });
+
+    // Only the additions: existing rows already satisfy the member FK.
+    if (added.length > 0) {
       const existingUsers = await db
         .selectFrom('app_user')
         .select('id')
-        .where('id', 'in', desired)
+        .where('id', 'in', added)
         .execute();
-      if (existingUsers.length !== desired.length) {
+      if (existingUsers.length !== added.length) {
         throw new AppError(422, 'user_ids must reference existing users');
       }
     }
 
-    const current = new Set(await fetchMemberIds(db, id));
-    const desiredSet = new Set(desired);
-    const added = desired.filter((userId) => !current.has(userId));
-    const removed = [...current].filter((userId) => !desiredSet.has(userId));
-
     if (removed.length > 0) {
-      await db
-        .deleteFrom('project_member')
-        .where('project_id', '=', id)
-        .where('user_id', 'in', removed)
-        .execute();
-      const stripped = await stripAssigneesForRemovedMembers(db, id, removed);
-      await recordAssigneeChanges(
-        db,
-        user.id,
-        stripped.map((entry) => ({
-          taskId: entry.task_id,
-          kind: 'assignee_removed' as const,
-          userId: entry.user_id,
-        }))
-      );
-      const strippedTaskIds = [...new Set(stripped.map((entry) => entry.task_id))];
-      publishTaskRelationsSet(c, await fetchTaskRelations(db, strippedTaskIds));
+      await removeMembers(c, db, project, user.id, removed);
     }
 
     if (added.length > 0) {
       await db
         .insertInto('project_member')
-        .values(added.map((userId) => ({ project_id: id, user_id: userId })))
+        .values(
+          added.map((userId) => ({
+            project_id: id,
+            user_id: userId,
+            role: roleByUser.get(userId) ?? 'editor',
+          }))
+        )
         .onConflict((oc) => oc.columns(['project_id', 'user_id']).doNothing())
+        .execute();
+    }
+
+    for (const role of new Set(roleChanges.map((change) => change.role))) {
+      await db
+        .updateTable('project_member')
+        .set({ role })
+        .where('project_id', '=', id)
+        .where(
+          'user_id',
+          'in',
+          roleChanges.filter((change) => change.role === role).map((change) => change.user_id)
+        )
         .execute();
     }
 
@@ -715,7 +799,9 @@ router.put(
     if (removed.length > 0) {
       publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: removed });
     }
-    await publishProjectListItem(c, db, project, await fetchMemberIds(db, id));
+    // A demotion keeps access, so the broadcast plus the per-event access
+    // re-check is what re-renders an open client.
+    await publishProjectListItem(c, db, project, await fetchMembers(db, id));
 
     return c.body(null, 204);
   }
@@ -727,9 +813,12 @@ router.post(
     tags: ['Projects'],
     summary: 'Add project member by email',
     description:
-      'Add a user to a project by their exact email (case-insensitive). Anyone with access ' +
-      'may call; non-accessors get 404. An unknown email returns 404. Adding an existing ' +
-      'member — or the creator, who has implicit access — is an idempotent no-op.',
+      'Add a user to a project by their exact email (case-insensitive), as an editor unless ' +
+      'role says otherwise. Editors may call; a viewer gets 403 and non-accessors 404. An ' +
+      'unknown email returns 404. Adding an existing member is an idempotent no-op that ' +
+      'changes their role only when role is given, so re-inviting never silently promotes a ' +
+      'viewer. Adding the creator, who has implicit access and is always an editor, stores ' +
+      'nothing. The response carries the effective role after the call.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -742,6 +831,7 @@ router.post(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...validationErrorResponse,
       ...internalServerErrorResponse,
@@ -752,11 +842,15 @@ router.post(
   jsonValidator(addProjectMemberByEmailSchema),
   async (c) => {
     const { id } = c.req.valid('param');
-    const { email } = c.req.valid('json');
+    const { email, role } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
 
-    await assertProjectAccess(db, user.id, id);
+    // Locked before the role is read: this write's target is the caller's own
+    // authorization state, so a demotion committing against an unlocked read
+    // would be undone by the upsert that follows it.
+    const project = await lockProject(db, id);
+    await assertCanWriteProject(db, user.id, project);
 
     const target = await db
       .selectFrom('app_user')
@@ -767,14 +861,20 @@ router.post(
       throw new AppError(404, 'User not found');
     }
 
-    const project = await lockProject(db, id);
+    let effectiveRole: ProjectRole = 'editor';
     if (target.id !== project.created_by) {
       await db
         .insertInto('project_member')
-        .values({ project_id: id, user_id: target.id })
-        .onConflict((oc) => oc.columns(['project_id', 'user_id']).doNothing())
+        .values({ project_id: id, user_id: target.id, role: role ?? 'editor' })
+        .onConflict((oc) =>
+          role === undefined
+            ? oc.columns(['project_id', 'user_id']).doNothing()
+            : oc.columns(['project_id', 'user_id']).doUpdateSet({ role })
+        )
         .execute();
-      await publishProjectListItem(c, db, project, await fetchMemberIds(db, id));
+      const members = await fetchMembers(db, id);
+      effectiveRole = members.find((member) => member.user_id === target.id)?.role ?? 'editor';
+      await publishProjectListItem(c, db, project, members);
     }
 
     return c.json(
@@ -785,6 +885,7 @@ router.post(
           name: target.name,
           avatar_url: avatarUrl(target.avatar_storage_key),
         },
+        role: effectiveRole,
       },
       200
     );
@@ -799,9 +900,10 @@ router.put(
     description:
       'Hand a project to another member. Only the current creator may call: other members with ' +
       'access get 403 and non-accessors get 404. user_id must already be a project member (422 ' +
-      'otherwise). The incoming owner becomes created_by and their member row is dropped; the ' +
-      'outgoing creator gains an ordinary member row and may then leave via PUT /:id/members. ' +
-      'Passing your own id is a no-op. Task assignments are unaffected.',
+      'otherwise). The incoming owner becomes created_by and their member row is dropped, so ' +
+      'handing the project to a viewer promotes them — the creator is always an editor. The ' +
+      'outgoing creator gains an ordinary editor member row and may then leave via ' +
+      'PUT /:id/members. Passing your own id is a no-op. Task assignments are unaffected.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -829,12 +931,12 @@ router.put(
     const db = c.get('db');
     const user = c.get('user');
 
-    await assertProjectAccess(db, user.id, id);
+    await assertProjectWrite(db, user.id, id);
     const project = await lockProject(db, id);
     assertProjectOwnedBy(project, user.id, 'Only the project owner can transfer ownership');
 
     if (user_id === user.id) {
-      return c.json(toProjectResponse(project, await fetchMemberIds(db, id)), 200);
+      return c.json(toProjectResponse(project, await fetchMembers(db, id)), 200);
     }
 
     if (!(await isProjectMember(db, id, user_id))) {
@@ -856,13 +958,13 @@ router.put(
 
     await db
       .insertInto('project_member')
-      .values({ project_id: id, user_id: user.id })
-      .onConflict((oc) => oc.columns(['project_id', 'user_id']).doNothing())
+      .values({ project_id: id, user_id: user.id, role: 'editor' })
+      .onConflict((oc) => oc.columns(['project_id', 'user_id']).doUpdateSet({ role: 'editor' }))
       .execute();
 
-    const memberIds = await fetchMemberIds(db, id);
-    await publishProjectListItem(c, db, row, memberIds);
-    return c.json(toProjectResponse(row, memberIds), 200);
+    const members = await fetchMembers(db, id);
+    await publishProjectListItem(c, db, row, members);
+    return c.json(toProjectResponse(row, members), 200);
   }
 );
 

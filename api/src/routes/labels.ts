@@ -4,7 +4,7 @@ import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
-import { assertProjectAccess, canAccessProject } from '../services/authorization';
+import { assertProjectWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import {
@@ -14,6 +14,7 @@ import {
   idSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
+  forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
@@ -43,6 +44,7 @@ router.post(
         },
       },
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -56,14 +58,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const project = await db
-      .selectFrom('project')
-      .select(['id', 'created_by'])
-      .where('id', '=', project_id)
-      .executeTakeFirst();
-    if (!project || !(await canAccessProject(db, user.id, project))) {
-      throw new AppError(404, 'Project not found');
-    }
+    await assertProjectWrite(db, user.id, project_id);
 
     try {
       const label = await db
@@ -100,6 +95,7 @@ router.patch(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
       ...validationErrorResponse,
@@ -123,7 +119,7 @@ router.patch(
     if (!existing) {
       throw new AppError(404, 'Label not found');
     }
-    await assertProjectAccess(db, user.id, existing.project_id, 'Label not found');
+    await assertProjectWrite(db, user.id, existing.project_id, 'Label not found');
 
     const updates: { name?: string; color?: string } = {};
     if (body.name !== undefined) updates.name = body.name;
@@ -167,6 +163,7 @@ router.delete(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -186,7 +183,7 @@ router.delete(
     if (!label) {
       throw new AppError(404, 'Label not found');
     }
-    await assertProjectAccess(db, user.id, label.project_id, 'Label not found');
+    await assertProjectWrite(db, user.id, label.project_id, 'Label not found');
 
     // Read before the delete, which takes the associations with it by cascade.
     const attached = await db
