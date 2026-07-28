@@ -3,6 +3,13 @@ import { uuid, email, stringWithLength, isoDateString, finiteNumber } from './co
 import { boardColumnSchema, boardLabelSchema, boardTaskSchema } from './board';
 import { userSchema } from './users';
 
+export const projectMemberRole = type("'editor' | 'viewer'");
+
+export const projectMemberSchema = type({
+  user_id: 'string',
+  role: projectMemberRole,
+});
+
 export const projectSchema = type({
   id: 'string',
   name: 'string',
@@ -11,6 +18,7 @@ export const projectSchema = type({
   created_at: 'string',
   created_by: 'string | null',
   member_ids: 'string[]',
+  members: projectMemberSchema.array(),
   is_public: 'boolean',
 });
 
@@ -44,9 +52,17 @@ export const patchProjectSchema = type({
   'is_public?': 'boolean',
 });
 
-// Empty is allowed: the creator has implicit access, so [] makes it personal.
+export const projectMemberRoleEntrySchema = type({
+  user_id: uuid,
+  role: projectMemberRole,
+});
+
+// An empty user_ids is allowed: the creator has implicit access, so [] makes
+// the project personal. An omitted user_ids changes roles only, so a role
+// change can never add or remove anyone from a stale client list.
 export const setProjectMembersSchema = type({
-  user_ids: uuid.array().atMostLength(100),
+  'user_ids?': uuid.array().atMostLength(100),
+  'roles?': projectMemberRoleEntrySchema.array().atMostLength(100),
 });
 
 export const setProjectOwnerSchema = type({
@@ -59,10 +75,12 @@ export const setProjectPositionSchema = type({
 
 export const addProjectMemberByEmailSchema = type({
   email,
+  'role?': projectMemberRole,
 });
 
 export const projectMemberUserResponseSchema = type({
   user: userSchema,
+  role: projectMemberRole,
 });
 
 export type ProjectMemberUserResponse = typeof projectMemberUserResponseSchema.infer;

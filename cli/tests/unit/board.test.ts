@@ -38,6 +38,7 @@ function board(tasks: BoardTask[]): BoardPayload {
       created_by: null,
       archived_at: null,
       member_ids: [],
+      members: [],
       is_public: false,
     },
     columns: [

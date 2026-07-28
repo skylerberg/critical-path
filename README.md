@@ -52,27 +52,66 @@ users in its `project_member` set. The creator has implicit access and is
 never stored as a member row (`member_ids` in project responses never
 contains `created_by`). Ownership is transferable, and a transfer swaps the
 two representations: the incoming owner's member row is deleted and the
-outgoing owner gains one. Inaccessible projects return 404 everywhere (never
-403), including as a copy source. Editing is open: anyone with access can
-rename, archive and manage the member set, and a member may remove themselves
-to leave. The two privileged operations are owner-only and answer 403 to a
-member with access: transferring ownership and deleting the project.
+outgoing owner gains one.
 
-- `PUT /api/projects/:id/members` (`{ user_ids: uuid[] }`, up to 100 ids)
-  replaces the full member set. The creator's id is silently stripped if
-  present, so clients may send naive lists; every other id must reference an
-  existing user (422 otherwise). Removed members lose their task assignments
-  in the project in the same transaction.
-- `POST /api/projects/:id/members/by-email` (`{ email }`) adds one user by
-  exact, case-insensitive email and returns `{ user }` (with `avatar_url`).
-  Unknown emails return 404; adding an existing member or the creator is an
-  idempotent no-op.
+Each member row carries a **role**, `editor` or `viewer`, and project
+responses carry a `members` array of `{ user_id, role }` alongside the older
+`member_ids` (same set, same order — `member_ids` is kept only for clients
+written before roles existed). The creator is implicitly an editor and has no
+row. Inviting defaults to editor, so adding someone is unchanged: choosing
+viewer is an explicit extra field.
+
+- **Editors** can do everything a member could before: create, edit, move,
+  archive and delete tasks, columns and labels; rename, archive, publish and
+  export the board; manage members and their roles; and register webhooks.
+- **Viewers** can read everything an editor can — the board, task detail,
+  archived cards, activity history, the export, the member list, the webhook
+  registrations, live realtime updates — and can comment, order the project in
+  their own list, and leave the project. Every mutation of board content
+  answers **403** `{"error":"Read-only access to this project"}`. A viewer can
+  still be assigned a task and consequently cannot move their own card; that
+  asymmetry is intentional.
+
+**404 versus 403.** Inaccessible projects return 404 everywhere, including as
+a copy source, so a project the caller cannot see stays indistinguishable from
+one that does not exist. 403 is reserved for a caller who can already read the
+row: a viewer attempting a mutation, and the two owner-only operations
+(transferring ownership and deleting the project). Enforcement is central, in
+`src/services/authorization.ts`, not in the clients: reads go through
+`assertProjectAccess` / `assertTaskAccess` and mutations through
+`assertProjectWrite` / `assertTaskWrite`. Any role value that is not exactly
+`editor` is treated as a viewer, so a future third role fails closed.
+
+- `PUT /api/projects/:id/members` (`{ user_ids?: uuid[], roles?: [{ user_id,
+  role }] }`, up to 100 of each) replaces the member set, changes roles, or
+  both. **Omit `user_ids` to change roles only** — that form can never add or
+  remove anyone, however stale the caller's cached member list is, and it is
+  what the web and CLI role controls send. A retained member with no `roles`
+  entry keeps their stored role, so an old client sending only `user_ids`
+  never silently promotes a viewer. The creator's id is silently stripped from
+  both fields, so clients may send naive lists; every newly added id must
+  reference an existing user and every `roles` entry must name someone in the
+  resulting member set (422 otherwise). Removed members lose their task
+  assignments in the project in the same transaction. **Editors only**, with
+  one carve-out: a viewer may call it to remove themselves, and such a request
+  is reduced to exactly that — every other add, removal and role change in the
+  body is ignored. Any other viewer request is 403, and the role gate runs
+  before the user-existence check so the endpoint cannot be used as a
+  user-existence oracle.
+- `POST /api/projects/:id/members/by-email` (`{ email, role? }`) adds one user
+  by exact, case-insensitive email and returns `{ user, role }` (the user with
+  `avatar_url`, and the effective role after the call). `role` defaults to
+  `editor`; omitting it on a re-invite leaves an existing member's role alone,
+  so re-inviting never silently promotes a viewer. Unknown emails return 404;
+  adding the creator is a no-op that stores nothing and reports `editor`.
+  **Editors only** — a viewer gets 403, non-accessors 404.
 - `PUT /api/projects/:id/owner` (`{ user_id }`) transfers ownership and
   returns the updated project. Only the current creator may call it (other
   members get 403, non-accessors 404). `user_id` must already be a member (422
   otherwise), passing your own id is a no-op, and task assignments are
-  untouched. Afterwards the outgoing creator is an ordinary member and can
-  leave via `PUT /:id/members`.
+  untouched. Handing the project to a viewer promotes them, since the creator
+  is always an editor. Afterwards the outgoing creator is an ordinary editor
+  member and can leave via `PUT /:id/members`.
 - `DELETE /api/projects/:id` cascades the whole board, so only the current
   creator may call it (other members get 403 and nothing is deleted,
   non-accessors get 404). A member who wants out leaves via
@@ -137,7 +176,9 @@ text, image, rule, or mention is rejected as empty. `POST /api/comments`
 (`{ id, task_id, body }`) creates one; `PATCH` and `DELETE /api/comments/:id`
 edit and remove **your own** only — anyone else's answers 404, the same as one
 that does not exist, and there is no moderation override. Any member of the
-project may comment.
+project may comment, **viewers included** — commenting is the capability that
+makes the viewer role worth having over an anonymous public link, so the
+comment handlers deliberately assert read access rather than write access.
 
 `GET /api/tasks/:id` embeds the whole stream as `comments`, oldest first, and
 every board task carries `comment_count` so a card can show that a
@@ -390,9 +431,19 @@ there is no flag to recover them.
 `PATCH /api/projects/:id { is_public: true }` publishes a project read-only.
 `GET /api/public/projects/:id/board` then serves it to anyone who knows the
 project id, with no account and no token; setting `is_public` back to false
-makes that route 404 again on the very next request. Any member may flip the
-flag: publishing is an ordinary edit, like renaming or archiving, and is not
-owner-only the way deleting the project is.
+makes that route 404 again on the very next request. Any **editor** may flip
+the flag: publishing is an ordinary edit, like renaming or archiving, and is
+not owner-only the way deleting the project is. A viewer gets 403 — they can
+neither publish a board nor unpublish one.
+
+The two read-only mechanisms are independent and do not interact. A viewer's
+role governs only what an authenticated caller may do; the `is_public` flag
+governs only the anonymous router. Publishing a board grants a viewer nothing
+extra, and demoting someone to viewer does not affect a published board. The
+distinction is worth stating because the anonymous board is what a viewer
+membership is an alternative to: a link is forwardable, revocable only by
+unpublishing it for everyone at once, carries no identity to attribute a
+comment to, and gets no realtime.
 
 Anonymous reads run through their own unauthenticated router. `is_public` is
 not an arm of the project access predicate, so publishing never widens what an
@@ -495,7 +546,7 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `comment_created`               | comment row plus `{ comment_count }`                 |
 | `comment_updated`               | comment row                                          |
 | `comment_deleted`               | `{ id, task_id, comment_count }`                     |
-| `project_created` / `project_updated` | projects-list item (with `member_ids` and task counts, without the per-user `position`) |
+| `project_created` / `project_updated` | projects-list item (with `member_ids`, `members` and task counts, without the per-user `position`) |
 | `project_deleted`               | `{ id }`                                             |
 | `project_position_updated`      | `{ id, position }`                                   |
 | `user_updated`                  | public user `{ id, email, name, avatar_url }`        |
@@ -521,12 +572,15 @@ Delivery: project-scoped events go to sockets subscribed to that project whose
 user can access it (re-checked per event against `created_by` and
 `project_member`). `project_created` / `project_updated` are broadcast to
 every authenticated socket, filtered by the same access check, so project
-lists stay current without a room. Membership changes emit no dedicated event
-type: users who gain or keep access receive a `project_updated` broadcast
-whose payload carries the new `member_ids`, while users who lose access
-receive a `project_deleted` eviction sent to a recipient list snapshotted
-inside the transaction — the post-commit access re-check would exclude
-exactly the users who need to hear about their removal. Project deletion
+lists stay current without a room. Membership and role changes emit no dedicated
+event type: users who gain or keep access receive a `project_updated`
+broadcast whose payload carries the new `member_ids` and `members`, while
+users who lose access receive a `project_deleted` eviction sent to a recipient
+list snapshotted inside the transaction — the post-commit access re-check would exclude
+exactly the users who need to hear about their removal. A demotion to viewer
+keeps access, so it needs no snapshot: the broadcast plus the per-event access
+re-check reaches the demoted member and is what makes an open client
+re-render read-only. Project deletion
 snapshots its recipients (creator plus members) the same way, since the rows
 backing the access check are gone after commit.
 `project_position_updated` also uses an exact recipient list — the caller
@@ -955,6 +1009,9 @@ cpath column archive-tasks "Done" --project "My Project"
 cpath task archived --project "My Project" --search bug
 cpath task restore "Fix the bug" --project "My Project"
 cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Project"
+cpath project invite "My Project" --email them@example.com --role viewer  # editor by default
+cpath project set-role "My Project" them@example.com --role editor
+cpath project members "My Project"      # ROLE column reads owner / editor / viewer
 cpath config set default-project "My Project"   # makes --project optional
 cpath watch --project "My Project" | jq 'select(.type=="task_created")'
 ```
@@ -1056,9 +1113,15 @@ npm run openapi:dump && npm run --prefix cli generate-api
 
 - No email verification.
 - Float `position` ordering with no automatic rebalancing.
-- No per-project roles beyond the owner bit: everyone with access to a project
-  can rename, archive and publish it and manage its member set; only the owner
-  can transfer ownership or delete it.
+- Project roles are only `editor` and `viewer`. Every editor can rename,
+  archive and publish the board and manage its member set — including demoting
+  another editor, or themselves, to viewer; only the owner can transfer
+  ownership or delete it. A project can never end up with no editor, since the
+  creator is always one.
+- A viewer can read a project's webhook registrations, signing secrets
+  included, because webhook reads are gated on access rather than role. They
+  cannot register, change, delete, rotate or re-send anything, but the secret
+  they can read is enough to forge a delivery to that receiver.
 - `GET /api/images/:id` and `GET /api/avatars/:key` are unauthenticated
   capability URLs (unguessable UUIDs) so `<img>` tags work without auth
   headers.

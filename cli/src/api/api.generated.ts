@@ -248,7 +248,7 @@ export interface paths {
     };
     /**
      * List projects
-     * @description List projects the caller can access (created by them or shared with them as a member) with member ids, open and done task counts, and the caller's personal sort position (null when never set). Archived tasks count toward neither total. Ordered by position (nulls last), then created_at, then id.
+     * @description List projects the caller can access (created by them or shared with them as a member) with member ids, member roles, open and done task counts, and the caller's personal sort position (null when never set). Archived tasks count toward neither total. Ordered by position (nulls last), then created_at, then id.
      */
     get: operations['getApiProjects'];
     put?: never;
@@ -286,7 +286,7 @@ export interface paths {
     head?: never;
     /**
      * Update project
-     * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive. Set is_public to true to publish the board read-only at GET /api/public/projects/:id/board, which serves card titles, descriptions and their embedded images, labels, blockers, and assignee names and avatars to anyone with the project id and no account. Set it back to false to stop serving it.
+     * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive. Set is_public to true to publish the board read-only at GET /api/public/projects/:id/board, which serves card titles, descriptions and their embedded images, labels, blockers, and assignee names and avatars to anyone with the project id and no account. Set it back to false to stop serving it. Editors only: a viewer gets 403 and non-accessors 404.
      */
     patch: operations['patchApiProjectsById'];
     trace?: never;
@@ -361,7 +361,7 @@ export interface paths {
     get?: never;
     /**
      * Set project members
-     * @description Replace the full member set of a project. Anyone with access may call; non-accessors get 404. The creator has implicit access and is never stored as a member: their id is silently stripped from user_ids if present. Every other id must reference an existing user (422 with a plain error body otherwise). A member may omit themselves to leave the project. Removed members lose their task assignments in the project.
+     * @description Replace the full member set of a project, change member roles, or both. Editors may call; a viewer may only use it to remove themselves and gets 403 for anything else; non-accessors get 404. Omit user_ids to change roles only, which cannot add or remove anyone however stale the caller’s member list is. The creator has implicit access, is always an editor, and is never stored as a member: their id is silently stripped from both user_ids and roles if present. Every newly added id must reference an existing user and every roles entry must name someone in the resulting member set (422 with a plain error body otherwise). A retained member with no roles entry keeps their stored role. Removed members lose their task assignments in the project.
      */
     put: operations['putApiProjectsByIdMembers'];
     post?: never;
@@ -382,7 +382,7 @@ export interface paths {
     put?: never;
     /**
      * Add project member by email
-     * @description Add a user to a project by their exact email (case-insensitive). Anyone with access may call; non-accessors get 404. An unknown email returns 404. Adding an existing member — or the creator, who has implicit access — is an idempotent no-op.
+     * @description Add a user to a project by their exact email (case-insensitive), as an editor unless role says otherwise. Editors may call; a viewer gets 403 and non-accessors 404. An unknown email returns 404. Adding an existing member is an idempotent no-op that changes their role only when role is given, so re-inviting never silently promotes a viewer. Adding the creator, who has implicit access and is always an editor, stores nothing. The response carries the effective role after the call.
      */
     post: operations['postApiProjectsByIdMembersByEmail'];
     delete?: never;
@@ -401,7 +401,7 @@ export interface paths {
     get?: never;
     /**
      * Transfer project ownership
-     * @description Hand a project to another member. Only the current creator may call: other members with access get 403 and non-accessors get 404. user_id must already be a project member (422 otherwise). The incoming owner becomes created_by and their member row is dropped; the outgoing creator gains an ordinary member row and may then leave via PUT /:id/members. Passing your own id is a no-op. Task assignments are unaffected.
+     * @description Hand a project to another member. Only the current creator may call: other members with access get 403 and non-accessors get 404. user_id must already be a project member (422 otherwise). The incoming owner becomes created_by and their member row is dropped, so handing the project to a viewer promotes them — the creator is always an editor. The outgoing creator gains an ordinary editor member row and may then leave via PUT /:id/members. Passing your own id is a no-op. Task assignments are unaffected.
      */
     put: operations['putApiProjectsByIdOwner'];
     post?: never;
@@ -990,7 +990,7 @@ export interface paths {
     put?: never;
     /**
      * Register webhook
-     * @description Register an HTTP(S) endpoint that receives a signed POST for every board event in a project. The client supplies the webhook id. A project may hold at most 10 registrations, and a URL may be registered once per project. The generated signing secret is in the response and stays readable by everyone who can access the project. Returns 404 when the project is unknown or inaccessible.
+     * @description Register an HTTP(S) endpoint that receives a signed POST for every board event in a project. The client supplies the webhook id. A project may hold at most 10 registrations, and a URL may be registered once per project. The generated signing secret is in the response and stays readable by everyone who can access the project, viewers included. Registering, changing, deleting, rotating and re-sending are editors only: a viewer gets 403. Returns 404 when the project is unknown or inaccessible.
      */
     post: operations['postApiWebhooks'];
     delete?: never;
@@ -1212,9 +1212,15 @@ export interface components {
       id: string;
       is_public: boolean;
       member_ids: string[];
+      members: components['schemas']['ProjectMember'][];
       name: string;
       open_task_count: number;
       position: number | null;
+    };
+    ProjectMember: {
+      /** @enum {unknown} */
+      role: 'editor' | 'viewer';
+      user_id: string;
     };
     BoardPayload: {
       columns: components['schemas']['BoardColumn'][];
@@ -1242,6 +1248,7 @@ export interface components {
       id: string;
       is_public: boolean;
       member_ids: string[];
+      members: components['schemas']['ProjectMember'][];
       name: string;
     };
     BoardTask: {
@@ -1345,10 +1352,24 @@ export interface components {
       position: number;
     };
     SetProjectMembers: {
-      user_ids: string[];
+      roles?: components['schemas']['ProjectMemberRoleEntry'][];
+      user_ids?: string[];
+    };
+    ProjectMemberRoleEntry: {
+      /** @enum {unknown} */
+      role: 'editor' | 'viewer';
+      /** Format: uuid */
+      user_id: string;
     };
     ProjectMemberUserResponse: {
+      /** @enum {unknown} */
+      role: 'editor' | 'viewer';
       user: components['schemas']['User'];
+    };
+    AddProjectMemberByEmail: {
+      email: string;
+      /** @enum {unknown} */
+      role?: 'editor' | 'viewer';
     };
     SetProjectOwner: {
       /** Format: uuid */
@@ -2728,6 +2749,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -2994,6 +3024,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -3034,7 +3073,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['ForgotPassword'];
+        'application/json': components['schemas']['AddProjectMemberByEmail'];
       };
     };
     responses: {
@@ -3058,6 +3097,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -3205,6 +3253,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -3278,6 +3335,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -3370,6 +3436,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -3450,6 +3525,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -3514,6 +3598,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -3588,6 +3681,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -3632,6 +3734,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -3719,6 +3830,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -3781,6 +3901,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -3920,6 +4049,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -3975,6 +4113,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -4116,6 +4263,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -4167,6 +4323,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -4227,6 +4392,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -4303,6 +4477,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -4365,6 +4548,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -4450,6 +4642,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -4525,6 +4726,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -4588,6 +4798,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -4760,6 +4979,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -4834,6 +5062,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -4889,6 +5126,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -5215,6 +5461,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -5433,6 +5688,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -5507,6 +5771,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -5562,6 +5835,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -5638,6 +5920,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -5755,6 +6046,15 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
         headers: {
           [name: string]: unknown;
         };

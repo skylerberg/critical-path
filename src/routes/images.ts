@@ -3,7 +3,7 @@ import { describeRoute } from 'hono-openapi';
 import { authMiddleware } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
-import { assertProjectAccess } from '../services/authorization';
+import { assertProjectWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
@@ -11,6 +11,7 @@ import {
   idSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
+  forbiddenErrorResponse,
   notFoundErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
@@ -82,6 +83,7 @@ router.delete(
       },
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -101,7 +103,7 @@ router.delete(
     if (!row) {
       throw new AppError(404, 'Image not found');
     }
-    await assertProjectAccess(db, c.get('user').id, row.project_id, 'Image not found');
+    await assertProjectWrite(db, c.get('user').id, row.project_id, 'Image not found');
 
     await db.deleteFrom('task_image').where('task_image.id', '=', id).execute();
     c.get('postCommitHooks').push(() => storage.delete(row.storage_key));
