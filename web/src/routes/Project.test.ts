@@ -63,8 +63,9 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
       name: 'Rulebook',
       description: '',
       archived_at: null,
-      created_by: null,
+      created_by: me.id,
       member_ids: [],
+      members: [],
       is_public: false,
       created_at: '2026-07-15T00:00:00Z',
     },
@@ -826,5 +827,41 @@ describe('Project mounted on the live route', () => {
     } finally {
       void unmount(app);
     }
+  });
+});
+
+describe('Project shell for a viewer', () => {
+  it('renders both views read-only and drops the task overlay write controls', async () => {
+    const projectId = 'p-viewer-shell';
+    const tasks = [task('t1', 'todo', 'Design cards')];
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      const url = new URL(request.url);
+      if (request.method === 'GET' && url.pathname.endsWith('/activity')) {
+        return jsonResponse(200, { activity: [] });
+      }
+      if (request.method === 'GET' && url.pathname === `/api/tasks/t1`) {
+        return jsonResponse(200, { ...tasks[0], project_id: projectId, images: [] });
+      }
+      const base = payload(projectId, tasks);
+      return jsonResponse(200, {
+        ...base,
+        project: {
+          ...base.project,
+          created_by: 'u-owner',
+          member_ids: [me.id],
+          members: [{ user_id: me.id, role: 'viewer' }],
+        },
+      });
+    });
+
+    render(Project, { props: { projectId, view: 'board', taskId: 't1' } });
+
+    expect(await screen.findByText('View only')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Add column' })).toBeNull();
+    expect(screen.queryByLabelText('Task title')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
+    // The identity-backed half of the overlay survives the demotion.
+    expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
   });
 });

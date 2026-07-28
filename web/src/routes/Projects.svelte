@@ -131,14 +131,18 @@
         role="menu"
         class="absolute top-full right-0 z-20 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
       >
-        <button
-          type="button"
-          role="menuitem"
-          class={menuItemClass}
-          onclick={() => openRename(project)}
-        >
-          Rename
-        </button>
+        {#if projects.canEdit(project.id)}
+          <button
+            type="button"
+            role="menuitem"
+            class={menuItemClass}
+            onclick={() => openRename(project)}
+          >
+            Rename
+          </button>
+        {/if}
+        <!-- A copy is a read of the source plus a new project of the caller's own,
+             so it stays open to a viewer. -->
         <button
           type="button"
           role="menuitem"
@@ -155,14 +159,16 @@
         >
           Share
         </button>
-        <button
-          type="button"
-          role="menuitem"
-          class={menuItemClass}
-          onclick={() => toggleArchive(project)}
-        >
-          {project.archived_at === null ? 'Archive' : 'Unarchive'}
-        </button>
+        {#if projects.canEdit(project.id)}
+          <button
+            type="button"
+            role="menuitem"
+            class={menuItemClass}
+            onclick={() => toggleArchive(project)}
+          >
+            {project.archived_at === null ? 'Archive' : 'Unarchive'}
+          </button>
+        {/if}
         {#if isProjectOwner(project)}
           <button
             type="button"

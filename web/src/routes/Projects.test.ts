@@ -17,13 +17,15 @@ HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) {
 };
 
 function project(overrides: Partial<Project> = {}): Project {
+  const memberIds = overrides.member_ids ?? [];
   return {
     id: 'p-1',
     name: 'Alpha',
     description: '',
     archived_at: null,
     created_by: null,
-    member_ids: [],
+    member_ids: memberIds,
+    members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
@@ -393,5 +395,28 @@ describe('Projects', () => {
     expect(new URL(put.url).pathname).toBe('/api/projects/p-shared/members');
     expect(await put.clone().json()).toEqual({ user_ids: ['u-3'] });
     expect(screen.queryByRole('link', { name: 'Team Game' })).toBeNull();
+  });
+});
+
+describe('Projects card menu for a viewer', () => {
+  it('keeps only the read-safe entries', async () => {
+    const theirs = project({
+      id: 'p-theirs',
+      name: 'Ada Game',
+      created_by: ada.id,
+      member_ids: [me.id],
+      members: [{ user_id: me.id, role: 'viewer' }],
+    });
+    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [theirs] }));
+    render(Projects);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for Ada Game' }));
+
+    for (const name of ['Rename', 'Archive', 'Delete']) {
+      expect(screen.queryByRole('menuitem', { name })).toBeNull();
+    }
+    for (const name of ['Copy', 'Share']) {
+      expect(screen.getByRole('menuitem', { name })).toBeInTheDocument();
+    }
   });
 });

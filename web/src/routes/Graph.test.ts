@@ -6,8 +6,11 @@ import Project from './Project.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { NODE_HEIGHT, NODE_WIDTH, computeGraph, panToNode, type ViewBox } from '../lib/graph';
+import { session } from '../lib/session.svelte';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
+
+const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
 
 function task(id: string, columnId: string, blockerIds: string[] = []): BoardTask {
   return {
@@ -38,8 +41,9 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
       name: 'Rulebook',
       description: '',
       archived_at: null,
-      created_by: null,
+      created_by: me.id,
       member_ids: [],
+      members: [],
       is_public: false,
       created_at: '2026-07-15T00:00:00Z',
     },
@@ -96,6 +100,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
   drafts.clearAll();
+  session.user = me;
   for (const toast of [...toasts.toasts]) {
     toasts.dismiss(toast.id);
   }
@@ -1038,5 +1043,65 @@ describe('Graph done-task visibility', () => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
     expect(board.tasks.find((t) => t.title === 'Playtest')?.column_id).toBe('todo');
+  });
+});
+
+describe('Graph for a viewer', () => {
+  function viewerPayload(projectId: string, tasks: BoardTask[]): BoardPayload & { users: [] } {
+    const base = payload(projectId, tasks);
+    return {
+      ...base,
+      project: {
+        ...base.project,
+        created_by: 'u-owner',
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      },
+    };
+  }
+
+  it('drops the new-task control, the connect handles and the drag hint', async () => {
+    const projectId = 'p-graph-viewer';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, viewerPayload(projectId, [task('a', 'todo'), task('b', 'todo')]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
+    });
+    expect(screen.queryByRole('button', { name: 'New task' })).toBeNull();
+    expect(container.querySelectorAll('[data-connect-handle]')).toHaveLength(0);
+    expect(screen.getByText('No dependencies yet.')).toBeInTheDocument();
+    expect(screen.queryByText(/drag a node's handle/)).toBeNull();
+  });
+
+  it('offers no way to delete a selected edge', async () => {
+    const projectId = 'p-graph-viewer-edge';
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, viewerPayload(projectId, [task('a', 'todo'), task('b', 'todo', ['a'])]))
+    );
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    const edge = await waitFor(() => {
+      const found = container.querySelector('[data-edge-id]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    await fireEvent.click(edge);
+
+    expect(screen.queryByRole('button', { name: 'Remove dependency' })).toBeNull();
+  });
+
+  it('says the graph is empty without pointing at a board it cannot add to', async () => {
+    const projectId = 'p-graph-viewer-empty';
+    fetchMock.mockImplementation(async () => jsonResponse(200, viewerPayload(projectId, [])));
+
+    render(Project, { props: { projectId, view: 'graph' } });
+
+    expect(await screen.findByText('No tasks to graph')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'board' })).toBeNull();
   });
 });

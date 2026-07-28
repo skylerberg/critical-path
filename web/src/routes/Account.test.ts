@@ -75,6 +75,10 @@ function seedProject(overrides: Partial<Project>): void {
       archived_at: null,
       created_by: user.id,
       member_ids: [],
+      members: (overrides.member_ids ?? []).map((user_id) => ({
+        user_id,
+        role: 'editor' as const,
+      })),
       is_public: false,
       created_at: '2026-01-01T00:00:00.000Z',
       open_task_count: 0,

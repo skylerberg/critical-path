@@ -8,6 +8,7 @@ import { board } from '../lib/board.svelte';
 import { drafts } from '../lib/drafts.svelte';
 import { projects } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
+import { session } from '../lib/session.svelte';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
 import { users } from '../lib/users.svelte';
@@ -59,6 +60,8 @@ const comment = {
   updated_at: '2026-01-03T00:00:00Z',
 };
 
+const me = { id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null };
+
 const activityEntry = {
   id: 'ac1',
   kind: 'created' as const,
@@ -82,14 +85,16 @@ beforeEach(() => {
   drafts.clearAll();
   projects.reset();
   users.reset();
+  session.user = me;
   board.currentProjectId = 'p1';
   board.project = {
     id: 'p1',
     name: 'Game',
     description: '',
     archived_at: null,
-    created_by: null,
+    created_by: me.id,
     member_ids: [],
+    members: [],
     is_public: false,
     created_at: '2026-01-01T00:00:00Z',
   };
@@ -863,6 +868,7 @@ describe('TaskDetail', () => {
         description: '',
         created_by: 'u1',
         member_ids: ['u2'],
+        members: [{ user_id: 'u2', role: 'editor' as const }],
         is_public: false,
         archived_at: null,
         created_at: '2026-01-01T00:00:00Z',
@@ -985,8 +991,10 @@ describe('TaskDetail', () => {
   });
 });
 
-describe('TaskDetail readonly', () => {
+describe('TaskDetail on a public board', () => {
   beforeEach(() => {
+    session.user = null;
+    board.readonly = true;
     users.setForProject('p1', [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null, email: '' }]);
   });
 
@@ -1100,5 +1108,38 @@ describe('TaskDetail readonly', () => {
     expect(screen.getByText(/2026/)).toBeInTheDocument();
     expect(screen.queryByLabelText('Due date')).toBeNull();
     expect(screen.queryByRole('button', { name: '+ Add due date' })).toBeNull();
+  });
+});
+
+describe('TaskDetail for a viewer', () => {
+  beforeEach(() => {
+    mockRoutes();
+    users.setForProject('p1', [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null, email: '' }]);
+  });
+
+  it('drops every write control but keeps the comment stream and the history', async () => {
+    renderDetail({ taskId: 't1', closePath: '/projects/p1', readonly: true });
+
+    expect(screen.queryByLabelText('Task title')).toBeNull();
+    expect(screen.queryByLabelText('Column')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Upload image' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Duplicate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '+ Add label' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Remove blocking task/ })).toBeNull();
+
+    expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
+    expect(await screen.findByText('first thoughts')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Comment' })).toBeInTheDocument();
+    expect(screen.getByText(/Created .+ · Updated .+/)).toBeInTheDocument();
+  });
+
+  it('shows attached images without the cover or delete controls', async () => {
+    renderDetail({ taskId: 't1', closePath: '/projects/p1', readonly: true });
+
+    expect(await screen.findByAltText('mock.png')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /as cover$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Delete image/ })).toBeNull();
   });
 });

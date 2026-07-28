@@ -40,11 +40,23 @@ beforeEach(() => {
   shortcuts.reset();
   document.body.innerHTML = '';
   board.currentProjectId = 'p1';
+  board.project = {
+    id: 'p1',
+    name: 'Game',
+    description: '',
+    archived_at: null,
+    created_by: me.id,
+    member_ids: [],
+    members: [],
+    is_public: false,
+    created_at: '2026-01-01T00:00:00Z',
+  };
   board.columns = [
     { id: 'c1', name: 'Todo', position: 1000, is_done: false },
     { id: 'done', name: 'Done', position: 2000, is_done: true },
   ];
   board.tasks = [task('t1', 'c1', 1000), task('t2', 'c1', 2000)];
+  board.labels = [{ id: 'lab', name: 'art', color: '#ff0000' }];
   // Navigating rather than assigning `current` keeps `router.path` in step, which the
   // store needs to rewrite the query string when a shortcut changes a filter.
   router.navigate('/projects/p1', { replace: true });
@@ -812,5 +824,47 @@ describe('graph overlay context', () => {
     press('g');
     press('g');
     expect(navigate).toHaveBeenLastCalledWith('/projects/p1/graph');
+  });
+});
+
+describe('shortcuts on a read-only board', () => {
+  beforeEach(() => {
+    board.project = {
+      ...board.project!,
+      created_by: 'u-owner',
+      member_ids: [me.id],
+      members: [{ user_id: me.id, role: 'viewer' }],
+    };
+    selection.set('t1');
+  });
+
+  it('leaves every mutating key unclaimed', () => {
+    for (const key of ['n', 'd', 'l', 'a', 'b', 'm']) {
+      const event = press(key);
+      expect(event.defaultPrevented).toBe(false);
+    }
+
+    expect(shortcuts.quickAddColumn).toBeNull();
+    expect(shortcuts.labelMenu).toBeNull();
+    expect(shortcuts.assigneeMenu).toBeNull();
+    expect(shortcuts.dependencyMenu).toBeNull();
+    expect(shortcuts.moveMenu).toBeNull();
+    expect(board.tasks.find((t) => t.id === 't1')?.column_id).toBe('c1');
+  });
+
+  it('does not duplicate on Shift+D', () => {
+    const event = press('D', { shiftKey: true });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(board.tasks).toHaveLength(2);
+  });
+
+  it('keeps navigation, filtering and help live', () => {
+    expect(press('j').defaultPrevented).toBe(true);
+    expect(press('?').defaultPrevented).toBe(true);
+    expect(shortcuts.helpOpen).toBe(true);
+    shortcuts.closeMenus();
+    expect(press('f').defaultPrevented).toBe(true);
+    expect(shortcuts.filterFocusRequested).toBe(true);
   });
 });

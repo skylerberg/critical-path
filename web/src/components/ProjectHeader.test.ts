@@ -4,19 +4,24 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ProjectHeader from './ProjectHeader.svelte';
 import { board } from '../lib/board.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
+import { session } from '../lib/session.svelte';
 import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
 import { webhooks } from '../lib/webhooks.svelte';
 import type { BoardTask } from '../lib/board-types';
 
+const me = { id: 'u1', email: 'ada@example.com', name: 'Ada', avatar_url: null };
+
 function project(overrides: Partial<Project> = {}): Project {
+  const memberIds = overrides.member_ids ?? [];
   return {
     id: 'p1',
     name: 'Game',
     description: '',
     archived_at: null,
-    created_by: 'u1',
-    member_ids: [],
+    created_by: me.id,
+    member_ids: memberIds,
+    members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
     created_at: '2026-01-01T00:00:00Z',
     open_task_count: 0,
@@ -83,21 +88,23 @@ beforeEach(() => {
   projects.reset();
   users.reset();
   webhooks.reset();
+  session.user = me;
   board.currentProjectId = 'p1';
   board.project = {
     id: 'p1',
     name: 'Game',
     description: '',
     archived_at: null,
-    created_by: null,
+    created_by: me.id,
     member_ids: [],
+    members: [],
     is_public: false,
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
   board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
   board.tasks = [task('t1', 'Design cards', ['l1'], ['u1'])];
-  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada', avatar_url: null }];
+  users.users = [me];
 });
 
 afterEach(() => {
@@ -180,7 +187,7 @@ describe('ProjectHeader', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Share' }));
 
-    expect(screen.getByText('Ada')).toBeInTheDocument();
+    expect(screen.getByText('Ada (you)')).toBeInTheDocument();
     expect(screen.getByText('Owner')).toBeInTheDocument();
     expect(screen.getByLabelText('Add people')).toBeInTheDocument();
   });
@@ -343,5 +350,32 @@ describe('ProjectHeader', () => {
     expect(board.taskMatchesFilters({ ...board.tasks[0]!, id: 't2', title: 'Print cards' })).toBe(
       false
     );
+  });
+});
+
+describe('ProjectHeader for a viewer', () => {
+  beforeEach(() => {
+    board.project = {
+      ...board.project!,
+      created_by: 'u-owner',
+      member_ids: [me.id],
+      members: [{ user_id: me.id, role: 'viewer' }],
+    };
+  });
+
+  it('badges the board and drops the management surfaces', () => {
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+
+    expect(screen.getByText('View only')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Labels/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Webhooks/ })).toBeNull();
+  });
+
+  it('keeps the read-only surfaces', () => {
+    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+
+    expect(screen.getByRole('button', { name: /Share/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Archived cards/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
   });
 });

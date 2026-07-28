@@ -37,13 +37,15 @@ function sidebarZoneConfigs(): Options[] {
 const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
 
 function project(overrides: Partial<Project> = {}): Project {
+  const memberIds = overrides.member_ids ?? [];
   return {
     id: 'p-1',
     name: 'Alpha',
     description: '',
     archived_at: null,
     created_by: null,
-    member_ids: [],
+    member_ids: memberIds,
+    members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,

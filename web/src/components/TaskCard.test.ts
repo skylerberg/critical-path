@@ -168,7 +168,14 @@ describe('TaskCard', () => {
     );
   });
 
-  it('points at the public path when readonly, changing nothing else', () => {
+  it('keeps the private path for a read-only member', () => {
+    render(TaskCard, { task, projectId: 'p1', readonly: true });
+
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/projects/p1/tasks/t1');
+  });
+
+  it('points at the public path on a public board, changing nothing else', () => {
+    board.readonly = true;
     render(TaskCard, {
       task,
       projectId: 'p1',

@@ -270,6 +270,12 @@ class RealtimeClient {
       board.applyRealtime(event);
     } else if (PROJECT_EVENTS.has(event.type)) {
       projects.applyRealtime(event);
+      // Not queued behind a drag: this only flips whether dragging is allowed,
+      // which svelte-dnd-action applies without disturbing the drag in flight,
+      // and deferring it keeps a demoted member's affordances live for longer.
+      if (event.type === 'project_updated') {
+        board.applyRealtime(event);
+      }
     } else if (event.type === 'user_updated') {
       const updated = users.applyRealtime(event.data);
       if (updated !== null && session.user?.id === updated.id) {

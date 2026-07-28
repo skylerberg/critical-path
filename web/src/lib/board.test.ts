@@ -5,6 +5,7 @@ import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
 import { router } from './router.svelte';
+import { session } from './session.svelte';
 import { taskActivity } from './taskActivity.svelte';
 import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
@@ -68,6 +69,7 @@ function payload(): BoardPayload {
       archived_at: null,
       created_by: null,
       member_ids: [],
+      members: [],
       is_public: false,
       created_at: '2026-01-01T00:00:00Z',
     },
@@ -218,6 +220,7 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  session.user = null;
   taskActivity.reset();
   for (const toast of [...toasts.toasts]) {
     toasts.dismiss(toast.id);
@@ -2580,5 +2583,144 @@ describe('positionAfterDrop', () => {
       { id: 'c', position: 2000 },
     ];
     expect(positionAfterDrop(items, 'm')).toBe(1500);
+  });
+});
+
+describe('board store canEdit', () => {
+  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+
+  function withProject(created_by: string | null, members: BoardPayload['project']['members']) {
+    board.project = {
+      id: 'p1',
+      name: 'Game',
+      description: '',
+      archived_at: null,
+      created_by,
+      member_ids: members.map((m) => m.user_id),
+      members,
+      is_public: false,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+  }
+
+  it('is false with no project loaded', () => {
+    session.user = me;
+    expect(board.canEdit).toBe(false);
+  });
+
+  it('is true for the creator and for an editor member, false for a viewer', () => {
+    session.user = me;
+
+    withProject(me.id, []);
+    expect(board.canEdit).toBe(true);
+
+    withProject('u-owner', [{ user_id: me.id, role: 'editor' }]);
+    expect(board.canEdit).toBe(true);
+
+    withProject('u-owner', [{ user_id: me.id, role: 'viewer' }]);
+    expect(board.canEdit).toBe(false);
+  });
+
+  it('is false on a public board, which names nobody', async () => {
+    session.user = me;
+    await board.load('p1', noFilters(), { readonly: true });
+
+    expect(board.readonly).toBe(true);
+    expect(board.canEdit).toBe(false);
+  });
+
+  it('drops to false when a project_updated demotes the current user', () => {
+    session.user = me;
+    board.currentProjectId = 'p1';
+    withProject('u-owner', [{ user_id: me.id, role: 'editor' }]);
+
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: { id: 'p1', member_ids: [me.id], members: [{ user_id: me.id, role: 'viewer' }] },
+    });
+
+    expect(board.canEdit).toBe(false);
+    expect(board.project?.members).toEqual([{ user_id: me.id, role: 'viewer' }]);
+  });
+
+  // The creator is an implicit editor with no member row, so an ownership transfer
+  // moves the permission entirely in created_by and touches no role.
+  it('follows an ownership transfer in both directions', () => {
+    session.user = me;
+    board.currentProjectId = 'p1';
+    withProject('u-owner', [{ user_id: me.id, role: 'editor' }]);
+
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: {
+        id: 'p1',
+        created_by: me.id,
+        member_ids: ['u-owner'],
+        members: [{ user_id: 'u-owner', role: 'editor' }],
+      },
+    });
+
+    expect(board.canEdit).toBe(true);
+
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: {
+        id: 'p1',
+        created_by: 'u-owner',
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      },
+    });
+
+    expect(board.canEdit).toBe(false);
+  });
+
+  it('ignores a project_updated for another project', () => {
+    session.user = me;
+    board.currentProjectId = 'p1';
+    withProject('u-owner', [{ user_id: me.id, role: 'editor' }]);
+
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p2',
+      data: { id: 'p2', member_ids: [me.id], members: [{ user_id: me.id, role: 'viewer' }] },
+    });
+
+    expect(board.canEdit).toBe(true);
+  });
+
+  it('resyncs from a mid-session 403 and stops offering edits', async () => {
+    session.user = me;
+    await board.load('p1');
+    board.project = { ...board.project!, created_by: me.id };
+    expect(board.canEdit).toBe(true);
+
+    mockRoutes((request, url) => {
+      if (request.method === 'PATCH' && url.pathname.startsWith('/api/tasks/')) {
+        return jsonResponse(403, { error: 'Read-only access to this project' });
+      }
+      if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
+        return jsonResponse(200, {
+          ...payload(),
+          project: {
+            ...payload().project,
+            created_by: 'u-owner',
+            member_ids: [me.id],
+            members: [{ user_id: me.id, role: 'viewer' }],
+          },
+        });
+      }
+      return undefined;
+    });
+
+    await board.moveTask('t1', 'c2', 1000);
+
+    expect(toasts.toasts.map((t) => t.message)).toContain('Read-only access to this project');
+    expect(board.canEdit).toBe(false);
+    // Resynced rather than rolled back: the card is where the server says it is.
+    expect(board.tasks.find((t) => t.id === 't1')?.column_id).toBe('c1');
   });
 });

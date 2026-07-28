@@ -23,9 +23,10 @@
 
   interface Props {
     projectId: string;
+    readonly?: boolean;
   }
 
-  let { projectId }: Props = $props();
+  let { projectId, readonly = false }: Props = $props();
 
   const MIN_VB_WIDTH = 160;
   const FIT_PADDING = 32;
@@ -502,7 +503,7 @@
 <div class="relative min-h-0 flex-1 overflow-hidden">
   <div class="pointer-events-none absolute top-0 left-0 z-10 p-3">
     <div class="pointer-events-auto flex flex-wrap items-center gap-2">
-      {#if result.kind !== 'cycle'}
+      {#if result.kind !== 'cycle' && !readonly}
         {#if newTaskOpen}
           <form
             onsubmit={submitNewTask}
@@ -607,6 +608,8 @@
           Use <span class="font-medium text-ink">Show done</span> to bring the finished tasks back into
           the graph.
         </p>
+      {:else if readonly}
+        <p class="text-base font-medium">No tasks to graph</p>
       {:else}
         <p class="text-base font-medium">No tasks to graph</p>
         <p class="max-w-sm text-sm text-muted" use:link>
@@ -776,59 +779,61 @@
               </span>
             </a>
           </foreignObject>
-          <circle
-            data-connect-handle={n.id}
-            data-connect-dir="front"
-            cx={NODE_WIDTH}
-            cy={NODE_HEIGHT / 2}
-            r="11"
-            fill="transparent"
-            role="button"
-            tabindex="0"
-            aria-label="Drag to add a task that {n.title} blocks"
-            class="cursor-crosshair {coarsePointer
-              ? ''
-              : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
-            onpointerdown={(event) => startConnect(event, n.id, 'front')}
-          />
-          <circle
-            cx={NODE_WIDTH}
-            cy={NODE_HEIGHT / 2}
-            r="5"
-            class="fill-accent stroke-surface {coarsePointer
-              ? ''
-              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}"
-            stroke-width="1.5"
-            pointer-events="none"
-          />
-          <circle
-            data-connect-handle={n.id}
-            data-connect-dir="back"
-            cx="0"
-            cy={NODE_HEIGHT / 2}
-            r="11"
-            fill="transparent"
-            role="button"
-            tabindex="0"
-            aria-label="Drag to add a task that blocks {n.title}"
-            class="cursor-crosshair {coarsePointer
-              ? ''
-              : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
-            onpointerdown={(event) => startConnect(event, n.id, 'back')}
-          />
-          <circle
-            cx="0"
-            cy={NODE_HEIGHT / 2}
-            r="5"
-            class="fill-surface stroke-accent {coarsePointer
-              ? ''
-              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}"
-            stroke-width="2"
-            pointer-events="none"
-          />
+          {#if !readonly}
+            <circle
+              data-connect-handle={n.id}
+              data-connect-dir="front"
+              cx={NODE_WIDTH}
+              cy={NODE_HEIGHT / 2}
+              r="11"
+              fill="transparent"
+              role="button"
+              tabindex="0"
+              aria-label="Drag to add a task that {n.title} blocks"
+              class="cursor-crosshair {coarsePointer
+                ? ''
+                : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
+              onpointerdown={(event) => startConnect(event, n.id, 'front')}
+            />
+            <circle
+              cx={NODE_WIDTH}
+              cy={NODE_HEIGHT / 2}
+              r="5"
+              class="fill-accent stroke-surface {coarsePointer
+                ? ''
+                : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}"
+              stroke-width="1.5"
+              pointer-events="none"
+            />
+            <circle
+              data-connect-handle={n.id}
+              data-connect-dir="back"
+              cx="0"
+              cy={NODE_HEIGHT / 2}
+              r="11"
+              fill="transparent"
+              role="button"
+              tabindex="0"
+              aria-label="Drag to add a task that blocks {n.title}"
+              class="cursor-crosshair {coarsePointer
+                ? ''
+                : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
+              onpointerdown={(event) => startConnect(event, n.id, 'back')}
+            />
+            <circle
+              cx="0"
+              cy={NODE_HEIGHT / 2}
+              r="5"
+              class="fill-surface stroke-accent {coarsePointer
+                ? ''
+                : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}"
+              stroke-width="2"
+              pointer-events="none"
+            />
+          {/if}
         </g>
       {/each}
-      {#if selectedEdge}
+      {#if selectedEdge && !readonly}
         {@const mid = edgeMidpoint(selectedEdge.points)}
         <foreignObject
           x={mid.x - 16}
@@ -854,7 +859,9 @@
         <p
           class="rounded-full border border-edge bg-surface/90 px-4 py-1.5 text-center text-xs text-muted shadow-sm"
         >
-          No dependencies yet — drag a node's handle onto another to map how tasks relate.
+          {readonly
+            ? 'No dependencies yet.'
+            : "No dependencies yet — drag a node's handle onto another to map how tasks relate."}
         </p>
       </div>
     {/if}

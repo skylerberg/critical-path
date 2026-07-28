@@ -43,6 +43,10 @@
   const dependents = $derived(board.tasks.filter((t) => t.blocker_ids.includes(taskId)));
   const columnName = $derived(board.columns.find((c) => c.id === task?.column_id)?.name ?? '');
   const mentionUsers = $derived(currentProjectMentionCandidates());
+  // A viewer is read-only but still has an identity, so they keep the comment
+  // stream, the history and the timestamps; a public reader has none of that and
+  // is served a payload whose identity and timestamp fields are placeholders.
+  const anonymous = $derived(board.readonly);
 
   let dialog = $state<HTMLDialogElement>();
   let uploadInput = $state<HTMLInputElement>();
@@ -69,7 +73,7 @@
 
   $effect(() => {
     const id = taskId;
-    const authed = !readonly;
+    const authed = !anonymous;
     untrack(() => {
       titleDraft = null;
       confirmingDelete = false;
@@ -451,11 +455,13 @@
         </section>
       {/if}
 
-      {#if !readonly}
+      {#if !anonymous}
         <section class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-2">
             <h3 class="text-sm font-semibold text-muted">Images</h3>
-            <Button variant="secondary" onclick={() => uploadInput?.click()}>Upload image</Button>
+            {#if !readonly}
+              <Button variant="secondary" onclick={() => uploadInput?.click()}>Upload image</Button>
+            {/if}
           </div>
           {#if images === undefined}
             {#if task.image_count > 0}
@@ -474,42 +480,46 @@
                     loading="lazy"
                     class="aspect-square w-full rounded-md border border-edge object-cover"
                   />
-                  <button
-                    type="button"
-                    aria-label="Use image {image.filename} as cover"
-                    aria-pressed={isCover}
-                    onclick={() => void board.setTaskCover(taskId, isCover ? null : image)}
-                    class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1 rounded-md border text-xs focus-visible:outline-2 focus-visible:outline-accent {isCover
-                      ? 'border-accent bg-accent-soft text-ink'
-                      : 'border-edge text-muted hover:bg-accent-soft'}"
-                  >
-                    {isCover ? '★' : '☆'} Cover
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Delete image {image.filename}"
-                    onclick={() => void board.deleteTaskImage(taskId, image.id)}
-                    class="absolute top-1 right-1 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/60 text-sm text-white hover:bg-danger"
-                  >
-                    ✕
-                  </button>
+                  {#if !readonly}
+                    <button
+                      type="button"
+                      aria-label="Use image {image.filename} as cover"
+                      aria-pressed={isCover}
+                      onclick={() => void board.setTaskCover(taskId, isCover ? null : image)}
+                      class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1 rounded-md border text-xs focus-visible:outline-2 focus-visible:outline-accent {isCover
+                        ? 'border-accent bg-accent-soft text-ink'
+                        : 'border-edge text-muted hover:bg-accent-soft'}"
+                    >
+                      {isCover ? '★' : '☆'} Cover
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Delete image {image.filename}"
+                      onclick={() => void board.deleteTaskImage(taskId, image.id)}
+                      class="absolute top-1 right-1 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/60 text-sm text-white hover:bg-danger"
+                    >
+                      ✕
+                    </button>
+                  {/if}
                 </li>
               {/each}
             </ul>
           {/if}
-          <input
-            bind:this={uploadInput}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            multiple
-            class="hidden"
-            onchange={(event) => {
-              for (const file of event.currentTarget.files ?? []) {
-                void board.uploadTaskImage(taskId, file);
-              }
-              event.currentTarget.value = '';
-            }}
-          />
+          {#if !readonly}
+            <input
+              bind:this={uploadInput}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              class="hidden"
+              onchange={(event) => {
+                for (const file of event.currentTarget.files ?? []) {
+                  void board.uploadTaskImage(taskId, file);
+                }
+                event.currentTarget.value = '';
+              }}
+            />
+          {/if}
         </section>
 
         <section class="flex flex-col gap-2">
@@ -525,17 +535,19 @@
               new Date(task.updated_at)
             )}
           </p>
-          <div class="flex gap-2">
-            <Button
-              variant="secondary"
-              disabled={duplicating}
-              onclick={() => void handleDuplicate()}>Duplicate</Button
-            >
-            <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
-            <Button variant="danger" onclick={() => void handleDelete()}>
-              {confirmingDelete ? 'Confirm delete' : 'Delete task'}
-            </Button>
-          </div>
+          {#if !readonly}
+            <div class="flex gap-2">
+              <Button
+                variant="secondary"
+                disabled={duplicating}
+                onclick={() => void handleDuplicate()}>Duplicate</Button
+              >
+              <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
+              <Button variant="danger" onclick={() => void handleDelete()}>
+                {confirmingDelete ? 'Confirm delete' : 'Delete task'}
+              </Button>
+            </div>
+          {/if}
         </div>
       {/if}
     {/if}

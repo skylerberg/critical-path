@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { board } from '../lib/board.svelte';
+  import { router } from '../lib/router.svelte';
   import Modal from './ui/Modal.svelte';
 
   interface Props {
@@ -11,9 +13,22 @@
     keys: string[];
     label: string;
     chord?: boolean;
+    edits?: boolean;
   }
 
-  const groups: { heading: string; bindings: Binding[] }[] = [
+  // The board store outlives the route, so the keymap is only trimmed while a
+  // board the user cannot edit is the one on screen — either their own as a
+  // viewer, or the public one as an anonymous reader.
+  const readonly = $derived(
+    (router.current.name === 'project' || router.current.name === 'public-board') && !board.canEdit
+  );
+
+  const allGroups: {
+    heading: string;
+    readonlyHeading?: string;
+    bindings: Binding[];
+    edits?: boolean;
+  }[] = [
     {
       heading: 'Selection',
       bindings: [
@@ -29,22 +44,25 @@
       bindings: [
         { keys: ['Enter', 'o'], label: 'Open selected task' },
         { keys: ['e'], label: 'Open selected task detail' },
-        { keys: ['n'], label: 'New task in selected column' },
-        { keys: ['l'], label: 'Label the selected task' },
-        { keys: ['a'], label: 'Assign the selected task' },
-        { keys: ['b'], label: 'Add a task that blocks the selection' },
-        { keys: ['Shift+B'], label: 'Add a task the selection blocks' },
-        { keys: ['d'], label: 'Move selected task to done' },
-        { keys: ['Shift+D'], label: 'Duplicate the selected task' },
-        { keys: ['m'], label: 'Move the selected task to a column and position' },
+        { keys: ['n'], label: 'New task in selected column', edits: true },
+        { keys: ['l'], label: 'Label the selected task', edits: true },
+        { keys: ['a'], label: 'Assign the selected task', edits: true },
+        { keys: ['b'], label: 'Add a task that blocks the selection', edits: true },
+        { keys: ['Shift+B'], label: 'Add a task the selection blocks', edits: true },
+        { keys: ['d'], label: 'Move selected task to done', edits: true },
+        { keys: ['Shift+D'], label: 'Duplicate the selected task', edits: true },
+        { keys: ['m'], label: 'Move the selected task to a column and position', edits: true },
       ],
     },
     {
       heading: 'Reorder (Tab to a card, column handle, or sidebar project)',
+      // Sidebar order is per-user, so it survives read-only access and the group
+      // cannot be dropped wholesale the way the board-editing ones are.
+      readonlyHeading: 'Reorder (Tab to a sidebar project)',
       bindings: [
         { keys: ['Enter', 'Space'], label: 'Pick up or drop the focused item' },
         { keys: ['↑', '↓', '←', '→'], label: 'Move the picked-up item' },
-        { keys: ['Tab'], label: 'Carry a picked-up task to another column' },
+        { keys: ['Tab'], label: 'Carry a picked-up task to another column', edits: true },
         { keys: ['Esc'], label: 'Drop the picked-up item' },
       ],
     },
@@ -68,6 +86,24 @@
       ],
     },
   ];
+
+  const groups = $derived(
+    allGroups.flatMap((group) => {
+      if (!readonly) {
+        return [group];
+      }
+      if (group.edits === true) {
+        return [];
+      }
+      return [
+        {
+          ...group,
+          heading: group.readonlyHeading ?? group.heading,
+          bindings: group.bindings.filter((binding) => binding.edits !== true),
+        },
+      ];
+    })
+  );
 </script>
 
 <Modal open title="Keyboard shortcuts" {onclose}>
