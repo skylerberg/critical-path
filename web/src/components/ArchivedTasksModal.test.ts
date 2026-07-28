@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ArchivedTasksModal from './ArchivedTasksModal.svelte';
 import { board } from '../lib/board.svelte';
+import { session } from '../lib/session.svelte';
 import type { ArchivedTask } from '../lib/board-types';
+
+const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
 
 const ARCHIVED_AT = '2026-03-01T12:00:00Z';
 const ARCHIVED_LABEL = `Archived ${new Intl.DateTimeFormat(undefined, {
@@ -44,7 +47,19 @@ function mockArchive(tasks: ArchivedTask[]): void {
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  session.user = me;
   board.currentProjectId = 'p1';
+  board.project = {
+    id: 'p1',
+    name: 'Game',
+    description: '',
+    archived_at: null,
+    created_by: me.id,
+    member_ids: [],
+    members: [],
+    is_public: false,
+    created_at: '2026-01-01T00:00:00Z',
+  };
   board.columns = [
     { id: 'c1', name: 'Todo', position: 1000, is_done: false },
     { id: 'c2', name: 'Done', position: 2000, is_done: true },
@@ -196,5 +211,22 @@ describe('ArchivedTasksModal', () => {
     await rerender({ open: true, onclose: () => {} });
 
     await waitFor(() => expect(screen.getByText('No archived cards.')).toBeInTheDocument());
+  });
+});
+
+describe('ArchivedTasksModal for a viewer', () => {
+  it('lists the archive without a restore control', async () => {
+    board.project = {
+      ...board.project!,
+      created_by: 'u-owner',
+      member_ids: [me.id],
+      members: [{ user_id: me.id, role: 'viewer' }],
+    };
+    mockArchive([archived('t1', 'Old idea')]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    expect(await screen.findByText('Old idea')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Restore card/ })).toBeNull();
   });
 });

@@ -55,7 +55,7 @@
 >
   <a
     use:link
-    href={`${boardPath(projectId, readonly)}/tasks/${task.id}${board.filterSearch}`}
+    href={`${boardPath(projectId, board.readonly)}/tasks/${task.id}${board.filterSearch}`}
     draggable="false"
     aria-label={task.title}
     class="absolute inset-0 rounded-md"

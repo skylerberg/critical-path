@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { isProjectOwner, projects } from '../lib/projects.svelte';
+  import { roleFor, type ProjectRole } from '../lib/roles';
   import { boardPath, router } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
   import { toasts } from '../lib/toasts.svelte';
@@ -23,6 +24,9 @@
     session.user !== null && (project?.member_ids.includes(session.user.id) ?? false)
   );
   const isOwner = $derived(project !== undefined && isProjectOwner(project));
+  // Read from the list store, not the board: this modal also opens from the
+  // projects page, where no board is loaded.
+  const canManage = $derived(projects.canEdit(projectId));
 
   let transferTargetId = $state<string | null>(null);
   let transferring = $state(false);
@@ -51,6 +55,15 @@
   function displayName(userId: string): string {
     const name = users.displayFor(userId).name;
     return name === '' ? userId : name;
+  }
+
+  function roleOf(userId: string): ProjectRole {
+    return project === undefined ? 'editor' : (roleFor(project, userId) ?? 'editor');
+  }
+
+  function changeRole(userId: string, role: string): void {
+    if (project === undefined || (role !== 'editor' && role !== 'viewer')) return;
+    void projects.setMemberRole(project.id, userId, role);
   }
 
   function removeMember(userId: string): void {
@@ -130,7 +143,16 @@
     </span>
     {#if owner}
       <Badge>Owner</Badge>
-    {:else if userId !== session.user?.id}
+    {:else if canManage && userId !== session.user?.id}
+      <select
+        aria-label="Role for {name}"
+        value={roleOf(userId)}
+        onchange={(event) => changeRole(userId, event.currentTarget.value)}
+        class="min-h-11 rounded-md border border-edge bg-surface px-2 text-sm outline-none focus:border-accent"
+      >
+        <option value="editor">Editor</option>
+        <option value="viewer">Viewer</option>
+      </select>
       {#if isOwner}
         <button
           type="button"
@@ -149,6 +171,8 @@
       >
         ✕
       </button>
+    {:else if roleOf(userId) === 'viewer'}
+      <Badge>Viewer</Badge>
     {/if}
   </li>
 {/snippet}
@@ -165,35 +189,41 @@
             {@render memberRow(memberId, false)}
           {/each}
         </ul>
-        <MemberPicker {projectId} />
-      </div>
-
-      <div class="flex flex-col gap-2 border-t border-edge pt-4">
-        <h3 class="text-sm font-semibold">Public link</h3>
-        {#if project.is_public}
-          <p class="text-sm text-muted">
-            Anyone with this link can view this board without an account.
-          </p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input
-              readonly
-              aria-label="Public link"
-              value={publicUrl}
-              onfocus={(event) => event.currentTarget.select()}
-              class="min-h-11 min-w-0 flex-1 rounded-md border border-edge bg-canvas px-3 text-sm outline-none"
-            />
-            <Button variant="secondary" onclick={() => void copyLink()}>Copy link</Button>
-          </div>
-          <Button variant="danger" class="self-start" onclick={unpublish}>Stop sharing</Button>
-        {:else}
-          <p class="text-sm text-muted">
-            Anyone with the link can view this board without an account.
-          </p>
-          <Button class="self-start" onclick={() => (confirmPublishOpen = true)}>
-            Publish read-only link
-          </Button>
+        {#if canManage}
+          <MemberPicker {projectId} />
         {/if}
       </div>
+
+      {#if canManage || project.is_public}
+        <div class="flex flex-col gap-2 border-t border-edge pt-4">
+          <h3 class="text-sm font-semibold">Public link</h3>
+          {#if project.is_public}
+            <p class="text-sm text-muted">
+              Anyone with this link can view this board without an account.
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input
+                readonly
+                aria-label="Public link"
+                value={publicUrl}
+                onfocus={(event) => event.currentTarget.select()}
+                class="min-h-11 min-w-0 flex-1 rounded-md border border-edge bg-canvas px-3 text-sm outline-none"
+              />
+              <Button variant="secondary" onclick={() => void copyLink()}>Copy link</Button>
+            </div>
+            {#if canManage}
+              <Button variant="danger" class="self-start" onclick={unpublish}>Stop sharing</Button>
+            {/if}
+          {:else}
+            <p class="text-sm text-muted">
+              Anyone with the link can view this board without an account.
+            </p>
+            <Button class="self-start" onclick={() => (confirmPublishOpen = true)}>
+              Publish read-only link
+            </Button>
+          {/if}
+        </div>
+      {/if}
 
       {#if transferTarget !== null}
         <!-- Focused on open: this sits below the member list and the picker, so on a

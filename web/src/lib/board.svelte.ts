@@ -14,6 +14,7 @@ import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
 import { append, between, positionForIndex, prepend } from './positions';
+import { canEditProject } from './roles';
 import { router, splitPath } from './router.svelte';
 import { session } from './session.svelte';
 import { taskActivity } from './taskActivity.svelte';
@@ -132,6 +133,7 @@ class BoardStore {
   errorStatus = $state<number | null>(null);
   currentProjectId = $state<string | null>(null);
   readonly = $state(false);
+  canEdit = $derived(this.project !== null && canEditProject(this.project, session.user?.id));
   // Read-only signal for the shortcut layer; nothing in this store reacts to it.
   dragging = $state(false);
   filterLabelIds = $state<string[]>([]);
@@ -294,6 +296,7 @@ class BoardStore {
           created_at: '',
           created_by: null,
           member_ids: [],
+          members: [],
           is_public: true,
         },
         columns: data.columns,
@@ -1592,6 +1595,20 @@ class BoardStore {
         const d = event.data as { id: string; task_id: string; comment_count: number };
         this.#setCommentCount(d.task_id, () => d.comment_count);
         this.#replaceComments(d.task_id, (comments) => comments.filter((c) => c.id !== d.id));
+        break;
+      }
+      // Membership only: propagating a rename to an open header is a separate gap.
+      case 'project_updated': {
+        const d = event.data as Partial<BoardProject>;
+        const project = this.project;
+        if (project === null || d.members === undefined) {
+          break;
+        }
+        this.project = {
+          ...project,
+          members: d.members,
+          member_ids: d.member_ids ?? project.member_ids,
+        };
         break;
       }
     }

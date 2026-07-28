@@ -11,13 +11,15 @@ const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null }
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
 
 function project(overrides: Partial<Project> = {}): Project {
+  const memberIds = overrides.member_ids ?? [me.id];
   return {
     id: 'p-1',
     name: 'Team Game',
     description: '',
     archived_at: null,
     created_by: ada.id,
-    member_ids: [me.id],
+    member_ids: memberIds,
+    members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
@@ -307,5 +309,71 @@ describe('ProjectMembersModal public link', () => {
     await waitFor(() => expect(patchRequests()).toHaveLength(1));
     expect(new URL(patchRequests()[0]!.url).pathname).toBe('/api/projects/p-B');
     expect(projects.projects.find((p) => p.id === 'p-A')?.is_public).toBe(false);
+  });
+});
+
+describe('ProjectMembersModal roles', () => {
+  const bob = { id: 'u-bob', email: 'bob@example.com', name: 'Bob', avatar_url: null };
+
+  function roleSelect(name: string): HTMLSelectElement {
+    return screen.getByLabelText(`Role for ${name}`) as HTMLSelectElement;
+  }
+
+  it('offers an editor a role control per other member and sends a roles-only body', async () => {
+    users.users = [me, ada, bob];
+    projects.projects = [
+      project({
+        created_by: me.id,
+        member_ids: [ada.id, bob.id],
+        members: [
+          { user_id: ada.id, role: 'editor' },
+          { user_id: bob.id, role: 'viewer' },
+        ],
+      }),
+    ];
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+
+    expect(roleSelect('Ada').value).toBe('editor');
+    expect(roleSelect('Bob').value).toBe('viewer');
+    expect(roleSelect('Ada').className).toContain('min-h-11');
+
+    await fireEvent.change(roleSelect('Ada'), { target: { value: 'viewer' } });
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
+    });
+    const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
+    expect(new URL(put.url).pathname).toBe('/api/projects/p-1/members');
+    expect(await put.clone().json()).toEqual({ roles: [{ user_id: ada.id, role: 'viewer' }] });
+    expect(projects.projects[0]!.members).toEqual([
+      { user_id: ada.id, role: 'viewer' },
+      { user_id: bob.id, role: 'viewer' },
+    ]);
+  });
+
+  it('gives a viewer no management controls but keeps the leave button', () => {
+    users.users = [me, ada, bob];
+    projects.projects = [
+      project({
+        created_by: ada.id,
+        member_ids: [me.id, bob.id],
+        members: [
+          { user_id: me.id, role: 'viewer' },
+          { user_id: bob.id, role: 'editor' },
+        ],
+      }),
+    ];
+
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+
+    expect(screen.queryByLabelText('Add people')).toBeNull();
+    expect(screen.queryByLabelText(/^Role for /)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Remove / })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Make owner/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Publish read-only link' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Leave board' })).toBeInTheDocument();
+    expect(screen.getByText('Viewer')).toBeInTheDocument();
   });
 });

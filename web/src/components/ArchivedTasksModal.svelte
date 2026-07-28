@@ -75,14 +75,16 @@
               >{columnName === undefined ? when : `${columnName} · ${when}`}</span
             >
           </span>
-          <button
-            type="button"
-            aria-label="Restore card {task.title}"
-            onclick={() => void board.restoreTask(task.id)}
-            class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-ink"
-          >
-            Restore
-          </button>
+          {#if board.canEdit}
+            <button
+              type="button"
+              aria-label="Restore card {task.title}"
+              onclick={() => void board.restoreTask(task.id)}
+              class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-ink"
+            >
+              Restore
+            </button>
+          {/if}
         </li>
       {/each}
     </ul>

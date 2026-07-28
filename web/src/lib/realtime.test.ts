@@ -107,6 +107,7 @@ function boardPayload(): BoardPayload {
       archived_at: null,
       created_by: null,
       member_ids: [],
+      members: [],
       is_public: false,
       created_at: '2026-01-01T00:00:00Z',
     },
@@ -117,13 +118,15 @@ function boardPayload(): BoardPayload {
 }
 
 function project(overrides: Partial<Project> = {}): Project {
+  const memberIds = overrides.member_ids ?? [];
   return {
     id: 'p1',
     name: 'Game',
     description: '',
     archived_at: null,
     created_by: null,
-    member_ids: [],
+    member_ids: memberIds,
+    members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
     created_at: '2026-01-01T00:00:00Z',
     open_task_count: 0,
@@ -914,5 +917,30 @@ describe('user_updated dispatch', () => {
     socket.receive({ type: 'user_updated', data: { id: 7 } });
     expect(users.users).toEqual([]);
     expect(session.user?.name).toBe('Me');
+  });
+});
+
+describe('project_updated reaches the open board', () => {
+  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+
+  it('demotes the open board without waiting for a refetch', async () => {
+    session.user = me;
+    const socket = await connectAndAuth('p1');
+    board.project = {
+      ...boardPayload().project,
+      created_by: 'u-owner',
+      member_ids: [me.id],
+      members: [{ user_id: me.id, role: 'editor' }],
+    };
+    expect(board.canEdit).toBe(true);
+
+    socket.receive({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: { id: 'p1', member_ids: [me.id], members: [{ user_id: me.id, role: 'viewer' }] },
+    });
+
+    expect(board.canEdit).toBe(false);
+    expect(projects.projects).toHaveLength(1);
   });
 });

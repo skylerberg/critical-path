@@ -3,6 +3,7 @@ import type { components } from '../api/api.generated';
 import { newId } from './ids';
 import { reorderPositionUpdates } from './positions';
 import type { RealtimeEvent } from './realtime-types';
+import { canEditProject, type ProjectRole } from './roles';
 import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
@@ -36,6 +37,15 @@ function byPosition(a: Project, b: Project): number {
 
 export function isProjectOwner(project: Project): boolean {
   return project.created_by === session.user?.id;
+}
+
+// The 'editor' default mirrors what the server stores for an id it has not seen.
+function membersForIds(project: Project, userIds: string[]): Project['members'] {
+  const roleByUser = new Map(project.members.map((member) => [member.user_id, member.role]));
+  return userIds.map((userId) => ({
+    user_id: userId,
+    role: roleByUser.get(userId) ?? 'editor',
+  }));
 }
 
 class ProjectsStore {
@@ -102,8 +112,17 @@ class ProjectsStore {
     }
   }
 
+  canEdit(projectId: string): boolean {
+    const project = this.projects.find((p) => p.id === projectId);
+    return project !== undefined && canEditProject(project, session.user?.id);
+  }
+
   async setMembers(id: string, userIds: string[]): Promise<void> {
-    this.#update(id, (p) => ({ ...p, member_ids: userIds }));
+    this.#update(id, (p) => ({
+      ...p,
+      member_ids: userIds,
+      members: membersForIds(p, userIds),
+    }));
     try {
       assertOk(
         await api.PUT('/api/projects/{id}/members', {
@@ -114,6 +133,27 @@ class ProjectsStore {
       users.invalidateAll();
     } catch (error) {
       await this.#mutationFailed(error, 'Failed to update members');
+    }
+  }
+
+  // Sends roles alone, never user_ids: with a member list this client may have
+  // fetched minutes ago, a full replace would evict anyone added since.
+  async setMemberRole(id: string, userId: string, role: ProjectRole): Promise<void> {
+    this.#update(id, (p) => ({
+      ...p,
+      members: p.members.map((member) =>
+        member.user_id === userId ? { ...member, role } : member
+      ),
+    }));
+    try {
+      assertOk(
+        await api.PUT('/api/projects/{id}/members', {
+          params: { path: { id } },
+          body: { roles: [{ user_id: userId, role }] },
+        })
+      );
+    } catch (error) {
+      await this.#mutationFailed(error, 'Failed to change role');
     }
   }
 
@@ -131,7 +171,7 @@ class ProjectsStore {
 
   async addMemberByEmail(id: string, email: string): Promise<AddMemberResult> {
     try {
-      const { user } = assertOk(
+      const { user, role } = assertOk(
         await api.POST('/api/projects/{id}/members/by-email', {
           params: { path: { id } },
           body: { email },
@@ -142,7 +182,13 @@ class ProjectsStore {
       this.#update(id, (p) =>
         p.created_by === user.id || p.member_ids.includes(user.id)
           ? p
-          : { ...p, member_ids: [...p.member_ids, user.id] }
+          : {
+              ...p,
+              member_ids: [...p.member_ids, user.id],
+              // Coalesced despite the type: an API that predates roles omits it,
+              // and an undefined role reads as a viewer everywhere downstream.
+              members: [...p.members, { user_id: user.id, role: role ?? 'editor' }],
+            }
       );
       users.invalidateAll();
       return { ok: true };
@@ -181,14 +227,18 @@ class ProjectsStore {
     if (selfId === undefined) {
       return;
     }
-    this.#update(id, (p) => ({
-      ...p,
-      created_by: userId,
-      member_ids: [
+    this.#update(id, (p) => {
+      const memberIds = [
         ...p.member_ids.filter((memberId) => memberId !== userId && memberId !== selfId),
         selfId,
-      ],
-    }));
+      ];
+      return {
+        ...p,
+        created_by: userId,
+        member_ids: memberIds,
+        members: membersForIds(p, memberIds),
+      };
+    });
     try {
       const row = assertOk(
         await api.PUT('/api/projects/{id}/owner', {
@@ -244,6 +294,7 @@ class ProjectsStore {
         archived_at: null,
         created_by: null,
         member_ids: [],
+        members: [],
         is_public: false,
         created_at: new Date().toISOString(),
         open_task_count: 0,
@@ -265,6 +316,7 @@ class ProjectsStore {
       archived_at: null,
       created_by: session.user?.id ?? null,
       member_ids: [],
+      members: [],
       is_public: false,
       created_at: new Date().toISOString(),
       open_task_count: 0,

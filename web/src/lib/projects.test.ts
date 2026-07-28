@@ -6,13 +6,15 @@ import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
 
 function project(overrides: Partial<Project> = {}): Project {
+  const memberIds = overrides.member_ids ?? [];
   return {
     id: 'p-1',
     name: 'Alpha',
     description: '',
     archived_at: null,
     created_by: null,
-    member_ids: [],
+    member_ids: memberIds,
+    members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
@@ -32,6 +34,7 @@ function projectRow(
     archived_at: item.archived_at,
     created_by: item.created_by,
     member_ids: item.member_ids,
+    members: item.members,
     is_public: item.is_public,
     created_at: item.created_at,
   };
@@ -46,6 +49,7 @@ function boardPayload(id: string, name: string, tasksInColumns: string[] = []): 
       archived_at: null,
       created_by: null,
       member_ids: [],
+      members: [],
       is_public: false,
       created_at: '2026-03-01T00:00:00.000Z',
     },
@@ -618,5 +622,136 @@ describe('isProjectOwner', () => {
     session.user = null;
     expect(isProjectOwner(project({ created_by: me.id }))).toBe(false);
     expect(isProjectOwner(project({ created_by: null }))).toBe(false);
+  });
+});
+
+describe('project roles', () => {
+  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+
+  it('reports canEdit from the stored role', async () => {
+    session.user = me;
+    await loadWith([
+      project({ id: 'p-own', created_by: me.id }),
+      project({
+        id: 'p-edit',
+        created_by: 'u-owner',
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'editor' }],
+      }),
+      project({
+        id: 'p-view',
+        created_by: 'u-owner',
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      }),
+    ]);
+
+    expect(projects.canEdit('p-own')).toBe(true);
+    expect(projects.canEdit('p-edit')).toBe(true);
+    expect(projects.canEdit('p-view')).toBe(false);
+    expect(projects.canEdit('p-unknown')).toBe(false);
+  });
+
+  it('changes a role optimistically and sends roles without user_ids', async () => {
+    await loadWith([
+      project({
+        created_by: 'u-me',
+        member_ids: ['u-1', 'u-2'],
+        members: [
+          { user_id: 'u-1', role: 'editor' },
+          { user_id: 'u-2', role: 'editor' },
+        ],
+      }),
+    ]);
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    const pending = projects.setMemberRole('p-1', 'u-2', 'viewer');
+    expect(projects.projects[0]!.members).toEqual([
+      { user_id: 'u-1', role: 'editor' },
+      { user_id: 'u-2', role: 'viewer' },
+    ]);
+
+    await pending;
+
+    expect(requestAt(1).method).toBe('PUT');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/members');
+    const body = (await bodyOf(requestAt(1))) as Record<string, unknown>;
+    expect(Object.keys(body)).toEqual(['roles']);
+    expect(body).toEqual({ roles: [{ user_id: 'u-2', role: 'viewer' }] });
+    expect(projects.projects[0]!.member_ids).toEqual(['u-1', 'u-2']);
+  });
+
+  it('toasts and reloads when a role change is refused', async () => {
+    const stored = project({
+      created_by: 'u-owner',
+      member_ids: ['u-1'],
+      members: [{ user_id: 'u-1', role: 'editor' }],
+    });
+    await loadWith([stored]);
+    fetchMock.mockImplementation(async (input) => {
+      if ((input as Request).method === 'PUT') {
+        return jsonResponse(403, { error: 'Read-only access to this project' });
+      }
+      return jsonResponse(200, { projects: [stored] });
+    });
+
+    await projects.setMemberRole('p-1', 'u-1', 'viewer');
+
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['Read-only access to this project']);
+    expect(projects.projects[0]!.members).toEqual([{ user_id: 'u-1', role: 'editor' }]);
+  });
+
+  it('rebuilds members on setMembers, keeping the roles it already knows', async () => {
+    await loadWith([
+      project({
+        member_ids: ['u-1', 'u-2'],
+        members: [
+          { user_id: 'u-1', role: 'viewer' },
+          { user_id: 'u-2', role: 'editor' },
+        ],
+      }),
+    ]);
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    await projects.setMembers('p-1', ['u-1', 'u-3']);
+
+    expect(projects.projects[0]!.members).toEqual([
+      { user_id: 'u-1', role: 'viewer' },
+      { user_id: 'u-3', role: 'editor' },
+    ]);
+    expect(await bodyOf(requestAt(1))).toEqual({ user_ids: ['u-1', 'u-3'] });
+  });
+
+  it('stores the role the invite response reports', async () => {
+    const added = { id: 'u-2', email: 'pat@example.com', name: 'Pat', avatar_url: null };
+    await loadWith([project({ created_by: 'u-me' })]);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { user: added, role: 'viewer' as const })
+    );
+
+    await projects.addMemberByEmail('p-1', 'pat@example.com');
+
+    expect(projects.projects[0]!.members).toEqual([{ user_id: 'u-2', role: 'viewer' }]);
+  });
+
+  it('defaults a fresh project and an unknown realtime project to no members', async () => {
+    session.user = me;
+    fetchMock.mockImplementation(async (input) =>
+      (input as Request).method === 'POST'
+        ? jsonResponse(201, boardPayload('p-new', 'New'))
+        : jsonResponse(200, { projects: [] })
+    );
+
+    const pending = projects.create('New');
+    expect(projects.projects[0]!.members).toEqual([]);
+    await pending;
+
+    projects.applyRealtime({
+      type: 'project_created',
+      project_id: 'p-realtime',
+      data: { id: 'p-realtime', name: 'Gained' },
+    });
+
+    expect(projects.projects.find((p) => p.id === 'p-realtime')!.members).toEqual([]);
   });
 });

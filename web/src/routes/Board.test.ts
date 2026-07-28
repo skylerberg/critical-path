@@ -216,7 +216,7 @@ describe('Board column header count', () => {
 });
 
 describe('Board readonly', () => {
-  it('drops every editing affordance and links cards at the public path', async () => {
+  it('drops every editing affordance', async () => {
     render(Board, { props: { projectId: 'p1', readonly: true } });
 
     await screen.findByText('plain one');
@@ -228,9 +228,21 @@ describe('Board readonly', () => {
     expect(within(header('Todo')).queryByLabelText('Reorder column')).toBeNull();
     expect(within(header('Todo')).getByText('4')).toHaveTextContent('4 tasks');
     expect(within(header('Todo')).queryByRole('button')).toBeNull();
+  });
 
-    const link = column().querySelector('a');
-    expect(link).toHaveAttribute('href', '/public/projects/p1/tasks/t1');
+  it('keeps the private card path for a read-only member', async () => {
+    render(Board, { props: { projectId: 'p1', readonly: true } });
+    await screen.findByText('plain one');
+
+    expect(column().querySelector('a')).toHaveAttribute('href', '/projects/p1/tasks/t1');
+  });
+
+  it('links cards at the public path on a public board', async () => {
+    board.readonly = true;
+    render(Board, { props: { projectId: 'p1', readonly: true } });
+    await screen.findByText('plain one');
+
+    expect(column().querySelector('a')).toHaveAttribute('href', '/public/projects/p1/tasks/t1');
   });
 
   it('disables dragging in both dnd zones', async () => {

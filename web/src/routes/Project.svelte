@@ -74,6 +74,7 @@
       board.error === null &&
       board.project !== null
   );
+  const readonly = $derived(!board.canEdit);
   const viewBasePath = $derived(
     view === 'graph' ? `/projects/${projectId}/graph` : `/projects/${projectId}`
   );
@@ -98,15 +99,16 @@
   <div class="flex h-[calc(100dvh-4rem)] flex-col lg:h-dvh">
     <ProjectHeader {projectId} {view} />
     {#if view === 'board'}
-      <Board {projectId} />
+      <Board {projectId} {readonly} />
     {:else}
-      <Graph {projectId} />
+      <Graph {projectId} {readonly} />
     {/if}
   </div>
   {#if taskId !== undefined}
     <TaskDetail
       {taskId}
       {closePath}
+      {readonly}
       taskPath={(id) => `${viewBasePath}/tasks/${id}${overlaySearch}`}
     />
   {/if}

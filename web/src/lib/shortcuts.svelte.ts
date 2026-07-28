@@ -162,7 +162,7 @@ class ShortcutController {
         break;
       case 'n': {
         const columnId = selection.selectedColumnId ?? board.columns[0]?.id ?? null;
-        if (columnId === null) {
+        if (columnId === null || !board.canEdit) {
           return false;
         }
         this.quickAddColumn = columnId;
@@ -172,7 +172,13 @@ class ShortcutController {
       case 'D':
         // CapsLock inverts the character, so duplicate-versus-done comes from the
         // modifier and never from the case of the key.
-        if (selectedId === null || event.metaKey || event.ctrlKey || event.altKey) {
+        if (
+          selectedId === null ||
+          !board.canEdit ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.altKey
+        ) {
           return false;
         }
         if (event.shiftKey) {
@@ -202,6 +208,9 @@ class ShortcutController {
     filterBarActive: boolean
   ): void {
     const target = overlayTaskId ?? (selectionActive ? selection.selectedTaskId : null);
+    // Every menu these open writes to the board, so for a viewer the key has to
+    // fall through unclaimed rather than open a menu whose every row 403s.
+    const editTarget = board.canEdit ? target : null;
     switch (event.key) {
       case '?':
         this.helpOpen = true;
@@ -256,33 +265,36 @@ class ShortcutController {
       // Cmd+M minimises), not to us.
       case 'l':
       case 'L':
-        if (target === null || event.metaKey || event.ctrlKey || event.altKey) {
+        if (editTarget === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
-        this.labelMenu = target;
+        this.labelMenu = editTarget;
         break;
       case 'a':
       case 'A':
-        if (target === null || event.metaKey || event.ctrlKey || event.altKey) {
+        if (editTarget === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
-        this.assigneeMenu = target;
+        this.assigneeMenu = editTarget;
         break;
       case 'b':
       case 'B':
         // CapsLock reports a plain press as 'B', so the direction comes from the
         // modifier and never the character.
-        if (target === null || event.metaKey || event.ctrlKey || event.altKey) {
+        if (editTarget === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
-        this.dependencyMenu = { taskId: target, direction: event.shiftKey ? 'blocked' : 'blocker' };
+        this.dependencyMenu = {
+          taskId: editTarget,
+          direction: event.shiftKey ? 'blocked' : 'blocker',
+        };
         break;
       case 'm':
       case 'M':
-        if (target === null || event.metaKey || event.ctrlKey || event.altKey) {
+        if (editTarget === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
-        this.moveMenu = target;
+        this.moveMenu = editTarget;
         break;
       case 'g':
       case 'G':
