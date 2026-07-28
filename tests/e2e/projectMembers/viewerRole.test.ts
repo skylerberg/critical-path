@@ -102,6 +102,64 @@ describe('Viewer role on the member endpoints', () => {
       expect(await roleOf(project.id, member.id)).toBe('editor');
     });
 
+    it('refuses a viewer body that carries roles rather than silently leaving instead', async () => {
+      const { project } = await createProject('vr viewer roles body');
+      await setMembers(owner.token, project.id, { user_ids: [member.id, other.id] });
+      await setMembers(owner.token, project.id, {
+        roles: [{ user_id: member.id, role: 'viewer' }],
+      });
+
+      const res = await setMembers(member.token, project.id, {
+        user_ids: [other.id],
+        roles: [{ user_id: other.id, role: 'viewer' }],
+      });
+
+      expect(res.status).toBe(403);
+      expect(await roleOf(project.id, other.id)).toBe('editor');
+      expect(await roleOf(project.id, member.id)).toBe('viewer');
+    });
+
+    // The interleave is forced with a real row lock rather than raced, so this fails
+    // deterministically if the handler ever authorizes before taking the lock.
+    it('refuses a by-email add from an editor demoted while the request was in flight', async () => {
+      const { project } = await createProject('vr by-email demotion race');
+      await setMembers(owner.token, project.id, { user_ids: [member.id] });
+      expect(await roleOf(project.id, member.id)).toBe('editor');
+
+      let releaseLock!: () => void;
+      const lockHeld = new Promise<void>((resolve) => {
+        releaseLock = resolve;
+      });
+      const demotion = db.transaction().execute(async (trx) => {
+        await trx
+          .selectFrom('project')
+          .select('id')
+          .where('id', '=', project.id)
+          .forUpdate()
+          .execute();
+        await trx
+          .updateTable('project_member')
+          .set({ role: 'viewer' })
+          .where('project_id', '=', project.id)
+          .where('user_id', '=', member.id)
+          .execute();
+        await lockHeld;
+      });
+
+      const inFlight = ctx
+        .request(member.token)
+        .post(`/api/projects/${project.id}/members/by-email`, {
+          email: member.email,
+          role: 'editor',
+        });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      releaseLock();
+      await demotion;
+
+      expect((await inFlight).status).toBe(403);
+      expect(await roleOf(project.id, member.id)).toBe('viewer');
+    });
+
     it('lets a role-only body keep a member added since the caller last synced', async () => {
       const { project } = await createProject('vr lost update');
       await setMembers(owner.token, project.id, { user_ids: [member.id] });

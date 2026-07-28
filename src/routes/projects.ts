@@ -8,6 +8,7 @@ import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
   accessibleProjectsFilter,
+  assertCanWriteProject,
   assertProjectAccess,
   assertProjectOwnedBy,
   assertProjectWrite,
@@ -708,7 +709,10 @@ router.put(
     // user-existence check below and read it as an oracle, and must not be able
     // to evict anyone else even with a stale cached member list.
     if (callerRole !== 'editor') {
-      if (user_ids === undefined || user_ids.includes(user.id)) {
+      // `roles` is refused rather than ignored: leaving is the only thing this can
+      // mean for a viewer, and answering 204 to a body asking for something else
+      // would report a role change that never happened.
+      if (user_ids === undefined || user_ids.includes(user.id) || roles !== undefined) {
         throw new AppError(403, READ_ONLY_MESSAGE);
       }
       await removeMembers(c, db, project, user.id, [user.id]);
@@ -842,7 +846,11 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    await assertProjectWrite(db, user.id, id);
+    // Locked before the role is read: this write's target is the caller's own
+    // authorization state, so a demotion committing against an unlocked read
+    // would be undone by the upsert that follows it.
+    const project = await lockProject(db, id);
+    await assertCanWriteProject(db, user.id, project);
 
     const target = await db
       .selectFrom('app_user')
@@ -853,7 +861,6 @@ router.post(
       throw new AppError(404, 'User not found');
     }
 
-    const project = await lockProject(db, id);
     let effectiveRole: ProjectRole = 'editor';
     if (target.id !== project.created_by) {
       await db
