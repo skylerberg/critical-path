@@ -652,6 +652,30 @@ describe('project roles', () => {
     expect(projects.canEdit('p-unknown')).toBe(false);
   });
 
+  // A demotion whose realtime event never arrived is only discovered when a write
+  // is rejected, and the board refetch that follows is the one carrying the truth.
+  it('adopts membership the board refetched, so the list stops offering management', async () => {
+    session.user = me;
+    await loadWith([
+      project({
+        id: 'p1',
+        created_by: 'u-owner',
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'editor' }],
+      }),
+    ]);
+    expect(projects.canEdit('p1')).toBe(true);
+
+    projects.adoptMembership({
+      id: 'p1',
+      created_by: 'u-owner',
+      member_ids: [me.id],
+      members: [{ user_id: me.id, role: 'viewer' }],
+    });
+
+    expect(projects.canEdit('p1')).toBe(false);
+  });
+
   it('changes a role optimistically and sends roles without user_ids', async () => {
     await loadWith([
       project({

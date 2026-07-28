@@ -3,15 +3,20 @@ import { render, screen, within } from '@testing-library/svelte';
 import ShortcutHelp from './ShortcutHelp.svelte';
 import { board } from '../lib/board.svelte';
 import { router } from '../lib/router.svelte';
+import { session } from '../lib/session.svelte';
 
 const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
 
 beforeEach(() => {
   router.navigate('/', { replace: true });
+  // Without this the keymap would be trimmed because nobody is signed in, which
+  // says nothing about whether it is trimmed for a viewer.
+  session.user = me;
 });
 
 afterEach(() => {
   board.reset();
+  session.user = null;
 });
 
 function viewerProject() {
@@ -46,7 +51,18 @@ describe('ShortcutHelp', () => {
     expect(screen.getByText(/^Reorder/)).toBeInTheDocument();
   });
 
-  it('drops the editing rows and the whole reorder group on a read-only board', () => {
+  it('keeps sidebar reordering for a viewer, who can still order their own list', () => {
+    board.project = viewerProject();
+    router.navigate('/projects/p1', { replace: true });
+
+    render(ShortcutHelp, { onclose: vi.fn() });
+
+    expect(screen.getByText('Reorder (Tab to a sidebar project)')).toBeInTheDocument();
+    expect(screen.getByText('Pick up or drop the focused item')).toBeInTheDocument();
+    expect(screen.queryByText('Carry a picked-up task to another column')).toBeNull();
+  });
+
+  it('drops the editing rows on a read-only board', () => {
     board.project = viewerProject();
     router.navigate('/projects/p1', { replace: true });
 
@@ -62,7 +78,6 @@ describe('ShortcutHelp', () => {
     ]) {
       expect(screen.queryByText(label)).toBeNull();
     }
-    expect(screen.queryByText(/^Reorder/)).toBeNull();
 
     expect(screen.getByText('Open selected task')).toBeInTheDocument();
     expect(screen.getByText('Filter tasks')).toBeInTheDocument();

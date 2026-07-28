@@ -16,6 +16,7 @@ import type { RealtimeEvent } from './realtime-types';
 import { append, between, positionForIndex, prepend } from './positions';
 import { canEditProject } from './roles';
 import { router, splitPath } from './router.svelte';
+import { projects } from './projects.svelte';
 import { session } from './session.svelte';
 import { taskActivity } from './taskActivity.svelte';
 import { toasts } from './toasts.svelte';
@@ -210,6 +211,7 @@ class BoardStore {
         users.setForProject(projectId, projectUsers);
       }
       this.project = data.project;
+      projects.adoptMembership(data.project);
       this.columns = [...data.columns].sort((a, b) => a.position - b.position);
       this.tasks = data.tasks;
       this.labels = data.labels;
@@ -1598,6 +1600,9 @@ class BoardStore {
         break;
       }
       // Membership only: propagating a rename to an open header is a separate gap.
+      // created_by counts as membership here because the creator is an implicit
+      // editor, so a transfer that left it behind would strip the new owner's
+      // editing and keep offering it to the old one.
       case 'project_updated': {
         const d = event.data as Partial<BoardProject>;
         const project = this.project;
@@ -1606,6 +1611,7 @@ class BoardStore {
         }
         this.project = {
           ...project,
+          created_by: d.created_by ?? project.created_by,
           members: d.members,
           member_ids: d.member_ids ?? project.member_ids,
         };

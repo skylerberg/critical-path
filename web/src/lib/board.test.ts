@@ -2644,6 +2644,40 @@ describe('board store canEdit', () => {
     expect(board.project?.members).toEqual([{ user_id: me.id, role: 'viewer' }]);
   });
 
+  // The creator is an implicit editor with no member row, so an ownership transfer
+  // moves the permission entirely in created_by and touches no role.
+  it('follows an ownership transfer in both directions', () => {
+    session.user = me;
+    board.currentProjectId = 'p1';
+    withProject('u-owner', [{ user_id: me.id, role: 'editor' }]);
+
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: {
+        id: 'p1',
+        created_by: me.id,
+        member_ids: ['u-owner'],
+        members: [{ user_id: 'u-owner', role: 'editor' }],
+      },
+    });
+
+    expect(board.canEdit).toBe(true);
+
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: {
+        id: 'p1',
+        created_by: 'u-owner',
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      },
+    });
+
+    expect(board.canEdit).toBe(false);
+  });
+
   it('ignores a project_updated for another project', () => {
     session.user = me;
     board.currentProjectId = 'p1';

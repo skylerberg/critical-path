@@ -117,6 +117,18 @@ class ProjectsStore {
     return project !== undefined && canEditProject(project, session.user?.id);
   }
 
+  // The board refetches on a rejected write, which is the only thing that notices a
+  // demotion whose realtime event never arrived. Without this the list keeps its own
+  // stale membership and the management controls it gates stay live.
+  adoptMembership(project: Pick<Project, 'id' | 'created_by' | 'member_ids' | 'members'>): void {
+    this.#update(project.id, (p) => ({
+      ...p,
+      created_by: project.created_by,
+      member_ids: project.member_ids,
+      members: project.members,
+    }));
+  }
+
   async setMembers(id: string, userIds: string[]): Promise<void> {
     this.#update(id, (p) => ({
       ...p,

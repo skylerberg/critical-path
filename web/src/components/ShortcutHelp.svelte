@@ -16,11 +16,19 @@
     edits?: boolean;
   }
 
-  // The board store outlives the route, so the keymap is only trimmed while the
-  // read-only board is the one on screen.
-  const readonly = $derived(router.current.name === 'project' && !board.canEdit);
+  // The board store outlives the route, so the keymap is only trimmed while a
+  // board the user cannot edit is the one on screen — either their own as a
+  // viewer, or the public one as an anonymous reader.
+  const readonly = $derived(
+    (router.current.name === 'project' || router.current.name === 'public-board') && !board.canEdit
+  );
 
-  const allGroups: { heading: string; bindings: Binding[]; edits?: boolean }[] = [
+  const allGroups: {
+    heading: string;
+    readonlyHeading?: string;
+    bindings: Binding[];
+    edits?: boolean;
+  }[] = [
     {
       heading: 'Selection',
       bindings: [
@@ -48,11 +56,13 @@
     },
     {
       heading: 'Reorder (Tab to a card, column handle, or sidebar project)',
-      edits: true,
+      // Sidebar order is per-user, so it survives read-only access and the group
+      // cannot be dropped wholesale the way the board-editing ones are.
+      readonlyHeading: 'Reorder (Tab to a sidebar project)',
       bindings: [
         { keys: ['Enter', 'Space'], label: 'Pick up or drop the focused item' },
         { keys: ['↑', '↓', '←', '→'], label: 'Move the picked-up item' },
-        { keys: ['Tab'], label: 'Carry a picked-up task to another column' },
+        { keys: ['Tab'], label: 'Carry a picked-up task to another column', edits: true },
         { keys: ['Esc'], label: 'Drop the picked-up item' },
       ],
     },
@@ -85,7 +95,13 @@
       if (group.edits === true) {
         return [];
       }
-      return [{ ...group, bindings: group.bindings.filter((binding) => binding.edits !== true) }];
+      return [
+        {
+          ...group,
+          heading: group.readonlyHeading ?? group.heading,
+          bindings: group.bindings.filter((binding) => binding.edits !== true),
+        },
+      ];
     })
   );
 </script>
