@@ -87,6 +87,41 @@ describe('ColumnHeader options menu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it('toggles the done flag from the menu and keeps it open', async () => {
+    const toggle = vi.spyOn(board, 'toggleColumnDone').mockResolvedValue(undefined);
+    renderHeader(TODO);
+    await openMenu();
+
+    const item = screen.getByRole('menuitemcheckbox', { name: 'Mark as done column' });
+    expect(item).toHaveAttribute('aria-checked', 'false');
+
+    await fireEvent.click(item);
+
+    expect(toggle).toHaveBeenCalledWith('c1');
+    // A toggle is a setting, so the menu stays open to show the state flip.
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
+  it('shows the done toggle as checked for a done column', async () => {
+    renderHeader(DONE);
+    await openMenu('Done');
+
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Mark as done column' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+  });
+
+  it('opens the delete dialog from the menu and closes it', async () => {
+    renderHeader(TODO);
+    await openMenu();
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete column' }));
+
+    expect(screen.getByRole('dialog', { name: 'Delete column' })).toBeInTheDocument();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('offers the duplicate action for an empty column too', async () => {
     renderHeader(DONE);
     await openMenu('Done');
