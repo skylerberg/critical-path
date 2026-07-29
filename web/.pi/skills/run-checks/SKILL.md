@@ -12,7 +12,8 @@ Run all of these before declaring done. CI runs the same set
 
 ```sh
 npm run check           # svelte-check (type checking)
-npm run check:layout    # real-Chrome board/bottom-nav layout assertions (no deps)
+npm run check:layout    # real-Chrome board/bottom-nav layout assertions (fixture, no deps)
+npm run check:layout:real # real-Chrome layout assertions against the actual Board.svelte (boots vite dev)
 npm run lint            # eslint .
 npm run format:check    # prettier --check src
 npm test                # vitest (jsdom); tests are colocated as *.test.ts
@@ -32,6 +33,11 @@ Run `npm run lint:fix` / `npm run format` to autofix, then re-check.
   skips with a warning if no Chrome/Chromium binary is found. Run
   `node scripts/check-board-layout.mjs --selftest` to confirm the fixture is
   still sensitive to the original bug.
+- `npm run check:layout:real` is the faithful companion: it mounts the **real**
+  `Board.svelte` (via `scripts/board-probe.html`) in headless Chrome, so it
+  catches layout bugs the fixture can't model (real Tailwind output, real
+  svelte-dnd-action). It boots `vite dev` itself. For layout bugs generally,
+  see the `browser-repro` skill.
 - If `src/api/api.generated.ts` is stale (a backend schema changed), run
   `npm run generate:api` first — it auto-finds `../critical-path-api/openapi.json`.
   A stale client only fails under `npm run check`, never under `npm test`, so

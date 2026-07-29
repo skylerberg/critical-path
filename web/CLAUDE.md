@@ -16,7 +16,7 @@ for the backend's conventions.
 ## Checks (run all before finishing)
 
 ```sh
-npm run check && npm run check:layout && npm run lint && npm run format:check && npm test && npm run build
+npm run check && npm run check:layout && npm run check:layout:real && npm run lint && npm run format:check && npm test && npm run build
 ```
 
 ## Svelte 5 conventions

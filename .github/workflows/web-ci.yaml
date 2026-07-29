@@ -19,5 +19,6 @@ jobs:
       - run: npm run lint
       - run: npm run check
       - run: npm run check:layout
+      - run: npm run check:layout:real
       - run: npm test
       - run: npm run build

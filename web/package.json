@@ -17,6 +17,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:layout": "node scripts/check-board-layout.mjs",
+    "check:layout:real": "node scripts/check-board-layout-real.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write src",
