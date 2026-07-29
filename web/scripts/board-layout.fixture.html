@@ -1,0 +1,175 @@
+<!doctype html>
+<!--
+
+  Board layout regression fixture for scripts/check-board-layout.mjs.
+
+  This is a faithful, dependency-free mirror of the board layout chain
+  (App.svelte -> Project.svelte -> Board.svelte) with hand-authored CSS that
+  matches the Tailwind utilities used. It exists because jsdom (the vitest
+  environment) has no layout engine, so it cannot catch the class of CSS bug this
+  guards: the mobile bottom nav being pushed off-screen, or a gap opening below
+  the columns.
+
+  KEEP IN SYNC with the real components. The structural test in
+  Board.test.ts ("contains the board vertically without relying on percentage
+  height") guards the class changes on the live component; this fixture guards
+  the resulting real layout.
+
+  Query params:
+    cols=N        number of columns (default 4)
+    tasks=M       task cards per column (default 12)
+    legacy=1      render the PRE-FIX markup (reference for the buggy layout this
+                  test guards against; used by --selftest to prove sensitivity)
+    sim=1         emulate the mobile failure mode where percentage heights
+                  (h-full / max-h-full) stop resolving against flex parents.
+                  The fixed markup must survive this; the legacy markup must not.
+
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>board layout fixture</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body { font-family: system-ui, sans-serif; }
+      :root { --cp-bottom-nav-h: 3.5rem; } /* env(safe-area-inset-bottom) is 0 in headless */
+
+      /* --- Tailwind-equivalent utilities used by the board chain --- */
+      .flex { display: flex; }
+      .flex-col { flex-direction: column; }
+      .min-h-0 { min-height: 0; }
+      .flex-1 { flex: 1 1 0%; }
+      .h-full { height: 100%; }
+      .max-h-full { max-height: 100%; }
+      .overflow-x-auto { overflow-x: auto; }
+      .overflow-y-auto { overflow-y: auto; }
+      .overflow-y-hidden { overflow-y: hidden; }
+      .overscroll-x-contain { overscroll-behavior-x: contain; }
+      .snap-x { scroll-snap-type: x mandatory; } /* .snap-mandatory folded in; no layout effect */
+      .snap-center { scroll-snap-align: center; }
+      .items-stretch { align-items: stretch; }
+      .items-center { align-items: center; }
+      .gap-1 { gap: 0.25rem; }
+      .gap-2 { gap: 0.5rem; }
+      .gap-3 { gap: 0.75rem; }
+      .p-2 { padding: 0.5rem; }
+      .p-3 { padding: 0.75rem; }
+      .pt-0 { padding-top: 0; }
+      .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+      .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+      .shrink-0 { flex-shrink: 0; }
+      .min-h-11 { min-height: 2.75rem; }
+      .min-h-14 { min-height: 3.5rem; }
+      .min-h-16 { min-height: 4rem; }
+      .w-85vw { width: 85vw; }
+      .max-w-72 { max-width: 18rem; }
+      .border { border: 1px solid #e5e5e5; }
+      .border-b { border-bottom: 1px solid #e5e5e5; }
+      .border-t { border-top: 1px solid #e5e5e5; }
+      .bg-surface { background: #fff; }
+      .fixed { position: fixed; }
+      .inset-x-0 { left: 0; right: 0; }
+      .bottom-0 { bottom: 0; }
+      .flex-wrap { flex-wrap: wrap; }
+      .h-calc { height: calc(100dvh - var(--cp-bottom-nav-h)); }
+      .pb-nav { padding-bottom: var(--cp-bottom-nav-h); }
+
+      /* Mobile-failure simulation: percentage heights stop resolving against a
+         flex item's main size (a real quirk on some mobile engines). */
+      body.sim .h-full { height: auto !important; }
+      body.sim .max-h-full { max-height: none !important; }
+
+      .card { border: 1px solid #eee; border-radius: 6px; padding: 8px 10px; background: #fafafa; font-size: 13px; }
+      .viewbtn { display: flex; min-height: 2.75rem; align-items: center; padding: 0 0.75rem; font-size: 0.875rem; }
+    </style>
+  </head>
+  <body>
+    <!-- App.svelte: fixed mobile bottom nav (rendered first in DOM) -->
+    <nav class="fixed inset-x-0 bottom-0 border-t bg-surface" data-bottom-nav>
+      <div class="flex items-stretch">
+        <div class="viewbtn" style="flex:1;justify-content:center;min-height:3.5rem;color:#737373;font-size:12px;">Projects</div>
+        <div class="viewbtn" style="flex:1;justify-content:center;min-height:3.5rem;color:#737373;font-size:12px;">My tasks</div>
+        <div class="viewbtn" style="flex:1;justify-content:center;min-height:3.5rem;color:#737373;font-size:12px;">Search</div>
+      </div>
+    </nav>
+
+    <!-- App.svelte: content wrapper reserving the nav height -->
+    <div class="pb-nav">
+      <!-- Project.svelte -->
+      <div class="flex h-calc flex-col">
+        <!-- ProjectHeader.svelte (wraps to ~2 rows on a phone width) -->
+        <header class="shrink-0 border-b px-3 py-2">
+          <div class="flex flex-wrap items-center gap-3">
+            <h1 style="min-width:0;font-size:1.125rem;font-weight:600;margin:0;">Project name</h1>
+            <nav class="flex gap-1">
+              <span class="viewbtn">Board</span>
+              <span class="viewbtn">Graph</span>
+              <span class="viewbtn">Filter</span>
+              <span class="viewbtn">Members</span>
+            </nav>
+          </div>
+        </header>
+
+        <!-- Board.svelte: the horizontal scroller -->
+        <div class="board-scroller" data-board-scroller>
+          <div class="row" data-row>
+            <div class="flex items-stretch gap-3" aria-label="Columns" data-columns></div>
+            <div class="w-85vw max-w-72 shrink-0 snap-center" data-add-column>
+              <button class="viewbtn" style="border:1px dashed #ddd;width:100%;justify-content:center;color:#737373;">+ Add column</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      const COLS = Number(params.get('cols') ?? '4');
+      const TASKS = Number(params.get('tasks') ?? '12');
+      const LEGACY = params.get('legacy') === '1';
+      const SIM = params.get('sim') === '1';
+
+      if (SIM) document.body.classList.add('sim');
+
+      // The exact class strings from Board.svelte (fixed) or the pre-fix markup (legacy).
+      const scroller = document.querySelector('[data-board-scroller]');
+      const row = document.querySelector('[data-row]');
+      if (LEGACY) {
+        scroller.className =
+          'board-scroller min-h-0 flex-1 overflow-x-auto overscroll-x-contain snap-x';
+        row.className = 'row flex h-full items-stretch gap-3 p-3';
+      } else {
+        scroller.className =
+          'board-scroller flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x';
+        row.className = 'row flex min-h-0 flex-1 items-stretch gap-3 p-3';
+      }
+
+      const colsHost = document.querySelector('[data-columns]');
+      for (let c = 0; c < COLS; c++) {
+        const section = document.createElement('section');
+        section.className =
+          'flex max-h-full w-85vw max-w-72 shrink-0 snap-center flex-col border';
+        section.setAttribute('aria-label', `Column ${c + 1}`);
+        const header = document.createElement('div');
+        header.style.cssText = 'padding:8px 10px;font-weight:600;font-size:14px;';
+        header.textContent = `Column ${c + 1}`;
+        const list = document.createElement('div');
+        list.className = 'flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2';
+        list.setAttribute('aria-label', `Column ${c + 1} tasks`);
+        for (let t = 0; t < TASKS; t++) {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.textContent = `Task ${t + 1}`;
+          list.appendChild(card);
+        }
+        const quickAdd = document.createElement('div');
+        quickAdd.className = 'p-2 pt-0';
+        quickAdd.innerHTML = '<button class="viewbtn" style="width:100%;color:#737373;">+ Add task</button>';
+        section.append(header, list, quickAdd);
+        colsHost.appendChild(section);
+      }
+    </script>
+  </body>
+</html>

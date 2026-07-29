@@ -13,6 +13,15 @@
   --cp-danger: #dc2626;
   --cp-success: #16a34a;
   --cp-warning: #b45309;
+  /* Total height of the fixed mobile bottom nav (min-h-14 + home-indicator safe
+     area). Used to reserve space in the shell and to size the board viewport so
+     the nav never overlaps board content. Ignored at lg, where the nav is a
+     sidebar. */
+  --cp-bottom-nav-h: calc(3.5rem + env(safe-area-inset-bottom));
+  /* Height available to a project screen on mobile: the dynamic viewport minus
+     the bottom nav. Defined as a variable so the class layer stays free of
+     calc()-in-arbitrary-value fragility. */
+  --cp-board-h: calc(100dvh - var(--cp-bottom-nav-h));
 }
 
 @media (prefers-color-scheme: dark) {
