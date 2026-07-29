@@ -1,6 +1,25 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { myTasks, type MyTask } from './myTasks.svelte';
+import { projects, type Project } from './projects.svelte';
+
+function project(overrides: Partial<Project> = {}): Project {
+  return {
+    id: 'p-1',
+    name: 'Alpha',
+    description: '',
+    archived_at: null,
+    created_by: null,
+    member_ids: [],
+    members: [],
+    is_public: false,
+    created_at: '2026-01-01T00:00:00.000Z',
+    open_task_count: 0,
+    done_task_count: 0,
+    position: null,
+    ...overrides,
+  };
+}
 
 function task(id: string, bucket: MyTask['bucket'], overrides: Partial<MyTask> = {}): MyTask {
   return {
@@ -34,6 +53,7 @@ const payload = {
 beforeEach(() => {
   fetchMock.mockReset();
   myTasks.reset();
+  projects.projects = [];
 });
 
 describe('myTasks store', () => {
@@ -128,5 +148,70 @@ describe('myTasks store', () => {
     expect(myTasks.youAreWaitingOn).toEqual([]);
     expect(myTasks.loaded).toBe(false);
     expect(myTasks.error).toBeNull();
+  });
+
+  it('orders tasks within each bucket to match the project list', async () => {
+    // p-1 sits above p-2 on the Projects page; archived p-3 follows both.
+    projects.projects = [
+      project({ id: 'p-1', name: 'Alpha', position: 100 }),
+      project({ id: 'p-2', name: 'Bravo', position: 200 }),
+      project({
+        id: 'p-3',
+        name: 'Charlie',
+        position: 50,
+        archived_at: '2026-01-02T00:00:00.000Z',
+      }),
+    ];
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, {
+        tasks: [
+          task('t-2a', 'ready', { project_id: 'p-2', project_name: 'Bravo' }),
+          task('t-3a', 'ready', { project_id: 'p-3', project_name: 'Charlie' }),
+          task('t-1a', 'ready', { project_id: 'p-1', project_name: 'Alpha' }),
+          task('t-?a', 'ready', { project_id: 'p-x', project_name: 'Unseen' }),
+          task('t-1b', 'ready', { project_id: 'p-1', project_name: 'Alpha' }),
+        ],
+        waiting_on_you: [],
+        you_are_waiting_on: [],
+      })
+    );
+
+    await myTasks.load();
+
+    // Known projects in list order (Alpha before Bravo before archived Charlie);
+    // the same project keeps the server's order; the unseen project lands last.
+    expect(myTasks.ready.map((t) => `${t.project_id}:${t.id}`)).toEqual([
+      'p-1:t-1a',
+      'p-1:t-1b',
+      'p-2:t-2a',
+      'p-3:t-3a',
+      'p-x:t-?a',
+    ]);
+  });
+
+  it('sorts the tasks inside a waiting-on group by project order', async () => {
+    projects.projects = [
+      project({ id: 'p-1', name: 'Alpha', position: 100 }),
+      project({ id: 'p-2', name: 'Bravo', position: 200 }),
+    ];
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, {
+        tasks: [],
+        waiting_on_you: [],
+        you_are_waiting_on: [
+          {
+            user_id: 'u-ada',
+            tasks: [
+              { id: 't-2', project_id: 'p-2', title: 'Bravo task', assignee_ids: [] },
+              { id: 't-1', project_id: 'p-1', title: 'Alpha task', assignee_ids: [] },
+            ],
+          },
+        ],
+      })
+    );
+
+    await myTasks.load();
+
+    expect(myTasks.youAreWaitingOn[0]?.tasks.map((t) => t.id)).toEqual(['t-1', 't-2']);
   });
 });
