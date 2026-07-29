@@ -3,6 +3,20 @@
 Backend for "Critical Path". Plain
 Postgres + Kysely — no Supabase, no Docker, no OpenTelemetry.
 
+# Companion repository
+
+`../critical-path-web` is the Svelte 5 frontend for this API. Run the API
+first (`npm run dev`, port 3001), then the web app (`npm run dev` in
+`../critical-path-web`, port 5173) — Vite proxies `/api` and `/ws` to
+`localhost:3001`.
+
+Both the web app and the `cli/` package generate their API client from this
+repo's OpenAPI spec. A change to any request/response schema must regenerate
+the committed clients and commit them together: `npm run openapi:dump` here,
+then `npm run generate:api` in `../critical-path-web` and
+`npm run --prefix cli generate-api` here. See `../critical-path-web/CLAUDE.md`
+for the frontend's conventions.
+
 # Conventions
 
 1. All POST/PUT/PATCH/DELETE handlers run inside a database transaction via
@@ -96,7 +110,7 @@ npm run --prefix cli generate-api` and commit the regenerated
   `game_dev_test`). Single file:
   `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>`.
 - `npm run type-check`, `npm run lint`, `npm run format`.
-- Worktrees under `.claude/worktrees/` need `node_modules` to run any of the
+- Worktrees under `.pi/worktrees/` need `node_modules` to run any of the
   above; symlink it from the main checkout
   (`ln -s ../../../node_modules node_modules` from inside the worktree)
   instead of running `npm install` again.
