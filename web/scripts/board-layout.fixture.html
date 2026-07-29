@@ -70,6 +70,8 @@
       .border-t { border-top: 1px solid #e5e5e5; }
       .bg-surface { background: #fff; }
       .fixed { position: fixed; }
+      .relative { position: relative; }
+      .absolute { position: absolute; }
       .inset-x-0 { left: 0; right: 0; }
       .bottom-0 { bottom: 0; }
       .flex-wrap { flex-wrap: wrap; }
@@ -83,6 +85,11 @@
 
       .card { border: 1px solid #eee; border-radius: 6px; padding: 8px 10px; background: #fafafa; font-size: 13px; }
       .viewbtn { display: flex; min-height: 2.75rem; align-items: center; padding: 0 0.75rem; font-size: 0.875rem; }
+      /* Tailwind v4 .badge / .sr-only equivalents — what ColumnHeader renders. */
+      .badge { display: inline-flex; flex-shrink: 0; align-items: center; gap: 0.25rem; border-radius: 9999px; padding: 0.125rem; font-size: 0.75rem; white-space: nowrap; }
+      /* NOTE: no left/top/inset — matches Tailwind sr-only, so the element rests at
+         its in-flow position (the bug only shows because of this). */
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
     </style>
   </head>
   <body>
@@ -142,7 +149,7 @@
         row.className = 'row flex h-full items-stretch gap-3 p-3';
       } else {
         scroller.className =
-          'board-scroller flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x';
+          'board-scroller relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x';
         row.className = 'row flex min-h-0 flex-1 items-stretch gap-3 p-3';
       }
 
@@ -152,9 +159,24 @@
         section.className =
           'flex max-h-full w-85vw max-w-72 shrink-0 snap-center flex-col border';
         section.setAttribute('aria-label', `Column ${c + 1}`);
-        const header = document.createElement('div');
-        header.style.cssText = 'padding:8px 10px;font-weight:600;font-size:14px;';
-        header.textContent = `Column ${c + 1}`;
+        // Faithful to ColumnHeader.svelte: the count badge wraps an sr-only label.
+        // The sr-only is position:absolute with NO inset, so when nothing up the
+        // tree is positioned its containing block is the viewport and it sits at
+        // its in-flow position inside an off-screen (scrolled-out) column —
+        // overflowing the document unless the scroller is position:relative.
+        const header = document.createElement('header');
+        header.className = 'flex items-center gap-1 p-2 pb-1';
+        const title = document.createElement('span');
+        title.className = 'truncate text-sm font-semibold';
+        title.textContent = `Column ${c + 1}`;
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = String(c + 1);
+        const sr = document.createElement('span');
+        sr.className = 'sr-only';
+        sr.textContent = ' tasks';
+        badge.appendChild(sr);
+        header.append(title, badge);
         const list = document.createElement('div');
         list.className = 'flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2';
         list.setAttribute('aria-label', `Column ${c + 1} tasks`);

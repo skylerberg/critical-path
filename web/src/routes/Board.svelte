@@ -160,7 +160,7 @@
 </script>
 
 <div
-  class="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-mandatory lg:snap-none"
+  class="relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-mandatory lg:snap-none"
 >
   <div class="flex min-h-0 flex-1 items-stretch gap-3 p-3 lg:gap-4 lg:p-4">
     <div
