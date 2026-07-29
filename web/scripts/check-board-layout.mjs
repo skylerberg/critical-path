@@ -203,6 +203,14 @@ function checkInvariants(m, viewport, expectInternalScroll) {
       `page overflows horizontally (htmlScrollW=${m.htmlScrollW} > vw=${viewport.width})`
     );
   }
+  // The mobile layout viewport must not expand beyond the device width. This is
+  // the direct symptom of the abspos-overflow bug: an unclipped absolutely-
+  // positioned descendant (e.g. a column-header sr-only badge) overflows the
+  // document, and on mobile the layout viewport grows to fit it, which makes the
+  // fixed bottom nav resolve against the oversized viewport.
+  if (m.vw > viewport.width + 2) {
+    failures.push(`mobile viewport expanded (innerWidth=${m.vw} > requested ${viewport.width})`);
+  }
   // Bottom nav is on-screen and spans only the viewport width.
   if (m.navTop > viewport.height - 40) {
     failures.push(`bottom nav not visible (navTop=${m.navTop} vh=${viewport.height})`);
@@ -248,29 +256,32 @@ for (const viewport of VIEWPORTS) {
 }
 
 if (SELFTEST) {
-  // Sensitivity proof: under the mobile percentage-resolution failure (sim=1),
-  // the FIXED markup still passes while the LEGACY markup must fail. This shows
-  // the gate would have caught the original bug.
-  console.log('\ncheck:layout --selftest — sensitivity (legacy must fail under mobile-sim)');
+  // Sensitivity proof. This gate must catch BOTH regressions that affect the
+  // mobile board, and the fixed markup must survive both conditions:
+  //   1. abspos-overflow (the bug that shipped): with no sim, the LEGACY markup
+  //      (scroller not `relative`) lets column-header sr-only badges overflow
+  //      the document and expand the mobile viewport. Fixed must pass, legacy fail.
+  //   2. percentage-height: under the mobile resolution failure (sim=1), the
+  //      fixed markup still fills the board while legacy collapses.
+  console.log('\ncheck:layout --selftest — sensitivity');
   const vp = VIEWPORTS[0];
-  const fixed = await render('cols=4&tasks=40&sim=1', vp);
-  const legacy = await render('cols=4&tasks=40&legacy=1&sim=1', vp);
-  const fixedFailures = checkInvariants(fixed, vp, true);
-  const legacyFailures = checkInvariants(legacy, vp, true);
-  if (fixedFailures.length) {
-    failed++;
-    console.log('  ✗ fixed markup failed under mobile-sim (regression):');
-    for (const f of fixedFailures) console.log(`      - ${f}`);
-  } else {
-    console.log('  ✓ fixed markup survives mobile-sim');
-  }
-  if (legacyFailures.length === 0) {
-    failed++;
-    console.log('  ✗ legacy markup passed under mobile-sim (test is not sensitive!)');
-  } else {
+  const cases = [
+    ['abspos-overflow / fixed  (no sim)', 'cols=4&tasks=40', true],
+    ['abspos-overflow / legacy (no sim)', 'cols=4&tasks=40&legacy=1', false],
+    ['pct-height / fixed  (sim)  ', 'cols=4&tasks=40&sim=1', true],
+    ['pct-height / legacy (sim)  ', 'cols=4&tasks=40&legacy=1&sim=1', false],
+  ];
+  for (const [label, query, mustPass] of cases) {
+    const m = await render(query, vp);
+    const failures = checkInvariants(m, vp, true);
+    const passed = failures.length === 0;
+    const ok = passed === mustPass;
+    if (!ok) failed++;
+    const expect = mustPass ? 'should pass' : 'should fail';
     console.log(
-      `  ✓ legacy markup fails under mobile-sim (${legacyFailures.length} invariant(s)) — test is sensitive`
+      `  ${ok ? '✓' : '✗'} ${label}: ${expect} -> ${passed ? 'passed' : 'failed (' + failures.length + ')'}`
     );
+    if (!ok) for (const f of failures.slice(0, 3)) console.log(`      - ${f}`);
   }
 }
 
