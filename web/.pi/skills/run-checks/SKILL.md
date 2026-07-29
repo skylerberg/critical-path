@@ -26,13 +26,13 @@ Run `npm run lint:fix` / `npm run format` to autofix, then re-check.
 
 - Tests are colocated: `src/**/*.test.ts`. Vitest mounts components because
   `svelteTesting()` is wired in `vite.config.ts` — do not remove it.
-- `npm run check:layout` drives a real headless Chrome (via the DevTools
-  Protocol, no dependencies) against `scripts/board-layout.fixture.html` to
-  assert mobile board layout that jsdom cannot measure (columns fill the board,
-  no vertical overflow, the bottom nav stays on-screen and screen-wide). It
-  skips with a warning if no Chrome/Chromium binary is found. Run
-  `node scripts/check-board-layout.mjs --selftest` to confirm the fixture is
-  still sensitive to the original bug.
+- `npm run check:layout` drives a real headless Chromium (via Playwright)
+  against `scripts/board-layout.fixture.html` to assert mobile board layout that
+  jsdom cannot measure (columns fill the board, no vertical overflow, the bottom
+  nav stays on-screen and screen-wide). It skips with a warning if Chromium
+  isn't installed locally; CI installs it. First-time local setup:
+  `npm run playwright:install`. Run `node scripts/check-board-layout.mjs
+  --selftest` to confirm the fixture is still sensitive to the original bug.
 - `npm run check:layout:real` is the faithful companion: it mounts the **real**
   `Board.svelte` (via `scripts/board-probe.html`) in headless Chrome, so it
   catches layout bugs the fixture can't model (real Tailwind output, real

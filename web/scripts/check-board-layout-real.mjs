@@ -8,11 +8,11 @@
 //   npm run check:layout:real
 //
 // Boots `vite dev` on a fixed port, waits for it, measures, tears down. Skips
-// with exit 0 if Chrome isn't found. Exits non-zero on assertion failure.
+// with exit 0 if Chromium isn't installed. Exits non-zero on assertion failure.
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createBrowser } from './lib/cdp.mjs';
+import { createBrowser } from './lib/browser.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(__dirname); // repo root (worktree root)
@@ -70,7 +70,8 @@ await waitForVite();
 
 const browser = await createBrowser();
 if (!browser) {
-  console.warn('check:layout:real — skipped (no Chrome/Chromium binary found).');
+  console.warn('check:layout:real — skipped (Playwright Chromium not installed).');
+  console.warn('  Run `npx playwright install chromium`.');
   teardown();
   process.exit(0);
 }

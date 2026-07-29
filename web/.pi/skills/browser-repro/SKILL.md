@@ -12,14 +12,15 @@ component's absolutely-positioned children passed, while production broke). For
 any layout/visual bug, reproduce against the **real component** in a real
 browser before diagnosing.
 
-Everything here is zero-dependency: it drives the system Chrome over the
-DevTools Protocol via Node's built-in `WebSocket`.
+Everything here rides on Playwright (already a dev dependency): it drives a
+pinned headless Chromium via `scripts/lib/browser.mjs`. First-time local setup:
+`npm run playwright:install` (downloads Chromium once).
 
 ## The tools (already in the repo)
 
-- `scripts/lib/cdp.mjs` — reusable helper: `findChrome()`, `createBrowser()`
+- `scripts/lib/browser.mjs` — reusable helper: `createBrowser()`
   → `{ setViewport, goto, eval, screenshot, close }`. **Use this instead of
-  writing CDP boilerplate.**
+  writing Playwright boilerplate.**
 - `scripts/board-probe.html` + `scripts/board-probe.ts` — mounts the **real**
   `Board.svelte` with seeded data inside an App/Project shell. Parametrized:
   `?cols=N&tasks=M&readonly=1`. Add analogous probes for other components.
@@ -33,7 +34,7 @@ DevTools Protocol via Node's built-in `WebSocket`.
 1. **Reproduce first, theorize second.** Boot the real component and measure:
 
    ```js
-   import { createBrowser } from './scripts/lib/cdp.mjs';
+   import { createBrowser } from './scripts/lib/browser.mjs';
    const b = await createBrowser();
    await b.setViewport({ width: 390, height: 844, mobile: true }); // mobile:true models mobile viewport behavior
    await b.goto('http://localhost:5180/scripts/board-probe.html?cols=4&tasks=12');
@@ -42,7 +43,7 @@ DevTools Protocol via Node's built-in `WebSocket`.
      vw: innerWidth,
      navW: document.querySelector('nav[aria-label="Primary"]')?.getBoundingClientRect().width,
    }))()`);
-   b.close();
+   await b.close();
    ```
 
    (Run `npm run dev` on any free port first, e.g. `vite --port 5180 --strictPort`,
@@ -68,7 +69,7 @@ DevTools Protocol via Node's built-in `WebSocket`.
 
 Copy the `board-probe` pattern: a `.html` entry that loads a `.ts` which imports
 the real component, seeds its store(s) directly, and `mount()`s it into a shell
-matching the real layout. Serve with `vite dev` and measure with `cdp.mjs`. The
+matching the real layout. Serve with `vite dev` and measure with `browser.mjs`. The
 shell must give the component the same flex/height ancestry it has in production
 (a stray wrapper div will change flex-1 sizing).
 

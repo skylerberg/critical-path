@@ -4,27 +4,28 @@
 //
 // jsdom (the vitest environment) has no layout engine, so component tests cannot
 // catch the bug this guards: the fixed bottom nav being pushed off-screen, or a
-// gap opening below the columns. This drives a real headless Chrome (via
-// scripts/lib/cdp.mjs, zero dependencies) and asserts the layout invariants.
+// gap opening below the columns. This drives a real headless Chromium (via
+// Playwright — scripts/lib/browser.mjs) and asserts the layout invariants.
 //
 //   node scripts/check-board-layout.mjs            # gate (used by `check:layout`)
 //   node scripts/check-board-layout.mjs --selftest # also prove the test is sensitive
 //
-// Exits non-zero on any assertion failure. If no Chrome binary is found it exits
-// 0 with a warning (some dev machines have none); CI (ubuntu-latest) ships Chrome.
+// Exits non-zero on any assertion failure. If Chromium isn't installed it
+// exits 0 with a warning; CI installs it (`npx playwright install chromium`).
 //
 // NOTE: this checks a FAITHFUL FIXTURE, not the real component. For the real
 // component, run `npm run check:layout:real` (scripts/check-board-layout-real.mjs).
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createBrowser } from './lib/cdp.mjs';
+import { createBrowser } from './lib/browser.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = pathToFileURL(join(__dirname, 'board-layout.fixture.html')).href;
 
 const browser = await createBrowser();
 if (!browser) {
-  console.warn('check:layout — skipped (no Chrome/Chromium binary found).');
+  console.warn('check:layout — skipped (Playwright Chromium not installed).');
+  console.warn('  Run `npx playwright install chromium`.');
   process.exit(0);
 }
 const { setViewport, goto, eval: evalPage, close } = browser;
