@@ -224,7 +224,7 @@ describe('Board readonly', () => {
     expect(screen.queryByRole('button', { name: 'Add a task' })).toBeNull();
     expect(document.querySelector('[data-quick-add]')).toBeNull();
     expect(within(header('Todo')).queryByTitle('Rename column')).toBeNull();
-    expect(within(header('Todo')).queryByRole('button', { name: 'Delete column' })).toBeNull();
+    expect(within(header('Todo')).queryByRole('button', { name: 'Options for Todo' })).toBeNull();
     expect(within(header('Todo')).queryByLabelText('Reorder column')).toBeNull();
     expect(within(header('Todo')).getByText('4')).toHaveTextContent('4 tasks');
     expect(within(header('Todo')).queryByRole('button')).toBeNull();
@@ -264,7 +264,7 @@ describe('Board readonly', () => {
     expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
     expect(within(header('Todo')).getByTitle('Rename column')).toBeInTheDocument();
     expect(
-      within(header('Todo')).getByRole('button', { name: 'Delete column' })
+      within(header('Todo')).getByRole('button', { name: 'Options for Todo' })
     ).toBeInTheDocument();
     expect(column().querySelector('a')).toHaveAttribute('href', '/projects/p1/tasks/t1');
     expect(configsOfType('task').at(-1)?.dragDisabled).toBe(false);

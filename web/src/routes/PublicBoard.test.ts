@@ -113,7 +113,7 @@ describe('PublicBoard', () => {
     await screen.findByText('Design cards');
     expect(screen.queryByRole('button', { name: '+ Add column' })).toBeNull();
     expect(screen.queryByTitle('Rename column')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Delete column' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Options for Design cards' })).toBeNull();
   });
 
   it('shows a published due date as an inert pill', async () => {

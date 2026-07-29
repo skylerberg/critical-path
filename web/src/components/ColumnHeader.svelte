@@ -28,7 +28,7 @@
   const badgeLabel = $derived(matchCount === null ? ' tasks' : ' tasks match this filter');
 
   const menuItemClass =
-    'flex min-h-11 w-full cursor-pointer items-center px-4 text-left text-sm hover:bg-accent-soft';
+    'flex min-h-11 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm hover:bg-accent-soft';
 
   function startRename(): void {
     draft = column.name;
@@ -120,29 +120,6 @@
     <Badge>{badgeText}<span class="sr-only">{badgeLabel}</span></Badge>
   {/if}
   {#if !readonly}
-    <button
-      type="button"
-      onclick={() => void board.toggleColumnDone(column.id)}
-      aria-pressed={column.is_done}
-      title={column.is_done ? 'Tasks in this column count as done' : 'Mark this as a done column'}
-      class="flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-accent-soft {column.is_done
-        ? 'text-success'
-        : 'text-muted opacity-40 hover:opacity-100'}"
-    >
-      <svg
-        class="size-5"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <circle cx="12" cy="12" r="9" />
-        <path d="m8.5 12.5 2.5 2.5 5-5.5" />
-      </svg>
-    </button>
     <div bind:this={menuEl} class="relative shrink-0">
       <button
         type="button"
@@ -172,22 +149,86 @@
               void board.duplicateColumn(column.id);
             }}
           >
+            <svg
+              class="size-4 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect width="14" height="14" x="8" y="8" rx="2" />
+              <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+            </svg>
             Duplicate column
           </button>
-          {#if count > 0 && board.columns.length > 1}
-            <button
-              type="button"
-              role="menuitem"
-              class={menuItemClass}
-              onclick={() => {
-                menuOpen = false;
-                moveOpen = true;
-              }}
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={column.is_done}
+            class={menuItemClass}
+            title="Tasks in a done column count as completed"
+            onclick={() => void board.toggleColumnDone(column.id)}
+          >
+            <svg
+              class="size-4 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
             >
-              Move all cards to…
-            </button>
-          {/if}
+              <circle cx="12" cy="12" r="9" />
+              <path d="m8.5 12.5 2.5 2.5 5-5.5" />
+            </svg>
+            <span class="flex-1">Mark as done column</span>
+            {#if column.is_done}
+              <svg
+                class="size-4 text-success"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m5 12 5 5 9-10" />
+              </svg>
+            {/if}
+          </button>
           {#if count > 0}
+            <div role="separator" class="my-1 border-t border-edge"></div>
+            {#if board.columns.length > 1}
+              <button
+                type="button"
+                role="menuitem"
+                class={menuItemClass}
+                onclick={() => {
+                  menuOpen = false;
+                  moveOpen = true;
+                }}
+              >
+                <svg
+                  class="size-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </svg>
+                Move all cards to…
+              </button>
+            {/if}
             <button
               type="button"
               role="menuitem"
@@ -197,35 +238,54 @@
                 archiveOpen = true;
               }}
             >
+              <svg
+                class="size-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect width="20" height="5" x="2" y="3" rx="1" />
+                <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+                <path d="M10 12h4" />
+              </svg>
               Archive all cards
             </button>
           {/if}
+          <div role="separator" class="my-1 border-t border-edge"></div>
+          <button
+            type="button"
+            role="menuitem"
+            class="{menuItemClass} hover:text-danger"
+            onclick={() => {
+              menuOpen = false;
+              deleteOpen = true;
+            }}
+          >
+            <svg
+              class="size-4 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 6h18" />
+              <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+              <line x1="10" y1="11" x2="10" y2="17" />
+              <line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
+            Delete column
+          </button>
         </div>
       {/if}
     </div>
-    <button
-      type="button"
-      onclick={() => (deleteOpen = true)}
-      aria-label="Delete column"
-      class="flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-accent-soft hover:text-danger"
-    >
-      <svg
-        class="size-4"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M3 6h18" />
-        <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-        <line x1="10" y1="11" x2="10" y2="17" />
-        <line x1="14" y1="11" x2="14" y2="17" />
-      </svg>
-    </button>
   {/if}
 </header>
 
