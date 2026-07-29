@@ -287,6 +287,22 @@ describe('Board snapping', () => {
       expect(target).toHaveClass('snap-center', 'md:snap-start', 'snap-always');
     }
   });
+
+  // Guards the mobile bottom-bar / column-gap fix. The board scroller must be a
+  // definite-height flex column that clips vertical overflow (so the bottom nav is
+  // never pushed off-screen), and the padded row must size itself with flex
+  // (flex-1 + min-h-0) rather than a percentage height (h-full). Percentage height
+  // against a flex item's main size is unreliable on mobile engines, which is what
+  // left columns unfilled (gap below them) or ballooning past the board.
+  it('contains the board vertically without relying on percentage height', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+
+    expect(scroller()).toHaveClass('flex', 'flex-col', 'overflow-y-hidden', 'min-h-0');
+    const row = scroller().firstElementChild;
+    expect(row).toHaveClass('flex-1', 'min-h-0');
+    expect(row).not.toHaveClass('h-full');
+  });
 });
 
 describe('Board add-column drafts', () => {

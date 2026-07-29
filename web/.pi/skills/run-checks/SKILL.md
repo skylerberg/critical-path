@@ -12,6 +12,7 @@ Run all of these before declaring done. CI runs the same set
 
 ```sh
 npm run check           # svelte-check (type checking)
+npm run check:layout    # real-Chrome board/bottom-nav layout assertions (no deps)
 npm run lint            # eslint .
 npm run format:check    # prettier --check src
 npm test                # vitest (jsdom); tests are colocated as *.test.ts
@@ -24,6 +25,13 @@ Run `npm run lint:fix` / `npm run format` to autofix, then re-check.
 
 - Tests are colocated: `src/**/*.test.ts`. Vitest mounts components because
   `svelteTesting()` is wired in `vite.config.ts` — do not remove it.
+- `npm run check:layout` drives a real headless Chrome (via the DevTools
+  Protocol, no dependencies) against `scripts/board-layout.fixture.html` to
+  assert mobile board layout that jsdom cannot measure (columns fill the board,
+  no vertical overflow, the bottom nav stays on-screen and screen-wide). It
+  skips with a warning if no Chrome/Chromium binary is found. Run
+  `node scripts/check-board-layout.mjs --selftest` to confirm the fixture is
+  still sensitive to the original bug.
 - If `src/api/api.generated.ts` is stale (a backend schema changed), run
   `npm run generate:api` first — it auto-finds `../critical-path-api/openapi.json`.
   A stale client only fails under `npm run check`, never under `npm test`, so

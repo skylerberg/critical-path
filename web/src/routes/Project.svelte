@@ -87,16 +87,16 @@
 </script>
 
 {#if board.error !== null && board.currentProjectId === projectId}
-  <div class="flex h-[calc(100dvh-4rem)] flex-col items-center justify-center gap-4 p-4 lg:h-dvh">
+  <div class="flex h-[var(--cp-board-h)] flex-col items-center justify-center gap-4 p-4 lg:h-dvh">
     <p class="text-muted">{board.error}</p>
     <Button variant="secondary" onclick={() => void board.refetch()}>Try again</Button>
   </div>
 {:else if !ready}
-  <div class="flex h-[calc(100dvh-4rem)] items-center justify-center lg:h-dvh">
+  <div class="flex h-[var(--cp-board-h)] items-center justify-center lg:h-dvh">
     <Spinner size="lg" />
   </div>
 {:else}
-  <div class="flex h-[calc(100dvh-4rem)] flex-col lg:h-dvh">
+  <div class="flex h-[var(--cp-board-h)] flex-col lg:h-dvh">
     <ProjectHeader {projectId} {view} />
     {#if view === 'board'}
       <Board {projectId} {readonly} />

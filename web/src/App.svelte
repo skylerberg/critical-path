@@ -93,7 +93,7 @@
   {#if showNav}
     <Nav />
   {/if}
-  <div class={showNav ? 'pb-16 lg:pb-0 lg:pl-56' : ''}>
+  <div class={showNav ? 'pb-[var(--cp-bottom-nav-h)] lg:pb-0 lg:pl-56' : ''}>
     {#if route.name === 'login'}
       <Login />
     {:else if route.name === 'signup'}
