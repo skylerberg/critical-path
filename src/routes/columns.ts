@@ -20,6 +20,7 @@ import {
   duplicatedColumnResponseSchema,
   moveColumnTasksSchema,
   movedTasksResponseSchema,
+  reorderColumnTasksSchema,
   archivedTasksResponseSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
@@ -118,6 +119,50 @@ async function relocateTasks(
       newValue: { id: target.id, name: target.name },
     }))
   );
+
+  return movedTasks;
+}
+
+// A one-shot reorder within a single column: re-stamp evenly spaced positions
+// in the given order so the result commits to manual order (no column change,
+// no activity entry, no column_since bump).
+async function reorderTasks(
+  db: Kysely<DB>,
+  column: { id: string },
+  taskIds: readonly string[]
+): Promise<MovedTask[]> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+  if (new Set(taskIds).size !== taskIds.length) {
+    throw new AppError(422, 'task_ids must not contain duplicates');
+  }
+  const rows = await db
+    .selectFrom('task')
+    .select('id')
+    .where('column_id', '=', column.id)
+    .where('archived_at', 'is', null)
+    .where('id', 'in', [...taskIds])
+    .execute();
+  const valid = new Set(rows.map((row) => row.id));
+  if (rows.length !== taskIds.length || taskIds.some((taskId) => !valid.has(taskId))) {
+    throw new AppError(422, 'task_ids must reference unarchived tasks in this column');
+  }
+
+  const movedTasks = taskIds.map((taskId, index) => ({
+    id: taskId,
+    column_id: column.id,
+    position: (index + 1) * 1000,
+  }));
+
+  await sql`
+    update task
+    set position = v.position
+    from (values ${sql.join(
+      movedTasks.map((task) => sql`(${task.id}::uuid, ${task.position}::float8)`)
+    )}) as v(id, position)
+    where task.id = v.id
+  `.execute(db);
 
   return movedTasks;
 }
@@ -513,6 +558,69 @@ router.post(
       publishAfterCommit(c, 'column_tasks_moved', column.project_id, {
         column_id: id,
         target_column_id: target.id,
+        moved_tasks: movedTasks,
+      });
+    }
+    return c.json({ moved_tasks: movedTasks }, 200);
+  }
+);
+
+router.post(
+  '/:id/reorder',
+  describeRoute({
+    tags: ['Columns'],
+    summary: 'Reorder tasks within a column',
+    description:
+      'Re-stamp positions for the column’s unarchived tasks in the given order, a one-shot ' +
+      'sort that commits to manual order rather than acting as a persistent view mode. The ' +
+      'client supplies every unarchived task id of the column in its new order; the server ' +
+      'assigns evenly spaced positions (1000, 2000, …) so later drags have room to midpoint. ' +
+      'No column changes, so neither updated_at, column_since nor the activity log are ' +
+      'touched. A duplicate id, an id that is archived or in another column, or a missing ' +
+      'id set returns 422 with a plain error body. Emits one `column_tasks_reordered` event ' +
+      'with the moved tasks’ new positions.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Reordered tasks with their new positions',
+        content: {
+          'application/json': {
+            schema: resolver(movedTasksResponseSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
+      ...notFoundErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  jsonValidator(reorderColumnTasksSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const { task_ids } = c.req.valid('json');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    const column = await db
+      .selectFrom('board_column')
+      .select(['id', 'project_id'])
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!column) {
+      throw new AppError(404, 'Column not found');
+    }
+    await assertProjectWrite(db, user.id, column.project_id, 'Column not found');
+
+    const movedTasks = await reorderTasks(db, column, task_ids);
+
+    if (movedTasks.length > 0) {
+      publishAfterCommit(c, 'column_tasks_reordered', column.project_id, {
+        column_id: id,
         moved_tasks: movedTasks,
       });
     }
