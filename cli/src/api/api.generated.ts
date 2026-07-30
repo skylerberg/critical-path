@@ -1255,6 +1255,7 @@ export interface components {
       assignee_ids: string[];
       blocker_ids: string[];
       column_id: string;
+      column_since: string;
       comment_count: number;
       cover_image_url: components['schemas']['UserAvatarurl'];
       created_at: string;
@@ -1296,6 +1297,7 @@ export interface components {
       assignee_ids: string[];
       blocker_ids: string[];
       column_id: string;
+      column_since: string;
       comment_count: number;
       cover_image_url: components['schemas']['UserAvatarurl'];
       created_at: string;
@@ -1320,6 +1322,7 @@ export interface components {
         assignee_ids: string[];
         blocker_ids: string[];
         column_id: string;
+        column_since: string;
         comment_count: number;
         cover_image_url: components['schemas']['UserAvatarurl'];
         created_at: string;
@@ -1460,6 +1463,7 @@ export interface components {
       assignee_ids: string[];
       blocker_ids: string[];
       column_id: string;
+      column_since: string;
       comment_count: number;
       comments: components['schemas']['Comment'][];
       cover_image_url: components['schemas']['UserAvatarurl'];
