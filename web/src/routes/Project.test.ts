@@ -330,7 +330,8 @@ describe('Project', () => {
     await screen.findByRole('heading', { name: 'Rulebook' });
 
     board.setFilterQuery('boss');
-    await fireEvent.click(screen.getByRole('button', { name: 'Labels' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Labels' }));
     await screen.findByRole('heading', { level: 2, name: 'Labels' });
 
     pressKey('x', projectId, 'board');
