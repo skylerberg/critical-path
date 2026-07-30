@@ -1,6 +1,6 @@
-/// <reference types="vitest/config" />
 import { realpathSync } from 'node:fs';
 import { defineConfig } from 'vite';
+import { configDefaults } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -101,6 +101,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/vitest-setup.ts'],
+    // Worktrees live under .pi/worktrees/** and .claude/worktrees/**; keep them
+    // out of test discovery so a run from the main checkout doesn't pick up
+    // (stale) tests from sibling worktrees.
+    exclude: [...configDefaults.exclude, '.pi/worktrees/**', '.claude/**'],
     // Pinned west of Greenwich so the due-date assertions can actually fail: a
     // local-vs-UTC mixup is invisible on a machine already running at UTC.
     env: { TZ: 'America/Los_Angeles' },
