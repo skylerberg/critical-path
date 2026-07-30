@@ -17,6 +17,7 @@ function task(id: string, columnId: string): BoardTask {
     position: 1000,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    column_since: '2026-01-01T00:00:00Z',
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
@@ -186,5 +187,50 @@ describe('ColumnHeader options menu', () => {
     renderHeader(TODO, true);
 
     expect(screen.queryByRole('button', { name: 'Options for Todo' })).toBeNull();
+  });
+});
+
+describe('ColumnHeader sort submenu', () => {
+  it('lists every sort option in a submenu opened from Sort by', async () => {
+    renderHeader(TODO);
+    await openMenu();
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+
+    const submenu = screen.getByRole('menu', { name: 'Sort Todo by' });
+    expect(submenu).toBeInTheDocument();
+    expect(screen.getByRole('menuitemradio', { name: 'Manual order' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemradio', { name: 'Alphabetically' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitemradio', { name: 'Added to column (newest first)' })
+    ).toBeInTheDocument();
+  });
+
+  it('checks the active sort option', async () => {
+    board.setColumnSort('c1', 'title-asc');
+    renderHeader(TODO);
+    await openMenu();
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+
+    expect(screen.getByRole('menuitemradio', { name: 'Alphabetically' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+    expect(screen.getByRole('menuitemradio', { name: 'Manual order' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    );
+  });
+
+  it('applies a chosen sort and closes the whole menu', async () => {
+    renderHeader(TODO);
+    await openMenu();
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+
+    await fireEvent.click(screen.getByRole('menuitemradio', { name: 'Created (newest first)' }));
+
+    expect(board.sortForColumn('c1')).toBe('created-desc');
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 });

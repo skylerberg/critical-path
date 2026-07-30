@@ -65,6 +65,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
     position,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    column_since: '2026-01-01T00:00:00Z',
     label_ids: [] as string[],
     assignee_ids: [] as string[],
     blocker_ids: [] as string[],

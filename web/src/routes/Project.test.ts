@@ -43,6 +43,7 @@ function task(id: string, columnId: string, title: string, position = 1000): Boa
     position,
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
+    column_since: '2026-07-15T00:00:00Z',
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],

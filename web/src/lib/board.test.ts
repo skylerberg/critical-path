@@ -50,6 +50,7 @@ function task(id: string, columnId: string, position: number, title: string) {
     position,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    column_since: '2026-01-01T00:00:00Z',
     label_ids: id === 't1' ? ['l1'] : [],
     assignee_ids: [],
     blocker_ids: [],
@@ -1400,6 +1401,74 @@ describe('displayTasksInColumn', () => {
   it('leaves tasksInColumn in position order while filters are active', () => {
     board.setFilterQuery('alpha');
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3', 't4']);
+  });
+});
+
+describe('column sort', () => {
+  beforeEach(() => {
+    board.tasks = [
+      {
+        ...task('t1', 'c1', 1000, 'Cherry'),
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        column_since: '2026-01-01T00:00:00Z',
+      },
+      {
+        ...task('t2', 'c1', 2000, 'Apple'),
+        created_at: '2026-02-01T00:00:00Z',
+        updated_at: '2026-03-01T00:00:00Z',
+        column_since: '2026-04-01T00:00:00Z',
+      },
+      {
+        ...task('t3', 'c1', 3000, 'Banana'),
+        created_at: '2026-03-01T00:00:00Z',
+        updated_at: '2026-02-01T00:00:00Z',
+        column_since: '2026-02-01T00:00:00Z',
+      },
+    ];
+  });
+
+  it('defaults to manual (position) order', () => {
+    expect(board.sortForColumn('c1')).toBe('manual');
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+  });
+
+  it('sorts alphabetically', () => {
+    board.setColumnSort('c1', 'title-asc');
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
+  });
+
+  it('sorts created newest and oldest first', () => {
+    board.setColumnSort('c1', 'created-desc');
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t3', 't2', 't1']);
+    board.setColumnSort('c1', 'created-asc');
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+  });
+
+  it('sorts updated newest and oldest first', () => {
+    board.setColumnSort('c1', 'updated-desc');
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
+    board.setColumnSort('c1', 'updated-asc');
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't3', 't2']);
+  });
+
+  it('sorts added-to-column newest and oldest first', () => {
+    board.setColumnSort('c1', 'column_since-desc');
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
+    board.setColumnSort('c1', 'column_since-asc');
+    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't3', 't2']);
+  });
+
+  it('keeps tasksInColumn in position order while a sort is active', () => {
+    board.setColumnSort('c1', 'title-asc');
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+  });
+
+  it('is reset by reset()', () => {
+    board.setColumnSort('c1', 'title-asc');
+    board.reset();
+    expect(board.sortForColumn('c1')).toBe('manual');
+    expect(board.columnSorts).toEqual({});
   });
 });
 

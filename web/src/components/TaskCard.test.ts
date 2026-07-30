@@ -16,6 +16,7 @@ const task: BoardTask = {
   position: 1000,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
+  column_since: '2026-01-01T00:00:00Z',
   label_ids: ['l1'],
   assignee_ids: ['u1'],
   blocker_ids: ['t9', 't8'],

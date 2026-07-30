@@ -2,6 +2,7 @@
   import { dragHandle } from 'svelte-dnd-action';
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
+  import { COLUMN_SORT_OPTIONS, columnSortLabel } from '../lib/column-sort';
   import ColumnArchiveTasksDialog from './ColumnArchiveTasksDialog.svelte';
   import ColumnDeleteDialog from './ColumnDeleteDialog.svelte';
   import ColumnMoveTasksDialog from './ColumnMoveTasksDialog.svelte';
@@ -23,6 +24,9 @@
   let menuEl = $state<HTMLDivElement>();
   let moveOpen = $state(false);
   let archiveOpen = $state(false);
+  let sortSubmenuOpen = $state(false);
+
+  const currentSort = $derived(board.sortForColumn(column.id));
 
   const badgeText = $derived(matchCount === null ? String(count) : `${matchCount} of ${count}`);
   const badgeLabel = $derived(matchCount === null ? ' tasks' : ' tasks match this filter');
@@ -201,6 +205,85 @@
               </svg>
             {/if}
           </button>
+          <div class="relative">
+            <button
+              type="button"
+              role="menuitem"
+              aria-haspopup="menu"
+              aria-expanded={sortSubmenuOpen}
+              class={menuItemClass}
+              onmouseenter={() => (sortSubmenuOpen = true)}
+              onclick={() => (sortSubmenuOpen = !sortSubmenuOpen)}
+            >
+              <svg
+                class="size-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m3 16 4 4 4-4" />
+                <path d="M7 20V4" />
+                <path d="m21 8-4-4-4 4" />
+                <path d="M17 4v16" />
+              </svg>
+              <span class="flex-1">Sort by</span>
+              {#if currentSort !== 'manual'}
+                <span class="truncate text-xs text-muted">{columnSortLabel(currentSort)}</span>
+              {/if}
+              <svg
+                class="size-4 shrink-0 text-muted"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+            {#if sortSubmenuOpen}
+              <div
+                role="menu"
+                aria-label="Sort {column.name} by"
+                class="max-h-[80vh] absolute top-0 right-full mr-1 w-56 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
+              >
+                {#each COLUMN_SORT_OPTIONS as option (option.value)}
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={currentSort === option.value}
+                    class={menuItemClass}
+                    onclick={() => {
+                      board.setColumnSort(column.id, option.value);
+                      menuOpen = false;
+                    }}
+                  >
+                    <span class="flex-1 truncate">{option.label}</span>
+                    {#if currentSort === option.value}
+                      <svg
+                        class="size-4 text-accent"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m5 12 5 5 9-10" />
+                      </svg>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
           {#if count > 0}
             <div role="separator" class="my-1 border-t border-edge"></div>
             {#if board.columns.length > 1}

@@ -10,6 +10,7 @@ import type {
   CycleTask,
   PublicBoardPayload,
 } from './board-types';
+import { type ColumnSort, sortTasks } from './column-sort';
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
@@ -74,6 +75,7 @@ function optimisticTask(id: string, columnId: string, title: string, position: n
     due_date: null,
     created_at: now,
     updated_at: now,
+    column_since: now,
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
@@ -140,6 +142,9 @@ class BoardStore {
   filterLabelIds = $state<string[]>([]);
   filterAssigneeIds = $state<string[]>([]);
   filterQuery = $state('');
+  // Per-column view sort. Lives in the store so it survives switching views and
+  // back; cleared on reset (project change). `manual` (absent) is the default.
+  columnSorts = $state<Record<string, ColumnSort>>({});
   // In the store rather than the view so it survives switching views and back.
   graphShowDone = $state(false);
   cyclePath = $state<CycleTask[] | null>(null);
@@ -306,6 +311,7 @@ class BoardStore {
           ...task,
           created_at: '',
           updated_at: '',
+          column_since: '',
           comment_count: 0,
         })),
         labels: data.labels,
@@ -337,6 +343,7 @@ class BoardStore {
     this.filterLabelIds = [];
     this.filterAssigneeIds = [];
     this.filterQuery = '';
+    this.columnSorts = {};
     this.graphShowDone = false;
     this.#clearCyclePath();
   }
@@ -448,6 +455,7 @@ class BoardStore {
         comment_count: 0,
         created_at: now,
         updated_at: now,
+        column_since: now,
       },
     ];
     try {
@@ -1189,21 +1197,30 @@ class BoardStore {
   }
 
   displayTasksInColumn(columnId: string): BoardTask[] {
+    const sort = this.sortForColumn(columnId);
     const tasks = this.tasksInColumn(columnId);
     if (!this.hasActiveFilters) {
-      return tasks;
+      return sortTasks(tasks, sort);
     }
     const matches: BoardTask[] = [];
     const rest: BoardTask[] = [];
     for (const task of tasks) {
       (this.taskMatchesFilters(task) ? matches : rest).push(task);
     }
-    return [...matches, ...rest];
+    return [...sortTasks(matches, sort), ...sortTasks(rest, sort)];
   }
 
   matchingCountInColumn(columnId: string): number {
     return this.tasks.filter((task) => task.column_id === columnId && this.taskMatchesFilters(task))
       .length;
+  }
+
+  sortForColumn(columnId: string): ColumnSort {
+    return this.columnSorts[columnId] ?? 'manual';
+  }
+
+  setColumnSort(columnId: string, sort: ColumnSort): void {
+    this.columnSorts = { ...this.columnSorts, [columnId]: sort };
   }
 
   taskImages = $state<Record<string, TaskImage[]>>({});
