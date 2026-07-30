@@ -185,7 +185,8 @@ describe('ProjectHeader', () => {
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
 
     expect(screen.getByText('Ada (you)')).toBeInTheDocument();
     expect(screen.getByText('Owner')).toBeInTheDocument();
@@ -211,7 +212,8 @@ describe('ProjectHeader', () => {
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Webhooks' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Webhooks' }));
 
     expect(screen.getByLabelText('Endpoint URL')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('https://example.com/hook')).toBeInTheDocument());
@@ -223,18 +225,22 @@ describe('ProjectHeader', () => {
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Archived cards' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Archived cards' }));
 
     expect(screen.getByLabelText('Search archived cards')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('No archived cards.')).toBeInTheDocument());
   });
 
-  it('offers Export in both views', () => {
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
-    expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
+  it('offers Export in both views', async () => {
+    const { unmount } = render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Export' })).toBeInTheDocument();
+    unmount();
 
     render(ProjectHeader, { projectId: 'p1', view: 'graph' });
-    expect(screen.getAllByRole('button', { name: 'Export' })).toHaveLength(2);
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Export' })).toBeInTheDocument();
   });
 
   it('downloads the project and shows a busy state until the archive arrives', async () => {
@@ -246,12 +252,13 @@ describe('ProjectHeader', () => {
     );
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
-    const button = screen.getByRole('button', { name: 'Export' });
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    const button = screen.getByRole('menuitem', { name: 'Export' });
     await fireEvent.click(button);
 
     await waitFor(() => expect(button).toBeDisabled());
     expect(screen.getByRole('status', { name: 'Exporting' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Export' })).toBe(button);
+    expect(screen.getByRole('menuitem', { name: 'Export' })).toBe(button);
     expect(button).toHaveAttribute('aria-busy', 'true');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect((fetchMock.mock.calls[0][0] as Request).url).toMatch(/\/api\/projects\/p1\/export$/);
@@ -276,7 +283,8 @@ describe('ProjectHeader', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { format: 'critical-path-project-export' }));
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
-    const button = screen.getByRole('button', { name: 'Export' });
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    const button = screen.getByRole('menuitem', { name: 'Export' });
     await fireEvent.click(button);
 
     await waitFor(() => expect(toasts.toasts).toHaveLength(1));
@@ -291,7 +299,8 @@ describe('ProjectHeader', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Something broke' }));
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
-    const button = screen.getByRole('button', { name: 'Export' });
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    const button = screen.getByRole('menuitem', { name: 'Export' });
     await fireEvent.click(button);
 
     await waitFor(() => expect(toasts.toasts).toHaveLength(1));
@@ -303,7 +312,8 @@ describe('ProjectHeader', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(404, { error: 'Project not found' }));
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
-    await fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Export' }));
 
     await waitFor(() => expect(toasts.toasts).toHaveLength(1));
     expect(toasts.toasts[0]).toMatchObject({ variant: 'error', message: 'Project not found' });
@@ -313,7 +323,8 @@ describe('ProjectHeader', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
 
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
-    await fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Export' }));
 
     await waitFor(() => expect(toasts.toasts).toHaveLength(1));
     expect(toasts.toasts[0]).toMatchObject({
@@ -363,19 +374,22 @@ describe('ProjectHeader for a viewer', () => {
     };
   });
 
-  it('badges the board and drops the management surfaces', () => {
+  it('badges the board and drops the management surfaces', async () => {
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
 
     expect(screen.getByText('View only')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Labels/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Webhooks/ })).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.queryByRole('menuitem', { name: /Labels/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /Webhooks/ })).toBeNull();
   });
 
-  it('keeps the read-only surfaces', () => {
+  it('keeps the read-only surfaces', async () => {
     render(ProjectHeader, { projectId: 'p1', view: 'board' });
 
-    expect(screen.getByRole('button', { name: /Share/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Archived cards/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByRole('menuitem', { name: /Share/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Archived cards/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Export' })).toBeInTheDocument();
   });
 });
