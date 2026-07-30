@@ -35,6 +35,13 @@ export const moveColumnTasksSchema = type({
   target_column_id: uuid,
 });
 
+// The full ordered id list of a column's unarchived tasks, in their new order;
+// the server re-stamps evenly spaced positions so a one-shot sort commits to
+// manual order rather than acting as a persistent view mode.
+export const reorderColumnTasksSchema = type({
+  task_ids: uuid.array().atLeastLength(1),
+});
+
 export const movedTaskSchema = type({
   id: 'string',
   column_id: 'string',

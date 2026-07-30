@@ -957,3 +957,111 @@ describe('POST /api/columns/:id/archive-tasks', () => {
     expect(await updatedAt(taskId)).toBe(before);
   });
 });
+
+describe('POST /api/columns/:id/reorder', () => {
+  it('requires auth', async () => {
+    const res = await ctx
+      .request()
+      .post(`/api/columns/${newId()}/reorder`, { task_ids: [newId()] });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 with a plain error body for a malformed column id', async () => {
+    const res = await ctx.request(token).post('/api/columns/not-a-uuid/reorder', {
+      task_ids: [newId()],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 for an unknown column and for another user’s column', async () => {
+    const res = await ctx.request(token).post(`/api/columns/${newId()}/reorder`, {
+      task_ids: [newId()],
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('re-stamps evenly spaced positions in the given order', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+    const third = await insertTask(projectId, columnId, 3000);
+    const first = await insertTask(projectId, columnId, 1000);
+    const second = await insertTask(projectId, columnId, 2000);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/reorder`, { task_ids: [first, second, third] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      moved_tasks: [
+        { id: first, column_id: columnId, position: 1000 },
+        { id: second, column_id: columnId, position: 2000 },
+        { id: third, column_id: columnId, position: 3000 },
+      ],
+    });
+
+    expect(await tasksInColumn(columnId)).toEqual([
+      { id: first, column_id: columnId, position: 1000 },
+      { id: second, column_id: columnId, position: 2000 },
+      { id: third, column_id: columnId, position: 3000 },
+    ]);
+  });
+
+  it('leaves updated_at and column_since untouched', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+    const a = await insertTask(projectId, columnId, 1000);
+    const b = await insertTask(projectId, columnId, 2000);
+    const beforeUpdatedAt = await updatedAt(a);
+    const beforeColumnSince = (
+      await db
+        .selectFrom('task')
+        .select('column_since')
+        .where('id', '=', a)
+        .executeTakeFirstOrThrow()
+    ).column_since.toISOString();
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/reorder`, { task_ids: [b, a] });
+    expect(res.status).toBe(200);
+
+    expect(await updatedAt(a)).toBe(beforeUpdatedAt);
+    const afterColumnSince = (
+      await db
+        .selectFrom('task')
+        .select('column_since')
+        .where('id', '=', a)
+        .executeTakeFirstOrThrow()
+    ).column_since.toISOString();
+    expect(afterColumnSince).toBe(beforeColumnSince);
+  });
+
+  it('returns 422 when a task id is not an unarchived task in the column', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+    const otherColumnId = await insertColumn(projectId, { position: 2000 });
+    const inColumn = await insertTask(projectId, columnId, 1000);
+    const elsewhere = await insertTask(projectId, otherColumnId, 1000);
+
+    const foreign = await ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/reorder`, { task_ids: [inColumn, elsewhere] });
+    expect(foreign.status).toBe(422);
+
+    const bogus = await ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/reorder`, { task_ids: [inColumn, newId()] });
+    expect(bogus.status).toBe(422);
+  });
+
+  it('returns 422 for duplicate task ids', async () => {
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId);
+    const only = await insertTask(projectId, columnId, 1000);
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${columnId}/reorder`, { task_ids: [only, only] });
+    expect(res.status).toBe(422);
+  });
+});

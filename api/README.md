@@ -539,6 +539,7 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `column_deleted`                | `{ id, moved_tasks }`                                |
 | `column_tasks_moved`            | `{ column_id, target_column_id, moved_tasks }`       |
 | `column_tasks_archived`         | `{ column_id, tasks }`                               |
+| `column_tasks_reordered`        | `{ column_id, moved_tasks }`                         |
 | `label_created` / `label_updated` | label row                                          |
 | `label_deleted`                 | `{ id }`                                             |
 | `image_created`                 | image response plus `{ task_id, image_count }`       |
@@ -559,8 +560,8 @@ their `blocker_ids` regain its id. Archiving emits no such fan-out: like
 `task_deleted` it carries only the archived card, and clients strip its id
 from every `blocker_ids` they hold.
 
-`column_tasks_moved` and `column_tasks_archived` are the batched form emitted
-by the two column-scoped bulk actions; the per-task `task_updated` and
+`column_tasks_moved`, `column_tasks_archived` and `column_tasks_reordered` are the batched
+form emitted by the column-scoped bulk actions; the per-task `task_updated` and
 `task_archived` events are **not** also emitted for those calls, because a
 fifty-card Done column would otherwise cost fifty envelopes and their delivery
 queries. A client that does not understand them converges on its next board
