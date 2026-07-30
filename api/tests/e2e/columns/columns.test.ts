@@ -599,6 +599,32 @@ describe('POST /api/columns/:id/move-tasks', () => {
     ]);
   });
 
+  it('bumps column_since on each moved task', async () => {
+    const projectId = await createProject();
+    const sourceId = await insertColumn(projectId, { name: 'Source', position: 1000 });
+    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const taskId = await insertTask(projectId, sourceId, 1000);
+
+    const before = await db
+      .selectFrom('task')
+      .select('column_since')
+      .where('id', '=', taskId)
+      .executeTakeFirstOrThrow();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const res = await ctx
+      .request(token)
+      .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
+    expect(res.status).toBe(200);
+
+    const after = await db
+      .selectFrom('task')
+      .select('column_since')
+      .where('id', '=', taskId)
+      .executeTakeFirstOrThrow();
+    expect(after.column_since.getTime()).toBeGreaterThan(before.column_since.getTime());
+  });
+
   it('keeps the source column, now empty', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });

@@ -101,7 +101,7 @@ async function relocateTasks(
 
   await sql`
     update task
-    set column_id = ${target.id}::uuid, position = v.position
+    set column_id = ${target.id}::uuid, position = v.position, column_since = now()
     from (values ${sql.join(
       movedTasks.map((task) => sql`(${task.id}::uuid, ${task.position}::float8)`)
     )}) as v(id, position)
