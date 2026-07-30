@@ -45,3 +45,9 @@ Run `npm run lint:fix` / `npm run format` to autofix, then re-check.
 - From a `.pi/worktrees/*` checkout, symlink `node_modules`
   (`ln -s ../../../node_modules node_modules`, adjusting depth) rather than
   reinstalling.
+- `vite.config.ts` (vitest `exclude`) and `eslint.config.js` (`ignores` + a
+  pinned `tsconfigRootDir`) keep linked worktrees under `.pi/worktrees/**` and
+  `.claude/**` out of scans launched from the main checkout — otherwise their
+  own `tsconfig.json`/test files pollute `eslint .` (multiple
+  `tsconfigRootDir` candidates) and `npm test` (runs sibling worktrees' tests).
+  Don't remove those entries.
