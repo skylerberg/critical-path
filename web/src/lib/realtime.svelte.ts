@@ -26,6 +26,7 @@ const BOARD_EVENTS = new Set([
   'column_deleted',
   'column_tasks_moved',
   'column_tasks_archived',
+  'column_tasks_reordered',
   'label_created',
   'label_updated',
   'label_deleted',

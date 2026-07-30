@@ -142,9 +142,6 @@ class BoardStore {
   filterLabelIds = $state<string[]>([]);
   filterAssigneeIds = $state<string[]>([]);
   filterQuery = $state('');
-  // Per-column view sort. Lives in the store so it survives switching views and
-  // back; cleared on reset (project change). `manual` (absent) is the default.
-  columnSorts = $state<Record<string, ColumnSort>>({});
   // In the store rather than the view so it survives switching views and back.
   graphShowDone = $state(false);
   cyclePath = $state<CycleTask[] | null>(null);
@@ -343,7 +340,6 @@ class BoardStore {
     this.filterLabelIds = [];
     this.filterAssigneeIds = [];
     this.filterQuery = '';
-    this.columnSorts = {};
     this.graphShowDone = false;
     this.#clearCyclePath();
   }
@@ -880,6 +876,39 @@ class BoardStore {
     }
   }
 
+  // A one-shot sort: rewrite the column's positions to match the key once, then
+  // manual order resumes. Positions are re-stamped evenly so later drags have
+  // room, and the server is the source of truth on the echoed values.
+  async sortColumn(columnId: string, sort: ColumnSort): Promise<void> {
+    if (this.currentProjectId === null) {
+      return;
+    }
+    const orderedIds = sortTasks(this.tasksInColumn(columnId), sort).map((task) => task.id);
+    if (orderedIds.length <= 1) {
+      return;
+    }
+    const optimistic = new Map(orderedIds.map((id, index) => [id, (index + 1) * 1000] as const));
+    this.tasks = this.tasks.map((task) => {
+      const position = optimistic.get(task.id);
+      return position === undefined ? task : { ...task, position };
+    });
+    try {
+      const data = assertOk(
+        await api.POST('/api/columns/{id}/reorder', {
+          params: { path: { id: columnId } },
+          body: { task_ids: orderedIds },
+        })
+      );
+      const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
+      this.tasks = this.tasks.map((task) => {
+        const movedTask = byId.get(task.id);
+        return movedTask === undefined ? task : { ...task, position: movedTask.position };
+      });
+    } catch (error) {
+      await this.#mutationFailed(error);
+    }
+  }
+
   async archiveTasksInColumn(columnId: string): Promise<void> {
     const archiving = this.tasksInColumn(columnId);
     if (this.currentProjectId === null || archiving.length === 0) {
@@ -1197,30 +1226,21 @@ class BoardStore {
   }
 
   displayTasksInColumn(columnId: string): BoardTask[] {
-    const sort = this.sortForColumn(columnId);
     const tasks = this.tasksInColumn(columnId);
     if (!this.hasActiveFilters) {
-      return sortTasks(tasks, sort);
+      return tasks;
     }
     const matches: BoardTask[] = [];
     const rest: BoardTask[] = [];
     for (const task of tasks) {
       (this.taskMatchesFilters(task) ? matches : rest).push(task);
     }
-    return [...sortTasks(matches, sort), ...sortTasks(rest, sort)];
+    return [...matches, ...rest];
   }
 
   matchingCountInColumn(columnId: string): number {
     return this.tasks.filter((task) => task.column_id === columnId && this.taskMatchesFilters(task))
       .length;
-  }
-
-  sortForColumn(columnId: string): ColumnSort {
-    return this.columnSorts[columnId] ?? 'manual';
-  }
-
-  setColumnSort(columnId: string, sort: ColumnSort): void {
-    this.columnSorts = { ...this.columnSorts, [columnId]: sort };
   }
 
   taskImages = $state<Record<string, TaskImage[]>>({});
@@ -1505,6 +1525,16 @@ class BoardStore {
         for (const movedTask of d.moved_tasks) {
           taskActivity.invalidate(movedTask.id);
         }
+        break;
+      }
+      case 'column_tasks_reordered': {
+        // No column change, so only positions move; no activity to invalidate.
+        const d = event.data as { moved_tasks: { id: string; position: number }[] };
+        const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
+        this.tasks = this.tasks.map((t) => {
+          const m = moved.get(t.id);
+          return m === undefined ? t : { ...t, position: m.position };
+        });
         break;
       }
       case 'column_tasks_archived': {

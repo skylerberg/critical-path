@@ -175,6 +175,18 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
           .map((t) => ({ ...t, id: `copy-${t.id}`, column_id: body.id, blocker_ids: [] })),
       });
     }
+    const reorderedColumn = /^\/api\/columns\/([^/]+)\/reorder$/.exec(url.pathname);
+    if (request.method === 'POST' && reorderedColumn !== null) {
+      const columnId = reorderedColumn[1]!;
+      const body = (await request.clone().json()) as { task_ids: string[] };
+      return jsonResponse(200, {
+        moved_tasks: body.task_ids.map((id, index) => ({
+          id,
+          column_id: columnId,
+          position: (index + 1) * 1000,
+        })),
+      });
+    }
     const patchedTask = /^\/api\/tasks\/([^/]+)$/.exec(url.pathname);
     if (request.method === 'PATCH' && patchedTask !== null) {
       const id = patchedTask[1]!;
@@ -1404,8 +1416,9 @@ describe('displayTasksInColumn', () => {
   });
 });
 
-describe('column sort', () => {
+describe('sortColumn', () => {
   beforeEach(() => {
+    board.currentProjectId = 'p1';
     board.tasks = [
       {
         ...task('t1', 'c1', 1000, 'Cherry'),
@@ -1428,47 +1441,36 @@ describe('column sort', () => {
     ];
   });
 
-  it('defaults to manual (position) order', () => {
-    expect(board.sortForColumn('c1')).toBe('manual');
-    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+  it('rewrites positions to match the sort, one-shot', async () => {
+    await board.sortColumn('c1', 'title-asc');
+
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
+    // Positions are evenly re-stamped, not midpoints.
+    expect(board.tasksInColumn('c1').map((t) => t.position)).toEqual([1000, 2000, 3000]);
   });
 
-  it('sorts alphabetically', () => {
-    board.setColumnSort('c1', 'title-asc');
-    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
+  it('posts the ordered ids to the reorder endpoint', async () => {
+    await board.sortColumn('c1', 'created-desc');
+
+    const reorderCall = fetchMock.mock.calls.find((call) =>
+      new URL((call[0] as Request).url).pathname.endsWith('/c1/reorder')
+    );
+    expect(reorderCall).toBeTruthy();
+    const body = (await (reorderCall![0] as Request).clone().json()) as { task_ids: string[] };
+    expect(body.task_ids).toEqual(['t3', 't2', 't1']);
   });
 
-  it('sorts created newest and oldest first', () => {
-    board.setColumnSort('c1', 'created-desc');
-    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t3', 't2', 't1']);
-    board.setColumnSort('c1', 'created-asc');
-    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3']);
-  });
+  it('is a no-op for a column with one task', async () => {
+    board.tasks = [task('solo', 'c1', 7777, 'Only')];
 
-  it('sorts updated newest and oldest first', () => {
-    board.setColumnSort('c1', 'updated-desc');
-    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
-    board.setColumnSort('c1', 'updated-asc');
-    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't3', 't2']);
-  });
+    await board.sortColumn('c1', 'title-asc');
 
-  it('sorts added-to-column newest and oldest first', () => {
-    board.setColumnSort('c1', 'column_since-desc');
-    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
-    board.setColumnSort('c1', 'column_since-asc');
-    expect(board.displayTasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't3', 't2']);
-  });
-
-  it('keeps tasksInColumn in position order while a sort is active', () => {
-    board.setColumnSort('c1', 'title-asc');
-    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3']);
-  });
-
-  it('is reset by reset()', () => {
-    board.setColumnSort('c1', 'title-asc');
-    board.reset();
-    expect(board.sortForColumn('c1')).toBe('manual');
-    expect(board.columnSorts).toEqual({});
+    expect(board.tasksInColumn('c1').map((t) => [t.id, t.position])).toEqual([['solo', 7777]]);
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        new URL((call[0] as Request).url).pathname.endsWith('/c1/reorder')
+      )
+    ).toBe(false);
   });
 });
 

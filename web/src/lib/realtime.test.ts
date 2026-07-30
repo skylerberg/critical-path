@@ -563,6 +563,29 @@ describe('drag-aware queue', () => {
     expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2']);
   });
 
+  it('treats column_tasks_reordered as a board event: project-filtered, queued, then applied', async () => {
+    board.tasks = [task('t1', 'c1', 1000), task('t2', 'c1', 2000)];
+    const socket = await connectAndAuth('p1');
+    const data = {
+      column_id: 'c1',
+      moved_tasks: [
+        { id: 't1', position: 2000 },
+        { id: 't2', position: 1000 },
+      ],
+    };
+
+    socket.receive({ type: 'column_tasks_reordered', project_id: 'p2', data });
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2']);
+
+    board.dragging = true;
+    socket.receive({ type: 'column_tasks_reordered', project_id: 'p1', data });
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2']);
+
+    board.dragging = false;
+    flushSync();
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't1']);
+  });
+
   it('treats column_tasks_archived as a board event: project-filtered, queued, then applied', async () => {
     board.tasks = [task('t1', 'c1'), { ...task('t2', 'c2'), blocker_ids: ['t1'] }];
     const socket = await connectAndAuth('p1');

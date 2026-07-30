@@ -203,7 +203,7 @@
               dropTargetStyle,
               delayTouchStart: TOUCH_DRAG_DELAY_MS,
               zoneItemTabIndex: readonly ? -1 : 0,
-              dragDisabled: readonly || board.sortForColumn(column.id) !== 'manual',
+              dragDisabled: readonly,
               dropFromOthersDisabled: readonly,
             }}
             onconsider={(event) => handleTaskConsider(column.id, event)}

@@ -191,7 +191,7 @@ describe('ColumnHeader options menu', () => {
 });
 
 describe('ColumnHeader sort submenu', () => {
-  it('lists every sort option in a submenu opened from Sort by', async () => {
+  it('lists the sort options in a submenu opened from Sort by', async () => {
     renderHeader(TODO);
     await openMenu();
 
@@ -199,38 +199,23 @@ describe('ColumnHeader sort submenu', () => {
 
     const submenu = screen.getByRole('menu', { name: 'Sort Todo by' });
     expect(submenu).toBeInTheDocument();
-    expect(screen.getByRole('menuitemradio', { name: 'Manual order' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitemradio', { name: 'Alphabetically' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Alphabetically' })).toBeInTheDocument();
     expect(
-      screen.getByRole('menuitemradio', { name: 'Added to column (newest first)' })
+      screen.getByRole('menuitem', { name: 'Added to column (newest first)' })
     ).toBeInTheDocument();
+    // Manual order is the always-on underlying mode, so it is not a sort choice.
+    expect(screen.queryByRole('menuitem', { name: 'Manual order' })).toBeNull();
   });
 
-  it('checks the active sort option', async () => {
-    board.setColumnSort('c1', 'title-asc');
-    renderHeader(TODO);
-    await openMenu();
-
-    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
-
-    expect(screen.getByRole('menuitemradio', { name: 'Alphabetically' })).toHaveAttribute(
-      'aria-checked',
-      'true'
-    );
-    expect(screen.getByRole('menuitemradio', { name: 'Manual order' })).toHaveAttribute(
-      'aria-checked',
-      'false'
-    );
-  });
-
-  it('applies a chosen sort and closes the whole menu', async () => {
+  it('runs a one-shot sort and closes the whole menu', async () => {
+    const sortColumn = vi.spyOn(board, 'sortColumn').mockResolvedValue(undefined);
     renderHeader(TODO);
     await openMenu();
     await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
 
-    await fireEvent.click(screen.getByRole('menuitemradio', { name: 'Created (newest first)' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Created (newest first)' }));
 
-    expect(board.sortForColumn('c1')).toBe('created-desc');
+    expect(sortColumn).toHaveBeenCalledWith('c1', 'created-desc');
     expect(screen.queryByRole('menu')).toBeNull();
   });
 });

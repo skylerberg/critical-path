@@ -2,7 +2,7 @@
   import { dragHandle } from 'svelte-dnd-action';
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
-  import { COLUMN_SORT_OPTIONS, columnSortLabel } from '../lib/column-sort';
+  import { COLUMN_SORT_OPTIONS } from '../lib/column-sort';
   import ColumnArchiveTasksDialog from './ColumnArchiveTasksDialog.svelte';
   import ColumnDeleteDialog from './ColumnDeleteDialog.svelte';
   import ColumnMoveTasksDialog from './ColumnMoveTasksDialog.svelte';
@@ -25,8 +25,6 @@
   let moveOpen = $state(false);
   let archiveOpen = $state(false);
   let sortSubmenuOpen = $state(false);
-
-  const currentSort = $derived(board.sortForColumn(column.id));
 
   const badgeText = $derived(matchCount === null ? String(count) : `${matchCount} of ${count}`);
   const badgeLabel = $derived(matchCount === null ? ' tasks' : ' tasks match this filter');
@@ -231,9 +229,6 @@
                 <path d="M17 4v16" />
               </svg>
               <span class="flex-1">Sort by</span>
-              {#if currentSort !== 'manual'}
-                <span class="truncate text-xs text-muted">{columnSortLabel(currentSort)}</span>
-              {/if}
               <svg
                 class="size-4 shrink-0 text-muted"
                 viewBox="0 0 24 24"
@@ -256,29 +251,14 @@
                 {#each COLUMN_SORT_OPTIONS as option (option.value)}
                   <button
                     type="button"
-                    role="menuitemradio"
-                    aria-checked={currentSort === option.value}
+                    role="menuitem"
                     class={menuItemClass}
                     onclick={() => {
-                      board.setColumnSort(column.id, option.value);
                       menuOpen = false;
+                      void board.sortColumn(column.id, option.value);
                     }}
                   >
                     <span class="flex-1 truncate">{option.label}</span>
-                    {#if currentSort === option.value}
-                      <svg
-                        class="size-4 text-accent"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="m5 12 5 5 9-10" />
-                      </svg>
-                    {/if}
                   </button>
                 {/each}
               </div>

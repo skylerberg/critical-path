@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COLUMN_SORT_OPTIONS, columnSortLabel, sortTasks, type ColumnSort } from './column-sort';
+import { COLUMN_SORT_OPTIONS, sortTasks, type ColumnSort } from './column-sort';
 import type { BoardTask } from './board-types';
 
 function makeTask(partial: Partial<BoardTask> & Pick<BoardTask, 'id'>): BoardTask {
@@ -29,10 +29,6 @@ const tasks: BoardTask[] = [
 ];
 
 describe('sortTasks', () => {
-  it('keeps position order for manual', () => {
-    expect(sortTasks(tasks, 'manual').map((t) => t.id)).toEqual(['b', 'a', 'c']);
-  });
-
   it('sorts alphabetically by title, case-insensitively', () => {
     expect(sortTasks(tasks, 'title-asc').map((t) => t.id)).toEqual(['a', 'b', 'c']);
   });
@@ -79,10 +75,9 @@ describe('sortTasks', () => {
 });
 
 describe('COLUMN_SORT_OPTIONS', () => {
-  it('includes manual plus the seven requested sorts', () => {
+  it('lists the seven sort keys', () => {
     const values = COLUMN_SORT_OPTIONS.map((option) => option.value);
     expect(values).toEqual<ColumnSort[]>([
-      'manual',
       'title-asc',
       'created-desc',
       'created-asc',
@@ -95,7 +90,6 @@ describe('COLUMN_SORT_OPTIONS', () => {
 
   it('labels every option', () => {
     for (const option of COLUMN_SORT_OPTIONS) {
-      expect(columnSortLabel(option.value)).toBe(option.label);
       expect(option.label.length).toBeGreaterThan(0);
     }
   });

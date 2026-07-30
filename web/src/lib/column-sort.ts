@@ -1,12 +1,11 @@
 import type { BoardTask } from './board-types';
 
 /**
- * How a column's cards are ordered on screen. `manual` is the default: the
- * float-position order the user set by dragging. Every other value is a stable
- * view sort that ignores drag order (reordering is locked while one is active).
+ * A one-shot sort key. The board is always in manual (position) order; picking
+ * one of these rewrites a column's positions once to match the key, then manual
+ * order resumes — like sorting files on a desktop.
  */
 export type ColumnSort =
-  | 'manual'
   | 'title-asc'
   | 'created-desc'
   | 'created-asc'
@@ -21,7 +20,6 @@ export interface ColumnSortOption {
 }
 
 export const COLUMN_SORT_OPTIONS: readonly ColumnSortOption[] = [
-  { value: 'manual', label: 'Manual order' },
   { value: 'title-asc', label: 'Alphabetically' },
   { value: 'created-desc', label: 'Created (newest first)' },
   { value: 'created-asc', label: 'Created (oldest first)' },
@@ -31,11 +29,7 @@ export const COLUMN_SORT_OPTIONS: readonly ColumnSortOption[] = [
   { value: 'column_since-asc', label: 'Added to column (oldest first)' },
 ];
 
-export function columnSortLabel(sort: ColumnSort): string {
-  return COLUMN_SORT_OPTIONS.find((option) => option.value === sort)?.label ?? '';
-}
-
-// The position tiebreak keeps cards that share a timestamp in their manual
+// The position tiebreak keeps cards that share a timestamp in their existing
 // board order, so the sort never reshuffles equal-keyed cards.
 function byTimestamp(
   a: BoardTask,
@@ -48,8 +42,6 @@ function byTimestamp(
 
 export function sortTasks(tasks: readonly BoardTask[], sort: ColumnSort): BoardTask[] {
   switch (sort) {
-    case 'manual':
-      return [...tasks];
     case 'title-asc':
       return [...tasks].sort((a, b) => a.title.localeCompare(b.title) || a.position - b.position);
     case 'created-desc':
