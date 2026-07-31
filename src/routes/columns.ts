@@ -131,9 +131,6 @@ async function reorderTasks(
   column: { id: string },
   taskIds: readonly string[]
 ): Promise<MovedTask[]> {
-  if (taskIds.length === 0) {
-    return [];
-  }
   if (new Set(taskIds).size !== taskIds.length) {
     throw new AppError(422, 'task_ids must not contain duplicates');
   }
@@ -144,8 +141,9 @@ async function reorderTasks(
     .where('archived_at', 'is', null)
     .where('id', 'in', [...taskIds])
     .execute();
-  const valid = new Set(rows.map((row) => row.id));
-  if (rows.length !== taskIds.length || taskIds.some((taskId) => !valid.has(taskId))) {
+  // The schema guarantees a non-empty, all-unique id list, so a short read
+  // means an id is archived, in another column, or unknown.
+  if (rows.length !== taskIds.length) {
     throw new AppError(422, 'task_ids must reference unarchived tasks in this column');
   }
 
