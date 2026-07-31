@@ -97,9 +97,8 @@ const MEASURE = `(() => {
     boardSW: board?.scrollWidth,
     boardCW: board?.clientWidth,
     boardCH: board?.clientHeight,
-    // At rest (no drag) the board snap-scrolls columns on mobile. The scroll-snap
-    // classes are dropped during a drag (they fight svelte-dnd-action's edge
-    // auto-scroller), so guard the resting value here.
+    // The board always snap-scrolls columns on mobile (during a drag the board's
+    // overflow flips to hidden so svelte-dnd-action can't fling it, but snap stays on).
     boardSnap: board && getComputedStyle(board).scrollSnapType,
     colH: cols.map((c) => Math.round(c.getBoundingClientRect().height)),
     navTop: nr && Math.round(nr.top),
