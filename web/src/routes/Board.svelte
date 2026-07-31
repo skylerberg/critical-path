@@ -43,8 +43,14 @@
   const addingColumn = $derived(newColumnName !== null);
   let columnFormOpenedHere = $state(false);
 
+  // Scroll-snap (snap-x snap-mandatory, mobile only) fights svelte-dnd-action's
+  // edge auto-scroller: every per-frame scrollBy() re-snaps a whole column, so a
+  // touch drag held near the edge rockets to the far column. Drop snap while a
+  // drag is in progress; it's only wanted for resting/manual scrolling.
+  const dragging = $derived(columnDragging || taskDragging);
+
   $effect(() => {
-    board.dragging = columnDragging || taskDragging;
+    board.dragging = dragging;
   });
 
   // QuickAddTask encapsulates its open/focus state, so the shortcut opens it via its trigger.
@@ -160,7 +166,9 @@
 </script>
 
 <div
-  class="relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-mandatory lg:snap-none"
+  class="relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain {dragging
+    ? ''
+    : 'snap-x snap-mandatory lg:snap-none'}"
 >
   <div class="flex min-h-0 flex-1 items-stretch gap-3 p-3 lg:gap-4 lg:p-4">
     <div

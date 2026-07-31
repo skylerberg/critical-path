@@ -97,6 +97,10 @@ const MEASURE = `(() => {
     boardSW: board?.scrollWidth,
     boardCW: board?.clientWidth,
     boardCH: board?.clientHeight,
+    // At rest (no drag) the board snap-scrolls columns on mobile. The scroll-snap
+    // classes are dropped during a drag (they fight svelte-dnd-action's edge
+    // auto-scroller), so guard the resting value here.
+    boardSnap: board && getComputedStyle(board).scrollSnapType,
     colH: cols.map((c) => Math.round(c.getBoundingClientRect().height)),
     navTop: nr && Math.round(nr.top),
     navW: nr && Math.round(nr.width),
@@ -118,6 +122,10 @@ function check(m, vp) {
     f.push(`board does not scroll horizontally (scrollW=${m.boardSW} clientW=${m.boardCW})`);
   if (!m.colH.every((h) => h <= m.boardCH + 2))
     f.push(`columns exceed board height (colH=${m.colH.join(',')} boardCH=${m.boardCH})`);
+  // Resting scroll-snap: mandatory on mobile (column-by-column), off on desktop.
+  const wantSnap = vp.mobile ? 'x mandatory' : 'none';
+  if (m.boardSnap !== wantSnap)
+    f.push(`board scroll-snap-type=${m.boardSnap} (want ${wantSnap} at rest)`);
   return f;
 }
 
@@ -136,7 +144,10 @@ for (const c of CASES) {
   await goto(`${PROBE}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
   const m = await evalPage(MEASURE);
   // On desktop the bottom nav is display:none; allow navTop/navW to be undefined.
-  const failures = mobile ? check(m, c) : check(m, c).filter((x) => !x.includes('nav'));
+  const failures = mobile
+    ? check(m, { ...c, mobile })
+    : check(m, { ...c, mobile }).filter((x) => !x.includes('nav'));
+  // The desktop case disables snap via lg:snap-none, so its resting value is 'none' too.
   const tag = `${mobile ? 'MOBILE' : 'DESKTOP'} ${c.w}x${c.h} cols=${c.cols} tasks=${c.tasks}`;
   if (failures.length) {
     failed++;
