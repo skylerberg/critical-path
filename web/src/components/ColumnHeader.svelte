@@ -32,6 +32,14 @@
   const menuItemClass =
     'flex min-h-11 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm hover:bg-accent-soft';
 
+  // The sort view unmounts with the menu, but its open flag lingers — reset it so
+  // the sort view doesn't reappear pre-opened the next time the menu opens.
+  $effect(() => {
+    if (!menuOpen) {
+      sortSubmenuOpen = false;
+    }
+  });
+
   function startRename(): void {
     draft = column.name;
     renaming = true;
@@ -140,78 +148,112 @@
       {#if menuOpen}
         <div
           role="menu"
-          class="absolute top-full right-0 z-30 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
+          class="absolute top-full right-0 z-30 max-h-[80vh] w-56 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
         >
-          <button
-            type="button"
-            role="menuitem"
-            class={menuItemClass}
-            onclick={() => {
-              menuOpen = false;
-              void board.duplicateColumn(column.id);
-            }}
-          >
-            <svg
-              class="size-4 shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
+          {#if sortSubmenuOpen}
+            <button
+              type="button"
+              role="menuitem"
+              class={menuItemClass}
+              onclick={() => (sortSubmenuOpen = false)}
             >
-              <rect width="14" height="14" x="8" y="8" rx="2" />
-              <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-            </svg>
-            Duplicate column
-          </button>
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={column.is_done}
-            class={menuItemClass}
-            title="Tasks in a done column count as completed"
-            onclick={() => void board.toggleColumnDone(column.id)}
-          >
-            <svg
-              class="size-4 shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="9" />
-              <path d="m8.5 12.5 2.5 2.5 5-5.5" />
-            </svg>
-            <span class="flex-1">Mark as done column</span>
-            {#if column.is_done}
               <svg
-                class="size-4 text-success"
+                class="size-4 shrink-0"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                stroke-width="2.5"
+                stroke-width="2"
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 aria-hidden="true"
               >
-                <path d="m5 12 5 5 9-10" />
+                <path d="m15 18-6-6 6-6" />
               </svg>
-            {/if}
-          </button>
-          <div class="relative">
+              <span class="flex-1 font-medium">Sort by</span>
+            </button>
+            <div role="separator" class="my-1 border-t border-edge"></div>
+            {#each COLUMN_SORT_OPTIONS as option (option.value)}
+              <button
+                type="button"
+                role="menuitem"
+                class={menuItemClass}
+                onclick={() => {
+                  menuOpen = false;
+                  void board.sortColumn(column.id, option.value);
+                }}
+              >
+                <span class="flex-1 truncate pl-1">{option.label}</span>
+              </button>
+            {/each}
+          {:else}
+            <button
+              type="button"
+              role="menuitem"
+              class={menuItemClass}
+              onclick={() => {
+                menuOpen = false;
+                void board.duplicateColumn(column.id);
+              }}
+            >
+              <svg
+                class="size-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect width="14" height="14" x="8" y="8" rx="2" />
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+              </svg>
+              Duplicate column
+            </button>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={column.is_done}
+              class={menuItemClass}
+              title="Tasks in a done column count as completed"
+              onclick={() => void board.toggleColumnDone(column.id)}
+            >
+              <svg
+                class="size-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="m8.5 12.5 2.5 2.5 5-5.5" />
+              </svg>
+              <span class="flex-1">Mark as done column</span>
+              {#if column.is_done}
+                <svg
+                  class="size-4 text-success"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m5 12 5 5 9-10" />
+                </svg>
+              {/if}
+            </button>
             <button
               type="button"
               role="menuitem"
               aria-haspopup="menu"
               aria-expanded={sortSubmenuOpen}
               class={menuItemClass}
-              onmouseenter={() => (sortSubmenuOpen = true)}
-              onclick={() => (sortSubmenuOpen = !sortSubmenuOpen)}
+              onclick={() => (sortSubmenuOpen = true)}
             >
               <svg
                 class="size-4 shrink-0"
@@ -242,38 +284,41 @@
                 <path d="m9 18 6-6-6-6" />
               </svg>
             </button>
-            {#if sortSubmenuOpen}
-              <div
-                role="menu"
-                aria-label="Sort {column.name} by"
-                class="max-h-[80vh] absolute top-0 right-full mr-1 w-56 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
-              >
-                {#each COLUMN_SORT_OPTIONS as option (option.value)}
-                  <button
-                    type="button"
-                    role="menuitem"
-                    class={menuItemClass}
-                    onclick={() => {
-                      menuOpen = false;
-                      void board.sortColumn(column.id, option.value);
-                    }}
+            {#if count > 0}
+              <div role="separator" class="my-1 border-t border-edge"></div>
+              {#if board.columns.length > 1}
+                <button
+                  type="button"
+                  role="menuitem"
+                  class={menuItemClass}
+                  onclick={() => {
+                    menuOpen = false;
+                    moveOpen = true;
+                  }}
+                >
+                  <svg
+                    class="size-4 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                   >
-                    <span class="flex-1 truncate">{option.label}</span>
-                  </button>
-                {/each}
-              </div>
-            {/if}
-          </div>
-          {#if count > 0}
-            <div role="separator" class="my-1 border-t border-edge"></div>
-            {#if board.columns.length > 1}
+                    <path d="M5 12h14" />
+                    <path d="m12 5 7 7-7 7" />
+                  </svg>
+                  Move all cards to…
+                </button>
+              {/if}
               <button
                 type="button"
                 role="menuitem"
                 class={menuItemClass}
                 onclick={() => {
                   menuOpen = false;
-                  moveOpen = true;
+                  archiveOpen = true;
                 }}
               >
                 <svg
@@ -286,19 +331,21 @@
                   stroke-linejoin="round"
                   aria-hidden="true"
                 >
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
+                  <rect width="20" height="5" x="2" y="3" rx="1" />
+                  <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+                  <path d="M10 12h4" />
                 </svg>
-                Move all cards to…
+                Archive all cards
               </button>
             {/if}
+            <div role="separator" class="my-1 border-t border-edge"></div>
             <button
               type="button"
               role="menuitem"
-              class={menuItemClass}
+              class="{menuItemClass} hover:text-danger"
               onclick={() => {
                 menuOpen = false;
-                archiveOpen = true;
+                deleteOpen = true;
               }}
             >
               <svg
@@ -311,41 +358,15 @@
                 stroke-linejoin="round"
                 aria-hidden="true"
               >
-                <rect width="20" height="5" x="2" y="3" rx="1" />
-                <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
-                <path d="M10 12h4" />
+                <path d="M3 6h18" />
+                <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                <line x1="10" y1="11" x2="10" y2="17" />
+                <line x1="14" y1="11" x2="14" y2="17" />
               </svg>
-              Archive all cards
+              Delete column
             </button>
           {/if}
-          <div role="separator" class="my-1 border-t border-edge"></div>
-          <button
-            type="button"
-            role="menuitem"
-            class="{menuItemClass} hover:text-danger"
-            onclick={() => {
-              menuOpen = false;
-              deleteOpen = true;
-            }}
-          >
-            <svg
-              class="size-4 shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M3 6h18" />
-              <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-              <line x1="10" y1="11" x2="10" y2="17" />
-              <line x1="14" y1="11" x2="14" y2="17" />
-            </svg>
-            Delete column
-          </button>
         </div>
       {/if}
     </div>

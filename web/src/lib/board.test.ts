@@ -1472,6 +1472,17 @@ describe('sortColumn', () => {
       )
     ).toBe(false);
   });
+
+  it('toasts the error and refetches when the reorder fails', async () => {
+    mockRoutes((_request, url) =>
+      url.pathname === '/api/columns/c1/reorder' ? jsonResponse(422, { error: 'nope' }) : undefined
+    );
+
+    await board.sortColumn('c1', 'title-asc');
+
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+    expect(requestAt(1).method).toBe('GET');
+  });
 });
 
 describe('matchingCountInColumn', () => {

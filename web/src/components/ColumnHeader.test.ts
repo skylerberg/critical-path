@@ -191,14 +191,12 @@ describe('ColumnHeader options menu', () => {
 });
 
 describe('ColumnHeader sort submenu', () => {
-  it('lists the sort options in a submenu opened from Sort by', async () => {
+  it('lists the sort options in a view opened from Sort by', async () => {
     renderHeader(TODO);
     await openMenu();
 
     await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
 
-    const submenu = screen.getByRole('menu', { name: 'Sort Todo by' });
-    expect(submenu).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Alphabetically' })).toBeInTheDocument();
     expect(
       screen.getByRole('menuitem', { name: 'Added to column (newest first)' })
@@ -217,5 +215,30 @@ describe('ColumnHeader sort submenu', () => {
 
     expect(sortColumn).toHaveBeenCalledWith('c1', 'created-desc');
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('returns to the main menu via Back', async () => {
+    renderHeader(TODO);
+    await openMenu();
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+
+    // Back hides the sort options and shows the main menu items again.
+    expect(screen.queryByRole('menuitem', { name: 'Alphabetically' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Duplicate column' })).toBeInTheDocument();
+  });
+
+  it('does not reopen with the sort view already open', async () => {
+    renderHeader(TODO);
+    await openMenu();
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+    expect(screen.getByRole('menuitem', { name: 'Alphabetically' })).toBeInTheDocument();
+
+    // Close and reopen: the sort-view flag must reset so it starts closed.
+    await fireEvent.click(document.body);
+    await openMenu();
+
+    expect(screen.queryByRole('menuitem', { name: 'Alphabetically' })).toBeNull();
   });
 });
