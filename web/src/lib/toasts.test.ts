@@ -44,4 +44,39 @@ describe('toasts', () => {
     toasts.dismiss(first);
     expect(toasts.toasts.map((t) => t.message)).toEqual(['two']);
   });
+
+  it('shows an info toast with the info variant', () => {
+    toasts.info('note');
+    expect(toasts.toasts[0]).toMatchObject({ message: 'note', variant: 'info' });
+  });
+});
+
+describe('action toasts', () => {
+  it('stays until the user acts (no auto-dismiss)', () => {
+    toasts.action('update ready', { label: 'Reload', run: () => {} });
+    vi.runAllTimers();
+    expect(toasts.toasts).toHaveLength(1);
+  });
+
+  it('runs the action and dismisses the toast', () => {
+    const run = vi.fn();
+    const id = toasts.action('update ready', { label: 'Reload', run });
+    toasts.runAction(id);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(toasts.toasts).toHaveLength(0);
+  });
+
+  it('dismisses without running the action', () => {
+    const run = vi.fn();
+    const id = toasts.action('update ready', { label: 'Reload', run });
+    toasts.dismiss(id);
+    expect(run).not.toHaveBeenCalled();
+    expect(toasts.toasts).toHaveLength(0);
+  });
+
+  it('ignores runAction on a toast with no action', () => {
+    const id = toasts.success('plain');
+    expect(() => toasts.runAction(id)).not.toThrow();
+    expect(toasts.toasts).toHaveLength(1);
+  });
 });

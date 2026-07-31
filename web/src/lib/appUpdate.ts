@@ -1,24 +1,34 @@
 import { registerSW } from 'virtual:pwa-register';
+import { APP_NAME } from './constants';
+import { toasts } from './toasts.svelte';
 
 const CHECK_THROTTLE_MS = 60 * 1000;
 
 export interface AppUpdateDeps {
   register?: typeof registerSW;
+  /**
+   * Called when a new service worker has taken over. The default shows a
+   * persistent toast the user can act on; overriding it keeps AppUpdate
+   * decoupled from the toast store in tests.
+   */
+  notifyUpdate?: () => void;
 }
 
 /**
- * The empty `onNeedReload` is load-bearing: supplying it is what stops the
- * registration shim from reloading the page itself, which would discard
- * whatever the user had typed but not submitted.
+ * When the service worker picks up a new build it activates immediately
+ * (`skipWaiting`/`clientsClaim`), but the already-loaded document keeps running
+ * the old shell — only a reload swaps it in. Rather than reload automatically
+ * (which would discard unsaved input) we surface a persistent toast so the user
+ * reloads on their own terms. That turns a two-refresh update into one.
  */
 export class AppUpdate {
   #registration: ServiceWorkerRegistration | undefined;
   #lastCheck = 0;
 
-  init({ register = registerSW }: AppUpdateDeps = {}): void {
+  init({ register = registerSW, notifyUpdate = notifyOfUpdate }: AppUpdateDeps = {}): void {
     register({
       immediate: true,
-      onNeedReload: () => {},
+      onNeedReload: () => notifyUpdate(),
       onRegisteredSW: (_swScriptUrl, registration) => {
         this.#registration = registration;
       },
@@ -42,6 +52,13 @@ export class AppUpdate {
     this.#lastCheck = now;
     void registration.update().catch(() => undefined);
   }
+}
+
+function notifyOfUpdate(): void {
+  toasts.action(`A new version of ${APP_NAME} is available.`, {
+    label: 'Reload',
+    run: () => window.location.reload(),
+  });
 }
 
 export const appUpdate = new AppUpdate();

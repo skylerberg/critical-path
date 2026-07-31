@@ -24,16 +24,18 @@ function start() {
   // Stands in for the registration shim, which reloads the document itself
   // unless the caller supplies onNeedReload.
   const reload = vi.fn();
+  const notifyUpdate = vi.fn();
   let options: RegisterSWOptions = {};
   const register = vi.fn((opts: RegisterSWOptions = {}) => {
     options = opts;
     return () => Promise.resolve();
   });
   const instance = new AppUpdate();
-  instance.init({ register });
+  instance.init({ register, notifyUpdate });
   instances.push(instance);
   return {
     reload,
+    notify: notifyUpdate,
     fireActivated: () => (options.onNeedReload ? options.onNeedReload() : reload()),
     options: () => options,
     registered: (registration: ServiceWorkerRegistration) =>
@@ -52,10 +54,11 @@ afterEach(() => {
 });
 
 describe('never reloading the document', () => {
-  it('supplies onNeedReload so the shim cannot reload the page', () => {
+  it('surfaces a takeover as a toast instead of reloading the page', () => {
     const sw = start();
     sw.fireActivated();
     expect(sw.reload).not.toHaveBeenCalled();
+    expect(sw.notify).toHaveBeenCalledTimes(1);
   });
 
   it('registers the worker immediately', () => {
