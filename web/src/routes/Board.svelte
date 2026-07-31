@@ -13,6 +13,7 @@
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { draftKey, drafts } from '../lib/drafts.svelte';
+  import { columnAdvanceTarget } from '../lib/board-scroll';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import ColumnHeader from '../components/ColumnHeader.svelte';
@@ -43,14 +44,65 @@
   const addingColumn = $derived(newColumnName !== null);
   let columnFormOpenedHere = $state(false);
 
-  // Scroll-snap (snap-x snap-mandatory, mobile only) fights svelte-dnd-action's
-  // edge auto-scroller: every per-frame scrollBy() re-snaps a whole column, so a
-  // touch drag held near the edge rockets to the far column. Drop snap while a
-  // drag is in progress; it's only wanted for resting/manual scrolling.
   const dragging = $derived(columnDragging || taskDragging);
 
   $effect(() => {
     board.dragging = dragging;
+  });
+
+  // --- Drag-time horizontal scrolling (mobile) ---
+  // svelte-dnd-action has no opt-out for its edge auto-scroller, and that
+  // scroller's per-frame scrollBy() + mandatory scroll-snap (directional snap)
+  // flings a touch drag across every column. We want to KEEP snap during a drag,
+  // so instead we hide the board from the library's scroller (overflow: hidden)
+  // and advance one column at a time ourselves while the dragged card is near an
+  // edge. `overflow: hidden` stays programmatically scrollable and snap still
+  // applies, so each advance lands cleanly on a column.
+  const DRAG_EDGE_ZONE_PX = 44; // dragged card within this far from an edge -> advance
+  const DRAG_ADVANCE_COOLDOWN_MS = 320; // one column per tick; > snap animation so they don't fight
+  let boardScroller: HTMLElement | undefined = $state();
+
+  $effect(() => {
+    const scroller = boardScroller;
+    if (!scroller || !dragging) {
+      return;
+    }
+    let lastAdvance = 0;
+    const id = window.setInterval(() => {
+      const dragged = document.getElementById('dnd-action-dragged-el');
+      if (!dragged) {
+        return;
+      }
+      const now = performance.now();
+      if (now - lastAdvance < DRAG_ADVANCE_COOLDOWN_MS) {
+        return;
+      }
+      const boardRect = scroller.getBoundingClientRect();
+      const cardRect = dragged.getBoundingClientRect();
+      let dir: -1 | 1 | 0 = 0;
+      if (cardRect.left < boardRect.left + DRAG_EDGE_ZONE_PX) {
+        dir = -1;
+      } else if (cardRect.right > boardRect.right - DRAG_EDGE_ZONE_PX) {
+        dir = 1;
+      }
+      if (dir === 0) {
+        return;
+      }
+      const columns = scroller.querySelectorAll<HTMLElement>('section');
+      const centers: number[] = [];
+      for (const column of columns) {
+        const r = column.getBoundingClientRect();
+        centers.push(r.left + r.width / 2);
+      }
+      const boardCenter = boardRect.left + boardRect.width / 2;
+      const target = columnAdvanceTarget(centers, boardCenter, scroller.scrollLeft, dir);
+      if (target === null) {
+        return;
+      }
+      scroller.scrollTo({ left: target });
+      lastAdvance = now;
+    }, 90);
+    return () => window.clearInterval(id);
   });
 
   // QuickAddTask encapsulates its open/focus state, so the shortcut opens it via its trigger.
@@ -166,9 +218,10 @@
 </script>
 
 <div
-  class="relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain {dragging
-    ? ''
-    : 'snap-x snap-mandatory lg:snap-none'}"
+  bind:this={boardScroller}
+  class="relative flex min-h-0 flex-1 flex-col snap-x snap-mandatory overscroll-x-contain overflow-y-hidden lg:snap-none {dragging
+    ? 'overflow-x-hidden'
+    : 'overflow-x-auto'}"
 >
   <div class="flex min-h-0 flex-1 items-stretch gap-3 p-3 lg:gap-4 lg:p-4">
     <div
