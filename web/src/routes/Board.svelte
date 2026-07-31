@@ -59,7 +59,7 @@
   // edge. `overflow: hidden` stays programmatically scrollable and snap still
   // applies, so each advance lands cleanly on a column.
   const DRAG_EDGE_ZONE_PX = 44; // dragged card within this far from an edge -> advance
-  const DRAG_ADVANCE_COOLDOWN_MS = 320; // one column per tick; > snap animation so they don't fight
+  const DRAG_ADVANCE_COOLDOWN_MS = 500; // one column per tick; > the ~300ms slide so advances don't interrupt each other
   let boardScroller: HTMLElement | undefined = $state();
 
   $effect(() => {
@@ -99,7 +99,10 @@
       if (target === null) {
         return;
       }
-      scroller.scrollTo({ left: target });
+      scroller.scrollTo({
+        left: target,
+        behavior: motion.reduced ? 'auto' : 'smooth',
+      });
       lastAdvance = now;
     }, 90);
     return () => window.clearInterval(id);
