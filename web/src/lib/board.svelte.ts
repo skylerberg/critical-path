@@ -10,6 +10,7 @@ import type {
   CycleTask,
   PublicBoardPayload,
 } from './board-types';
+import { type ColumnSort, sortTasks } from './column-sort';
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
@@ -74,6 +75,7 @@ function optimisticTask(id: string, columnId: string, title: string, position: n
     due_date: null,
     created_at: now,
     updated_at: now,
+    column_since: now,
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
@@ -306,6 +308,7 @@ class BoardStore {
           ...task,
           created_at: '',
           updated_at: '',
+          column_since: '',
           comment_count: 0,
         })),
         labels: data.labels,
@@ -448,6 +451,7 @@ class BoardStore {
         comment_count: 0,
         created_at: now,
         updated_at: now,
+        column_since: now,
       },
     ];
     try {
@@ -869,6 +873,39 @@ class BoardStore {
       for (const task of moved) {
         taskActivity.invalidate(task.id);
       }
+    }
+  }
+
+  // A one-shot sort: rewrite the column's positions to match the key once, then
+  // manual order resumes. Positions are re-stamped evenly so later drags have
+  // room, and the server is the source of truth on the echoed values.
+  async sortColumn(columnId: string, sort: ColumnSort): Promise<void> {
+    if (this.currentProjectId === null) {
+      return;
+    }
+    const orderedIds = sortTasks(this.tasksInColumn(columnId), sort).map((task) => task.id);
+    if (orderedIds.length <= 1) {
+      return;
+    }
+    const optimistic = new Map(orderedIds.map((id, index) => [id, (index + 1) * 1000] as const));
+    this.tasks = this.tasks.map((task) => {
+      const position = optimistic.get(task.id);
+      return position === undefined ? task : { ...task, position };
+    });
+    try {
+      const data = assertOk(
+        await api.POST('/api/columns/{id}/reorder', {
+          params: { path: { id: columnId } },
+          body: { task_ids: orderedIds },
+        })
+      );
+      const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
+      this.tasks = this.tasks.map((task) => {
+        const movedTask = byId.get(task.id);
+        return movedTask === undefined ? task : { ...task, position: movedTask.position };
+      });
+    } catch (error) {
+      await this.#mutationFailed(error);
     }
   }
 
@@ -1488,6 +1525,16 @@ class BoardStore {
         for (const movedTask of d.moved_tasks) {
           taskActivity.invalidate(movedTask.id);
         }
+        break;
+      }
+      case 'column_tasks_reordered': {
+        // No column change, so only positions move; no activity to invalidate.
+        const d = event.data as { moved_tasks: { id: string; position: number }[] };
+        const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
+        this.tasks = this.tasks.map((t) => {
+          const m = moved.get(t.id);
+          return m === undefined ? t : { ...t, position: m.position };
+        });
         break;
       }
       case 'column_tasks_archived': {

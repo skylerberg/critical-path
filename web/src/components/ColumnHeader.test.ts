@@ -17,6 +17,7 @@ function task(id: string, columnId: string): BoardTask {
     position: 1000,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    column_since: '2026-01-01T00:00:00Z',
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
@@ -186,5 +187,58 @@ describe('ColumnHeader options menu', () => {
     renderHeader(TODO, true);
 
     expect(screen.queryByRole('button', { name: 'Options for Todo' })).toBeNull();
+  });
+});
+
+describe('ColumnHeader sort submenu', () => {
+  it('lists the sort options in a view opened from Sort by', async () => {
+    renderHeader(TODO);
+    await openMenu();
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+
+    expect(screen.getByRole('menuitem', { name: 'Alphabetically' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Added to column (newest first)' })
+    ).toBeInTheDocument();
+    // Manual order is the always-on underlying mode, so it is not a sort choice.
+    expect(screen.queryByRole('menuitem', { name: 'Manual order' })).toBeNull();
+  });
+
+  it('runs a one-shot sort and closes the whole menu', async () => {
+    const sortColumn = vi.spyOn(board, 'sortColumn').mockResolvedValue(undefined);
+    renderHeader(TODO);
+    await openMenu();
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Created (newest first)' }));
+
+    expect(sortColumn).toHaveBeenCalledWith('c1', 'created-desc');
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('returns to the main menu via Back', async () => {
+    renderHeader(TODO);
+    await openMenu();
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+
+    // Back hides the sort options and shows the main menu items again.
+    expect(screen.queryByRole('menuitem', { name: 'Alphabetically' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Duplicate column' })).toBeInTheDocument();
+  });
+
+  it('does not reopen with the sort view already open', async () => {
+    renderHeader(TODO);
+    await openMenu();
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Sort by/ }));
+    expect(screen.getByRole('menuitem', { name: 'Alphabetically' })).toBeInTheDocument();
+
+    // Close and reopen: the sort-view flag must reset so it starts closed.
+    await fireEvent.click(document.body);
+    await openMenu();
+
+    expect(screen.queryByRole('menuitem', { name: 'Alphabetically' })).toBeNull();
   });
 });

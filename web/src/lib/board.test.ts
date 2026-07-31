@@ -50,6 +50,7 @@ function task(id: string, columnId: string, position: number, title: string) {
     position,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    column_since: '2026-01-01T00:00:00Z',
     label_ids: id === 't1' ? ['l1'] : [],
     assignee_ids: [],
     blocker_ids: [],
@@ -172,6 +173,18 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
         tasks: board.tasks
           .filter((t) => t.column_id === sourceId)
           .map((t) => ({ ...t, id: `copy-${t.id}`, column_id: body.id, blocker_ids: [] })),
+      });
+    }
+    const reorderedColumn = /^\/api\/columns\/([^/]+)\/reorder$/.exec(url.pathname);
+    if (request.method === 'POST' && reorderedColumn !== null) {
+      const columnId = reorderedColumn[1]!;
+      const body = (await request.clone().json()) as { task_ids: string[] };
+      return jsonResponse(200, {
+        moved_tasks: body.task_ids.map((id, index) => ({
+          id,
+          column_id: columnId,
+          position: (index + 1) * 1000,
+        })),
       });
     }
     const patchedTask = /^\/api\/tasks\/([^/]+)$/.exec(url.pathname);
@@ -1400,6 +1413,75 @@ describe('displayTasksInColumn', () => {
   it('leaves tasksInColumn in position order while filters are active', () => {
     board.setFilterQuery('alpha');
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', 't3', 't4']);
+  });
+});
+
+describe('sortColumn', () => {
+  beforeEach(() => {
+    board.currentProjectId = 'p1';
+    board.tasks = [
+      {
+        ...task('t1', 'c1', 1000, 'Cherry'),
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        column_since: '2026-01-01T00:00:00Z',
+      },
+      {
+        ...task('t2', 'c1', 2000, 'Apple'),
+        created_at: '2026-02-01T00:00:00Z',
+        updated_at: '2026-03-01T00:00:00Z',
+        column_since: '2026-04-01T00:00:00Z',
+      },
+      {
+        ...task('t3', 'c1', 3000, 'Banana'),
+        created_at: '2026-03-01T00:00:00Z',
+        updated_at: '2026-02-01T00:00:00Z',
+        column_since: '2026-02-01T00:00:00Z',
+      },
+    ];
+  });
+
+  it('rewrites positions to match the sort, one-shot', async () => {
+    await board.sortColumn('c1', 'title-asc');
+
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
+    // Positions are evenly re-stamped, not midpoints.
+    expect(board.tasksInColumn('c1').map((t) => t.position)).toEqual([1000, 2000, 3000]);
+  });
+
+  it('posts the ordered ids to the reorder endpoint', async () => {
+    await board.sortColumn('c1', 'created-desc');
+
+    const reorderCall = fetchMock.mock.calls.find((call) =>
+      new URL((call[0] as Request).url).pathname.endsWith('/c1/reorder')
+    );
+    expect(reorderCall).toBeTruthy();
+    const body = (await (reorderCall![0] as Request).clone().json()) as { task_ids: string[] };
+    expect(body.task_ids).toEqual(['t3', 't2', 't1']);
+  });
+
+  it('is a no-op for a column with one task', async () => {
+    board.tasks = [task('solo', 'c1', 7777, 'Only')];
+
+    await board.sortColumn('c1', 'title-asc');
+
+    expect(board.tasksInColumn('c1').map((t) => [t.id, t.position])).toEqual([['solo', 7777]]);
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        new URL((call[0] as Request).url).pathname.endsWith('/c1/reorder')
+      )
+    ).toBe(false);
+  });
+
+  it('toasts the error and refetches when the reorder fails', async () => {
+    mockRoutes((_request, url) =>
+      url.pathname === '/api/columns/c1/reorder' ? jsonResponse(422, { error: 'nope' }) : undefined
+    );
+
+    await board.sortColumn('c1', 'title-asc');
+
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+    expect(requestAt(1).method).toBe('GET');
   });
 });
 

@@ -2,6 +2,7 @@
   import { dragHandle } from 'svelte-dnd-action';
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
+  import { COLUMN_SORT_OPTIONS } from '../lib/column-sort';
   import ColumnArchiveTasksDialog from './ColumnArchiveTasksDialog.svelte';
   import ColumnDeleteDialog from './ColumnDeleteDialog.svelte';
   import ColumnMoveTasksDialog from './ColumnMoveTasksDialog.svelte';
@@ -23,12 +24,21 @@
   let menuEl = $state<HTMLDivElement>();
   let moveOpen = $state(false);
   let archiveOpen = $state(false);
+  let sortSubmenuOpen = $state(false);
 
   const badgeText = $derived(matchCount === null ? String(count) : `${matchCount} of ${count}`);
   const badgeLabel = $derived(matchCount === null ? ' tasks' : ' tasks match this filter');
 
   const menuItemClass =
     'flex min-h-11 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm hover:bg-accent-soft';
+
+  // The sort view unmounts with the menu, but its open flag lingers — reset it so
+  // the sort view doesn't reappear pre-opened the next time the menu opens.
+  $effect(() => {
+    if (!menuOpen) {
+      sortSubmenuOpen = false;
+    }
+  });
 
   function startRename(): void {
     draft = column.name;
@@ -138,104 +148,51 @@
       {#if menuOpen}
         <div
           role="menu"
-          class="absolute top-full right-0 z-30 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
+          class="absolute top-full right-0 z-30 max-h-[80vh] w-56 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
         >
-          <button
-            type="button"
-            role="menuitem"
-            class={menuItemClass}
-            onclick={() => {
-              menuOpen = false;
-              void board.duplicateColumn(column.id);
-            }}
-          >
-            <svg
-              class="size-4 shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
+          {#if sortSubmenuOpen}
+            <button
+              type="button"
+              role="menuitem"
+              class={menuItemClass}
+              onclick={() => (sortSubmenuOpen = false)}
             >
-              <rect width="14" height="14" x="8" y="8" rx="2" />
-              <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-            </svg>
-            Duplicate column
-          </button>
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={column.is_done}
-            class={menuItemClass}
-            title="Tasks in a done column count as completed"
-            onclick={() => void board.toggleColumnDone(column.id)}
-          >
-            <svg
-              class="size-4 shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="9" />
-              <path d="m8.5 12.5 2.5 2.5 5-5.5" />
-            </svg>
-            <span class="flex-1">Mark as done column</span>
-            {#if column.is_done}
               <svg
-                class="size-4 text-success"
+                class="size-4 shrink-0"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                stroke-width="2.5"
+                stroke-width="2"
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 aria-hidden="true"
               >
-                <path d="m5 12 5 5 9-10" />
+                <path d="m15 18-6-6 6-6" />
               </svg>
-            {/if}
-          </button>
-          {#if count > 0}
+              <span class="flex-1 font-medium">Sort by</span>
+            </button>
             <div role="separator" class="my-1 border-t border-edge"></div>
-            {#if board.columns.length > 1}
+            {#each COLUMN_SORT_OPTIONS as option (option.value)}
               <button
                 type="button"
                 role="menuitem"
                 class={menuItemClass}
                 onclick={() => {
                   menuOpen = false;
-                  moveOpen = true;
+                  void board.sortColumn(column.id, option.value);
                 }}
               >
-                <svg
-                  class="size-4 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
-                </svg>
-                Move all cards to…
+                <span class="flex-1 truncate pl-1">{option.label}</span>
               </button>
-            {/if}
+            {/each}
+          {:else}
             <button
               type="button"
               role="menuitem"
               class={menuItemClass}
               onclick={() => {
                 menuOpen = false;
-                archiveOpen = true;
+                void board.duplicateColumn(column.id);
               }}
             >
               <svg
@@ -248,41 +205,168 @@
                 stroke-linejoin="round"
                 aria-hidden="true"
               >
-                <rect width="20" height="5" x="2" y="3" rx="1" />
-                <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
-                <path d="M10 12h4" />
+                <rect width="14" height="14" x="8" y="8" rx="2" />
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
               </svg>
-              Archive all cards
+              Duplicate column
+            </button>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={column.is_done}
+              class={menuItemClass}
+              title="Tasks in a done column count as completed"
+              onclick={() => void board.toggleColumnDone(column.id)}
+            >
+              <svg
+                class="size-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="m8.5 12.5 2.5 2.5 5-5.5" />
+              </svg>
+              <span class="flex-1">Mark as done column</span>
+              {#if column.is_done}
+                <svg
+                  class="size-4 text-success"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m5 12 5 5 9-10" />
+                </svg>
+              {/if}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              aria-haspopup="menu"
+              aria-expanded={sortSubmenuOpen}
+              class={menuItemClass}
+              onclick={() => (sortSubmenuOpen = true)}
+            >
+              <svg
+                class="size-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m3 16 4 4 4-4" />
+                <path d="M7 20V4" />
+                <path d="m21 8-4-4-4 4" />
+                <path d="M17 4v16" />
+              </svg>
+              <span class="flex-1">Sort by</span>
+              <svg
+                class="size-4 shrink-0 text-muted"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+            {#if count > 0}
+              <div role="separator" class="my-1 border-t border-edge"></div>
+              {#if board.columns.length > 1}
+                <button
+                  type="button"
+                  role="menuitem"
+                  class={menuItemClass}
+                  onclick={() => {
+                    menuOpen = false;
+                    moveOpen = true;
+                  }}
+                >
+                  <svg
+                    class="size-4 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M5 12h14" />
+                    <path d="m12 5 7 7-7 7" />
+                  </svg>
+                  Move all cards to…
+                </button>
+              {/if}
+              <button
+                type="button"
+                role="menuitem"
+                class={menuItemClass}
+                onclick={() => {
+                  menuOpen = false;
+                  archiveOpen = true;
+                }}
+              >
+                <svg
+                  class="size-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect width="20" height="5" x="2" y="3" rx="1" />
+                  <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+                  <path d="M10 12h4" />
+                </svg>
+                Archive all cards
+              </button>
+            {/if}
+            <div role="separator" class="my-1 border-t border-edge"></div>
+            <button
+              type="button"
+              role="menuitem"
+              class="{menuItemClass} hover:text-danger"
+              onclick={() => {
+                menuOpen = false;
+                deleteOpen = true;
+              }}
+            >
+              <svg
+                class="size-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                <line x1="10" y1="11" x2="10" y2="17" />
+                <line x1="14" y1="11" x2="14" y2="17" />
+              </svg>
+              Delete column
             </button>
           {/if}
-          <div role="separator" class="my-1 border-t border-edge"></div>
-          <button
-            type="button"
-            role="menuitem"
-            class="{menuItemClass} hover:text-danger"
-            onclick={() => {
-              menuOpen = false;
-              deleteOpen = true;
-            }}
-          >
-            <svg
-              class="size-4 shrink-0"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M3 6h18" />
-              <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-              <line x1="10" y1="11" x2="10" y2="17" />
-              <line x1="14" y1="11" x2="14" y2="17" />
-            </svg>
-            Delete column
-          </button>
         </div>
       {/if}
     </div>

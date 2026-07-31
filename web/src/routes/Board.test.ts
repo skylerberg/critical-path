@@ -46,6 +46,7 @@ function task(id: string, columnId: string, position: number, title: string): Bo
     position,
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
+    column_since: '2026-07-15T00:00:00Z',
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
