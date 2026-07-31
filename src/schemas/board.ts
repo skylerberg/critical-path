@@ -28,6 +28,7 @@ export const boardTaskSchema = type({
   due_date: 'string | null',
   created_at: 'string',
   updated_at: 'string',
+  column_since: 'string',
   label_ids: 'string[]',
   assignee_ids: 'string[]',
   blocker_ids: 'string[]',

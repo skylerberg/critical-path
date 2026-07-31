@@ -19,6 +19,7 @@ function task(
     due_date: null,
     created_at: TS,
     updated_at: TS,
+    column_since: TS,
     label_ids: [],
     assignee_ids: [],
     blocker_ids: blockerIds,

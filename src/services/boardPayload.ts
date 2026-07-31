@@ -25,6 +25,7 @@ function boardTasksQuery(db: Kysely<DB>) {
     dueDateText.as('due_date'),
     'task.created_at',
     'task.updated_at',
+    'task.column_since',
     'task.archived_at',
     jsonArrayFrom(
       eb
@@ -76,6 +77,7 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
     due_date: task.due_date,
     created_at: task.created_at.toISOString(),
     updated_at: task.updated_at.toISOString(),
+    column_since: task.column_since.toISOString(),
     label_ids: task.label_rows.map((row) => row.label_id),
     assignee_ids: task.assignee_rows.map((row) => row.user_id),
     blocker_ids: task.blocker_rows.map((row) => row.blocker_task_id),

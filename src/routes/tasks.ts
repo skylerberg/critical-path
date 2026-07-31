@@ -625,6 +625,9 @@ router.patch(
       throw new AppError(409, 'This task changed since you loaded it');
     }
 
+    const columnChanged =
+      body.column_id !== undefined && before !== null && body.column_id !== before.column_id;
+
     const changes = {
       ...(body.title !== undefined ? { title: body.title } : {}),
       ...('description' in body ? { description: nextDescription } : {}),
@@ -632,6 +635,7 @@ router.patch(
       ...(body.position !== undefined ? { position: body.position } : {}),
       ...('due_date' in body ? { due_date: body.due_date ?? null } : {}),
       ...(guardsContent ? { updated_at: sql<Date>`now()` } : {}),
+      ...(columnChanged ? { column_since: sql<Date>`now()` } : {}),
     };
 
     // Every field is optional and an empty body validates, so without this a `{}` patch would

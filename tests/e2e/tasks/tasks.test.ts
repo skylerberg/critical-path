@@ -427,7 +427,7 @@ describe('Tasks CRUD', () => {
       expect((await res.json()).column_id).toBe(targetColumn);
     });
 
-    it('leaves updated_at untouched on a pure move', async () => {
+    it('leaves updated_at untouched on a pure move but bumps column_since', async () => {
       const targetColumn = await fixtures.createColumn(projectId, {
         name: 'Move no bump',
         position: 4000,
@@ -443,6 +443,21 @@ describe('Tasks CRUD', () => {
       const moved = await res.json();
       expect(moved.column_id).toBe(targetColumn);
       expect(moved.updated_at).toBe(original.updated_at);
+      expect(moved.created_at).toBe(original.created_at);
+      expect(Date.parse(moved.column_since)).toBeGreaterThan(Date.parse(original.column_since));
+    });
+
+    it('leaves column_since untouched on a content-only patch', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const original = await created.json();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${original.id}`, { title: 'renamed' });
+      expect(res.status).toBe(200);
+      const updated = await res.json();
+      expect(updated.column_since).toBe(original.column_since);
     });
 
     it('keeps an open editor saveable after someone else moves the task', async () => {

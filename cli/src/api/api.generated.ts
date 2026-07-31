@@ -495,6 +495,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/columns/{id}/reorder': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reorder tasks within a column
+     * @description Re-stamp positions for the column’s unarchived tasks in the given order, a one-shot sort that commits to manual order rather than acting as a persistent view mode. The client supplies every unarchived task id of the column in its new order; the server assigns evenly spaced positions (1000, 2000, …) so later drags have room to midpoint. No column changes, so neither updated_at, column_since nor the activity log are touched. A duplicate id, an id that is archived or in another column, or a missing id set returns 422 with a plain error body. Emits one `column_tasks_reordered` event with the moved tasks’ new positions.
+     */
+    post: operations['postApiColumnsByIdReorder'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/columns/{id}/archive-tasks': {
     parameters: {
       query?: never;
@@ -1255,6 +1275,7 @@ export interface components {
       assignee_ids: string[];
       blocker_ids: string[];
       column_id: string;
+      column_since: string;
       comment_count: number;
       cover_image_url: components['schemas']['UserAvatarurl'];
       created_at: string;
@@ -1296,6 +1317,7 @@ export interface components {
       assignee_ids: string[];
       blocker_ids: string[];
       column_id: string;
+      column_since: string;
       comment_count: number;
       cover_image_url: components['schemas']['UserAvatarurl'];
       created_at: string;
@@ -1320,6 +1342,7 @@ export interface components {
         assignee_ids: string[];
         blocker_ids: string[];
         column_id: string;
+        column_since: string;
         comment_count: number;
         cover_image_url: components['schemas']['UserAvatarurl'];
         created_at: string;
@@ -1423,6 +1446,9 @@ export interface components {
       /** Format: uuid */
       target_column_id: string;
     };
+    ReorderColumnTasks: {
+      task_ids: string[];
+    };
     CreateTask: {
       /** Format: uuid */
       column_id: string;
@@ -1460,6 +1486,7 @@ export interface components {
       assignee_ids: string[];
       blocker_ids: string[];
       column_id: string;
+      column_since: string;
       comment_count: number;
       comments: components['schemas']['Comment'][];
       cover_image_url: components['schemas']['UserAvatarurl'];
@@ -3579,6 +3606,86 @@ export interface operations {
     };
     responses: {
       /** @description Moved tasks with their new positions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MovedTasksResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Authentication required or failed */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Validation error or domain-rule violation */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  postApiColumnsByIdReorder: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ReorderColumnTasks'];
+      };
+    };
+    responses: {
+      /** @description Reordered tasks with their new positions */
       200: {
         headers: {
           [name: string]: unknown;
