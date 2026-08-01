@@ -49,3 +49,15 @@ jobs:
       # suites through tsx, which strips types without checking them.
       - run: npm run --prefix cli check
       - run: npm test
+
+  preview-edge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: 'preview-edge/package-lock.json'
+      - run: npm ci --prefix preview-edge
+      - run: npm --prefix preview-edge run type-check
