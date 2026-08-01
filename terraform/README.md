@@ -66,18 +66,26 @@ backend change. The frontend repo's workflow uploads each PR's build to a
 
 **Prerequisites (one-time):**
 
-1. Enable the Cloud Run API (`run.googleapis.com`) in the project.
+1. Enable the APIs: Cloud Run (`run.googleapis.com`) and Certificate Manager
+   (`certificatemanager.googleapis.com`).
 2. Publish the first image so terraform can reference it: run the
    `preview-edge-deploy` workflow once (workflow_dispatch, or push a change
    under `preview-edge/`). It builds and pushes `…/preview-edge:latest`.
 3. `terraform apply` — creates the service account, the Cloud Run service
    (pointed at `:latest`), the serverless NEG, the `preview_edge` backend
-   service, the wildcard cert, and the `previews` matcher.
-4. In Route 53, add a wildcard A record `*.criticalpath.skylerberg.com` →
-   `terraform output lb_ip`, then add the DNS-01 validation CNAME Google
-   surfaces for the wildcard cert (`gcloud compute ssl-certificates describe
-   critical-path-wildcard-cert`). The cert provisions ~15–60 min after the
-   records resolve, same as the apex cert did.
+   service, the Certificate Manager wildcard cert + map (attached to the HTTPS
+   proxy), and the `previews` matcher.
+4. In Route 53:
+   - add a wildcard A record `*.criticalpath.skylerberg.com` →
+     `terraform output lb_ip`;
+   - add the DNS-01 CNAME that validates the wildcard cert — read it from
+     `terraform output wildcard_cert_dns_validation` and create that record
+     (name → data). The classic Compute managed cert can't validate a
+     wildcard, so this uses Certificate Manager DNS-01; one CNAME covers the
+     whole `*.…` set.
+
+   The cert provisions ~15–60 min after both records resolve. Track it with
+   `gcloud certificate-manager certificates describe critical-path-wildcard-cert --location=global` (managed.state → ACTIVE).
 
 After that, every push under `preview-edge/` redeploys the edge, and every PR
 in the frontend repo publishes a preview with no further infra work. **A
