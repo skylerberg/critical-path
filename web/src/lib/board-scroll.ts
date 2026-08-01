@@ -1,49 +1,43 @@
 /**
- * One-column-at-a-time horizontal advance for the board scroller during a drag.
+ * Horizontal auto-scroll speed (px/sec) for the board while dragging, based on
+ * how far the pointer is into the left/right edge band.
  *
- * Why this exists: `svelte-dnd-action` has no option to disable its edge
- * auto-scroller, and that auto-scroller calls `scrollBy()` every animation
- * frame. With `scroll-snap-type: x mandatory` the browser uses *directional*
- * snapping, so each `scrollBy()` jumps a whole column — a touch drag held near
- * the edge rockets across every column. To keep snap during a drag we instead
- * hide the scroller from the library (set `overflow: hidden` while dragging) and
- * drive advancement ourselves, one column per tick.
+ * The board does Trello-style drag scrolling: while a drag is in progress it
+ * free-scrolls (no snap) at a slow, controllable speed, then snaps to the
+ * destination column on drop. `svelte-dnd-action`'s built-in edge scroller is
+ * both far too fast for precise placement and, under mandatory scroll-snap, a
+ * per-frame fling — so we hide the board from it (`overflow: hidden` while
+ * dragging) and drive the scroll ourselves with this speed.
  *
- * This pure helper computes, given the current viewport positions of the
- * columns and the scroller, the absolute `scrollLeft` that would center the
- * next/previous column — or `null` if there is nowhere left to go. The DOM
- * rect gathering lives in the component; this stays trivially testable.
+ * Returns 0 outside the band, scaling linearly up to `maxSpeedPxPerS` at the
+ * very edge. Negative => scroll left, positive => scroll right. Kept pure so it
+ * is trivially unit-testable; the component supplies the live pointer/rect
+ * values each animation frame.
  *
- * @param columnCenters Viewport-x center of each column, left to right.
- * @param scrollerCenter Viewport-x center of the scroll container.
- * @param scrollLeft Its current `scrollLeft`.
- * @param dir `-1` to advance left, `1` to advance right.
- * @returns The target `scrollLeft`, or `null` if already at the edge.
+ * @param pointerX   Pointer viewport-x.
+ * @param boardLeft  Scroll container left edge (viewport-x).
+ * @param boardRight Scroll container right edge (viewport-x).
+ * @param zonePx     Width of the edge band on each side.
+ * @param maxSpeedPxPerS Scroll speed at the very edge.
  */
-export function columnAdvanceTarget(
-  columnCenters: number[],
-  scrollerCenter: number,
-  scrollLeft: number,
-  dir: -1 | 1
-): number | null {
-  if (columnCenters.length === 0) {
-    return null;
+export function edgeScrollSpeed(
+  pointerX: number,
+  boardLeft: number,
+  boardRight: number,
+  zonePx: number,
+  maxSpeedPxPerS: number
+): number {
+  const fromLeft = pointerX - boardLeft; // < zonePx when inside the left band
+  const fromRight = boardRight - pointerX; // < zonePx when inside the right band
+  if (fromLeft < zonePx) {
+    return -clamp01((zonePx - fromLeft) / zonePx) * maxSpeedPxPerS;
   }
-  // The column currently nearest centered is the one we advance *from*.
-  let currentIndex = 0;
-  let best = Infinity;
-  for (let i = 0; i < columnCenters.length; i++) {
-    const distance = Math.abs(columnCenters[i] - scrollerCenter);
-    if (distance < best) {
-      best = distance;
-      currentIndex = i;
-    }
+  if (fromRight < zonePx) {
+    return clamp01((zonePx - fromRight) / zonePx) * maxSpeedPxPerS;
   }
-  const targetIndex = Math.max(0, Math.min(columnCenters.length - 1, currentIndex + dir));
-  if (targetIndex === currentIndex) {
-    return null;
-  }
-  // Moving the target column's center onto the scroller center means scrolling
-  // by exactly (targetCenter - scrollerCenter), relative to the current offset.
-  return scrollLeft + (columnCenters[targetIndex] - scrollerCenter);
+  return 0;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
