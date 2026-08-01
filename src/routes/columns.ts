@@ -147,6 +147,9 @@ async function reorderTasks(
     throw new AppError(422, 'task_ids must reference unarchived tasks in this column');
   }
 
+  // The check above is a read, so a card can still leave the column before the
+  // write lands; without the predicates below its position would be stamped into
+  // whatever column it moved to.
   const movedTasks = taskIds.map((taskId, index) => ({
     id: taskId,
     column_id: column.id,
@@ -160,6 +163,8 @@ async function reorderTasks(
       movedTasks.map((task) => sql`(${task.id}::uuid, ${task.position}::float8)`)
     )}) as v(id, position)
     where task.id = v.id
+      and task.column_id = ${column.id}
+      and task.archived_at is null
   `.execute(db);
 
   return movedTasks;
