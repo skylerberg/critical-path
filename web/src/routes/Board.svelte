@@ -60,14 +60,44 @@
   // programmatically scrollable) and turn snap off, then drive a slow,
   // edge-proximity-scaled scroll ourselves. On a pointer drop we smoothly center
   // the destination column and re-arm snap once it settles.
-  const DRAG_EDGE_ZONE_PX = 64; // pointer within this band of an edge starts scrolling
-  const DRAG_SCROLL_SPEED_PX_PER_S = 400; // top speed at the very edge; scales to 0 at the band's inner edge
+  const DRAG_EDGE_ZONE_PX = 80; // pointer within this band of an edge starts scrolling
+  const DRAG_SCROLL_SPEED_PX_PER_S = 500; // top speed at the very edge; scales to 0 at the band's inner edge
   const DROP_CENTER_TIMEOUT_MS = 500; // fallback restore if `scrollend` never fires
   let boardScroller: HTMLElement | undefined = $state();
   // Column to center after a pointer drop. While set, snap stays off so the
   // centering slide isn't fought by scroll-snap.
   let centeringTarget = $state<string | null>(null);
   const snapActive = $derived(!dragging && centeringTarget === null);
+
+  function nearestColumnIndex(scroller: HTMLElement): number {
+    const board = scroller.getBoundingClientRect();
+    const mid = board.left + board.width / 2;
+    const sections = scroller.querySelectorAll<HTMLElement>('section');
+    let best = 0;
+    let bestDist = Infinity;
+    sections.forEach((el, i) => {
+      const rect = el.getBoundingClientRect();
+      const dist = Math.abs(rect.left + rect.width / 2 - mid);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    });
+    return best;
+  }
+
+  function scrollToColumn(scroller: HTMLElement, index: number): void {
+    const section = scroller.querySelectorAll<HTMLElement>('section')[index];
+    if (!section) {
+      return;
+    }
+    const board = scroller.getBoundingClientRect();
+    const rect = section.getBoundingClientRect();
+    scroller.scrollTo({
+      left: scroller.scrollLeft + (rect.left + rect.width / 2 - (board.left + board.width / 2)),
+      behavior: motion.reduced ? 'auto' : 'smooth',
+    });
+  }
 
   // Slow, continuous edge scroll while dragging.
   $effect(() => {
@@ -150,6 +180,41 @@
       window.clearTimeout(timeout);
       scroller.removeEventListener('scrollend', finish);
     };
+  });
+
+  // --- Resting swipe is paginated: at most one column per swipe ---
+  // Each column has scroll-snap-stop: always (snap-always), which is meant to cap
+  // a fling at one column, but it isn't honored on every mobile browser (older
+  // iOS Safari in particular), so a vigorous swipe can sail past several columns.
+  // As a reliable guardrail, when a native scroll settles more than one column
+  // from where this gesture started, slide it back to exactly one.
+  $effect(() => {
+    const scroller = boardScroller;
+    if (!scroller || !snapActive) {
+      return;
+    }
+    let restIndex = nearestColumnIndex(scroller);
+    let correcting = false;
+    const onScrollEnd = () => {
+      const index = nearestColumnIndex(scroller);
+      if (correcting) {
+        // this scrollend is our own correction landing — just record it
+        correcting = false;
+        restIndex = index;
+        return;
+      }
+      const delta = index - restIndex;
+      if (Math.abs(delta) > 1) {
+        const target = restIndex + Math.sign(delta);
+        restIndex = target;
+        correcting = true;
+        scrollToColumn(scroller, target);
+      } else {
+        restIndex = index;
+      }
+    };
+    scroller.addEventListener('scrollend', onScrollEnd);
+    return () => scroller.removeEventListener('scrollend', onScrollEnd);
   });
 
   // QuickAddTask encapsulates its open/focus state, so the shortcut opens it via its trigger.
