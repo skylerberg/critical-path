@@ -1,0 +1,134 @@
+name: preview-deploy
+
+# Privileged half of per-PR previews. Triggered when preview-build completes,
+# so it runs on `main`'s workflow file — the existing WIF condition (main-only)
+# permits it, and a PR can't rewrite these steps. It downloads the build
+# artifact (PR code only ever ran unprivileged in preview-build), uploads it to
+# pr/<n>/ in the web bucket, and upserts the preview-URL comment. On close it
+# deletes the prefix instead.
+on:
+  workflow_run:
+    workflows: [preview-build]
+    types: [completed]
+
+permissions:
+  contents: 'read'
+  id-token: 'write'
+  pull-requests: 'write'
+  actions: 'read' # download artifacts from the triggering run
+
+concurrency:
+  group: preview-deploy-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      BUCKET: critical-path-web-prod
+    steps:
+      # Map the triggering run back to its PR by head SHA.
+      - name: 'Resolve PR'
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const pulls = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              head: `${context.repo.owner}:${run.head_branch}`,
+              per_page: 10,
+            });
+            const pr = pulls.data.find((p) => p.head.sha === run.head_sha);
+            core.setOutput('number', pr ? String(pr.number) : '');
+
+      - uses: actions/download-artifact@v4
+        if: steps.pr.outputs.number != ''
+        with:
+          name: preview-build
+          path: out
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: 'Read mode'
+        if: steps.pr.outputs.number != ''
+        id: mode
+        run: echo "mode=$(cat out/mode)" >> "$GITHUB_OUTPUT"
+
+      - id: 'auth'
+        if: steps.mode.outputs.mode == 'deploy' || steps.mode.outputs.mode == 'closed'
+        uses: 'google-github-actions/auth@v3'
+        with:
+          workload_identity_provider: 'projects/1085332810847/locations/global/workloadIdentityPools/default-pool/providers/github-provider'
+          service_account: 'github-actions-service@realm-construction.iam.gserviceaccount.com'
+
+      - uses: 'google-github-actions/setup-gcloud@v3'
+        if: steps.mode.outputs.mode == 'deploy' || steps.mode.outputs.mode == 'closed'
+
+      - name: 'Upload build'
+        if: steps.mode.outputs.mode == 'deploy'
+        uses: 'google-github-actions/upload-cloud-storage@v3'
+        with:
+          path: 'out/dist'
+          destination: '${{ env.BUCKET }}/pr/${{ steps.pr.outputs.number }}'
+          parent: false
+          process_gcloudignore: false
+
+      # Hashed assets are immutable; index.html must always revalidate.
+      - name: 'Set cache headers'
+        if: steps.mode.outputs.mode == 'deploy'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          gcloud storage objects update --recursive \
+            --cache-control='public, max-age=31536000, immutable' \
+            "gs://$BUCKET/pr/$PR/assets"
+          gcloud storage objects update \
+            --cache-control='no-cache, no-store, must-revalidate' \
+            "gs://$BUCKET/pr/$PR/index.html"
+
+      - name: 'Remove preview'
+        if: steps.mode.outputs.mode == 'closed'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+        run: gcloud storage rm -r "gs://$BUCKET/pr/$PR/" 2>/dev/null || true
+
+      - name: 'Upsert comment'
+        if: steps.pr.outputs.number != ''
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          MODE: ${{ steps.mode.outputs.mode }}
+        with:
+          script: |
+            const number = Number(process.env.PR_NUMBER);
+            const mode = process.env.MODE;
+            const marker = '<!-- pr-preview-comment -->';
+            const body =
+              mode === 'deploy'
+                ? `${marker}🟣 **Preview:** https://pr-${number}.criticalpath.skylerberg.com\n\n_Auto-updated on each push; removed when the PR closes. Reads and writes real production data._`
+                : `${marker}🟣 Preview removed (PR closed).`;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+            });
+            const existing = comments.data.find((c) => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else if (mode === 'deploy') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: number,
+                body,
+              });
+            }

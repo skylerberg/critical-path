@@ -1,0 +1,45 @@
+name: preview-build
+
+# Unprivileged half of per-PR previews. Builds the PR (VITE_PREVIEW disables
+# the PWA) and uploads the bundle as an artifact. It never touches secrets or
+# the deploy SA — the privileged upload happens in preview-deploy.yaml, which
+# is triggered by this run via `workflow_run` and therefore runs on `main`'s
+# workflow file (so a PR can't rewrite the privileged steps).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: 'read'
+
+concurrency:
+  group: preview-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: 'Build (or mark closed)'
+        run: |
+          mkdir -p out
+          if [ "${{ github.event.action }}" = "closed" ]; then
+            printf 'closed' > out/mode
+          else
+            npm ci
+            VITE_PREVIEW=1 npm run build
+            printf 'deploy' > out/mode
+            mv dist out/dist
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preview-build
+          path: out
+          retention-days: 1
