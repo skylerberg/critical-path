@@ -15,9 +15,10 @@ terraform {
 }
 
 locals {
-  project      = "realm-construction"
-  domain       = "criticalpath.skylerberg.com"
-  gke_node_tag = "gke-cow-cluster-c4b67ea8-node"
+  project             = "realm-construction"
+  domain              = "criticalpath.skylerberg.com"
+  preview_host_suffix = ".${local.domain}"
+  gke_node_tag        = "gke-cow-cluster-c4b67ea8-node"
 }
 
 provider "google" {
@@ -34,6 +35,18 @@ resource "google_compute_managed_ssl_certificate" "critical_path" {
 
   managed {
     domains = [local.domain]
+  }
+}
+
+# Covers pr-<n>.criticalpath.skylerberg.com. A managed wildcard cert needs a
+# DNS-01 validation record (Google surfaces the target) added to Route 53, and
+# only provisions after the wildcard A record resolves — same one-time dance
+# the apex cert went through.
+resource "google_compute_managed_ssl_certificate" "wildcard" {
+  name = "critical-path-wildcard-cert"
+
+  managed {
+    domains = ["*.${local.domain}"]
   }
 }
 
@@ -163,6 +176,96 @@ resource "google_compute_backend_bucket" "web" {
   }
 }
 
+# --- Per-PR preview deployments (pr-<n>.criticalpath.skylerberg.com) -------
+# A Cloud Run "preview edge" serves each PR's static build from a pr/<n>/
+# prefix in the web bucket, with SPA fallback to that PR's index.html. The
+# wildcard host *.criticalpath.skylerberg.com (see the url_map below) routes
+# to this backend for everything except /api, /ws and /health, which still
+# reach the API — so a preview is a full same-origin virtual host and needs
+# no CORS. See terraform/README.md for the bootstrap ordering and DNS steps.
+
+# Runtime identity for the edge: read-only on the web bucket (pr/ objects).
+resource "google_service_account" "preview_edge" {
+  account_id   = "critical-path-preview-edge"
+  display_name = "Critical Path preview edge (Cloud Run)"
+}
+
+resource "google_storage_bucket_iam_member" "web_preview_edge" {
+  bucket = google_storage_bucket.web.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.preview_edge.email}"
+}
+
+# Terraform bootstraps the service config; the preview-edge deploy workflow
+# pushes the image and rolls it out, so the image is ignored here to keep
+# deploys and applies from fighting over it.
+resource "google_cloud_run_service" "preview_edge" {
+  name     = "critical-path-preview-edge"
+  location = "us-west1"
+
+  template {
+    spec {
+      container_concurrency = 80
+      service_account_name  = google_service_account.preview_edge.email
+      containers {
+        image = "${google_artifact_registry_repository.critical_path.location}-docker.pkg.dev/${local.project}/${google_artifact_registry_repository.critical_path.repository_id}/preview-edge:latest"
+        env {
+          name  = "WEB_BUCKET"
+          value = google_storage_bucket.web.name
+        }
+        env {
+          name  = "PREVIEW_HOST_SUFFIX"
+          value = local.preview_host_suffix
+        }
+      }
+    }
+  }
+
+  traffic {
+    percent         = 100
+    latest_revision = true
+  }
+
+  metadata {
+    annotations = {
+      # Only the global LB (and internal callers) may reach the edge directly;
+      # the public run.app URL is blocked so the auth gate can't be bypassed.
+      "run.googleapis.com/ingress" = "internal-and-cloud-load-balancing"
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [template[0].spec[0].containers[0].image]
+  }
+}
+
+resource "google_compute_region_network_endpoint_group" "preview_edge" {
+  name                  = "critical-path-preview-edge-neg"
+  region                = "us-west1"
+  network_endpoint_type = "SERVERLESS"
+
+  cloud_run {
+    service = google_cloud_run_service.preview_edge.name
+  }
+}
+
+# No CDN: previews are low-traffic and a force-push to the same pr/<n>/
+# prefix must be picked up immediately. Hashed assets are fetched once per PR.
+resource "google_compute_backend_service" "preview_edge" {
+  name                            = "critical-path-preview-edge-backend"
+  load_balancing_scheme           = "EXTERNAL_MANAGED"
+  connection_draining_timeout_sec = 30
+
+  backend {
+    group = google_compute_region_network_endpoint_group.preview_edge.self_link
+  }
+
+  log_config {
+    enable      = true
+    sample_rate = 1.0
+  }
+}
+
 resource "google_compute_url_map" "critical_path" {
   name            = "critical-path-url-map"
   default_service = google_compute_backend_bucket.web.self_link
@@ -170,6 +273,11 @@ resource "google_compute_url_map" "critical_path" {
   host_rule {
     hosts        = [local.domain]
     path_matcher = "main"
+  }
+
+  host_rule {
+    hosts        = ["*.${local.domain}"]
+    path_matcher = "previews"
   }
 
   path_matcher {
@@ -234,6 +342,41 @@ resource "google_compute_url_map" "critical_path" {
       }
     }
   }
+
+  # pr-<n>.criticalpath.skylerberg.com: same /api, /ws and /health routing as
+  # prod so a preview is a same-origin virtual host; every other path is
+  # served by the preview edge (which SPA-falls-back to that PR's index.html).
+  path_matcher {
+    name            = "previews"
+    default_service = google_compute_backend_service.preview_edge.self_link
+
+    route_rules {
+      priority = 1
+      service  = google_compute_backend_service.api.self_link
+
+      match_rules {
+        prefix_match = "/api/"
+      }
+    }
+
+    route_rules {
+      priority = 2
+      service  = google_compute_backend_service.api.self_link
+
+      match_rules {
+        full_path_match = "/ws"
+      }
+    }
+
+    route_rules {
+      priority = 3
+      service  = google_compute_backend_service.api.self_link
+
+      match_rules {
+        full_path_match = "/health"
+      }
+    }
+  }
 }
 
 resource "google_compute_url_map" "http_redirect" {
@@ -246,9 +389,12 @@ resource "google_compute_url_map" "http_redirect" {
 }
 
 resource "google_compute_target_https_proxy" "critical_path" {
-  name             = "critical-path-https-proxy"
-  url_map          = google_compute_url_map.critical_path.self_link
-  ssl_certificates = [google_compute_managed_ssl_certificate.critical_path.self_link]
+  name    = "critical-path-https-proxy"
+  url_map = google_compute_url_map.critical_path.self_link
+  ssl_certificates = [
+    google_compute_managed_ssl_certificate.critical_path.self_link,
+    google_compute_managed_ssl_certificate.wildcard.self_link,
+  ]
 }
 
 resource "google_compute_target_http_proxy" "http_redirect" {
