@@ -1,0 +1,82 @@
+name: preview-edge-deploy
+
+# Builds and rolls out the Cloud Run preview edge (serves pr-<n>.… static
+# builds). The service itself is created and configured by terraform; this
+# workflow only publishes the image and points the service at the new revision.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'preview-edge/**'
+      - '.github/workflows/preview-edge.yaml'
+  workflow_dispatch:
+
+concurrency:
+  group: '${{ github.workflow }}'
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    env:
+      IMAGE: us-west1-docker.pkg.dev/realm-construction/critical-path/preview-edge
+      SERVICE: critical-path-preview-edge
+      REGION: us-west1
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: 'preview-edge/package-lock.json'
+
+      - run: npm ci --prefix preview-edge
+
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v3'
+        with:
+          workload_identity_provider: 'projects/1085332810847/locations/global/workloadIdentityPools/default-pool/providers/github-provider'
+          service_account: 'github-actions-service@realm-construction.iam.gserviceaccount.com'
+          token_format: 'access_token'
+
+      - uses: 'google-github-actions/setup-gcloud@v3'
+
+      - uses: 'docker/login-action@v4'
+        with:
+          registry: 'us-west1-docker.pkg.dev'
+          username: 'oauth2accesstoken'
+          password: '${{ steps.auth.outputs.access_token }}'
+
+      - uses: 'docker/setup-buildx-action@v4'
+
+      - name: 'Type-check'
+        run: npm --prefix preview-edge run type-check
+
+      - name: 'Build and push image'
+        uses: 'docker/build-push-action@v7'
+        with:
+          context: preview-edge
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: 'type=gha'
+          cache-to: 'type=gha,mode=max'
+
+      # Image-only update: terraform owns the service config (env, service
+      # account, ingress), so we never set those here. On the very first run,
+      # before `terraform apply` has created the service, this is a no-op and
+      # the :latest tag is already published for terraform to bootstrap from.
+      - name: 'Roll out to Cloud Run'
+        run: |
+          if gcloud run services describe "$SERVICE" --region "$REGION" >/dev/null 2>&1; then
+            gcloud run services update "$SERVICE" \
+              --image "$IMAGE:$GITHUB_SHA" \
+              --region "$REGION"
+          else
+            echo "Service $SERVICE not found — run terraform apply first (it creates the service). The :latest image is published for bootstrap."
+          fi
