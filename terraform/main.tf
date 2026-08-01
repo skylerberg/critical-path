@@ -14,6 +14,18 @@ terraform {
   }
 }
 
+variable "attach_wildcard_cert_map" {
+  type        = bool
+  default     = false
+  description = <<-EOT
+    Attach the wildcard certificate map to the HTTPS proxy. Leave false until
+    `gcloud certificate-manager certificates describe critical-path-wildcard-cert
+    --location=global` reports ACTIVE, which needs the DNS-01 CNAME from
+    `terraform output wildcard_cert_dns_validation` in Route 53 first. Preview
+    subdomains have no certificate until this is true.
+  EOT
+}
+
 locals {
   project             = "realm-construction"
   domain              = "criticalpath.skylerberg.com"
@@ -44,9 +56,10 @@ resource "google_compute_managed_ssl_certificate" "critical_path" {
 # Manager using DNS-01 authorization. One authorization for the parent domain
 # covers it and its wildcard; Google publishes the CNAME to add to Route 53 as
 # dns_resource_record on the authorization (see the wildcard_cert_dns_validation
-# output). The cert is attached to the HTTPS proxy via a certificate map, which
-# coexists with the apex cert in ssl_certificates. Requires the Certificate
-# Manager API (certificatemanager.googleapis.com).
+# output). The cert is attached to the HTTPS proxy via a certificate map, in two
+# applies: the map goes on only once the cert is ACTIVE, which is not until that
+# CNAME resolves. Requires the Certificate Manager API
+# (certificatemanager.googleapis.com).
 
 resource "google_certificate_manager_dns_authorization" "preview" {
   name     = "critical-path-preview-dns-auth"
@@ -60,7 +73,11 @@ resource "google_certificate_manager_certificate" "wildcard" {
   scope    = "DEFAULT"
 
   managed {
-    domains            = ["*.${local.domain}"]
+    # The apex is here as well as the wildcard, which does not cover it. Whether
+    # an attached map supersedes ssl_certificates or merely supplements it is not
+    # something the docs settle; covering the apex in both places means the apex
+    # keeps serving either way.
+    domains            = [local.domain, "*.${local.domain}"]
     dns_authorizations = [google_certificate_manager_dns_authorization.preview.id]
   }
 }
@@ -75,6 +92,16 @@ resource "google_certificate_manager_certificate_map_entry" "wildcard" {
   name     = "critical-path-wildcard-entry"
   map      = google_certificate_manager_certificate_map.wildcard.name
   hostname = "*.${local.domain}"
+
+  certificates = [google_certificate_manager_certificate.wildcard.id]
+}
+
+# SNI that matches no hostname entry lands here. Without it the apex has nothing
+# to fall back to if the map does supersede ssl_certificates.
+resource "google_certificate_manager_certificate_map_entry" "primary" {
+  name    = "critical-path-primary-entry"
+  map     = google_certificate_manager_certificate_map.wildcard.name
+  matcher = "PRIMARY"
 
   certificates = [google_certificate_manager_certificate.wildcard.id]
 }
@@ -418,13 +445,14 @@ resource "google_compute_url_map" "http_redirect" {
 }
 
 resource "google_compute_target_https_proxy" "critical_path" {
-  name    = "critical-path-https-proxy"
-  url_map = google_compute_url_map.critical_path.self_link
-  # Apex cert; the *.criticalpath wildcard is served via the certificate_map.
-  # On EXTERNAL_MANAGED, certificate_map coexists with ssl_certificates (only
-  # certificate_manager_certificates is mutually exclusive with ssl_certificates).
+  name             = "critical-path-https-proxy"
+  url_map          = google_compute_url_map.critical_path.self_link
   ssl_certificates = [google_compute_managed_ssl_certificate.critical_path.self_link]
-  certificate_map  = "//certificatemanager.googleapis.com/${google_certificate_manager_certificate_map.wildcard.id}"
+
+  # Held off until the wildcard cert reports ACTIVE. The map's entries point at a
+  # cert that stays PENDING until the DNS-01 CNAME resolves, so attaching it
+  # early would hand the proxy a certificate it cannot serve.
+  certificate_map = var.attach_wildcard_cert_map ? "//certificatemanager.googleapis.com/${google_certificate_manager_certificate_map.wildcard.id}" : null
 }
 
 resource "google_compute_target_http_proxy" "http_redirect" {
