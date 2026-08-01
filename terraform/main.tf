@@ -381,8 +381,20 @@ resource "google_compute_url_map" "critical_path" {
       }
     }
 
+    # Hashed filenames, so a miss is a genuine miss and must stay a 404 rather
+    # than becoming an HTML body a <script> tag will fail to parse. Sits above
+    # the SPA fallback for that reason alone.
     route_rules {
       priority = 4
+      service  = google_compute_backend_bucket.web.self_link
+
+      match_rules {
+        prefix_match = "/assets/"
+      }
+    }
+
+    route_rules {
+      priority = 5
       service  = google_compute_backend_bucket.web.self_link
 
       match_rules {
@@ -394,6 +406,41 @@ resource "google_compute_url_map" "critical_path" {
           header_name  = "X-Robots-Tag"
           header_value = "noindex, nofollow"
           replace      = true
+        }
+      }
+
+      custom_error_response_policy {
+        error_service = google_compute_backend_bucket.web.self_link
+
+        error_response_rule {
+          match_response_codes   = ["404"]
+          path                   = "/index.html"
+          override_response_code = 200
+        }
+      }
+    }
+
+    # The bucket answers an unknown object with its not_found_page, which is the
+    # app shell but carries a 404 — enough for the browser, but link unfurlers
+    # read the status and refuse to preview a shared board. Carried on a
+    # catch-all rule rather than the matcher default, because a matcher-level
+    # policy also governs route rules that define none of their own, which would
+    # turn a genuine API 404 into the shell with a 200.
+    route_rules {
+      priority = 6
+      service  = google_compute_backend_bucket.web.self_link
+
+      match_rules {
+        prefix_match = "/"
+      }
+
+      custom_error_response_policy {
+        error_service = google_compute_backend_bucket.web.self_link
+
+        error_response_rule {
+          match_response_codes   = ["404"]
+          path                   = "/index.html"
+          override_response_code = 200
         }
       }
     }
