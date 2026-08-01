@@ -13,7 +13,7 @@
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { draftKey, drafts } from '../lib/drafts.svelte';
-  import { columnAdvanceTarget } from '../lib/board-scroll';
+  import { edgeScrollSpeed } from '../lib/board-scroll';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import ColumnHeader from '../components/ColumnHeader.svelte';
@@ -50,62 +50,106 @@
     board.dragging = dragging;
   });
 
-  // --- Drag-time horizontal scrolling (mobile) ---
-  // svelte-dnd-action has no opt-out for its edge auto-scroller, and that
-  // scroller's per-frame scrollBy() + mandatory scroll-snap (directional snap)
-  // flings a touch drag across every column. We want to KEEP snap during a drag,
-  // so instead we hide the board from the library's scroller (overflow: hidden)
-  // and advance one column at a time ourselves while the dragged card is near an
-  // edge. `overflow: hidden` stays programmatically scrollable and snap still
-  // applies, so each advance lands cleanly on a column.
-  const DRAG_EDGE_ZONE_PX = 44; // dragged card within this far from an edge -> advance
-  const DRAG_ADVANCE_COOLDOWN_MS = 500; // one column per tick; > the ~300ms slide so advances don't interrupt each other
+  // --- Drag-time horizontal scrolling (Trello-style) ---
+  // While a drag is in progress the board free-scrolls slowly with NO snapping,
+  // then snaps to the column you dropped into. We can't lean on
+  // svelte-dnd-action's built-in edge auto-scroller: it's far too fast for
+  // precise placement, and under mandatory scroll-snap its per-frame scrollBy()
+  // directionally snaps a whole column each tick (a fling). So while dragging we
+  // hide the board from that scroller (`overflow: hidden`, which stays
+  // programmatically scrollable) and turn snap off, then drive a slow,
+  // edge-proximity-scaled scroll ourselves. On a pointer drop we smoothly center
+  // the destination column and re-arm snap once it settles.
+  const DRAG_EDGE_ZONE_PX = 64; // pointer within this band of an edge starts scrolling
+  const DRAG_SCROLL_SPEED_PX_PER_S = 400; // top speed at the very edge; scales to 0 at the band's inner edge
+  const DROP_CENTER_TIMEOUT_MS = 500; // fallback restore if `scrollend` never fires
   let boardScroller: HTMLElement | undefined = $state();
+  // Column to center after a pointer drop. While set, snap stays off so the
+  // centering slide isn't fought by scroll-snap.
+  let centeringTarget = $state<string | null>(null);
+  const snapActive = $derived(!dragging && centeringTarget === null);
 
+  // Slow, continuous edge scroll while dragging.
   $effect(() => {
     const scroller = boardScroller;
     if (!scroller || !dragging) {
       return;
     }
-    let lastAdvance = 0;
-    const id = window.setInterval(() => {
-      const dragged = document.getElementById('dnd-action-dragged-el');
-      if (!dragged) {
-        return;
+    centeringTarget = null; // a new drag cancels any pending drop-center
+    let pointerX: number | null = null;
+    const onMove = (event: Event) => {
+      const x =
+        event instanceof TouchEvent ? event.touches[0]?.clientX : (event as MouseEvent).clientX;
+      if (typeof x === 'number') {
+        pointerX = x;
       }
-      const now = performance.now();
-      if (now - lastAdvance < DRAG_ADVANCE_COOLDOWN_MS) {
-        return;
+    };
+    // svelte-dnd-action reparents the dragged element to <body>, so touch/mouse
+    // moves target it under <body> and never reach the board scroller — listen on
+    // document (capture) to follow the real pointer.
+    document.addEventListener('mousemove', onMove, { passive: true, capture: true });
+    document.addEventListener('touchmove', onMove, { passive: true, capture: true });
+    let frame = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      if (pointerX !== null) {
+        const rect = scroller.getBoundingClientRect();
+        const speed = edgeScrollSpeed(
+          pointerX,
+          rect.left,
+          rect.right,
+          DRAG_EDGE_ZONE_PX,
+          DRAG_SCROLL_SPEED_PX_PER_S
+        );
+        if (speed !== 0) {
+          scroller.scrollBy(speed * dt, 0);
+        }
       }
-      const boardRect = scroller.getBoundingClientRect();
-      const cardRect = dragged.getBoundingClientRect();
-      let dir: -1 | 1 | 0 = 0;
-      if (cardRect.left < boardRect.left + DRAG_EDGE_ZONE_PX) {
-        dir = -1;
-      } else if (cardRect.right > boardRect.right - DRAG_EDGE_ZONE_PX) {
-        dir = 1;
-      }
-      if (dir === 0) {
-        return;
-      }
-      const columns = scroller.querySelectorAll<HTMLElement>('section');
-      const centers: number[] = [];
-      for (const column of columns) {
-        const r = column.getBoundingClientRect();
-        centers.push(r.left + r.width / 2);
-      }
-      const boardCenter = boardRect.left + boardRect.width / 2;
-      const target = columnAdvanceTarget(centers, boardCenter, scroller.scrollLeft, dir);
-      if (target === null) {
-        return;
-      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('touchmove', onMove, true);
+    };
+  });
+
+  // On a pointer drop, slide the destination column into view, then re-arm snap.
+  $effect(() => {
+    const scroller = boardScroller;
+    const target = centeringTarget;
+    if (!scroller || dragging || target === null) {
+      return;
+    }
+    const section = Array.from(scroller.querySelectorAll<HTMLElement>('section')).find(
+      (el) => el.dataset.columnId === target
+    );
+    if (section) {
+      const board = scroller.getBoundingClientRect();
+      const rect = section.getBoundingClientRect();
       scroller.scrollTo({
-        left: target,
+        left: scroller.scrollLeft + (rect.left + rect.width / 2 - (board.left + board.width / 2)),
         behavior: motion.reduced ? 'auto' : 'smooth',
       });
-      lastAdvance = now;
-    }, 90);
-    return () => window.clearInterval(id);
+    }
+    let done = false;
+    const finish = () => {
+      if (done) {
+        return;
+      }
+      done = true;
+      scroller.removeEventListener('scrollend', finish);
+      centeringTarget = null;
+    };
+    scroller.addEventListener('scrollend', finish);
+    const timeout = window.setTimeout(finish, DROP_CENTER_TIMEOUT_MS);
+    return () => {
+      window.clearTimeout(timeout);
+      scroller.removeEventListener('scrollend', finish);
+    };
   });
 
   // QuickAddTask encapsulates its open/focus state, so the shortcut opens it via its trigger.
@@ -172,6 +216,9 @@
     // shortcuts and realtime updates fire mid-drag.
     columnDragging = event.detail.info.source === SOURCES.KEYBOARD;
     if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
+      if (event.detail.info.source === SOURCES.POINTER) {
+        centeringTarget = event.detail.info.id;
+      }
       void board.moveColumn(event.detail.info.id, positionAfterDrop(items, event.detail.info.id));
     }
   }
@@ -191,6 +238,9 @@
       taskDragging = event.detail.info.source === SOURCES.KEYBOARD;
     }
     if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
+      if (event.detail.info.source === SOURCES.POINTER) {
+        centeringTarget = columnId;
+      }
       void board.moveTask(
         event.detail.info.id,
         columnId,
@@ -222,9 +272,9 @@
 
 <div
   bind:this={boardScroller}
-  class="relative flex min-h-0 flex-1 flex-col snap-x snap-mandatory overscroll-x-contain overflow-y-hidden lg:snap-none {dragging
-    ? 'overflow-x-hidden'
-    : 'overflow-x-auto'}"
+  class="relative flex min-h-0 flex-1 flex-col overscroll-x-contain overflow-y-hidden {snapActive
+    ? 'overflow-x-auto snap-x snap-mandatory lg:snap-none'
+    : 'overflow-x-hidden'}"
 >
   <div class="flex min-h-0 flex-1 items-stretch gap-3 p-3 lg:gap-4 lg:p-4">
     <div
@@ -245,6 +295,7 @@
     >
       {#each localColumns as column (column.id)}
         <section
+          data-column-id={column.id}
           animate:flip={{ duration: flipMs }}
           aria-label={column.name}
           class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-center snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start"
