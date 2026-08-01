@@ -38,16 +38,45 @@ resource "google_compute_managed_ssl_certificate" "critical_path" {
   }
 }
 
-# Covers pr-<n>.criticalpath.skylerberg.com. A managed wildcard cert needs a
-# DNS-01 validation record (Google surfaces the target) added to Route 53, and
-# only provisions after the wildcard A record resolves — same one-time dance
-# the apex cert went through.
-resource "google_compute_managed_ssl_certificate" "wildcard" {
-  name = "critical-path-wildcard-cert"
+# --- Wildcard cert for pr-<n>.criticalpath.skylerberg.com (DNS-01) ---------
+# The classic Compute managed cert can't validate a wildcard (its CA connects
+# to a concrete hostname via MPIC), so the wildcard is issued by Certificate
+# Manager using DNS-01 authorization. One authorization for the parent domain
+# covers it and its wildcard; Google publishes the CNAME to add to Route 53 as
+# dns_resource_record on the authorization (see the wildcard_cert_dns_validation
+# output). The cert is attached to the HTTPS proxy via a certificate map, which
+# coexists with the apex cert in ssl_certificates. Requires the Certificate
+# Manager API (certificatemanager.googleapis.com).
+
+resource "google_certificate_manager_dns_authorization" "preview" {
+  name     = "critical-path-preview-dns-auth"
+  location = "global"
+  domain   = local.domain
+}
+
+resource "google_certificate_manager_certificate" "wildcard" {
+  name     = "critical-path-wildcard-cert"
+  location = "global"
+  scope    = "DEFAULT"
 
   managed {
-    domains = ["*.${local.domain}"]
+    domains            = ["*.${local.domain}"]
+    dns_authorizations = [google_certificate_manager_dns_authorization.preview.id]
   }
+}
+
+resource "google_certificate_manager_certificate_map" "wildcard" {
+  # Certificate Maps are always global (the API pins location to "global"), so
+  # there is no location argument on this resource.
+  name = "critical-path-wildcard-map"
+}
+
+resource "google_certificate_manager_certificate_map_entry" "wildcard" {
+  name     = "critical-path-wildcard-entry"
+  map      = google_certificate_manager_certificate_map.wildcard.name
+  hostname = "*.${local.domain}"
+
+  certificates = [google_certificate_manager_certificate.wildcard.id]
 }
 
 # GCLB health checks reach standalone-NEG endpoints at the pod's serving port
@@ -391,10 +420,11 @@ resource "google_compute_url_map" "http_redirect" {
 resource "google_compute_target_https_proxy" "critical_path" {
   name    = "critical-path-https-proxy"
   url_map = google_compute_url_map.critical_path.self_link
-  ssl_certificates = [
-    google_compute_managed_ssl_certificate.critical_path.self_link,
-    google_compute_managed_ssl_certificate.wildcard.self_link,
-  ]
+  # Apex cert; the *.criticalpath wildcard is served via the certificate_map.
+  # On EXTERNAL_MANAGED, certificate_map coexists with ssl_certificates (only
+  # certificate_manager_certificates is mutually exclusive with ssl_certificates).
+  ssl_certificates = [google_compute_managed_ssl_certificate.critical_path.self_link]
+  certificate_map  = "//certificatemanager.googleapis.com/${google_certificate_manager_certificate_map.wildcard.id}"
 }
 
 resource "google_compute_target_http_proxy" "http_redirect" {
@@ -536,4 +566,13 @@ resource "google_monitoring_alert_policy" "lb_5xx" {
 output "lb_ip" {
   description = "Point the Route 53 A record for the domain here"
   value       = google_compute_global_address.critical_path.address
+}
+
+output "wildcard_cert_dns_validation" {
+  description = "Add this CNAME to Route 53 to validate the *.criticalpath wildcard cert"
+  value = {
+    name = google_certificate_manager_dns_authorization.preview.dns_resource_record[0].name
+    type = google_certificate_manager_dns_authorization.preview.dns_resource_record[0].type
+    data = google_certificate_manager_dns_authorization.preview.dns_resource_record[0].data
+  }
 }
