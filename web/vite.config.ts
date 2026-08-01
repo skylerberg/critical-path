@@ -13,6 +13,12 @@ export default defineConfig({
     tailwindcss(),
     svelteTesting(),
     VitePWA({
+      // Previews run on an isolated subdomain origin, so a service worker
+      // isn't needed for offline; disabling it in the preview build
+      // (VITE_PREVIEW=1) avoids force-push cache-staleness within a single
+      // PR's URL. `virtual:pwa-register` becomes a no-op, so appUpdate.ts is
+      // unaffected.
+      disable: !!process.env.VITE_PREVIEW,
       // `skipWaiting`/`clientsClaim` let a new build take over without the running
       // page's cooperation, so one long-lived tab can't pin a device to a stale
       // worker. The registration shim's reload is suppressed separately.
