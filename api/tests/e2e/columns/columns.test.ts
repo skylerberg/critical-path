@@ -980,6 +980,48 @@ describe('POST /api/columns/:id/reorder', () => {
     expect(res.status).toBe(404);
   });
 
+  // The id check is a read, so the interleave has to be forced rather than raced:
+  // a held row lock lets the request validate, then stall on the write while the
+  // card moves away.
+  it('leaves a card that moved to another column mid-reorder alone', async () => {
+    const projectId = await createProject();
+    const source = await insertColumn(projectId);
+    const destination = await insertColumn(projectId, { position: 2000 });
+    const stays = await insertTask(projectId, source, 1000);
+    const leaves = await insertTask(projectId, source, 2000);
+
+    let releaseHold!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+    const mover = db.transaction().execute(async (trx) => {
+      await trx.selectFrom('task').select('id').where('id', '=', leaves).forUpdate().execute();
+      await held;
+      await trx
+        .updateTable('task')
+        .set({ column_id: destination, position: 7000 })
+        .where('id', '=', leaves)
+        .execute();
+    });
+
+    const reordering = ctx
+      .request(token)
+      .post(`/api/columns/${source}/reorder`, { task_ids: [leaves, stays] });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    releaseHold();
+    await mover;
+
+    expect((await reordering).status).toBe(200);
+
+    const moved = await db
+      .selectFrom('task')
+      .select(['column_id', 'position'])
+      .where('id', '=', leaves)
+      .executeTakeFirstOrThrow();
+    expect(moved.column_id).toBe(destination);
+    expect(moved.position).toBe(7000);
+  });
+
   it('re-stamps evenly spaced positions in the given order', async () => {
     const projectId = await createProject();
     const columnId = await insertColumn(projectId);
