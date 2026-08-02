@@ -4,6 +4,7 @@ import { db, waitForLockWaiters } from '../../helpers/database';
 import { newId, rawJsonWithPosition } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { ProjectFixtures, validDescription, descriptionWithLink } from './taskFixtures';
+import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
 
 describe('Tasks CRUD', () => {
   const ctx = new TestContext();
@@ -170,6 +171,23 @@ describe('Tasks CRUD', () => {
         .post('/api/tasks', taskBody({ description: descriptionWithLink('https://example.com') }));
       expect(res.status).toBe(201);
     });
+
+    it('stores a title at the maximum length whole', async () => {
+      const title = 'x'.repeat(TASK_TITLE_MAX_LENGTH);
+      const res = await ctx.request(user.token).post('/api/tasks', taskBody({ title }));
+      expect(res.status).toBe(201);
+      expect((await res.json()).title).toBe(title);
+    });
+
+    it('rejects a title one character over the maximum with 422', async () => {
+      const res = await ctx
+        .request(user.token)
+        .post('/api/tasks', taskBody({ title: 'x'.repeat(TASK_TITLE_MAX_LENGTH + 1) }));
+      expect(res.status).toBe(422);
+      const body = await res.json();
+      expect(body.error).toBe('Validation failed');
+      expect(body.details.some((d: { path: string }) => d.path === 'title')).toBe(true);
+    });
   });
 
   describe('GET /api/tasks/:id', () => {
@@ -274,6 +292,34 @@ describe('Tasks CRUD', () => {
       expect(res.status).toBe(422);
       const body = await res.json();
       expect(body.error).toBe('Validation failed');
+    });
+
+    it('stores a title at the maximum length whole', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+      const title = 'y'.repeat(TASK_TITLE_MAX_LENGTH);
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${id}`, { title });
+      expect(res.status).toBe(200);
+      expect((await res.json()).title).toBe(title);
+
+      const stored = await db
+        .selectFrom('task')
+        .select('title')
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow();
+      expect(stored.title).toBe(title);
+    });
+
+    it('rejects a title one character over the maximum with 422', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${id}`, { title: 'y'.repeat(TASK_TITLE_MAX_LENGTH + 1) });
+      expect(res.status).toBe(422);
+      expect((await res.json()).error).toBe('Validation failed');
     });
 
     it('moves a task with column_id and position', async () => {

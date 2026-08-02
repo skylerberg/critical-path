@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Output, formatTable, type Writer } from '../../src/output';
+import {
+  Output,
+  TITLE_DISPLAY_LIMIT,
+  displayTitle,
+  formatTable,
+  type Writer,
+} from '../../src/output';
 
 class BufferWriter implements Writer {
   text = '';
@@ -34,6 +40,25 @@ describe('formatTable', () => {
 
   it('handles rows with missing cells', () => {
     expect(formatTable(['A', 'B'], [['only']])).toBe(['A     B', 'only'].join('\n'));
+  });
+});
+
+describe('displayTitle', () => {
+  it('leaves a title at the limit alone and clips one past it', () => {
+    const atLimit = 'x'.repeat(TITLE_DISPLAY_LIMIT);
+    expect(displayTitle(atLimit)).toBe(atLimit);
+    expect(displayTitle(`${atLimit}x`)).toBe(`${atLimit}…`);
+  });
+
+  it('keeps a clipped title from widening a padded column', () => {
+    const table = formatTable(['TITLE', 'STATE'], [[displayTitle('x'.repeat(4000)), 'ready']]);
+    expect(table.split('\n')[1].length).toBe(TITLE_DISPLAY_LIMIT + 1 + 2 + 'ready'.length);
+  });
+
+  it('never splits a surrogate pair', () => {
+    expect(displayTitle('🎲'.repeat(TITLE_DISPLAY_LIMIT + 1))).toBe(
+      `${'🎲'.repeat(TITLE_DISPLAY_LIMIT)}…`
+    );
   });
 });
 
