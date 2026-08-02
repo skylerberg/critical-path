@@ -17,6 +17,7 @@ import {
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
 import { dueDateText } from '../services/dueDate';
 import { notifyMentions } from '../services/mentions';
+import { notify } from '../services/notifications';
 import { copyTasks } from '../services/projectCopy';
 import { storage } from '../services/storage/index';
 import {
@@ -214,6 +215,14 @@ router.post(
       source: 'description',
       previous: null,
       next: body.description ?? null,
+    });
+
+    await notify(c, {
+      kind: 'task_assigned',
+      actor: user,
+      project,
+      taskId: body.id,
+      recipientUserIds: assigneeIds,
     });
 
     const created = await fetchBoardTask(db, body.id);
@@ -1030,7 +1039,8 @@ router.put(
     const { user_ids } = c.req.valid('json');
     const db = c.get('db');
 
-    const actorId = c.get('user').id;
+    const actor = c.get('user');
+    const actorId = actor.id;
     const project = await assertTaskWrite(db, actorId, id);
 
     const desired = dedupe(user_ids);
@@ -1063,6 +1073,15 @@ router.put(
       ...removed.map((userId) => ({ taskId: id, kind: 'assignee_removed' as const, userId })),
       ...added.map((userId) => ({ taskId: id, kind: 'assignee_added' as const, userId })),
     ]);
+
+    // Only the additions: echoing the current set is not a new assignment.
+    await notify(c, {
+      kind: 'task_assigned',
+      actor,
+      project,
+      taskId: id,
+      recipientUserIds: added,
+    });
 
     publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);
