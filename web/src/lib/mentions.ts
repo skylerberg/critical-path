@@ -30,12 +30,7 @@ export function filterMentionCandidates(
 ): User[] {
   const needle = query.trim().toLowerCase();
   return candidates
-    .filter(
-      (user) =>
-        needle === '' ||
-        user.name.toLowerCase().includes(needle) ||
-        user.email.toLowerCase().includes(needle)
-    )
+    .filter((user) => needle === '' || user.name.toLowerCase().includes(needle))
     .slice(0, limit);
 }
 

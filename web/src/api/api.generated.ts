@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/session-list-revoke/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/no-email-in-user-records/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -14,7 +14,7 @@ export interface paths {
         put?: never;
         /**
          * Sign up
-         * @description Create a new user account and start a session. The client supplies the user id. A verification email is sent to the address; the account is usable immediately and `email_verified` starts false. That send is budgeted per source IP, and the budget only ever withholds the mail: past it the account is still created and the session still starts, and the account can ask for a fresh link at any time. Every unexpired invitation outstanding for the address, across every project, takes effect here and the account joins those boards at the invited role.
+         * @description Create a new user account and start a session. The client supplies the user id. A verification email is sent to the address; the account is usable immediately and `email_verified` starts false. Account creation is capped at 50 an hour per source IP, whatever addresses are used: past that the call answers 429 and creates nothing. Every unexpired invitation outstanding for the address, across every project, takes effect here and the account joins those boards at the invited role.
          */
         post: operations["postApiAuthSignup"];
         delete?: never;
@@ -392,7 +392,7 @@ export interface paths {
         };
         /**
          * List visible users
-         * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name.
+         * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name. email narrows either listing to the one user holding that exact address, case-insensitively, and is the only way to name someone by address: a user record never carries one. It selects from the same set the unfiltered call already returns in full, so it discloses nothing new — an address that belongs to nobody visible yields an empty list rather than 404, which on this route means the project is missing or unreadable. A malformed address is 400.
          */
         get: operations["getApiUsers"];
         put?: never;
@@ -1356,7 +1356,7 @@ export interface paths {
         };
         /**
          * Get public board
-         * @description Serve a read-only board for a project whose is_public flag is set. Unauthenticated: anyone holding the project id can read it. The payload carries columns, labels, and tasks with their descriptions, due dates, labels, blockers, image counts, comment counts, and assignee ids, plus every comment on those tasks and the name and avatar of each user who is assigned one or wrote one. Comments on archived tasks are not served. Member ids, the creator, task timestamps, the activity log, and email addresses are never included. Projects that are private, unknown, or deleted are all 404.
+         * @description Serve a read-only board for a project whose is_public flag is set. Unauthenticated: anyone holding the project id can read it. The payload carries columns, labels, and tasks with their descriptions, due dates, labels, blockers, image counts, comment counts, and assignee ids, plus every comment on those tasks and the name and avatar of each user who is assigned one or wrote one. Comments on archived tasks are not served. Member ids, the creator, task timestamps, and the activity log are never included. Projects that are private, unknown, or deleted are all 404.
          */
         get: operations["getApiPublicProjectsByIdBoard"];
         put?: never;
@@ -1421,11 +1421,12 @@ export interface components {
             name?: string;
         };
         DeleteAccountConflict: {
-            blocking_projects: {
-                id: string;
-                name: string;
-            }[];
+            blocking_projects: components["schemas"]["NamedRef"][];
             error: string;
+        };
+        NamedRef: {
+            id: string;
+            name: string;
         };
         DeleteAccount: {
             password: string;
@@ -1486,7 +1487,6 @@ export interface components {
         };
         User: {
             avatar_url: components["schemas"]["UserAvatarurl"];
-            email: string;
             id: string;
             name: string;
         };
@@ -1634,11 +1634,7 @@ export interface components {
                 title: string;
                 updated_at: string;
             }[];
-            users: {
-                email: string;
-                id: string;
-                name: string;
-            }[];
+            users: components["schemas"]["NamedRef"][];
             version: number;
         };
         SetProjectPosition: {
@@ -1987,7 +1983,7 @@ export interface components {
             labels: components["schemas"]["BoardLabel"][];
             project: components["schemas"]["PublicBoardProject"];
             tasks: components["schemas"]["PublicBoardTask"][];
-            users: components["schemas"]["PublicBoardUser"][];
+            users: components["schemas"]["User"][];
         };
         PublicBoardProject: {
             description: string;
@@ -2008,11 +2004,6 @@ export interface components {
             /** @description a finite number */
             position: number;
             title: string;
-        };
-        PublicBoardUser: {
-            avatar_url: components["schemas"]["UserAvatarurl"];
-            id: string;
-            name: string;
         };
     };
     responses: never;
@@ -3131,6 +3122,7 @@ export interface operations {
     getApiUsers: {
         parameters: {
             query?: {
+                email?: string;
                 project_id?: string;
             };
             header?: never;

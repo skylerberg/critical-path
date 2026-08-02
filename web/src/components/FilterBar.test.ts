@@ -40,7 +40,7 @@ beforeEach(() => {
   shortcuts.reset();
   board.currentProjectId = PROJECT_ID;
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
-  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada', avatar_url: null }];
+  users.users = [{ id: 'u1', name: 'Ada', avatar_url: null }];
 });
 
 afterEach(() => {

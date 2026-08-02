@@ -438,7 +438,6 @@
         >
           <Avatar name={user.name} src={user.avatar_url} size="sm" />
           <span class="min-w-0 flex-1 truncate font-medium">{user.name}</span>
-          <span class="min-w-0 truncate text-xs text-muted">{user.email}</span>
         </button>
       {/each}
     </div>

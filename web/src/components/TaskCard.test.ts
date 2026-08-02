@@ -39,7 +39,7 @@ beforeEach(() => {
   users.reset();
   cardMenu.reset();
   board.tasks = [task];
-  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null }];
+  users.users = [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null }];
 });
 
 afterEach(() => {

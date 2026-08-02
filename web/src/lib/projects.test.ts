@@ -364,14 +364,14 @@ describe('projects store', () => {
   it('adds a member by email and appends the returned user', async () => {
     const item = project({ created_by: 'u-me', member_ids: ['u-1'] });
     await loadWith([item]);
-    const added = { id: 'u-2', email: 'pat@example.com', name: 'Pat', avatar_url: null };
+    const added = { id: 'u-2', name: 'Pat', avatar_url: null };
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, { status: 'member', role: 'editor', user: added, invitation: null })
     );
 
     const result = await projects.addMemberByEmail('p-1', 'pat@example.com');
 
-    expect(result).toEqual({ ok: true, status: 'member' });
+    expect(result).toEqual({ ok: true, status: 'member', name: 'Pat' });
     expect(requestAt(1).method).toBe('POST');
     expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/members/by-email');
     expect(await bodyOf(requestAt(1))).toEqual({ email: 'pat@example.com' });
@@ -380,7 +380,7 @@ describe('projects store', () => {
   });
 
   it('does not list the creator when added by their own email', async () => {
-    const owner = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    const owner = { id: 'u-me', name: 'Me', avatar_url: null };
     await loadWith([project({ created_by: 'u-me' })]);
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, { status: 'member', role: 'editor', user: owner, invitation: null })
@@ -388,7 +388,7 @@ describe('projects store', () => {
 
     const result = await projects.addMemberByEmail('p-1', 'me@example.com');
 
-    expect(result).toEqual({ ok: true, status: 'member' });
+    expect(result).toEqual({ ok: true, status: 'member', name: 'Me' });
     expect(projects.projects[0]!.member_ids).toEqual([]);
   });
 
@@ -844,7 +844,7 @@ describe('project roles', () => {
   });
 
   it('stores the role the invite response reports', async () => {
-    const added = { id: 'u-2', email: 'pat@example.com', name: 'Pat', avatar_url: null };
+    const added = { id: 'u-2', name: 'Pat', avatar_url: null };
     await loadWith([project({ created_by: 'u-me' })]);
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, { status: 'member', role: 'viewer', user: added, invitation: null })

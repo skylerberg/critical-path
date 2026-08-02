@@ -491,14 +491,14 @@ describe('board store readonly mode', () => {
     expect(paths).toEqual(['/api/public/projects/p1/board']);
   });
 
-  it('hydrates the project user cache from the payload without emails', async () => {
+  it('hydrates the project user cache from the payload', async () => {
     mockPublic();
 
     await board.load('p1', undefined, { readonly: true });
 
     expect(users.forProject('p1')).toEqual([
-      { id: 'u-ada', name: 'Ada', avatar_url: null, email: '' },
-      { id: 'u-bo', name: 'Bo', avatar_url: null, email: '' },
+      { id: 'u-ada', name: 'Ada', avatar_url: null },
+      { id: 'u-bo', name: 'Bo', avatar_url: null },
     ]);
     expect(users.displayFor('u-ada').name).toBe('Ada');
   });
@@ -604,7 +604,6 @@ describe('board store readonly mode', () => {
     await board.load('p1', undefined, { readonly: true });
 
     expect(users.displayFor('u-bo').name).toBe('Bo');
-    expect(users.displayFor('u-bo').email).toBe('');
   });
 
   it('serves a board from a pod that predates public comments', async () => {

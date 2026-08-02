@@ -11,14 +11,9 @@ import {
 import { projects, type Project } from './projects.svelte';
 import { users, type User } from './users.svelte';
 
-const ada: User = { id: 'u-ada', name: 'Ada Lovelace', email: 'ada@example.com', avatar_url: null };
-const brin: User = {
-  id: 'u-brin',
-  name: 'Sergey Brin',
-  email: 'brin@example.com',
-  avatar_url: null,
-};
-const zed: User = { id: 'u-zed', name: 'Zed', email: 'zed@example.com', avatar_url: null };
+const ada: User = { id: 'u-ada', name: 'Ada Lovelace', avatar_url: null };
+const brin: User = { id: 'u-brin', name: 'Sergey Brin', avatar_url: null };
+const zed: User = { id: 'u-zed', name: 'Zed', avatar_url: null };
 
 function boardProject(memberIds: string[]): BoardProject {
   return {
@@ -64,9 +59,10 @@ describe('projectMentionCandidates', () => {
 });
 
 describe('filterMentionCandidates', () => {
-  it('matches name and email case-insensitively', () => {
+  it('matches names case-insensitively and never an address', () => {
     expect(filterMentionCandidates([ada, brin, zed], 'AD')).toEqual([ada]);
-    expect(filterMentionCandidates([ada, brin, zed], 'brin@EXAMPLE')).toEqual([brin]);
+    expect(filterMentionCandidates([ada, brin, zed], 'BRIN')).toEqual([brin]);
+    expect(filterMentionCandidates([ada, brin, zed], 'ada@example.com')).toEqual([]);
     expect(filterMentionCandidates([ada, brin, zed], 'nobody')).toEqual([]);
   });
 

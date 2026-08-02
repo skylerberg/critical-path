@@ -13,9 +13,11 @@ const me = {
   avatar_url: null,
   email_verified: false,
 };
-const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null };
-const bob = { id: 'u-bob', email: 'bob@example.com', name: 'Bob Ross', avatar_url: null };
-const cleo = { id: 'u-cleo', email: 'cleo@example.com', name: 'Cleo Zhang', avatar_url: null };
+const ada = { id: 'u-ada', name: 'Ada Lovelace', avatar_url: null };
+const bob = { id: 'u-bob', name: 'Bob Ross', avatar_url: null };
+const cleo = { id: 'u-cleo', name: 'Cleo Zhang', avatar_url: null };
+const alexOne = { id: '3f2a1b4c-1111-4aaa-8bbb-000000000001', name: 'Alex Kim', avatar_url: null };
+const alexTwo = { id: '9c8d7e6f-2222-4ccc-8ddd-000000000002', name: 'Alex Kim', avatar_url: null };
 
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [];
@@ -55,9 +57,33 @@ describe('MemberPicker', () => {
 
     expect(screen.getByRole('button', { name: 'Add Ada Lovelace' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add Bob Ross' })).toBeInTheDocument();
-    expect(screen.getByText('ada@example.com')).toBeInTheDocument();
     expect(field()).toHaveFocus();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('identifies each suggestion by name and avatar, never by address', () => {
+    users.users = [{ ...ada, avatar_url: '/api/avatars/k' }, bob, cleo];
+    const view = render(MemberPicker, { projectId: 'p-1' });
+
+    expect(screen.getByRole('button', { name: 'Add Ada Lovelace' })).toBeInTheDocument();
+    expect(view.container.querySelector('img[src="/api/avatars/k"]')).not.toBeNull();
+    expect(view.container.textContent).not.toContain('@');
+  });
+
+  it('tells same-named people apart by id and adds the one that was clicked', async () => {
+    users.users = [alexOne, alexTwo, bob, me];
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    render(MemberPicker, { projectId: 'p-1' });
+
+    expect(screen.getByRole('button', { name: 'Add Alex Kim 3f2a1b4c' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Alex Kim 9c8d7e6f' })).toBeInTheDocument();
+    expect(screen.getByText('3f2a1b4c')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Add Bob Ross' })).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Add Alex Kim 9c8d7e6f' }));
+
+    expect(projects.projects[0]!.member_ids).toEqual([alexTwo.id]);
   });
 
   it('excludes the owner, existing members, and yourself', () => {
@@ -71,7 +97,7 @@ describe('MemberPicker', () => {
     expect(screen.queryByRole('button', { name: 'Add Me' })).toBeNull();
   });
 
-  it('filters by name and by email, case-insensitively', async () => {
+  it('filters by name case-insensitively and never by address', async () => {
     render(MemberPicker, { projectId: 'p-1' });
 
     await fireEvent.input(field(), { target: { value: 'lovel' } });
@@ -79,10 +105,14 @@ describe('MemberPicker', () => {
     expect(screen.getByRole('button', { name: 'Add Ada Lovelace' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add Bob Ross' })).toBeNull();
 
-    await fireEvent.input(field(), { target: { value: 'BOB@' } });
+    await fireEvent.input(field(), { target: { value: 'ROSS' } });
 
     expect(screen.getByRole('button', { name: 'Add Bob Ross' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add Ada Lovelace' })).toBeNull();
+
+    await fireEvent.input(field(), { target: { value: 'bob@example.com' } });
+
+    expect(screen.queryByRole('button', { name: 'Add Bob Ross' })).toBeNull();
   });
 
   it('adds a clicked suggestion by id and clears the query', async () => {
@@ -139,7 +169,7 @@ describe('MemberPicker', () => {
     render(MemberPicker, { projectId: 'p-1' });
     await fireEvent.keyDown(field(), { key: 'ArrowDown' });
     await fireEvent.keyDown(field(), { key: 'ArrowDown' });
-    await fireEvent.input(field(), { target: { value: 'example.com' } });
+    await fireEvent.input(field(), { target: { value: 'o' } });
     await fireEvent.keyDown(field(), { key: 'Enter' });
 
     expect(projects.projects[0]!.member_ids).toEqual([ada.id]);
@@ -176,7 +206,7 @@ describe('MemberPicker', () => {
     expect(screen.getByRole('button', { name: 'Add Bob Ross' })).toBeInTheDocument();
   });
 
-  it('offers an invite row only for a full email that matches nobody', async () => {
+  it('offers an invite row for any full email address', async () => {
     render(MemberPicker, { projectId: 'p-1' });
 
     await fireEvent.input(field(), { target: { value: 'ghost' } });
@@ -185,12 +215,11 @@ describe('MemberPicker', () => {
     await fireEvent.input(field(), { target: { value: 'ghost@' } });
     expect(screen.queryByRole('button', { name: /^Invite/ })).toBeNull();
 
-    await fireEvent.input(field(), { target: { value: 'ada@example.com' } });
-    expect(screen.queryByRole('button', { name: /^Invite/ })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Add Ada Lovelace' })).toBeInTheDocument();
-
     await fireEvent.input(field(), { target: { value: 'Ghost@example.com' } });
     expect(screen.getByRole('button', { name: 'Invite "ghost@example.com"' })).toBeInTheDocument();
+
+    await fireEvent.input(field(), { target: { value: 'ada@example.com' } });
+    expect(screen.getByRole('button', { name: 'Invite "ada@example.com"' })).toBeInTheDocument();
   });
 
   it('confirms an invitation was mailed when the address has no account', async () => {
@@ -240,8 +269,8 @@ describe('MemberPicker', () => {
     expect(field()).toHaveValue('ghost@example.com');
   });
 
-  it('says nothing about an invitation when the address turned out to have an account', async () => {
-    const pat = { id: 'u-pat', email: 'pat@example.com', name: 'Pat', avatar_url: null };
+  it('names the account when the address turned out to have one', async () => {
+    const pat = { id: 'u-pat', name: 'Pat', avatar_url: null };
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, { status: 'member', role: 'editor', user: pat, invitation: null })
     );
@@ -251,17 +280,23 @@ describe('MemberPicker', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Invite "pat@example.com"' }));
 
     await waitFor(() => expect(projects.projects[0]!.member_ids).toEqual([pat.id]));
+    expect(screen.getByText('Pat is on this board.')).toBeInTheDocument();
     expect(screen.queryByText(/^Invitation sent to/)).toBeNull();
+    expect(screen.queryByText(/They join the board once/)).toBeNull();
   });
 
-  it('says so instead of inviting when the typed email is already on the board', async () => {
+  it('names the person when the typed address is already on the board', async () => {
     projects.projects = [project({ member_ids: [ada.id] })];
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { status: 'member', role: 'editor', user: ada, invitation: null })
+    );
 
     render(MemberPicker, { projectId: 'p-1' });
     await fireEvent.input(field(), { target: { value: 'ada@example.com' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Invite "ada@example.com"' }));
 
-    expect(screen.getByText('Ada Lovelace is already on this board.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Invite/ })).toBeNull();
+    expect(await screen.findByText('Ada Lovelace is on this board.')).toBeInTheDocument();
+    expect(projects.projects[0]!.member_ids).toEqual([ada.id]);
   });
 
   it('renders a distinct empty state for each reason the list is empty', async () => {
