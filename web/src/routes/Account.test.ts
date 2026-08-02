@@ -45,6 +45,9 @@ function mockRoutes(status: number, body?: unknown): void {
     if (path === '/api/auth/tokens') {
       return jsonResponse(200, { personal_access_tokens: [] });
     }
+    if (path === '/api/auth/sessions') {
+      return jsonResponse(200, { sessions: [] });
+    }
     if (path === '/api/auth/me/notification-settings') {
       return jsonResponse(200, { task_assigned: true, added_to_project: true });
     }
@@ -328,6 +331,7 @@ describe('Account', () => {
     ).toBeInTheDocument();
     expect(pathsRequested().sort()).toEqual([
       '/api/auth/me/notification-settings',
+      '/api/auth/sessions',
       '/api/auth/tokens',
     ]);
   });
@@ -433,6 +437,7 @@ describe('Account', () => {
     expect(deleteDialog()).not.toBeNull();
     expect(pathsRequested().sort()).toEqual([
       '/api/auth/me/notification-settings',
+      '/api/auth/sessions',
       '/api/auth/tokens',
     ]);
   });
@@ -599,6 +604,7 @@ describe('Account', () => {
     expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
     expect(pathsRequested().sort()).toEqual([
       '/api/auth/me/notification-settings',
+      '/api/auth/sessions',
       '/api/auth/tokens',
     ]);
   });
