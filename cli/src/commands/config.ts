@@ -15,6 +15,20 @@ function storageKey(key: string): (typeof CONFIG_KEYS)[ConfigKey] {
   return CONFIG_KEYS[key as ConfigKey];
 }
 
+// Stored to be concatenated with a path, so a bare host or a relative value would
+// silently produce an unusable link rather than fail here.
+function assertAbsoluteHttpUrl(value: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new CliError(`Invalid URL "${value}"; use an absolute http(s) URL`, EXIT.usage);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new CliError(`Invalid URL "${value}"; use an absolute http(s) URL`, EXIT.usage);
+  }
+}
+
 export function registerConfig(program: Command, deps: CliDeps): void {
   const config = new Command('config').description('Manage CLI configuration');
 
@@ -53,6 +67,9 @@ export function registerConfig(program: Command, deps: CliDeps): void {
       .action(
         withCtx(deps, async (ctx, _opts, key, value) => {
           const storage = storageKey(key);
+          if (storage === 'web_url') {
+            assertAbsoluteHttpUrl(value);
+          }
           const stored =
             storage === 'default_project' ? (await resolveProject(ctx, value)).id : value;
           await saveConfig(ctx.configDir, { ...ctx.config, [storage]: stored });

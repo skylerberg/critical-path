@@ -1077,13 +1077,20 @@ cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Projec
 cpath project invite "My Project" --email them@example.com --role viewer  # editor by default
 cpath project set-role "My Project" them@example.com --role editor
 cpath project members "My Project"      # ROLE column reads owner / editor / viewer
+cpath task url "Fix the bug" --project "My Project"   # shareable web link
 cpath config set default-project "My Project"   # makes --project optional
+cpath config set web-url https://criticalpath.example.com   # base for task url
 cpath watch --project "My Project" | jq 'select(.type=="task_created")'
 ```
 
-Entity references accept a UUID, a unique id prefix (>= 4 chars), an exact
-name/title (case-insensitive), or a unique substring; ambiguity is an error
-listing the candidates. Task references resolve against the board, which has
+Entity references accept a UUID, the 22-character short alias the web app puts
+in its URLs, a unique id prefix (>= 4 chars), an exact name/title
+(case-insensitive), or a unique substring; ambiguity is an error listing the
+candidates. The alias is base64url of the id's 16 raw bytes and is **case
+sensitive** — one flipped letter is a different reference, and a non-canonical
+spelling is rejected rather than silently resolving to the same card. Because
+an alias names a card outright it needs no `--project` and still resolves after
+the card is archived. Task references resolve against the board, which has
 no archived cards in it, so `task archive`, `task restore`, `task show` and
 `task delete` fall back to the archive on a miss; every board-shaped mutation
 (`move`, `done`, `update`, `label`, `assign`, `block`) deliberately does not,
@@ -1098,6 +1105,11 @@ one as `@label`, and writing that text back with `task update --description` or
 `comment edit` stores plain text, dropping the link to the person for everyone.
 `--description-json` is the lossless path; comment bodies have no equivalent,
 so edit one from the web app if it contains a mention.
+
+`cpath task url <task>` prints the card's canonical web URL — the bare URL on
+stdout so it pipes into `git commit -m`, or `{ "url": ... }` under `--json`. The
+base comes from `CRITICAL_PATH_WEB_URL`, then the configured `web-url`, then the
+public instance; `config set web-url` requires an absolute http(s) URL.
 
 Every command takes `--json` for machine-readable output and `--no-input` to
 fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2
@@ -1166,7 +1178,10 @@ The CLI talks to the production instance
 (or `--api-url`, or `cpath config set api-url`) selects another server — e.g.
 `cpath config set api-url http://localhost:3001` for local development.
 Tokens are stored per server URL. `CRITICAL_PATH_TOKEN` overrides the stored
-token; `CRITICAL_PATH_PROJECT` sets the default project.
+token; `CRITICAL_PATH_PROJECT` sets the default project;
+`CRITICAL_PATH_WEB_URL` (or `cpath config set web-url`) sets the base that
+`cpath task url` builds links from, which is a separate setting because the web
+app and the API need not share an origin.
 
 After changing the API surface, regenerate the CLI's committed types:
 

@@ -42,6 +42,7 @@ import {
   type Placement,
 } from '../positions';
 import { markdownToTiptap, tiptapToMarkdown, type TiptapDoc } from '../markdown';
+import { decodeId, taskUrl } from '../short-links';
 import type { CliDeps, RuntimeContext } from '../context';
 
 function collect(value: string, previous: string[]): string[] {
@@ -174,18 +175,18 @@ async function resolveTaskContext(
     throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
   };
 
-  if (UUID_RE.test(ref)) {
-    const detail = assertOk(
-      await ctx.api.GET('/api/tasks/{id}', { params: { path: { id: ref } } })
-    );
+  // Both forms name a task outright, so neither needs a project to look in.
+  const id = UUID_RE.test(ref) ? ref : decodeId(ref);
+  if (id !== null) {
+    const detail = assertOk(await ctx.api.GET('/api/tasks/{id}', { params: { path: { id } } }));
     const board = await fetchBoard(ctx, detail.project_id);
-    const task = board.tasks.find((t) => t.id.toLowerCase() === ref.toLowerCase());
+    const task = board.tasks.find((t) => t.id.toLowerCase() === id.toLowerCase());
     if (task != null) {
       return { board, task };
     }
     return archivedFallback(
       board,
-      (archived) => archived.find((t) => t.id.toLowerCase() === ref.toLowerCase()) ?? null
+      (archived) => archived.find((t) => t.id.toLowerCase() === id.toLowerCase()) ?? null
     );
   }
   const board = await resolveBoard(ctx, projectRef);
@@ -1092,6 +1093,24 @@ export function registerTask(program: Command, deps: CliDeps): void {
               renderDependencySection(ctx, board, 'Blocks', blocks);
             }
           );
+        })
+      )
+  );
+
+  task.addCommand(
+    taskLeaf('url')
+      .description('Print the shareable web URL of a task')
+      .argument('<task>', 'task id, alias or title')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const { task: target } = await resolveTaskContext(
+            ctx,
+            ref,
+            opts.project as string | undefined,
+            { includeArchived: true }
+          );
+          const url = taskUrl(ctx.webUrl, target.id, target.title);
+          ctx.out.data({ url }, () => ctx.out.line(url));
         })
       )
   );

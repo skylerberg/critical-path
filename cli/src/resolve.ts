@@ -1,4 +1,5 @@
 import { CliError, EXIT, assertOk } from './api/errors';
+import { decodeId } from './short-links';
 import { displayTitle } from './output';
 import type { RuntimeContext } from './context';
 import type { components } from './api/api.generated';
@@ -99,9 +100,11 @@ export function matchProject<T extends { id: string; name: string }>(
   );
 }
 
+// Decoded here rather than inside the matcher: aliases are case sensitive and the
+// matcher lowercases every ref before comparing.
 export async function resolveProject(ctx: RuntimeContext, ref?: string): Promise<ProjectListItem> {
   const effective = effectiveProjectRef(ctx, ref);
-  return matchProject(effective, await listProjects(ctx));
+  return matchProject(decodeId(effective) ?? effective, await listProjects(ctx));
 }
 
 export async function fetchBoard(ctx: RuntimeContext, projectId: string): Promise<BoardPayload> {
@@ -175,6 +178,10 @@ export async function resolveTaskId(
 ): Promise<string> {
   if (UUID_RE.test(ref)) {
     return ref;
+  }
+  const decoded = decodeId(ref);
+  if (decoded !== null) {
+    return decoded;
   }
   const board = await resolveBoard(ctx, projectRef);
   const task = matchRefOrNull(

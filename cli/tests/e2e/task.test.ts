@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import { displayTitle } from '../../src/output';
+import { encodeId, slugify } from '../../src/short-links';
 import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
 import type { components } from '../../src/api/api.generated';
 
@@ -467,6 +468,63 @@ describe('task commands', () => {
     expect(clear.json<{ assignee_ids: string[] }>().assignee_ids).toEqual([]);
   });
 
+  it('resolves a task by its short alias with no --project', async () => {
+    const alias = encodeId(alpha.id);
+    const show = await h.runCli(['task', 'show', alias, '--json']);
+    expect(show.exitCode).toBe(0);
+    expect(show.json<TaskDetailResponse>().id).toBe(alpha.id);
+  });
+
+  it('treats an alias as case sensitive rather than lowercasing it', async () => {
+    const alias = encodeId(alpha.id);
+    // Digits have no case, so the flip has to land on a letter to mean anything.
+    const at = [...alias].findIndex((c) => /[a-z]/i.test(c));
+    expect(at).toBeGreaterThanOrEqual(0);
+    const swapped =
+      alias[at] === alias[at].toLowerCase() ? alias[at].toUpperCase() : alias[at].toLowerCase();
+    const flipped = alias.slice(0, at) + swapped + alias.slice(at + 1);
+    expect(flipped).not.toBe(alias);
+
+    const show = await h.runCli(['task', 'show', flipped, '--json']);
+    expect(show.exitCode).not.toBe(0);
+    if (show.exitCode === 0) {
+      expect(show.json<TaskDetailResponse>().id).not.toBe(alpha.id);
+    }
+  });
+
+  it('rejects a non-canonical spelling of an alias', async () => {
+    const alias = encodeId(alpha.id);
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const variant = alias.slice(0, 21) + ALPHABET[ALPHABET.indexOf(alias[21]) + 1];
+    const show = await h.runCli(['task', 'show', variant, '--json']);
+    expect(show.exitCode).not.toBe(0);
+  });
+
+  it('url prints the canonical web URL, and --json carries the same string', async () => {
+    const expected = `https://criticalpath.skylerberg.com/t/${encodeId(alpha.id)}/${slugify(alpha.title)}`;
+
+    const human = await h.runCli(['task', 'url', 'Alpha task', '--project', projectId]);
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout.trim()).toBe(expected);
+
+    const json = await h.runCli(['task', 'url', 'Alpha task', '--project', projectId, '--json']);
+    expect(json.json<{ url: string }>().url).toBe(expected);
+  });
+
+  it('url honors a configured web-url and resolves an alias ref', async () => {
+    const set = await h.runCli(['config', 'set', 'web-url', 'https://cp.example.test/']);
+    expect(set.exitCode).toBe(0);
+    try {
+      const res = await h.runCli(['task', 'url', encodeId(alpha.id)]);
+      expect(res.exitCode).toBe(0);
+      expect(res.stdout.trim()).toBe(
+        `https://cp.example.test/t/${encodeId(alpha.id)}/${slugify(alpha.title)}`
+      );
+    } finally {
+      await h.runCli(['config', 'unset', 'web-url']);
+    }
+  });
+
   it('archive, archived, restore and show address a card the board no longer holds', async () => {
     const created = await h.runCli([
       'task',
@@ -516,6 +574,16 @@ describe('task commands', () => {
     const show = await h.runCli(['task', 'show', 'Shelved work', '--project', projectId]);
     expect(show.exitCode).toBe(0);
     expect(show.stdout).toContain('Archived:');
+
+    // An alias names the card outright, so it still resolves once the board no
+    // longer lists it — which is what a months-old pasted link relies on.
+    const byAlias = await h.runCli(['task', 'show', encodeId(shelved.id), '--json']);
+    expect(byAlias.exitCode).toBe(0);
+    expect(byAlias.json<TaskDetailResponse>().id).toBe(shelved.id);
+
+    const url = await h.runCli(['task', 'url', encodeId(shelved.id)]);
+    expect(url.exitCode).toBe(0);
+    expect(url.stdout.trim()).toContain(`/t/${encodeId(shelved.id)}/`);
 
     const move = await h.runCli([
       'task',
