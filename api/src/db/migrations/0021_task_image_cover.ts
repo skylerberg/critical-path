@@ -2,10 +2,6 @@ import { sql } from 'kysely';
 import type { Kysely } from 'kysely';
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-  // Every pending migration shares one transaction, so ADD COLUMN's ACCESS
-  // EXCLUSIVE lock blocks reads of task_image until commit; fail fast instead.
-  await sql`set local lock_timeout = '3s'`.execute(db);
-
   await db.schema
     .alterTable('task_image')
     .addColumn('is_cover', 'boolean', (col) => col.notNull().defaultTo(false))

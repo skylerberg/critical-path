@@ -254,6 +254,54 @@ different person before it is used, that person can join the board — bounded t
 one project at a known role, and bounded in time by the deadline and by
 revocation.
 
+### Sessions
+
+Signing up or logging in creates a session row and returns its opaque token.
+An account can see its own live sessions and revoke any one of them.
+
+- `GET /api/auth/sessions` lists them (`{ id, user_agent, created_at,
+  expires_at, is_current }`), newest first. `is_current` is true on the session
+  the request was made with — a caller holding a personal access token therefore
+  sees every session and none marked current, because a token is not a session.
+- `DELETE /api/auth/sessions/:id` revokes one. Someone else's session id
+  answers 404, the same as an unknown one.
+
+A session records the `User-Agent` header of the request that created it, and
+nothing else about the client. It is stored **verbatim and never parsed**: a
+device name is derived from it at display time, so a header this code has never
+seen costs a nice label and not a wrong record. It is truncated at 512
+characters, because the header is caller-supplied and otherwise bounded only by
+the HTTP server's limit. It is nullable — a client that sends no header gets
+null, which the UI shows as an unknown device rather than guessing.
+
+**No network address is recorded, here or anywhere.** An address is a location,
+and turning one into a place needs geo-IP and a much larger privacy question
+than a device label.
+
+The list is complete **for sessions**, which is not the same as complete for
+credentials: a personal access token authenticates exactly the same requests
+and is listed by `GET /api/auth/tokens` instead. Neither endpoint on its own
+shows everything that can act as the account, and any screen claiming "this is
+where you are signed in" has to render both.
+
+Sessions past their `expires_at` are omitted from the list. They authenticate
+nothing, so showing them would misreport where the account is signed in; this
+is the opposite of the personal-access-token list, where an expired row is a
+thing the user created and still has to clean up. An expired session is deleted
+the first time its own token is presented, so revoking one by id succeeds only
+while the row is still there and otherwise answers 404. A client holding a
+stale list should read that 404 as "already gone", not as a failure to report.
+
+The current session may be revoked. It is a sign-out of the device making the
+request — the token stops working the moment the call returns — and refusing it
+would mean the "revoke everything, I have been compromised" case could not be
+finished from this screen.
+
+Revocation closes any WebSocket authenticated with that session immediately,
+via a `sessions_revoked` entry naming the session (see
+[Realtime](#realtime)); the socket's own 30-second credential re-check is the
+backstop if that entry is ever missed.
+
 ### Personal access tokens
 
 A personal access token (PAT) is a named, long-lived credential for scripts and
@@ -676,7 +724,7 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `project_deleted`                     | `{ id }`                                                                                           |
 | `project_position_updated`            | `{ id, position }`                                                                                 |
 | `user_updated`                        | public user `{ id, name, avatar_url }`                                                             |
-| `sessions_revoked`                    | `{ user_id }`, optionally plus `personal_access_token_id`                                          |
+| `sessions_revoked`                    | `{ user_id }`, optionally plus `personal_access_token_id`, `session_id` or `except_session_id`      |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
 add/remove, by the cascade that strips assignees when a project member is
@@ -716,10 +764,17 @@ reach other members.
 `sessions_revoked` is never delivered to a client: the transport intercepts it
 and closes sockets instead. A payload of `{ user_id }` closes that user's
 session sockets only; one that also carries `personal_access_token_id` closes
-only the sockets authenticated with that token. It is published by password
-change, password reset, token revocation and account deletion — the last of
-which sends one user-scoped entry plus one per token, since the user-scoped
-form deliberately spares live personal access tokens.
+only the sockets authenticated with that token; one carrying `session_id`
+closes only the sockets of that one session; and one carrying
+`except_session_id` closes the user's session sockets apart from that one. It
+is published by password change, password reset, session revocation, token
+revocation and account deletion — the last of which sends one user-scoped entry
+plus one per token, since the user-scoped form deliberately spares live
+personal access tokens. Password change is the sole publisher of
+`except_session_id`: it issues a replacement session in the same transaction,
+and without the exception the fan-out would close the socket that session is
+about to open, which reads as an offline blip on the device that just changed
+its own password.
 `user_updated` (emitted on avatar upload/removal and on `PATCH /api/auth/me`
 name/email changes, never from password or session flows) carries
 `project_id: null` and is broadcast to the changed user's own sockets (their

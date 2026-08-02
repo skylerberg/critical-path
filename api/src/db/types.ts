@@ -124,6 +124,7 @@ export interface Session {
   expires_at: Timestamp;
   id: string;
   token_hash: string;
+  user_agent: string | null;
   user_id: string;
 }
 
