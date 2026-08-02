@@ -3,7 +3,7 @@ import type { components } from '../api/api.generated';
 import { newId } from './ids';
 import { router, type Route } from './router.svelte';
 
-export type SessionUser = components['schemas']['User'];
+export type SessionUser = components['schemas']['Me'];
 export type SessionStatus = 'unknown' | 'authed' | 'anon';
 
 const TOKEN_KEY = 'cp.token';
@@ -22,7 +22,7 @@ export function isPublicRoute(name: Route['name']): boolean {
 
 // Distinct from PUBLIC_ROUTES, which means "signed-out only" and bounces an
 // authed visitor away. These open for both.
-const AUTH_OPTIONAL_ROUTES = new Set<Route['name']>(['public-board']);
+const AUTH_OPTIONAL_ROUTES = new Set<Route['name']>(['public-board', 'unsubscribe']);
 
 export function isAuthOptionalRoute(name: Route['name']): boolean {
   return AUTH_OPTIONAL_ROUTES.has(name);

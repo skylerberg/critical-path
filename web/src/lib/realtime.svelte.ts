@@ -280,7 +280,10 @@ class RealtimeClient {
     } else if (event.type === 'user_updated') {
       const updated = users.applyRealtime(event.data);
       if (updated !== null && session.user?.id === updated.id) {
-        session.user = updated;
+        // The broadcast payload deliberately carries only the four fields that
+        // are public to everyone sharing a board, so anything private on the
+        // session user has to survive the merge instead of being erased.
+        session.user = { ...updated, email_verified: session.user.email_verified };
       }
     }
   }

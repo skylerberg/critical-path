@@ -62,7 +62,13 @@ const comment = {
   updated_at: '2026-01-03T00:00:00Z',
 };
 
-const me = { id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null };
+const me = {
+  id: 'u1',
+  email: 'ada@example.com',
+  name: 'Ada Lovelace',
+  avatar_url: null,
+  email_verified: false,
+};
 
 const activityEntry = {
   id: 'ac1',

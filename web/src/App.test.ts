@@ -22,7 +22,13 @@ class FakeWebSocket {
 
 vi.stubGlobal('WebSocket', FakeWebSocket);
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
 
 function publicBoard() {
   return {
@@ -95,6 +101,32 @@ describe('App chrome', () => {
 
     expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
     expect(navs().length).toBeGreaterThan(0);
+  });
+
+  // Verification state belongs on the account page and nowhere else; a
+  // well-meaning banner added to the shell has to trip something.
+  it('nags an unverified account nowhere in the shell', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/', { replace: true });
+
+    const { container } = render(App);
+
+    await screen.findByRole('heading', { name: 'Projects' });
+    expect(session.user?.email_verified).toBe(false);
+    expect(container.textContent).not.toMatch(/verif/i);
+  });
+
+  it('renders the unsubscribe page to a signed-out visitor', async () => {
+    router.navigate('/unsubscribe?token=t', { replace: true });
+    fetchMock.mockResolvedValue(jsonResponse(200, { kind: 'task_assigned' }));
+
+    render(App);
+
+    expect(
+      await screen.findByText("You'll no longer get email when someone assigns you a task.")
+    ).toBeInTheDocument();
+    expect(navs()).toEqual([]);
+    expect(window.location.pathname).toBe('/unsubscribe');
   });
 
   it('renders my tasks on its own route', async () => {

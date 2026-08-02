@@ -7,7 +7,13 @@ import { session } from '../lib/session.svelte';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import type { ArchivedTask } from '../lib/board-types';
 
-const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+const me = {
+  id: 'u-me',
+  name: 'Ada',
+  email: 'ada@example.com',
+  avatar_url: null,
+  email_verified: false,
+};
 
 const ARCHIVED_AT = '2026-03-01T12:00:00Z';
 const ARCHIVED_LABEL = `Archived ${new Intl.DateTimeFormat(undefined, {

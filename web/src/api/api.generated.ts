@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/public-comments/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/email-notifications/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -14,7 +14,7 @@ export interface paths {
         put?: never;
         /**
          * Sign up
-         * @description Create a new user account and start a session. The client supplies the user id.
+         * @description Create a new user account and start a session. The client supplies the user id. A verification email is sent to the address; the account is usable immediately and `email_verified` starts false.
          */
         post: operations["postApiAuthSignup"];
         delete?: never;
@@ -86,7 +86,7 @@ export interface paths {
         head?: never;
         /**
          * Update current user
-         * @description Update the name and/or email of the authenticated user. Changing the email address invalidates any outstanding password-reset tokens.
+         * @description Update the name and/or email of the authenticated user. Moving to a different mailbox invalidates any outstanding password-reset tokens, resets `email_verified` to false and sends a verification email to the new address; a change of letter case alone does neither. The verification send shares the resend budget, so an exhausted budget answers 429 and changes nothing.
          */
         patch: operations["patchApiAuthMe"];
         trace?: never;
@@ -189,6 +189,130 @@ export interface paths {
          * @description Set a new password using a token from a password-reset email. On success every session is revoked and outstanding reset tokens are invalidated.
          */
         post: operations["postApiAuthResetPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/verify-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify email address
+         * @description Mark an email address as verified using a token from a verification email. Unauthenticated: the token authenticates nothing, creates no session and returns nothing about the account. Idempotent — redeeming a token again succeeds without moving the recorded time, and every outstanding token for the address stays usable. A token stops working once the account moves to a different address, and expires 24 hours after it was issued.
+         */
+        post: operations["postApiAuthVerifyEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/verify-email/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend verification email
+         * @description Send a fresh verification email to the authenticated user's own address. Takes no body. Answers 204 without sending when the address is already verified. Earlier links stay valid. There is deliberately no unauthenticated form of this: verification does not gate signing in, so anyone needing a new link can sign in and ask, and that leaves no endpoint that reveals whether an address has an account.
+         */
+        post: operations["postApiAuthVerifyEmailResend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me/notification-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read notification settings
+         * @description Return which notification emails the authenticated user has switched on. Both default to true. They are read here rather than on the user record because that record is published to everyone sharing a project and a preference is private.
+         */
+        get: operations["getApiAuthMeNotificationSettings"];
+        /**
+         * Set notification settings
+         * @description Replace the full set of notification preferences for the authenticated user. A preference stays meaningful while the address is unverified — no mail is sent then either way — so the toggles are never forced off.
+         */
+        put: operations["putApiAuthMeNotificationSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unsubscribe from one kind of notification
+         * @description Switch off the one notification kind the token names, and report which it was so the landing page can say what it did. Unauthenticated and idempotent: the token proves nothing beyond itself, is refused by every authenticating path, and never expires, because an unsubscribe link has to work in a year-old email. There is deliberately no request shape that switches a preference back on — that is what makes a leaked or replayed link harmless, and it must not be weakened by adding one. The response is the same whether or not the account still exists, so nothing here reveals that.
+         */
+        post: operations["postApiAuthUnsubscribe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/unsubscribe/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unsubscribe from every notification
+         * @description Switch off every notification email for the account the token names, whatever kind the token itself carries. Same properties as the single-kind form: unauthenticated, idempotent, and incapable of switching anything on.
+         */
+        post: operations["postApiAuthUnsubscribeAll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/unsubscribe/one-click": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * One-click unsubscribe (RFC 8058)
+         * @description The target of the List-Unsubscribe header on notification email. A mail client posts List-Unsubscribe=One-Click as form data, which is not JSON, so the token comes from the query string and the body is never read. It switches off the kind the token names.
+         */
+        post: operations["postApiAuthUnsubscribeOneClick"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1151,11 +1275,12 @@ export interface components {
         };
         AuthResponse: {
             token: string;
-            user: components["schemas"]["User"];
+            user: components["schemas"]["Me"];
         };
-        User: {
+        Me: {
             avatar_url: components["schemas"]["UserAvatarurl"];
             email: string;
+            email_verified: boolean;
             id: string;
             name: string;
         };
@@ -1215,8 +1340,25 @@ export interface components {
             new_password: string;
             token: string;
         };
+        EmailTokenRequest: {
+            token: string;
+        };
+        NotificationSettings: {
+            added_to_project: boolean;
+            task_assigned: boolean;
+        };
+        UnsubscribeResponse: {
+            /** @enum {unknown} */
+            kind: "added_to_project" | "task_assigned";
+        };
         UsersResponse: {
             users: components["schemas"]["User"][];
+        };
+        User: {
+            avatar_url: components["schemas"]["UserAvatarurl"];
+            email: string;
+            id: string;
+            name: string;
         };
         ProjectsListResponse: {
             projects: components["schemas"]["ProjectListItem"][];
@@ -1898,7 +2040,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["Me"];
                 };
             };
             /** @description Authentication required or failed */
@@ -1998,7 +2140,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["Me"];
                 };
             };
             /** @description Authentication required or failed */
@@ -2026,6 +2168,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Internal Server Error */
@@ -2324,6 +2475,301 @@ export interface operations {
             };
         };
     };
+    postApiAuthVerifyEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Address verified */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiAuthVerifyEmailResend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verification email sent, or already verified */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiAuthMeNotificationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current notification settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSettings"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putApiAuthMeNotificationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationSettings"];
+            };
+        };
+        responses: {
+            /** @description Updated notification settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSettings"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiAuthUnsubscribe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description The notification kind that was switched off */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnsubscribeResponse"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiAuthUnsubscribeAll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description All notification email switched off */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiAuthUnsubscribeOneClick: {
+        parameters: {
+            query: {
+                /** @description The unsubscribe token from the mailed link */
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notification kind switched off */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     postApiAuthMeAvatar: {
         parameters: {
             query?: never;
@@ -2346,7 +2792,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["Me"];
                 };
             };
             /** @description Bad Request */
@@ -2411,7 +2857,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"];
+                    "application/json": components["schemas"]["Me"];
                 };
             };
             /** @description Authentication required or failed */

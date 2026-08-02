@@ -32,6 +32,14 @@ describe('matchRoute', () => {
     });
   });
 
+  it('reads the unsubscribe token from the query string', () => {
+    expect(matchRoute('/unsubscribe')).toEqual({ name: 'unsubscribe', params: {} });
+    expect(matchRoute('/unsubscribe', '?token=abc%2F123')).toEqual({
+      name: 'unsubscribe',
+      params: { token: 'abc/123' },
+    });
+  });
+
   it('matches the project board view', () => {
     expect(matchRoute('/projects/abc-123')).toEqual({
       name: 'project',

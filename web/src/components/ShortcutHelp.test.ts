@@ -5,7 +5,13 @@ import { board } from '../lib/board.svelte';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
 
 beforeEach(() => {
   router.navigate('/', { replace: true });

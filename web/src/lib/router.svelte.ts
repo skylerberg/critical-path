@@ -13,6 +13,7 @@ export type Route =
   | { name: 'account' }
   | { name: 'forgot-password' }
   | { name: 'reset-password'; params: { token?: string } }
+  | { name: 'unsubscribe'; params: { token?: string } }
   | {
       name: 'project';
       params: {
@@ -75,6 +76,11 @@ function projectRoute(id: string, view: ProjectView, search: string, taskId?: st
   };
 }
 
+function tokenParam(search: string): { token?: string } {
+  const match = /[?&]token=([^&]*)/.exec(search);
+  return match ? { token: decodeURIComponent(match[1]!) } : {};
+}
+
 export function matchRoute(pathname: string, search = ''): Route {
   const path = pathname !== '/' ? pathname.replace(/\/+$/, '') : pathname;
   if (path === '/' || path === '') return { name: 'projects' };
@@ -85,9 +91,10 @@ export function matchRoute(pathname: string, search = ''): Route {
   if (path === '/account') return { name: 'account' };
   if (path === '/forgot-password') return { name: 'forgot-password' };
   if (path === '/reset-password') {
-    const match = /[?&]token=([^&]*)/.exec(search);
-    const token = match ? decodeURIComponent(match[1]!) : null;
-    return { name: 'reset-password', params: token === null ? {} : { token } };
+    return { name: 'reset-password', params: tokenParam(search) };
+  }
+  if (path === '/unsubscribe') {
+    return { name: 'unsubscribe', params: tokenParam(search) };
   }
   let params = matchPattern('/projects/:id', path);
   if (params) return projectRoute(params.id!, 'board', search);

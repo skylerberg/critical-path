@@ -16,7 +16,13 @@ vi.mock('../lib/realtime.svelte', () => ({
 const cacheDelete = vi.fn<(name: string) => Promise<boolean>>().mockResolvedValue(true);
 vi.stubGlobal('caches', { delete: cacheDelete });
 
-const user = { id: 'u-1', email: 'ada@example.com', name: 'Ada', avatar_url: null };
+const user = {
+  id: 'u-1',
+  email: 'ada@example.com',
+  name: 'Ada',
+  avatar_url: null,
+  email_verified: true,
+};
 
 async function loginAs(): Promise<void> {
   fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'tok', user }));
@@ -31,8 +37,12 @@ async function bodyOf(request: Request): Promise<unknown> {
 function mockRoutes(status: number, body?: unknown): void {
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
-    if (new URL(request.url).pathname === '/api/auth/tokens') {
+    const path = new URL(request.url).pathname;
+    if (path === '/api/auth/tokens') {
       return jsonResponse(200, { personal_access_tokens: [] });
+    }
+    if (path === '/api/auth/me/notification-settings') {
+      return jsonResponse(200, { task_assigned: true, added_to_project: true });
     }
     return jsonResponse(status, body);
   });
@@ -201,7 +211,10 @@ describe('Account', () => {
     expect(
       await screen.findByText('New password must be at least 8 characters')
     ).toBeInTheDocument();
-    expect(pathsRequested()).toEqual(['/api/auth/tokens']);
+    expect(pathsRequested().sort()).toEqual([
+      '/api/auth/me/notification-settings',
+      '/api/auth/tokens',
+    ]);
   });
 
   it('uploads a profile image and updates the session and users store', async () => {
@@ -236,7 +249,7 @@ describe('Account', () => {
   });
 
   it('removes the profile image', async () => {
-    session.user = { ...user, avatar_url: '/api/avatars/key-1' };
+    session.user = { ...user, avatar_url: '/api/avatars/key-1', email_verified: false };
     mockRoutes(200, { ...user, avatar_url: null });
     render(Account);
 
@@ -273,6 +286,16 @@ describe('Account', () => {
     expect(screen.getByRole('button', { name: 'Send feedback' })).toBeInTheDocument();
   });
 
+  it('shows the notification section and loads the preferences', async () => {
+    mockRoutes(500);
+    render(Account);
+
+    expect(screen.getByRole('heading', { name: 'Email notifications' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('When someone assigns me a task')).toBeChecked();
+    expect(pathsRequested()).toContain('/api/auth/me/notification-settings');
+    expect(screen.queryByText(/hasn't been verified yet/)).not.toBeInTheDocument();
+  });
+
   it('shows the personal access token section and loads the list', async () => {
     mockRoutes(500);
     render(Account);
@@ -290,7 +313,10 @@ describe('Account', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
 
     expect(deleteDialog()).not.toBeNull();
-    expect(pathsRequested()).toEqual(['/api/auth/tokens']);
+    expect(pathsRequested().sort()).toEqual([
+      '/api/auth/me/notification-settings',
+      '/api/auth/tokens',
+    ]);
   });
 
   it('deletes the account, clears the session, and lands on the login page', async () => {
@@ -453,6 +479,9 @@ describe('Account', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
 
     expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
-    expect(pathsRequested()).toEqual(['/api/auth/tokens']);
+    expect(pathsRequested().sort()).toEqual([
+      '/api/auth/me/notification-settings',
+      '/api/auth/tokens',
+    ]);
   });
 });

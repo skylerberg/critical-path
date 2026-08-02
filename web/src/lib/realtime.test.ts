@@ -936,6 +936,19 @@ describe('user_updated dispatch', () => {
     expect(session.user?.name).toBe('Me Renamed');
   });
 
+  it('keeps the private verification flag the public payload cannot carry', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = { ...session.user!, email_verified: true };
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u1', name: 'Me Renamed', email: 'm@e.com', avatar_url: null },
+    });
+
+    expect(session.user?.name).toBe('Me Renamed');
+    expect(session.user?.email_verified).toBe(true);
+  });
+
   it('drops malformed user_updated payloads', async () => {
     const socket = await connectAndAuth('p1');
     socket.receive({ type: 'user_updated', data: { id: 7 } });
@@ -945,7 +958,13 @@ describe('user_updated dispatch', () => {
 });
 
 describe('project_updated reaches the open board', () => {
-  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+  const me = {
+    id: 'u-me',
+    email: 'me@example.com',
+    name: 'Me',
+    avatar_url: null,
+    email_verified: false,
+  };
 
   it('demotes the open board without waiting for a refetch', async () => {
     session.user = me;
