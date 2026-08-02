@@ -1230,6 +1230,100 @@ one per personal access token, because the user-scoped form closes session
 sockets only. The owned projects emit no `project_deleted`: by the guard they
 had no members, so the caller was their only viewer.
 
+### Account export
+
+`GET /api/auth/me/export` hands the calling account everything held about it
+that is not board content, as one `application/json` body with
+`Content-Disposition: attachment; filename="critical-path-account-<YYYY-MM-DD>.json"`.
+It is free, gated by nothing but authentication, and not metered — the same as
+the project export. A personal access token may fetch it: every collection in it
+is already readable one endpoint at a time, so the export adds no reach, only
+convenience.
+
+There is no zip. Nothing here has bytes to package, and an archive holding one
+JSON file is worse than the file. The filename carries no user text either,
+unlike the project export's slug: a display name may legitimately be an email
+address, and this one would land in a logged response header.
+
+```jsonc
+{
+  "format": "critical-path-account-export",
+  "version": 1,
+  "exported_at": "2026-08-02T12:00:00.000Z",
+  "account": { "id", "name", "email", "avatar_url", "created_at",
+               "email_verified_at",
+               "notification_settings": { "task_assigned", "added_to_project" } },
+  "sessions":                [ { "id", "user_agent", "created_at", "expires_at" } ],
+  "personal_access_tokens":  [ { "id", "name", "created_at", "expires_at" } ],
+  "feedback":                [ { "id", "message", "page_path", "created_at" } ],
+  "projects":                [ { "id", "name", "role", "joined_at" } ]
+}
+```
+
+- `version` is bumped only on a breaking shape change, the same rule the project
+  export follows.
+- `sessions` lists **every** session row, including ones already past
+  `expires_at`. `GET /api/auth/sessions` hides those on purpose — they
+  authenticate nothing, so listing them would misreport where the account is
+  signed in — but nothing prunes them either, so the rows and their recorded
+  `User-Agent` persist. An export that reused that filter would answer "what do
+  you hold about me" with a strictly smaller set than what is held.
+- `projects` is a pointer list, not board content: one entry per board the
+  account created or is a member of, archived boards included. `role` is `owner`
+  for a board it created (`project.created_by`; a creator has no membership row),
+  otherwise the `editor`/`viewer` on that row, normalized fail-closed like
+  everywhere else. `joined_at` is the membership row's `created_at`, or the
+  board's own for one the account created. No member ids, no other names.
+- `avatar_url` is the server-relative `/api/avatars/<key>` every user-shaped
+  response carries. Unlike the project export's image files it stops resolving
+  once the account is gone, so fetch the bytes before deleting the account.
+- Ordering: sessions, tokens and feedback newest first; projects by name.
+
+**Nothing about another person appears anywhere in it, and no credential
+material does.** Deliberately absent, each for its own reason:
+
+- `password_hash`, and the `token_hash` of every session and personal access
+  token — bearer-equivalent or close to it.
+- `alternative_id`. It is the entire subject of the stateless password-reset
+  HMAC and is rotated on password and email change. Not forgeable without the
+  signing secret, but it has never left the server and there is no reason for it
+  to start.
+- `avatar_storage_key` — `avatar_url` is the same value in its already-published
+  form.
+- **Pending invitations, in both directions.** An invitation the account *sent*
+  carries the invitee's address and a token hash, either of which alone would
+  disqualify it. An invitation addressed to the account's *own* address is a
+  different case — it is keyed by that address, held, and listed by no endpoint —
+  and is still left out: it is a message from someone else about a board the
+  account cannot yet see, and accepting it is what surfaces it. Any later pass
+  at "make the export more complete" has to answer the token hash before
+  touching this table.
+- Comments, activity, assignments and per-user board ordering. The first three
+  are project content that arrives detached and meaningless without its card,
+  and comment bodies embed mentions of other people by name and id; the last is
+  a float that orders a sidebar. `GET /api/projects/:id/export`, which every
+  member of a board can call, carries the assignments as each card's
+  `assignee_ids`.
+
+It does not carry comments or activity, so a user's own comments and the
+activity trail naming them as actor are exportable by no route today. Fixing
+that belongs in the project export, where a comment arrives attached to its
+card, not here.
+
+`tests/unit/accountExportCoverage.test.ts` enumerates every foreign key
+referencing `app_user` and asserts the set matches a literal list, each entry
+marked in or out, so a new user-keyed table fails the suite until someone
+decides. A second census does the same for every column of the four
+account-owned tables the export reads (`app_user`, `session`,
+`personal_access_token`, `feedback`), because a new column on one of those is
+the likelier rot — `notify_task_assigned` and `notify_added_to_project` arrived
+exactly that way. `project` and `project_member` are left out of it: the export
+takes a pointer list from them, so their columns churn for board reasons.
+
+Both see the catalog only: a table that holds personal data keyed by email
+address — the pattern `project_invitation` already uses — is invisible to them,
+and so is anything keyed by a token or a soft reference.
+
 ### Project export
 
 `GET /api/projects/:id/export` hands any project member everything in the
@@ -1308,7 +1402,9 @@ back:
 - `images[]` lists every stored image row. If the storage object has gone
   missing the manifest still lists it, the file is left out of the archive, and
   a warning is logged.
-- There is no comment model, so nothing about comments is exported.
+- Comments exist (see Task comments) but nothing about them is exported yet.
+  Adding them is a version bump, and it has to answer what a mention node
+  carrying another person's name and id means in a file the exporter keeps.
 
 `tasks.csv` is the human view: a UTF-8 BOM (so Excel reads non-ASCII titles),
 then
