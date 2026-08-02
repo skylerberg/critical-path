@@ -116,25 +116,46 @@ async function deleteStorageObjects(keys: string[]): Promise<void> {
 
 const INVALID_UNSUBSCRIBE_MESSAGE = 'This unsubscribe link is not valid';
 
+// A null id means the link no longer names a live mailbox — the account is gone
+// or has moved to a different address. Answering exactly as for a hit is what
+// keeps every one of these endpoints silent about whether an account exists.
+async function unsubscribeTarget(
+  c: Pick<AppContext, 'get'>,
+  token: string
+): Promise<{ kind: NotificationKind; userId: string | null }> {
+  const verification = verifyUnsubscribeToken(token);
+  if (verification.status === 'invalid') {
+    throw new AppError(422, INVALID_UNSUBSCRIBE_MESSAGE);
+  }
+
+  const row = await c
+    .get('db')
+    .selectFrom('app_user')
+    .select('email')
+    .where('id', '=', verification.user_id)
+    .executeTakeFirst();
+  const bound = row !== undefined && emailAddressHash(row.email) === verification.email_hash;
+
+  return { kind: verification.kind, userId: bound ? verification.user_id : null };
+}
+
 // Only ever writes false. That is what bounds a non-expiring bearer token to
 // nothing: replay is idempotent and a leaked link cannot switch anything on.
 async function applyUnsubscribe(
   c: Pick<AppContext, 'get'>,
   token: string
 ): Promise<NotificationKind> {
-  const verification = verifyUnsubscribeToken(token);
-  if (verification.status === 'invalid') {
-    throw new AppError(422, INVALID_UNSUBSCRIBE_MESSAGE);
+  const { kind, userId } = await unsubscribeTarget(c, token);
+  if (userId !== null) {
+    await c
+      .get('db')
+      .updateTable('app_user')
+      .set({ [NOTIFY_COLUMN[kind]]: false })
+      .where('id', '=', userId)
+      .execute();
   }
 
-  await c
-    .get('db')
-    .updateTable('app_user')
-    .set({ [NOTIFY_COLUMN[verification.kind]]: false })
-    .where('id', '=', verification.user_id)
-    .execute();
-
-  return verification.kind;
+  return kind;
 }
 
 async function setPasswordAndRevokeSessions(
@@ -1100,17 +1121,15 @@ router.post(
   jsonValidator(emailTokenRequestSchema),
   async (c) => {
     const { token } = c.req.valid('json');
-    const verification = verifyUnsubscribeToken(token);
-    if (verification.status === 'invalid') {
-      throw new AppError(422, INVALID_UNSUBSCRIBE_MESSAGE);
+    const { userId } = await unsubscribeTarget(c, token);
+    if (userId !== null) {
+      await c
+        .get('db')
+        .updateTable('app_user')
+        .set({ notify_task_assigned: false, notify_added_to_project: false })
+        .where('id', '=', userId)
+        .execute();
     }
-
-    await c
-      .get('db')
-      .updateTable('app_user')
-      .set({ notify_task_assigned: false, notify_added_to_project: false })
-      .where('id', '=', verification.user_id)
-      .execute();
 
     return c.body(null, 204);
   }

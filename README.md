@@ -811,12 +811,32 @@ something — which is why they need no digest, no batching and no per-project
 mute. Everything else (mentions, unblocks, activity summaries) is deliberately
 not built.
 
-Delivery is gated per recipient on two conditions, both evaluated in one query
-in the notification layer: the address must be verified, and the recipient must
-not have switched that kind off. The gate is **not** in the email sender, which
-is what keeps account-access mail — verification, password reset, feedback —
-sending unconditionally. Because the predicate runs per recipient row, one
-unverified or opted-out person on a board never suppresses mail to the others.
+Delivery is gated per recipient in the notification layer on three conditions:
+the address must be verified, the recipient must not have switched that kind
+off, and the recipient must still have access to the project. The gates are
+**not** in the email sender, which is what keeps account-access mail —
+verification, password reset, feedback — sending unconditionally. Because they
+run per recipient, one unverified, opted-out or since-evicted person on a board
+never suppresses mail to the others.
+
+The recipient list is snapshotted inside the transaction, so the access gate is
+re-evaluated at send time rather than trusted from that snapshot: a member
+removed between the commit and the send is never told the board's name.
+
+Two budgets bound what any one mailbox can be made to receive, both keyed on
+the *recipient* rather than on whoever caused the write, and both consumed in
+the same layer:
+
+- The same notification — same person, same kind, same card or board — is sent
+  at most once an hour, so redoing a membership or an assignment cannot repeat
+  it.
+- A recipient receives at most 20 notification emails an hour in total.
+
+A legitimate burst is unaffected, because it spreads over many recipients: one
+write naming 50 people spends one message from each of 50 separate budgets. A
+loop aimed at one address spends the same budget every time, so it is collapsed
+by the first rule and then stopped by the second. A throttled message is
+dropped, not queued — there is no retry and no dead-letter.
 
 Three rules bound what is sent:
 
@@ -829,8 +849,9 @@ Three rules bound what is sent:
   notifies nobody, and neither does copying a whole board.
 
 One write mails at most 100 people. Sends run as post-commit hooks, so a
-rolled-back mutation sends nothing and a failed send never affects the
-response; there is no retry and no dead-letter.
+mutation that rolls back after queuing its notification sends nothing, and a
+failed send never affects the response; one recipient's failure does not stop
+the sends queued behind it, and leaves a log line as its only trace.
 
 Preferences are two booleans, both defaulting to true:
 
@@ -841,16 +862,26 @@ Preferences are two booleans, both defaulting to true:
 
 Every notification email carries an unsubscribe link and the RFC 8058 headers
 `List-Unsubscribe` and `List-Unsubscribe-Post`; transactional mail carries
-neither. The link holds a stateless HMAC naming one account and one kind. It
-has **no expiry** — an unsubscribe link has to work in a year-old email — and
-what makes that safe is that the endpoints it authorizes can only switch a
-preference *off*. There is no request shape that switches one on, so replay is
-idempotent and a leaked link is inert. It is not a session credential: it is
-refused by every authenticating path.
+neither. The link holds a stateless HMAC naming one account, one kind, and a
+hash of the address it was mailed to. It has **no expiry** — an unsubscribe
+link has to work in a year-old email — and what makes that safe is that the
+endpoints it authorizes can only switch a preference *off*. There is no request
+shape that switches one on, so replay is idempotent and a leaked link is inert.
+It is not a session credential: it is refused by every authenticating path.
+
+The address hash is the one revocation that exists. Nothing else retires a
+token — not a password change, not a session revocation — so moving the account
+to a different mailbox is what kills every link already sent to the old one. A
+link whose address no longer matches writes nothing and answers exactly as a
+live one does, so it is not an account-existence oracle either.
 
 - `POST /api/auth/unsubscribe` (`{ token }`) switches off the kind the token
   names and answers `200 { kind }` so the landing page can say what it did.
 - `POST /api/auth/unsubscribe/all` (`{ token }`) switches off every kind, `204`.
+  It deliberately ignores the kind the token names: it is the "stop mailing me
+  entirely" button on the landing page, and refusing to write a kind the token
+  does not name would make that button impossible to offer to the one person
+  who is reading the message.
 - `POST /api/auth/unsubscribe/one-click?token=…` is the header target. A mail
   client posts `List-Unsubscribe=One-Click` as form data, which is not JSON, so
   the token comes from the query string and the body is never read. `204`.

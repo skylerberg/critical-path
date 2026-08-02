@@ -8,7 +8,7 @@ import {
 import type { AppContext } from '../../src/types/index';
 
 const ACTOR = { id: 'actor-id', name: 'Actor' };
-const PROJECT = { id: 'project-id', name: 'Board' };
+const PROJECT = { id: 'project-id', name: 'Board', created_by: ACTOR.id };
 
 const realDeliver = notificationDelivery.deliver;
 const delivered: Notification[] = [];

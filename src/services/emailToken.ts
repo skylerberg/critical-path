@@ -18,7 +18,7 @@ export type VerificationTokenVerification =
   | { status: 'invalid' };
 
 export type UnsubscribeTokenVerification =
-  | { status: 'valid'; user_id: string; kind: NotificationKind }
+  | { status: 'valid'; user_id: string; email_hash: string; kind: NotificationKind }
   | { status: 'invalid' };
 
 function sign(payload: string): Buffer {
@@ -100,9 +100,15 @@ export function verifyVerificationToken(
 
 // No expiry: an unsubscribe link has to work in a year-old email, and the only
 // thing it authorizes is turning a preference off, so replay is idempotent and
-// a leak cannot enable anything.
-export function createUnsubscribeToken(userId: string, kind: NotificationKind): string {
-  return encode({ t: UNSUBSCRIBE_TYPE, uid: userId, k: kind });
+// a leak cannot enable anything. Binding the address supplies the one
+// revocation that is still needed: nothing else retires a token, so losing the
+// mailbox it was sent to has to.
+export function createUnsubscribeToken(
+  userId: string,
+  email: string,
+  kind: NotificationKind
+): string {
+  return encode({ t: UNSUBSCRIBE_TYPE, uid: userId, eh: emailAddressHash(email), k: kind });
 }
 
 export function verifyUnsubscribeToken(token: string): UnsubscribeTokenVerification {
@@ -110,13 +116,13 @@ export function verifyUnsubscribeToken(token: string): UnsubscribeTokenVerificat
   if (!claims) {
     return { status: 'invalid' };
   }
-  const { t, uid, k } = claims;
-  if (t !== UNSUBSCRIBE_TYPE || typeof uid !== 'string') {
+  const { t, uid, eh, k } = claims;
+  if (t !== UNSUBSCRIBE_TYPE || typeof uid !== 'string' || typeof eh !== 'string') {
     return { status: 'invalid' };
   }
   const kind = notificationKind(k);
   if (kind instanceof type.errors) {
     return { status: 'invalid' };
   }
-  return { status: 'valid', user_id: uid, kind };
+  return { status: 'valid', user_id: uid, email_hash: eh, kind };
 }
