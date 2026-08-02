@@ -74,6 +74,7 @@ function payload(): BoardPayload {
       member_ids: [],
       members: [],
       is_public: false,
+      color: null,
       created_at: '2026-01-01T00:00:00Z',
     },
     columns: [
@@ -2372,6 +2373,7 @@ describe('applyRealtime project_updated', () => {
       created_by: 'u-owner',
       member_ids: ['u-me'],
       members: [{ user_id: 'u-me', role: 'editor' }],
+      color: 'amber',
     };
   });
 
@@ -2397,6 +2399,36 @@ describe('applyRealtime project_updated', () => {
 
     expect(board.project?.name).toBe('Game');
     expect(board.project?.members).toEqual([{ user_id: 'u-me', role: 'viewer' }]);
+  });
+
+  it("adopts a teammate's colour change", () => {
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: { id: 'p1', color: 'sky' },
+    });
+
+    expect(board.project?.color).toBe('sky');
+  });
+
+  it('clears the colour when the event carries an explicit null', () => {
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: { id: 'p1', color: null },
+    });
+
+    expect(board.project?.color).toBeNull();
+  });
+
+  it('keeps the colour when the event has no colour at all', () => {
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: { id: 'p1', name: 'Renamed' },
+    });
+
+    expect(board.project?.color).toBe('amber');
   });
 });
 
@@ -2862,6 +2894,7 @@ describe('board store canEdit', () => {
       member_ids: members.map((m) => m.user_id),
       members,
       is_public: false,
+      color: null,
       created_at: '2026-01-01T00:00:00Z',
     };
   }

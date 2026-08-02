@@ -7,6 +7,7 @@
     TRIGGERS,
     type DndEvent,
   } from 'svelte-dnd-action';
+  import { accentVar } from '../lib/accents';
   import { suppressTouchContextMenu } from '../lib/actions';
   import { APP_NAME } from '../lib/constants';
   import { motion } from '../lib/motion.svelte';
@@ -18,6 +19,7 @@
   import { session } from '../lib/session.svelte';
   import FeedbackDialog from './FeedbackDialog.svelte';
   import Avatar from './ui/Avatar.svelte';
+  import ColorDot from './ui/ColorDot.svelte';
 
   const FLIP_MS = 150;
   const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
@@ -163,16 +165,20 @@
   {@const active = activeProjectId === project.id}
   <!-- Still drawn, only unlinked, so the gap it leaves keeps the row's size. -->
   {@const href = isDragPlaceholder(project.id) ? undefined : projectHref(project.id, project.name)}
+  {@const dot = accentVar(project.color)}
   <a
     use:suppressTouchContextMenu
     {href}
     draggable="false"
     aria-current={active ? 'page' : undefined}
-    class="flex min-h-11 touch-callout-none items-center truncate rounded-md px-3 text-sm {active
+    class="flex min-h-11 touch-callout-none items-center gap-2 overflow-hidden rounded-md px-3 text-sm {active
       ? 'bg-accent-soft font-medium text-accent'
       : 'text-muted hover:bg-accent-soft hover:text-ink'}"
   >
-    {project.name}
+    {#if dot !== null}
+      <ColorDot color={dot} size="sm" />
+    {/if}
+    <span class="min-w-0 flex-1 truncate">{project.name}</span>
   </a>
 {/snippet}
 

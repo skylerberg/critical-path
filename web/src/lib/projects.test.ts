@@ -17,6 +17,7 @@ function project(overrides: Partial<Project> = {}): Project {
     member_ids: memberIds,
     members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
+    color: null,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -37,6 +38,7 @@ function projectRow(
     member_ids: item.member_ids,
     members: item.members,
     is_public: item.is_public,
+    color: item.color,
     created_at: item.created_at,
   };
 }
@@ -52,6 +54,7 @@ function boardPayload(id: string, name: string, tasksInColumns: string[] = []): 
       member_ids: [],
       members: [],
       is_public: false,
+      color: null,
       created_at: '2026-03-01T00:00:00.000Z',
     },
     columns: [
@@ -235,6 +238,74 @@ describe('projects store', () => {
     expect(await bodyOf(requestAt(1))).toEqual({ name: 'New name' });
     expect(projects.projects[0]!.name).toBe('Old name');
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+  });
+
+  it('sets a colour optimistically and PATCHes the key', async () => {
+    const item = project();
+    await loadWith([item]);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { ...projectRow(item), color: 'sky' })
+    );
+
+    const pending = projects.setColor('p-1', 'sky');
+    expect(projects.projects[0]!.color).toBe('sky');
+
+    await pending;
+
+    expect(requestAt(1).method).toBe('PATCH');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1');
+    expect(await bodyOf(requestAt(1))).toEqual({ color: 'sky' });
+    expect(projects.projects[0]!.color).toBe('sky');
+  });
+
+  it('clears a colour by sending an explicit null', async () => {
+    const item = project({ color: 'sky' });
+    await loadWith([item]);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { ...projectRow(item), color: null })
+    );
+
+    const pending = projects.setColor('p-1', null);
+    expect(projects.projects[0]!.color).toBeNull();
+
+    await pending;
+
+    expect(await bodyOf(requestAt(1))).toEqual({ color: null });
+    expect(projects.projects[0]!.color).toBeNull();
+  });
+
+  it('toasts and refetches when a colour change fails', async () => {
+    const item = project({ color: 'sky' });
+    await loadWith([item]);
+    fetchMock.mockImplementation(async (input) => {
+      if ((input as Request).method === 'PATCH') {
+        return jsonResponse(500, { error: 'nope' });
+      }
+      return jsonResponse(200, { projects: [item] });
+    });
+
+    await projects.setColor('p-1', 'rose');
+
+    expect(projects.projects[0]!.color).toBe('sky');
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+  });
+
+  it('treats a 200 whose echo lacks the key as a failure, not as applied', async () => {
+    const item = project();
+    await loadWith([item]);
+    const stripped = { ...projectRow(item) } as Record<string, unknown>;
+    delete stripped.color;
+    fetchMock.mockImplementation(async (input) => {
+      if ((input as Request).method === 'PATCH') {
+        return jsonResponse(200, stripped);
+      }
+      return jsonResponse(200, { projects: [item] });
+    });
+
+    await projects.setColor('p-1', 'rose');
+
+    expect(projects.projects[0]!.color).toBeNull();
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['Failed to update board colour']);
   });
 
   it('removes optimistically and sends the DELETE', async () => {

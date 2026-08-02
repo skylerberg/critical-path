@@ -13,6 +13,17 @@
   --cp-danger: #dc2626;
   --cp-success: #16a34a;
   --cp-warning: #b45309;
+  /* Board accents. Fill only — nothing is ever drawn on top of one, so each is
+     held to the 3:1 non-text bar against surface, canvas and accent-soft in both
+     themes, which a single value per key cannot meet. */
+  --cp-project-rose: #e11d48;
+  --cp-project-amber: #b45309;
+  --cp-project-lime: #4d7c0f;
+  --cp-project-emerald: #047857;
+  --cp-project-sky: #0284c7;
+  --cp-project-violet: #7c3aed;
+  --cp-project-fuchsia: #c026d3;
+  --cp-project-slate: #475569;
   /* Total height of the fixed mobile bottom nav (min-h-14 + home-indicator safe
      area). Used to reserve space in the shell and to size the board viewport so
      the nav never overlaps board content. Ignored at lg, where the nav is a
@@ -38,6 +49,14 @@
     --cp-danger: #ef4444;
     --cp-success: #22c55e;
     --cp-warning: #f59e0b;
+    --cp-project-rose: #fb7185;
+    --cp-project-amber: #f59e0b;
+    --cp-project-lime: #a3e635;
+    --cp-project-emerald: #34d399;
+    --cp-project-sky: #38bdf8;
+    --cp-project-violet: #a78bfa;
+    --cp-project-fuchsia: #e879f9;
+    --cp-project-slate: #94a3b8;
   }
 }
 

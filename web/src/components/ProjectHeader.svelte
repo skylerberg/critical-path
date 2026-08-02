@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { accentVar, type ProjectAccent } from '../lib/accents';
   import { apiMessage } from '../lib/apiMessages';
   import { board } from '../lib/board.svelte';
   import { downloadProjectExport } from '../lib/export';
@@ -9,6 +10,7 @@
   import ArchivedTasksModal from './ArchivedTasksModal.svelte';
   import FilterBar from './FilterBar.svelte';
   import LabelManager from './LabelManager.svelte';
+  import ProjectColorDialog from './ProjectColorDialog.svelte';
   import ProjectMembersModal from './ProjectMembersModal.svelte';
   import WebhooksModal from './WebhooksModal.svelte';
   import Badge from './ui/Badge.svelte';
@@ -22,6 +24,7 @@
   let { projectId, view }: Props = $props();
 
   let labelsOpen = $state(false);
+  let colorOpen = $state(false);
   let shareOpen = $state(false);
   let archiveOpen = $state(false);
   let webhooksOpen = $state(false);
@@ -46,13 +49,18 @@
   const boardActive = $derived(view === 'board');
   const graphActive = $derived(view === 'graph');
 
+  const listed = $derived(projects.projects.find((p) => p.id === projectId));
+
   // Publishing and the project_updated event land in the projects list; the board
   // payload's copy only refreshes on a board fetch, so it is the fallback.
-  const isPublic = $derived(
-    projects.projects.find((p) => p.id === projectId)?.is_public ??
-      board.project?.is_public ??
-      false
+  const isPublic = $derived(listed?.is_public ?? board.project?.is_public ?? false);
+
+  // Not `??` off the list entry: null is a colour the user can choose, and
+  // coalescing it would fall through to a stale board payload and never clear.
+  const accent: ProjectAccent | null = $derived(
+    listed !== undefined ? listed.color : (board.project?.color ?? null)
   );
+  const accentBar = $derived(accentVar(accent));
 
   const menuItemClass =
     'flex min-h-11 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm hover:bg-accent-soft';
@@ -76,7 +84,12 @@
   }}
 />
 
-<header class="shrink-0 border-b border-edge bg-surface px-3 py-2 lg:px-4">
+<!-- An inset shadow rather than a border: the bar must not change the header's
+     height, which the board viewport is sized against. -->
+<header
+  class="shrink-0 border-b border-edge bg-surface px-3 py-2 lg:px-4"
+  style={accentBar === null ? undefined : `box-shadow: inset 0 3px 0 ${accentBar}`}
+>
   <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
     <h1 class="min-w-0 truncate text-lg font-semibold">
       {board.project?.name ?? ''}
@@ -154,6 +167,30 @@
                 <circle cx="7.5" cy="7.5" r="1" />
               </svg>
               Labels
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class={menuItemClass}
+              onclick={() => {
+                menuOpen = false;
+                colorOpen = true;
+              }}
+            >
+              <svg
+                class="size-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+              </svg>
+              Board colour
             </button>
           {/if}
           <button
@@ -275,6 +312,10 @@
 
 {#if labelsOpen}
   <LabelManager open onclose={() => (labelsOpen = false)} />
+{/if}
+
+{#if colorOpen}
+  <ProjectColorDialog {projectId} current={accent} onclose={() => (colorOpen = false)} />
 {/if}
 
 {#if shareOpen}
