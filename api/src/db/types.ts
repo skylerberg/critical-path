@@ -32,6 +32,7 @@ export interface AppUser {
   avatar_storage_key: string | null;
   created_at: Generated<Timestamp>;
   email: string;
+  email_verified_at: Timestamp | null;
   id: string;
   name: string;
   password_hash: string;

@@ -9,6 +9,7 @@ export type Variables = {
     email: string;
     name: string;
     avatar_url: string | null;
+    email_verified: boolean;
   };
   db: Kysely<DB>;
   postCommitHooks: Array<() => Promise<void>>;

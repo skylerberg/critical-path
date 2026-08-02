@@ -1,6 +1,6 @@
 import { type } from 'arktype';
 import { uuid, email, stringWithLength } from './common';
-import { userSchema } from './users';
+import { meSchema } from './users';
 
 // Deliberately no trimming: passwords are stored as typed.
 export const password = type('string').pipe((s, ctx) => {
@@ -27,7 +27,7 @@ export const loginRequestSchema = type({
 
 export const authResponseSchema = type({
   token: 'string',
-  user: userSchema,
+  user: meSchema,
 });
 
 export type AuthResponse = typeof authResponseSchema.infer;
@@ -60,4 +60,8 @@ export const forgotPasswordSchema = type({
 export const resetPasswordSchema = type({
   token: 'string',
   new_password: password,
+});
+
+export const verifyEmailSchema = type({
+  token: 'string',
 });

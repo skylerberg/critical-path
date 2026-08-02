@@ -5,7 +5,7 @@ import { confirmOrAbort, promptHidden, promptText, readStdinLines } from '../pro
 import type { CliDeps, RuntimeContext } from '../context';
 import type { components } from '../api/api.generated';
 
-type User = components['schemas']['User'];
+type Me = components['schemas']['Me'];
 
 async function resolveEmail(ctx: RuntimeContext, opts: Opts): Promise<string> {
   const email = opts.email as string | undefined;
@@ -36,8 +36,13 @@ async function readPassword(
   return password;
 }
 
-function printUser(ctx: RuntimeContext, user: User, prefix: string): void {
-  ctx.out.data(user, () => ctx.out.line(`${prefix} ${user.name} <${user.email}>`));
+function printUser(ctx: RuntimeContext, user: Me, prefix: string): void {
+  ctx.out.data(user, () => {
+    ctx.out.line(`${prefix} ${user.name} <${user.email}>`);
+    if (!user.email_verified) {
+      ctx.out.line('Email address not verified — run: cpath account resend-verification');
+    }
+  });
 }
 
 function warnIfEnvToken(ctx: RuntimeContext): void {
@@ -145,6 +150,19 @@ export function registerAuth(program: Command, deps: CliDeps): void {
           }
           const user = assertOk(await ctx.api.PATCH('/api/auth/me', { body: { name, email } }));
           printUser(ctx, user, 'Updated account:');
+        })
+      )
+  );
+
+  account.addCommand(
+    leaf('resend-verification')
+      .description('Send a fresh verification email to the account address')
+      .action(
+        withCtx(deps, async (ctx) => {
+          assertOk(await ctx.api.POST('/api/auth/verify-email/resend'));
+          ctx.out.data({ sent: true }, () =>
+            ctx.out.line('Verification email sent if the address was not already verified')
+          );
         })
       )
   );

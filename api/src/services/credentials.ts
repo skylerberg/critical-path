@@ -13,6 +13,7 @@ export interface AuthenticatedCredential {
     email: string;
     name: string;
     avatar_storage_key: string | null;
+    email_verified_at: Date | null;
   };
 }
 
@@ -30,6 +31,7 @@ async function authenticatePersonalAccessToken(
       'app_user.email',
       'app_user.name',
       'app_user.avatar_storage_key',
+      'app_user.email_verified_at',
     ])
     .where('personal_access_token.token_hash', '=', tokenHash)
     .executeTakeFirst();
@@ -46,6 +48,7 @@ async function authenticatePersonalAccessToken(
       email: row.email,
       name: row.name,
       avatar_storage_key: row.avatar_storage_key,
+      email_verified_at: row.email_verified_at,
     },
   };
 }
@@ -64,6 +67,7 @@ async function authenticateSessionToken(
       'app_user.email',
       'app_user.name',
       'app_user.avatar_storage_key',
+      'app_user.email_verified_at',
     ])
     .where('session.token_hash', '=', tokenHash)
     .executeTakeFirst();
@@ -86,6 +90,7 @@ async function authenticateSessionToken(
       email: row.email,
       name: row.name,
       avatar_storage_key: row.avatar_storage_key,
+      email_verified_at: row.email_verified_at,
     },
   };
 }

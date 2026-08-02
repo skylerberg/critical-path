@@ -6,7 +6,11 @@ import type { AppUser } from '../db/types';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
-import { enforceAuthRateLimit, enforceResetRateLimit } from '../middleware/rateLimit';
+import {
+  enforceAuthRateLimit,
+  enforceResetRateLimit,
+  enforceVerificationRateLimit,
+} from '../middleware/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
@@ -23,6 +27,8 @@ import { avatarUrl } from '../services/avatars';
 import { getEmailSender } from '../services/email/index';
 import { hashPassword, verifyPassword, verifyDummyPassword } from '../services/passwords';
 import { PROJECT_COLUMNS, fetchMembers, publishProjectListItem } from '../services/projectListItem';
+import { emailAddressHash, verifyVerificationToken } from '../services/emailToken';
+import { enqueueVerificationEmail } from '../services/emailVerification';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
 import { SESSIONS_REVOKED, USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
 import { storage } from '../services/storage/index';
@@ -42,7 +48,8 @@ import {
   deleteAccountConflictSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
-  userSchema,
+  verifyEmailSchema,
+  meSchema,
   idSchema,
   createPersonalAccessTokenSchema,
   createdPersonalAccessTokenSchema,
@@ -118,7 +125,10 @@ router.post(
   describeRoute({
     tags: ['Auth'],
     summary: 'Sign up',
-    description: 'Create a new user account and start a session. The client supplies the user id.',
+    description:
+      'Create a new user account and start a session. The client supplies the user id. A ' +
+      'verification email is sent to the address; the account is usable immediately and ' +
+      '`email_verified` starts false.',
     responses: {
       201: {
         description: 'Account created',
@@ -167,8 +177,12 @@ router.post(
     }
 
     const token = await createSession(db, id);
+    enqueueVerificationEmail(c, { id, email });
 
-    return c.json({ token, user: { id, email, name, avatar_url: null } }, 201);
+    return c.json(
+      { token, user: { id, email, name, avatar_url: null, email_verified: false } },
+      201
+    );
   }
 );
 
@@ -202,7 +216,7 @@ router.post(
 
     const user = await db
       .selectFrom('app_user')
-      .select(['id', 'email', 'name', 'avatar_storage_key', 'password_hash'])
+      .select(['id', 'email', 'name', 'avatar_storage_key', 'password_hash', 'email_verified_at'])
       .where((eb) => eb(eb.fn<string>('lower', ['email']), '=', email.toLowerCase()))
       .executeTakeFirst();
 
@@ -226,6 +240,7 @@ router.post(
           email: user.email,
           name: user.name,
           avatar_url: avatarUrl(user.avatar_storage_key),
+          email_verified: user.email_verified_at !== null,
         },
       },
       200
@@ -268,7 +283,7 @@ router.get(
         description: 'Authenticated user',
         content: {
           'application/json': {
-            schema: resolver(userSchema),
+            schema: resolver(meSchema),
           },
         },
       },
@@ -288,21 +303,25 @@ router.patch(
     tags: ['Auth'],
     summary: 'Update current user',
     description:
-      'Update the name and/or email of the authenticated user. Changing the email address ' +
-      'invalidates any outstanding password-reset tokens.',
+      'Update the name and/or email of the authenticated user. Moving to a different mailbox ' +
+      'invalidates any outstanding password-reset tokens, resets `email_verified` to false and ' +
+      'sends a verification email to the new address; a change of letter case alone does ' +
+      'neither. The verification send shares the resend budget, so an exhausted budget answers ' +
+      '429 and changes nothing.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
         description: 'Updated user',
         content: {
           'application/json': {
-            schema: resolver(userSchema),
+            schema: resolver(meSchema),
           },
         },
       },
       ...unauthorizedErrorResponse,
       ...conflictErrorResponse,
       ...validationErrorResponse,
+      ...tooManyRequestsErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -314,13 +333,16 @@ router.patch(
     const db = c.get('db');
 
     const updates: Updateable<AppUser> = {};
+    let newMailbox = false;
     if (name !== undefined && name !== user.name) updates.name = name;
     if (email !== undefined && email !== user.email) {
       updates.email = email;
       if (email.toLowerCase() !== user.email.toLowerCase()) {
+        newMailbox = true;
         // New mailbox: rotate so reset tokens sent to the old address die now
         // instead of staying valid for their remaining TTL.
         updates.alternative_id = crypto.randomUUID();
+        updates.email_verified_at = null;
       }
     }
 
@@ -341,6 +363,12 @@ router.patch(
       }
     }
 
+    // Ahead of the write: committing the address while dropping the mail would
+    // strand the account on an unverified address with no way to learn why.
+    if (newMailbox) {
+      await enforceVerificationRateLimit(c, user.id);
+    }
+
     try {
       const row = await db
         .updateTable('app_user')
@@ -348,9 +376,15 @@ router.patch(
         .where('id', '=', user.id)
         .returning(['id', 'email', 'name'])
         .executeTakeFirstOrThrow();
-      const updated = { ...row, avatar_url: user.avatar_url };
-      publishAfterCommit(c, USER_UPDATED, null, updated);
-      return c.json(updated, 200);
+      const publicUser = { ...row, avatar_url: user.avatar_url };
+      publishAfterCommit(c, USER_UPDATED, null, publicUser);
+      if (newMailbox) {
+        enqueueVerificationEmail(c, row);
+      }
+      return c.json(
+        { ...publicUser, email_verified: newMailbox ? false : user.email_verified },
+        200
+      );
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new AppError(409, 'Email already in use');
@@ -795,6 +829,96 @@ router.post(
     }
 
     await setPasswordAndRevokeSessions(c, user.id, new_password);
+
+    return c.body(null, 204);
+  }
+);
+
+router.post(
+  '/verify-email',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Verify email address',
+    description:
+      'Mark an email address as verified using a token from a verification email. ' +
+      'Unauthenticated: the token authenticates nothing, creates no session and returns ' +
+      'nothing about the account. Idempotent — redeeming a token again succeeds without ' +
+      'moving the recorded time, and every outstanding token for the address stays usable. ' +
+      'A token stops working once the account moves to a different address, and expires ' +
+      '24 hours after it was issued.',
+    responses: {
+      204: {
+        description: 'Address verified',
+      },
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  jsonValidator(verifyEmailSchema),
+  async (c) => {
+    const { token } = c.req.valid('json');
+
+    const verification = verifyVerificationToken(token);
+    if (verification.status === 'expired') {
+      throw new AppError(422, 'Verification link has expired');
+    }
+    if (verification.status === 'invalid' || !isValidUuid(verification.user_id)) {
+      throw new AppError(422, 'Invalid verification link');
+    }
+
+    const db = c.get('db');
+    const user = await db
+      .selectFrom('app_user')
+      .select(['id', 'email'])
+      .where('id', '=', verification.user_id)
+      .executeTakeFirst();
+    // Same answer for an unknown account and for an address that has since
+    // changed: neither may be distinguishable to an unauthenticated caller.
+    if (!user || emailAddressHash(user.email) !== verification.email_hash) {
+      throw new AppError(422, 'Invalid verification link');
+    }
+
+    await db
+      .updateTable('app_user')
+      .set({ email_verified_at: new Date() })
+      .where('id', '=', user.id)
+      .where('email_verified_at', 'is', null)
+      .execute();
+
+    return c.body(null, 204);
+  }
+);
+
+router.post(
+  '/verify-email/resend',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Resend verification email',
+    description:
+      "Send a fresh verification email to the authenticated user's own address. Takes no " +
+      'body. Answers 204 without sending when the address is already verified. Earlier links ' +
+      'stay valid. There is deliberately no unauthenticated form of this: verification does ' +
+      'not gate signing in, so anyone needing a new link can sign in and ask, and that leaves ' +
+      'no endpoint that reveals whether an address has an account.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Verification email sent, or already verified',
+      },
+      ...unauthorizedErrorResponse,
+      ...tooManyRequestsErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  async (c) => {
+    const user = c.get('user');
+    if (user.email_verified) {
+      return c.body(null, 204);
+    }
+
+    await enforceVerificationRateLimit(c, user.id);
+    enqueueVerificationEmail(c, user);
 
     return c.body(null, 204);
   }

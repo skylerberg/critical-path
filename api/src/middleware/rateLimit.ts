@@ -137,6 +137,32 @@ export async function enforceResetRateLimit(c: Context, email: string): Promise<
   return ipAllowed && emailAllowed;
 }
 
+export const VERIFY_USER_WINDOW_MS = 60 * 60_000;
+export const VERIFY_USER_MAX_ATTEMPTS = 3;
+export const VERIFY_IP_WINDOW_MS = 60 * 60_000;
+export const VERIFY_IP_MAX_ATTEMPTS = 10;
+
+// Throws rather than returning a verdict: the caller is authenticated and the
+// address is their own, so a visible 429 is no oracle.
+export async function enforceVerificationRateLimit(c: Context, userId: string): Promise<void> {
+  const now = Date.now();
+  const userAllowed = await consumeRateLimit(
+    `verify-user:${userId}`,
+    now,
+    VERIFY_USER_MAX_ATTEMPTS,
+    VERIFY_USER_WINDOW_MS
+  );
+  const ipAllowed = await consumeRateLimit(
+    `verify-ip:${clientIp(c)}`,
+    now,
+    VERIFY_IP_MAX_ATTEMPTS,
+    VERIFY_IP_WINDOW_MS
+  );
+  if (!userAllowed || !ipAllowed) {
+    throw new AppError(429, 'Too many verification emails, please try again later');
+  }
+}
+
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
   const normalizedEmail = email.toLowerCase();
   const ipAllowed = await consumeRateLimit(`ip:${clientIp(c)}:${normalizedEmail}`);
