@@ -28,6 +28,7 @@ import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
 import { getArchivedTasks, getBoardPayload } from '../services/boardPayload';
 import { exportFilename, projectExportArchive } from '../services/export/archive';
 import { buildProjectExport } from '../services/export/payload';
+import { notify } from '../services/notifications';
 import { copyProject } from '../services/projectCopy';
 import { lockProject } from '../services/projectLock';
 import {
@@ -801,6 +802,14 @@ router.put(
         .execute();
     }
 
+    // Only the additions: a role change and a removal are not an invitation.
+    await notify(c, {
+      kind: 'added_to_project',
+      actor: user,
+      project,
+      recipientUserIds: added,
+    });
+
     // Removed members would fail the delivery access re-check, so their
     // eviction is a project_deleted with a snapshotted recipient list.
     if (removed.length > 0) {
@@ -906,6 +915,9 @@ router.post(
 
       let effectiveRole: ProjectRole = 'editor';
       if (target.id !== project.created_by) {
+        // Read under the lock, so a re-invite that only changes a role is
+        // distinguishable from one that actually granted access.
+        const alreadyMember = await isProjectMember(db, id, target.id);
         await db
           .insertInto('project_member')
           .values({ project_id: id, user_id: target.id, role: role ?? 'editor' })
@@ -918,6 +930,14 @@ router.post(
         const members = await fetchMembers(db, id);
         effectiveRole = members.find((member) => member.user_id === target.id)?.role ?? 'editor';
         await publishProjectListItem(c, db, project, members);
+        if (!alreadyMember) {
+          await notify(c, {
+            kind: 'added_to_project',
+            actor: user,
+            project,
+            recipientUserIds: [target.id],
+          });
+        }
       }
 
       return c.json(

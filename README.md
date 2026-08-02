@@ -331,11 +331,10 @@ because a 422 would make an autosaving editor retry forever with nothing to
 point at. The writer is never a recipient of their own mention, and one
 request resolves at most 25 people.
 
-**Nothing is delivered yet.** There is no notification service, so a resolved
-mention is handed to a single post-commit seam in `src/services/mentions.ts`
-that does nothing. Delivery (email, per-user opt-out, unsubscribe) attaches
-there when the notification work lands; until then mentions are a rendering
-and resolution feature only.
+**Nothing is delivered yet.** A resolved mention is handed to a post-commit
+seam that does nothing: notification email covers assignment and board
+membership only, and a mention is deliberately not one of its kinds. Until that
+changes, mentions are a rendering and resolution feature only.
 
 ### Task activity
 
@@ -418,7 +417,7 @@ Archiving does not bump `updated_at`: the card's content did not change, and
 moving the timestamp would invalidate the `expected_updated_at` precondition
 of every open editor. An archived task may not be named as
 `blocker_task_id` — board reads hide it, so the edge would be undisplayable
-and unremovable — but a blocker may be added *to* an archived task, which is
+and unremovable — but a blocker may be added _to_ an archived task, which is
 what "restore brings the edges back" means. Cycle detection walks archived
 edges, so a restore can never introduce a cycle. Deleting a column still
 relocates its archived cards along with its visible ones, so archiving never
@@ -654,30 +653,30 @@ every other token's sockets connected.
 Every mutation emits an event after its transaction commits. The envelope is
 `{ type, project_id, data }`:
 
-| type                            | data                                                 |
-| ------------------------------- | ---------------------------------------------------- |
-| `task_created` / `task_updated` | board task shape                                     |
-| `task_deleted`                  | `{ id }`                                             |
-| `task_archived`                 | board task shape plus `archived_at`                  |
-| `task_restored`                 | board task shape                                     |
-| `task_relations_set`            | `{ task_id, label_ids, assignee_ids, blocker_ids }`  |
-| `column_created` / `column_updated` | column response shape                            |
-| `column_deleted`                | `{ id, moved_tasks }`                                |
-| `column_tasks_moved`            | `{ column_id, target_column_id, moved_tasks }`       |
-| `column_tasks_archived`         | `{ column_id, tasks }`                               |
-| `column_tasks_reordered`        | `{ column_id, moved_tasks }`                         |
-| `label_created` / `label_updated` | label row                                          |
-| `label_deleted`                 | `{ id }`                                             |
-| `image_created`                 | image response plus `{ task_id, image_count }`       |
-| `image_deleted`                 | `{ task_id, image_count, cover_image_url }`          |
-| `comment_created`               | comment row plus `{ comment_count }`                 |
-| `comment_updated`               | comment row                                          |
-| `comment_deleted`               | `{ id, task_id, comment_count }`                     |
+| type                                  | data                                                                                               |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `task_created` / `task_updated`       | board task shape                                                                                   |
+| `task_deleted`                        | `{ id }`                                                                                           |
+| `task_archived`                       | board task shape plus `archived_at`                                                                |
+| `task_restored`                       | board task shape                                                                                   |
+| `task_relations_set`                  | `{ task_id, label_ids, assignee_ids, blocker_ids }`                                                |
+| `column_created` / `column_updated`   | column response shape                                                                              |
+| `column_deleted`                      | `{ id, moved_tasks }`                                                                              |
+| `column_tasks_moved`                  | `{ column_id, target_column_id, moved_tasks }`                                                     |
+| `column_tasks_archived`               | `{ column_id, tasks }`                                                                             |
+| `column_tasks_reordered`              | `{ column_id, moved_tasks }`                                                                       |
+| `label_created` / `label_updated`     | label row                                                                                          |
+| `label_deleted`                       | `{ id }`                                                                                           |
+| `image_created`                       | image response plus `{ task_id, image_count }`                                                     |
+| `image_deleted`                       | `{ task_id, image_count, cover_image_url }`                                                        |
+| `comment_created`                     | comment row plus `{ comment_count }`                                                               |
+| `comment_updated`                     | comment row                                                                                        |
+| `comment_deleted`                     | `{ id, task_id, comment_count }`                                                                   |
 | `project_created` / `project_updated` | projects-list item (with `member_ids`, `members` and task counts, without the per-user `position`) |
-| `project_deleted`               | `{ id }`                                             |
-| `project_position_updated`      | `{ id, position }`                                   |
-| `user_updated`                  | public user `{ id, email, name, avatar_url }`        |
-| `sessions_revoked`              | `{ user_id }`, optionally plus `personal_access_token_id` |
+| `project_deleted`                     | `{ id }`                                                                                           |
+| `project_position_updated`            | `{ id, position }`                                                                                 |
+| `user_updated`                        | public user `{ id, email, name, avatar_url }`                                                      |
+| `sessions_revoked`                    | `{ user_id }`, optionally plus `personal_access_token_id`                                          |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
 add/remove, by the cascade that strips assignees when a project member is
@@ -737,15 +736,15 @@ A project can register up to ten HTTP(S) endpoints that receive a signed `POST`
 for every board event it emits. The vocabulary is the realtime catalogue above —
 there is no second event language.
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/api/webhooks` | Register `{ id, project_id, url }`; the response carries the generated secret |
-| `GET` | `/api/webhooks?project_id=` | List a project's registrations with their secrets |
-| `PATCH` | `/api/webhooks/:id` | Change `url`, or disable / re-enable with `disabled_at` |
-| `DELETE` | `/api/webhooks/:id` | Remove a registration and its delivery log |
-| `POST` | `/api/webhooks/:id/rotate-secret` | Replace the signing secret |
-| `GET` | `/api/webhooks/:id/deliveries?limit=` | Delivery log, newest first, default 20, max 50 |
-| `POST` | `/api/webhooks/:id/deliveries/:deliveryId/redeliver` | Re-send one failed delivery |
+| Method   | Path                                                 | Purpose                                                                       |
+| -------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `POST`   | `/api/webhooks`                                      | Register `{ id, project_id, url }`; the response carries the generated secret |
+| `GET`    | `/api/webhooks?project_id=`                          | List a project's registrations with their secrets                             |
+| `PATCH`  | `/api/webhooks/:id`                                  | Change `url`, or disable / re-enable with `disabled_at`                       |
+| `DELETE` | `/api/webhooks/:id`                                  | Remove a registration and its delivery log                                    |
+| `POST`   | `/api/webhooks/:id/rotate-secret`                    | Replace the signing secret                                                    |
+| `GET`    | `/api/webhooks/:id/deliveries?limit=`                | Delivery log, newest first, default 20, max 50                                |
+| `POST`   | `/api/webhooks/:id/deliveries/:deliveryId/redeliver` | Re-send one failed delivery                                                   |
 
 The five mutating routes above are the one deliberate exception to "every
 mutation emits a realtime event": a registration is not board data, no client
@@ -820,7 +819,7 @@ exhaust their attempts the registration is disabled and its queued deliveries
 are terminated; re-enabling it (`PATCH { "disabled_at": null }`) clears the
 counter. Manually re-sent deliveries never count toward that threshold, so
 debugging a broken receiver cannot disable the registration you are debugging.
-*Redeliver* restarts the whole retry cycle under the original delivery id, so a
+_Redeliver_ restarts the whole retry cycle under the original delivery id, so a
 receiver's idempotency key still matches.
 
 **Guarantees.** Delivery is at-least-once and unordered: a worker that dies
@@ -857,8 +856,8 @@ live retries are never pruned. The log has a `limit` but no cursor, so only the
 
 ### Email
 
-Password-reset, email-verification, board-invitation and feedback emails go
-through the driver named by `EMAIL_DRIVER`:
+Password-reset, email-verification, board-invitation, notification and feedback
+emails all go through the driver named by `EMAIL_DRIVER`:
 
 - `console` (default) — logs the full email; the reset link is usable from the
   server log in development.
@@ -885,10 +884,10 @@ different mailbox. Existing accounts were not grandfathered — the column is
 nullable with no backfill, so everyone who signed up before this shipped reads
 as unverified until they confirm.
 
-Verification gates nothing today. Signing in, resetting a password and every
-other route behave identically either way, and **account-access mail always
-sends regardless**: the verification mail itself, password reset, and the
-feedback mail to the site owner are never withheld.
+Verification gates notification email and nothing else. Signing in, resetting a
+password and every other route behave identically either way, and
+**account-access mail always sends regardless**: the verification mail itself,
+password reset, and the feedback mail to the site owner are never withheld.
 
 A verification email is sent on signup and whenever `PATCH /api/auth/me` moves
 the account to a different mailbox (a change of letter case alone sends
@@ -942,6 +941,138 @@ change-password and the avatar routes. It is absent from the `User` shape that
 describes other people, and therefore from `GET /api/users`, project member
 lists and the `user_updated` realtime payload, which fans out to everyone who
 shares a project.
+
+### Notification email
+
+Two events, and only two, produce email: `task_assigned` and
+`added_to_project`. Both are direct-address — somebody put your name on
+something — which is why they need no digest, no batching and no per-project
+mute. Everything else (mentions, unblocks, activity summaries) is deliberately
+not built.
+
+Delivery is gated per recipient in the notification layer on three conditions:
+the address must be verified, the recipient must not have switched that kind
+off, and the recipient must still have access to the project. The gates are
+**not** in the email sender, which is what keeps account-access mail —
+verification, password reset, feedback — sending unconditionally. Because they
+run per recipient, one unverified, opted-out or since-evicted person on a board
+never suppresses mail to the others.
+
+The recipient list is snapshotted inside the transaction, so the access gate is
+re-evaluated at send time rather than trusted from that snapshot: a member
+removed between the commit and the send is never told the board's name.
+
+Three budgets bound what any one mailbox can be made to receive, all consumed
+in the same layer:
+
+- The same notification — same person, same kind, same card or board — is sent
+  at most once an hour, so redoing a membership or an assignment cannot repeat
+  it. This one deliberately ignores who performed the write, or a loop would
+  only have to alternate between two accounts to make every message look new.
+- One **sender** may cause at most 20 notification emails an hour to any one
+  recipient.
+- A recipient receives at most 100 notification emails an hour across all
+  senders.
+
+The second budget is keyed on the (recipient, sender) pair, not on the
+recipient alone, and that is the load-bearing part. A budget keyed on the
+recipient alone is _spent by whoever causes the write_, so anyone who knows an
+address can burn it — `added_to_project` needs no consent from the target and
+no prior relationship. The victim then takes the spam _and_ is silenced for the
+rest of the hour, losing the assignment their own team just made. Keyed on the
+pair, an attacker can exhaust only their own share, and mail from everyone else
+is untouched. The per-recipient ceiling above it is a backstop against a farm
+of accounts, and only bites once at least five separate senders have each spent
+their full share on the same person.
+
+The alternative considered was to charge only notifications arising from
+projects the recipient already belonged to. It was rejected: it leaves a
+stranger's flood unbounded, which is the abuse the budget exists to stop, and
+it makes the bound depend on a membership query at send time rather than on the
+message itself.
+
+A legitimate burst is unaffected. One write naming 50 people spends one message
+from each of 50 separate pairs; a sprint's worth of assignments from one person
+to one person fits inside 20; and a recipient hearing from ten colleagues in an
+hour is nowhere near 100.
+
+A refused message is dropped, not queued — there is no retry and no
+dead-letter. The three budgets are therefore checked and charged as one atomic
+step, so a message that is dropped leaves the slot the next one needs, and two
+copies arriving together cannot both read a count neither has raised yet. When
+counters are shared across replicas that step is a single script, not a
+sequence of round trips: deciding from a value read one round trip earlier lets
+everything that arrives in between pass on the same stale count, which is the
+whole of the guarantee. A send that then fails gives its slots back, since no
+mail exists to collapse against.
+
+Each refusal is logged, but not once per refusal: unconditional logging would
+turn a flood into log spam, and silent drops leave a silenced recipient
+invisible. A sender that has spent their own share is named once an hour. A
+recipient over the ceiling is the case that matters, because a farm of a
+hundred accounts sending one message each reaches it with no per-sender warning
+at all — so that line names the sender it refused, once per sender, for up to
+ten distinct senders an hour.
+
+Three rules bound what is sent:
+
+- **Never the actor.** Assigning yourself a task or adding yourself to a board
+  sends nothing. The rule lives in the notification layer, so every future kind
+  inherits it.
+- **Only additions.** Re-saving the same assignee set, changing a role,
+  removing a member and transferring ownership all send nothing.
+- **Copying is not writing.** Duplicating a card carries its assignees but
+  notifies nobody, and neither does copying a whole board.
+
+One write mails at most 100 people. Sends run as post-commit hooks, so a
+mutation that rolls back after queuing its notification sends nothing, and a
+failed send never affects the response; one recipient's failure does not stop
+the sends queued behind it, and leaves a log line as its only trace.
+
+Preferences are two booleans, both defaulting to true:
+
+- `GET /api/auth/me/notification-settings` and
+  `PUT /api/auth/me/notification-settings` (authenticated,
+  `{ task_assigned, added_to_project }`). They are deliberately not part of
+  `PATCH /api/auth/me`, which publishes to everyone sharing a project.
+
+Every notification email carries an unsubscribe link and the RFC 8058 headers
+`List-Unsubscribe` and `List-Unsubscribe-Post`; transactional mail carries
+neither. The link holds a stateless HMAC naming one account, one kind, and a
+hash of the address it was mailed to. It has **no expiry** — an unsubscribe
+link has to work in a year-old email — and what makes that safe is that the
+endpoints it authorizes can only switch a preference _off_. There is no request
+shape that switches one on, so replay is idempotent and a leaked link is inert.
+It is not a session credential: it is refused by every authenticating path.
+
+The address hash is the one revocation that exists. Nothing else retires a
+token — not a password change, not a session revocation — so moving the account
+to a different mailbox is what kills every link already sent to the old one. A
+link whose address no longer matches writes nothing and returns the same
+response a live one does, so it is not an account-existence oracle either. The
+write it skips does leave a timing difference, which is knowingly accepted:
+minting a token that names an account of your choosing requires the signing
+secret, so the difference separates live from dead only for a link the caller
+already holds, about an account they were already mailed. The write re-asserts
+the address it read rather than locking the row, so an address change
+committing between the two retires the link on the way past without any
+statement taking a lock that a concurrent insert naming that user would block
+on.
+
+- `POST /api/auth/unsubscribe` (`{ token }`) switches off the kind the token
+  names and answers `200 { kind }` so the landing page can say what it did.
+- `POST /api/auth/unsubscribe/all` (`{ token }`) switches off every kind, `204`.
+  It deliberately ignores the kind the token names: it is the "stop mailing me
+  entirely" button on the landing page, and refusing to write a kind the token
+  does not name would make that button impossible to offer to the one person
+  who is reading the message.
+- `POST /api/auth/unsubscribe/one-click?token=…` is the header target. A mail
+  client posts `List-Unsubscribe=One-Click` as form data, which is not JSON, so
+  the token comes from the query string and the body is never read. `204`.
+
+All three are unauthenticated and answer `422` for a tampered, unknown or
+missing token — the same answer whether or not the account exists, so none of
+them reveals that.
 
 ### User avatars
 
@@ -1317,8 +1448,13 @@ npm run openapi:dump && npm run --prefix cli generate-api
 
 ## Known limitations (v1)
 
-- Email verification exists but gates nothing, and there is no bounce or
-  complaint handling.
+- There is no bounce or complaint handling: a hard bounce is invisible to the
+  application, and nothing suppresses an address that stops accepting mail.
+  Verification is the only lever, and it is what notification email is gated
+  on.
+- Existing accounts were never grandfathered as verified and nothing in the app
+  tells them so except the account page, so they receive no notification email
+  until they confirm their address there.
 - `POST /api/projects/:id/members/by-email` tells an editor whether an address
   already has an account: `status` is `member` for one that does and `invited`
   for one that does not. Removing that would mean making every share an

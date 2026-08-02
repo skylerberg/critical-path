@@ -8,6 +8,7 @@ export class ConsoleEmailSender implements EmailSender {
       to: message.to,
       subject: message.subject,
       text: message.text,
+      headers: message.headers,
     });
   }
 }

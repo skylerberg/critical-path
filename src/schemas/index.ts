@@ -5,6 +5,7 @@ export * from './errors';
 export * from './auth';
 export * from './personalAccessTokens';
 export * from './users';
+export * from './notifications';
 export * from './tiptap';
 export * from './board';
 export * from './projects';
