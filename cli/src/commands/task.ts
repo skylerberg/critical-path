@@ -503,7 +503,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
       .description('List tasks with optional filters')
       .option('--column <column>', 'filter by column (id or name)')
       .option('--label <label>', 'filter by label (id or name)')
-      .option('--assignee <user>', 'filter by assignee (user id or name)')
+      .option('--assignee <user>', 'filter by assignee (user id, name, or email)')
       .option('--ready', 'only unfinished tasks with no unfinished blockers')
       .option('--blocked', 'only tasks with unfinished blockers')
       .option('--done', 'only tasks in done columns')
@@ -650,7 +650,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
         .option('--label <label>', 'label id or name (repeatable)', collect, [] as string[])
         .option(
           '--assignee <user>',
-          'assignee user id or name (repeatable)',
+          'assignee user id, name, or email (repeatable)',
           collect,
           [] as string[]
         )
@@ -968,7 +968,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
     taskLeaf('assign')
       .description('Add assignees to a task')
       .argument('<task>', 'task id or title')
-      .argument('<users...>', 'user ids or names')
+      .argument('<users...>', 'user ids, names, or emails')
       .action(
         withCtx(deps, async (ctx, opts, taskRef, ...rest) => {
           await updateAssignees(ctx, opts, taskRef, rest.flat(), (current, ids) =>
@@ -982,7 +982,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
     taskLeaf('unassign')
       .description('Remove assignees from a task')
       .argument('<task>', 'task id or title')
-      .argument('<users...>', 'user ids or names')
+      .argument('<users...>', 'user ids, names, or emails')
       .action(
         withCtx(deps, async (ctx, opts, taskRef, ...rest) => {
           await updateAssignees(ctx, opts, taskRef, rest.flat(), (current, ids) =>
@@ -998,7 +998,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
     taskLeaf('set')
       .description('Replace the assignees on a task (no users clears them)')
       .argument('<task>', 'task id or title')
-      .argument('[users...]', 'user ids or names')
+      .argument('[users...]', 'user ids, names, or emails')
       .action(
         withCtx(deps, async (ctx, opts, taskRef, ...rest) => {
           await updateAssignees(ctx, opts, taskRef, rest.flat(), (_current, ids) => ids);

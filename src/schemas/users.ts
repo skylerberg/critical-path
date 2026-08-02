@@ -1,8 +1,9 @@
 import { type } from 'arktype';
-import { uuid } from './common';
+import { email, uuid } from './common';
 
 export const usersQuerySchema = type({
   'project_id?': uuid,
+  'email?': email,
 });
 
 export const userSchema = type({

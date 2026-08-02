@@ -417,12 +417,12 @@ describe('task commands', () => {
     expect(((await detail.json()) as TaskDetailResponse).label_ids).toEqual([]);
   });
 
-  it('assign and unassign resolve users by name', async () => {
+  it('assign and unassign resolve users by name or address', async () => {
     const assign = await h.runCli([
       'task',
       'assign',
       'Gamma task',
-      user.name,
+      user.email,
       '--project',
       projectId,
       '--json',

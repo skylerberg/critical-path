@@ -178,6 +178,13 @@ export function accessibleProjectsFilter(userId: string) {
     ]);
 }
 
+// Compared in SQL rather than selected and compared in memory: an address that
+// is never fetched cannot be spread into a response by a later refactor.
+export function matchesEmailFilter(address: string) {
+  return (eb: ExpressionBuilder<DB, 'app_user'>): ExpressionWrapper<DB, 'app_user', SqlBool> =>
+    eb(eb.fn<string>('lower', ['app_user.email']), '=', address.toLowerCase());
+}
+
 export function sharesProjectFilter(userId: string) {
   return (eb: ExpressionBuilder<DB, 'app_user'>): ExpressionWrapper<DB, 'app_user', SqlBool> =>
     eb.exists(
@@ -256,51 +263,55 @@ export async function projectAccessIdsAmong(
 // access visible while their old assignments, comments and log entries exist.
 export async function usersWithProjectAccess(
   db: Kysely<DB>,
-  projectId: string
+  projectId: string,
+  emailFilter?: string
 ): Promise<Array<{ id: string; name: string; avatar_url: string | null }>> {
   const rows = await db
     .selectFrom('app_user')
     .select(['app_user.id', 'app_user.name', 'app_user.avatar_storage_key'])
     .where((eb) =>
-      eb.or([
-        eb.exists(
-          eb
-            .selectFrom('project')
-            .select('project.id')
-            .where('project.id', '=', projectId)
-            .whereRef('project.created_by', '=', 'app_user.id')
-        ),
-        eb.exists(
-          eb
-            .selectFrom('project_member')
-            .select('project_member.user_id')
-            .where('project_member.project_id', '=', projectId)
-            .whereRef('project_member.user_id', '=', 'app_user.id')
-        ),
-        eb.exists(
-          eb
-            .selectFrom('task_assignee')
-            .innerJoin('task', 'task.id', 'task_assignee.task_id')
-            .select('task_assignee.user_id')
-            .where('task.project_id', '=', projectId)
-            .whereRef('task_assignee.user_id', '=', 'app_user.id')
-        ),
-        eb.exists(
-          eb
-            .selectFrom('task_comment')
-            .innerJoin('task', 'task.id', 'task_comment.task_id')
-            .select('task_comment.user_id')
-            .where('task.project_id', '=', projectId)
-            .whereRef('task_comment.user_id', '=', 'app_user.id')
-        ),
-        eb.exists(
-          eb
-            .selectFrom('task_activity')
-            .innerJoin('task', 'task.id', 'task_activity.task_id')
-            .select('task_activity.actor_user_id')
-            .where('task.project_id', '=', projectId)
-            .whereRef('task_activity.actor_user_id', '=', 'app_user.id')
-        ),
+      eb.and([
+        ...(emailFilter === undefined ? [] : [matchesEmailFilter(emailFilter)(eb)]),
+        eb.or([
+          eb.exists(
+            eb
+              .selectFrom('project')
+              .select('project.id')
+              .where('project.id', '=', projectId)
+              .whereRef('project.created_by', '=', 'app_user.id')
+          ),
+          eb.exists(
+            eb
+              .selectFrom('project_member')
+              .select('project_member.user_id')
+              .where('project_member.project_id', '=', projectId)
+              .whereRef('project_member.user_id', '=', 'app_user.id')
+          ),
+          eb.exists(
+            eb
+              .selectFrom('task_assignee')
+              .innerJoin('task', 'task.id', 'task_assignee.task_id')
+              .select('task_assignee.user_id')
+              .where('task.project_id', '=', projectId)
+              .whereRef('task_assignee.user_id', '=', 'app_user.id')
+          ),
+          eb.exists(
+            eb
+              .selectFrom('task_comment')
+              .innerJoin('task', 'task.id', 'task_comment.task_id')
+              .select('task_comment.user_id')
+              .where('task.project_id', '=', projectId)
+              .whereRef('task_comment.user_id', '=', 'app_user.id')
+          ),
+          eb.exists(
+            eb
+              .selectFrom('task_activity')
+              .innerJoin('task', 'task.id', 'task_activity.task_id')
+              .select('task_activity.actor_user_id')
+              .where('task.project_id', '=', projectId)
+              .whereRef('task_activity.actor_user_id', '=', 'app_user.id')
+          ),
+        ]),
       ])
     )
     .orderBy('app_user.name')

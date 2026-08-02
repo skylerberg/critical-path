@@ -9,9 +9,9 @@ export const publicBoardProjectSchema = type({
   description: 'string',
 });
 
-// Module-private because it now renders identically to the authenticated user
-// shape and the schema-name registry throws on two barrel exports with the same
-// JSON Schema. Still spelled out, so widening that shape cannot widen this one.
+// Spelled out rather than reusing the authenticated user shape: the day a field
+// is added there, what a stranger receives must stay where it is until someone
+// widens it here on purpose.
 const publicBoardUserSchema = type({
   id: 'string',
   name: 'string',
