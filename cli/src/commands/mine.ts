@@ -8,6 +8,7 @@ import {
   type MyTaskPersonGroup,
   type User,
 } from '../resolve';
+import { displayTitle } from '../output';
 import type { CliDeps } from '../context';
 
 const BUCKETS = [
@@ -25,12 +26,12 @@ function personLabel(group: MyTaskPersonGroup, users: Map<string, User>): string
 }
 
 function taskRow(task: MyTask): string[] {
-  return [task.id.slice(0, 8), task.project_name, task.column_name, task.title];
+  return [task.id.slice(0, 8), task.project_name, task.column_name, displayTitle(task.title)];
 }
 
 // The project is what makes the id prefix actionable: task refs resolve against one board.
 function linkRow(link: MyTaskLink, projectNames: Map<string, string>): string {
-  const cells = [link.id.slice(0, 8), projectNames.get(link.project_id), link.title];
+  const cells = [link.id.slice(0, 8), projectNames.get(link.project_id), displayTitle(link.title)];
   return `    ${cells.filter((cell) => cell !== undefined && cell !== '').join('  ')}`;
 }
 

@@ -7,6 +7,20 @@ export interface Writer {
 
 type Style = Parameters<typeof styleText>[0];
 
+export const TITLE_DISPLAY_LIMIT = 500;
+
+// Scanning output caps titles far below the stored bound; surfaces whose job is
+// to show one title in full, and every machine-readable one, skip this.
+export function displayTitle(title: string): string {
+  if (title.length <= TITLE_DISPLAY_LIMIT) {
+    return title;
+  }
+  const points = [...title];
+  return points.length <= TITLE_DISPLAY_LIMIT
+    ? title
+    : `${points.slice(0, TITLE_DISPLAY_LIMIT).join('').trimEnd()}…`;
+}
+
 export function formatTable(headers: string[], rows: string[][]): string {
   const widths = headers.map((header, i) =>
     Math.max(header.length, ...rows.map((row) => (row[i] ?? '').length))

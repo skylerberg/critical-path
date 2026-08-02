@@ -1,6 +1,8 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
+import { displayTitle } from '../../src/output';
+import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardPayload'];
@@ -572,6 +574,26 @@ describe('task commands', () => {
 
     const archived = await h.runCli(['task', 'archived', '--project', projectId, '--json']);
     expect(archived.json<Array<{ id: string }>>().map((t) => t.id)).not.toContain(doomed.id);
+  });
+
+  it('clips a long title in scanning output but never in --json or the detail view', async () => {
+    const title = `Long ${'w'.repeat(TASK_TITLE_MAX_LENGTH - 5)}`;
+    const created = await h.runCli(['task', 'create', title, '--project', projectId, '--json']);
+    expect(created.exitCode).toBe(0);
+    const task = created.json<BoardTask>();
+    expect(task.title).toBe(title);
+
+    const list = await h.runCli(['task', 'list', '--project', projectId]);
+    expect(list.stdout).toContain(displayTitle(title));
+    expect(list.stdout).not.toContain(title);
+
+    const asJson = await h.runCli(['task', 'list', '--project', projectId, '--json']);
+    expect(asJson.json<StatefulTask[]>().map((t) => t.title)).toContain(title);
+
+    const show = await h.runCli(['task', 'show', task.id]);
+    expect(show.stdout).toContain(title);
+
+    await h.runCli(['task', 'delete', task.id, '--force']);
   });
 
   it('ambiguous title refs exit 2', async () => {

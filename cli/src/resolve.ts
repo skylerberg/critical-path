@@ -1,4 +1,5 @@
 import { CliError, EXIT, assertOk } from './api/errors';
+import { displayTitle } from './output';
 import type { RuntimeContext } from './context';
 import type { components } from './api/api.generated';
 
@@ -41,7 +42,7 @@ export function matchRefOrNull<T>(
     if (tier.length > 1) {
       const candidates = tier
         .slice(0, 10)
-        .map((item) => `  ${getId(item).slice(0, 8)}  ${getName(item)}`)
+        .map((item) => `  ${getId(item).slice(0, 8)}  ${displayTitle(getName(item))}`)
         .join('\n');
       throw new CliError(
         `Ambiguous ${kind} "${ref}"; use an id or a more specific name:\n${candidates}`,

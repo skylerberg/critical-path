@@ -1,3 +1,5 @@
+import { displayTitle } from '../output';
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -73,7 +75,7 @@ function errorMessage(error: unknown, response: Response): string {
         .map((step) => (step as { title?: unknown } | null)?.title)
         .filter((title): title is string => typeof title === 'string');
       if (titles.length === body.cycle.length && body.error !== '') {
-        return `${body.error}: ${titles.join(' -> ')}`;
+        return `${body.error}: ${titles.map(displayTitle).join(' -> ')}`;
       }
     }
     if (typeof body.error === 'string' && body.error !== '') {
