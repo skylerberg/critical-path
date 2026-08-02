@@ -932,6 +932,99 @@ development server can point a webhook at its own machine.
 live retries are never pruned. The log has a `limit` but no cursor, so only the
 50 most recent entries are reachable.
 
+### Background jobs
+
+Deferred and recurring server-side work runs off the `job` table, leased with
+`for update ... skip locked` by a tick inside the API pods. There is no HTTP
+surface: nothing about a job belongs to a project, and the authorization model
+here is project-scoped only, so there is no role that could be allowed to see
+one. Registering a kind is a code change.
+
+Webhook delivery does **not** use this. `webhook_delivery` keeps its own table
+and claim because it carries per-receiver behaviour a generic table cannot hold
+— a fairness cap per registration, a circuit breaker that locks the
+registration before the delivery, an auto-disable exemption for manual
+re-sends, and a cascade from the registration that discards a backlog for free.
+The two share only the tick loop.
+
+**Why not pg-boss or graphile-worker**, which would supply cron, dead-lettering
+and inspection for free: both install and migrate their own schema from the
+process that starts them unless they are separately pre-migrated, and this
+deployment runs migrations to completion in a Job *before* any pod rolls, with
+a strict-ordered migrator that refuses anything out of sequence. Both also want
+a connection string, where nothing here has one — the pool is assembled from
+discrete `DB_*` parts — so either would arrive with a second pool beside the
+request path's. Those are deployment-shape objections, not code-reuse ones: with
+webhooks staying put, this runner reuses almost nothing that already existed.
+Revisit if a second periodic consumer wants cron expressions or a dashboard.
+
+**Two lifecycles.** A job with no interval is one-shot: it runs, and the row is
+deleted on success. On failure it backs off 30s, 2m, 10m, 1h and 6h, six
+attempts in all, and then parks at `status = 'failed'` — retained, not deleted,
+because a pruned poison job is an invisible one. A job with an interval is a
+schedule: exactly one row exists per kind for as long as the kind does, success
+re-arms it at `now() + interval`, and failure backs off to a ceiling of ten
+minutes but is **never** retired for failing — retiring a schedule would
+silently stop every occurrence it drives.
+
+Schedules are declared by the handler, not by the table: every few minutes each
+worker re-seeds what its registered handlers ask for, so a deleted row comes
+back, a changed interval takes effect, and dropping `intervalSeconds` from a
+handler deletes the schedule — all without touching the database by hand. That
+last step only ever removes a schedule for a kind the process still has a
+handler for; one it has never heard of belongs to another release, which is
+also why a kind that no pod handles shows up in the backlog warning instead of
+being cleaned up.
+
+**Enqueueing takes the caller's connection**, so a job commits or rolls back
+with the mutation that caused it. That is a stronger guarantee than the webhook
+and realtime publishes, which are post-commit hooks and therefore at-most-once.
+
+**Delivery is at-least-once, and the duplicate can be concurrent.** A handler
+that outlives its lease is re-claimed while it is still running, and shutdown
+does not drain at all: SIGTERM stops the ticks and the process exits as soon as
+the pool does, so a handler that may run for up to 20s is cut off mid-write on
+every deploy and only lease expiry recovers the row a minute later. Handlers
+must therefore be idempotent under concurrency, not merely under repetition,
+and must treat a target row that has since been deleted as success — no foreign
+key covers this table, so nothing else will ever discard a job whose subject is
+gone.
+
+**Payloads carry ids, never contact details.** Nothing reads this column and
+nothing reviews what enters it, so an address written here would outlive every
+consent and access check that authorised it. Handlers re-resolve from ids at
+run time; the enqueue rejects a payload containing an address or a field named
+for one.
+
+**Failures are visible in the log, not over HTTP.** A worker logs each failed
+attempt, and every few minutes reports how many rows are parked in `failed` and
+any pending kind it has no handler for — repeatedly rather than at boot, since
+a row that parks hours in would otherwise never be mentioned. Retrying a parked
+job is
+`update job set status = 'pending', attempts = 0, run_at = now() where id = ...`.
+
+**Rolling deploys.** The claim is restricted to the kinds the claiming process
+registered, so an old pod leaves a new release's kind alone instead of claiming
+it, finding no handler and burning its attempts.
+
+**The lease is a budget, not a lock.** A tick claims at most 8 jobs, no handler
+may declare a timeout over 20s (refused at registration), and at most 4 run at
+once — so a claimed row waits behind at most one other and 40s of handler time
+covers the batch, inside a 45s tick budget and a 60s lease. Raising any of those
+without redoing that arithmetic makes double execution routine rather than
+exceptional, which is why a test asserts the whole chain rather than the ends of
+it. The 40s is handler time only: a tick that also spends real time in the
+database can still overrun its lease, and the idempotence contract above, not
+this budget, is what makes that safe.
+
+**The concurrency limit is process-wide, not per tick.** Overrunning the tick
+budget releases the no-overlap latch without stopping the handlers the slow tick
+started, so ticks genuinely do overlap; the limit is a reservation taken before
+the claim, and a tick that finds no free slot claims nothing at all. Without
+that, every further tick during a slow spell would pile another four handlers —
+and the connections they hold — onto the 10-connection pool the request path
+shares with webhook delivery.
+
 ### Email
 
 Password-reset, email-verification, board-invitation, notification and feedback

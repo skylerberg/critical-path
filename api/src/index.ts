@@ -34,6 +34,7 @@ import { Variables } from './types/index';
 import { db } from './db/index';
 import { attachRealtime, initRedisBus, closeRedisBus } from './services/realtime/index';
 import { closeRedis } from './services/redis';
+import { startJobWorker } from './services/jobs/index';
 import { startWebhookWorker } from './services/webhooks/index';
 import { logger } from './utils/logger';
 
@@ -215,6 +216,7 @@ if (isEntrypoint) {
 
   const realtime = attachRealtime(server);
   const webhookWorker = startWebhookWorker();
+  const jobWorker = startJobWorker();
 
   initRedisBus().catch((err: unknown) => {
     logger.error({
@@ -228,6 +230,7 @@ if (isEntrypoint) {
     setTimeout(() => process.exit(1), 10_000).unref();
     realtime.close();
     webhookWorker.close();
+    jobWorker.close();
     closeRedisBus();
     closeRedis();
     server.close();

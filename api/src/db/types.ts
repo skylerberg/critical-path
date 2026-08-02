@@ -57,6 +57,18 @@ export interface Feedback {
   user_id: string;
 }
 
+export interface Job {
+  attempts: Generated<number>;
+  created_at: Generated<Timestamp>;
+  id: string;
+  interval_seconds: number | null;
+  kind: string;
+  last_error: string | null;
+  payload: Json;
+  run_at: Generated<Timestamp>;
+  status: Generated<string>;
+}
+
 export interface Label {
   color: string;
   id: string;
@@ -209,6 +221,7 @@ export interface DB {
   app_user: AppUser;
   board_column: BoardColumn;
   feedback: Feedback;
+  job: Job;
   label: Label;
   personal_access_token: PersonalAccessToken;
   project: Project;
