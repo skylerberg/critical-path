@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import type { Updateable } from 'kysely';
 import type { AppUser } from '../db/types';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, bearerToken } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import {
@@ -64,6 +64,7 @@ import {
   createPersonalAccessTokenSchema,
   createdPersonalAccessTokenSchema,
   personalAccessTokensResponseSchema,
+  sessionsResponseSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
@@ -182,10 +183,14 @@ async function applyUnsubscribe(
   return kind;
 }
 
+// Required rather than defaulted: a reset must revoke everything, so only a
+// caller that means to stay signed in can name the session that survives —
+// otherwise the revocation evicts the one it just issued.
 async function setPasswordAndRevokeSessions(
   c: Pick<AppContext, 'get'>,
   userId: string,
-  newPassword: string
+  newPassword: string,
+  { exceptSessionId }: { exceptSessionId: string | null }
 ): Promise<void> {
   const db = c.get('db');
   await db
@@ -193,8 +198,21 @@ async function setPasswordAndRevokeSessions(
     .set({ password_hash: await hashPassword(newPassword), alternative_id: crypto.randomUUID() })
     .where('id', '=', userId)
     .execute();
-  await db.deleteFrom('session').where('user_id', '=', userId).execute();
-  publishAfterCommit(c, SESSIONS_REVOKED, null, { user_id: userId });
+
+  const revocation = db.deleteFrom('session').where('user_id', '=', userId);
+  await (
+    exceptSessionId === null ? revocation : revocation.where('id', '!=', exceptSessionId)
+  ).execute();
+
+  publishAfterCommit(c, SESSIONS_REVOKED, null, {
+    user_id: userId,
+    ...(exceptSessionId === null ? {} : { except_session_id: exceptSessionId }),
+  });
+}
+
+function callerTokenHash(c: AppContext): string | null {
+  const token = bearerToken(c);
+  return token === null ? null : hashBearerToken(token);
 }
 
 router.post(
@@ -257,7 +275,7 @@ router.post(
       throw err;
     }
 
-    const token = await createSession(db, id);
+    const { token } = await createSession(c, id);
     if (await enforceSignupVerificationRateLimit(c)) {
       enqueueVerificationEmail(c, { id, email });
     }
@@ -314,7 +332,7 @@ router.post(
       throw new AppError(401, 'Invalid email or password');
     }
 
-    const token = await createSession(db, user.id);
+    const { token } = await createSession(c, user.id);
 
     return c.json(
       {
@@ -349,8 +367,10 @@ router.post(
   }),
   authMiddleware,
   async (c) => {
-    const token = (c.req.header('Authorization') ?? '').substring(7);
-    await deleteSessionByTokenHash(c.get('db'), hashBearerToken(token));
+    const hash = callerTokenHash(c);
+    if (hash !== null) {
+      await deleteSessionByTokenHash(c.get('db'), hash);
+    }
     return c.body(null, 204);
   }
 );
@@ -779,6 +799,113 @@ router.delete(
   }
 );
 
+router.get(
+  '/sessions',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'List sessions',
+    description:
+      "List the caller's live sessions, newest first, with `is_current` true on the one this " +
+      'request was made with. Each carries the `User-Agent` sent when it was created, verbatim ' +
+      'and unparsed, or null when the client sent none; no network address is recorded, here ' +
+      'or anywhere. Sessions past their expiry are left out — they authenticate nothing, so ' +
+      'listing them would misreport where the account is signed in. This lists sessions only: ' +
+      'personal access tokens authenticate the same requests and are listed by GET ' +
+      '/api/auth/tokens, so neither endpoint alone shows everything that can act as the ' +
+      'account. A caller holding a personal access token sees every session and none marked ' +
+      'current, since a token is not a session.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Live sessions',
+        content: {
+          'application/json': {
+            schema: resolver(sessionsResponseSchema),
+          },
+        },
+      },
+      ...unauthorizedErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  async (c) => {
+    const currentHash = callerTokenHash(c);
+    const rows = await c
+      .get('db')
+      .selectFrom('session')
+      .select([
+        'session.id',
+        'session.token_hash',
+        'session.user_agent',
+        'session.created_at',
+        'session.expires_at',
+      ])
+      .where('session.user_id', '=', c.get('user').id)
+      .where('session.expires_at', '>', new Date())
+      .orderBy('session.created_at', 'desc')
+      .orderBy('session.id')
+      .execute();
+
+    return c.json(
+      {
+        sessions: rows.map((row) => ({
+          id: row.id,
+          user_agent: row.user_agent,
+          created_at: row.created_at.toISOString(),
+          expires_at: row.expires_at.toISOString(),
+          is_current: currentHash !== null && row.token_hash === currentHash,
+        })),
+      },
+      200
+    );
+  }
+);
+
+router.delete(
+  '/sessions/:id',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Revoke session',
+    description:
+      'Revoke one of your own sessions. Its token stops working immediately and any WebSocket ' +
+      'authenticated with it is closed; other sessions and every personal access token are ' +
+      'untouched. Revoking the session the request was made with is allowed and is a sign-out ' +
+      "of this device. Another user's session answers 404, the same as one that does not " +
+      'exist.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Session revoked',
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const user = c.get('user');
+
+    const result = await c
+      .get('db')
+      .deleteFrom('session')
+      .where('session.id', '=', id)
+      .where('session.user_id', '=', user.id)
+      .executeTakeFirst();
+
+    if (result.numDeletedRows === 0n) {
+      throw new AppError(404, 'Session not found');
+    }
+
+    publishAfterCommit(c, SESSIONS_REVOKED, null, { user_id: user.id, session_id: id });
+    return c.body(null, 204);
+  }
+);
+
 router.post(
   '/change-password',
   describeRoute({
@@ -821,10 +948,12 @@ router.post(
       throw new AppError(401, 'Current password is incorrect');
     }
 
-    await setPasswordAndRevokeSessions(c, user.id, new_password);
-    const token = await createSession(c.get('db'), user.id);
+    const replacement = await createSession(c, user.id);
+    await setPasswordAndRevokeSessions(c, user.id, new_password, {
+      exceptSessionId: replacement.id,
+    });
 
-    return c.json({ token, user }, 200);
+    return c.json({ token: replacement.token, user }, 200);
   }
 );
 
@@ -916,7 +1045,7 @@ router.post(
       throw new AppError(422, 'Invalid reset token');
     }
 
-    await setPasswordAndRevokeSessions(c, user.id, new_password);
+    await setPasswordAndRevokeSessions(c, user.id, new_password, { exceptSessionId: null });
 
     return c.body(null, 204);
   }

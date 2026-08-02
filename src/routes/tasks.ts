@@ -14,6 +14,7 @@ import {
   projectAccessIdsAmong,
   type ProjectAccessFields,
 } from '../services/authorization';
+import { assertColumnInProject } from '../services/boardColumns';
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
 import { dueDateText } from '../services/dueDate';
 import { notifyMentions } from '../services/mentions';
@@ -67,22 +68,6 @@ const router: AppHono = new Hono();
 
 async function fetchBoardTask(db: Kysely<DB>, taskId: string): Promise<BoardTaskRow | undefined> {
   return (await fetchBoardTaskRows(db, [taskId]))[0];
-}
-
-async function assertColumnInProject(
-  db: Kysely<DB>,
-  columnId: string,
-  projectId: string
-): Promise<{ project_id: string; name: string }> {
-  const column = await db
-    .selectFrom('board_column')
-    .select(['board_column.project_id', 'board_column.name'])
-    .where('board_column.id', '=', columnId)
-    .executeTakeFirst();
-  if (!column || column.project_id !== projectId) {
-    throw new AppError(422, 'column_id must reference a column in the project');
-  }
-  return column;
 }
 
 async function assertLabelsInProject(
