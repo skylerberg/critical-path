@@ -12,11 +12,16 @@ import { boardTaskSchema } from './board';
 import { imageResponseSchema } from './images';
 import { commentSchema } from './comments';
 
+export const TASK_TITLE_MIN_LENGTH = 1;
+export const TASK_TITLE_MAX_LENGTH = 2000;
+
+const taskTitle = stringWithLength(TASK_TITLE_MIN_LENGTH, TASK_TITLE_MAX_LENGTH);
+
 export const createTaskSchema = type({
   id: uuid,
   project_id: uuid,
   column_id: uuid,
-  title: stringWithLength(1, 500),
+  title: taskTitle,
   'description?': nullableTiptapDocSchema,
   position: finiteNumber,
   'due_date?': calendarDate.or('null'),
@@ -26,7 +31,7 @@ export const createTaskSchema = type({
 
 export const createTasksBatchItemSchema = type({
   id: uuid,
-  title: stringWithLength(1, 500),
+  title: taskTitle,
   position: finiteNumber,
 });
 
@@ -41,7 +46,7 @@ export const tasksBatchResponseSchema = type({ tasks: boardTaskSchema.array() })
 export type TasksBatchResponse = typeof tasksBatchResponseSchema.infer;
 
 export const patchTaskSchema = type({
-  'title?': stringWithLength(1, 500),
+  'title?': taskTitle,
   'description?': nullableTiptapDocSchema,
   'column_id?': uuid,
   'position?': finiteNumber,

@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { leaf, withCtx } from '../kit';
 import { resolveBoard } from '../resolve';
 import { sortedColumns, sortedTasksIn, taskState } from '../board';
+import { displayTitle } from '../output';
 import type { CliDeps } from '../context';
 
 export function registerBoardViews(program: Command, deps: CliDeps): void {
@@ -36,7 +37,7 @@ export function registerBoardViews(program: Command, deps: CliDeps): void {
                     : state === 'ready'
                       ? ctx.out.style(['green'], '[ready]  ')
                       : '         ';
-                ctx.out.line(`  ${task.id.slice(0, 8)}  ${mark}  ${task.title}`);
+                ctx.out.line(`  ${task.id.slice(0, 8)}  ${mark}  ${displayTitle(task.title)}`);
               }
             }
           });
@@ -62,7 +63,11 @@ export function registerBoardViews(program: Command, deps: CliDeps): void {
             }
             ctx.out.table(
               ['ID', 'COLUMN', 'TITLE'],
-              ready.map((t) => [t.id.slice(0, 8), columnName.get(t.column_id) ?? '', t.title])
+              ready.map((t) => [
+                t.id.slice(0, 8),
+                columnName.get(t.column_id) ?? '',
+                displayTitle(t.title),
+              ])
             );
           });
         })
