@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { newId } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
+import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
 
 interface BatchTask {
   id: string;
@@ -156,6 +157,26 @@ describe('POST /api/tasks/batch', () => {
     const body = await res.json();
     expect(body.details.some((d: { path: string }) => d.path === 'tasks.1.title')).toBe(true);
 
+    expect(await boardTaskIds()).not.toContain(sent[0].id);
+  });
+
+  it('stores a title at the maximum length whole and rejects one character more', async () => {
+    const title = 'z'.repeat(TASK_TITLE_MAX_LENGTH);
+    const accepted = await ctx
+      .request(user.token)
+      .post('/api/tasks/batch', batchBody([item(title, 60000)]));
+    expect(accepted.status).toBe(201);
+    const { tasks } = (await accepted.json()) as { tasks: BatchTask[] };
+    expect(tasks[0].title).toBe(title);
+
+    const sent = [item('Fine', 61000), item('z'.repeat(TASK_TITLE_MAX_LENGTH + 1), 62000)];
+    const rejected = await ctx.request(user.token).post('/api/tasks/batch', batchBody(sent));
+    expect(rejected.status).toBe(422);
+    expect(
+      ((await rejected.json()).details as { path: string }[]).some(
+        (d) => d.path === 'tasks.1.title'
+      )
+    ).toBe(true);
     expect(await boardTaskIds()).not.toContain(sent[0].id);
   });
 

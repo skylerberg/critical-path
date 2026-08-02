@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { leaf, withCtx, type Opts } from '../kit';
 import { CliError, EXIT, assertOk } from '../api/errors';
 import { confirmOrAbort, readAllStdin } from '../prompt';
+import { displayTitle } from '../output';
 import {
   UUID_RE,
   fetchBoard,
@@ -76,7 +77,10 @@ function columnAnchorResolver(board: BoardPayload, column: BoardColumn): (ref: s
   return (ref) => {
     const anchor = resolveTaskInBoard(board, ref);
     if (anchor.column_id !== column.id) {
-      throw new CliError(`Task "${anchor.title}" is not in column "${column.name}"`, EXIT.usage);
+      throw new CliError(
+        `Task "${displayTitle(anchor.title)}" is not in column "${column.name}"`,
+        EXIT.usage
+      );
     }
     return anchor.id;
   };
@@ -98,7 +102,7 @@ function dependencyLine(
   state: TaskState,
   depth: number
 ): string {
-  return `${'  '.repeat(depth)}${task.id.slice(0, 8)}  ${stateMark(ctx, state)}  ${task.title}`;
+  return `${'  '.repeat(depth)}${task.id.slice(0, 8)}  ${stateMark(ctx, state)}  ${displayTitle(task.title)}`;
 }
 
 function withState(board: BoardPayload, tasks: BoardTask[]): (BoardTask & { state: TaskState })[] {
@@ -332,7 +336,9 @@ async function createOneTask(ctx: RuntimeContext, opts: Opts, title: string): Pr
     })
   );
   ctx.out.data(created, () =>
-    ctx.out.line(`Created task "${created.title}" (${created.id.slice(0, 8)}) in ${column.name}`)
+    ctx.out.line(
+      `Created task "${displayTitle(created.title)}" (${created.id.slice(0, 8)}) in ${column.name}`
+    )
   );
 }
 
@@ -401,7 +407,7 @@ async function createManyTasks(ctx: RuntimeContext, opts: Opts): Promise<void> {
     ctx.out.line(`Created ${String(count)} task${count === 1 ? '' : 's'} in ${column.name}`);
     ctx.out.table(
       ['ID', 'TITLE'],
-      created.tasks.map((t) => [t.id.slice(0, 8), t.title])
+      created.tasks.map((t) => [t.id.slice(0, 8), displayTitle(t.title)])
     );
   });
 }
@@ -431,8 +437,8 @@ async function updateLabels(
   ctx.out.data({ task_id: task.id, label_ids: labelIds }, () =>
     ctx.out.line(
       names.length > 0
-        ? `Labels on "${task.title}": ${names.join(', ')}`
-        : `Cleared labels on "${task.title}"`
+        ? `Labels on "${displayTitle(task.title)}": ${names.join(', ')}`
+        : `Cleared labels on "${displayTitle(task.title)}"`
     )
   );
 }
@@ -466,8 +472,8 @@ async function updateAssignees(
   ctx.out.data({ task_id: task.id, assignee_ids: userIds }, () =>
     ctx.out.line(
       names.length > 0
-        ? `Assignees on "${task.title}": ${names.join(', ')}`
-        : `Cleared assignees on "${task.title}"`
+        ? `Assignees on "${displayTitle(task.title)}": ${names.join(', ')}`
+        : `Cleared assignees on "${displayTitle(task.title)}"`
     )
   );
 }
@@ -540,7 +546,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
                 t.id.slice(0, 8),
                 t.state,
                 columnName.get(t.column_id) ?? '',
-                t.title,
+                displayTitle(t.title),
               ])
             );
           });
@@ -688,7 +694,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
           const updated = assertOk(
             await ctx.api.PATCH('/api/tasks/{id}', { params: { path: { id: target.id } }, body })
           );
-          ctx.out.data(updated, () => ctx.out.line(`Updated task "${updated.title}"`));
+          ctx.out.data(updated, () =>
+            ctx.out.line(`Updated task "${displayTitle(updated.title)}"`)
+          );
         })
       )
   );
@@ -722,7 +730,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
             body: { column_id: column.id, position },
           })
         );
-        ctx.out.data(moved, () => ctx.out.line(`Moved "${moved.title}" to ${column.name}`));
+        ctx.out.data(moved, () =>
+          ctx.out.line(`Moved "${displayTitle(moved.title)}" to ${column.name}`)
+        );
       })
     )
   );
@@ -751,7 +761,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
               body: { column_id: column.id, position },
             })
           );
-          ctx.out.data(moved, () => ctx.out.line(`Marked "${moved.title}" done (${column.name})`));
+          ctx.out.data(moved, () =>
+            ctx.out.line(`Marked "${displayTitle(moved.title)}" done (${column.name})`)
+          );
         })
       )
   );
@@ -785,7 +797,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
             })
           );
           ctx.out.data(created, () =>
-            ctx.out.line(`Duplicated task "${created.title}" (${created.id.slice(0, 8)})`)
+            ctx.out.line(
+              `Duplicated task "${displayTitle(created.title)}" (${created.id.slice(0, 8)})`
+            )
           );
         })
       )
@@ -806,7 +820,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
           const archived = assertOk(
             await ctx.api.POST('/api/tasks/{id}/archive', { params: { path: { id: target.id } } })
           );
-          ctx.out.data(archived, () => ctx.out.line(`Archived task "${archived.title}"`));
+          ctx.out.data(archived, () =>
+            ctx.out.line(`Archived task "${displayTitle(archived.title)}"`)
+          );
         })
       )
   );
@@ -823,7 +839,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
           const restored = assertOk(
             await ctx.api.POST('/api/tasks/{id}/restore', { params: { path: { id: taskId } } })
           );
-          ctx.out.data(restored, () => ctx.out.line(`Restored task "${restored.title}"`));
+          ctx.out.data(restored, () =>
+            ctx.out.line(`Restored task "${displayTitle(restored.title)}"`)
+          );
         })
       )
   );
@@ -852,7 +870,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
                 t.id.slice(0, 8),
                 t.archived_at,
                 columnName.get(t.column_id) ?? '',
-                t.title,
+                displayTitle(t.title),
               ])
             );
           });
@@ -873,12 +891,16 @@ export function registerTask(program: Command, deps: CliDeps): void {
             opts.project as string | undefined,
             { includeArchived: true }
           );
-          await confirmOrAbort(ctx, `Delete task "${target.title}"?`, opts.force === true);
+          await confirmOrAbort(
+            ctx,
+            `Delete task "${displayTitle(target.title)}"?`,
+            opts.force === true
+          );
           assertOk(
             await ctx.api.DELETE('/api/tasks/{id}', { params: { path: { id: target.id } } })
           );
           ctx.out.data({ deleted: true, id: target.id }, () =>
-            ctx.out.line(`Deleted task "${target.title}"`)
+            ctx.out.line(`Deleted task "${displayTitle(target.title)}"`)
           );
         })
       )
@@ -992,7 +1014,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
             })
           );
           ctx.out.data({ task_id: target.id, blocker_task_id: blocker.id }, () =>
-            ctx.out.line(`"${blocker.title}" now blocks "${target.title}"`)
+            ctx.out.line(
+              `"${displayTitle(blocker.title)}" now blocks "${displayTitle(target.title)}"`
+            )
           );
         })
       )
@@ -1017,7 +1041,9 @@ export function registerTask(program: Command, deps: CliDeps): void {
             })
           );
           ctx.out.data({ task_id: target.id, blocker_task_id: blocker.id }, () =>
-            ctx.out.line(`"${blocker.title}" no longer blocks "${target.title}"`)
+            ctx.out.line(
+              `"${displayTitle(blocker.title)}" no longer blocks "${displayTitle(target.title)}"`
+            )
           );
         })
       )
