@@ -11,6 +11,7 @@
   import FeedbackDialog from '../components/FeedbackDialog.svelte';
   import NotificationSettings from '../components/NotificationSettings.svelte';
   import PersonalAccessTokens from '../components/PersonalAccessTokens.svelte';
+  import Sessions from '../components/Sessions.svelte';
   import Avatar from '../components/ui/Avatar.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
@@ -333,6 +334,17 @@
       link.
     </p>
     <NotificationSettings />
+  </section>
+
+  <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
+    <h2 class="text-lg font-semibold">Where you're signed in</h2>
+    <p class="text-sm text-muted">
+      Every browser you signed in from has its own session. We record the browser it reported and
+      when the session started and lapses — never where it connected from. Revoke any you cannot
+      account for; a revoked session stops working immediately. Scripts and agents sign in with
+      personal access tokens instead, so check that list below too.
+    </p>
+    <Sessions />
   </section>
 
   <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
