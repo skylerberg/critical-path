@@ -485,10 +485,7 @@ async function updateAssignees(
   );
   const users = await listUsers(ctx, board.project.id);
   const userById = new Map(users.map((u) => [u.id, u]));
-  const names = userIds.map((id) => {
-    const user = userById.get(id);
-    return user == null ? id : `${user.name} <${user.email}>`;
-  });
+  const names = userIds.map((id) => userById.get(id)?.name ?? id);
   ctx.out.data({ task_id: task.id, assignee_ids: userIds }, () =>
     ctx.out.line(
       names.length > 0
@@ -614,10 +611,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
               ctx.out.line(`Labels:    ${names.join(', ')}`);
             }
             if (detail.assignee_ids.length > 0) {
-              const names = detail.assignee_ids.map((id) => {
-                const user = userById.get(id);
-                return user == null ? id : `${user.name} <${user.email}>`;
-              });
+              const names = detail.assignee_ids.map((id) => userById.get(id)?.name ?? id);
               ctx.out.line(`Assignees: ${names.join(', ')}`);
             }
             renderDependencySection(ctx, board, 'Blocked by', blockedBy);

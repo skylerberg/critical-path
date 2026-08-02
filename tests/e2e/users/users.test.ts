@@ -60,7 +60,6 @@ describe('GET /api/users', () => {
     const aliceRow = body.users.find((u: { id: string }) => u.id === alice.id);
     expect(aliceRow).toEqual({
       id: alice.id,
-      email: alice.email,
       name: alice.name,
       avatar_url: null,
     });
@@ -79,9 +78,105 @@ describe('GET /api/users', () => {
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.users).toEqual([
-      { id: stranger.id, email: stranger.email, name: stranger.name, avatar_url: null },
-    ]);
+    expect(body.users).toEqual([{ id: stranger.id, name: stranger.name, avatar_url: null }]);
+  });
+
+  it('never carries an email address, in either mode', async () => {
+    const responses = [
+      await ctx.request(alice.token).get('/api/users'),
+      await ctx.request(alice.token).get(`/api/users?project_id=${sharedProjectId}`),
+    ];
+
+    for (const res of responses) {
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      const ids = body.users.map((u: { id: string }) => u.id);
+      // Asserted before the absence, so an empty payload cannot pass this.
+      expect(ids).toEqual(expect.arrayContaining([alice.id, bob.id, carol.id]));
+      for (const user of body.users) {
+        expect(Object.keys(user).sort()).toEqual(['avatar_url', 'id', 'name']);
+      }
+      const serialized = JSON.stringify(body);
+      for (const address of [alice.email, bob.email, carol.email]) {
+        expect(serialized).not.toContain(address);
+      }
+    }
+  });
+
+  describe('?email=', () => {
+    it('names a visible user by their exact address, case-insensitively', async () => {
+      for (const address of [bob.email, bob.email.toUpperCase()]) {
+        const res = await ctx
+          .request(alice.token)
+          .get(`/api/users?email=${encodeURIComponent(address)}`);
+        expect(res.status).toBe(200);
+        expect((await res.json()).users).toEqual([
+          { id: bob.id, name: bob.name, avatar_url: null },
+        ]);
+      }
+    });
+
+    it('names a user within a project the caller can read', async () => {
+      const res = await ctx
+        .request(bob.token)
+        .get(`/api/users?project_id=${sharedProjectId}&email=${encodeURIComponent(carol.email)}`);
+      expect(res.status).toBe(200);
+      expect((await res.json()).users).toEqual([
+        { id: carol.id, name: carol.name, avatar_url: null },
+      ]);
+    });
+
+    it('answers an empty list, not 404, for an address outside the caller’s reach', async () => {
+      for (const address of [stranger.email, `nobody-${newId()}@test.example.com`]) {
+        const res = await ctx
+          .request(bob.token)
+          .get(`/api/users?email=${encodeURIComponent(address)}`);
+        expect(res.status).toBe(200);
+        expect((await res.json()).users).toEqual([]);
+      }
+    });
+
+    it('keeps 404 meaning the project, not the address', async () => {
+      const denied = await ctx
+        .request(stranger.token)
+        .get(`/api/users?project_id=${sharedProjectId}&email=${encodeURIComponent(bob.email)}`);
+      expect(denied.status).toBe(404);
+
+      const readable = await ctx
+        .request(alice.token)
+        .get(
+          `/api/users?project_id=${sharedProjectId}&email=${encodeURIComponent(stranger.email)}`
+        );
+      expect(readable.status).toBe(200);
+      expect((await readable.json()).users).toEqual([]);
+    });
+
+    it('rejects a malformed address', async () => {
+      const res = await ctx.request(alice.token).get('/api/users?email=not-an-address');
+      expect(res.status).toBe(400);
+      expect(typeof (await res.json()).error).toBe('string');
+    });
+
+    it('returns no address anywhere in a filtered response', async () => {
+      const responses = [
+        await ctx.request(alice.token).get(`/api/users?email=${encodeURIComponent(bob.email)}`),
+        await ctx
+          .request(alice.token)
+          .get(`/api/users?project_id=${sharedProjectId}&email=${encodeURIComponent(bob.email)}`),
+      ];
+
+      for (const res of responses) {
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        // Asserted before the absence, so an empty payload cannot pass this.
+        expect(body.users.map((u: { id: string }) => u.id)).toEqual([bob.id]);
+        expect(Object.keys(body.users[0]).sort()).toEqual(['avatar_url', 'id', 'name']);
+        const serialized = JSON.stringify(body);
+        for (const address of [bob.email, bob.email.toLowerCase(), bob.email.split('@')[0]]) {
+          expect(serialized).not.toContain(address);
+        }
+      }
+    });
   });
 
   describe('?project_id=', () => {

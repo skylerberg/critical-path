@@ -147,7 +147,8 @@ describe('mine', () => {
     expect(blockingLine).toContain('CLI Mine Fixture');
     expect(blockingLine.trimEnd().endsWith('1')).toBe(true);
 
-    expect(res.stdout).toContain(`${mate.name} <${mate.email}>`);
+    expect(res.stdout).toContain(mate.name);
+    expect(res.stdout).not.toContain(mate.email);
     expect(res.stdout).toContain('1 task');
     expect(res.stdout).toContain('Unassigned');
 

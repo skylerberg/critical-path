@@ -55,7 +55,7 @@ export function registerComment(program: Command, deps: CliDeps): void {
             // in full because edit and delete take a whole uuid.
             for (const item of detail.comments) {
               const author = userById.get(item.user_id);
-              const who = author == null ? item.user_id : `${author.name} <${author.email}>`;
+              const who = author == null ? item.user_id : author.name;
               const edited = item.updated_at === item.created_at ? '' : ' (edited)';
               ctx.out.line(`${item.id}  ${who}  ${item.created_at}${edited}`);
               ctx.out.line(tiptapToMarkdown(item.body));

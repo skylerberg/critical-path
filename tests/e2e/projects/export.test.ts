@@ -405,7 +405,7 @@ describe('GET /api/projects/:id/export', () => {
       const exportPayload = await exportJson(projectId, owner.token);
 
       expect(exportPayload.format).toBe('critical-path-project-export');
-      expect(exportPayload.version).toBe(2);
+      expect(exportPayload.version).toBe(3);
       expect(Number.isNaN(Date.parse(exportPayload.exported_at))).toBe(false);
 
       const board = await (await ctx.request(owner.token).get(`/api/projects/${projectId}`)).json();
@@ -461,15 +461,19 @@ describe('GET /api/projects/:id/export', () => {
       }
     });
 
-    it('resolves every user reference without exposing avatar urls', async () => {
+    it('resolves every user reference without exposing avatar urls or addresses', async () => {
       const exportPayload = await exportJson(projectId, owner.token);
 
       const byId = new Map(exportPayload.users.map((user) => [user.id, user]));
-      expect(byId.get(owner.id)).toEqual({ id: owner.id, email: owner.email, name: owner.name });
+      expect(byId.get(owner.id)).toEqual({ id: owner.id, name: owner.name });
       expect(byId.has(member.id)).toBe(true);
       expect(byId.has(exMember.id)).toBe(true);
       for (const user of exportPayload.users) {
-        expect(Object.keys(user).sort()).toEqual(['email', 'id', 'name']);
+        expect(Object.keys(user).sort()).toEqual(['id', 'name']);
+      }
+      const serialized = JSON.stringify(exportPayload);
+      for (const address of [owner.email, member.email, exMember.email]) {
+        expect(serialized).not.toContain(address);
       }
 
       expect(byId.has(exportPayload.project.created_by as string)).toBe(true);
@@ -551,15 +555,15 @@ describe('GET /api/projects/:id/export', () => {
         `${blocker.id},Blocker task,Backlog,false,1000,,,,,0,` +
           `${blocker.created_at},${blocker.updated_at},,`
       );
-      // Assignee emails follow the users[] order, which is by name, so
+      // Assignee names follow the users[] order, which is by name, so
       // "export-member user" precedes "export-owner user".
       expect(rows[2]).toBe(
         `${main.id},"He said ""hi"", then\nleft",Backlog,false,2000,2026-08-03,bug; ui,` +
-          `${member.email}; ${owner.email},Blocker task,2,` +
+          `${member.name}; ${owner.name},Blocker task,2,` +
           `${main.created_at},${main.updated_at},,"Notes\nA paragraph.\none\ntwo"`
       );
       expect(rows[3]).toBe(
-        `${done.id},Finished,Done,true,3000,,,${exMember.email},,0,` +
+        `${done.id},Finished,Done,true,3000,,,${exMember.name},,0,` +
           `${done.created_at},${done.updated_at},,`
       );
     });

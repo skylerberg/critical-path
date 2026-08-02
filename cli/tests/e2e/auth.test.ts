@@ -4,7 +4,7 @@ import { db } from '../../../tests/helpers/database';
 import { createCliHarness } from './helpers';
 import type { components } from '../../src/api/api.generated';
 
-type User = components['schemas']['User'];
+type Me = components['schemas']['Me'];
 
 describe('auth commands', () => {
   const tc = new TestContext();
@@ -29,7 +29,7 @@ describe('auth commands', () => {
 
     const who = await h.runCli(['whoami', '--json']);
     expect(who.exitCode).toBe(0);
-    expect(who.json<User>().email).toBe(user.email);
+    expect(who.json<Me>().email).toBe(user.email);
   });
 
   it('whoami without a session exits 3 with a login hint', async () => {
@@ -73,7 +73,7 @@ describe('auth commands', () => {
       env: { CRITICAL_PATH_TOKEN: user.token },
     });
     expect(who.exitCode).toBe(0);
-    expect(who.json<User>().email).toBe(user.email);
+    expect(who.json<Me>().email).toBe(user.email);
   });
 
   it('signup creates an account and stores the token', async () => {
@@ -87,7 +87,7 @@ describe('auth commands', () => {
     expect(signup.exitCode).toBe(0);
 
     const who = await h.runCli(['whoami', '--json']);
-    expect(who.json<User>().email).toBe(email);
+    expect(who.json<Me>().email).toBe(email);
   });
 
   it('account update changes the name', async () => {
@@ -98,7 +98,7 @@ describe('auth commands', () => {
     });
     const update = await h.runCli(['account', 'update', '--name', 'Renamed', '--json']);
     expect(update.exitCode).toBe(0);
-    expect(update.json<User>().name).toBe('Renamed');
+    expect(update.json<Me>().name).toBe('Renamed');
   });
 
   it('account update with no flags is a usage error', async () => {

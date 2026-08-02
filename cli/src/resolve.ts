@@ -305,28 +305,43 @@ export async function resolveInvitation(
   );
 }
 
-export async function listUsers(ctx: RuntimeContext, projectId?: string): Promise<User[]> {
+export async function listUsers(
+  ctx: RuntimeContext,
+  projectId?: string,
+  email?: string
+): Promise<User[]> {
   const result = assertOk(
     await ctx.api.GET('/api/users', {
-      params: { query: projectId == null ? {} : { project_id: projectId } },
+      params: {
+        query: {
+          ...(projectId == null ? {} : { project_id: projectId }),
+          ...(email == null ? {} : { email }),
+        },
+      },
     })
   );
   return result.users;
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Costs a round trip because the server is the only side that holds an address.
+// Still just the first tier: one that names nobody falls through to the name
+// tiers rather than short-circuiting their message.
 export async function resolveUser(
   ctx: RuntimeContext,
   ref: string,
   projectId?: string
 ): Promise<User> {
-  const users = await listUsers(ctx, projectId);
-  const byEmail = users.filter((u) => u.email.toLowerCase() === ref.toLowerCase());
-  if (byEmail.length === 1) {
-    return byEmail[0];
+  if (EMAIL_RE.test(ref)) {
+    const [match] = await listUsers(ctx, projectId, ref);
+    if (match !== undefined) {
+      return match;
+    }
   }
   return matchRef(
     ref,
-    users,
+    await listUsers(ctx, projectId),
     'user',
     (u) => u.id,
     (u) => u.name

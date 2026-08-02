@@ -1,5 +1,5 @@
 import { type } from 'arktype';
-import { uuid, email, stringWithLength } from './common';
+import { uuid, email, namedRefSchema, stringWithLength } from './common';
 import { meSchema } from './users';
 
 // Deliberately no trimming: passwords are stored as typed.
@@ -50,7 +50,7 @@ export const deleteAccountSchema = type({
 
 export const deleteAccountConflictSchema = type({
   error: 'string',
-  blocking_projects: type({ id: 'string', name: 'string' }).array(),
+  blocking_projects: namedRefSchema.array(),
 });
 
 export const forgotPasswordSchema = type({

@@ -424,7 +424,7 @@ describe('Email verification', () => {
   });
 
   describe('leak surface', () => {
-    it('keeps email_verified out of the user_updated payload', async () => {
+    it('keeps email and email_verified out of the user_updated payload', async () => {
       clearSentEmails();
       const user = await ctx.createUser('leak-realtime');
       const token = extractToken(sentEmails()[0].text);
@@ -443,13 +443,13 @@ describe('Email verification', () => {
       expect(published).toHaveLength(1);
       expect(published[0].data).toEqual({
         id: user.id,
-        email: user.email,
         name: 'Leak Check',
         avatar_url: null,
       });
+      expect(JSON.stringify(published[0])).not.toContain(user.email);
     });
 
-    it('keeps email_verified out of every record describing other people', async () => {
+    it('keeps email and email_verified out of every record describing other people', async () => {
       clearSentEmails();
       const owner = await ctx.createUser('leak-owner');
       const member = await ctx.createUser('leak-member');
@@ -477,8 +477,9 @@ describe('Email verification', () => {
       const listed = (await users.json()).users as Record<string, unknown>[];
       expect(listed.length).toBeGreaterThan(1);
       for (const entry of listed) {
-        expect(Object.keys(entry).sort()).toEqual(['avatar_url', 'email', 'id', 'name']);
+        expect(Object.keys(entry).sort()).toEqual(['avatar_url', 'id', 'name']);
       }
+      expect(JSON.stringify(listed)).not.toContain(member.email);
 
       const project = await ctx.request(owner.token).get(`/api/projects/${projectId}`);
       expect(project.status).toBe(200);
