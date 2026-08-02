@@ -1,9 +1,9 @@
 import { Command } from 'commander';
 import { leaf, withCtx } from '../kit';
 import { CliError, EXIT } from '../api/errors';
-import { CONFIG_KEYS, configPath, saveConfig, type ConfigKey } from '../config';
+import { CONFIG_KEYS, configPath, normalizeWebUrl, saveConfig, type ConfigKey } from '../config';
 import { resolveProject } from '../resolve';
-import type { CliDeps } from '../context';
+import type { CliDeps, RuntimeContext } from '../context';
 
 function storageKey(key: string): (typeof CONFIG_KEYS)[ConfigKey] {
   if (!(key in CONFIG_KEYS)) {
@@ -15,18 +15,15 @@ function storageKey(key: string): (typeof CONFIG_KEYS)[ConfigKey] {
   return CONFIG_KEYS[key as ConfigKey];
 }
 
-// Stored to be concatenated with a path, so a bare host or a relative value would
-// silently produce an unusable link rather than fail here.
-function assertAbsoluteHttpUrl(value: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new CliError(`Invalid URL "${value}"; use an absolute http(s) URL`, EXIT.usage);
+async function storedValue(
+  ctx: RuntimeContext,
+  storage: (typeof CONFIG_KEYS)[ConfigKey],
+  value: string
+): Promise<string> {
+  if (storage === 'default_project') {
+    return (await resolveProject(ctx, value)).id;
   }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new CliError(`Invalid URL "${value}"; use an absolute http(s) URL`, EXIT.usage);
-  }
+  return storage === 'web_url' ? normalizeWebUrl(value) : value;
 }
 
 export function registerConfig(program: Command, deps: CliDeps): void {
@@ -67,11 +64,7 @@ export function registerConfig(program: Command, deps: CliDeps): void {
       .action(
         withCtx(deps, async (ctx, _opts, key, value) => {
           const storage = storageKey(key);
-          if (storage === 'web_url') {
-            assertAbsoluteHttpUrl(value);
-          }
-          const stored =
-            storage === 'default_project' ? (await resolveProject(ctx, value)).id : value;
+          const stored = await storedValue(ctx, storage, value);
           await saveConfig(ctx.configDir, { ...ctx.config, [storage]: stored });
           ctx.out.data({ [key]: stored }, () => ctx.out.line(`${key} = ${stored}`));
         })

@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
+import { encodeId } from '../../src/short-links';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardPayload'];
@@ -347,5 +348,51 @@ describe('task blockers', () => {
     const human = await h.runCli(['task', 'blockers', 'Build the API', '--project', projectId]);
     expect(human.exitCode).toBe(0);
     expect(human.stdout).toContain('Nothing blocks this task');
+  });
+
+  it('block and unblock take an alias for --by', async () => {
+    const alias = encodeId(planId);
+    const block = await h.runCli([
+      'task',
+      'block',
+      'Build the API',
+      '--by',
+      alias,
+      '--project',
+      projectId,
+    ]);
+    expect(block.exitCode).toBe(0);
+    expect(block.stdout).toContain('now blocks');
+
+    const blocked = await h.runCli([
+      'task',
+      'blockers',
+      'Build the API',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(blocked.json<BlockersJson>().blocked_by.map((t) => t.id)).toEqual([planId]);
+
+    const unblock = await h.runCli([
+      'task',
+      'unblock',
+      'Build the API',
+      '--by',
+      alias,
+      '--project',
+      projectId,
+    ]);
+    expect(unblock.exitCode).toBe(0);
+
+    const after = await h.runCli([
+      'task',
+      'blockers',
+      'Build the API',
+      '--project',
+      projectId,
+      '--json',
+    ]);
+    expect(after.json<BlockersJson>().blocked_by).toEqual([]);
   });
 });

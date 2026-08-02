@@ -42,6 +42,7 @@ import {
   type Placement,
 } from '../positions';
 import { markdownToTiptap, tiptapToMarkdown, type TiptapDoc } from '../markdown';
+import { normalizeWebUrl } from '../config';
 import { decodeId, taskUrl } from '../short-links';
 import type { CliDeps, RuntimeContext } from '../context';
 
@@ -1109,7 +1110,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
             opts.project as string | undefined,
             { includeArchived: true }
           );
-          const url = taskUrl(ctx.webUrl, target.id, target.title);
+          const url = taskUrl(normalizeWebUrl(ctx.webUrl), target.id, target.title);
           ctx.out.data({ url }, () => ctx.out.line(url));
         })
       )

@@ -50,10 +50,9 @@ export async function createContext(deps: CliDeps, flags: GlobalFlags): Promise<
     config.api_url ??
     DEFAULT_API_URL
   ).replace(/\/+$/, '');
-  const webUrl = (deps.env.CRITICAL_PATH_WEB_URL ?? config.web_url ?? DEFAULT_WEB_URL).replace(
-    /\/+$/,
-    ''
-  );
+  // Left as given: it only shapes links, so a bad value should fail the command
+  // that builds one rather than every command.
+  const webUrl = deps.env.CRITICAL_PATH_WEB_URL ?? config.web_url ?? DEFAULT_WEB_URL;
   const credentials = deps.credentials ?? createCredentialStore(deps.platform, configDir);
   const envToken = deps.env.CRITICAL_PATH_TOKEN;
   const token = envToken ?? (await credentials.get(baseUrl));

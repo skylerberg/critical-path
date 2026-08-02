@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import { displayTitle } from '../../src/output';
-import { encodeId, slugify } from '../../src/short-links';
+import { decodeId, encodeId, slugify } from '../../src/short-links';
 import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
 import type { components } from '../../src/api/api.generated';
 
@@ -477,18 +477,82 @@ describe('task commands', () => {
 
   it('treats an alias as case sensitive rather than lowercasing it', async () => {
     const alias = encodeId(alpha.id);
-    // Digits have no case, so the flip has to land on a letter to mean anything.
-    const at = [...alias].findIndex((c) => /[a-z]/i.test(c));
+    // Digits have no case, and only the last character carries the padding bits, so
+    // a letter flipped before it is a canonical alias for a different id rather than
+    // a spelling the decoder would reject anyway.
+    const at = [...alias.slice(0, 21)].findIndex((c) => /[a-z]/i.test(c));
     expect(at).toBeGreaterThanOrEqual(0);
     const swapped =
       alias[at] === alias[at].toLowerCase() ? alias[at].toUpperCase() : alias[at].toLowerCase();
     const flipped = alias.slice(0, at) + swapped + alias.slice(at + 1);
-    expect(flipped).not.toBe(alias);
+    const decoded = decodeId(flipped);
+    expect(decoded).not.toBeNull();
+    expect(decoded).not.toBe(alpha.id);
 
     const show = await h.runCli(['task', 'show', flipped, '--json']);
-    expect(show.exitCode).not.toBe(0);
-    if (show.exitCode === 0) {
-      expect(show.json<TaskDetailResponse>().id).not.toBe(alpha.id);
+    expect(show.exitCode).toBe(4);
+    expect(show.stdout).toBe('');
+  });
+
+  it('accepts an alias as a placement anchor, for --before and --after alike', async () => {
+    const created = await tc.request(user.token).post('/api/projects', {
+      id: crypto.randomUUID(),
+      name: 'CLI Anchor Fixture',
+    });
+    expect(created.status).toBe(201);
+    const anchorProjectId = ((await created.json()) as BoardPayload).project.id;
+    try {
+      const first = await h.runCli([
+        'task',
+        'create',
+        'Anchor task',
+        '--project',
+        anchorProjectId,
+        '--json',
+      ]);
+      expect(first.exitCode).toBe(0);
+      const anchor = first.json<BoardTask>();
+
+      const before = await h.runCli([
+        'task',
+        'create',
+        'Lands before',
+        '--project',
+        anchorProjectId,
+        '--before',
+        encodeId(anchor.id),
+        '--json',
+      ]);
+      expect(before.exitCode).toBe(0);
+      expect(before.json<BoardTask>().position).toBeLessThan(anchor.position);
+
+      const after = await h.runCli([
+        'task',
+        'create',
+        'Lands after',
+        '--project',
+        anchorProjectId,
+        '--after',
+        encodeId(anchor.id),
+        '--json',
+      ]);
+      expect(after.exitCode).toBe(0);
+      expect(after.json<BoardTask>().position).toBeGreaterThan(anchor.position);
+
+      const moved = await h.runCli([
+        'task',
+        'move',
+        'Lands after',
+        '--project',
+        anchorProjectId,
+        '--before',
+        encodeId(anchor.id),
+        '--json',
+      ]);
+      expect(moved.exitCode).toBe(0);
+      expect(moved.json<BoardTask>().position).toBeLessThan(anchor.position);
+    } finally {
+      await tc.request(user.token).delete(`/api/projects/${anchorProjectId}`);
     }
   });
 
@@ -523,6 +587,23 @@ describe('task commands', () => {
     } finally {
       await h.runCli(['config', 'unset', 'web-url']);
     }
+  });
+
+  it('url holds the environment to the same rules as the stored value', async () => {
+    const alias = encodeId(alpha.id);
+    for (const base of ['not a url', 'cp.example.test', 'https://user:pw@cp.example.test']) {
+      const res = await h.runCli(['task', 'url', alias], {
+        env: { CRITICAL_PATH_WEB_URL: base },
+      });
+      expect(res.exitCode).toBe(2);
+      expect(res.stdout).toBe('');
+    }
+
+    const ok = await h.runCli(['task', 'url', alias], {
+      env: { CRITICAL_PATH_WEB_URL: 'https://cp.example.test/' },
+    });
+    expect(ok.exitCode).toBe(0);
+    expect(ok.stdout.trim()).toBe(`https://cp.example.test/t/${alias}/${slugify(alpha.title)}`);
   });
 
   it('archive, archived, restore and show address a card the board no longer holds', async () => {
