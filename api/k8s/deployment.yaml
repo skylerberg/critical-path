@@ -81,7 +81,11 @@ spec:
             - name: TRUST_PROXY_HOPS
               value: '2'
             - name: EMAIL_DRIVER
-              value: console
+              value: ses
+            - name: SES_REGION
+              value: us-west-2
+            - name: SES_FROM_ADDRESS
+              value: 'Critical Path <noreply@criticalpath.skylerberg.com>'
             - name: FEEDBACK_EMAIL_ADDRESS
               value: criticalpath@skylerberg.com
           readinessProbe:
