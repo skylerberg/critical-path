@@ -1224,19 +1224,21 @@ cpath config set web-url https://criticalpath.example.com   # base for task url
 cpath watch --project "My Project" | jq 'select(.type=="task_created")'
 ```
 
-Entity references accept a UUID, the 22-character short alias the web app puts
-in its URLs, a unique id prefix (>= 4 chars), an exact name/title
-(case-insensitive), or a unique substring; ambiguity is an error listing the
-candidates. The alias is base64url of the id's 16 raw bytes and is **case
-sensitive** — one flipped letter is a different reference, and a non-canonical
-spelling is rejected rather than silently resolving to the same card. Because
-an alias names a card outright it needs no `--project` and still resolves after
-the card is archived. Task references resolve against the board, which has
-no archived cards in it, so `task archive`, `task restore`, `task show` and
-`task delete` fall back to the archive on a miss; every board-shaped mutation
+Entity references accept a UUID, a unique id prefix (>= 4 chars), an exact
+name/title (case-insensitive), or a unique substring; ambiguity is an error
+listing the candidates. Project and task references additionally accept the
+22-character short alias the web app puts in its URLs; column, label,
+invitation and user references do not. The alias is base64url of the id's 16
+raw bytes and is **case sensitive** — one flipped letter is a different
+reference, and a non-canonical spelling is rejected rather than silently
+resolving to the same card. A task alias names the card outright, so it needs
+no `--project`; what it does not do is let a board mutation reach an archived
+card. Task references resolve against the board, which has no archived cards in
+it, so `task show`, `task duplicate`, `task archive`, `task restore`, `task delete`
+and `task url` fall back to the archive on a miss; every board-shaped mutation
 (`move`, `done`, `update`, `label`, `assign`, `block`) deliberately does not,
-and answers `No task matching` for an archived card, by id as well as by
-title. Task descriptions are Markdown in and out, converted to the API's
+and answers `No task matching` for an archived card — by alias and id just as
+by title. Task descriptions are Markdown in and out, converted to the API's
 restricted Tiptap JSON (`--description-json` is the raw escape hatch). A due
 date is one calendar day and `--due` accepts `YYYY-MM-DD` only — there is no
 shorthand parsing.

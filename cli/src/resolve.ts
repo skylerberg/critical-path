@@ -16,6 +16,7 @@ export type MyTaskLink = components['schemas']['MyTaskLink'];
 export type MyTaskPersonGroup = components['schemas']['MyTaskPersonGroup'];
 export type MyTasksResponse = components['schemas']['MyTasksResponse'];
 export type ProjectInvitation = components['schemas']['ProjectInvitation'];
+export type TaskDetail = components['schemas']['TaskDetailResponse'];
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -95,9 +96,14 @@ export async function listMyTasks(ctx: RuntimeContext): Promise<MyTasksResponse>
   return assertOk(await ctx.api.GET('/api/my-tasks'));
 }
 
-export function effectiveProjectRef(ctx: RuntimeContext, ref?: string): string {
+export function projectRefOrNull(ctx: RuntimeContext, ref?: string): string | null {
   const effective = ref ?? ctx.deps.env.CRITICAL_PATH_PROJECT ?? ctx.config.default_project;
-  if (effective == null || effective === '') {
+  return effective == null || effective === '' ? null : effective;
+}
+
+export function effectiveProjectRef(ctx: RuntimeContext, ref?: string): string {
+  const effective = projectRefOrNull(ctx, ref);
+  if (effective === null) {
     throw new CliError(
       'No project specified; pass --project, set CRITICAL_PATH_PROJECT, or run: cpath config set default-project <project>',
       EXIT.usage
@@ -186,6 +192,12 @@ export function matchArchivedTask(archived: readonly ArchivedTask[], ref: string
   );
 }
 
+// Null rather than a throw: the caller may still have a title tier to try.
+export async function fetchTaskOrNull(ctx: RuntimeContext, id: string): Promise<TaskDetail | null> {
+  const result = await ctx.api.GET('/api/tasks/{id}', { params: { path: { id } } });
+  return result.response.status === 404 ? null : assertOk(result);
+}
+
 export async function resolveTaskId(
   ctx: RuntimeContext,
   ref: string,
@@ -195,9 +207,16 @@ export async function resolveTaskId(
   if (UUID_RE.test(ref)) {
     return ref;
   }
+  // An alias is also a legal title, so one that names no task falls through to the
+  // title tiers instead of shadowing them — and titles need a project to live in.
   const decoded = decodeId(ref);
   if (decoded !== null) {
-    return decoded;
+    if ((await fetchTaskOrNull(ctx, decoded)) !== null) {
+      return decoded;
+    }
+    if (projectRefOrNull(ctx, projectRef) === null) {
+      throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
+    }
   }
   const board = await resolveBoard(ctx, projectRef);
   const task = matchRefOrNull(

@@ -11,31 +11,33 @@ terraform apply
 
 ## URL map routing
 
-The `main` path matcher routes with `route_rules` (priorities 1–3 send
-`/api/`, `/ws` and `/health` to the API; priority 4 serves `/public/` from the
-web bucket with `X-Robots-Tag: noindex, nofollow`, so published boards are not
-indexable even by crawlers that never run the SPA's JavaScript). A matcher may
-use `path_rule` or `route_rules` but never both, so any change to one rule
-rewrites how all traffic is routed — review the plan for a single
-`google_compute_url_map` diff, and after applying confirm both backends still
-answer:
+The `main` path matcher routes with `route_rules`: priorities 1–3 send `/api/`,
+`/ws` and `/health` to the API; priority 4 serves `/assets/` from the web
+bucket; priority 5 serves `/public/` from it with `X-Robots-Tag: noindex,
+nofollow`, so published boards are not indexable even by crawlers that never
+run the SPA's JavaScript; priority 6 is the catch-all that carries every other
+path to the bucket. A matcher may use `path_rule` or `route_rules` but never
+both, so any change to one rule rewrites how all traffic is routed — review the
+plan for a single `google_compute_url_map` diff, and after applying confirm both
+backends still answer:
 
 ```
 curl -s -o /dev/null -w '%{http_code}\n' https://criticalpath.skylerberg.com/health
 curl -s -o /dev/null -w '%{http_code}\n' https://criticalpath.skylerberg.com/api/openapi.json
-curl -sI https://criticalpath.skylerberg.com/public/projects/<published-id> | grep -i x-robots-tag
+curl -sI https://criticalpath.skylerberg.com/public/projects/<project-alias> | grep -i x-robots-tag
 ```
 
-The third command reports `HTTP/2 404` even on a healthy deploy — check the
-header, not the status. Every SPA deep path answers 404: the bucket's
-`not_found_page` is a fallback body, not a rewrite, so GCS returns the shell
-with a 404 status. Browsers ignore the status and render the board, but link
-unfurlers, uptime monitors and strict HTTP clients call a shared board link
-dead. Fixing it means a `custom_error_response_policy` on the `/public/` route
-rule (match 404, serve `/index.html`, `override_response_code = 200`,
-`error_service` on the web backend bucket); it is out of the minimal URL-map
-edit because it changes response codes for a path the whole site's routing
-rewrite already touches, and it is equally wrong for `/projects/*` today.
+`<project-alias>` is the 22-character id alias out of a published board's link;
+the signed-in SPA paths are `/p/<alias>/<slug>` and `/t/<alias>/<slug>`, which
+the catch-all rule serves. The bucket answers an unknown object with a 404, so
+the `/public/` and catch-all rules each carry a `custom_error_response_policy`
+that serves `/index.html` with `override_response_code = 200` — without it a
+shared board link reads as dead to link unfurlers, uptime monitors and strict
+HTTP clients even though a browser would render the board. The policies sit on
+those two rules rather than on the matcher default, which would also govern the
+API rules and turn a genuine API 404 into the app shell with a 200. `/assets/`
+deliberately has none: filenames there are hashed, so a miss is a real miss and
+must stay a 404 rather than become HTML a `<script>` tag cannot parse.
 
 A second matcher, `previews`, serves the wildcard host
 `*.criticalpath.skylerberg.com` (`pr-<n>.…`) the same way: `/api/`, `/ws` and
@@ -97,7 +99,7 @@ Confirm a preview end to end (after a frontend PR has published one):
 ```
 curl -s -o /dev/null -w '%{http_code}\n' https://pr-<n>.criticalpath.skylerberg.com/health   # 200, from the API
 curl -sI https://pr-<n>.criticalpath.skylerberg.com/ | grep -i 'content-type\|cache-control' # text/html, no-cache
-curl -s -o /dev/null -w '%{http_code}\n' https://pr-<n>.criticalpath.skylerberg.com/projects/x # 200 (SPA fallback)
+curl -s -o /dev/null -w '%{http_code}\n' https://pr-<n>.criticalpath.skylerberg.com/my-tasks # 200 (SPA fallback)
 ```
 
 ## Secrets (never committed)
