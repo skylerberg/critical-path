@@ -2,12 +2,14 @@ import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db, waitForLockWaiters } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
-import { BoardPayloadBody, deleteProjects } from '../projects/helpers';
+import { BoardPayloadBody, deleteProjects, insertTask } from '../projects/helpers';
+import { subscribeBus, type BusEntry } from '../../../src/services/realtime/bus';
 import { clearSentEmails, sentEmails } from '../../../src/services/email/index';
 import { env } from '../../../src/config/env';
 import {
+  INVITE_LOOKUP_MAX_ATTEMPTS,
   INVITE_RESEND_MAX_ATTEMPTS,
-  INVITE_USER_MAX_ATTEMPTS,
+  INVITE_SEND_MAX_ATTEMPTS,
   resetRateLimiter,
 } from '../../../src/middleware/rateLimit';
 import {
@@ -41,6 +43,17 @@ function inviteTokenFrom(text: string): string {
     throw new Error(`No invitation token found in email text: ${text}`);
   }
   return decodeURIComponent(match[1]);
+}
+
+async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
+  const seen: BusEntry[] = [];
+  const unsubscribe = subscribeBus((entry) => seen.push(entry));
+  try {
+    await run();
+  } finally {
+    unsubscribe();
+  }
+  return seen;
 }
 
 function invitationMailTo(address: string) {
@@ -301,6 +314,67 @@ describe('Pending project invitations', () => {
       ]);
     });
 
+    it('publishes one project_updated per board joined, carrying the post-claim list item', async () => {
+      const first = await createProject('inv publish a');
+      const second = await createProject('inv publish b');
+      await insertTask({
+        projectId: first.project.id,
+        columnId: first.columns.find((column) => !column.is_done)!.id,
+      });
+      await invite(first.project.id, member.email, 'viewer');
+      const address = uniqueEmail('inv-publish');
+      await invite(first.project.id, address);
+      await invite(second.project.id, address, 'viewer');
+
+      let account!: { id: string; token: string };
+      const entries = await collectBusEntries(async () => {
+        account = await signUp(address);
+      });
+
+      const updates = entries.filter((entry) => entry.type === 'project_updated');
+      expect(updates.map((entry) => entry.project_id).sort()).toEqual(
+        [first.project.id, second.project.id].sort()
+      );
+      for (const update of updates) {
+        expect(update.broadcast).toBe(true);
+        expect(update.recipientUserIds).toBeUndefined();
+      }
+
+      const byId = new Map(updates.map((entry) => [entry.project_id, entry.data]));
+      // Oldest member first: the order is part of the payload, not incidental.
+      expect(byId.get(first.project.id)).toMatchObject({
+        id: first.project.id,
+        member_ids: [member.id, account.id],
+        members: [
+          { user_id: member.id, role: 'viewer' },
+          { user_id: account.id, role: 'editor' },
+        ],
+        open_task_count: 1,
+        done_task_count: 0,
+      });
+      expect(byId.get(second.project.id)).toMatchObject({
+        id: second.project.id,
+        members: [{ user_id: account.id, role: 'viewer' }],
+        open_task_count: 0,
+        done_task_count: 0,
+      });
+    });
+
+    it('publishes nothing for a board the claimer already had access to', async () => {
+      const board = await createProject('inv publish held');
+      const address = uniqueEmail('inv-publish-held');
+      await invite(board.project.id, address, 'viewer');
+      const token = inviteTokenFrom(invitationMailTo(address).text);
+      await invite(board.project.id, member.email, 'editor');
+
+      const entries = await collectBusEntries(async () => {
+        const res = await ctx.request(member.token).post('/api/invitations/accept', { token });
+        expect(res.status).toBe(200);
+      });
+
+      expect(entries.filter((entry) => entry.type === 'project_updated')).toEqual([]);
+    });
+
     it('skips an invitation whose project vanished under the claim instead of failing', async () => {
       const board = await createProject('inv vanished');
       const address = uniqueEmail('inv-vanished');
@@ -450,6 +524,103 @@ describe('Pending project invitations', () => {
       expect(await invitationRows(board.project.id)).toEqual([]);
     });
 
+    it('loses to a demotion revoking the link mid-accept, rather than jamming against it', async () => {
+      const board = await createProject('inv accept vs demote');
+      expect(
+        (
+          await ctx
+            .request(owner.token)
+            .put(`/api/projects/${board.project.id}/members`, { user_ids: [member.id] })
+        ).status
+      ).toBe(204);
+      const address = uniqueEmail('inv-accept-demote');
+      await invite(board.project.id, address, undefined, member);
+      const token = inviteTokenFrom(invitationMailTo(address).text);
+
+      let locked!: () => void;
+      const lockTaken = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      let proceed!: () => void;
+      const revoking = new Promise<void>((resolve) => {
+        proceed = resolve;
+      });
+      // A member set being replaced, held open between the two statements a
+      // real one issues in this order: claim the board, then drop the
+      // invitations of everyone it just left without write access.
+      const demotion = db.transaction().execute(async (trx) => {
+        await trx
+          .selectFrom('project')
+          .select('id')
+          .where('id', '=', board.project.id)
+          .forUpdate()
+          .executeTakeFirst();
+        locked();
+        await revoking;
+        await trx
+          .deleteFrom('project_invitation')
+          .where('project_id', '=', board.project.id)
+          .where('invited_by', 'not in', [owner.id])
+          .execute();
+      });
+      await lockTaken;
+
+      const accept = ctx.request(outsider.token).post('/api/invitations/accept', { token });
+      try {
+        await waitForLockWaiters(1);
+      } finally {
+        proceed();
+      }
+      await demotion;
+
+      const res = await accept;
+      expect(res.status).toBe(422);
+      expect(await roleOf(board.project.id, outsider.id)).toBeUndefined();
+      expect(await invitationRows(board.project.id)).toEqual([]);
+    });
+
+    it('reports the role it actually stored when a membership write lands mid-claim', async () => {
+      const board = await createProject('inv accept vs member write');
+      const address = uniqueEmail('inv-accept-member-write');
+      await invite(board.project.id, address, 'editor');
+      const token = inviteTokenFrom(invitationMailTo(address).text);
+
+      let inserted!: () => void;
+      const insertIssued = new Promise<void>((resolve) => {
+        inserted = resolve;
+      });
+      let commit!: () => void;
+      const released = new Promise<void>((resolve) => {
+        commit = resolve;
+      });
+      // Seats the redeemer as a viewer and holds it uncommitted, so the claim
+      // cannot see it in a read yet still meets it at the insert.
+      const seating = db.transaction().execute(async (trx) => {
+        await trx
+          .insertInto('project_member')
+          .values({ project_id: board.project.id, user_id: outsider.id, role: 'viewer' })
+          .execute();
+        inserted();
+        await released;
+      });
+      await Promise.race([insertIssued, seating]);
+
+      const accept = ctx.request(outsider.token).post('/api/invitations/accept', { token });
+      try {
+        await waitForLockWaiters(1);
+      } finally {
+        commit();
+      }
+      await seating;
+
+      const res = await accept;
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ project_id: board.project.id, role: 'viewer' });
+      expect(await roleOf(board.project.id, outsider.id)).toBe('viewer');
+      // The editor grant never landed, so the link is still the invitee's.
+      expect(await invitationRows(board.project.id)).toHaveLength(1);
+    });
+
     it('answers 422 for an expired invitation and grants nothing', async () => {
       const board = await createProject('inv accept expired');
       const address = uniqueEmail('inv-accept-expired');
@@ -576,6 +747,35 @@ describe('Pending project invitations', () => {
         expect(
           (await ctx.request(outsider.token).post('/api/invitations/accept', { token })).status
         ).toBe(200);
+      } finally {
+        delete process.env.EMAIL_TOKEN_SECRET;
+      }
+    });
+
+    it('a re-invite reissues a link that a rotated signing secret orphaned', async () => {
+      const board = await createProject('inv rotate reinvite');
+      const address = uniqueEmail('inv-rotate-reinvite');
+      const first = await invite(board.project.id, address);
+
+      process.env.EMAIL_TOKEN_SECRET = 'rotated-invitation-signing-secret';
+      try {
+        expect(
+          (
+            await ctx
+              .request(outsider.token)
+              .post('/api/invitations/accept', { token: invitationToken(first.invitation!.id) })
+          ).status
+        ).toBe(422);
+
+        clearSentEmails();
+        const again = await invite(board.project.id, address);
+        expect(again.invitation!.id).toBe(first.invitation!.id);
+
+        const token = inviteTokenFrom(invitationMailTo(address).text);
+        expect(
+          (await ctx.request(outsider.token).post('/api/invitations/accept', { token })).status
+        ).toBe(200);
+        expect(await roleOf(board.project.id, outsider.id)).toBe('editor');
       } finally {
         delete process.env.EMAIL_TOKEN_SECRET;
       }
@@ -759,10 +959,10 @@ describe('Pending project invitations', () => {
       expect(again.status).toBe(200);
     });
 
-    it('answers 429 past the hourly invitation budget, having mailed exactly the budget', async () => {
+    it('answers 429 past the hourly mail budget, having mailed exactly the budget', async () => {
       const board = await createProject('inv budget');
 
-      for (let i = 0; i < INVITE_USER_MAX_ATTEMPTS; i++) {
+      for (let i = 0; i < INVITE_SEND_MAX_ATTEMPTS; i++) {
         const res = await ctx
           .request(owner.token)
           .post(`/api/projects/${board.project.id}/members/by-email`, {
@@ -770,7 +970,7 @@ describe('Pending project invitations', () => {
           });
         expect(res.status).toBe(200);
       }
-      expect(sentEmails()).toHaveLength(INVITE_USER_MAX_ATTEMPTS);
+      expect(sentEmails()).toHaveLength(INVITE_SEND_MAX_ATTEMPTS);
 
       const throttled = await ctx
         .request(owner.token)
@@ -778,15 +978,34 @@ describe('Pending project invitations', () => {
           email: uniqueEmail('inv-budget-over'),
         });
       expect(throttled.status).toBe(429);
-      expect(sentEmails()).toHaveLength(INVITE_USER_MAX_ATTEMPTS);
-      expect(await invitationRows(board.project.id)).toHaveLength(INVITE_USER_MAX_ATTEMPTS);
+      expect(sentEmails()).toHaveLength(INVITE_SEND_MAX_ATTEMPTS);
+      expect(await invitationRows(board.project.id)).toHaveLength(INVITE_SEND_MAX_ATTEMPTS);
     });
 
-    it('spends the hourly budget on addresses that have accounts too, so 429 answers nothing', async () => {
+    it('lets an editor add far more existing accounts than the mail budget allows', async () => {
+      const board = await createProject('inv onboarding');
+      const path = `/api/projects/${board.project.id}/members/by-email`;
+      const accounts = [member, viewer, outsider];
+
+      for (let i = 0; i <= INVITE_SEND_MAX_ATTEMPTS; i++) {
+        const res = await ctx
+          .request(owner.token)
+          .post(path, { email: accounts[i % accounts.length].email });
+        expect(res.status).toBe(200);
+        expect(((await res.json()) as ByEmailBody).status).toBe('member');
+      }
+
+      expect(sentEmails()).toEqual([]);
+      const address = uniqueEmail('inv-onboarding-new');
+      expect((await ctx.request(owner.token).post(path, { email: address })).status).toBe(200);
+      expect(invitationMailTo(address).to).toBe(address);
+    });
+
+    it('charges every address looked up, so 429 answers nothing about one', async () => {
       const board = await createProject('inv oracle');
       const path = `/api/projects/${board.project.id}/members/by-email`;
 
-      for (let i = 0; i < INVITE_USER_MAX_ATTEMPTS; i++) {
+      for (let i = 0; i < INVITE_LOOKUP_MAX_ATTEMPTS; i++) {
         expect((await ctx.request(owner.token).post(path, { email: member.email })).status).toBe(
           200
         );

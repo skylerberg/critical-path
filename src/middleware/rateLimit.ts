@@ -163,21 +163,37 @@ export async function enforceVerificationRateLimit(c: Context, userId: string): 
   }
 }
 
-export const INVITE_USER_WINDOW_MS = 60 * 60_000;
-export const INVITE_USER_MAX_ATTEMPTS = 20;
+export const INVITE_LOOKUP_WINDOW_MS = 60 * 60_000;
+export const INVITE_LOOKUP_MAX_ATTEMPTS = 100;
+export const INVITE_SEND_WINDOW_MS = 60 * 60_000;
+export const INVITE_SEND_MAX_ATTEMPTS = 20;
 export const INVITE_RESEND_WINDOW_MS = 60 * 60_000;
 export const INVITE_RESEND_MAX_ATTEMPTS = 3;
 
-// The only path that mails an address nobody has proved they control, so this
-// is what bounds both outbound mail and the rate at which a project editor can
-// probe which addresses already have accounts. Bounding the probe means every
-// share attempt spends it, not only the ones that end in an invitation.
-export async function enforceInvitationRateLimit(userId: string): Promise<void> {
+// Metered apart from mail because they are different harms: this bounds how
+// fast an editor can enumerate the user table, and every share attempt spends
+// it whatever the answer, so no reply about an address is free. Sized for
+// onboarding a team in one sitting, which is what this path is for.
+export async function enforceInvitationLookupRateLimit(userId: string): Promise<void> {
   const allowed = await consumeRateLimit(
-    `invite-user:${userId}`,
+    `invite-lookup:${userId}`,
     Date.now(),
-    INVITE_USER_MAX_ATTEMPTS,
-    INVITE_USER_WINDOW_MS
+    INVITE_LOOKUP_MAX_ATTEMPTS,
+    INVITE_LOOKUP_WINDOW_MS
+  );
+  if (!allowed) {
+    throw new AppError(429, 'Too many invitations, please try again later');
+  }
+}
+
+// Spent only where mail actually goes out, since this is the only path that
+// mails an address nobody has proved they control.
+export async function enforceInvitationSendRateLimit(userId: string): Promise<void> {
+  const allowed = await consumeRateLimit(
+    `invite-send:${userId}`,
+    Date.now(),
+    INVITE_SEND_MAX_ATTEMPTS,
+    INVITE_SEND_WINDOW_MS
   );
   if (!allowed) {
     throw new AppError(429, 'Too many invitations, please try again later');

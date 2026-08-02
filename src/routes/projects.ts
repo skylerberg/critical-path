@@ -5,8 +5,9 @@ import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import {
-  enforceInvitationRateLimit,
+  enforceInvitationLookupRateLimit,
   enforceInvitationResendRateLimit,
+  enforceInvitationSendRateLimit,
 } from '../middleware/rateLimit';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -850,9 +851,12 @@ router.post(
       'there is nothing to render optimistically. A pending invitation for an address that ' +
       'has since gained an account is dropped as the member is added, since only signup ' +
       'claims one. 422 past 100 pending invitations on the project (expired ones count ' +
-      'until they are revoked); 429 past the caller’s hourly invitation budget, which every ' +
-      'call spends whether or not the address has an account, or past three re-invites an ' +
-      'hour of one address. Editors may call; a viewer gets 403 and non-accessors 404.',
+      'until they are revoked). Two hourly budgets answer 429: 100 addresses looked up per ' +
+      'caller, which every call spends whether or not the address has an account, and 20 ' +
+      'invitation emails per caller, spent only when one is actually sent — so adding people ' +
+      'who already have accounts is never what runs the mail budget down. A third limit ' +
+      'allows three re-mails an hour of any one address. Editors may call; a viewer gets 403 ' +
+      'and non-accessors 404.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -888,10 +892,10 @@ router.post(
     const project = await lockProject(db, id);
     await assertCanWriteProject(db, user.id, project);
 
-    // Spent before the address is looked up, on every call: a budget consumed
-    // only when the address turns out to have no account would leave probing
-    // for the ones that do unmetered, and would make the 429 itself the answer.
-    await enforceInvitationRateLimit(user.id);
+    // Spent before the address is looked up, so that a reply distinguishing an
+    // address with an account from one without always costs the caller
+    // something, whichever of the two it turns out to be.
+    await enforceInvitationLookupRateLimit(user.id);
 
     const emailLower = email.toLowerCase();
     const target = await db
@@ -963,8 +967,12 @@ router.post(
       // has to answer to the same per-invitation budget a resend does.
       await enforceInvitationResendRateLimit(existing.id);
     }
+    await enforceInvitationSendRateLimit(user.id);
 
-    const invitationId = crypto.randomUUID();
+    // Reusing the id keeps the link already in the recipient's mailbox the one
+    // that works, and lets both branches store the hash of the link being mailed
+    // — a re-invite under a rotated signing secret otherwise stores neither.
+    const invitationId = existing?.id ?? crypto.randomUUID();
     const row = await db
       .insertInto('project_invitation')
       .values({
@@ -976,11 +984,10 @@ router.post(
         token_hash: invitationTokenHash(invitationId),
         expires_at: invitationExpiry(),
       })
-      // Re-inviting extends the deadline and keeps the id, so the link already
-      // in the recipient's mailbox stays the one that works.
       .onConflict((oc) =>
         oc.columns(['project_id', 'email_lower']).doUpdateSet({
           expires_at: invitationExpiry(),
+          token_hash: invitationTokenHash(invitationId),
           ...(role === undefined ? {} : { role }),
         })
       )
@@ -1097,7 +1104,7 @@ router.post(
       'how an expired invitation is revived. The link is unchanged, so the copy the ' +
       'recipient already has keeps working. 404 when the project has no such invitation, ' +
       '429 past three resends an hour for one invitation or past the caller’s hourly ' +
-      'invitation budget. Editors only.',
+      'budget of invitation emails. Editors only.',
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
@@ -1130,7 +1137,7 @@ router.post(
       throw new AppError(404, 'Invitation not found');
     }
 
-    await enforceInvitationRateLimit(user.id);
+    await enforceInvitationSendRateLimit(user.id);
     await enforceInvitationResendRateLimit(invitationId);
 
     await db

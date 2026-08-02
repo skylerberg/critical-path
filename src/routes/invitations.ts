@@ -57,7 +57,6 @@ router.post(
       .selectFrom('project_invitation')
       .select(['id', 'project_id', 'role', 'expires_at'])
       .where('token_hash', '=', hashBearerToken(token))
-      .forUpdate()
       .executeTakeFirst();
     // Revoked, already redeemed and never-existed are one answer: the holder of
     // a failing link learns nothing about which.

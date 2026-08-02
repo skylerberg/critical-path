@@ -164,10 +164,22 @@ invitation.
 A claimer who already has access joins nothing, so the row is left alone rather
 than spent: an owner opening the copy that was mailed to them, or a member
 following a forwarded link, does not destroy the invitation the recipient is
-still holding. The response reports the access they already had. Because the
-row is consumed inside the same statement that grants from it, a revoke landing
-mid-claim always wins outright — the joiner is granted nothing rather than
-seated on an invitation that was already withdrawn.
+still holding. The response reports the access they already had.
+
+A claim deletes the row before it grants from it, and grants only from rows its
+own delete removed, so a claim and a revoke racing each other cannot both
+succeed. A revoke that gets there first wins outright — the joiner is granted
+nothing rather than seated on an invitation that was already withdrawn, and
+their redemption answers 422. A claim that gets there first wins instead, and
+the revoke behind it answers 404. Which one wins is decided by the delete, not
+by the reads either side of it.
+
+Before any of that, a claim locks the board rows it is about to join. Every
+other writer of a member row takes the board first and its invitations second,
+and a claim taking them the other way round deadlocks against a revoke issued
+under that lock. Holding the board is also what makes the role reported to the
+joiner the role that was actually stored, rather than the role the invitation
+asked for.
 
 - `GET /api/projects/:id/invitations` lists what is outstanding, expired rows
   included with their `expires_at` so the UI can offer resend rather than let
@@ -184,9 +196,11 @@ seated on an invitation that was already withdrawn.
   by a rotation of the signing secret are repaired by a resend rather than
   needing revoke-and-reinvite.
 
-Sharing with an address that has since gained an account drops any invitation
-still pending for it, since only signup claims one: the row could never be
-consumed again, while its link stayed redeemable by anyone holding it. Pending
+Re-inviting an address that is already invited re-mails the identical link and
+re-derives the stored hash for the same reason a resend does. Sharing with an
+address that has since gained an account instead drops any invitation still
+pending for it, since only signup claims one: the row could never be consumed
+again, while its link stayed redeemable by anyone holding it. Pending
 invitations are also revoked when the account that sent them loses write access
 to the board, so a demoted or removed editor cannot re-admit themselves days
 later through a link they sent in advance.
@@ -198,15 +212,23 @@ without persisting a usable secret. It authenticates nothing: it is not
 accepted as a bearer credential and creates no session.
 
 Limits: 100 pending invitations per project (expired ones count until revoked)
-answers 422; 20 share attempts an hour per inviter and 3 re-mails an hour per
-invitation answer 429. This is the only path that mails an address nobody has
-proved they control, so those limits are what bound both outbound mail and the
-rate at which an editor can probe which addresses have accounts. Bounding the
-probe is why the hourly budget is spent before the address is looked up, on
-every call — a budget charged only when the address turns out to have no
-account would leave probing for the ones that do unmetered, and would make the
-429 itself the answer. The per-invitation budget covers re-inviting the same
-address as well as `/resend`, since both re-mail the identical link.
+answers 422; three hourly budgets answer 429. Mailing an unproven address and
+finding out whether an address has an account are separate harms, so they are
+metered separately:
+
+- **100 addresses looked up an hour, per caller**, spent by every call before
+  the address is looked up. This is what bounds the rate at which an editor can
+  enumerate the user table, and spending it whatever the answer is what stops a
+  reply about an address ever being free — a budget charged only for addresses
+  with no account would leave probing for the ones that do unmetered, and would
+  make the 429 itself the answer.
+- **20 invitation emails an hour, per caller**, spent only where mail actually
+  goes out — the invitation branch here and `/resend`. Adding people who already
+  have accounts is the ordinary way a board gets its team, and it never runs
+  this down.
+- **3 re-mails an hour, per invitation**, covering re-inviting an address that
+  is already invited as well as `/resend`, since both re-mail the identical
+  link.
 
 An invitation is a 14-day grant to whoever controls that mailbox, which is the
 same trust model as adding a member by email. If the address is claimed by a
@@ -1270,7 +1292,7 @@ npm run openapi:dump && npm run --prefix cli generate-api
   for one that does not. Removing that would mean making every share an
   invitation that has to be accepted, which would end instant sharing with
   someone who already has an account. It is bounded to editors of a project and
-  to 20 addresses an hour each, whatever the answer; no unauthenticated route
+  to 100 addresses an hour each, whatever the answer; no unauthenticated route
   reveals anything about an address.
 - Float `position` ordering with no automatic rebalancing.
 - Project roles are only `editor` and `viewer`. Every editor can rename,
