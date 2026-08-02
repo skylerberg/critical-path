@@ -7,6 +7,8 @@ import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { NODE_HEIGHT, NODE_WIDTH, computeGraph, panToNode, type ViewBox } from '../lib/graph';
 import { session } from '../lib/session.svelte';
+import { projectHref, taskHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
@@ -19,11 +21,17 @@ const me = {
   email_verified: false,
 };
 
-function task(id: string, columnId: string, blockerIds: string[] = []): BoardTask {
+const A = testUuid('a');
+const B = testUuid('b');
+const C = testUuid('c');
+const X = testUuid('x');
+const Y = testUuid('y');
+
+function task(key: string, columnId: string, blockerKeys: string[] = []): BoardTask {
   return {
-    id,
+    id: testUuid(key),
     column_id: columnId,
-    title: `Task ${id}`,
+    title: `Task ${key}`,
     description: null,
     position: 1000,
     created_at: '2026-07-15T00:00:00Z',
@@ -31,7 +39,7 @@ function task(id: string, columnId: string, blockerIds: string[] = []): BoardTas
     column_since: '2026-07-15T00:00:00Z',
     label_ids: [],
     assignee_ids: [],
-    blocker_ids: blockerIds,
+    blocker_ids: blockerKeys.map(testUuid),
     image_count: 0,
     cover_image_url: null,
     due_date: null,
@@ -116,7 +124,7 @@ beforeEach(() => {
 
 describe('Graph', () => {
   it('renders a linked node per task and header tabs', async () => {
-    const projectId = 'p-graph-chain';
+    const projectId = testUuid('p-graph-chain');
     const tasks = [task('a', 'todo'), task('b', 'todo', ['a']), task('c', 'todo', ['b'])];
     fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
 
@@ -131,17 +139,17 @@ describe('Graph', () => {
     expect(screen.getByRole('heading', { name: 'Rulebook' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Board' })).toHaveAttribute(
       'href',
-      `/projects/${projectId}`
+      projectHref(projectId, 'Rulebook')
     );
     expect(screen.getByRole('link', { name: 'Graph' })).toHaveAttribute(
       'href',
-      `/projects/${projectId}/graph`
+      projectHref(projectId, 'Rulebook', 'graph')
     );
     expect(container.querySelectorAll('path[marker-end]')).toHaveLength(2);
   });
 
   it('no longer renders the critical-path legend or accent-highlighted nodes', async () => {
-    const projectId = 'p-graph-no-critical';
+    const projectId = testUuid('p-graph-no-critical');
     const tasks = [task('a', 'todo'), task('b', 'todo', ['a']), task('c', 'todo', ['b'])];
     fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
 
@@ -158,7 +166,7 @@ describe('Graph', () => {
   });
 
   it('renders each node as an anchor to the graph-preserving task path', async () => {
-    const projectId = 'p-graph-anchors';
+    const projectId = testUuid('p-graph-anchors');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo')]))
     );
@@ -168,14 +176,14 @@ describe('Graph', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
     });
-    const anchor = container.querySelector('[data-node-id="a"] a');
+    const anchor = container.querySelector(`[data-node-id="${A}"] a`);
     expect(anchor).not.toBeNull();
-    expect(anchor).toHaveAttribute('href', `/projects/${projectId}/graph/tasks/a`);
+    expect(anchor).toHaveAttribute('href', taskHref(A, 'Task a', 'graph'));
     expect(screen.getByRole('link', { name: 'Open task Task a' })).toBe(anchor);
   });
 
   it('clips a long title in the node label and in every handle name', async () => {
-    const projectId = 'p-graph-long-title';
+    const projectId = testUuid('p-graph-long-title');
     const long = 'G'.repeat(TASK_TITLE_MAX_LENGTH);
     const tasks = [{ ...task('a', 'todo'), title: long }];
     fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
@@ -186,7 +194,7 @@ describe('Graph', () => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
     });
     const shown = truncateTitle(long);
-    expect(container.querySelector('[data-node-id="a"] a span')).toHaveTextContent(shown);
+    expect(container.querySelector(`[data-node-id="${A}"] a span`)).toHaveTextContent(shown);
     expect(screen.getByRole('link', { name: `Open task ${shown}` })).not.toBeNull();
     expect(
       screen.getByRole('button', { name: `Drag to add a task that ${shown} blocks` })
@@ -197,7 +205,7 @@ describe('Graph', () => {
   });
 
   it('keeps a long press on a node from raising the link menu mid-pan', async () => {
-    const projectId = 'p-graph-longpress';
+    const projectId = testUuid('p-graph-longpress');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo')]))
     );
@@ -228,7 +236,7 @@ describe('Graph', () => {
   });
 
   it('renders the shared filter bar on the graph view with no duplicate label chips', async () => {
-    const projectId = 'p-graph-filters';
+    const projectId = testUuid('p-graph-filters');
     const withLabel = { ...task('a', 'todo'), label_ids: ['l1'] };
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, {
@@ -244,7 +252,7 @@ describe('Graph', () => {
   });
 
   it('shows the no-dependencies hint and no legend when tasks have no blockers', async () => {
-    const projectId = 'p-graph-no-deps';
+    const projectId = testUuid('p-graph-no-deps');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -259,7 +267,7 @@ describe('Graph', () => {
   });
 
   it('shows the cycle fallback instead of the graph on cyclic data', async () => {
-    const projectId = 'p-graph-cycle';
+    const projectId = testUuid('p-graph-cycle');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo', ['b']), task('b', 'todo', ['a'])]))
     );
@@ -271,7 +279,7 @@ describe('Graph', () => {
   });
 
   it('shows the empty state when the project has no tasks', async () => {
-    const projectId = 'p-graph-empty';
+    const projectId = testUuid('p-graph-empty');
     fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, [])));
 
     render(Project, { props: { projectId, view: 'graph' } });
@@ -280,7 +288,7 @@ describe('Graph', () => {
   });
 
   it('offers Clear filters when a title filter dims nodes even though the project has no labels', async () => {
-    const projectId = 'p-graph-clear-no-labels';
+    const projectId = testUuid('p-graph-clear-no-labels');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -319,7 +327,7 @@ describe('Graph dependency editing', () => {
   // Touch/pen capture the pointer on the handle, so pointerover never fires on the
   // node under the finger; the target must come from the point under the pointer.
   it('resolves the drop target from the point under the pointer and adds the dependency', async () => {
-    const projectId = 'p-graph-connect';
+    const projectId = testUuid('p-graph-connect');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -330,8 +338,8 @@ describe('Graph dependency editing', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
-    const handle = container.querySelector('[data-connect-handle="a"]');
-    const targetNode = container.querySelector('[data-node-id="b"]');
+    const handle = container.querySelector(`[data-connect-handle="${A}"]`);
+    const targetNode = container.querySelector(`[data-node-id="${B}"]`);
     expect(handle).not.toBeNull();
     expect(targetNode).not.toBeNull();
     stubElementFromPoint(targetNode);
@@ -340,11 +348,11 @@ describe('Graph dependency editing', () => {
     await fireEvent.pointerMove(window, { pointerId: 1, clientX: 200, clientY: 60 });
     await fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 60 });
 
-    expect(spy).toHaveBeenCalledWith('b', 'a');
+    expect(spy).toHaveBeenCalledWith(B, A);
   });
 
   it('ignores a connect drop back onto the source node', async () => {
-    const projectId = 'p-graph-self';
+    const projectId = testUuid('p-graph-self');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -355,8 +363,8 @@ describe('Graph dependency editing', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
-    const handle = container.querySelector('[data-connect-handle="a"]');
-    const sourceNode = container.querySelector('[data-node-id="a"]');
+    const handle = container.querySelector(`[data-connect-handle="${A}"]`);
+    const sourceNode = container.querySelector(`[data-node-id="${A}"]`);
     stubElementFromPoint(sourceNode);
 
     await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
@@ -367,7 +375,8 @@ describe('Graph dependency editing', () => {
 
   // a -> b -> c, then dragging c's front handle onto a asks for c to block a,
   // which closes the loop a -> b -> c -> a.
-  async function rejectCycleFormingDrop(projectId: string) {
+  async function rejectCycleFormingDrop(projectKey: string) {
+    const projectId = testUuid(projectKey);
     fetchMock.mockImplementation(async () =>
       jsonResponse(
         200,
@@ -380,8 +389,8 @@ describe('Graph dependency editing', () => {
     await waitFor(() => {
       expect(rendered.container.querySelectorAll('[data-node-id]')).toHaveLength(3);
     });
-    const handle = rendered.container.querySelector('[data-connect-handle="c"]');
-    stubElementFromPoint(rendered.container.querySelector('[data-node-id="a"]'));
+    const handle = rendered.container.querySelector(`[data-connect-handle="${C}"]`);
+    stubElementFromPoint(rendered.container.querySelector(`[data-node-id="${A}"]`));
 
     await fireEvent.pointerDown(handle!, { pointerId: 1, button: 0 });
     await fireEvent.pointerUp(window, { pointerId: 1, clientX: 10, clientY: 10 });
@@ -397,7 +406,7 @@ describe('Graph dependency editing', () => {
     expect(toasts.toasts.map((t) => t.message)).toEqual([
       'Adding this blocker would create a dependency cycle: Task a → Task b → Task c → Task a',
     ]);
-    expect(board.tasks.find((t) => t.id === 'a')?.blocker_ids).toEqual([]);
+    expect(board.tasks.find((t) => t.id === A)?.blocker_ids).toEqual([]);
   });
 
   it('outlines the loop nodes, its existing edges, and the edge that would close it', async () => {
@@ -405,7 +414,7 @@ describe('Graph dependency editing', () => {
 
     expect(
       [...container.querySelectorAll('[data-cycle]')].map((n) => n.getAttribute('data-node-id'))
-    ).toEqual(['a', 'b', 'c']);
+    ).toEqual([A, B, C]);
     expect(container.querySelectorAll('[data-cycle-edge]')).toHaveLength(2);
     expect(container.querySelectorAll('[data-cycle-closing-edge]')).toHaveLength(1);
     for (const path of container.querySelectorAll('[data-cycle-edge]')) {
@@ -419,8 +428,8 @@ describe('Graph dependency editing', () => {
     const closing = container.querySelector('[data-cycle-closing-edge]');
     expect(closing).not.toBeNull();
     const path = parseClosingPath(closing!.getAttribute('d') ?? '');
-    const a = nodeBox(container, 'a');
-    const c = nodeBox(container, 'c');
+    const a = nodeBox(container, A);
+    const c = nodeBox(container, C);
 
     expect(path.start).toEqual([c.left, c.centerY]);
     expect(path.end).toEqual([a.right, a.centerY]);
@@ -430,7 +439,7 @@ describe('Graph dependency editing', () => {
     // Midpoint of the cubic: the drawn curve, not just its controls, must clear the row.
     const apex =
       0.125 * path.start[1] + 0.375 * path.c1[1] + 0.375 * path.c2[1] + 0.125 * path.end[1];
-    const row = Math.max(a.bottom, nodeBox(container, 'b').bottom, c.bottom);
+    const row = Math.max(a.bottom, nodeBox(container, B).bottom, c.bottom);
     expect(apex).toBeGreaterThan(row);
   });
 
@@ -468,7 +477,7 @@ describe('Graph dependency editing', () => {
   });
 
   it('selects an edge and removes the dependency via the delete chip', async () => {
-    const projectId = 'p-graph-delete';
+    const projectId = testUuid('p-graph-delete');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo', ['a'])]))
     );
@@ -477,7 +486,7 @@ describe('Graph dependency editing', () => {
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
     const edge = await waitFor(() => {
-      const found = container.querySelector('[data-edge-id="a->b"]');
+      const found = container.querySelector(`[data-edge-id="${A}->${B}"]`);
       expect(found).not.toBeNull();
       return found!;
     });
@@ -486,11 +495,11 @@ describe('Graph dependency editing', () => {
     const chip = await screen.findByRole('button', { name: 'Remove dependency' });
     await fireEvent.click(chip);
 
-    expect(spy).toHaveBeenCalledWith('b', 'a');
+    expect(spy).toHaveBeenCalledWith(B, A);
   });
 
   it('drags the back handle to add the reverse dependency', async () => {
-    const projectId = 'p-graph-back-handle';
+    const projectId = testUuid('p-graph-back-handle');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -502,9 +511,9 @@ describe('Graph dependency editing', () => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
     const backHandle = container.querySelector(
-      '[data-connect-dir="back"][data-connect-handle="a"]'
+      `[data-connect-dir="back"][data-connect-handle="${A}"]`
     );
-    const targetNode = container.querySelector('[data-node-id="b"]');
+    const targetNode = container.querySelector(`[data-node-id="${B}"]`);
     expect(backHandle).not.toBeNull();
     stubElementFromPoint(targetNode);
 
@@ -512,11 +521,11 @@ describe('Graph dependency editing', () => {
     await fireEvent.pointerMove(window, { pointerId: 1, clientX: 200, clientY: 60 });
     await fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 60 });
 
-    expect(spy).toHaveBeenCalledWith('a', 'b');
+    expect(spy).toHaveBeenCalledWith(A, B);
   });
 
   it('keeps the front handle direction (source blocks target)', async () => {
-    const projectId = 'p-graph-front-handle';
+    const projectId = testUuid('p-graph-front-handle');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -528,19 +537,19 @@ describe('Graph dependency editing', () => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
     const frontHandle = container.querySelector(
-      '[data-connect-dir="front"][data-connect-handle="a"]'
+      `[data-connect-dir="front"][data-connect-handle="${A}"]`
     );
-    const targetNode = container.querySelector('[data-node-id="b"]');
+    const targetNode = container.querySelector(`[data-node-id="${B}"]`);
     stubElementFromPoint(targetNode);
 
     await fireEvent.pointerDown(frontHandle!, { pointerId: 1, button: 0 });
     await fireEvent.pointerUp(window, { pointerId: 1, clientX: 200, clientY: 60 });
 
-    expect(spy).toHaveBeenCalledWith('b', 'a');
+    expect(spy).toHaveBeenCalledWith(B, A);
   });
 
   it('highlights the source and target after a connect, then clears', async () => {
-    const projectId = 'p-graph-highlight';
+    const projectId = testUuid('p-graph-highlight');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -551,8 +560,8 @@ describe('Graph dependency editing', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
-    const handle = container.querySelector('[data-connect-handle="a"]');
-    const targetNode = container.querySelector('[data-node-id="b"]');
+    const handle = container.querySelector(`[data-connect-handle="${A}"]`);
+    const targetNode = container.querySelector(`[data-node-id="${B}"]`);
     stubElementFromPoint(targetNode);
 
     vi.useFakeTimers();
@@ -567,7 +576,7 @@ describe('Graph dependency editing', () => {
   });
 
   it('creates a task from the new-task control and highlights it', async () => {
-    const projectId = 'p-graph-new-task';
+    const projectId = testUuid('p-graph-new-task');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo')]))
     );
@@ -592,7 +601,7 @@ describe('Graph dependency editing', () => {
   });
 
   it('pans the viewBox to reveal a task created outside the current view', async () => {
-    const projectId = 'p-graph-pan';
+    const projectId = testUuid('p-graph-pan');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo')]))
     );
@@ -633,11 +642,11 @@ describe('Graph dependency editing', () => {
   });
 
   it('keeps the viewBox still when the created node is already visible', async () => {
-    const projectId = 'p-graph-no-pan';
+    const projectId = testUuid('p-graph-no-pan');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo')]))
     );
-    vi.spyOn(board, 'createAndLinkTask').mockResolvedValue('a');
+    vi.spyOn(board, 'createAndLinkTask').mockResolvedValue(A);
 
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
@@ -659,7 +668,7 @@ describe('Graph dependency editing', () => {
   });
 
   it('highlights nodes matching a selected label and dims the rest', async () => {
-    const projectId = 'p-graph-label-filter';
+    const projectId = testUuid('p-graph-label-filter');
     const withLabel = { ...task('a', 'todo'), label_ids: ['l1'] };
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, {
@@ -676,8 +685,8 @@ describe('Graph dependency editing', () => {
     await fireEvent.click(screen.getByRole('button', { name: /art/ }));
 
     await waitFor(() => {
-      const a = container.querySelector('[data-node-id="a"]')!;
-      const b = container.querySelector('[data-node-id="b"]')!;
+      const a = container.querySelector(`[data-node-id="${A}"]`)!;
+      const b = container.querySelector(`[data-node-id="${B}"]`)!;
       expect(a.getAttribute('class') ?? '').not.toContain('opacity-25');
       expect(a.querySelector('rect')!.getAttribute('class') ?? '').toContain('stroke-accent');
       expect(b.getAttribute('class') ?? '').toContain('opacity-25');
@@ -685,7 +694,7 @@ describe('Graph dependency editing', () => {
   });
 
   it('dims nodes whose title does not match the shared title filter', async () => {
-    const projectId = 'p-graph-title-filter';
+    const projectId = testUuid('p-graph-title-filter');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -699,16 +708,16 @@ describe('Graph dependency editing', () => {
 
     await waitFor(() => {
       expect(
-        container.querySelector('[data-node-id="a"]')!.getAttribute('class') ?? ''
+        container.querySelector(`[data-node-id="${A}"]`)!.getAttribute('class') ?? ''
       ).not.toContain('opacity-25');
-      expect(container.querySelector('[data-node-id="b"]')!.getAttribute('class') ?? '').toContain(
-        'opacity-25'
-      );
+      expect(
+        container.querySelector(`[data-node-id="${B}"]`)!.getAttribute('class') ?? ''
+      ).toContain('opacity-25');
     });
   });
 
   it('carries the active filter into every node link', async () => {
-    const projectId = 'p-graph-filtered-links';
+    const projectId = testUuid('p-graph-filtered-links');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo')]))
     );
@@ -723,13 +732,13 @@ describe('Graph dependency editing', () => {
     await waitFor(() => {
       expect(container.querySelector('a[aria-label="Open task Task a"]')).toHaveAttribute(
         'href',
-        `/projects/${projectId}/graph/tasks/a?q=Task%20a`
+        `${taskHref(A, 'Task a', 'graph')}?q=Task%20a`
       );
     });
   });
 
   it('keeps a freshly created highlighted node at full opacity even when it fails the active filter', async () => {
-    const projectId = 'p-graph-pulse-exempt';
+    const projectId = testUuid('p-graph-pulse-exempt');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo')]))
     );
@@ -758,7 +767,7 @@ describe('Graph dependency editing', () => {
   });
 
   it('points the back-handle preview arrow at the source origin while the tail tracks the pointer', async () => {
-    const projectId = 'p-graph-back-preview';
+    const projectId = testUuid('p-graph-back-preview');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -769,7 +778,7 @@ describe('Graph dependency editing', () => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
     const backHandle = container.querySelector(
-      '[data-connect-dir="back"][data-connect-handle="a"]'
+      `[data-connect-dir="back"][data-connect-handle="${A}"]`
     );
     stubElementFromPoint(null);
 
@@ -784,7 +793,7 @@ describe('Graph dependency editing', () => {
   });
 
   it('points the front-handle preview arrow at the drop target while the tail stays at the source', async () => {
-    const projectId = 'p-graph-front-preview';
+    const projectId = testUuid('p-graph-front-preview');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -795,7 +804,7 @@ describe('Graph dependency editing', () => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
     const frontHandle = container.querySelector(
-      '[data-connect-dir="front"][data-connect-handle="a"]'
+      `[data-connect-dir="front"][data-connect-handle="${A}"]`
     );
     stubElementFromPoint(null);
 
@@ -811,7 +820,7 @@ describe('Graph dependency editing', () => {
 });
 
 describe('Graph new-task drafts', () => {
-  const projectId = 'p-graph-draft';
+  const projectId = testUuid('p-graph-draft');
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -866,7 +875,7 @@ describe('Graph new-task drafts', () => {
 
   it('closes and clears the draft on submit', async () => {
     mockGraph();
-    vi.spyOn(board, 'createAndLinkTask').mockResolvedValue('a');
+    vi.spyOn(board, 'createAndLinkTask').mockResolvedValue(A);
     render(Project, { props: { projectId, view: 'graph' } });
     await openAndType('Ship it');
 
@@ -895,7 +904,7 @@ describe('Graph new-task drafts', () => {
     await openAndType('Project one only');
     first.unmount();
 
-    const other = 'p-graph-draft-other';
+    const other = testUuid('p-graph-draft-other');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(other, [task('a', 'todo')]))
     );
@@ -908,7 +917,7 @@ describe('Graph new-task drafts', () => {
 
 describe('Graph done-task visibility', () => {
   it('hides done tasks and the edges into them by default', async () => {
-    const projectId = 'p-graph-done-default';
+    const projectId = testUuid('p-graph-done-default');
     const tasks = [task('a', 'done'), task('b', 'todo', ['a']), task('c', 'todo', ['b'])];
     fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
 
@@ -917,12 +926,12 @@ describe('Graph done-task visibility', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
-    expect(container.querySelector('[data-node-id="a"]')).toBeNull();
+    expect(container.querySelector(`[data-node-id="${A}"]`)).toBeNull();
     expect(container.querySelectorAll('path[marker-end]')).toHaveLength(1);
   });
 
   it('shows them again when the toggle is pressed, and hides them when pressed back', async () => {
-    const projectId = 'p-graph-done-toggle';
+    const projectId = testUuid('p-graph-done-toggle');
     const tasks = [task('a', 'done'), task('b', 'todo', ['a'])];
     fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
 
@@ -945,7 +954,7 @@ describe('Graph done-task visibility', () => {
   });
 
   it('offers no toggle when the project has nothing done', async () => {
-    const projectId = 'p-graph-done-none';
+    const projectId = testUuid('p-graph-done-none');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo')]))
     );
@@ -959,7 +968,7 @@ describe('Graph done-task visibility', () => {
   });
 
   it('explains the empty graph when every task is done rather than telling you to add tasks', async () => {
-    const projectId = 'p-graph-done-all';
+    const projectId = testUuid('p-graph-done-all');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'done'), task('b', 'done', ['a'])]))
     );
@@ -976,18 +985,19 @@ describe('Graph done-task visibility', () => {
   });
 
   it('keeps the toggle on across a trip to the board and resets it on another project', async () => {
-    const projectId = 'p-graph-done-persist';
+    const projectId = testUuid('p-graph-done-persist');
+    const otherId = testUuid('p-graph-done-other');
     fetchMock.mockImplementation(async (input) => {
       const { pathname } = new URL((input as Request).url);
-      return pathname.includes('p-graph-done-other')
-        ? jsonResponse(200, payload('p-graph-done-other', [task('x', 'done'), task('y', 'todo')]))
+      return pathname.includes(otherId)
+        ? jsonResponse(200, payload(otherId, [task('x', 'done'), task('y', 'todo')]))
         : jsonResponse(200, payload(projectId, [task('a', 'done'), task('b', 'todo')]));
     });
 
     const view = render(Project, { props: { projectId, view: 'graph' } });
     await fireEvent.click(await screen.findByRole('button', { name: 'Show done (1)' }));
     await waitFor(() => {
-      expect(view.container.querySelectorAll('[data-node-id="a"]')).toHaveLength(1);
+      expect(view.container.querySelectorAll(`[data-node-id="${A}"]`)).toHaveLength(1);
     });
 
     await view.rerender({ projectId, view: 'board' });
@@ -997,11 +1007,11 @@ describe('Graph done-task visibility', () => {
       'true'
     );
 
-    await view.rerender({ projectId: 'p-graph-done-other', view: 'graph' });
+    await view.rerender({ projectId: otherId, view: 'graph' });
     await waitFor(() => {
-      expect(view.container.querySelector('[data-node-id="y"]')).not.toBeNull();
+      expect(view.container.querySelector(`[data-node-id="${Y}"]`)).not.toBeNull();
     });
-    expect(view.container.querySelector('[data-node-id="x"]')).toBeNull();
+    expect(view.container.querySelector(`[data-node-id="${X}"]`)).toBeNull();
     expect(screen.getByRole('button', { name: 'Show done (1)' })).toHaveAttribute(
       'aria-pressed',
       'false'
@@ -1009,7 +1019,7 @@ describe('Graph done-task visibility', () => {
   });
 
   it('hides a done task that a live task blocks, not just done blockers', async () => {
-    const projectId = 'p-graph-done-downstream';
+    const projectId = testUuid('p-graph-done-downstream');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'done', ['a'])]))
     );
@@ -1019,12 +1029,12 @@ describe('Graph done-task visibility', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
     });
-    expect(container.querySelector('[data-node-id="a"]')).not.toBeNull();
+    expect(container.querySelector(`[data-node-id="${A}"]`)).not.toBeNull();
     expect(container.querySelectorAll('path[marker-end]')).toHaveLength(0);
   });
 
   it('keeps the toggle reachable when showing done tasks reveals a cycle', async () => {
-    const projectId = 'p-graph-done-cycle';
+    const projectId = testUuid('p-graph-done-cycle');
     fetchMock.mockImplementation(async () =>
       jsonResponse(
         200,
@@ -1046,7 +1056,7 @@ describe('Graph done-task visibility', () => {
   });
 
   it('creates graph tasks in the first column that is not done', async () => {
-    const projectId = 'p-graph-done-create';
+    const projectId = testUuid('p-graph-done-create');
     const payloadWithDoneFirst = {
       ...payload(projectId, [task('a', 'todo')]),
       columns: [
@@ -1091,7 +1101,7 @@ describe('Graph for a viewer', () => {
   }
 
   it('drops the new-task control, the connect handles and the drag hint', async () => {
-    const projectId = 'p-graph-viewer';
+    const projectId = testUuid('p-graph-viewer');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, viewerPayload(projectId, [task('a', 'todo'), task('b', 'todo')]))
     );
@@ -1108,7 +1118,7 @@ describe('Graph for a viewer', () => {
   });
 
   it('offers no way to delete a selected edge', async () => {
-    const projectId = 'p-graph-viewer-edge';
+    const projectId = testUuid('p-graph-viewer-edge');
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, viewerPayload(projectId, [task('a', 'todo'), task('b', 'todo', ['a'])]))
     );
@@ -1126,7 +1136,7 @@ describe('Graph for a viewer', () => {
   });
 
   it('says the graph is empty without pointing at a board it cannot add to', async () => {
-    const projectId = 'p-graph-viewer-empty';
+    const projectId = testUuid('p-graph-viewer-empty');
     fetchMock.mockImplementation(async () => jsonResponse(200, viewerPayload(projectId, [])));
 
     render(Project, { props: { projectId, view: 'graph' } });

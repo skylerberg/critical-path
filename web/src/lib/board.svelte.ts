@@ -1178,9 +1178,22 @@ class BoardStore {
     return labelIds.filter((id) => this.labels.some((label) => label.id === id));
   }
 
+  // A task URL names no project, so an id comparison alone would silently stop
+  // syncing filters to the address bar whenever an overlay is open.
+  #routeTargetsCurrentProject(params: { projectId: string | null; taskId?: string }): boolean {
+    if (params.projectId !== null) {
+      return params.projectId === this.currentProjectId;
+    }
+    return (
+      params.taskId !== undefined &&
+      (this.tasks.some((t) => t.id === params.taskId) ||
+        this.archivedTasks.some((t) => t.id === params.taskId))
+    );
+  }
+
   #writeFilterUrl(): void {
     const route = router.current;
-    if (route.name !== 'project' || route.params.id !== this.currentProjectId) {
+    if (route.name !== 'project' || !this.#routeTargetsCurrentProject(route.params)) {
       return;
     }
     const { pathname, search } = splitPath(router.path);
@@ -1672,20 +1685,22 @@ class BoardStore {
         this.#replaceComments(d.task_id, (comments) => comments.filter((c) => c.id !== d.id));
         break;
       }
-      // Membership only: propagating a rename to an open header is a separate gap.
-      // created_by counts as membership here because the creator is an implicit
-      // editor, so a transfer that left it behind would strip the new owner's
-      // editing and keep offering it to the old one.
+      // The name carries the board's URL slug, so a teammate's rename has to reach
+      // the header and the address bar alike. created_by counts as membership
+      // because the creator is an implicit editor, so a transfer that left it
+      // behind would strip the new owner's editing and keep offering it to the old
+      // one.
       case 'project_updated': {
         const d = event.data as Partial<BoardProject>;
         const project = this.project;
-        if (project === null || d.members === undefined) {
+        if (project === null) {
           break;
         }
         this.project = {
           ...project,
+          name: d.name ?? project.name,
           created_by: d.created_by ?? project.created_by,
-          members: d.members,
+          members: d.members ?? project.members,
           member_ids: d.member_ids ?? project.member_ids,
         };
         break;

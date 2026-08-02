@@ -7,6 +7,8 @@ import { projects, type Project } from '../lib/projects.svelte';
 import { noFilters } from '../lib/board-filters';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
+import { projectHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
 
 // jsdom does not implement <dialog> show/close methods.
@@ -20,7 +22,7 @@ HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) {
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [];
   return {
-    id: 'p-1',
+    id: testUuid('p-1'),
     name: 'Alpha',
     description: '',
     archived_at: null,
@@ -45,6 +47,10 @@ const me = {
 };
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
 
+const ACTIVE_ID = testUuid('p-active');
+const SHARED_ID = testUuid('p-shared');
+const MINE_ID = testUuid('p-mine');
+
 // The share modal loads the pending list for an editor, so tests that open it
 // still need a well-formed answer for that one request.
 function mockApi(handler: (request: Request, url: URL) => Response): void {
@@ -58,7 +64,7 @@ function mockApi(handler: (request: Request, url: URL) => Response): void {
 }
 
 const activeProject = project({
-  id: 'p-active',
+  id: ACTIVE_ID,
   name: 'Alpha',
   description: 'A deck-building game',
   created_by: me.id,
@@ -66,7 +72,7 @@ const activeProject = project({
   done_task_count: 3,
 });
 const archivedProject = project({
-  id: 'p-archived',
+  id: testUuid('p-archived'),
   name: 'Old prototype',
   archived_at: '2026-02-01T00:00:00.000Z',
   created_at: '2026-01-03T00:00:00.000Z',
@@ -91,7 +97,7 @@ describe('Projects', () => {
 
     expect(await screen.findByRole('link', { name: 'Alpha' })).toHaveAttribute(
       'href',
-      '/projects/p-active'
+      projectHref(ACTIVE_ID, 'Alpha')
     );
     expect(screen.getByText('A deck-building game')).toBeInTheDocument();
     expect(screen.getByText('5 open')).toBeInTheDocument();
@@ -124,7 +130,7 @@ describe('Projects', () => {
   it('keeps the full project name available when the title truncates', async () => {
     const longName = 'Alpha '.repeat(20).trim();
     fetchMock.mockImplementation(async () =>
-      jsonResponse(200, { projects: [project({ id: 'p-long', name: longName })] })
+      jsonResponse(200, { projects: [project({ id: testUuid('p-long'), name: longName })] })
     );
     render(Projects);
 
@@ -137,7 +143,7 @@ describe('Projects', () => {
     const longDescription = 'A deck-building game about deck-building games. '.repeat(9).trim();
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, {
-        projects: [project({ id: 'p-wordy', description: longDescription })],
+        projects: [project({ id: testUuid('p-wordy'), description: longDescription })],
       })
     );
     render(Projects);
@@ -153,7 +159,7 @@ describe('Projects', () => {
 
   it('omits the description line when a project has none', async () => {
     fetchMock.mockImplementation(async () =>
-      jsonResponse(200, { projects: [project({ id: 'p-plain', name: 'Plain' })] })
+      jsonResponse(200, { projects: [project({ id: testUuid('p-plain'), name: 'Plain' })] })
     );
     render(Projects);
 
@@ -196,10 +202,10 @@ describe('Projects', () => {
 
     await fireEvent.click(await screen.findByRole('link', { name: 'Alpha' }));
 
-    expect(router.path).toBe('/projects/p-active');
+    expect(router.path).toBe(projectHref(ACTIVE_ID, 'Alpha'));
     expect(router.current).toEqual({
       name: 'project',
-      params: { id: 'p-active', view: 'board', filters: noFilters() },
+      params: { projectId: ACTIVE_ID, view: 'board', filters: noFilters() },
     });
   });
 
@@ -269,7 +275,7 @@ describe('Projects', () => {
     )![0] as Request;
     expect(new URL(post.url).pathname).toBe('/api/projects');
     const body = (await post.clone().json()) as Record<string, unknown>;
-    expect(body.source_project_id).toBe('p-active');
+    expect(body.source_project_id).toBe(ACTIVE_ID);
     expect(body.name).toBe('Alpha copy');
   });
 
@@ -287,7 +293,7 @@ describe('Projects', () => {
 
   it('hides only Delete on a board created by someone else', async () => {
     const theirs = project({
-      id: 'p-theirs',
+      id: testUuid('p-theirs'),
       name: 'Ada Game',
       created_by: ada.id,
       member_ids: [me.id],
@@ -306,7 +312,7 @@ describe('Projects', () => {
   it('lists the owner and members in the members modal', async () => {
     users.users = [me, ada];
     const shared = project({
-      id: 'p-shared',
+      id: SHARED_ID,
       name: 'Team Game',
       created_by: me.id,
       member_ids: [ada.id],
@@ -329,9 +335,9 @@ describe('Projects', () => {
   it('adds a member by email from the members modal', async () => {
     users.users = [me];
     const added = { id: 'u-added', email: 'pat@example.com', name: 'Pat', avatar_url: null };
-    const mine = project({ id: 'p-mine', name: 'Solo Game', created_by: me.id });
+    const mine = project({ id: MINE_ID, name: 'Solo Game', created_by: me.id });
     mockApi((_request, url) =>
-      url.pathname === '/api/projects/p-mine/members/by-email'
+      url.pathname === `/api/projects/${MINE_ID}/members/by-email`
         ? jsonResponse(200, { status: 'member', role: 'editor', user: added, invitation: null })
         : jsonResponse(200, { projects: [mine] })
     );
@@ -356,7 +362,7 @@ describe('Projects', () => {
   it('removes a member by PUTting the reduced set', async () => {
     users.users = [me, ada];
     const shared = project({
-      id: 'p-shared',
+      id: SHARED_ID,
       name: 'Team Game',
       created_by: me.id,
       member_ids: [ada.id, 'u-3'],
@@ -375,7 +381,7 @@ describe('Projects', () => {
       expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
     });
     const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
-    expect(new URL(put.url).pathname).toBe('/api/projects/p-shared/members');
+    expect(new URL(put.url).pathname).toBe(`/api/projects/${SHARED_ID}/members`);
     expect(await put.clone().json()).toEqual({ user_ids: ['u-3'] });
     expect(screen.queryByRole('button', { name: 'Remove Ada' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Add Ada' })).toBeInTheDocument();
@@ -384,7 +390,7 @@ describe('Projects', () => {
   it('leaves a shared board by PUTting the set minus self', async () => {
     users.users = [me, ada];
     const shared = project({
-      id: 'p-shared',
+      id: SHARED_ID,
       name: 'Team Game',
       created_by: ada.id,
       member_ids: [me.id, 'u-3'],
@@ -403,7 +409,7 @@ describe('Projects', () => {
       expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
     });
     const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
-    expect(new URL(put.url).pathname).toBe('/api/projects/p-shared/members');
+    expect(new URL(put.url).pathname).toBe(`/api/projects/${SHARED_ID}/members`);
     expect(await put.clone().json()).toEqual({ user_ids: ['u-3'] });
     expect(screen.queryByRole('link', { name: 'Team Game' })).toBeNull();
   });
@@ -412,7 +418,7 @@ describe('Projects', () => {
 describe('Projects card menu for a viewer', () => {
   it('keeps only the read-safe entries', async () => {
     const theirs = project({
-      id: 'p-theirs',
+      id: testUuid('p-theirs'),
       name: 'Ada Game',
       created_by: ada.id,
       member_ids: [me.id],

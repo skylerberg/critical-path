@@ -5,6 +5,8 @@ import Account from './Account.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
 import { session } from '../lib/session.svelte';
+import { projectHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
 
 vi.mock('../lib/realtime.svelte', () => ({
@@ -23,6 +25,8 @@ const user = {
   avatar_url: null,
   email_verified: false,
 };
+const PROJECT_ID = testUuid('p-1');
+const BLOCKING_PROJECT_ID = testUuid('p-9');
 
 async function loginAs(): Promise<void> {
   fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'tok', user }));
@@ -91,7 +95,7 @@ async function renderedLines(emailVerified: boolean): Promise<string[]> {
 function seedProject(overrides: Partial<Project>): void {
   projects.projects = [
     {
-      id: 'p-1',
+      id: PROJECT_ID,
       name: 'Shared Ledger',
       description: '',
       archived_at: null,
@@ -535,7 +539,7 @@ describe('Account', () => {
   it('names the blocking boards from the conflict body and refetches the projects', async () => {
     mockRoutes(409, {
       error: 'You still own projects that other people are members of.',
-      blocking_projects: [{ id: 'p-9', name: 'Shared Ledger' }],
+      blocking_projects: [{ id: BLOCKING_PROJECT_ID, name: 'Shared Ledger' }],
     });
     render(Account);
 
@@ -562,7 +566,7 @@ describe('Account', () => {
 
     expect(screen.getByRole('link', { name: 'Shared Ledger' })).toHaveAttribute(
       'href',
-      '/projects/p-1'
+      projectHref(PROJECT_ID, 'Shared Ledger')
     );
     expect(screen.getByRole('button', { name: 'Delete account' })).toBeDisabled();
     expect(deleteDialog()).toBeNull();

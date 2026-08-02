@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { api, ApiError } from '../api/client';
 import { consumeIntendedPath, rememberIntendedPath, session } from './session.svelte';
 import { matchRoute, router } from './router.svelte';
+import { projectHref, publicBoardHref } from './short-links';
+import { testUuid } from './test-ids';
 
 const user = {
   id: 'a3bb189e-8bf9-3888-9912-ace4e6543002',
@@ -12,6 +14,9 @@ const user = {
   email_verified: false,
 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const PROJECT_ID = testUuid('p1');
+const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
+const PUBLIC_BOARD_PATH = publicBoardHref(PROJECT_ID);
 
 async function loginAs(email = user.email): Promise<void> {
   fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'tok-live', user }));
@@ -31,8 +36,8 @@ beforeEach(async () => {
 
 describe('intended path', () => {
   it('consumes the remembered path once', () => {
-    rememberIntendedPath('/projects/p1');
-    expect(consumeIntendedPath()).toBe('/projects/p1');
+    rememberIntendedPath(BOARD_PATH);
+    expect(consumeIntendedPath()).toBe(BOARD_PATH);
     expect(consumeIntendedPath()).toBe('/');
   });
 });
@@ -60,7 +65,7 @@ describe('session.init', () => {
   });
 
   it('clears the token and redirects to login on 401', async () => {
-    router.navigate('/projects/p1');
+    router.navigate(BOARD_PATH);
     localStorage.setItem('cp.token', 'tok-expired');
     fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Unauthorized' }));
 
@@ -69,11 +74,11 @@ describe('session.init', () => {
     expect(session.status).toBe('anon');
     expect(localStorage.getItem('cp.token')).toBeNull();
     expect(window.location.pathname).toBe('/login');
-    expect(consumeIntendedPath()).toBe('/projects/p1');
+    expect(consumeIntendedPath()).toBe(BOARD_PATH);
   });
 
   it('leaves a stale-token visitor on the public board instead of bouncing to login', async () => {
-    router.navigate('/public/projects/p1');
+    router.navigate(PUBLIC_BOARD_PATH);
     localStorage.setItem('cp.token', 'tok-expired');
     fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Unauthorized' }));
 
@@ -81,7 +86,7 @@ describe('session.init', () => {
 
     expect(session.status).toBe('anon');
     expect(localStorage.getItem('cp.token')).toBeNull();
-    expect(window.location.pathname).toBe('/public/projects/p1');
+    expect(window.location.pathname).toBe(PUBLIC_BOARD_PATH);
     expect(consumeIntendedPath()).toBe('/');
   });
 
@@ -245,7 +250,7 @@ describe('session.logout', () => {
 describe('401 on an authed call', () => {
   it('clears the session and redirects to login remembering the path', async () => {
     await loginAs();
-    router.navigate('/projects/p1');
+    router.navigate(BOARD_PATH);
     fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Unauthorized' }));
 
     await api.GET('/api/users');
@@ -253,14 +258,14 @@ describe('401 on an authed call', () => {
     expect(session.status).toBe('anon');
     expect(localStorage.getItem('cp.token')).toBeNull();
     expect(window.location.pathname).toBe('/login');
-    expect(consumeIntendedPath()).toBe('/projects/p1');
+    expect(consumeIntendedPath()).toBe(BOARD_PATH);
   });
 });
 
 describe('session.guardRoute', () => {
   it('redirects anon users to login and remembers the path', () => {
-    expect(session.guardRoute(matchRoute('/projects/p1'), '/projects/p1')).toBe('/login');
-    expect(consumeIntendedPath()).toBe('/projects/p1');
+    expect(session.guardRoute(matchRoute(BOARD_PATH), BOARD_PATH)).toBe('/login');
+    expect(consumeIntendedPath()).toBe(BOARD_PATH);
   });
 
   it('lets anon users reach every public route', () => {
@@ -284,7 +289,7 @@ describe('session.guardRoute', () => {
     expect(session.guardRoute(matchRoute('/forgot-password'), '/forgot-password')).toBe('/');
     expect(session.guardRoute(matchRoute('/reset-password'), '/reset-password')).toBe('/');
     expect(session.guardRoute(matchRoute('/account'), '/account')).toBeUndefined();
-    expect(session.guardRoute(matchRoute('/projects/p1'), '/projects/p1')).toBeUndefined();
+    expect(session.guardRoute(matchRoute(BOARD_PATH), BOARD_PATH)).toBeUndefined();
   });
 
   it('lets both anon and authed visitors reach the unsubscribe page', async () => {
@@ -298,13 +303,9 @@ describe('session.guardRoute', () => {
   });
 
   it('lets both anon and authed visitors reach a public board', async () => {
-    expect(
-      session.guardRoute(matchRoute('/public/projects/p1'), '/public/projects/p1')
-    ).toBeUndefined();
+    expect(session.guardRoute(matchRoute(PUBLIC_BOARD_PATH), PUBLIC_BOARD_PATH)).toBeUndefined();
     await loginAs();
-    expect(
-      session.guardRoute(matchRoute('/public/projects/p1'), '/public/projects/p1')
-    ).toBeUndefined();
+    expect(session.guardRoute(matchRoute(PUBLIC_BOARD_PATH), PUBLIC_BOARD_PATH)).toBeUndefined();
     expect(consumeIntendedPath()).toBe('/');
   });
 
@@ -321,7 +322,7 @@ describe('session.guardRoute', () => {
   it('does nothing while the session is unknown', () => {
     session.status = 'unknown';
     try {
-      expect(session.guardRoute(matchRoute('/projects/p1'), '/projects/p1')).toBeUndefined();
+      expect(session.guardRoute(matchRoute(BOARD_PATH), BOARD_PATH)).toBeUndefined();
     } finally {
       session.status = 'anon';
     }

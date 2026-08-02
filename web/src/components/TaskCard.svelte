@@ -4,7 +4,8 @@
   import { board } from '../lib/board.svelte';
   import type { BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, focusCard } from '../lib/card-menu.svelte';
-  import { boardPath, link } from '../lib/router.svelte';
+  import { link } from '../lib/router.svelte';
+  import { publicTaskHref, taskHref } from '../lib/short-links';
   import { selection } from '../lib/selection.svelte';
   import { isCalendarDate } from '../lib/dates';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
@@ -130,7 +131,9 @@
   {#if !renaming}
     <a
       use:link
-      href={`${boardPath(projectId, board.readonly)}/tasks/${task.id}${board.filterSearch}`}
+      href={board.readonly
+        ? publicTaskHref(projectId, task.id)
+        : taskHref(task.id, task.title) + board.filterSearch}
       draggable="false"
       aria-label={shownTitle}
       class="absolute inset-0 rounded-md"

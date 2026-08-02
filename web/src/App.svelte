@@ -10,6 +10,7 @@
   import { realtime } from './lib/realtime.svelte';
   import { search } from './lib/search.svelte';
   import { shortcuts } from './lib/shortcuts.svelte';
+  import { taskRoute } from './lib/task-route.svelte';
   import { toasts } from './lib/toasts.svelte';
   import { webhooks } from './lib/webhooks.svelte';
   import Login from './routes/Login.svelte';
@@ -23,7 +24,7 @@
   import Projects from './routes/Projects.svelte';
   import MyTasks from './routes/MyTasks.svelte';
   import Search from './routes/Search.svelte';
-  import Project from './routes/Project.svelte';
+  import ProjectRoute from './routes/ProjectRoute.svelte';
   import PublicBoard from './routes/PublicBoard.svelte';
   import NotFound from './routes/NotFound.svelte';
   import Nav from './components/Nav.svelte';
@@ -53,6 +54,7 @@
       myTasks.reset();
       projects.reset();
       search.reset();
+      taskRoute.reset();
       webhooks.reset();
       drafts.clearAll();
       realtime.disconnect();
@@ -122,8 +124,8 @@
     {:else if route.name === 'search'}
       <Search q={route.params.q} />
     {:else if route.name === 'project'}
-      <Project
-        projectId={route.params.id}
+      <ProjectRoute
+        projectId={route.params.projectId}
         view={route.params.view}
         taskId={route.params.taskId}
         filters={route.params.filters}

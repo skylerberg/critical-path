@@ -10,7 +10,18 @@ import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';
 import { selection } from '../lib/selection.svelte';
 import { session } from '../lib/session.svelte';
+import { publicTaskHref, taskHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import type { BoardTask } from '../lib/board-types';
+
+const PROJECT_ID = testUuid('p1');
+const OTHER_PROJECT_ID = testUuid('p2');
+const T1 = testUuid('t1');
+const T2 = testUuid('t2');
+const T3 = testUuid('t3');
+const T4 = testUuid('t4');
+const T5 = testUuid('t5');
+const T6 = testUuid('t6');
 
 const { zoneOptions } = vi.hoisted(() => ({ zoneOptions: [] as Options[] }));
 
@@ -71,10 +82,10 @@ beforeEach(() => {
   drafts.clearAll();
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
   board.tasks = [
-    task('t1', 'c1', 1000, 'plain one'),
-    task('t2', 'c1', 2000, 'match a'),
-    task('t3', 'c1', 3000, 'plain two'),
-    task('t4', 'c1', 4000, 'match b'),
+    task(T1, 'c1', 1000, 'plain one'),
+    task(T2, 'c1', 2000, 'match a'),
+    task(T3, 'c1', 3000, 'plain two'),
+    task(T4, 'c1', 4000, 'match b'),
   ];
 });
 
@@ -168,7 +179,7 @@ async function frames(count = 3): Promise<void> {
 
 describe('Board display order', () => {
   it('renders tasks in pure position order without filters', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     await screen.findByText('match a');
     expect(cardTitles()).toEqual(['plain one', 'match a', 'plain two', 'match b']);
@@ -176,7 +187,7 @@ describe('Board display order', () => {
 
   it('renders matching tasks above dimmed ones while a filter is active', async () => {
     board.setFilterQuery('match');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     await screen.findByText('match a');
     expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
@@ -189,7 +200,7 @@ describe('Board display order', () => {
 
 describe('Board column header count', () => {
   it('shows the plain total when no filter is active', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     await screen.findByText('plain one');
     expect(within(header('Todo')).getByText('4')).toHaveTextContent('4 tasks');
@@ -198,7 +209,7 @@ describe('Board column header count', () => {
 
   it('shows matches and total while a filter is active', async () => {
     board.setFilterQuery('match');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     await screen.findByText('match a');
     expect(within(header('Todo')).getByText('2 of 4')).toHaveTextContent(
@@ -207,7 +218,7 @@ describe('Board column header count', () => {
   });
 
   it('updates the header when a filter is applied and cleared after render', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
     board.setFilterQuery('match');
@@ -224,11 +235,11 @@ describe('Board column header count', () => {
     ];
     board.tasks = [
       ...board.tasks,
-      task('t5', 'c2', 1000, 'match c'),
-      task('t6', 'c2', 2000, 'plain three'),
+      task(T5, 'c2', 1000, 'match c'),
+      task(T6, 'c2', 2000, 'plain three'),
     ];
     board.setFilterQuery('match');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     await screen.findByText('match a');
     expect(within(header('Todo')).getByText('2 of 4')).toBeInTheDocument();
@@ -238,16 +249,16 @@ describe('Board column header count', () => {
   it('shows 0 of 0 for a column with no tasks while a filter is active', async () => {
     board.columns = [...board.columns, { id: 'c3', name: 'Empty', position: 3000, is_done: false }];
     board.setFilterQuery('match');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     await screen.findByText('match a');
     expect(within(header('Empty')).getByText('0 of 0')).toBeInTheDocument();
   });
 
   it('counts a label filter, not just the title query', async () => {
-    board.tasks = board.tasks.map((t) => (t.id === 't2' ? { ...t, label_ids: ['l1'] } : t));
+    board.tasks = board.tasks.map((t) => (t.id === T2 ? { ...t, label_ids: ['l1'] } : t));
     board.filterLabelIds = ['l1'];
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     await screen.findByText('match a');
     expect(within(header('Todo')).getByText('1 of 4')).toBeInTheDocument();
@@ -256,7 +267,7 @@ describe('Board column header count', () => {
 
 describe('Board readonly', () => {
   it('drops every editing affordance', async () => {
-    render(Board, { props: { projectId: 'p1', readonly: true } });
+    render(Board, { props: { projectId: PROJECT_ID, readonly: true } });
 
     await screen.findByText('plain one');
     expect(screen.queryByRole('button', { name: '+ Add column' })).toBeNull();
@@ -270,22 +281,22 @@ describe('Board readonly', () => {
   });
 
   it('keeps the private card path for a read-only member', async () => {
-    render(Board, { props: { projectId: 'p1', readonly: true } });
+    render(Board, { props: { projectId: PROJECT_ID, readonly: true } });
     await screen.findByText('plain one');
 
-    expect(column().querySelector('a')).toHaveAttribute('href', '/projects/p1/tasks/t1');
+    expect(column().querySelector('a')).toHaveAttribute('href', taskHref(T1, 'plain one'));
   });
 
   it('links cards at the public path on a public board', async () => {
     board.readonly = true;
-    render(Board, { props: { projectId: 'p1', readonly: true } });
+    render(Board, { props: { projectId: PROJECT_ID, readonly: true } });
     await screen.findByText('plain one');
 
-    expect(column().querySelector('a')).toHaveAttribute('href', '/public/projects/p1/tasks/t1');
+    expect(column().querySelector('a')).toHaveAttribute('href', publicTaskHref(PROJECT_ID, T1));
   });
 
   it('disables dragging in both dnd zones', async () => {
-    render(Board, { props: { projectId: 'p1', readonly: true } });
+    render(Board, { props: { projectId: PROJECT_ID, readonly: true } });
     await screen.findByText('plain one');
 
     for (const type of ['column', 'task']) {
@@ -297,7 +308,7 @@ describe('Board readonly', () => {
   });
 
   it('keeps every affordance and the private path when not readonly', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     await screen.findByText('plain one');
     expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
@@ -305,7 +316,7 @@ describe('Board readonly', () => {
     expect(
       within(header('Todo')).getByRole('button', { name: 'Options for Todo' })
     ).toBeInTheDocument();
-    expect(column().querySelector('a')).toHaveAttribute('href', '/projects/p1/tasks/t1');
+    expect(column().querySelector('a')).toHaveAttribute('href', taskHref(T1, 'plain one'));
     expect(configsOfType('task').at(-1)?.dragDisabled).toBe(false);
     expect(configsOfType('task').at(-1)?.zoneItemTabIndex).toBe(0);
   });
@@ -313,7 +324,7 @@ describe('Board readonly', () => {
 
 describe('Board snapping', () => {
   it('centers snap targets below md, aligns them to the start from md, and drops snapping at lg', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
     expect(scroller()).toHaveClass(
@@ -337,7 +348,7 @@ describe('Board snapping', () => {
   // overflow the document — which on mobile expands the layout viewport and
   // pushes the fixed bottom nav off-screen / wider than the screen.
   it('contains the board vertically without relying on percentage height', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
     expect(scroller()).toHaveClass('relative', 'flex', 'flex-col', 'overflow-y-hidden', 'min-h-0');
@@ -364,7 +375,7 @@ describe('Board add-column drafts', () => {
   }
 
   it('focuses the input when the user opens the composer', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     await fireEvent.click(screen.getByRole('button', { name: '+ Add column' }));
 
@@ -372,11 +383,11 @@ describe('Board add-column drafts', () => {
   });
 
   it('restores an unsent column name on remount without stealing focus', async () => {
-    const first = render(Board, { props: { projectId: 'p1' } });
+    const first = render(Board, { props: { projectId: PROJECT_ID } });
     await typeName('Backlog');
     first.unmount();
 
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     const restored = nameInput();
     expect(restored).toHaveValue('Backlog');
@@ -384,7 +395,7 @@ describe('Board add-column drafts', () => {
   });
 
   it('stays open when the text is emptied', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await typeName('Backlog');
 
     await fireEvent.input(nameInput(), { target: { value: '' } });
@@ -393,35 +404,35 @@ describe('Board add-column drafts', () => {
   });
 
   it('closes and clears the draft on submit', async () => {
-    board.currentProjectId = 'p1';
-    render(Board, { props: { projectId: 'p1' } });
+    board.currentProjectId = PROJECT_ID;
+    render(Board, { props: { projectId: PROJECT_ID } });
     await typeName('Backlog');
 
     await fireEvent.submit(nameInput().closest('form')!);
 
     expect(board.columns.map((column) => column.name)).toEqual(['Todo', 'Backlog']);
     expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
-    expect(drafts.get(draftKey.addColumn('p1'))).toBeNull();
+    expect(drafts.get(draftKey.addColumn(PROJECT_ID))).toBeNull();
   });
 
   it('stays closed on remount after Escape discarded the draft', async () => {
-    const first = render(Board, { props: { projectId: 'p1' } });
+    const first = render(Board, { props: { projectId: PROJECT_ID } });
     await typeName('Discard me');
     await fireEvent.keyDown(nameInput(), { key: 'Escape' });
     first.unmount();
 
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
-    expect(drafts.get(draftKey.addColumn('p1'))).toBeNull();
+    expect(drafts.get(draftKey.addColumn(PROJECT_ID))).toBeNull();
   });
 
   it('does not leak a draft into another project', async () => {
-    const first = render(Board, { props: { projectId: 'p1' } });
+    const first = render(Board, { props: { projectId: PROJECT_ID } });
     await typeName('Project one only');
     first.unmount();
 
-    render(Board, { props: { projectId: 'p2' } });
+    render(Board, { props: { projectId: OTHER_PROJECT_ID } });
 
     expect(screen.getByRole('button', { name: '+ Add column' })).toBeInTheDocument();
   });
@@ -429,7 +440,7 @@ describe('Board add-column drafts', () => {
 
 describe('Board keyboard reordering', () => {
   it('reorders task cards with Enter and arrows, committing each move', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     const item = await screen.findByRole('listitem', { name: 'plain one' });
     expect(item).toHaveAttribute('tabindex', '0');
     item.focus();
@@ -445,7 +456,7 @@ describe('Board keyboard reordering', () => {
     );
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
     const patch = patchRequests()[0]!;
-    expect(new URL(patch.url).pathname).toBe('/api/tasks/t1');
+    expect(new URL(patch.url).pathname).toBe(`/api/tasks/${T1}`);
     expect(await patch.clone().json()).toEqual({ column_id: 'c1', position: 2500 });
 
     await fireEvent.keyDown(item, { key: 'Enter' });
@@ -454,7 +465,7 @@ describe('Board keyboard reordering', () => {
   });
 
   it('leaves Enter on a task card link to the browser', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     const anchor = await screen.findByRole('link', { name: 'plain one' });
     anchor.focus();
 
@@ -472,7 +483,7 @@ describe('Board keyboard reordering', () => {
       { id: 'c1', name: 'Todo', position: 1000, is_done: false },
       { id: 'c2', name: 'Doing', position: 2000, is_done: false },
     ];
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
 
     const handles = await screen.findAllByRole('button', { name: 'Reorder column' });
     const handle = handles[0]!;
@@ -515,7 +526,7 @@ describe('Board reduced motion', () => {
   }
 
   it('animates both dnd zones by default', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
     expectEveryZone(150, false);
@@ -523,14 +534,14 @@ describe('Board reduced motion', () => {
 
   it('disables flip and drop animation in both dnd zones when motion is reduced', async () => {
     motion.reduced = true;
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
     expectEveryZone(0, true);
   });
 
   it('reconfigures the zones when the preference flips mid-session', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     zoneOptions.length = 0;
 
@@ -545,7 +556,7 @@ describe('Board reduced motion', () => {
 
   it('still commits keyboard reorders when motion is reduced', async () => {
     motion.reduced = true;
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     const item = await screen.findByRole('listitem', { name: 'plain one' });
     item.focus();
 
@@ -558,7 +569,7 @@ describe('Board reduced motion', () => {
     );
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
     const patch = patchRequests()[0]!;
-    expect(new URL(patch.url).pathname).toBe('/api/tasks/t1');
+    expect(new URL(patch.url).pathname).toBe(`/api/tasks/${T1}`);
     expect(await patch.clone().json()).toEqual({ column_id: 'c1', position: 2500 });
     expectEveryZone(0, true);
   });
@@ -566,7 +577,7 @@ describe('Board reduced motion', () => {
 
 describe('Board filter scrolling', () => {
   it('resets each column scroll when a text filter is applied', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     taskList().scrollTop = 240;
 
@@ -580,8 +591,8 @@ describe('Board filter scrolling', () => {
 
   it('resets the scroll when a label chip is toggled', async () => {
     board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
-    board.tasks = board.tasks.map((t) => (t.id === 't4' ? { ...t, label_ids: ['l1'] } : t));
-    render(Board, { props: { projectId: 'p1' } });
+    board.tasks = board.tasks.map((t) => (t.id === T4 ? { ...t, label_ids: ['l1'] } : t));
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     taskList().scrollTop = 240;
 
@@ -594,8 +605,8 @@ describe('Board filter scrolling', () => {
   });
 
   it('resets the scroll when an assignee chip is toggled', async () => {
-    board.tasks = board.tasks.map((t) => (t.id === 't2' ? { ...t, assignee_ids: ['u1'] } : t));
-    render(Board, { props: { projectId: 'p1' } });
+    board.tasks = board.tasks.map((t) => (t.id === T2 ? { ...t, assignee_ids: ['u1'] } : t));
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     taskList().scrollTop = 240;
 
@@ -609,7 +620,7 @@ describe('Board filter scrolling', () => {
 
   it('resets the scroll when filters are cleared', async () => {
     board.setFilterQuery('match');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     taskList().scrollTop = 240;
 
@@ -628,10 +639,10 @@ describe('Board filter scrolling', () => {
     ];
     board.tasks = [
       ...board.tasks,
-      task('t5', 'c2', 1000, 'plain three'),
-      task('t6', 'c2', 2000, 'match c'),
+      task(T5, 'c2', 1000, 'plain three'),
+      task(T6, 'c2', 2000, 'match c'),
     ];
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('match c');
     taskList('Todo tasks').scrollTop = 240;
     taskList('Doing tasks').scrollTop = 240;
@@ -646,11 +657,11 @@ describe('Board filter scrolling', () => {
 
   it('keeps the scroll position when a new task repartitions a filtered column', async () => {
     board.setFilterQuery('match');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     taskList().scrollTop = 240;
 
-    board.tasks = [...board.tasks, task('t5', 'c1', 5000, 'match c')];
+    board.tasks = [...board.tasks, task(T5, 'c1', 5000, 'match c')];
 
     await waitFor(() =>
       expect(cardTitles()).toEqual(['match a', 'match b', 'match c', 'plain one', 'plain two'])
@@ -659,11 +670,11 @@ describe('Board filter scrolling', () => {
   });
 
   it('keeps the scroll position when a task is added with no filter active', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     taskList().scrollTop = 240;
 
-    board.tasks = [...board.tasks, task('t5', 'c1', 5000, 'plain three')];
+    board.tasks = [...board.tasks, task(T5, 'c1', 5000, 'plain three')];
 
     await waitFor(() => expect(cardTitles()).toContain('plain three'));
     expect(taskList().scrollTop).toBe(240);
@@ -671,7 +682,7 @@ describe('Board filter scrolling', () => {
 
   it('ignores a filter edit that cannot change the order', async () => {
     board.setFilterQuery('match');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     taskList().scrollTop = 240;
 
@@ -684,7 +695,7 @@ describe('Board filter scrolling', () => {
 
   it('ignores a filter edit that only changes the query case', async () => {
     board.setFilterQuery('match');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     taskList().scrollTop = 240;
 
@@ -707,41 +718,41 @@ describe('Board pointer drops', () => {
   // Long-pressing a card for its menu unwinds the drag the press already armed
   // through exactly this path, and a card put back where it was is not a move.
   it('writes nothing when a card is dropped where it was picked up', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
-    pickUp('t1');
-    drop('t1', board.tasksInColumn('c1'));
+    pickUp(T1);
+    drop(T1, board.tasksInColumn('c1'));
     await tick();
 
     expect(patchRequests()).toHaveLength(0);
   });
 
   it('still writes a drop that reorders the column', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const [first, ...rest] = board.tasksInColumn('c1');
 
-    pickUp('t1');
-    drop('t1', [...rest, first!]);
+    pickUp(T1);
+    drop(T1, [...rest, first!]);
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
 
-    expect(new URL(patchRequests()[0]!.url).pathname).toBe('/api/tasks/t1');
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe(`/api/tasks/${T1}`);
   });
 
   // Same slot number, different column: only the column half of the guard can
   // tell this apart from a card put straight back down.
   it('still writes a drop that lands the card at the same index elsewhere', async () => {
     twoColumns();
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
-    pickUp('t1');
-    drop('t1', [board.tasksInColumn('c1')[0]!], 'Doing tasks');
+    pickUp(T1);
+    drop(T1, [board.tasksInColumn('c1')[0]!], 'Doing tasks');
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
 
     const patch = patchRequests()[0]!;
-    expect(new URL(patch.url).pathname).toBe('/api/tasks/t1');
+    expect(new URL(patch.url).pathname).toBe(`/api/tasks/${T1}`);
     expect(await patch.clone().json()).toMatchObject({ column_id: 'c2' });
   });
 
@@ -750,12 +761,12 @@ describe('Board pointer drops', () => {
   // and hold the scroller unswipeable while it did.
   it('leaves the board where it is when a card is dropped where it was picked up', async () => {
     const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const resting = scroller().className;
 
-    pickUp('t1');
-    drop('t1', board.tasksInColumn('c1'));
+    pickUp(T1);
+    drop(T1, board.tasksInColumn('c1'));
     await tick();
 
     expect(scrollTo).not.toHaveBeenCalled();
@@ -764,12 +775,12 @@ describe('Board pointer drops', () => {
 
   it('centers the destination column after a drop that moved something', async () => {
     const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const [first, ...rest] = board.tasksInColumn('c1');
 
-    pickUp('t1');
-    drop('t1', [...rest, first!]);
+    pickUp(T1);
+    drop(T1, [...rest, first!]);
     await tick();
 
     expect(scrollTo).toHaveBeenCalledTimes(1);
@@ -815,7 +826,7 @@ describe('Board column drops', () => {
   // A wasted column write renumbers it for nothing and broadcasts the change to
   // everyone else looking at the project.
   it('writes nothing when a column is dropped where it was picked up', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const columns = [...board.columns];
 
@@ -827,7 +838,7 @@ describe('Board column drops', () => {
   });
 
   it('still writes a drop that reorders the columns', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const [first, second] = board.columns;
 
@@ -857,17 +868,17 @@ describe('Board drag edge scrolling', () => {
         clientX: 5,
         clientY: 5,
       }),
-      't1'
+      T1
     );
     onTestFinished(() => cardMenu.cancelPress());
   }
 
   it('scrolls the board while a card is dragged against its edge', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const scrollBy = nearTheLeftEdge();
 
-    pickUp('t1');
+    pickUp(T1);
     await tick();
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 5 }));
     await frames();
@@ -878,12 +889,12 @@ describe('Board drag edge scrolling', () => {
   // The drag is armed well before the press becomes a menu, so without this the
   // board drifts under a finger that is only asking for one.
   it('holds the board still while a long press waits to open the card menu', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const scrollBy = nearTheLeftEdge();
 
     holdFinger();
-    pickUp('t1');
+    pickUp(T1);
     await tick();
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 5 }));
     await frames();
@@ -892,12 +903,12 @@ describe('Board drag edge scrolling', () => {
   });
 
   it('holds the board still while the menu that press opened is on screen', async () => {
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const scrollBy = nearTheLeftEdge();
 
-    cardMenu.open('t1', 5, 5);
-    pickUp('t1');
+    cardMenu.open(T1, 5, 5);
+    pickUp(T1);
     await tick();
     document.dispatchEvent(new MouseEvent('mousemove', { clientX: 5 }));
     await frames();
@@ -909,7 +920,7 @@ describe('Board drag edge scrolling', () => {
 describe('Board card menu', () => {
   function signInAsTheCreator(): void {
     board.project = {
-      id: 'p1',
+      id: PROJECT_ID,
       name: 'Game',
       description: '',
       archived_at: null,
@@ -946,7 +957,7 @@ describe('Board card menu', () => {
 
   it('opens the editing menu for the card that was right-clicked', async () => {
     signInAsTheCreator();
-    render(Board, { props: { projectId: 'p1' } });
+    render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain two');
 
     rightClickCard('plain two');
@@ -961,7 +972,7 @@ describe('Board card menu', () => {
   it('gives a viewer the menu without any of the writing rows', async () => {
     signInAsTheCreator();
     expect(board.canEdit).toBe(true);
-    render(Board, { props: { projectId: 'p1', readonly: true } });
+    render(Board, { props: { projectId: PROJECT_ID, readonly: true } });
     await screen.findByText('plain one');
 
     rightClickCard('plain one');

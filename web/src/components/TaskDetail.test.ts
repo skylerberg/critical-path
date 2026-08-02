@@ -9,11 +9,42 @@ import { drafts } from '../lib/drafts.svelte';
 import { projects } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
+import {
+  projectHref,
+  publicBoardHref,
+  publicTaskHref,
+  taskHref,
+  type ProjectView,
+} from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
+import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
+
+const PROJECT_ID = testUuid('p1');
+const PROJECT_NAME = 'Game';
+const T1 = testUuid('t1');
+const T2 = testUuid('t2');
+const T3 = testUuid('t3');
+const T4 = testUuid('t4');
+const T5 = testUuid('t5');
+const T6 = testUuid('t6');
+const T9 = testUuid('t9');
+const MISSING = testUuid('missing');
+const BOARD_PATH = projectHref(PROJECT_ID, PROJECT_NAME);
+const GRAPH_PATH = projectHref(PROJECT_ID, PROJECT_NAME, 'graph');
+
+function overlayTaskPath(id: string, view: ProjectView = 'board'): string {
+  return taskHref(id, board.tasks.find((t) => t.id === id)?.title ?? '', view);
+}
+
+const publicView = {
+  closePath: publicBoardHref(PROJECT_ID),
+  taskPath: (id: string) => publicTaskHref(PROJECT_ID, id),
+  readonly: true,
+};
 
 function task(
   id: string,
@@ -52,7 +83,7 @@ const image = {
 
 const comment = {
   id: 'cm1',
-  task_id: 't1',
+  task_id: T1,
   user_id: 'u1',
   body: {
     type: 'doc' as const,
@@ -94,10 +125,10 @@ beforeEach(() => {
   projects.reset();
   users.reset();
   session.user = me;
-  board.currentProjectId = 'p1';
+  board.currentProjectId = PROJECT_ID;
   board.project = {
-    id: 'p1',
-    name: 'Game',
+    id: PROJECT_ID,
+    name: PROJECT_NAME,
     description: '',
     archived_at: null,
     created_by: me.id,
@@ -111,15 +142,15 @@ beforeEach(() => {
     { id: 'c2', name: 'Done', position: 2000, is_done: true },
   ];
   board.tasks = [
-    task('t1', 'c1', 'Design cards', {
+    task(T1, 'c1', 'Design cards', {
       label_ids: ['l1'],
       assignee_ids: ['u1'],
-      blocker_ids: ['t2', 't3'],
+      blocker_ids: [T2, T3],
       image_count: 1,
     }),
-    task('t2', 'c1', 'Cut prototype'),
-    task('t3', 'c2', 'Buy sleeves', { position: 5000 }),
-    task('t4', 'c1', 'Playtest session', { blocker_ids: ['t1'] }),
+    task(T2, 'c1', 'Cut prototype'),
+    task(T3, 'c2', 'Buy sleeves', { position: 5000 }),
+    task(T4, 'c1', 'Playtest session', { blocker_ids: [T1] }),
   ];
   board.labels = [
     { id: 'l1', name: 'art', color: '#ff0000' },
@@ -141,23 +172,23 @@ function mockRoutes(
     if (response !== undefined) {
       return response;
     }
-    if (request.method === 'GET' && url.pathname === '/api/tasks/t1') {
+    if (request.method === 'GET' && url.pathname === `/api/tasks/${T1}`) {
       return jsonResponse(200, {
         ...board.tasks[0],
-        project_id: 'p1',
+        project_id: PROJECT_ID,
         images: [image],
         comments: [comment],
       });
     }
     if (request.method === 'GET' && url.pathname.endsWith('/activity')) {
       return jsonResponse(200, {
-        activity: url.pathname === '/api/tasks/t1/activity' ? [activityEntry] : [],
+        activity: url.pathname === `/api/tasks/${T1}/activity` ? [activityEntry] : [],
       });
     }
     if (request.method === 'GET' && url.pathname === '/api/users') {
       return jsonResponse(200, { users: users.users });
     }
-    if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
+    if (request.method === 'GET' && url.pathname === `/api/projects/${PROJECT_ID}`) {
       return jsonResponse(200, {
         project: board.project,
         columns: board.columns,
@@ -165,8 +196,8 @@ function mockRoutes(
         labels: board.labels,
       });
     }
-    if (request.method === 'PATCH' && url.pathname === '/api/tasks/t1') {
-      const existing = board.tasks.find((t) => t.id === 't1') ?? task('t1', 'c1', 'Design cards');
+    if (request.method === 'PATCH' && url.pathname === `/api/tasks/${T1}`) {
+      const existing = board.tasks.find((t) => t.id === T1) ?? task(T1, 'c1', 'Design cards');
       return jsonResponse(200, { ...existing, updated_at: SERVER_UPDATED_AT });
     }
     return jsonResponse(204);
@@ -183,15 +214,16 @@ function taskPatches(): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
     .filter(
-      (request) => request.method === 'PATCH' && new URL(request.url).pathname === '/api/tasks/t1'
+      (request) =>
+        request.method === 'PATCH' && new URL(request.url).pathname === `/api/tasks/${T1}`
     );
 }
 
 function teammateVersion(): BoardTask {
-  return task('t1', 'c1', 'Their title', {
+  return task(T1, 'c1', 'Their title', {
     label_ids: ['l1'],
     assignee_ids: ['u1'],
-    blocker_ids: ['t2', 't3'],
+    blocker_ids: [T2, T3],
     image_count: 1,
     updated_at: '2026-05-05T00:00:00Z',
     description: {
@@ -206,14 +238,14 @@ function mockConflict(
     jsonResponse(409, { error: 'This task changed since you loaded it' })
 ): void {
   mockRoutes((request, url) => {
-    if (request.method === 'PATCH' && url.pathname === '/api/tasks/t1') {
+    if (request.method === 'PATCH' && url.pathname === `/api/tasks/${T1}`) {
       return patchResponse();
     }
-    if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
+    if (request.method === 'GET' && url.pathname === `/api/projects/${PROJECT_ID}`) {
       return jsonResponse(200, {
         project: board.project,
         columns: board.columns,
-        tasks: [teammateVersion(), ...board.tasks.filter((t) => t.id !== 't1')],
+        tasks: [teammateVersion(), ...board.tasks.filter((t) => t.id !== T1)],
         labels: board.labels,
       });
     }
@@ -234,7 +266,7 @@ function renderDetail(props: {
   readonly?: boolean;
 }): ReturnType<typeof render> {
   return render(TaskDetail, {
-    taskPath: (id: string) => `/projects/p1/tasks/${id}`,
+    taskPath: (id: string) => overlayTaskPath(id),
     ...props,
   });
 }
@@ -250,7 +282,7 @@ function descriptionEditor(container: HTMLElement): Editor {
 
 describe('TaskDetail', () => {
   it('renders title, labels, assignees, blocked-by, timestamps, and fetched images', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
     expect(screen.getByLabelText('Task title')).toHaveAttribute('autocapitalize', 'sentences');
@@ -278,11 +310,11 @@ describe('TaskDetail', () => {
   });
 
   it('loads images and comments from the one detail fetch and renders the Activity section', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
-    await waitFor(() => expect(board.taskComments.t1).toEqual([comment]));
-    expect(board.taskImages.t1).toEqual([image]);
+    await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
+    expect(board.taskImages[T1]).toEqual([image]);
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
   });
 
@@ -293,13 +325,13 @@ describe('TaskDetail', () => {
 
     beforeEach(() => {
       board.tasks = [
-        task('t1', 'c1', long, { blocker_ids: ['t2'] }),
-        task('t2', 'c1', long.replace(/^L/, 'B')),
+        task(T1, 'c1', long, { blocker_ids: [T2] }),
+        task(T2, 'c1', long.replace(/^L/, 'B')),
       ];
     });
 
     it('renders the whole stored title in the editor and caps its length at the stored bound', () => {
-      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
       const input = screen.getByLabelText('Task title');
       expect(input).toHaveValue(long);
@@ -307,13 +339,13 @@ describe('TaskDetail', () => {
     });
 
     it('renders the whole stored title as text on a read-only board', () => {
-      renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+      renderDetail({ taskId: T1, ...publicView });
 
       expect(screen.getByRole('heading', { name: long })).toBeInTheDocument();
     });
 
     it('clips the blockers it merely references, and its own dialog name', () => {
-      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
       const blocker = board.tasks[1].title;
       expect(screen.getByText(truncateTitle(blocker))).toBeInTheDocument();
@@ -333,15 +365,15 @@ describe('TaskDetail', () => {
     function coverRequests(): Request[] {
       return fetchMock.mock.calls
         .map((call) => call[0] as Request)
-        .filter((request) => new URL(request.url).pathname === '/api/tasks/t1/cover');
+        .filter((request) => new URL(request.url).pathname === `/api/tasks/${T1}/cover`);
     }
 
     function coverOfT1(): string | null | undefined {
-      return board.tasks.find((t) => t.id === 't1')?.cover_image_url;
+      return board.tasks.find((t) => t.id === T1)?.cover_image_url;
     }
 
     it('marks an image as the cover and shows it as pressed', async () => {
-      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
       await screen.findByAltText('mock.png');
       expect(coverToggle()).toHaveAttribute('aria-pressed', 'false');
 
@@ -356,9 +388,9 @@ describe('TaskDetail', () => {
 
     it('clears the cover when the current one is toggled off', async () => {
       board.tasks = board.tasks.map((t) =>
-        t.id === 't1' ? { ...t, cover_image_url: '/api/images/img1' } : t
+        t.id === T1 ? { ...t, cover_image_url: '/api/images/img1' } : t
       );
-      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
       await screen.findByAltText('mock.png');
       expect(coverToggle()).toHaveAttribute('aria-pressed', 'true');
 
@@ -370,9 +402,9 @@ describe('TaskDetail', () => {
 
     it('clears the card cover when the cover image is deleted', async () => {
       board.tasks = board.tasks.map((t) =>
-        t.id === 't1' ? { ...t, cover_image_url: '/api/images/img1' } : t
+        t.id === T1 ? { ...t, cover_image_url: '/api/images/img1' } : t
       );
-      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
       await screen.findByAltText('mock.png');
 
       await fireEvent.click(screen.getByRole('button', { name: 'Delete image mock.png' }));
@@ -381,7 +413,7 @@ describe('TaskDetail', () => {
     });
 
     it('offers no cover toggle on a read-only board', async () => {
-      renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+      renderDetail({ taskId: T1, ...publicView });
 
       await waitFor(() => expect(screen.getByRole('heading', { name: 'Column' })).toBeVisible());
       expect(screen.queryByRole('button', { name: /as cover/ })).toBeNull();
@@ -389,7 +421,7 @@ describe('TaskDetail', () => {
   });
 
   it('loads the activity log and interleaves it with the comments', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
     expect(await screen.findByText(/created this task/)).toBeInTheDocument();
@@ -401,39 +433,39 @@ describe('TaskDetail', () => {
   });
 
   it('drops the previous task’s log when the overlay switches task', async () => {
-    const { rerender } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const { rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
 
-    await rerender({ taskId: 't2', closePath: '/projects/p1' });
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
     await waitFor(() => expect(taskActivity.entries).toEqual([]));
     expect(
       fetchMock.mock.calls.some(
-        (call) => new URL((call[0] as Request).url).pathname === '/api/tasks/t2/activity'
+        (call) => new URL((call[0] as Request).url).pathname === `/api/tasks/${T2}/activity`
       )
     ).toBe(true);
   });
 
   it('drops the log on unmount and stops refetching it for the closed overlay', async () => {
-    const { unmount } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const { unmount } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
 
     unmount();
     await tick();
     expect(taskActivity.entries).toEqual([]);
 
-    const sent = activityRequests('t1').length;
+    const sent = activityRequests(T1).length;
     vi.useFakeTimers();
     try {
-      taskActivity.invalidate('t1');
+      taskActivity.invalidate(T1);
       await vi.runAllTimersAsync();
     } finally {
       vi.useRealTimers();
     }
-    expect(activityRequests('t1')).toHaveLength(sent);
+    expect(activityRequests(T1)).toHaveLength(sent);
   });
 
   it('renders the column select with the current column and all columns as options', () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     const select = screen.getByLabelText('Column');
     expect(select).toHaveValue('c1');
@@ -443,24 +475,24 @@ describe('TaskDetail', () => {
 
   it('moves the task to the bottom of the selected column', async () => {
     const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
 
-    expect(spy).toHaveBeenCalledWith('t1', 'c2', 6000);
+    expect(spy).toHaveBeenCalledWith(T1, 'c2', 6000);
   });
 
   it('requests the move menu for this task from the Move… button', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Move…' }));
 
-    expect(shortcuts.moveMenu).toBe('t1');
+    expect(shortcuts.moveMenu).toBe(T1);
   });
 
   it('does not move the task when the current column is re-selected', async () => {
     const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c1' } });
 
@@ -468,7 +500,7 @@ describe('TaskDetail', () => {
   });
 
   it('shows a fallback when the task is not in the store', () => {
-    renderDetail({ taskId: 'missing', closePath: '/projects/p1' });
+    renderDetail({ taskId: MISSING, closePath: BOARD_PATH });
 
     expect(screen.getByText('Task not found')).toBeInTheDocument();
   });
@@ -483,66 +515,64 @@ describe('TaskDetail', () => {
     );
     const redirectSpy = vi.spyOn(router, 'redirect').mockImplementation(() => {});
 
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
 
-    expect(deleteSpy).toHaveBeenCalledWith('t1');
+    expect(deleteSpy).toHaveBeenCalledWith(T1);
     expect(redirectSpy).not.toHaveBeenCalled();
 
     resolveDelete?.();
-    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith('/projects/p1'));
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith(BOARD_PATH));
   });
 
   it('archives without a confirm step, then redirects once the card is off the board', async () => {
     const redirectSpy = vi.spyOn(router, 'redirect').mockImplementation(() => {});
     mockRoutes((request, url) =>
-      request.method === 'POST' && url.pathname === '/api/tasks/t1/archive'
+      request.method === 'POST' && url.pathname === `/api/tasks/${T1}/archive`
         ? jsonResponse(200, {
-            ...task('t1', 'c1', 'Design cards'),
+            ...task(T1, 'c1', 'Design cards'),
             archived_at: '2026-03-01T12:00:00Z',
           })
         : undefined
     );
 
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
 
-    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith('/projects/p1'));
-    expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
-    expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith(BOARD_PATH));
+    expect(board.tasks.some((t) => t.id === T1)).toBe(false);
+    expect(board.archivedTasks.map((t) => t.id)).toEqual([T1]);
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
-    expect(paths).toContain('/api/tasks/t1/archive');
+    expect(paths).toContain(`/api/tasks/${T1}/archive`);
   });
 
   // closePath carries a query string, and is a different route entirely for a card
   // opened from My Tasks, so no task URL can be built by appending to it.
   it('opens the copy at the path it was handed, whatever closePath is', async () => {
-    const duplicate = vi.spyOn(board, 'duplicateTask').mockResolvedValue('t9');
+    const duplicate = vi.spyOn(board, 'duplicateTask').mockResolvedValue(T9);
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
 
     const first = renderDetail({
-      taskId: 't1',
+      taskId: T1,
       closePath: '/my-tasks',
-      taskPath: (id) => `/projects/p1/tasks/${id}?from=my-tasks`,
+      taskPath: (id) => overlayTaskPath(id) + '?from=my-tasks',
     });
     await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
-    await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith('/projects/p1/tasks/t9?from=my-tasks')
-    );
-    expect(duplicate).toHaveBeenCalledWith('t1');
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(taskHref(T9, '') + '?from=my-tasks'));
+    expect(duplicate).toHaveBeenCalledWith(T1);
     first.unmount();
 
     renderDetail({
-      taskId: 't1',
-      closePath: '/projects/p1/graph?labels=l1',
-      taskPath: (id) => `/projects/p1/graph/tasks/${id}?labels=l1`,
+      taskId: T1,
+      closePath: GRAPH_PATH + '?labels=l1',
+      taskPath: (id) => overlayTaskPath(id, 'graph') + '?labels=l1',
     });
     await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith('/projects/p1/graph/tasks/t9?labels=l1')
+      expect(navigate).toHaveBeenCalledWith(taskHref(T9, '', 'graph') + '?labels=l1')
     );
   });
 
@@ -550,7 +580,7 @@ describe('TaskDetail', () => {
     vi.spyOn(board, 'duplicateTask').mockResolvedValue(null);
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
 
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
 
     await tick();
@@ -567,14 +597,14 @@ describe('TaskDetail', () => {
     );
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
 
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
     const button = screen.getByRole('button', { name: 'Duplicate' });
     await fireEvent.click(button);
 
     await waitFor(() => expect(button).toBeDisabled());
 
-    finish('t9');
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/projects/p1/tasks/t9'));
+    finish(T9);
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(taskHref(T9, '')));
     expect(navigate).toHaveBeenCalledTimes(1);
     expect(button).not.toBeDisabled();
   });
@@ -590,14 +620,14 @@ describe('TaskDetail', () => {
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
     const redirect = vi.spyOn(router, 'redirect').mockImplementation(() => {});
 
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
     const button = screen.getByRole('button', { name: 'Duplicate' });
     await fireEvent.click(button);
     await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
-    finish('t9');
+    finish(T9);
     await waitFor(() => expect(button).not.toBeDisabled());
-    expect(redirect).toHaveBeenCalledWith('/projects/p1');
+    expect(redirect).toHaveBeenCalledWith(BOARD_PATH);
     expect(navigate).not.toHaveBeenCalled();
   });
 
@@ -613,11 +643,11 @@ describe('TaskDetail', () => {
     );
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
 
-    const view = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const view = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
     view.unmount();
 
-    finish('t9');
+    finish(T9);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -632,11 +662,11 @@ describe('TaskDetail', () => {
     );
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
 
-    const view = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const view = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
-    await view.rerender({ taskId: 't2', closePath: '/projects/p1' });
+    await view.rerender({ taskId: T2, closePath: BOARD_PATH });
 
-    finish('t9');
+    finish(T9);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -646,17 +676,17 @@ describe('TaskDetail', () => {
   it('holds the duplicate until the queued title save has landed', async () => {
     let releasePatch!: () => void;
     mockRoutes((request, url) =>
-      request.method === 'PATCH' && url.pathname === '/api/tasks/t1'
+      request.method === 'PATCH' && url.pathname === `/api/tasks/${T1}`
         ? new Promise<Response>((resolve) => {
             releasePatch = () =>
               resolve(jsonResponse(200, { ...board.tasks[0], updated_at: SERVER_UPDATED_AT }));
           })
         : undefined
     );
-    const duplicate = vi.spyOn(board, 'duplicateTask').mockResolvedValue('t9');
+    const duplicate = vi.spyOn(board, 'duplicateTask').mockResolvedValue(T9);
     vi.spyOn(router, 'navigate').mockImplementation(() => {});
 
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await editTitle('Renamed');
     await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
 
@@ -664,7 +694,7 @@ describe('TaskDetail', () => {
     expect(duplicate).not.toHaveBeenCalled();
 
     releasePatch();
-    await waitFor(() => expect(duplicate).toHaveBeenCalledWith('t1'));
+    await waitFor(() => expect(duplicate).toHaveBeenCalledWith(T1));
   });
 
   it('waits for the archive to finish before redirecting', async () => {
@@ -677,15 +707,15 @@ describe('TaskDetail', () => {
     );
     const redirectSpy = vi.spyOn(router, 'redirect').mockImplementation(() => {});
 
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
 
-    expect(archiveSpy).toHaveBeenCalledWith('t1');
+    expect(archiveSpy).toHaveBeenCalledWith(T1);
     expect(redirectSpy).not.toHaveBeenCalled();
 
     resolveArchive?.();
-    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith('/projects/p1'));
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith(BOARD_PATH));
   });
 
   it('discards an uncommitted title edit when the overlay closes', async () => {
@@ -693,14 +723,14 @@ describe('TaskDetail', () => {
       status: 'ok',
       updated_at: SERVER_UPDATED_AT,
     });
-    const first = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await fireEvent.input(screen.getByLabelText('Task title'), {
       target: { value: 'Design cards v2' },
     });
     first.unmount();
     expect(update).not.toHaveBeenCalled();
 
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
     const reopened = screen.getByLabelText('Task title');
     expect(reopened).toHaveValue('Design cards');
 
@@ -715,30 +745,30 @@ describe('TaskDetail', () => {
       updated_at: SERVER_UPDATED_AT,
     });
     vi.spyOn(router, 'redirect').mockImplementation(() => {});
-    const first = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Scrapped' } });
 
     await fireEvent(document.querySelector('dialog')!, new Event('cancel', { cancelable: true }));
 
     first.unmount();
 
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
     expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
     expect(update).not.toHaveBeenCalled();
   });
 
   it('does not carry a title edit onto another task', async () => {
-    const first = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Only t1' } });
     first.unmount();
 
-    renderDetail({ taskId: 't2', closePath: '/projects/p1' });
+    renderDetail({ taskId: T2, closePath: BOARD_PATH });
 
     expect(screen.getByLabelText('Task title')).toHaveValue('Cut prototype');
   });
 
   it('sends the loaded updated_at as the precondition when committing a title', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
 
@@ -750,7 +780,7 @@ describe('TaskDetail', () => {
   });
 
   it('advances the precondition to the response updated_at after a successful save', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
     await waitFor(() => expect(taskPatches()).toHaveLength(1));
@@ -770,7 +800,7 @@ describe('TaskDetail', () => {
     });
     let patches = 0;
     mockRoutes((request, url) => {
-      if (request.method === 'PATCH' && url.pathname === '/api/tasks/t1') {
+      if (request.method === 'PATCH' && url.pathname === `/api/tasks/${T1}`) {
         patches += 1;
         const saved = (): Response =>
           jsonResponse(200, { ...board.tasks[0], updated_at: SERVER_UPDATED_AT });
@@ -778,7 +808,7 @@ describe('TaskDetail', () => {
       }
       return undefined;
     });
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
     await editTitle('Design cards v3');
@@ -802,7 +832,7 @@ describe('TaskDetail', () => {
     });
     let patches = 0;
     mockRoutes((request, url) => {
-      if (request.method === 'PATCH' && url.pathname === '/api/tasks/t1') {
+      if (request.method === 'PATCH' && url.pathname === `/api/tasks/${T1}`) {
         patches += 1;
         const saved = (): Response =>
           jsonResponse(200, { ...board.tasks[0], updated_at: SERVER_UPDATED_AT });
@@ -810,7 +840,7 @@ describe('TaskDetail', () => {
       }
       return undefined;
     });
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
     await editTitle('Design cards');
@@ -832,7 +862,7 @@ describe('TaskDetail', () => {
     mockConflict(() =>
       held.then(() => jsonResponse(409, { error: 'This task changed since you loaded it' }))
     );
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
     await fireEvent.blur(screen.getByLabelText('Task title'));
@@ -844,7 +874,7 @@ describe('TaskDetail', () => {
   });
 
   it('does not adopt a new precondition from a column change', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
     await waitFor(() => expect(taskPatches()).toHaveLength(1));
@@ -859,7 +889,7 @@ describe('TaskDetail', () => {
 
   it('keeps the typed title and shows the conflict banner when the save is stale', async () => {
     mockConflict();
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
 
@@ -869,7 +899,7 @@ describe('TaskDetail', () => {
 
   it('sends nothing further while conflicted', async () => {
     mockConflict();
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
     await screen.findByRole('alert');
@@ -883,7 +913,7 @@ describe('TaskDetail', () => {
 
   it('reloads the server title and description and clears the banner', async () => {
     mockConflict();
-    const { container } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
     await screen.findByRole('alert');
@@ -910,8 +940,8 @@ describe('TaskDetail', () => {
   it('offers the project’s people in the description editor and saves the mention', async () => {
     projects.projects = [
       {
-        id: 'p1',
-        name: 'Game',
+        id: PROJECT_ID,
+        name: PROJECT_NAME,
         description: '',
         created_by: 'u1',
         member_ids: ['u2'],
@@ -924,12 +954,12 @@ describe('TaskDetail', () => {
         position: null,
       },
     ];
-    users.setForProject('p1', [
+    users.setForProject(PROJECT_ID, [
       ...users.users,
       { id: 'u2', email: 'bob@example.com', name: 'Bob Barker', avatar_url: null },
       { id: 'u3', email: 'stale@example.com', name: 'Stale Assignee', avatar_url: null },
     ]);
-    const { container } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await tick();
 
     descriptionEditor(container).commands.insertContent('@');
@@ -954,7 +984,7 @@ describe('TaskDetail', () => {
   it('sends the loaded updated_at as the precondition when saving the description', async () => {
     vi.useFakeTimers();
     try {
-      const { container } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+      const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
       await tick();
 
       descriptionEditor(container).commands.insertContent('Draft text');
@@ -976,7 +1006,7 @@ describe('TaskDetail', () => {
     mockConflict();
     vi.useFakeTimers();
     try {
-      const { container } = renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+      const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
       await tick();
       const editor = descriptionEditor(container);
 
@@ -999,9 +1029,9 @@ describe('TaskDetail', () => {
 
   it('does not adopt a teammate’s realtime update as its precondition', async () => {
     mockConflict();
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    board.applyRealtime({ type: 'task_updated', project_id: 'p1', data: teammateVersion() });
+    board.applyRealtime({ type: 'task_updated', project_id: PROJECT_ID, data: teammateVersion() });
     await tick();
     await editTitle('Design cards v2');
 
@@ -1013,7 +1043,7 @@ describe('TaskDetail', () => {
   });
 
   it('offers the due date behind an add affordance, like labels and assignees', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     expect(screen.getByRole('heading', { name: 'Due date' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Due date')).toBeNull();
@@ -1028,13 +1058,13 @@ describe('TaskDetail', () => {
 
   it('lists tasks that depend on this one and removes the reverse relation', async () => {
     const spy = vi.spyOn(board, 'removeBlocker').mockResolvedValue(undefined);
-    renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     expect(screen.getByRole('heading', { name: 'Blocks' })).toBeInTheDocument();
     const remove = screen.getByRole('button', { name: 'Remove blocked task Playtest session' });
     await fireEvent.click(remove);
 
-    expect(spy).toHaveBeenCalledWith('t4', 't1');
+    expect(spy).toHaveBeenCalledWith(T4, T1);
   });
 });
 
@@ -1042,11 +1072,13 @@ describe('TaskDetail on a public board', () => {
   beforeEach(() => {
     session.user = null;
     board.readonly = true;
-    users.setForProject('p1', [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null, email: '' }]);
+    users.setForProject(PROJECT_ID, [
+      { id: 'u1', name: 'Ada Lovelace', avatar_url: null, email: '' },
+    ]);
   });
 
   it('renders the card as text with no editing surface and no authenticated fetches', async () => {
-    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: T1, ...publicView });
 
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Design cards' })).toBeInTheDocument();
@@ -1077,13 +1109,13 @@ describe('TaskDetail on a public board', () => {
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Column' })).toBeVisible());
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
-    expect(paths).not.toContain('/api/tasks/t1');
+    expect(paths).not.toContain(`/api/tasks/${T1}`);
     expect(paths).not.toContain('/api/users');
   });
 
   it('renders the description read-only, with no formatting toolbar', async () => {
     board.tasks = board.tasks.map((t) =>
-      t.id === 't1'
+      t.id === T1
         ? {
             ...t,
             description: {
@@ -1094,7 +1126,7 @@ describe('TaskDetail on a public board', () => {
         : t
     );
 
-    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: T1, ...publicView });
 
     expect(await screen.findByText('Ship it')).toBeInTheDocument();
     expect(screen.queryByRole('toolbar', { name: 'Formatting' })).toBeNull();
@@ -1105,7 +1137,7 @@ describe('TaskDetail on a public board', () => {
     vi.useFakeTimers();
     try {
       board.tasks = board.tasks.map((t) =>
-        t.id === 't1'
+        t.id === T1
           ? {
               ...t,
               description: {
@@ -1116,11 +1148,7 @@ describe('TaskDetail on a public board', () => {
           : t
       );
 
-      const { container } = renderDetail({
-        taskId: 't1',
-        closePath: '/public/projects/p1',
-        readonly: true,
-      });
+      const { container } = renderDetail({ taskId: T1, ...publicView });
       await tick();
 
       descriptionEditor(container).commands.insertContent('Sneaky edit');
@@ -1134,9 +1162,9 @@ describe('TaskDetail on a public board', () => {
   });
 
   it('hides sections a public card has nothing to show for', () => {
-    board.tasks = [...board.tasks, task('t5', 'c1', 'Bare card')];
+    board.tasks = [...board.tasks, task(T5, 'c1', 'Bare card')];
 
-    renderDetail({ taskId: 't5', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: T5, ...publicView });
 
     expect(screen.getByRole('heading', { name: 'Bare card' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Description' })).toBeNull();
@@ -1149,9 +1177,9 @@ describe('TaskDetail on a public board', () => {
   });
 
   it('shows a published due date as plain text with nothing to edit', () => {
-    board.tasks = [...board.tasks, task('t6', 'c1', 'Dated card', { due_date: '2026-08-03' })];
+    board.tasks = [...board.tasks, task(T6, 'c1', 'Dated card', { due_date: '2026-08-03' })];
 
-    renderDetail({ taskId: 't6', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: T6, ...publicView });
 
     expect(screen.getByRole('heading', { name: 'Due date' })).toBeInTheDocument();
     expect(screen.getByText(/2026/)).toBeInTheDocument();
@@ -1160,10 +1188,10 @@ describe('TaskDetail on a public board', () => {
   });
 
   it('shows the published comments and their authors, with nothing to write with', async () => {
-    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 1 } : t));
-    board.taskComments = { t1: [comment] };
+    board.tasks = board.tasks.map((t) => (t.id === T1 ? { ...t, comment_count: 1 } : t));
+    board.taskComments = { [T1]: [comment] };
 
-    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: T1, ...publicView });
 
     const heading = screen.getByRole('heading', { name: 'Comments' });
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
@@ -1180,10 +1208,10 @@ describe('TaskDetail on a public board', () => {
   // would mutate a copy no refetch can reconcile.
   it('offers no comment controls to a signed-in reader who came through the link', async () => {
     session.user = me;
-    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 1 } : t));
-    board.taskComments = { t1: [comment] };
+    board.tasks = board.tasks.map((t) => (t.id === T1 ? { ...t, comment_count: 1 } : t));
+    board.taskComments = { [T1]: [comment] };
 
-    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: T1, ...publicView });
 
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Edit comment/ })).toBeNull();
@@ -1193,19 +1221,19 @@ describe('TaskDetail on a public board', () => {
 
   it('never shows the activity log alongside the published comments', async () => {
     taskActivity.entries = [activityEntry];
-    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 1 } : t));
-    board.taskComments = { t1: [comment] };
+    board.tasks = board.tasks.map((t) => (t.id === T1 ? { ...t, comment_count: 1 } : t));
+    board.taskComments = { [T1]: [comment] };
 
-    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: T1, ...publicView });
 
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
     expect(screen.queryByText('created this task')).toBeNull();
   });
 
   it('renders a mention in a published comment as a name', async () => {
-    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 1 } : t));
+    board.tasks = board.tasks.map((t) => (t.id === T1 ? { ...t, comment_count: 1 } : t));
     board.taskComments = {
-      t1: [
+      [T1]: [
         {
           ...comment,
           body: {
@@ -1221,7 +1249,7 @@ describe('TaskDetail on a public board', () => {
       ],
     };
 
-    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+    renderDetail({ taskId: T1, ...publicView });
 
     expect(await screen.findByText('@Ada Lovelace')).toBeInTheDocument();
   });
@@ -1230,11 +1258,13 @@ describe('TaskDetail on a public board', () => {
 describe('TaskDetail for a viewer', () => {
   beforeEach(() => {
     mockRoutes();
-    users.setForProject('p1', [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null, email: '' }]);
+    users.setForProject(PROJECT_ID, [
+      { id: 'u1', name: 'Ada Lovelace', avatar_url: null, email: '' },
+    ]);
   });
 
   it('drops every write control but keeps the comment stream and the history', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1', readonly: true });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
 
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.queryByLabelText('Column')).toBeNull();
@@ -1252,7 +1282,7 @@ describe('TaskDetail for a viewer', () => {
   });
 
   it('shows attached images without the cover or delete controls', async () => {
-    renderDetail({ taskId: 't1', closePath: '/projects/p1', readonly: true });
+    renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
 
     expect(await screen.findByAltText('mock.png')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /as cover$/ })).toBeNull();

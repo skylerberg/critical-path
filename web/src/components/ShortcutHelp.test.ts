@@ -4,6 +4,8 @@ import ShortcutHelp from './ShortcutHelp.svelte';
 import { board } from '../lib/board.svelte';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
+import { projectHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 
 const me = {
   id: 'u-me',
@@ -12,6 +14,8 @@ const me = {
   avatar_url: null,
   email_verified: false,
 };
+const PROJECT_ID = testUuid('p1');
+const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
 
 beforeEach(() => {
   router.navigate('/', { replace: true });
@@ -27,7 +31,7 @@ afterEach(() => {
 
 function viewerProject() {
   return {
-    id: 'p1',
+    id: PROJECT_ID,
     name: 'Game',
     description: '',
     archived_at: null,
@@ -59,7 +63,7 @@ describe('ShortcutHelp', () => {
 
   it('keeps sidebar reordering for a viewer, who can still order their own list', () => {
     board.project = viewerProject();
-    router.navigate('/projects/p1', { replace: true });
+    router.navigate(BOARD_PATH, { replace: true });
 
     render(ShortcutHelp, { onclose: vi.fn() });
 
@@ -70,7 +74,7 @@ describe('ShortcutHelp', () => {
 
   it('drops the editing rows on a read-only board', () => {
     board.project = viewerProject();
-    router.navigate('/projects/p1', { replace: true });
+    router.navigate(BOARD_PATH, { replace: true });
 
     render(ShortcutHelp, { onclose: vi.fn() });
 

@@ -8,6 +8,8 @@ import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
 import { session } from '../lib/session.svelte';
 import { router } from '../lib/router.svelte';
+import { projectHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 
 const { zoneOptions } = vi.hoisted(() => ({ zoneOptions: [] as Options[] }));
 
@@ -42,10 +44,16 @@ const me = {
   email_verified: false,
 };
 
+const SOLO_ID = testUuid('p-solo');
+const TEAM_ID = testUuid('p-team');
+const A_ID = testUuid('p-a');
+const B_ID = testUuid('p-b');
+const C_ID = testUuid('p-c');
+
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [];
   return {
-    id: 'p-1',
+    id: testUuid('p-1'),
     name: 'Alpha',
     description: '',
     archived_at: null,
@@ -62,7 +70,7 @@ function project(overrides: Partial<Project> = {}): Project {
 }
 
 function sidebarProjectNames(): string[] {
-  return [...document.querySelectorAll('a[href^="/projects/"]')].map(
+  return [...document.querySelectorAll('a[href^="/p/"]')].map(
     (anchor) => anchor.textContent?.trim() ?? ''
   );
 }
@@ -86,25 +94,29 @@ beforeEach(() => {
 describe('Nav sidebar', () => {
   it('lists active projects in one flat list with an active state', () => {
     projects.projects = [
-      project({ id: 'p-solo', name: 'Solo Game' }),
+      project({ id: SOLO_ID, name: 'Solo Game' }),
       project({
-        id: 'p-team',
+        id: TEAM_ID,
         name: 'Team Game',
         member_ids: [me.id],
         created_at: '2026-01-02T00:00:00.000Z',
       }),
-      project({ id: 'p-arch', name: 'Archived', archived_at: '2026-02-01T00:00:00.000Z' }),
+      project({
+        id: testUuid('p-arch'),
+        name: 'Archived',
+        archived_at: '2026-02-01T00:00:00.000Z',
+      }),
     ];
-    router.navigate('/projects/p-team');
+    router.navigate(projectHref(TEAM_ID, 'Team Game'));
 
     render(Nav);
 
     expect(screen.queryByText('Personal')).toBeNull();
 
     const solo = screen.getByRole('link', { name: 'Solo Game' });
-    expect(solo).toHaveAttribute('href', '/projects/p-solo');
+    expect(solo).toHaveAttribute('href', projectHref(SOLO_ID, 'Solo Game'));
     const team = screen.getByRole('link', { name: 'Team Game' });
-    expect(team).toHaveAttribute('href', '/projects/p-team');
+    expect(team).toHaveAttribute('href', projectHref(TEAM_ID, 'Team Game'));
     expect(team).toHaveAttribute('aria-current', 'page');
 
     expect(screen.queryByRole('link', { name: 'Archived' })).toBeNull();
@@ -112,9 +124,9 @@ describe('Nav sidebar', () => {
 
   it('renders sidebar projects in position order with nulls last', async () => {
     projects.projects = [
-      project({ id: 'p-legacy', name: 'Legacy', created_at: '2026-01-01T00:00:00.000Z' }),
-      project({ id: 'p-2', name: 'Second', position: 2000 }),
-      project({ id: 'p-1', name: 'First', position: 1000 }),
+      project({ id: testUuid('p-legacy'), name: 'Legacy', created_at: '2026-01-01T00:00:00.000Z' }),
+      project({ id: testUuid('p-2'), name: 'Second', position: 2000 }),
+      project({ id: testUuid('p-1'), name: 'First', position: 1000 }),
     ];
 
     render(Nav);
@@ -125,9 +137,9 @@ describe('Nav sidebar', () => {
 
   it('commits a drop by PUTting the computed midpoint position', async () => {
     projects.projects = [
-      project({ id: 'p-a', name: 'A', position: 1000 }),
-      project({ id: 'p-b', name: 'B', position: 2000 }),
-      project({ id: 'p-c', name: 'C', position: 3000 }),
+      project({ id: A_ID, name: 'A', position: 1000 }),
+      project({ id: B_ID, name: 'B', position: 2000 }),
+      project({ id: C_ID, name: 'C', position: 3000 }),
     ];
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
@@ -137,13 +149,13 @@ describe('Nav sidebar', () => {
     const [a, b, c] = projects.active;
     const detail: DndEvent<Project> = {
       items: [a!, c!, b!],
-      info: { trigger: TRIGGERS.DROPPED_INTO_ZONE, id: 'p-c', source: SOURCES.POINTER },
+      info: { trigger: TRIGGERS.DROPPED_INTO_ZONE, id: C_ID, source: SOURCES.POINTER },
     };
     await fireEvent(zone, new CustomEvent('finalize', { detail }));
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(requestAt(0).method).toBe('PUT');
-    expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p-c/position');
+    expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${C_ID}/position`);
     expect(await requestAt(0).clone().json()).toEqual({ position: 1500 });
     await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['A', 'C', 'B']));
   });
@@ -151,9 +163,9 @@ describe('Nav sidebar', () => {
   describe('keyboard reordering', () => {
     beforeEach(() => {
       projects.projects = [
-        project({ id: 'p-a', name: 'A', position: 1000 }),
-        project({ id: 'p-b', name: 'B', position: 2000 }),
-        project({ id: 'p-c', name: 'C', position: 3000 }),
+        project({ id: A_ID, name: 'A', position: 1000 }),
+        project({ id: B_ID, name: 'B', position: 2000 }),
+        project({ id: C_ID, name: 'C', position: 3000 }),
       ];
       fetchMock.mockImplementation(async () => jsonResponse(204));
     });
@@ -168,7 +180,7 @@ describe('Nav sidebar', () => {
       expect(zone).toHaveAttribute('aria-describedby', 'dnd-zone-active');
       expect(document.getElementById('dnd-zone-active')).not.toBeNull();
       const anchor = screen.getByRole('link', { name: 'A' });
-      expect(anchor).toHaveAttribute('href', '/projects/p-a');
+      expect(anchor).toHaveAttribute('href', projectHref(A_ID, 'A'));
       expect(anchor).not.toHaveAttribute('tabindex');
     });
 
@@ -204,7 +216,7 @@ describe('Nav sidebar', () => {
       await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['B', 'A', 'C']));
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
       expect(requestAt(0).method).toBe('PUT');
-      expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p-a/position');
+      expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${A_ID}/position`);
       expect(await requestAt(0).clone().json()).toEqual({ position: 2500 });
 
       await fireEvent.keyDown(item, { key: 'ArrowDown' });
@@ -219,7 +231,10 @@ describe('Nav sidebar', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
       // A stuck projectDragging flag would freeze the store->DOM mirror here.
-      projects.projects = [project({ id: 'p-z', name: 'Z', position: 500 }), ...projects.projects];
+      projects.projects = [
+        project({ id: testUuid('p-z'), name: 'Z', position: 500 }),
+        ...projects.projects,
+      ];
       await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['Z', 'B', 'C', 'A']));
     });
 
@@ -279,7 +294,7 @@ describe('Nav sidebar', () => {
   });
 
   it('keeps the long-press that starts a project drag from raising the link menu', () => {
-    projects.projects = [project({ id: 'p-a', name: 'A', position: 1000 })];
+    projects.projects = [project({ id: A_ID, name: 'A', position: 1000 })];
 
     render(Nav);
 
@@ -325,9 +340,9 @@ describe('Nav sidebar', () => {
 describe('Nav reduced motion', () => {
   beforeEach(() => {
     projects.projects = [
-      project({ id: 'p-a', name: 'A', position: 1000 }),
-      project({ id: 'p-b', name: 'B', position: 2000 }),
-      project({ id: 'p-c', name: 'C', position: 3000 }),
+      project({ id: A_ID, name: 'A', position: 1000 }),
+      project({ id: B_ID, name: 'B', position: 2000 }),
+      project({ id: C_ID, name: 'C', position: 3000 }),
     ];
     fetchMock.mockImplementation(async () => jsonResponse(204));
   });
@@ -368,7 +383,7 @@ describe('Nav reduced motion', () => {
     await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['B', 'A', 'C']));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(requestAt(0).method).toBe('PUT');
-    expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p-a/position');
+    expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${A_ID}/position`);
     expect(await requestAt(0).clone().json()).toEqual({ position: 2500 });
     expectEveryZone(0, true);
   });

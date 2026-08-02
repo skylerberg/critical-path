@@ -3,7 +3,9 @@
   import { invitations, isExpired, type Invitation } from '../lib/invitations.svelte';
   import { isProjectOwner, projects } from '../lib/projects.svelte';
   import { roleFor, type ProjectRole } from '../lib/roles';
-  import { boardPath, router } from '../lib/router.svelte';
+  import { router } from '../lib/router.svelte';
+  import { publicBoardHref } from '../lib/short-links';
+  import { currentProjectId } from '../lib/task-route.svelte';
   import { session } from '../lib/session.svelte';
   import { toasts } from '../lib/toasts.svelte';
   import { users } from '../lib/users.svelte';
@@ -36,7 +38,7 @@
   let confirmPublishOpen = $state(false);
 
   const publicUrl = $derived(
-    project === undefined ? '' : `${location.origin}${boardPath(project.id, true)}`
+    project === undefined ? '' : `${location.origin}${publicBoardHref(project.id)}`
   );
 
   // Reconciled against live state: the target can be removed, or the board handed
@@ -154,7 +156,7 @@
     const id = project.id;
     void projects.leave(id);
     onclose();
-    if (router.current.name === 'project' && router.current.params.id === id) {
+    if (currentProjectId() === id) {
       router.navigate('/');
     }
   }

@@ -6,16 +6,18 @@ import Search from './Search.svelte';
 import { router } from '../lib/router.svelte';
 import { search } from '../lib/search.svelte';
 import { searchPath, type SearchResult } from '../lib/search-query';
+import { projectHref, taskHref } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
+import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 
 const DEBOUNCE_MS = 250;
 
-function result(taskId: string, projectId: string, projectName: string, title: string) {
+function result(taskKey: string, projectKey: string, projectName: string, title: string) {
   return {
-    task_id: taskId,
+    task_id: testUuid(taskKey),
     title,
-    project_id: projectId,
+    project_id: testUuid(projectKey),
     project_name: projectName,
     column_name: 'In Progress',
   };
@@ -190,15 +192,15 @@ describe('Search page', () => {
     expect(screen.getByRole('heading', { name: 'Atlas' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Ship the export API/ })).toHaveAttribute(
       'href',
-      '/projects/p-1/tasks/t-1'
+      taskHref(testUuid('t-1'), 'Ship the export API')
     );
     expect(screen.getByRole('link', { name: /Export docs/ })).toHaveAttribute(
       'href',
-      '/projects/p-2/tasks/t-2'
+      taskHref(testUuid('t-2'), 'Export docs')
     );
     expect(screen.getByRole('heading', { name: 'Colori' }).querySelector('a')).toHaveAttribute(
       'href',
-      '/projects/p-1'
+      projectHref(testUuid('p-1'), 'Colori')
     );
     expect(screen.getByRole('status')).toHaveTextContent('3 results');
   });

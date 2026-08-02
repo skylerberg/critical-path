@@ -1,8 +1,9 @@
 import type { Action } from 'svelte/action';
 import { parseFilters, type BoardFilters } from './board-filters';
 import { parseSearchQuery } from './search-query';
+import { decodeId, type ProjectView } from './short-links';
 
-export type ProjectView = 'board' | 'graph';
+export type { ProjectView } from './short-links';
 
 export type Route =
   | { name: 'projects' }
@@ -19,7 +20,8 @@ export type Route =
   | {
       name: 'project';
       params: {
-        id: string;
+        // Null on a task URL, which names no project until the task resolves.
+        projectId: string | null;
         view: ProjectView;
         taskId?: string;
         filters: BoardFilters;
@@ -51,6 +53,28 @@ function matchPattern(pattern: string, pathname: string): Record<string, string>
   return params;
 }
 
+// The one place untrusted URL text becomes an id: an alias that is missing,
+// mistyped or non-canonical fails to match its arm and reaches the not-found
+// page, so nothing downstream ever sees anything but a uuid.
+function matchIds(pattern: string, pathname: string): Record<string, string> | null {
+  const params = matchPattern(pattern, pathname);
+  if (params === null) {
+    return null;
+  }
+  const ids: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (!key.endsWith('Alias')) {
+      continue;
+    }
+    const id = decodeId(value);
+    if (id === null) {
+      return null;
+    }
+    ids[key.slice(0, -'Alias'.length)] = id;
+  }
+  return ids;
+}
+
 export function splitPath(path: string): { pathname: string; search: string } {
   const withoutHash = path.split('#', 1)[0]!;
   const queryAt = withoutHash.indexOf('?');
@@ -78,11 +102,16 @@ function tokenParam(search: string): { token?: string } {
   }
 }
 
-function projectRoute(id: string, view: ProjectView, search: string, taskId?: string): Route {
+function projectRoute(
+  projectId: string | null,
+  view: ProjectView,
+  search: string,
+  taskId?: string
+): Route {
   return {
     name: 'project',
     params: {
-      id,
+      projectId,
       view,
       taskId,
       filters: parseFilters(search),
@@ -104,23 +133,25 @@ export function matchRoute(pathname: string, search = ''): Route {
   if (path === '/unsubscribe') return { name: 'unsubscribe', params: tokenParam(search) };
   if (path === '/invite') return { name: 'invite', params: tokenParam(search) };
   if (path === '/verify-email') return { name: 'verify-email', params: tokenParam(search) };
-  let params = matchPattern('/projects/:id', path);
-  if (params) return projectRoute(params.id!, 'board', search);
-  params = matchPattern('/projects/:id/graph', path);
-  if (params) return projectRoute(params.id!, 'graph', search);
-  params = matchPattern('/projects/:id/tasks/:taskId', path);
-  if (params) return projectRoute(params.id!, 'board', search, params.taskId!);
-  params = matchPattern('/projects/:id/graph/tasks/:taskId', path);
-  if (params) return projectRoute(params.id!, 'graph', search, params.taskId!);
-  params = matchPattern('/public/projects/:id', path);
-  if (params) return { name: 'public-board', params: { id: params.id! } };
-  params = matchPattern('/public/projects/:id/tasks/:taskId', path);
-  if (params) return { name: 'public-board', params: { id: params.id!, taskId: params.taskId! } };
+  // Segment 2 is always the slug, never a view keyword, so a project named
+  // "Graph" still reaches its board rather than its graph.
+  let ids = matchIds('/p/:projectAlias', path);
+  if (ids) return projectRoute(ids.project!, 'board', search);
+  ids = matchIds('/p/:projectAlias/:slug', path);
+  if (ids) return projectRoute(ids.project!, 'board', search);
+  ids = matchIds('/p/:projectAlias/:slug/graph', path);
+  if (ids) return projectRoute(ids.project!, 'graph', search);
+  ids = matchIds('/t/:taskAlias', path);
+  if (ids) return projectRoute(null, 'board', search, ids.task!);
+  ids = matchIds('/t/:taskAlias/:slug', path);
+  if (ids) return projectRoute(null, 'board', search, ids.task!);
+  ids = matchIds('/t/:taskAlias/:slug/graph', path);
+  if (ids) return projectRoute(null, 'graph', search, ids.task!);
+  ids = matchIds('/public/projects/:projectAlias', path);
+  if (ids) return { name: 'public-board', params: { id: ids.project! } };
+  ids = matchIds('/public/projects/:projectAlias/tasks/:taskAlias', path);
+  if (ids) return { name: 'public-board', params: { id: ids.project!, taskId: ids.task! } };
   return { name: 'not-found', path: pathname };
-}
-
-export function boardPath(projectId: string, isPublic: boolean): string {
-  return isPublic ? `/public/projects/${projectId}` : `/projects/${projectId}`;
 }
 
 const MAX_REDIRECTS = 10;

@@ -6,16 +6,22 @@ import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { router } from '../lib/router.svelte';
+import { publicTaskHref, projectHref, taskHref } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
+import { testUuid } from '../lib/test-ids';
 import { toasts } from '../lib/toasts.svelte';
 
 const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+const PROJECT_ID = testUuid('p1');
+const TASK_ID = testUuid('t1');
+const TASK_TITLE = 'Design cards';
+const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
 
-function task(id: string, columnId: string): BoardTask {
+function task(columnId: string): BoardTask {
   return {
-    id,
+    id: TASK_ID,
     column_id: columnId,
-    title: id === 't1' ? 'Design cards' : id,
+    title: TASK_TITLE,
     description: null,
     position: 1000,
     created_at: '2026-01-01T00:00:00Z',
@@ -32,8 +38,8 @@ function task(id: string, columnId: string): BoardTask {
 }
 
 function open(canEdit = true) {
-  cardMenu.open('t1', 40, 60);
-  return render(CardMenu, { projectId: 'p1', canEdit });
+  cardMenu.open(TASK_ID, 40, 60);
+  return render(CardMenu, { projectId: PROJECT_ID, canEdit });
 }
 
 // The focusable wrapper the board draws around every card, which is what the menu
@@ -41,7 +47,7 @@ function open(canEdit = true) {
 function cardWrapper(): HTMLElement {
   const element = document.createElement('div');
   element.tabIndex = 0;
-  element.dataset.taskId = 't1';
+  element.dataset.taskId = TASK_ID;
   document.body.append(element);
   onTestFinished(() => element.remove());
   return element;
@@ -76,9 +82,9 @@ beforeEach(() => {
   shortcuts.reset();
   cardMenu.reset();
   toasts.toasts = [];
-  board.currentProjectId = 'p1';
+  board.currentProjectId = PROJECT_ID;
   board.project = {
-    id: 'p1',
+    id: PROJECT_ID,
     name: 'Game',
     description: '',
     archived_at: null,
@@ -92,8 +98,8 @@ beforeEach(() => {
     { id: 'c1', name: 'Todo', position: 1000, is_done: false },
     { id: 'c2', name: 'Done', position: 2000, is_done: true },
   ];
-  board.tasks = [task('t1', 'c1')];
-  router.navigate('/projects/p1', { replace: true });
+  board.tasks = [task('c1')];
+  router.navigate(BOARD_PATH, { replace: true });
 });
 
 afterEach(() => {
@@ -152,7 +158,7 @@ describe('CardMenu', () => {
     unmount();
 
     board.columns = [{ id: 'c2', name: 'Done', position: 2000, is_done: true }];
-    board.tasks = [task('t1', 'c2')];
+    board.tasks = [task('c2')];
     open();
     expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull();
   });
@@ -161,20 +167,20 @@ describe('CardMenu', () => {
     open();
 
     await fireEvent.click(screen.getByRole('menuitem', { name: /Labels/ }));
-    expect(shortcuts.labelMenu).toBe('t1');
+    expect(shortcuts.labelMenu).toBe(TASK_ID);
     expect(cardMenu.taskId).toBeNull();
   });
 
   it('tells the two blocker directions apart', async () => {
     const { unmount } = open();
     await fireEvent.click(screen.getByRole('menuitem', { name: /Blocked by/ }));
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_ID, direction: 'blocker' });
     unmount();
 
     shortcuts.reset();
     open();
     await fireEvent.click(screen.getByRole('menuitem', { name: /^Blocks/ }));
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_ID, direction: 'blocked' });
   });
 
   it('runs the board actions on the card', async () => {
@@ -193,9 +199,9 @@ describe('CardMenu', () => {
     open();
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Archive' }));
 
-    expect(markTaskDone).toHaveBeenCalledWith('t1');
-    expect(duplicateTask).toHaveBeenCalledWith('t1');
-    expect(archiveTask).toHaveBeenCalledWith('t1');
+    expect(markTaskDone).toHaveBeenCalledWith(TASK_ID);
+    expect(duplicateTask).toHaveBeenCalledWith(TASK_ID);
+    expect(archiveTask).toHaveBeenCalledWith(TASK_ID);
   });
 
   it('starts the inline rename instead of opening the card', async () => {
@@ -203,9 +209,9 @@ describe('CardMenu', () => {
 
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Edit title' }));
 
-    expect(cardMenu.renamingTaskId).toBe('t1');
+    expect(cardMenu.renamingTaskId).toBe(TASK_ID);
     expect(cardMenu.taskId).toBeNull();
-    expect(router.path).toBe('/projects/p1');
+    expect(router.path).toBe(BOARD_PATH);
   });
 
   it('carries the live filters into the card links', () => {
@@ -216,18 +222,20 @@ describe('CardMenu', () => {
     for (const name of ['Open', 'Open in new tab']) {
       expect(screen.getByRole('menuitem', { name })).toHaveAttribute(
         'href',
-        '/projects/p1/tasks/t1?labels=l1&q=boss'
+        `${taskHref(TASK_ID, TASK_TITLE)}?labels=l1&q=boss`
       );
     }
   });
 
   it('points at the public path on a public board', () => {
     board.readonly = true;
+    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+    board.setFilters({ labelIds: ['l1'], assigneeIds: [], query: 'boss' });
     open(false);
 
     expect(screen.getByRole('menuitem', { name: 'Open' })).toHaveAttribute(
       'href',
-      '/public/projects/p1/tasks/t1'
+      publicTaskHref(PROJECT_ID, TASK_ID)
     );
   });
 
@@ -240,14 +248,19 @@ describe('CardMenu', () => {
     expect(screen.getByRole('menuitem', { name: 'Open' })).not.toHaveAttribute('target');
   });
 
-  it('copies an absolute url and says so', async () => {
+  // A copied link goes to someone else, who should not inherit the sharer's narrowing.
+  it('copies an absolute url stripped of the filters, and says so', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+    board.setFilters({ labelIds: ['l1'], assigneeIds: [], query: 'boss' });
     open();
 
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy link' }));
 
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/projects/p1/tasks/t1`);
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}${taskHref(TASK_ID, TASK_TITLE)}`
+    );
     expect(toasts.toasts.at(-1)?.message).toBe('Link copied');
     vi.unstubAllGlobals();
   });
@@ -310,7 +323,7 @@ describe('CardMenu', () => {
 
       await fireEvent.keyDown(link, { key: ' ' });
 
-      expect(router.path).toBe('/projects/p1/tasks/t1');
+      expect(router.path).toBe(taskHref(TASK_ID, TASK_TITLE));
       expect(cardMenu.taskId).toBeNull();
     });
 
@@ -321,7 +334,7 @@ describe('CardMenu', () => {
 
       await fireEvent.keyDown(rename, { key: ' ' });
 
-      expect(cardMenu.renamingTaskId).toBe('t1');
+      expect(cardMenu.renamingTaskId).toBe(TASK_ID);
     });
 
     // aria-keyshortcuts promises the key activates the row, not merely that the
@@ -332,7 +345,7 @@ describe('CardMenu', () => {
 
       await fireEvent.keyDown(menu, { key: 'B', shiftKey: true });
 
-      expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+      expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_ID, direction: 'blocked' });
       expect(cardMenu.taskId).toBeNull();
     });
 
@@ -341,7 +354,7 @@ describe('CardMenu', () => {
 
       await fireEvent.keyDown(screen.getByRole('menu'), { key: 'b' });
 
-      expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+      expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_ID, direction: 'blocker' });
     });
 
     // Enter belongs to whichever row has focus, so the row that advertises it
@@ -356,7 +369,7 @@ describe('CardMenu', () => {
       });
 
       expect(event).toBe(true);
-      expect(router.path).toBe('/projects/p1');
+      expect(router.path).toBe(BOARD_PATH);
     });
 
     // Closing without swallowing the key is what keeps focus out of a trap.
@@ -377,7 +390,7 @@ describe('CardMenu', () => {
     open();
 
     await fireEvent.pointerDown(screen.getByRole('menuitem', { name: 'Edit title' }));
-    expect(cardMenu.taskId).toBe('t1');
+    expect(cardMenu.taskId).toBe(TASK_ID);
 
     await fireEvent.pointerDown(document.body);
     expect(cardMenu.taskId).toBeNull();
@@ -393,8 +406,8 @@ describe('CardMenu', () => {
   });
 
   it('anchors to the pointer', () => {
-    cardMenu.open('t1', 40, 60);
-    render(CardMenu, { projectId: 'p1', canEdit: true });
+    cardMenu.open(TASK_ID, 40, 60);
+    render(CardMenu, { projectId: PROJECT_ID, canEdit: true });
 
     expect(screen.getByRole('menu')).toHaveStyle({ left: '40px', top: '60px' });
   });
@@ -406,14 +419,14 @@ describe('CardMenu', () => {
       new DOMRect(0, 0, 256, 400)
     );
 
-    cardMenu.open('t1', 1000, 700);
-    const { unmount } = render(CardMenu, { projectId: 'p1', canEdit: true });
+    cardMenu.open(TASK_ID, 1000, 700);
+    const { unmount } = render(CardMenu, { projectId: PROJECT_ID, canEdit: true });
     // 1024x768 less the menu and an 8px margin.
     expect(screen.getByRole('menu')).toHaveStyle({ left: '760px', top: '360px' });
     unmount();
 
-    cardMenu.open('t1', 2, 1);
-    render(CardMenu, { projectId: 'p1', canEdit: true });
+    cardMenu.open(TASK_ID, 2, 1);
+    render(CardMenu, { projectId: PROJECT_ID, canEdit: true });
     expect(screen.getByRole('menu')).toHaveStyle({ left: '8px', top: '8px' });
   });
 
@@ -433,7 +446,7 @@ describe('CardMenu', () => {
 
       await fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }));
 
-      expect(router.path).toBe('/projects/p1/tasks/t1');
+      expect(router.path).toBe(taskHref(TASK_ID, TASK_TITLE));
       expect(document.activeElement).not.toBe(card);
     });
 
@@ -446,7 +459,7 @@ describe('CardMenu', () => {
 
       await fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }), { metaKey: true });
 
-      expect(router.path).toBe('/projects/p1');
+      expect(router.path).toBe(BOARD_PATH);
       expect(cardMenu.taskId).toBeNull();
       expect(document.activeElement).toBe(card);
     });

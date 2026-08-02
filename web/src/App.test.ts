@@ -10,7 +10,10 @@ import { realtime } from './lib/realtime.svelte';
 import { router } from './lib/router.svelte';
 import { session } from './lib/session.svelte';
 import { shortcuts } from './lib/shortcuts.svelte';
+import { taskRoute } from './lib/task-route.svelte';
 import { users } from './lib/users.svelte';
+import { publicBoardHref } from './lib/short-links';
+import { testUuid } from './lib/test-ids';
 
 class FakeWebSocket {
   onopen: (() => void) | null = null;
@@ -41,9 +44,12 @@ const invite = {
   expires_at: '2026-01-15T00:00:00.000Z',
 };
 
+const PROJECT_ID = testUuid('p1');
+const TASK_ID = testUuid('t1');
+
 function publicBoard() {
   return {
-    project: { id: 'p1', name: 'Roadmap', description: '' },
+    project: { id: PROJECT_ID, name: 'Roadmap', description: '' },
     columns: [{ id: 'todo', name: 'To Do', position: 1000, is_done: false }],
     tasks: [],
     labels: [],
@@ -90,6 +96,7 @@ beforeEach(() => {
   myTasks.reset();
   projects.reset();
   shortcuts.reset();
+  taskRoute.reset();
   users.reset();
   session.user = null;
   session.status = 'unknown';
@@ -98,14 +105,14 @@ beforeEach(() => {
 
 describe('App chrome', () => {
   it('renders the public board with no signed-in navigation', async () => {
-    router.navigate('/public/projects/p1', { replace: true });
+    router.navigate(publicBoardHref(PROJECT_ID), { replace: true });
 
     render(App);
 
     expect(await screen.findByText('Read-only')).toBeInTheDocument();
     expect(navs()).toEqual([]);
     expect(session.status).toBe('anon');
-    expect(window.location.pathname).toBe('/public/projects/p1');
+    expect(window.location.pathname).toBe(publicBoardHref(PROJECT_ID));
   });
 
   // The emailed link is the only way anyone reaches this page, and no other test
@@ -235,6 +242,34 @@ describe('App chrome', () => {
       await screen.findByRole('heading', { level: 2, name: 'Keyboard shortcuts' })
     ).toBeInTheDocument();
     expect(screen.getByText('Go to my tasks')).toBeInTheDocument();
+  });
+
+  // Asserted here rather than in the resolver's own suite: a test that calls reset()
+  // itself passes whether or not the shell ever does.
+  it('clears the task-to-project cache when the session ends', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/my-tasks', { replace: true });
+
+    render(App);
+    await screen.findByRole('heading', { name: 'My tasks' });
+
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { id: TASK_ID, project_id: PROJECT_ID })
+    );
+    taskRoute.ensure(TASK_ID);
+    await vi.waitFor(() =>
+      expect(taskRoute.locate({ projectId: null, taskId: TASK_ID })).toEqual({
+        status: 'ready',
+        projectId: PROJECT_ID,
+      })
+    );
+
+    localStorage.removeItem('cp.token');
+    await session.init();
+
+    await vi.waitFor(() =>
+      expect(taskRoute.locate({ projectId: null, taskId: TASK_ID })).toEqual({ status: 'pending' })
+    );
   });
 
   it('routes the g m chord to my tasks from the projects list', async () => {

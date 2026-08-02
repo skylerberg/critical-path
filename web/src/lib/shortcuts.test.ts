@@ -5,6 +5,8 @@ import { selection } from './selection.svelte';
 import { board } from './board.svelte';
 import { router } from './router.svelte';
 import { session } from './session.svelte';
+import { projectHref, publicBoardHref, taskHref } from './short-links';
+import { testUuid } from './test-ids';
 import type { BoardTask } from './board-types';
 
 const me = {
@@ -14,12 +16,19 @@ const me = {
   avatar_url: null,
   email_verified: false,
 };
+const PROJECT_ID = testUuid('p1');
+const TASK_1 = testUuid('t1');
+const TASK_2 = testUuid('t2');
+const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
+const GRAPH_PATH = projectHref(PROJECT_ID, 'Game', 'graph');
+const TASK_PATH = taskHref(TASK_1, 'A');
+const GRAPH_TASK_PATH = taskHref(TASK_1, 'A', 'graph');
 
-function task(id: string, columnId: string, position: number): BoardTask {
+function task(id: string, columnId: string, position: number, title = id): BoardTask {
   return {
     id,
     column_id: columnId,
-    title: id,
+    title,
     description: null,
     position,
     created_at: '2026-01-01T00:00:00Z',
@@ -46,9 +55,9 @@ beforeEach(() => {
   selection.clear();
   shortcuts.reset();
   document.body.innerHTML = '';
-  board.currentProjectId = 'p1';
+  board.currentProjectId = PROJECT_ID;
   board.project = {
-    id: 'p1',
+    id: PROJECT_ID,
     name: 'Game',
     description: '',
     archived_at: null,
@@ -62,11 +71,11 @@ beforeEach(() => {
     { id: 'c1', name: 'Todo', position: 1000, is_done: false },
     { id: 'done', name: 'Done', position: 2000, is_done: true },
   ];
-  board.tasks = [task('t1', 'c1', 1000), task('t2', 'c1', 2000)];
+  board.tasks = [task(TASK_1, 'c1', 1000, 'A'), task(TASK_2, 'c1', 2000, 'B')];
   board.labels = [{ id: 'lab', name: 'art', color: '#ff0000' }];
   // Navigating rather than assigning `current` keeps `router.path` in step, which the
   // store needs to rewrite the query string when a shortcut changes a filter.
-  router.navigate('/projects/p1', { replace: true });
+  router.navigate(BOARD_PATH, { replace: true });
   session.user = me;
 });
 
@@ -87,7 +96,7 @@ describe('shortcut focus guards', () => {
     press('j');
     expect(selection.selectedTaskId).toBeNull();
 
-    selection.set('t1');
+    selection.set(TASK_1);
     const moved = press('m');
     expect(shortcuts.moveMenu).toBeNull();
     expect(moved.defaultPrevented).toBe(false);
@@ -97,9 +106,9 @@ describe('shortcut focus guards', () => {
     const input = document.createElement('input');
     document.body.append(input);
     input.focus();
-    selection.set('t1');
+    selection.set(TASK_1);
     press('j');
-    expect(selection.selectedTaskId).toBe('t1');
+    expect(selection.selectedTaskId).toBe(TASK_1);
     const event = press('f');
     expect(shortcuts.filterFocusRequested).toBe(false);
     expect(event.defaultPrevented).toBe(false);
@@ -142,7 +151,7 @@ describe('shortcut focus guards', () => {
     expect(mine.defaultPrevented).toBe(false);
 
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
-    selection.set('t1');
+    selection.set(TASK_1);
     const done = press('d');
     expect(moveTask).not.toHaveBeenCalled();
     expect(done.defaultPrevented).toBe(false);
@@ -156,44 +165,44 @@ describe('shortcut focus guards', () => {
 describe('board shortcuts', () => {
   it('navigates the selection with j/k and preventDefaults', () => {
     const event = press('j');
-    expect(selection.selectedTaskId).toBe('t1');
+    expect(selection.selectedTaskId).toBe(TASK_1);
     expect(event.defaultPrevented).toBe(true);
     press('j');
-    expect(selection.selectedTaskId).toBe('t2');
+    expect(selection.selectedTaskId).toBe(TASK_2);
     press('k');
-    expect(selection.selectedTaskId).toBe('t1');
+    expect(selection.selectedTaskId).toBe(TASK_1);
   });
 
   it('opens the selected task with Enter', () => {
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
-    selection.set('t1');
+    selection.set(TASK_1);
     press('Enter');
-    expect(navigate).toHaveBeenCalledWith('/projects/p1/tasks/t1');
+    expect(navigate).toHaveBeenCalledWith(TASK_PATH);
   });
 
   it('opens the quick-label menu for the selection', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     press('l');
-    expect(shortcuts.labelMenu).toBe('t1');
+    expect(shortcuts.labelMenu).toBe(TASK_1);
   });
 
   it('opens the dependency menu for the selection in both directions', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     const blockedBy = press('b');
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_1, direction: 'blocker' });
     expect(blockedBy.defaultPrevented).toBe(true);
 
     shortcuts.reset();
-    selection.set('t1');
+    selection.set(TASK_1);
     const blocks = press('B', { shiftKey: true });
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_1, direction: 'blocked' });
     expect(blocks.defaultPrevented).toBe(true);
   });
 
   it('reads the direction off shiftKey, not the character (CapsLock)', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     press('B');
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_1, direction: 'blocker' });
   });
 
   it('does nothing for b without a selection', () => {
@@ -203,7 +212,7 @@ describe('board shortcuts', () => {
   });
 
   it('leaves modified b presses to the browser', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
       const event = press('b', init);
       expect(shortcuts.dependencyMenu).toBeNull();
@@ -212,7 +221,7 @@ describe('board shortcuts', () => {
   });
 
   it('leaves Cmd+L and Cmd+A to the browser', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     const label = press('l', { metaKey: true });
     expect(shortcuts.labelMenu).toBeNull();
     expect(label.defaultPrevented).toBe(false);
@@ -223,15 +232,15 @@ describe('board shortcuts', () => {
   });
 
   it('opens the move menu for the selection, under CapsLock too', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     const event = press('m');
-    expect(shortcuts.moveMenu).toBe('t1');
+    expect(shortcuts.moveMenu).toBe(TASK_1);
     expect(event.defaultPrevented).toBe(true);
 
     shortcuts.reset();
-    selection.set('t1');
+    selection.set(TASK_1);
     const caps = press('M');
-    expect(shortcuts.moveMenu).toBe('t1');
+    expect(shortcuts.moveMenu).toBe(TASK_1);
     expect(caps.defaultPrevented).toBe(true);
   });
 
@@ -242,7 +251,7 @@ describe('board shortcuts', () => {
   });
 
   it('leaves modified m presses (Cmd+M minimises) to the browser', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
       const event = press('m', init);
       expect(shortcuts.moveMenu).toBeNull();
@@ -251,18 +260,18 @@ describe('board shortcuts', () => {
   });
 
   it('swallows selection keys while the move menu is open and closes it on Escape', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     press('m');
     expect(shortcuts.anyMenuOpen).toBe(true);
     press('j');
-    expect(selection.selectedTaskId).toBe('t1');
+    expect(selection.selectedTaskId).toBe(TASK_1);
     const closed = press('Escape');
     expect(shortcuts.moveMenu).toBeNull();
     expect(closed.defaultPrevented).toBe(true);
   });
 
   it('clears an open move menu on reset', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     press('m');
     shortcuts.reset();
     expect(shortcuts.moveMenu).toBeNull();
@@ -270,17 +279,17 @@ describe('board shortcuts', () => {
   });
 
   it('swallows selection keys while the dependency menu is open and closes it on Escape', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     press('b');
     press('j');
-    expect(selection.selectedTaskId).toBe('t1');
+    expect(selection.selectedTaskId).toBe(TASK_1);
     const closed = press('Escape');
     expect(shortcuts.dependencyMenu).toBeNull();
     expect(closed.defaultPrevented).toBe(true);
   });
 
   it('clears an open dependency menu on reset', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     press('b');
     expect(shortcuts.anyMenuOpen).toBe(true);
     shortcuts.reset();
@@ -292,32 +301,32 @@ describe('board shortcuts', () => {
     press('n');
     expect(shortcuts.quickAddColumn).toBe('c1');
     shortcuts.quickAddColumn = null;
-    selection.set('t1');
+    selection.set(TASK_1);
     press('n');
     expect(shortcuts.quickAddColumn).toBe('c1');
   });
 
   it('moves the selected task to the first done column with d', () => {
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
-    selection.set('t1');
+    selection.set(TASK_1);
     press('d');
-    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
+    expect(moveTask).toHaveBeenCalledWith(TASK_1, 'done', 1000);
   });
 
   it('duplicates the selected task with Shift+D and preventDefaults', () => {
     const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
-    selection.set('t1');
+    selection.set(TASK_1);
 
     const event = press('D', { shiftKey: true });
 
-    expect(duplicateTask).toHaveBeenCalledWith('t1');
+    expect(duplicateTask).toHaveBeenCalledWith(TASK_1);
     expect(event.defaultPrevented).toBe(true);
-    expect(selection.selectedTaskId).toBe('t1');
+    expect(selection.selectedTaskId).toBe(TASK_1);
   });
 
   it('ignores autorepeat on Shift+D so a held key mints one copy', () => {
     const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
-    selection.set('t1');
+    selection.set(TASK_1);
 
     press('D', { shiftKey: true });
     const repeated = press('D', { shiftKey: true, repeat: true });
@@ -328,31 +337,31 @@ describe('board shortcuts', () => {
 
   it('still marks done on a held d, which is idempotent', () => {
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
-    selection.set('t1');
+    selection.set(TASK_1);
 
     press('d', { repeat: true });
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
+    expect(moveTask).toHaveBeenCalledWith(TASK_1, 'done', 1000);
   });
 
   it('follows the shift modifier rather than the case of the key', () => {
     const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
-    selection.set('t1');
+    selection.set(TASK_1);
 
     press('d', { shiftKey: true });
-    expect(duplicateTask).toHaveBeenCalledWith('t1');
+    expect(duplicateTask).toHaveBeenCalledWith(TASK_1);
     expect(moveTask).not.toHaveBeenCalled();
 
     press('D', { shiftKey: false });
-    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
+    expect(moveTask).toHaveBeenCalledWith(TASK_1, 'done', 1000);
     expect(duplicateTask).toHaveBeenCalledTimes(1);
   });
 
   it('leaves a modified d or Shift+D to the browser, and does nothing without a selection', () => {
     const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
-    selection.set('t1');
+    selection.set(TASK_1);
 
     expect(press('D', { shiftKey: true, metaKey: true }).defaultPrevented).toBe(false);
     expect(press('d', { metaKey: true }).defaultPrevented).toBe(false);
@@ -366,7 +375,7 @@ describe('board shortcuts', () => {
   });
 
   it('clears the selection on Escape, then does nothing', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     const cleared = press('Escape');
     expect(selection.selectedTaskId).toBeNull();
     expect(cleared.defaultPrevented).toBe(true);
@@ -512,7 +521,7 @@ describe('board shortcuts', () => {
   });
 
   it('swallows q while a quick menu is open', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     press('b');
     expect(shortcuts.anyMenuOpen).toBe(true);
     press('q');
@@ -525,10 +534,10 @@ describe('g-chords', () => {
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
     press('g');
     press('b');
-    expect(navigate).toHaveBeenLastCalledWith('/projects/p1');
+    expect(navigate).toHaveBeenLastCalledWith(BOARD_PATH);
     press('g');
     press('g');
-    expect(navigate).toHaveBeenLastCalledWith('/projects/p1/graph');
+    expect(navigate).toHaveBeenLastCalledWith(GRAPH_PATH);
     press('g');
     press('p');
     expect(navigate).toHaveBeenLastCalledWith('/');
@@ -543,18 +552,35 @@ describe('g-chords', () => {
 
     press('g');
     press('g');
-    expect(navigate).toHaveBeenLastCalledWith('/projects/p1/graph?q=boss');
+    expect(navigate).toHaveBeenLastCalledWith(GRAPH_PATH + '?q=boss');
     press('g');
     press('b');
-    expect(navigate).toHaveBeenLastCalledWith('/projects/p1?q=boss');
+    expect(navigate).toHaveBeenLastCalledWith(BOARD_PATH + '?q=boss');
 
-    selection.set('t1');
+    selection.set(TASK_1);
     press('Enter');
-    expect(navigate).toHaveBeenLastCalledWith('/projects/p1/tasks/t1?q=boss');
+    expect(navigate).toHaveBeenLastCalledWith(TASK_PATH + '?q=boss');
 
     press('g');
     press('p');
     expect(navigate).toHaveBeenLastCalledWith('/');
+  });
+
+  it('jumps to the board of an open task, and nowhere until that task resolves', () => {
+    router.navigate(TASK_PATH, { replace: true });
+    board.tasks = [];
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    press('g');
+    press('b');
+    expect(navigate).not.toHaveBeenCalled();
+
+    // The unclaimed b fell through to the overlay's dependency menu.
+    shortcuts.reset();
+    board.tasks = [task(TASK_1, 'c1', 1000, 'A')];
+    press('g');
+    press('b');
+    expect(navigate).toHaveBeenLastCalledWith(BOARD_PATH);
   });
 
   it('reaches both cross-project screens from a route with no project', () => {
@@ -574,27 +600,43 @@ describe('g-chords', () => {
     expect(navigate).toHaveBeenCalledTimes(2);
   });
 
+  // The visitor on a shared link cannot load either signed-in screen, so the
+  // in-project chords have to stay dead there.
+  it('leaves g b and g g inert on a public board', () => {
+    const publicPath = publicBoardHref(PROJECT_ID);
+    router.navigate(publicPath, { replace: true });
+
+    press('g');
+    const toBoard = press('b');
+    expect(router.path).toBe(publicPath);
+    expect(toBoard.defaultPrevented).toBe(false);
+
+    press('g');
+    press('g');
+    expect(router.path).toBe(publicPath);
+  });
+
   it('completes the chord under CapsLock rather than opening the dependency menu', () => {
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
-    selection.set('t1');
+    selection.set(TASK_1);
     press('G');
     press('B');
-    expect(navigate).toHaveBeenLastCalledWith('/projects/p1');
+    expect(navigate).toHaveBeenLastCalledWith(BOARD_PATH);
     expect(shortcuts.dependencyMenu).toBeNull();
   });
 
   it('gives g then b to the chord rather than the dependency menu', () => {
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
-    selection.set('t1');
+    selection.set(TASK_1);
     press('g');
     press('b');
-    expect(navigate).toHaveBeenLastCalledWith('/projects/p1');
+    expect(navigate).toHaveBeenLastCalledWith(BOARD_PATH);
     expect(shortcuts.dependencyMenu).toBeNull();
   });
 
   it('gives g then m to the my-tasks chord rather than the move menu', () => {
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
-    selection.set('t1');
+    selection.set(TASK_1);
     press('g');
     press('m');
     expect(navigate).toHaveBeenLastCalledWith('/my-tasks');
@@ -624,7 +666,7 @@ describe('search shortcut', () => {
   });
 
   it('stays live with the task overlay open', () => {
-    router.navigate('/projects/p1/tasks/t1', { replace: true });
+    router.navigate(TASK_PATH, { replace: true });
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
     press('/');
     expect(navigate).toHaveBeenCalledWith('/search');
@@ -667,28 +709,28 @@ describe('search shortcut', () => {
 
 describe('overlay context', () => {
   beforeEach(() => {
-    router.navigate('/projects/p1/tasks/t1', { replace: true });
+    router.navigate(TASK_PATH, { replace: true });
   });
 
   it('targets the open task with l and a', () => {
     press('l');
-    expect(shortcuts.labelMenu).toBe('t1');
+    expect(shortcuts.labelMenu).toBe(TASK_1);
     shortcuts.reset();
     press('a');
-    expect(shortcuts.assigneeMenu).toBe('t1');
+    expect(shortcuts.assigneeMenu).toBe(TASK_1);
   });
 
   it('targets the open task with b even with no board selection', () => {
     press('b');
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_1, direction: 'blocker' });
     shortcuts.reset();
     press('B', { shiftKey: true });
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_1, direction: 'blocked' });
   });
 
   it('targets the open task with m even with no board selection', () => {
     const event = press('m');
-    expect(shortcuts.moveMenu).toBe('t1');
+    expect(shortcuts.moveMenu).toBe(TASK_1);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -727,13 +769,13 @@ describe('overlay context', () => {
     button.focus();
 
     press('l');
-    expect(shortcuts.labelMenu).toBe('t1');
+    expect(shortcuts.labelMenu).toBe(TASK_1);
   });
 });
 
 describe('graph view', () => {
   beforeEach(() => {
-    router.navigate('/projects/p1/graph', { replace: true });
+    router.navigate(GRAPH_PATH, { replace: true });
   });
 
   it('does not run selection nav (the graph has no card list)', () => {
@@ -758,21 +800,21 @@ describe('graph view', () => {
   });
 
   it('does nothing for l without an overlay (no selection to target)', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     const event = press('l');
     expect(shortcuts.labelMenu).toBeNull();
     expect(event.defaultPrevented).toBe(false);
   });
 
   it('does nothing for b without an overlay (no selection to target)', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     const event = press('b');
     expect(shortcuts.dependencyMenu).toBeNull();
     expect(event.defaultPrevented).toBe(false);
   });
 
   it('does nothing for m without an overlay (no selection to target)', () => {
-    selection.set('t1');
+    selection.set(TASK_1);
     const event = press('m');
     expect(shortcuts.moveMenu).toBeNull();
     expect(event.defaultPrevented).toBe(false);
@@ -787,27 +829,27 @@ describe('graph view', () => {
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
     press('g');
     press('b');
-    expect(navigate).toHaveBeenLastCalledWith('/projects/p1');
+    expect(navigate).toHaveBeenLastCalledWith(BOARD_PATH);
   });
 });
 
 describe('graph overlay context', () => {
   beforeEach(() => {
-    router.navigate('/projects/p1/graph/tasks/t1', { replace: true });
+    router.navigate(GRAPH_TASK_PATH, { replace: true });
   });
 
   it('targets the open task with l, a, b and m', () => {
     press('l');
-    expect(shortcuts.labelMenu).toBe('t1');
+    expect(shortcuts.labelMenu).toBe(TASK_1);
     shortcuts.reset();
     press('a');
-    expect(shortcuts.assigneeMenu).toBe('t1');
+    expect(shortcuts.assigneeMenu).toBe(TASK_1);
     shortcuts.reset();
     press('b');
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_1, direction: 'blocker' });
     shortcuts.reset();
     press('m');
-    expect(shortcuts.moveMenu).toBe('t1');
+    expect(shortcuts.moveMenu).toBe(TASK_1);
   });
 
   it('does not request filter focus with f', () => {
@@ -830,7 +872,7 @@ describe('graph overlay context', () => {
     const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
     press('g');
     press('g');
-    expect(navigate).toHaveBeenLastCalledWith('/projects/p1/graph');
+    expect(navigate).toHaveBeenLastCalledWith(GRAPH_PATH);
   });
 });
 
@@ -842,7 +884,7 @@ describe('shortcuts on a read-only board', () => {
       member_ids: [me.id],
       members: [{ user_id: me.id, role: 'viewer' }],
     };
-    selection.set('t1');
+    selection.set(TASK_1);
   });
 
   it('leaves every mutating key unclaimed', () => {
@@ -856,7 +898,7 @@ describe('shortcuts on a read-only board', () => {
     expect(shortcuts.assigneeMenu).toBeNull();
     expect(shortcuts.dependencyMenu).toBeNull();
     expect(shortcuts.moveMenu).toBeNull();
-    expect(board.tasks.find((t) => t.id === 't1')?.column_id).toBe('c1');
+    expect(board.tasks.find((t) => t.id === TASK_1)?.column_id).toBe('c1');
   });
 
   it('does not duplicate on Shift+D', () => {

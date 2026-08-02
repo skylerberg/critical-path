@@ -4,7 +4,8 @@
   import { apiMessage } from '../lib/apiMessages';
   import { APP_NAME } from '../lib/constants';
   import { projects } from '../lib/projects.svelte';
-  import { boardPath, link, router } from '../lib/router.svelte';
+  import { link, router } from '../lib/router.svelte';
+  import { projectHref } from '../lib/short-links';
   import { rememberIntendedPath, session } from '../lib/session.svelte';
   import { toasts } from '../lib/toasts.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
@@ -48,7 +49,8 @@
           ? 'You have edit access to this board'
           : 'You have view-only access to this board'
       );
-      router.redirect(boardPath(project_id, false));
+      const joined = projects.projects.find((entry) => entry.id === project_id);
+      router.redirect(projectHref(project_id, joined?.name ?? ''));
     } catch (err) {
       error = err instanceof ApiError && err.status === 422 ? DEAD_LINK : apiMessage(err);
     }

@@ -5,6 +5,8 @@ import ProjectHeader from './ProjectHeader.svelte';
 import { board } from '../lib/board.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { session } from '../lib/session.svelte';
+import { projectHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
 import { webhooks } from '../lib/webhooks.svelte';
@@ -17,11 +19,12 @@ const me = {
   avatar_url: null,
   email_verified: false,
 };
+const PROJECT_ID = testUuid('p1');
 
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [];
   return {
-    id: 'p1',
+    id: PROJECT_ID,
     name: 'Game',
     description: '',
     archived_at: null,
@@ -96,9 +99,9 @@ beforeEach(() => {
   users.reset();
   webhooks.reset();
   session.user = me;
-  board.currentProjectId = 'p1';
+  board.currentProjectId = PROJECT_ID;
   board.project = {
-    id: 'p1',
+    id: PROJECT_ID,
     name: 'Game',
     description: '',
     archived_at: null,
@@ -120,7 +123,7 @@ afterEach(() => {
 
 describe('ProjectHeader', () => {
   it('renders label chips, assignee chips, and the title search inline on the board view', () => {
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     expect(screen.getByLabelText('Filter tasks by title')).toBeInTheDocument();
     expect(screen.getByText('art')).toBeInTheDocument();
@@ -131,34 +134,34 @@ describe('ProjectHeader', () => {
 
   it('flags a published board as soon as this tab publishes it, and clears it on unpublish', async () => {
     projects.projects = [project()];
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     expect(screen.queryByText('Public')).toBeNull();
 
     fetchMock.mockResolvedValueOnce(jsonResponse(200, project({ is_public: true })));
-    await projects.setPublic('p1', true);
+    await projects.setPublic(PROJECT_ID, true);
     await waitFor(() => expect(screen.getByText('Public')).toBeInTheDocument());
 
     fetchMock.mockResolvedValueOnce(jsonResponse(200, project()));
-    await projects.setPublic('p1', false);
+    await projects.setPublic(PROJECT_ID, false);
     await waitFor(() => expect(screen.queryByText('Public')).toBeNull());
   });
 
   it('flags a board another member published, from the realtime event', async () => {
     projects.projects = [project()];
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     expect(screen.queryByText('Public')).toBeNull();
 
     projects.applyRealtime({
       type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', is_public: true },
+      project_id: PROJECT_ID,
+      data: { id: PROJECT_ID, is_public: true },
     });
     await waitFor(() => expect(screen.getByText('Public')).toBeInTheDocument());
   });
 
   it('falls back to the board payload while the projects list is still loading', async () => {
     board.project = { ...board.project!, is_public: true };
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     expect(screen.getByText('Public')).toBeInTheDocument();
 
@@ -167,7 +170,7 @@ describe('ProjectHeader', () => {
   });
 
   it('renders the same filter cluster on the graph view', () => {
-    render(ProjectHeader, { projectId: 'p1', view: 'graph' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'graph' });
 
     expect(screen.getByLabelText('Filter tasks by title')).toBeInTheDocument();
     expect(screen.getByText('art')).toBeInTheDocument();
@@ -176,8 +179,12 @@ describe('ProjectHeader', () => {
   });
 
   it('exposes an identical control inventory and title layout in both views', () => {
-    const boardHeader = header(render(ProjectHeader, { projectId: 'p1', view: 'board' }).container);
-    const graphHeader = header(render(ProjectHeader, { projectId: 'p1', view: 'graph' }).container);
+    const boardHeader = header(
+      render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' }).container
+    );
+    const graphHeader = header(
+      render(ProjectHeader, { projectId: PROJECT_ID, view: 'graph' }).container
+    );
 
     expect(inventory(graphHeader)).toEqual(inventory(boardHeader));
     expect(graphHeader.querySelector('h1')?.className).toBe(
@@ -190,7 +197,7 @@ describe('ProjectHeader', () => {
   it('opens the members modal from the Share button', async () => {
     projects.projects = [project()];
 
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Share' }));
@@ -206,7 +213,7 @@ describe('ProjectHeader', () => {
         webhooks: [
           {
             id: 'w-1',
-            project_id: 'p1',
+            project_id: PROJECT_ID,
             url: 'https://example.com/hook',
             secret: 'sec-abc',
             disabled_at: null,
@@ -217,20 +224,22 @@ describe('ProjectHeader', () => {
       })
     );
 
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Webhooks' }));
 
     expect(screen.getByLabelText('Endpoint URL')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('https://example.com/hook')).toBeInTheDocument());
-    expect((fetchMock.mock.calls[0][0] as Request).url).toContain('/api/webhooks?project_id=p1');
+    expect((fetchMock.mock.calls[0][0] as Request).url).toContain(
+      `/api/webhooks?project_id=${PROJECT_ID}`
+    );
   });
 
   it('opens the archive from the Archived cards button', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { tasks: [] }));
 
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Archived cards' }));
@@ -240,12 +249,12 @@ describe('ProjectHeader', () => {
   });
 
   it('offers Export in both views', async () => {
-    const { unmount } = render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    const { unmount } = render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.getByRole('menuitem', { name: 'Export' })).toBeInTheDocument();
     unmount();
 
-    render(ProjectHeader, { projectId: 'p1', view: 'graph' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'graph' });
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.getByRole('menuitem', { name: 'Export' })).toBeInTheDocument();
   });
@@ -258,7 +267,7 @@ describe('ProjectHeader', () => {
       })
     );
 
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     const button = screen.getByRole('menuitem', { name: 'Export' });
     await fireEvent.click(button);
@@ -268,7 +277,9 @@ describe('ProjectHeader', () => {
     expect(screen.getByRole('menuitem', { name: 'Export' })).toBe(button);
     expect(button).toHaveAttribute('aria-busy', 'true');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect((fetchMock.mock.calls[0][0] as Request).url).toMatch(/\/api\/projects\/p1\/export$/);
+    expect(new URL((fetchMock.mock.calls[0][0] as Request).url).pathname).toBe(
+      `/api/projects/${PROJECT_ID}/export`
+    );
 
     settle(
       new Response(new Blob([new Uint8Array([0x50, 0x4b])]), {
@@ -289,7 +300,7 @@ describe('ProjectHeader', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(413, { error: 'Too large; use format=json' }));
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { format: 'critical-path-project-export' }));
 
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     const button = screen.getByRole('menuitem', { name: 'Export' });
     await fireEvent.click(button);
@@ -305,7 +316,7 @@ describe('ProjectHeader', () => {
   it('reports what the server said about a failed export and re-enables the button', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Something broke' }));
 
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     const button = screen.getByRole('menuitem', { name: 'Export' });
     await fireEvent.click(button);
@@ -318,7 +329,7 @@ describe('ProjectHeader', () => {
   it('reports a deleted project without blaming the connection', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(404, { error: 'Project not found' }));
 
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Export' }));
 
@@ -329,7 +340,7 @@ describe('ProjectHeader', () => {
   it('blames the connection only when the request never reached the server', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
 
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Export' }));
 
@@ -344,20 +355,20 @@ describe('ProjectHeader', () => {
     board.setFilterQuery('boss');
     board.toggleLabelFilter('l1');
 
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     expect(screen.getByRole('link', { name: 'Board' })).toHaveAttribute(
       'href',
-      '/projects/p1?labels=l1&q=boss'
+      `${projectHref(PROJECT_ID, 'Game')}?labels=l1&q=boss`
     );
     expect(screen.getByRole('link', { name: 'Graph' })).toHaveAttribute(
       'href',
-      '/projects/p1/graph?labels=l1&q=boss'
+      `${projectHref(PROJECT_ID, 'Game', 'graph')}?labels=l1&q=boss`
     );
   });
 
   it('updates the shared filterQuery as the user types, which dims non-matching tasks', async () => {
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     const input = screen.getByLabelText<HTMLInputElement>('Filter tasks by title');
     await fireEvent.input(input, { target: { value: 'design' } });
@@ -382,7 +393,7 @@ describe('ProjectHeader for a viewer', () => {
   });
 
   it('badges the board and drops the management surfaces', async () => {
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     expect(screen.getByText('View only')).toBeInTheDocument();
 
@@ -392,7 +403,7 @@ describe('ProjectHeader for a viewer', () => {
   });
 
   it('keeps the read-only surfaces', async () => {
-    render(ProjectHeader, { projectId: 'p1', view: 'board' });
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.getByRole('menuitem', { name: /Share/ })).toBeInTheDocument();

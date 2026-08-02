@@ -8,6 +8,8 @@ import { router } from './router.svelte';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
 import { shortcuts } from './shortcuts.svelte';
+import { projectHref, taskHref } from './short-links';
+import { testUuid } from './test-ids';
 
 const me = {
   id: 'u-me',
@@ -16,12 +18,17 @@ const me = {
   avatar_url: null,
   email_verified: false,
 };
+const PROJECT_ID = testUuid('p1');
+const TASK_ID = testUuid('t1');
+const TASK_TITLE = 'Design cards';
+const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
+const TASK_PATH = taskHref(TASK_ID, TASK_TITLE);
 
-function task(id: string, columnId: string, position: number): BoardTask {
+function task(id: string, columnId: string, position: number, title: string): BoardTask {
   return {
     id,
     column_id: columnId,
-    title: id,
+    title,
     description: null,
     position,
     created_at: '2026-01-01T00:00:00Z',
@@ -42,9 +49,9 @@ beforeEach(() => {
   selection.clear();
   shortcuts.reset();
   cardMenu.reset();
-  board.currentProjectId = 'p1';
+  board.currentProjectId = PROJECT_ID;
   board.project = {
-    id: 'p1',
+    id: PROJECT_ID,
     name: 'Game',
     description: '',
     archived_at: null,
@@ -58,10 +65,10 @@ beforeEach(() => {
     { id: 'c1', name: 'Todo', position: 1000, is_done: false },
     { id: 'done', name: 'Done', position: 2000, is_done: true },
   ];
-  board.tasks = [task('t1', 'c1', 1000)];
-  router.navigate('/projects/p1', { replace: true });
+  board.tasks = [task(TASK_ID, 'c1', 1000, TASK_TITLE)];
+  router.navigate(BOARD_PATH, { replace: true });
   session.user = me;
-  selection.set('t1');
+  selection.set(TASK_ID);
 });
 
 afterEach(() => {
@@ -79,41 +86,41 @@ function press(hint: string): void {
 const effects: Record<CardActionId, (hint: string) => void> = {
   open: (hint) => {
     press(hint);
-    expect(router.path).toBe('/projects/p1/tasks/t1');
+    expect(router.path).toBe(TASK_PATH);
   },
   openDetail: (hint) => {
     press(hint);
-    expect(router.path).toBe('/projects/p1/tasks/t1');
+    expect(router.path).toBe(TASK_PATH);
   },
   labels: (hint) => {
     press(hint);
-    expect(shortcuts.labelMenu).toBe('t1');
+    expect(shortcuts.labelMenu).toBe(TASK_ID);
   },
   assignees: (hint) => {
     press(hint);
-    expect(shortcuts.assigneeMenu).toBe('t1');
+    expect(shortcuts.assigneeMenu).toBe(TASK_ID);
   },
   blockers: (hint) => {
     press(hint);
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_ID, direction: 'blocker' });
   },
   blocking: (hint) => {
     press(hint);
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_ID, direction: 'blocked' });
   },
   move: (hint) => {
     press(hint);
-    expect(shortcuts.moveMenu).toBe('t1');
+    expect(shortcuts.moveMenu).toBe(TASK_ID);
   },
   done: (hint) => {
     const markTaskDone = vi.spyOn(board, 'markTaskDone').mockReturnValue(true);
     press(hint);
-    expect(markTaskDone).toHaveBeenCalledWith('t1');
+    expect(markTaskDone).toHaveBeenCalledWith(TASK_ID);
   },
   duplicate: (hint) => {
-    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('t2');
+    const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue(testUuid('t2'));
     press(hint);
-    expect(duplicateTask).toHaveBeenCalledWith('t1');
+    expect(duplicateTask).toHaveBeenCalledWith(TASK_ID);
   },
   rename: () => expect.unreachable('rename has no key'),
   archive: () => expect.unreachable('archive has no key'),

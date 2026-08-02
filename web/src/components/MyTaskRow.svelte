@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MyTask } from '../lib/myTasks.svelte';
+  import { taskHref } from '../lib/short-links';
   import { truncateTitle } from '../lib/titles';
   import { displayName, users, type User } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -41,7 +42,7 @@
 >
   <p class="min-w-0 flex-1 basis-full text-sm font-medium break-words sm:basis-auto">
     <a
-      href="/projects/{task.project_id}/tasks/{task.id}?from=my-tasks"
+      href={taskHref(task.id, task.title) + '?from=my-tasks'}
       title={anchorTitle}
       class="after:absolute after:inset-0 focus-visible:outline-none">{shownTitle}</a
     >

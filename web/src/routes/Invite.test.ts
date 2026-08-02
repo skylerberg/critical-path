@@ -2,10 +2,30 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
 import Invite from './Invite.svelte';
-import { projects } from '../lib/projects.svelte';
+import { projects, type Project } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
+import { projectHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import { toasts } from '../lib/toasts.svelte';
+
+const SHARED_ID = testUuid('p-shared');
+const SHARED_NAME = 'Shared Board';
+
+const sharedBoard: Project = {
+  id: SHARED_ID,
+  name: SHARED_NAME,
+  description: '',
+  archived_at: null,
+  created_by: 'u-owner',
+  member_ids: ['u-me'],
+  members: [{ user_id: 'u-me', role: 'editor' }],
+  is_public: false,
+  created_at: '2026-01-01T00:00:00.000Z',
+  open_task_count: 0,
+  done_task_count: 0,
+  position: null,
+};
 
 function pathsCalled(): string[] {
   return fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
@@ -32,13 +52,13 @@ describe('Invite', () => {
   it('redeems the link, reloads the boards, and lands on the one that was shared', async () => {
     fetchMock.mockImplementation(async (input) =>
       new URL((input as Request).url).pathname === '/api/invitations/accept'
-        ? jsonResponse(200, { project_id: 'p-shared', role: 'editor' })
-        : jsonResponse(200, { projects: [] })
+        ? jsonResponse(200, { project_id: SHARED_ID, role: 'editor' })
+        : jsonResponse(200, { projects: [sharedBoard] })
     );
 
     render(Invite, { token: 'tok-123' });
 
-    await waitFor(() => expect(router.path).toBe('/projects/p-shared'));
+    await waitFor(() => expect(router.path).toBe(projectHref(SHARED_ID, SHARED_NAME)));
     const accept = fetchMock.mock.calls.find(
       (call) => new URL((call[0] as Request).url).pathname === '/api/invitations/accept'
     )![0] as Request;
@@ -51,13 +71,13 @@ describe('Invite', () => {
   it('reports view-only access when the link leaves the caller a viewer', async () => {
     fetchMock.mockImplementation(async (input) =>
       new URL((input as Request).url).pathname === '/api/invitations/accept'
-        ? jsonResponse(200, { project_id: 'p-shared', role: 'viewer' })
-        : jsonResponse(200, { projects: [] })
+        ? jsonResponse(200, { project_id: SHARED_ID, role: 'viewer' })
+        : jsonResponse(200, { projects: [sharedBoard] })
     );
 
     render(Invite, { token: 'tok-123' });
 
-    await waitFor(() => expect(router.path).toBe('/projects/p-shared'));
+    await waitFor(() => expect(router.path).toBe(projectHref(SHARED_ID, SHARED_NAME)));
     expect(toasts.toasts.map((t) => t.message)).toEqual([
       'You have view-only access to this board',
     ]);

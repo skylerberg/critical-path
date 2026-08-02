@@ -13,6 +13,8 @@
   import { projects, type Project } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { link, router } from '../lib/router.svelte';
+  import { projectHref } from '../lib/short-links';
+  import { currentProjectId } from '../lib/task-route.svelte';
   import { session } from '../lib/session.svelte';
   import FeedbackDialog from './FeedbackDialog.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -25,9 +27,7 @@
   const projectsActive = $derived(router.current.name === 'projects');
   const myTasksActive = $derived(router.current.name === 'my-tasks');
   const searchActive = $derived(router.current.name === 'search');
-  const currentProjectId = $derived(
-    router.current.name === 'project' ? router.current.params.id : null
-  );
+  const activeProjectId = $derived(currentProjectId());
 
   const offline = $derived(session.status === 'authed' && realtime.interrupted);
 
@@ -159,18 +159,18 @@
   </svg>
 {/snippet}
 
-{#snippet projectLink(id: string, name: string)}
+{#snippet projectLink(project: Project)}
+  {@const active = activeProjectId === project.id}
   <a
     use:suppressTouchContextMenu
-    href="/projects/{id}"
+    href={projectHref(project.id, project.name)}
     draggable="false"
-    aria-current={currentProjectId === id ? 'page' : undefined}
-    class="flex min-h-11 touch-callout-none items-center truncate rounded-md px-3 text-sm {currentProjectId ===
-    id
+    aria-current={active ? 'page' : undefined}
+    class="flex min-h-11 touch-callout-none items-center truncate rounded-md px-3 text-sm {active
       ? 'bg-accent-soft font-medium text-accent'
       : 'text-muted hover:bg-accent-soft hover:text-ink'}"
   >
-    {name}
+    {project.name}
   </a>
 {/snippet}
 
@@ -232,7 +232,7 @@
         aria-label={project.name}
         class="rounded-md focus-visible:outline-2 focus-visible:outline-accent"
       >
-        {@render projectLink(project.id, project.name)}
+        {@render projectLink(project)}
       </div>
     {/each}
   </div>

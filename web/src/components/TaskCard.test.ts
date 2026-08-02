@@ -7,11 +7,16 @@ import type { BoardTask } from '../lib/board-types';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { todayISO } from '../lib/dates';
 import { router } from '../lib/router.svelte';
+import { publicTaskHref, taskHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, TITLE_DISPLAY_LIMIT, truncateTitle } from '../lib/titles';
 import { users } from '../lib/users.svelte';
 
+const PROJECT_ID = testUuid('p1');
+const TASK_ID = testUuid('t1');
+
 const task: BoardTask = {
-  id: 't1',
+  id: TASK_ID,
   column_id: 'c1',
   title: 'Design cards',
   description: null,
@@ -64,7 +69,7 @@ describe('TaskCard', () => {
   it('renders title, label chips, assignee avatar, blocked and image badges, and the link', () => {
     render(TaskCard, {
       task,
-      projectId: 'p1',
+      projectId: PROJECT_ID,
       labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
       blockedCount: 2,
     });
@@ -74,13 +79,13 @@ describe('TaskCard', () => {
     expect(screen.getByTitle('Ada Lovelace')).toHaveTextContent('AL');
     expect(screen.getByTitle('Blocked by 2 open tasks')).toHaveTextContent('2');
     expect(screen.getByTitle('3 images')).toHaveTextContent('3');
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/projects/p1/tasks/t1');
+    expect(screen.getByRole('link')).toHaveAttribute('href', taskHref(TASK_ID, 'Design cards'));
   });
 
   it('omits badges and chips when there is nothing to show', () => {
     render(TaskCard, {
       task: { ...task, label_ids: [], assignee_ids: [], blocker_ids: [], image_count: 0 },
-      projectId: 'p1',
+      projectId: PROJECT_ID,
     });
 
     expect(screen.getByText('Design cards')).toBeInTheDocument();
@@ -93,12 +98,12 @@ describe('TaskCard', () => {
   it('shows the comment badge, pluralized, only when there are comments', () => {
     const { unmount } = render(TaskCard, {
       task: { ...task, comment_count: 3 },
-      projectId: 'p1',
+      projectId: PROJECT_ID,
     });
     expect(screen.getByTitle('3 comments')).toHaveTextContent('3');
     unmount();
 
-    render(TaskCard, { task: { ...task, comment_count: 1 }, projectId: 'p1' });
+    render(TaskCard, { task: { ...task, comment_count: 1 }, projectId: PROJECT_ID });
     expect(screen.getByTitle('1 comment')).toHaveTextContent('1');
   });
 
@@ -112,7 +117,7 @@ describe('TaskCard', () => {
         image_count: 0,
         comment_count: 2,
       },
-      projectId: 'p1',
+      projectId: PROJECT_ID,
     });
 
     expect(screen.getByTitle('2 comments')).toHaveTextContent('2');
@@ -121,7 +126,7 @@ describe('TaskCard', () => {
   it('renders no comment badge when the payload predates comment_count', () => {
     const legacy: Partial<BoardTask> = { ...task };
     delete legacy.comment_count;
-    render(TaskCard, { task: legacy as BoardTask, projectId: 'p1' });
+    render(TaskCard, { task: legacy as BoardTask, projectId: PROJECT_ID });
 
     expect(screen.queryByTitle(/comment/)).not.toBeInTheDocument();
     expect(screen.getByText('Design cards')).toBeInTheDocument();
@@ -129,7 +134,10 @@ describe('TaskCard', () => {
 
   describe('cover image', () => {
     it('renders the cover above the title, alongside the image badge', () => {
-      render(TaskCard, { task: { ...task, cover_image_url: '/api/images/img1' }, projectId: 'p1' });
+      render(TaskCard, {
+        task: { ...task, cover_image_url: '/api/images/img1' },
+        projectId: PROJECT_ID,
+      });
 
       const cover = card().querySelector('img');
       expect(cover).toHaveAttribute('src', '/api/images/img1');
@@ -141,7 +149,7 @@ describe('TaskCard', () => {
     });
 
     it('renders no image at all without a cover', () => {
-      render(TaskCard, { task, projectId: 'p1' });
+      render(TaskCard, { task, projectId: PROJECT_ID });
 
       expect(card().querySelector('img')).toBeNull();
     });
@@ -150,7 +158,7 @@ describe('TaskCard', () => {
     it('renders no image when the payload predates cover_image_url', () => {
       const legacy: Partial<BoardTask> = { ...task };
       delete legacy.cover_image_url;
-      render(TaskCard, { task: legacy as BoardTask, projectId: 'p1' });
+      render(TaskCard, { task: legacy as BoardTask, projectId: PROJECT_ID });
 
       expect(card().querySelector('img')).toBeNull();
       expect(screen.getByText('Design cards')).toBeInTheDocument();
@@ -159,7 +167,7 @@ describe('TaskCard', () => {
     it('shows the cover on a read-only board too', () => {
       render(TaskCard, {
         task: { ...task, cover_image_url: '/api/images/img1' },
-        projectId: 'p1',
+        projectId: PROJECT_ID,
         readonly: true,
       });
 
@@ -170,31 +178,32 @@ describe('TaskCard', () => {
   it('carries the active filters into the task link so closing the card comes back filtered', () => {
     board.setFilters({ labelIds: ['l1'], assigneeIds: [], query: 'boss' });
 
-    render(TaskCard, { task, projectId: 'p1' });
+    render(TaskCard, { task, projectId: PROJECT_ID });
 
     expect(screen.getByRole('link')).toHaveAttribute(
       'href',
-      '/projects/p1/tasks/t1?labels=l1&q=boss'
+      `${taskHref(TASK_ID, 'Design cards')}?labels=l1&q=boss`
     );
   });
 
   it('keeps the private path for a read-only member', () => {
-    render(TaskCard, { task, projectId: 'p1', readonly: true });
+    render(TaskCard, { task, projectId: PROJECT_ID, readonly: true });
 
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/projects/p1/tasks/t1');
+    expect(screen.getByRole('link')).toHaveAttribute('href', taskHref(TASK_ID, 'Design cards'));
   });
 
   it('points at the public path on a public board, changing nothing else', () => {
     board.readonly = true;
+    board.setFilters({ labelIds: ['l1'], assigneeIds: [], query: 'boss' });
     render(TaskCard, {
       task,
-      projectId: 'p1',
+      projectId: PROJECT_ID,
       readonly: true,
       labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
       blockedCount: 2,
     });
 
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/public/projects/p1/tasks/t1');
+    expect(screen.getByRole('link')).toHaveAttribute('href', publicTaskHref(PROJECT_ID, TASK_ID));
     expect(screen.getByText('Design cards')).toBeInTheDocument();
     expect(screen.getByText('art')).toBeInTheDocument();
     expect(screen.getByTitle('Ada Lovelace')).toHaveTextContent('AL');
@@ -203,7 +212,7 @@ describe('TaskCard', () => {
   });
 
   it('dims the card when filtered out', () => {
-    render(TaskCard, { task, projectId: 'p1', dimmed: true });
+    render(TaskCard, { task, projectId: PROJECT_ID, dimmed: true });
 
     expect(card().className).toContain('opacity-30');
   });
@@ -211,7 +220,7 @@ describe('TaskCard', () => {
   // The overlay link paints over its in-flow siblings, so without this the badge
   // and avatar tooltips stop reaching the pointer on every card, dated or not.
   it('raises the badge row above the overlay link', () => {
-    render(TaskCard, { task, projectId: 'p1' });
+    render(TaskCard, { task, projectId: PROJECT_ID });
 
     const row = screen.getByTitle('3 images').parentElement;
     expect(row?.className).toContain('relative');
@@ -221,7 +230,7 @@ describe('TaskCard', () => {
   // jsdom has no hit-testing, so this class pair is the only thing that can catch
   // the raised row swallowing clicks across the card's full width.
   it('leaves the gaps between badges to the overlay link', () => {
-    render(TaskCard, { task, projectId: 'p1', blockedCount: 2 });
+    render(TaskCard, { task, projectId: PROJECT_ID, blockedCount: 2 });
 
     expect(screen.getByTitle('3 images').parentElement?.className).toContain('pointer-events-none');
     for (const badge of ['3 images', 'Blocked by 2 open tasks']) {
@@ -244,7 +253,7 @@ describe('TaskCard', () => {
     }
 
     it('suppresses the native callout across the whole card, not just the link', () => {
-      render(TaskCard, { task, projectId: 'p1' });
+      render(TaskCard, { task, projectId: PROJECT_ID });
 
       expect(card().className).toContain('touch-callout-none');
     });
@@ -252,26 +261,26 @@ describe('TaskCard', () => {
     // A finger's menu comes from the press handler, so the platform event has to
     // die here without also being the thing that opens it.
     it('cancels a touch context menu, and answers a right-click with the card menu', () => {
-      render(TaskCard, { task, projectId: 'p1' });
+      render(TaskCard, { task, projectId: PROJECT_ID });
 
       expect(contextMenu(screen.getByRole('link'), 'touch')).toBe(true);
       expect(contextMenu(screen.getByRole('link'), 'pen')).toBe(true);
       expect(cardMenu.taskId).toBeNull();
 
       expect(contextMenu(screen.getByRole('link'), 'mouse')).toBe(true);
-      expect(cardMenu.taskId).toBe('t1');
+      expect(cardMenu.taskId).toBe(TASK_ID);
     });
 
     // An assignee avatar is an <img>, which raises a callout of its own.
     it('cancels a touch context menu on the badges raised above the link', () => {
-      render(TaskCard, { task, projectId: 'p1', blockedCount: 2 });
+      render(TaskCard, { task, projectId: PROJECT_ID, blockedCount: 2 });
 
       expect(contextMenu(screen.getByTitle('Ada Lovelace'), 'touch')).toBe(true);
       expect(contextMenu(screen.getByTitle('Blocked by 2 open tasks'), 'touch')).toBe(true);
     });
 
     it('cancels a touch context menu on the listener-less clone dragged under the finger', () => {
-      render(TaskCard, { task, projectId: 'p1' });
+      render(TaskCard, { task, projectId: PROJECT_ID });
       const clone = card().cloneNode(true) as HTMLElement;
       document.body.append(clone);
       onTestFinished(() => clone.remove());
@@ -298,10 +307,10 @@ describe('TaskCard', () => {
     }
 
     it('opens on right-click, at the pointer, in place of the browser menu', () => {
-      render(TaskCard, { task, projectId: 'p1' });
+      render(TaskCard, { task, projectId: PROJECT_ID });
 
       expect(rightClick(screen.getByRole('link'))).toBe(true);
-      expect(cardMenu.taskId).toBe('t1');
+      expect(cardMenu.taskId).toBe(TASK_ID);
       expect(cardMenu.x).toBe(120);
       expect(cardMenu.y).toBe(90);
     });
@@ -309,7 +318,7 @@ describe('TaskCard', () => {
     // Losing "open link in new tab" and "copy link" on every card is the cost of
     // owning the menu, so Shift is the way back to the browser's own.
     it('stands aside for a Shift+right-click', () => {
-      render(TaskCard, { task, projectId: 'p1' });
+      render(TaskCard, { task, projectId: PROJECT_ID });
 
       expect(rightClick(screen.getByRole('link'), { shiftKey: true })).toBe(false);
       expect(cardMenu.taskId).toBeNull();
@@ -317,7 +326,7 @@ describe('TaskCard', () => {
 
     it('stays out of a drag', () => {
       board.dragging = true;
-      render(TaskCard, { task, projectId: 'p1' });
+      render(TaskCard, { task, projectId: PROJECT_ID });
 
       expect(rightClick(screen.getByRole('link'))).toBe(false);
       expect(cardMenu.taskId).toBeNull();
@@ -326,22 +335,22 @@ describe('TaskCard', () => {
     // Tab focuses the drag wrapper, so that — not the card — is what Shift+F10 and
     // the context-menu key fire on.
     it('opens from the keyboard on the card wrapper that holds focus', () => {
-      const { container } = render(TaskCard, { task, projectId: 'p1' });
+      const { container } = render(TaskCard, { task, projectId: PROJECT_ID });
 
       expect(rightClick(container, { clientX: 0, clientY: 0 })).toBe(true);
-      expect(cardMenu.taskId).toBe('t1');
+      expect(cardMenu.taskId).toBe(TASK_ID);
     });
 
     // Pressed on the card's own padding, which is what a finger held beside the
     // open editor lands on: the title itself is gone by then.
     it('starts a long press only for a finger, and never mid-rename', async () => {
       const pressStart = vi.spyOn(cardMenu, 'pressStart');
-      const { container } = render(TaskCard, { task, projectId: 'p1' });
+      const { container } = render(TaskCard, { task, projectId: PROJECT_ID });
 
       await fireEvent.pointerDown(screen.getByRole('link'), { pointerType: 'touch' });
       expect(pressStart).toHaveBeenCalledTimes(1);
 
-      cardMenu.rename('t1');
+      cardMenu.rename(TASK_ID);
       await screen.findByLabelText('Task title');
       const body = container.querySelector('[role="presentation"]');
       expect(body?.isConnected).toBe(true);
@@ -353,8 +362,8 @@ describe('TaskCard', () => {
     // Cut, copy and paste are the browser's to offer, and taking them would also
     // blur the edit they belong to.
     it('leaves the browser its own menu inside the open title editor', async () => {
-      render(TaskCard, { task, projectId: 'p1' });
-      cardMenu.rename('t1');
+      render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
       const input = await screen.findByLabelText('Task title');
 
       expect(rightClick(input)).toBe(false);
@@ -366,7 +375,7 @@ describe('TaskCard', () => {
     const long = task.title + 'x'.repeat(TASK_TITLE_MAX_LENGTH - task.title.length);
 
     it('clips the face and the link name to the display limit', () => {
-      render(TaskCard, { task: { ...task, title: long }, projectId: 'p1' });
+      render(TaskCard, { task: { ...task, title: long }, projectId: PROJECT_ID });
 
       const shown = truncateTitle(long);
       expect(screen.getByText(shown)).toBeInTheDocument();
@@ -376,8 +385,8 @@ describe('TaskCard', () => {
     });
 
     it('hands the rename editor the whole stored title, not the clipped one', async () => {
-      render(TaskCard, { task: { ...task, title: long }, projectId: 'p1' });
-      cardMenu.rename('t1');
+      render(TaskCard, { task: { ...task, title: long }, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
 
       const input = await screen.findByLabelText('Task title');
       expect(input).toHaveValue(long);
@@ -387,10 +396,10 @@ describe('TaskCard', () => {
 
   describe('inline rename', () => {
     it('swaps the title for an editor and takes the overlay link out of the way', async () => {
-      render(TaskCard, { task, projectId: 'p1' });
+      render(TaskCard, { task, projectId: PROJECT_ID });
       expect(screen.getByRole('link')).toBeInTheDocument();
 
-      cardMenu.rename('t1');
+      cardMenu.rename(TASK_ID);
       await vi.waitFor(() => expect(screen.getByLabelText('Task title')).toHaveFocus());
 
       expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
@@ -402,14 +411,14 @@ describe('TaskCard', () => {
         status: 'ok',
         updated_at: '2026-01-02T00:00:00Z',
       });
-      render(TaskCard, { task, projectId: 'p1' });
-      cardMenu.rename('t1');
+      render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
       const input = await screen.findByLabelText('Task title');
 
       await fireEvent.input(input, { target: { value: 'Redesign cards' } });
       await fireEvent.keyDown(input, { key: 'Enter' });
 
-      expect(updateTask).toHaveBeenCalledWith('t1', { title: 'Redesign cards' });
+      expect(updateTask).toHaveBeenCalledWith(TASK_ID, { title: 'Redesign cards' });
       expect(cardMenu.renamingTaskId).toBeNull();
     });
 
@@ -418,14 +427,14 @@ describe('TaskCard', () => {
         status: 'ok',
         updated_at: '2026-01-02T00:00:00Z',
       });
-      render(TaskCard, { task, projectId: 'p1' });
-      cardMenu.rename('t1');
+      render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
       const input = await screen.findByLabelText('Task title');
 
       await fireEvent.input(input, { target: { value: 'Redesign cards' } });
       await fireEvent.blur(input);
 
-      expect(updateTask).toHaveBeenCalledWith('t1', { title: 'Redesign cards' });
+      expect(updateTask).toHaveBeenCalledWith(TASK_ID, { title: 'Redesign cards' });
     });
 
     // Unmounting the editor drops focus to the body, which strands a keyboard user
@@ -437,26 +446,26 @@ describe('TaskCard', () => {
       });
       const wrapper = document.createElement('div');
       wrapper.tabIndex = 0;
-      wrapper.dataset.taskId = 't1';
+      wrapper.dataset.taskId = TASK_ID;
       document.body.append(wrapper);
       onTestFinished(() => wrapper.remove());
 
-      const first = render(TaskCard, { task, projectId: 'p1' });
-      cardMenu.rename('t1');
+      const first = render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
       await fireEvent.keyDown(await screen.findByLabelText('Task title'), { key: 'Enter' });
       expect(document.activeElement).toBe(wrapper);
       first.unmount();
 
-      render(TaskCard, { task, projectId: 'p1' });
-      cardMenu.rename('t1');
+      render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
       await fireEvent.keyDown(await screen.findByLabelText('Task title'), { key: 'Escape' });
       expect(document.activeElement).toBe(wrapper);
     });
 
     it('discards the edit on Escape', async () => {
       const updateTask = vi.spyOn(board, 'updateTask');
-      render(TaskCard, { task, projectId: 'p1' });
-      cardMenu.rename('t1');
+      render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
       const input = await screen.findByLabelText('Task title');
 
       await fireEvent.input(input, { target: { value: 'Redesign cards' } });
@@ -469,13 +478,13 @@ describe('TaskCard', () => {
 
     it('writes nothing for an unchanged or emptied title', async () => {
       const updateTask = vi.spyOn(board, 'updateTask');
-      const { unmount } = render(TaskCard, { task, projectId: 'p1' });
-      cardMenu.rename('t1');
+      const { unmount } = render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
       await fireEvent.blur(await screen.findByLabelText('Task title'));
       unmount();
 
-      render(TaskCard, { task, projectId: 'p1' });
-      cardMenu.rename('t1');
+      render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
       const input = await screen.findByLabelText('Task title');
       await fireEvent.input(input, { target: { value: '   ' } });
       await fireEvent.blur(input);
@@ -486,7 +495,7 @@ describe('TaskCard', () => {
 
   describe('due date pill', () => {
     it('renders nothing at all when the task has no date', () => {
-      render(TaskCard, { task, projectId: 'p1' });
+      render(TaskCard, { task, projectId: PROJECT_ID });
 
       expect(screen.queryByTitle(/^Due /)).not.toBeInTheDocument();
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -495,7 +504,7 @@ describe('TaskCard', () => {
     it('renders nothing when the payload predates due_date', () => {
       const legacy: Partial<BoardTask> = { ...task };
       delete legacy.due_date;
-      render(TaskCard, { task: legacy as BoardTask, projectId: 'p1' });
+      render(TaskCard, { task: legacy as BoardTask, projectId: PROJECT_ID });
 
       expect(screen.queryByTitle(/^Due /)).not.toBeInTheDocument();
       expect(screen.getByText('Design cards')).toBeInTheDocument();
@@ -504,31 +513,31 @@ describe('TaskCard', () => {
     it('adds no badge row to an otherwise bare undated card', () => {
       render(TaskCard, {
         task: { ...task, label_ids: [], assignee_ids: [], blocker_ids: [], image_count: 0 },
-        projectId: 'p1',
+        projectId: PROJECT_ID,
       });
 
       expect(document.querySelector('.z-10')).toBeNull();
     });
 
     it('colours a past date as overdue', () => {
-      render(TaskCard, { task: dueIn(-2), projectId: 'p1' });
+      render(TaskCard, { task: dueIn(-2), projectId: PROJECT_ID });
 
       expect(pill().className).toContain('text-danger');
     });
 
     it('colours today and tomorrow as due soon, with relative wording', () => {
-      const { unmount } = render(TaskCard, { task: dueIn(0), projectId: 'p1' });
+      const { unmount } = render(TaskCard, { task: dueIn(0), projectId: PROJECT_ID });
       expect(pill()).toHaveTextContent('Today');
       expect(pill().className).toContain('text-warning');
       unmount();
 
-      render(TaskCard, { task: dueIn(1), projectId: 'p1' });
+      render(TaskCard, { task: dueIn(1), projectId: PROJECT_ID });
       expect(pill()).toHaveTextContent('Tomorrow');
       expect(pill().className).toContain('text-warning');
     });
 
     it('leaves a distant date neutral', () => {
-      render(TaskCard, { task: dueIn(30), projectId: 'p1' });
+      render(TaskCard, { task: dueIn(30), projectId: PROJECT_ID });
 
       expect(pill().className).toContain('text-muted');
       expect(pill().className).not.toContain('text-warning');
@@ -542,17 +551,17 @@ describe('TaskCard', () => {
       ];
       const markTaskDone = vi.spyOn(board, 'markTaskDone').mockReturnValue(true);
       const navigate = vi.spyOn(router, 'navigate');
-      render(TaskCard, { task: dueIn(-2), projectId: 'p1' });
+      render(TaskCard, { task: dueIn(-2), projectId: PROJECT_ID });
 
       void fireEvent.click(screen.getByRole('button'));
 
-      expect(markTaskDone).toHaveBeenCalledWith('t1');
+      expect(markTaskDone).toHaveBeenCalledWith(TASK_ID);
       expect(navigate).not.toHaveBeenCalled();
     });
 
     it('is inert once the task is done, and reads as complete', () => {
       board.columns = [{ id: 'c2', name: 'Done', position: 2000, is_done: true }];
-      render(TaskCard, { task: dueIn(-2), projectId: 'p1', done: true });
+      render(TaskCard, { task: dueIn(-2), projectId: PROJECT_ID, done: true });
 
       expect(pill().className).toContain('text-success');
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -560,14 +569,14 @@ describe('TaskCard', () => {
 
     it('is inert with no done column to move the task into', () => {
       board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
-      render(TaskCard, { task: dueIn(-2), projectId: 'p1' });
+      render(TaskCard, { task: dueIn(-2), projectId: PROJECT_ID });
 
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
     });
 
     it('is inert on a read-only board', () => {
       board.columns = [{ id: 'c2', name: 'Done', position: 2000, is_done: true }];
-      render(TaskCard, { task: dueIn(-2), projectId: 'p1', readonly: true });
+      render(TaskCard, { task: dueIn(-2), projectId: PROJECT_ID, readonly: true });
 
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
       expect(pill().className).toContain('text-danger');

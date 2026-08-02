@@ -3,10 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import PublicBoard from './PublicBoard.svelte';
 import { board } from '../lib/board.svelte';
-import { router } from '../lib/router.svelte';
+import { matchRoute, router } from '../lib/router.svelte';
+import { publicBoardHref, publicTaskHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
 
-const PROJECT_ID = 'p-public';
+const PROJECT_ID = testUuid('p-public');
+const DESIGN_CARDS_ID = testUuid('t1');
+const PICK_A_NAME_ID = testUuid('t2');
 
 function payload() {
   return {
@@ -17,7 +21,7 @@ function payload() {
     ],
     tasks: [
       {
-        id: 't1',
+        id: DESIGN_CARDS_ID,
         column_id: 'todo',
         title: 'Design cards',
         description: null,
@@ -31,7 +35,7 @@ function payload() {
         comment_count: 2,
       },
       {
-        id: 't2',
+        id: PICK_A_NAME_ID,
         column_id: 'done',
         title: 'Pick a name',
         description: null,
@@ -53,7 +57,7 @@ function payload() {
     comments: [
       {
         id: 'cm1',
-        task_id: 't1',
+        task_id: DESIGN_CARDS_ID,
         user_id: 'u-ada',
         body: commentBody('Locking the layout this week'),
         created_at: '2026-01-01T00:00:00.000Z',
@@ -61,7 +65,7 @@ function payload() {
       },
       {
         id: 'cm2',
-        task_id: 't1',
+        task_id: DESIGN_CARDS_ID,
         user_id: 'u-bo',
         body: commentBody('Sounds right to me'),
         created_at: '2026-01-02T00:00:00.000Z',
@@ -116,7 +120,7 @@ describe('PublicBoard', () => {
     expect(screen.getByTitle('Ada Lovelace')).toHaveTextContent('AL');
     expect(screen.getByRole('link', { name: /Design cards/ })).toHaveAttribute(
       'href',
-      `/public/projects/${PROJECT_ID}/tasks/t1`
+      publicTaskHref(PROJECT_ID, DESIGN_CARDS_ID)
     );
 
     expect(requestedPaths()).toEqual([`/api/public/projects/${PROJECT_ID}/board`]);
@@ -199,18 +203,18 @@ describe('PublicBoard', () => {
   it('opens the read-only card detail for a task in the path', async () => {
     mockPublicApi(jsonResponse(200, payload()));
 
-    render(PublicBoard, { props: { projectId: PROJECT_ID, taskId: 't1' } });
+    render(PublicBoard, { props: { projectId: PROJECT_ID, taskId: DESIGN_CARDS_ID } });
 
     expect(await screen.findByRole('heading', { name: 'Design cards' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
-    expect(requestedPaths()).not.toContain('/api/tasks/t1');
+    expect(requestedPaths()).not.toContain(`/api/tasks/${DESIGN_CARDS_ID}`);
   });
 
   it('reads the comment stream out of the board payload, with no second request', async () => {
     mockPublicApi(jsonResponse(200, payload()));
 
-    render(PublicBoard, { props: { projectId: PROJECT_ID, taskId: 't1' } });
+    render(PublicBoard, { props: { projectId: PROJECT_ID, taskId: DESIGN_CARDS_ID } });
 
     expect(await screen.findByText('Locking the layout this week')).toBeInTheDocument();
     expect(screen.getByText('Sounds right to me')).toBeInTheDocument();
@@ -240,5 +244,17 @@ describe('PublicBoard', () => {
     view.unmount();
 
     await waitFor(() => expect(users.forProject(PROJECT_ID)).toEqual([]));
+  });
+
+  it('routes the alias links it renders and 404s the raw-uuid form', () => {
+    expect(matchRoute(publicBoardHref(PROJECT_ID))).toEqual({
+      name: 'public-board',
+      params: { id: PROJECT_ID },
+    });
+    expect(matchRoute(publicTaskHref(PROJECT_ID, DESIGN_CARDS_ID))).toEqual({
+      name: 'public-board',
+      params: { id: PROJECT_ID, taskId: DESIGN_CARDS_ID },
+    });
+    expect(matchRoute(`/public/projects/${PROJECT_ID}`).name).toBe('not-found');
   });
 });
