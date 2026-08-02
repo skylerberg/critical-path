@@ -84,6 +84,36 @@ export async function consumeRateLimit(
   return consumeRateLimitLocal(key, now, maxAttempts, windowMs);
 }
 
+async function peekRateLimitShared(key: string, maxAttempts: number): Promise<boolean | null> {
+  if (!redisConfigured()) {
+    return null;
+  }
+  try {
+    const count = await getRedis().get(`ratelimit:${key}`);
+    return count === null || Number(count) < maxAttempts;
+  } catch (err) {
+    logger.warn({
+      msg: 'Shared rate limit unavailable; using per-process fallback',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+// For a budget that has to gate a call it may turn out not to be spent on.
+export async function peekRateLimit(
+  key: string,
+  now = Date.now(),
+  maxAttempts = MAX_ATTEMPTS
+): Promise<boolean> {
+  const shared = await peekRateLimitShared(key, maxAttempts);
+  if (shared !== null) {
+    return shared;
+  }
+  const window = windows.get(key);
+  return window === undefined || window.resetAt <= now || window.count < maxAttempts;
+}
+
 export function resetRateLimiter(): void {
   windows.clear();
   lastSweep = 0;
@@ -190,6 +220,74 @@ export async function enforceSignupVerificationRateLimit(c: Context): Promise<bo
     logger.warn({ msg: 'Withheld signup verification email: per-IP budget spent', ip });
   }
   return allowed;
+}
+
+export const INVITE_LOOKUP_WINDOW_MS = 60 * 60_000;
+export const INVITE_LOOKUP_MAX_ATTEMPTS = 100;
+export const INVITE_SEND_WINDOW_MS = 60 * 60_000;
+export const INVITE_SEND_MAX_ATTEMPTS = 20;
+export const INVITE_RESEND_WINDOW_MS = 60 * 60_000;
+export const INVITE_RESEND_MAX_ATTEMPTS = 3;
+
+// Metered apart from mail because they are different harms: this bounds how
+// fast a share attempt can be used to tell an address with an account from one
+// without, and every attempt spends it whatever the answer, so no reply about
+// an address is free. Sized for onboarding a team in one sitting.
+export async function enforceInvitationLookupRateLimit(userId: string): Promise<void> {
+  const allowed = await consumeRateLimit(
+    `invite-lookup:${userId}`,
+    Date.now(),
+    INVITE_LOOKUP_MAX_ATTEMPTS,
+    INVITE_LOOKUP_WINDOW_MS
+  );
+  if (!allowed) {
+    throw new AppError(429, 'Too many invitations, please try again later');
+  }
+}
+
+const inviteSendKey = (userId: string): string => `invite-send:${userId}`;
+
+// Refuses every caller alike once the mail budget is gone, including the ones
+// whose call would never have sent anything: a budget that only turned away the
+// addresses with no account would make its own 429 the answer about an address.
+export async function assertInvitationSendBudget(userId: string): Promise<void> {
+  const remaining = await peekRateLimit(
+    inviteSendKey(userId),
+    Date.now(),
+    INVITE_SEND_MAX_ATTEMPTS
+  );
+  if (!remaining) {
+    throw new AppError(429, 'Too many invitations, please try again later');
+  }
+}
+
+// Spent only where mail actually goes out, since this is the only path that
+// mails an address nobody has proved they control.
+export async function enforceInvitationSendRateLimit(userId: string): Promise<void> {
+  const allowed = await consumeRateLimit(
+    inviteSendKey(userId),
+    Date.now(),
+    INVITE_SEND_MAX_ATTEMPTS,
+    INVITE_SEND_WINDOW_MS
+  );
+  if (!allowed) {
+    throw new AppError(429, 'Too many invitations, please try again later');
+  }
+}
+
+// Tighter, and keyed on the invitation rather than the caller: the inviter's
+// hourly total does not stop one address being mailed the same link over and
+// over, by them or by a second editor.
+export async function enforceInvitationResendRateLimit(invitationId: string): Promise<void> {
+  const allowed = await consumeRateLimit(
+    `invite-resend:${invitationId}`,
+    Date.now(),
+    INVITE_RESEND_MAX_ATTEMPTS,
+    INVITE_RESEND_WINDOW_MS
+  );
+  if (!allowed) {
+    throw new AppError(429, 'Too many invitations, please try again later');
+  }
 }
 
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
