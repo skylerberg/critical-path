@@ -2,6 +2,7 @@ import { ApiError, api, assertOk } from '../api/client';
 
 const FALLBACK_ARCHIVE_FILENAME = 'critical-path-export.zip';
 const FALLBACK_MANIFEST_FILENAME = 'critical-path-export.json';
+const FALLBACK_ACCOUNT_FILENAME = 'critical-path-account.json';
 
 export type ExportedFormat = 'zip' | 'json';
 
@@ -55,4 +56,10 @@ export async function downloadProjectExport(projectId: string): Promise<Exported
   const { blob, response } = await fetchExport(projectId, 'json');
   save(blob, filenameFrom(response, FALLBACK_MANIFEST_FILENAME));
   return 'json';
+}
+
+export async function downloadAccountExport(): Promise<void> {
+  const result = await api.GET('/api/auth/me/export', { parseAs: 'blob' });
+  const blob = assertOk(result);
+  save(blob, filenameFrom(result.response, FALLBACK_ACCOUNT_FILENAME));
 }

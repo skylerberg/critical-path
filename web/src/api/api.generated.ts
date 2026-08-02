@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/no-email-in-user-records/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/account-export/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -269,6 +269,26 @@ export interface paths {
          * @description Send a fresh verification email to the authenticated user's own address. Takes no body. Answers 204 without sending when the address is already verified. Earlier links stay valid. There is deliberately no unauthenticated form of this: verification does not gate signing in, so anyone needing a new link can sign in and ask, and that leaves no endpoint that reveals whether an address has an account.
          */
         post: operations["postApiAuthVerifyEmailResend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export account data
+         * @description Download everything held about the calling account that is not board content, as one JSON file, with Content-Disposition attachment and a fixed filename that carries no user text. It is free, never gated, and a personal access token may fetch it: every collection in it is already readable one endpoint at a time, so this adds no reach, only convenience. format identifies the shape and version is bumped only on a breaking change to it. account carries the profile plus the notification preferences; sessions lists every session row including ones already past expires_at, which the session listing hides because they authenticate nothing; personal_access_tokens and feedback are the metadata and the prose the account submitted; projects names each board the account created or is a member of, with role owner for one it created and joined_at taken from the membership, or from the board itself for one it created. Board content is deliberately absent — cards, labels, assignments and images belong to a project and come out of GET /api/projects/{id}/export, which every member of a board can call. Comments and activity come out of no route at all yet; when they do it will be that one, where a comment arrives attached to its card. Nothing here names another person, and no credential material is included: no password hash, no session or token hash, and no invitation record, since an invitation carries a token hash and an invitee's address. avatar_url is a server-relative path that stops resolving once the account is gone; fetch the bytes before deleting the account.
+         */
+        get: operations["getApiAuthMeExport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1473,6 +1493,41 @@ export interface components {
         };
         EmailTokenRequest: {
             token: string;
+        };
+        AccountExport: {
+            account: {
+                avatar_url: components["schemas"]["UserAvatarurl"];
+                created_at: string;
+                email: string;
+                email_verified_at: components["schemas"]["UserAvatarurl"];
+                id: string;
+                name: string;
+                notification_settings: components["schemas"]["NotificationSettings"];
+            };
+            exported_at: string;
+            feedback: {
+                created_at: string;
+                id: string;
+                message: string;
+                page_path: components["schemas"]["UserAvatarurl"];
+            }[];
+            /** @constant */
+            format: "critical-path-account-export";
+            personal_access_tokens: components["schemas"]["PersonalAccessToken"][];
+            projects: {
+                id: string;
+                joined_at: string;
+                name: string;
+                /** @enum {unknown} */
+                role: "editor" | "owner" | "viewer";
+            }[];
+            sessions: {
+                created_at: string;
+                expires_at: string;
+                id: string;
+                user_agent: components["schemas"]["UserAvatarurl"];
+            }[];
+            version: number;
         };
         NotificationSettings: {
             added_to_project: boolean;
@@ -2781,6 +2836,44 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiAuthMeExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Account export manifest */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountExport"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
