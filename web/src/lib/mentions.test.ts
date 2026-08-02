@@ -24,6 +24,7 @@ function boardProject(memberIds: string[]): BoardProject {
     member_ids: memberIds,
     members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
+    color: null,
     archived_at: null,
     created_at: '2026-01-01T00:00:00Z',
   };

@@ -978,6 +978,7 @@ describe('Board card menu', () => {
       member_ids: [],
       members: [],
       is_public: false,
+      color: null,
       created_at: '2026-07-15T00:00:00Z',
     };
     session.user = {

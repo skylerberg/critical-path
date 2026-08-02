@@ -328,6 +328,7 @@ class BoardStore {
           member_ids: [],
           members: [],
           is_public: true,
+          color: null,
         },
         columns: data.columns,
         tasks: data.tasks.map((task) => ({
@@ -1702,6 +1703,9 @@ class BoardStore {
           created_by: d.created_by ?? project.created_by,
           members: d.members ?? project.members,
           member_ids: d.member_ids ?? project.member_ids,
+          // Not `??`: null is the colour "None", and coalescing it would keep
+          // showing the old one after a teammate cleared it.
+          color: d.color !== undefined ? d.color : project.color,
         };
         break;
       }

@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { accentVar } from '../lib/accents';
   import { isProjectOwner, projects, type Project } from '../lib/projects.svelte';
   import { link, router } from '../lib/router.svelte';
   import { projectHref } from '../lib/short-links';
+  import ProjectColorDialog from '../components/ProjectColorDialog.svelte';
   import ProjectMembersModal from '../components/ProjectMembersModal.svelte';
   import Badge from '../components/ui/Badge.svelte';
   import Button from '../components/ui/Button.svelte';
@@ -30,6 +32,9 @@
   let openMenuId = $state<string | null>(null);
   let archivedOpen = $state(false);
   let shareProjectId = $state<string | null>(null);
+  let colorTargetId = $state<string | null>(null);
+
+  const colorTarget = $derived(projects.projects.find((p) => p.id === colorTargetId) ?? null);
 
   const menuItemClass =
     'flex min-h-11 w-full cursor-pointer items-center px-4 text-left text-sm hover:bg-accent-soft';
@@ -103,6 +108,11 @@
     shareProjectId = project.id;
     openMenuId = null;
   }
+
+  function openColor(project: Project): void {
+    colorTargetId = project.id;
+    openMenuId = null;
+  }
 </script>
 
 <svelte:window
@@ -140,6 +150,14 @@
             onclick={() => openRename(project)}
           >
             Rename
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            class={menuItemClass}
+            onclick={() => openColor(project)}
+          >
+            Board colour
           </button>
         {/if}
         <!-- A copy is a read of the source plus a new project of the caller's own,
@@ -186,10 +204,14 @@
 {/snippet}
 
 {#snippet projectCard(project: Project, dimmed = false)}
+  {@const rail = accentVar(project.color)}
+  <!-- An inset shadow, not a child element: the card's own overflow has to stay
+       visible for the menu that opens out of it. -->
   <article
     class="relative flex items-center gap-1 rounded-lg border border-edge bg-surface pl-3 transition-colors hover:border-accent has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-accent {dimmed
       ? 'opacity-60'
       : ''} {openMenuId === project.id ? 'z-30' : ''}"
+    style={rail === null ? undefined : `box-shadow: inset 4px 0 0 ${rail}`}
   >
     <div class="min-w-0 flex-1 py-1">
       <h3 class="truncate text-sm font-semibold">
@@ -310,6 +332,14 @@
 
 {#if shareProjectId !== null}
   <ProjectMembersModal projectId={shareProjectId} onclose={() => (shareProjectId = null)} />
+{/if}
+
+{#if colorTarget !== null}
+  <ProjectColorDialog
+    projectId={colorTarget.id}
+    current={colorTarget.color}
+    onclose={() => (colorTargetId = null)}
+  />
 {/if}
 
 {#if renameTarget !== null}

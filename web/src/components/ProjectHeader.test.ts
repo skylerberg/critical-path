@@ -32,6 +32,7 @@ function project(overrides: Partial<Project> = {}): Project {
     member_ids: memberIds,
     members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
+    color: null,
     created_at: '2026-01-01T00:00:00Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -109,6 +110,7 @@ beforeEach(() => {
     member_ids: [],
     members: [],
     is_public: false,
+    color: null,
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
@@ -167,6 +169,55 @@ describe('ProjectHeader', () => {
 
     projects.projects = [project()];
     await waitFor(() => expect(screen.queryByText('Public')).toBeNull());
+  });
+
+  it('paints the accent bar from the projects list and clears it when the colour is removed', async () => {
+    projects.projects = [project({ color: 'amber' })];
+    const { container } = render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
+
+    expect(header(container)).toHaveStyle({
+      boxShadow: 'inset 0 3px 0 var(--cp-project-amber)',
+    });
+
+    // The board payload keeps the old colour until a board refetch, so a `??`
+    // chain off the list would never reach this "None" and the bar would stay.
+    board.project = { ...board.project!, color: 'amber' };
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, project({ color: null })));
+    await projects.setColor(PROJECT_ID, null);
+
+    await waitFor(() => expect(header(container).getAttribute('style')).toBeNull());
+  });
+
+  it('falls back to the board payload accent while the projects list is still loading', async () => {
+    board.project = { ...board.project!, color: 'sky' };
+    const { container } = render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
+
+    expect(header(container)).toHaveStyle({ boxShadow: 'inset 0 3px 0 var(--cp-project-sky)' });
+
+    projects.projects = [project({ color: 'rose' })];
+    await waitFor(() =>
+      expect(header(container)).toHaveStyle({ boxShadow: 'inset 0 3px 0 var(--cp-project-rose)' })
+    );
+  });
+
+  it('opens the colour picker from the kebab and PATCHes the chosen key', async () => {
+    projects.projects = [project()];
+    fetchMock.mockResolvedValue(jsonResponse(200, project({ color: 'emerald' })));
+
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Board colour' }));
+
+    const none = screen.getByRole('button', { name: 'None' });
+    expect(none).toHaveAttribute('aria-pressed', 'true');
+    await fireEvent.click(screen.getByRole('button', { name: 'Emerald' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const request = fetchMock.mock.calls[0][0] as Request;
+    expect(request.method).toBe('PATCH');
+    expect(await request.clone().json()).toEqual({ color: 'emerald' });
+    expect(screen.queryByRole('button', { name: 'None' })).toBeNull();
   });
 
   it('renders the same filter cluster on the graph view', () => {
@@ -400,6 +451,14 @@ describe('ProjectHeader for a viewer', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.queryByRole('menuitem', { name: /Labels/ })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: /Webhooks/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /Board colour/ })).toBeNull();
+  });
+
+  it('still shows a colour someone else chose', () => {
+    projects.projects = [project({ color: 'violet' })];
+    const { container } = render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
+
+    expect(header(container)).toHaveStyle({ boxShadow: 'inset 0 3px 0 var(--cp-project-violet)' });
   });
 
   it('keeps the read-only surfaces', async () => {
