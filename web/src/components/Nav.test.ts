@@ -1,7 +1,13 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { SOURCES, TRIGGERS, type DndEvent, type Options } from 'svelte-dnd-action';
+import {
+  SHADOW_PLACEHOLDER_ITEM_ID,
+  SOURCES,
+  TRIGGERS,
+  type DndEvent,
+  type Options,
+} from 'svelte-dnd-action';
 import Nav from './Nav.svelte';
 import { motion } from '../lib/motion.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
@@ -73,6 +79,12 @@ function sidebarProjectNames(): string[] {
   return [...document.querySelectorAll('a[href^="/p/"]')].map(
     (anchor) => anchor.textContent?.trim() ?? ''
   );
+}
+
+// Every drawn row, linked or not, unlike the href-keyed list above.
+function sidebarRowNames(): string[] {
+  const zone = document.querySelector('[aria-label="Projects"]');
+  return [...(zone?.children ?? [])].map((row) => row.getAttribute('aria-label') ?? '');
 }
 
 function alertText(): string {
@@ -158,6 +170,33 @@ describe('Nav sidebar', () => {
     expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${C_ID}/position`);
     expect(await requestAt(0).clone().json()).toEqual({ position: 1500 });
     await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['A', 'C', 'B']));
+  });
+
+  // A lifted row is replaced in the list by a placeholder holding its content under
+  // an id that names no project. Encoding that id for the row's link throws, and the
+  // throw kills the render mid-drag: rows stop making way, the held one is painted
+  // nowhere, and the drop never reaches the store.
+  it('swaps the held project for the placeholder in the rendered sidebar', async () => {
+    projects.projects = [
+      project({ id: A_ID, name: 'A', position: 1000 }),
+      project({ id: B_ID, name: 'B', position: 2000 }),
+      project({ id: C_ID, name: 'C', position: 3000 }),
+    ];
+
+    render(Nav);
+    const linkA = await screen.findByRole('link', { name: 'A' });
+    const zone = linkA.parentElement!.parentElement!;
+    const [a, b, c] = projects.active;
+    const detail = {
+      items: [{ ...a!, isDndShadowItem: true, id: SHADOW_PLACEHOLDER_ITEM_ID }, b!, c!],
+      info: { trigger: TRIGGERS.DRAG_STARTED, id: A_ID, source: SOURCES.POINTER },
+    };
+    await fireEvent(zone, new CustomEvent('consider', { detail }));
+
+    // The held row keeps its place and its name, and is the one now carrying no
+    // link — a render that died would leave all three linked, as before the drag.
+    expect(sidebarRowNames()).toEqual(['A', 'B', 'C']);
+    expect(sidebarProjectNames()).toEqual(['B', 'C']);
   });
 
   describe('keyboard reordering', () => {

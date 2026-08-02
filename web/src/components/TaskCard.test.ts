@@ -7,6 +7,7 @@ import type { BoardTask } from '../lib/board-types';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { todayISO } from '../lib/dates';
 import { router } from '../lib/router.svelte';
+import { SHADOW_PLACEHOLDER_ITEM_ID } from 'svelte-dnd-action';
 import { publicTaskHref, taskHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, TITLE_DISPLAY_LIMIT, truncateTitle } from '../lib/titles';
@@ -580,6 +581,31 @@ describe('TaskCard', () => {
 
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
       expect(pill().className).toContain('text-danger');
+    });
+  });
+
+  // A lifted card is replaced in the list by a placeholder holding its content under
+  // an id that names no task. Encoding that id for the overlay link throws, and the
+  // throw kills the render mid-drag: cards stop making room, the dragged one is
+  // never repainted, and the drop never reaches the store.
+  describe('drag placeholder', () => {
+    const placeholder: BoardTask = { ...task, id: SHADOW_PLACEHOLDER_ITEM_ID };
+
+    it('draws the placeholder at full size instead of throwing on its id', () => {
+      expect(() => render(TaskCard, { task: placeholder, projectId: PROJECT_ID })).not.toThrow();
+
+      expect(screen.getByText('Design cards')).toBeInTheDocument();
+      expect(screen.getByTitle('3 images')).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+
+    it('draws it on a read-only board too, where the link is built differently', () => {
+      board.readonly = true;
+
+      expect(() => render(TaskCard, { task: placeholder, projectId: PROJECT_ID })).not.toThrow();
+
+      expect(screen.getByText('Design cards')).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
     });
   });
 });

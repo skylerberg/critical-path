@@ -2,7 +2,7 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { SOURCES, TRIGGERS, type Options } from 'svelte-dnd-action';
+import { SHADOW_PLACEHOLDER_ITEM_ID, SOURCES, TRIGGERS, type Options } from 'svelte-dnd-action';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
 import { cardMenu } from '../lib/card-menu.svelte';
@@ -137,6 +137,12 @@ function cardTitles(): string[] {
   return [...column().querySelectorAll('[data-task-id] p')].map((p) => p.textContent ?? '');
 }
 
+function renderedTaskIds(): string[] {
+  return [...column().querySelectorAll<HTMLElement>('[data-task-id]')].map(
+    (card) => card.dataset.taskId ?? ''
+  );
+}
+
 function alertText(): string {
   return document.getElementById('dnd-action-aria-alert')?.textContent ?? '';
 }
@@ -147,12 +153,25 @@ function patchRequests(): Request[] {
     .filter((request) => request.method === 'PATCH');
 }
 
+// The library swaps the lifted card for a placeholder carrying its content under a
+// non-task id, and that placeholder is what every consider hands back. Sending the
+// untouched cards instead would exercise a list the drag never actually produces.
+function shadowed(id: string): unknown[] {
+  return board
+    .tasksInColumn('c1')
+    .map((item) =>
+      item.id === id
+        ? { ...item, isDndShadowItem: true, id: SHADOW_PLACEHOLDER_ITEM_ID }
+        : (item as unknown)
+    );
+}
+
 function pickUp(id: string, list = 'Todo tasks'): void {
   void fireEvent(
     taskList(list),
     new CustomEvent('consider', {
       detail: {
-        items: board.tasksInColumn('c1'),
+        items: shadowed(id),
         info: { trigger: TRIGGERS.DRAG_STARTED, id, source: SOURCES.POINTER },
       },
     })
@@ -704,6 +723,37 @@ describe('Board filter scrolling', () => {
 
     expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
     expect(taskList().scrollTop).toBe(240);
+  });
+});
+
+// Picking a card up is the moment the placeholder enters the list. If drawing it
+// throws, the drag is dead from its first frame: the column never reorders under
+// the finger, the card is painted nowhere, and no drop ever reaches the store.
+describe('Board drag placeholder', () => {
+  // Asserts the swap actually reached the DOM, not merely that the column still
+  // looks right: a render that dies leaves the pre-drag markup standing, which
+  // would satisfy any check on the titles alone.
+  it('swaps the held card for the placeholder in the rendered column', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+
+    pickUp(T1);
+    await tick();
+
+    expect(renderedTaskIds()).toEqual([SHADOW_PLACEHOLDER_ITEM_ID, T2, T3, T4]);
+    expect(cardTitles()).toEqual(['plain one', 'match a', 'plain two', 'match b']);
+  });
+
+  it('still commits the move made during that drag', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const [first, ...rest] = board.tasksInColumn('c1');
+
+    pickUp(T1);
+    drop(T1, [...rest, first!]);
+    await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe(`/api/tasks/${T1}`);
   });
 });
 
