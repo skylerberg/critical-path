@@ -366,7 +366,7 @@ describe('Notifications', () => {
       expect(emails[0].text).toContain(`${env.appUrlBase}/projects/${projectId}`);
     });
 
-    it('mails on a by-email add, and never again for the same member', async () => {
+    it('mails on a by-email add, and not on a re-add that only changes the role', async () => {
       const first = await ctx
         .request(owner.token)
         .post(`/api/projects/${projectId}/members/by-email`, { email: member.email });
@@ -375,6 +375,10 @@ describe('Notifications', () => {
       expect(sentEmails().map((email) => email.to)).toEqual([member.email]);
 
       clearSentEmails();
+      // The collapse budget suppresses a repeat for an hour whatever the route
+      // decided, so the window has to be spent for what follows to measure the
+      // membership check rather than the budget.
+      resetRateLimiter();
       const again = await ctx
         .request(owner.token)
         .post(`/api/projects/${projectId}/members/by-email`, {

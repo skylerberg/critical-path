@@ -83,7 +83,7 @@ row: a viewer attempting a mutation, and the two owner-only operations
 `editor` is treated as a viewer, so a future third role fails closed.
 
 - `PUT /api/projects/:id/members` (`{ user_ids?: uuid[], roles?: [{ user_id,
-role }] }`, up to 100 of each) replaces the member set, changes roles, or
+  role }] }`, up to 100 of each) replaces the member set, changes roles, or
   both. **Omit `user_ids` to change roles only** — that form can never add or
   remove anyone, however stale the caller's cached member list is, and it is
   what the web and CLI role controls send. A retained member with no `roles`
@@ -266,7 +266,7 @@ and are accepted anywhere a session token is, including the `/ws` handshake.
   `{ token, personal_access_token }` and is the **only** time the secret is
   returned — only its sha256 hash is stored. Secrets are prefixed `cpat_`.
 - `GET /api/auth/tokens` lists the caller's tokens (`{ id, name, created_at,
-expires_at }`), newest first, never the secret. Expired tokens stay listed
+  expires_at }`), newest first, never the secret. Expired tokens stay listed
   until revoked so they can be seen and cleaned up.
 - `DELETE /api/auth/tokens/:id` revokes one. Someone else's token id answers
   404, the same as an unknown one.
@@ -856,10 +856,8 @@ live retries are never pruned. The log has a `limit` but no cursor, so only the
 
 ### Email
 
-Password-reset, email-verification, notification and feedback emails all go
-
-Password-reset, email-verification, board-invitation and feedback emails go
-through the driver named by `EMAIL_DRIVER`:
+Password-reset, email-verification, board-invitation, notification and feedback
+emails all go through the driver named by `EMAIL_DRIVER`:
 
 - `console` (default) — logs the full email; the reset link is usable from the
   server log in development.
@@ -1457,9 +1455,6 @@ npm run openapi:dump && npm run --prefix cli generate-api
 - Existing accounts were never grandfathered as verified and nothing in the app
   tells them so except the account page, so they receive no notification email
   until they confirm their address there.
-
-- Email verification exists but gates nothing, and there is no bounce or
-  complaint handling.
 - `POST /api/projects/:id/members/by-email` tells an editor whether an address
   already has an account: `status` is `member` for one that does and `invited`
   for one that does not. Removing that would mean making every share an
