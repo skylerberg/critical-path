@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { db } from '../../src/db/index';
-import { createMigrator } from '../../src/db/migrate';
+import { runMigrations } from '../../src/db/migrate';
 import { env } from '../../src/config/env';
 
 export async function setup() {
@@ -18,8 +18,7 @@ export async function setup() {
     throw error;
   }
 
-  const migrator = createMigrator(db);
-  const { error } = await migrator.migrateToLatest();
+  const { error } = await runMigrations(db);
   if (error) {
     throw error instanceof Error ? error : new Error(String(error));
   }

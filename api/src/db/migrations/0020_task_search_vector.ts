@@ -40,6 +40,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .using('gin')
     .column('search_vector')
     .execute();
+
+  // The whole pending set runs in one transaction, so a raise left standing
+  // governs every migration after this one too.
+  await sql`set local statement_timeout = '30s'`.execute(db);
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
