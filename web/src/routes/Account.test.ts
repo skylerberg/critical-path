@@ -18,6 +18,11 @@ vi.mock('../lib/realtime.svelte', () => ({
 const cacheDelete = vi.fn<(name: string) => Promise<boolean>>().mockResolvedValue(true);
 vi.stubGlobal('caches', { delete: cacheDelete });
 
+// jsdom implements neither, and the download helper calls both.
+const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:fake-url');
+const revokeObjectURL = vi.fn();
+vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
+
 const user = {
   id: 'u-1',
   email: 'ada@example.com',
@@ -426,6 +431,116 @@ describe('Account', () => {
     expect(screen.getByRole('heading', { name: 'Personal access tokens' })).toBeInTheDocument();
     expect(await screen.findByText('You have no personal access tokens yet.')).toBeInTheDocument();
     expect(pathsRequested()).toContain('/api/auth/tokens');
+  });
+
+  it('downloads the account data under the filename the server sent', async () => {
+    const clicks: HTMLAnchorElement[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      clicks.push(this);
+    });
+    fetchMock.mockImplementation(async (input) => {
+      const path = new URL((input as Request).url).pathname;
+      if (path === '/api/auth/me/export') {
+        return new Response(JSON.stringify({ format: 'critical-path-account-export' }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Disposition': 'attachment; filename="critical-path-account-2026-08-02.json"',
+          },
+        });
+      }
+      return jsonResponse(200, { personal_access_tokens: [], sessions: [] });
+    });
+    render(Account);
+
+    expect(screen.getByRole('heading', { name: 'Your data' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Download my account data' }));
+
+    expect(await screen.findByText('Your account data is on its way down.')).toBeInTheDocument();
+    expect(requestTo('/api/auth/me/export').method).toBe('GET');
+    expect(clicks.map((anchor) => anchor.download)).toEqual([
+      'critical-path-account-2026-08-02.json',
+    ]);
+    vi.mocked(HTMLAnchorElement.prototype.click).mockRestore();
+  });
+
+  it('reports a failed account download and saves nothing', async () => {
+    const clicks: HTMLAnchorElement[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      clicks.push(this);
+    });
+    mockRoutes(500, { error: 'Internal Server Error' });
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Download my account data' }));
+
+    const failure = await screen.findByText('Internal Server Error');
+    expect(failure).toHaveAttribute('role', 'alert');
+    expect(clicks).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Download my account data' })).toBeEnabled();
+    vi.mocked(HTMLAnchorElement.prototype.click).mockRestore();
+  });
+
+  it('blocks a second download and drops the last failure while one is in flight', async () => {
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    let release: (response: Response) => void = () => {};
+    let exportCalls = 0;
+    fetchMock.mockImplementation(async (input) => {
+      const path = new URL((input as Request).url).pathname;
+      if (path !== '/api/auth/me/export') {
+        return jsonResponse(200, { personal_access_tokens: [], sessions: [] });
+      }
+      exportCalls += 1;
+      if (exportCalls === 1) {
+        return jsonResponse(500, { error: 'Internal Server Error' });
+      }
+      return new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+    });
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Download my account data' }));
+    expect(await screen.findByText('Internal Server Error')).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Download my account data' }));
+
+    expect(await screen.findByRole('button', { name: 'Preparing…' })).toBeDisabled();
+    expect(screen.queryByText('Internal Server Error')).toBeNull();
+    expect(exportCalls).toBe(2);
+
+    release(
+      new Response(JSON.stringify({ format: 'critical-path-account-export' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    expect(await screen.findByText('Your account data is on its way down.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download my account data' })).toBeEnabled();
+    vi.mocked(HTMLAnchorElement.prototype.click).mockRestore();
+  });
+
+  it('keeps the download out of the delete-account section', () => {
+    mockRoutes(500);
+    const { container } = render(Account);
+
+    const sections = [...container.querySelectorAll('section')];
+    const download = sections.find((section) =>
+      section.querySelector('h2')?.textContent?.includes('Your data')
+    );
+    const danger = sections.find((section) =>
+      section.querySelector('h2')?.textContent?.includes('Delete account')
+    );
+    expect(download).toBeDefined();
+    expect(danger).toBeDefined();
+    expect(download).not.toBe(danger);
+    expect(danger?.contains(download!)).toBe(false);
+    expect(sections.indexOf(download!)).toBeLessThan(sections.indexOf(danger!));
   });
 
   it('opens the delete dialog without issuing a request', async () => {

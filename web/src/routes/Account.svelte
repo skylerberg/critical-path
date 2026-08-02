@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, ApiError, assertOk } from '../api/client';
   import { apiMessage } from '../lib/apiMessages';
+  import { downloadAccountExport } from '../lib/export';
   import { projects } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { link } from '../lib/router.svelte';
@@ -35,6 +36,9 @@
 
   let feedbackOpen = $state(false);
   let deleteOpen = $state(false);
+
+  let exportStatus = $state<Status>(null);
+  let exportingAccount = $state(false);
 
   const blockingProjects = $derived(
     projects.projects.filter(
@@ -168,6 +172,19 @@
       verifyStatus = { kind: 'error', message: apiMessage(error) };
     } finally {
       sendingVerification = false;
+    }
+  }
+
+  async function exportAccount(): Promise<void> {
+    exportingAccount = true;
+    exportStatus = null;
+    try {
+      await downloadAccountExport();
+      exportStatus = { kind: 'success', message: 'Your account data is on its way down.' };
+    } catch (error) {
+      exportStatus = { kind: 'error', message: apiMessage(error) };
+    } finally {
+      exportingAccount = false;
     }
   }
 
@@ -363,6 +380,22 @@
     </p>
     <div class="flex justify-end">
       <Button variant="secondary" onclick={() => (feedbackOpen = true)}>Send feedback</Button>
+    </div>
+  </section>
+
+  <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
+    <h2 class="text-lg font-semibold">Your data</h2>
+    <p class="text-sm text-muted">
+      Download everything we hold about your account as one JSON file: your profile and notification
+      settings, every session and personal access token, the feedback you have sent, and the boards
+      you created or joined. Cards and images live on a board, so they come from that board's own
+      export instead. Comments are not part of either export yet.
+    </p>
+    {@render status(exportStatus)}
+    <div class="flex justify-end">
+      <Button variant="secondary" disabled={exportingAccount} onclick={exportAccount}>
+        {exportingAccount ? 'Preparing…' : 'Download my account data'}
+      </Button>
     </div>
   </section>
 
