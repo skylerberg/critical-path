@@ -55,10 +55,12 @@ for the frontend's conventions.
     `assertTaskAccess`); every project-scoped mutation asserts write
     (`assertProjectWrite` / `assertTaskWrite`), which is the same 404 plus a
     403 for a viewer. A new mutating route that asserts only access is a
-    defect. The narrower owner-only 403s are `PUT /api/projects/:id/owner` and
-    `DELETE /api/projects/:id`. Comments are the deliberate exception: viewers
-    may post, edit and delete their own, so the comment handlers assert access,
-    not write. Roles are normalized fail-closed — anything that is not exactly
+    defect. Two categories are the deliberate exceptions, and both assert
+    access rather than write: comments, because viewers may post, edit and
+    delete their own; and a row keyed to the calling user and observable by
+    nobody else (`project_user_position`, `project_user_seen`), because a
+    viewer who could never set their own is a bug, not a safety property.
+    Roles are normalized fail-closed — anything that is not exactly
     `editor` reads as `viewer`.
 12. Every mutation emits a realtime event via `publishAfterCommit` from
     `src/services/realtime` (runs as a post-commit hook, so nothing is
