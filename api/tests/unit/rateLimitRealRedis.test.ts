@@ -1,0 +1,198 @@
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import {
+  consumeRateLimit,
+  resetRateLimiter,
+  withNotificationBudget,
+} from '../../src/middleware/rateLimit';
+import { logger } from '../../src/utils/logger';
+import { closeRealRedis, openRealRedis, realRedisPrefix, redisTestUrl } from '../helpers/realRedis';
+
+const state = vi.hoisted(() => ({ enabled: false, client: null as unknown }));
+
+vi.mock('../../src/services/redis', () => ({
+  redisConfigured: () => state.enabled,
+  getRedis: () => state.client,
+}));
+
+const DEGRADED = 'Shared rate limit unavailable; using per-process fallback';
+
+// Written straight to the stream: the runner swallows console output from a
+// file in which nothing ends up running, which is exactly this case.
+if (!redisTestUrl) {
+  process.stderr.write('REDIS_TEST_URL is unset; skipping every check that needs a real Redis\n');
+}
+
+// Skipping is the local convenience, not a way for CI to lose the coverage
+// without saying so.
+describe('a run that has to have a real Redis', () => {
+  it.runIf(process.env.CI)('finds one it can reach', async () => {
+    expect(redisTestUrl).toBeTruthy();
+    const client = await openRealRedis();
+    try {
+      expect(await client.ping()).toBe('PONG');
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+describe.skipIf(!redisTestUrl)('the shipped rate limit scripts on a real Redis', () => {
+  let client!: Awaited<ReturnType<typeof openRealRedis>>;
+  let warnings: ReturnType<typeof vi.spyOn>;
+  const prefix = realRedisPrefix();
+
+  const named = (name: string): string => `${prefix}${name}`;
+  const stored = (name: string): Promise<string | null> => client.get(`ratelimit:${named(name)}`);
+  const ttl = (name: string): Promise<number> => client.pTTL(`ratelimit:${named(name)}`);
+
+  beforeAll(async () => {
+    client = await openRealRedis();
+    state.client = client;
+  });
+
+  afterAll(async () => {
+    state.enabled = false;
+    state.client = null;
+    if (client) await closeRealRedis(client, prefix);
+  });
+
+  beforeEach(() => {
+    resetRateLimiter();
+    vi.restoreAllMocks();
+    warnings = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    state.enabled = true;
+  });
+
+  // Second net only. Every test below also reads the server back, because a
+  // verdict alone reads the same whether it came from Redis or from the
+  // per-process window this falls back to.
+  afterEach(() => {
+    expect(warnings).not.toHaveBeenCalledWith(expect.objectContaining({ msg: DEGRADED }));
+  });
+
+  it('answers a verdict the caller accepts and leaves the count on the server', async () => {
+    expect(await consumeRateLimit(named('cap'), Date.now(), 2, 60_000)).toBe(true);
+    expect(await consumeRateLimit(named('cap'), Date.now(), 2, 60_000)).toBe(true);
+    expect(await consumeRateLimit(named('cap'), Date.now(), 2, 60_000)).toBe(false);
+
+    expect(await stored('cap')).toBe('2');
+    expect(await ttl('cap')).toBeGreaterThan(0);
+    expect(await ttl('cap')).toBeLessThanOrEqual(60_000);
+  });
+
+  it('gives an expiry back to a counter left without one, while refusing it', async () => {
+    await client.set(`ratelimit:${named('stranded')}`, '9');
+    expect(await ttl('stranded')).toBe(-1);
+
+    expect(await consumeRateLimit(named('stranded'), Date.now(), 2, 60_000)).toBe(false);
+
+    expect(await ttl('stranded')).toBeGreaterThan(0);
+    expect(await ttl('stranded')).toBeLessThanOrEqual(60_000);
+    expect(await stored('stranded')).toBe('9');
+  });
+
+  // The expiry it must not touch is set to a value the window never produces,
+  // so a slid one is 55 seconds out rather than one round trip out.
+  it('holds the expiry a live counter already has rather than sliding it', async () => {
+    await consumeRateLimit(named('slide'), Date.now(), 5, 60_000);
+    await client.pExpire(`ratelimit:${named('slide')}`, 5_000);
+
+    await consumeRateLimit(named('slide'), Date.now(), 5, 60_000);
+
+    expect(await ttl('slide')).toBeGreaterThan(0);
+    expect(await ttl('slide')).toBeLessThanOrEqual(5_000);
+    expect(await stored('slide')).toBe('2');
+  });
+
+  it("lets the budget back once the server's own clock has passed the window", async () => {
+    expect(await consumeRateLimit(named('expiry'), Date.now(), 1, 250)).toBe(true);
+    expect(await consumeRateLimit(named('expiry'), Date.now(), 1, 250)).toBe(false);
+    expect(await stored('expiry')).toBe('1');
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(await stored('expiry')).toBeNull();
+    expect(await consumeRateLimit(named('expiry'), Date.now(), 1, 250)).toBe(true);
+  });
+
+  // Nothing serializes these but the script itself, and each one is a real
+  // round trip that the next can overtake.
+  it('holds the ceiling with every attempt in flight at once', async () => {
+    const max = 20;
+    const verdicts = await Promise.all(
+      Array.from({ length: max * 10 }, () =>
+        consumeRateLimit(named('parallel'), Date.now(), max, 60_000)
+      )
+    );
+
+    expect(verdicts.filter(Boolean)).toHaveLength(max);
+    expect(await stored('parallel')).toBe(String(max));
+  });
+
+  // A second module instance is a second replica: its per-process window is
+  // empty, so a refusal can only have come from the counter they share.
+  it('refuses a replica that has spent nothing of its own', async () => {
+    const key = named('replica');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect(await consumeRateLimit(key, Date.now(), 3, 60_000)).toBe(true);
+    }
+
+    vi.resetModules();
+    const replica = await import('../../src/middleware/rateLimit');
+
+    expect(await replica.consumeRateLimit(key, Date.now(), 3, 60_000)).toBe(false);
+    expect(await replica.consumeRateLimit(named('untouched'), Date.now(), 3, 60_000)).toBe(true);
+  });
+
+  it('answers a peek from the shared counter rather than a local window', async () => {
+    const key = named('peek');
+    expect(await consumeRateLimit(key, Date.now(), 2, 60_000)).toBe(true);
+
+    vi.resetModules();
+    const replica = await import('../../src/middleware/rateLimit');
+
+    // One of two spent. A reply this cannot read as a number compares false
+    // here and refuses every caller from now on, with nothing thrown to notice.
+    expect(await replica.peekRateLimit(key, Date.now(), 2)).toBe(true);
+
+    expect(await consumeRateLimit(key, Date.now(), 2, 60_000)).toBe(true);
+    expect(await replica.peekRateLimit(key, Date.now(), 2)).toBe(false);
+  });
+
+  it('hands the collapse slot back on the server when the send fails', async () => {
+    const recipient = named('refund');
+    const collapse = `ratelimit:notify-repeat:${recipient}:card`;
+
+    await expect(
+      withNotificationBudget(recipient, 'actor', 'card', () =>
+        Promise.reject(new Error('smtp is down'))
+      )
+    ).rejects.toThrow('smtp is down');
+
+    expect(await client.get(collapse)).toBe('0');
+    expect(await client.pTTL(collapse)).toBeGreaterThan(0);
+
+    let sent = false;
+    await withNotificationBudget(recipient, 'actor', 'card', async () => {
+      sent = true;
+      await Promise.resolve();
+    });
+    expect(sent).toBe(true);
+  });
+
+  it('leaves a counter that expired mid-send alone instead of recreating it', async () => {
+    const recipient = named('refund-expired');
+    const collapse = `ratelimit:notify-repeat:${recipient}:card`;
+
+    await expect(
+      withNotificationBudget(recipient, 'actor', 'card', async () => {
+        await client.unlink(collapse);
+        throw new Error('smtp is down');
+      })
+    ).rejects.toThrow('smtp is down');
+
+    expect(await client.get(collapse)).toBeNull();
+    expect(await client.pTTL(collapse)).toBe(-2);
+    expect(await client.get(`ratelimit:notify-pair:${recipient}:actor`)).toBe('1');
+  });
+});
