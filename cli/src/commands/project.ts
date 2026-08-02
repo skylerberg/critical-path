@@ -16,14 +16,41 @@ import type { components } from '../api/api.generated';
 
 type Project = components['schemas']['Project'];
 type ProjectRole = components['schemas']['ProjectMember']['role'];
+type ProjectAccent = NonNullable<components['schemas']['NullableProjectAccent']>;
 
 const ROLES: ProjectRole[] = ['editor', 'viewer'];
+
+// A Record, not an array: an array typed by the union rejects an unknown key but
+// never notices a missing one, so a palette the API grew would be refused at
+// runtime instead of failing the build.
+const ACCENTS: Record<ProjectAccent, true> = {
+  rose: true,
+  amber: true,
+  lime: true,
+  emerald: true,
+  sky: true,
+  violet: true,
+  fuchsia: true,
+  slate: true,
+};
+
+const ACCENT_KEYS = Object.keys(ACCENTS) as ProjectAccent[];
 
 function parseRole(value: unknown): ProjectRole {
   if (typeof value !== 'string' || !ROLES.includes(value as ProjectRole)) {
     throw new CliError('--role must be editor or viewer', EXIT.usage);
   }
   return value as ProjectRole;
+}
+
+function parseAccent(value: unknown): ProjectAccent | null {
+  if (value === 'none') {
+    return null;
+  }
+  if (typeof value !== 'string' || !Object.hasOwn(ACCENTS, value)) {
+    throw new CliError(`--color must be none or one of ${ACCENT_KEYS.join(', ')}`, EXIT.usage);
+  }
+  return value as ProjectAccent;
 }
 
 function expiryLabel(expiresAt: string): string {
@@ -123,6 +150,9 @@ export function registerProject(program: Command, deps: CliDeps): void {
               ctx.out.line(`Description: ${p.description}`);
             }
             ctx.out.line(`Created: ${p.created_at}`);
+            if (p.color != null) {
+              ctx.out.line(`Color: ${p.color}`);
+            }
             if (p.archived_at != null) {
               ctx.out.line(`Archived: ${p.archived_at}`);
             }
@@ -149,6 +179,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
       .argument('<project>', 'project id or name')
       .option('--name <name>', 'new name')
       .option('--description <text>', 'new description')
+      .option('--color <color>', `accent colour: none or one of ${ACCENT_KEYS.join(', ')}`)
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
           const target = await resolveProject(ctx, ref);
@@ -159,8 +190,12 @@ export function registerProject(program: Command, deps: CliDeps): void {
           if (typeof opts.description === 'string') {
             body.description = opts.description;
           }
+          // The global --no-color flag lands on this same key as boolean false.
+          if (typeof opts.color === 'string') {
+            body.color = parseAccent(opts.color);
+          }
           if (Object.keys(body).length === 0) {
-            throw new CliError('Pass at least one of --name, --description', EXIT.usage);
+            throw new CliError('Pass at least one of --name, --description, --color', EXIT.usage);
           }
           const updated = await patchProject(ctx, target.id, body);
           ctx.out.data(updated, () => ctx.out.line(`Updated project ${updated.name}`));

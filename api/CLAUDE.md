@@ -114,6 +114,11 @@ npm run --prefix cli generate-api` and commit the regenerated
 - `npm test` — full suite (loads `.env.test`, migrates + truncates
   `game_dev_test`). Single file:
   `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>`.
+- Two files check the shared Redis path against a real server and skip without
+  `REDIS_TEST_URL` in `.env.test` (`redis://127.0.0.1:6379/15`, `brew install
+  redis`); CI has one and fails there rather than skipping. Never put
+  `REDIS_URL` in `.env.test` — that puts the whole suite on one shared signup
+  budget and it collapses into 429s.
 - `npm run type-check`, `npm run lint`, `npm run format`.
 - Worktrees under `.pi/worktrees/` need `node_modules` to run any of the
   above; symlink it from the main checkout
