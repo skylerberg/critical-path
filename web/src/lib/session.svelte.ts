@@ -78,10 +78,10 @@ class SessionStore {
   // Narrower than init(): the session is already established, so re-reading the
   // account must not drop back through 'unknown' and blank the screen.
   async refresh(): Promise<void> {
-    const token = this.#token;
-    if (token === null) {
+    if (this.status !== 'authed') {
       return;
     }
+    const token = this.#token;
     const user = assertOk(await api.GET('/api/auth/me'));
     // A session cleared or replaced while this was in flight is the newer truth.
     if (this.#token !== token) {

@@ -161,7 +161,7 @@ describe('VerifyEmail', () => {
 
   // The overlap, not the sequence: the second link is opened before the first
   // redemption has answered, so the slower earlier one settles last.
-  it('lets the newest token decide the outcome when two redemptions overlap', async () => {
+  it('keeps the newest token’s success when an older rejection settles late', async () => {
     let releaseStale!: (value: Response) => void;
     const stale = new Promise<Response>((resolve) => {
       releaseStale = resolve;
@@ -182,6 +182,29 @@ describe('VerifyEmail', () => {
     expect(screen.getByText(VERIFIED)).toBeInTheDocument();
   });
 
+  // The same overlap the other way round, which is the only ordering that can
+  // report an address as verified off a token nothing ever redeemed.
+  it('keeps the newest token’s rejection when an older success settles late', async () => {
+    let releaseOlder!: (value: Response) => void;
+    const older = new Promise<Response>((resolve) => {
+      releaseOlder = resolve;
+    });
+    fetchMock
+      .mockImplementationOnce(() => older)
+      .mockImplementationOnce(async () => jsonResponse(422, EXPIRED));
+
+    const { rerender } = render(VerifyEmail, { token: 'tok-slow-valid' });
+    await rerender({ token: 'tok-fresh-rejected' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Verification link has expired.');
+
+    releaseOlder(jsonResponse(204));
+    await older;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(screen.queryByText(VERIFIED)).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent('Verification link has expired.');
+  });
+
   it('offers a signed-in visitor a fresh link when the token is rejected', async () => {
     session.status = 'authed';
     fetchMock.mockResolvedValueOnce(jsonResponse(422, EXPIRED));
@@ -200,6 +223,35 @@ describe('VerifyEmail', () => {
     expect(sent.textContent).not.toMatch(/\bsent\b/i);
     expect(sent.className).not.toContain('text-danger');
     expect(new URL(requestAt(1).url).pathname).toBe('/api/auth/verify-email/resend');
+  });
+
+  // Opening a second link must neither leave its resend button dead nor let the
+  // first link's answer speak for it.
+  it('lets go of a resend asked for under the previous token', async () => {
+    session.status = 'authed';
+    fetchMock.mockResolvedValueOnce(jsonResponse(422, EXPIRED));
+    const { rerender } = render(VerifyEmail, { token: 'tok-stale' });
+    await screen.findByRole('alert');
+
+    let releaseResend!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      releaseResend = resolve;
+    });
+    fetchMock.mockImplementationOnce(() => pending);
+    await fireEvent.click(screen.getByRole('button', { name: 'Send a new link' }));
+    expect(screen.getByRole('button', { name: 'Send a new link' })).toBeDisabled();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(422, EXPIRED));
+    await rerender({ token: 'tok-stale-too' });
+    await screen.findByRole('alert');
+    expect(screen.getByRole('button', { name: 'Send a new link' })).toBeEnabled();
+
+    releaseResend(jsonResponse(429, { error: 'Too many verification emails' }));
+    await pending;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(screen.queryByText(/Too many verification emails/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Send a new link' })).toBeEnabled();
   });
 
   it('renders a throttled resend as an error, not in the success slot', async () => {

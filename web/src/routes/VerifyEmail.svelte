@@ -34,8 +34,9 @@
     return /[.!?…]$/.test(message) ? message : `${message}.`;
   }
 
-  // Only the newest redemption may settle the page: the same component instance
-  // serves a second link, and a slower earlier request must not land on top.
+  // Only work started for the newest link may settle the page: the same component
+  // instance serves a second link, and a slower earlier request must not land on
+  // top of it.
   let attempt = 0;
 
   async function verify(value: string | undefined): Promise<void> {
@@ -75,27 +76,33 @@
   }
 
   async function resend(): Promise<void> {
+    const run = attempt;
     resending = true;
     resendStatus = null;
+    let status: Status;
     try {
       assertOk(await api.POST('/api/auth/verify-email/resend'));
       // Hedged, not "sent": the same 204 comes back with nothing sent when the
       // address is already verified.
-      resendStatus = {
+      status = {
         kind: 'success',
         message: 'If your address still needs verifying, a new link is on its way.',
       };
     } catch (err) {
-      resendStatus = { kind: 'error', message: sentence(apiMessage(err)) };
-    } finally {
-      resending = false;
+      status = { kind: 'error', message: sentence(apiMessage(err)) };
     }
+    if (run !== attempt) {
+      return;
+    }
+    resendStatus = status;
+    resending = false;
   }
 
   // Keyed on the prop, not run once at init: opening a second emailed link
   // reuses this instance rather than mounting a new one.
   $effect(() => {
     resendStatus = null;
+    resending = false;
     void verify(token);
   });
 </script>

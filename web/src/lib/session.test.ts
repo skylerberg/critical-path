@@ -142,6 +142,24 @@ describe('session.refresh', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // A token kept for a later retry is not a signed-in session: filling in the
+  // account here would leave a user on screen the app believes is signed out.
+  it('does nothing for a token init() never managed to validate', async () => {
+    localStorage.setItem('cp.token', 'tok-unvalidated');
+    fetchMock.mockResolvedValueOnce(jsonResponse(503, { error: 'Service Unavailable' }));
+    await session.init();
+    expect(session.status).toBe('anon');
+    expect(session.token).toBe('tok-unvalidated');
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, user));
+    await session.refresh();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(session.user).toBeNull();
+    expect(session.status).toBe('anon');
+  });
+
   // Account deletion, password reset and a 401 all clear the session from under
   // an in-flight read; letting the late answer land would restore the account.
   it('discards a result for a session that ended while it was in flight', async () => {
