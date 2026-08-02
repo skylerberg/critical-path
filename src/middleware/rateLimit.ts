@@ -3,7 +3,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { AppError } from '../utils/errors';
 import { env } from '../config/env';
 import { getRedis, redisConfigured } from '../services/redis';
-import { logger } from '../utils/logger';
+import { logger, type LogFields } from '../utils/logger';
 
 const WINDOW_MS = 60_000;
 const MAX_ATTEMPTS = 10;
@@ -44,6 +44,14 @@ function consumeRateLimitLocal(
   return window.count <= maxAttempts;
 }
 
+function sharedUnavailable(err: unknown): null {
+  logger.warn({
+    msg: 'Shared rate limit unavailable; using per-process fallback',
+    error: err instanceof Error ? err.message : String(err),
+  });
+  return null;
+}
+
 // null means "no shared verdict" (Redis unconfigured or unreachable); the
 // caller then falls back to the per-process window, which still bounds abuse
 // per replica rather than failing closed on a Redis outage.
@@ -56,19 +64,43 @@ async function consumeRateLimitShared(
     return null;
   }
   try {
-    const redis = getRedis();
-    const count = await redis.incr(`ratelimit:${key}`);
-    if (count === 1) {
-      await redis.pExpire(`ratelimit:${key}`, windowMs);
-    }
-    return count <= maxAttempts;
+    // Conditional on the key having no expiry rather than on the count being
+    // one, and in the same transaction: a counter that loses its expiry never
+    // resets, and locks out whoever it is keyed on for good.
+    const [count] = await getRedis()
+      .multi()
+      .incr(`ratelimit:${key}`)
+      .pExpire(`ratelimit:${key}`, windowMs, 'NX')
+      .exec();
+    return Number(count) <= maxAttempts;
   } catch (err) {
-    logger.warn({
-      msg: 'Shared rate limit unavailable; using per-process fallback',
-      error: err instanceof Error ? err.message : String(err),
-    });
+    return sharedUnavailable(err);
+  }
+}
+
+async function peekRateLimitShared(key: string, maxAttempts: number): Promise<boolean | null> {
+  if (!redisConfigured()) {
     return null;
   }
+  try {
+    const value = await getRedis().get(`ratelimit:${key}`);
+    return value === null || Number(value) < maxAttempts;
+  } catch (err) {
+    return sharedUnavailable(err);
+  }
+}
+
+function peekRateLimitLocal(key: string, now: number, maxAttempts: number): boolean {
+  const window = windows.get(key);
+  return window === undefined || window.resetAt <= now || window.count < maxAttempts;
+}
+
+async function peekRateLimit(key: string, now: number, maxAttempts: number): Promise<boolean> {
+  const shared = await peekRateLimitShared(key, maxAttempts);
+  if (shared !== null) {
+    return shared;
+  }
+  return peekRateLimitLocal(key, now, maxAttempts);
 }
 
 export async function consumeRateLimit(
@@ -164,32 +196,71 @@ export async function enforceVerificationRateLimit(c: Context, userId: string): 
 }
 
 export const NOTIFY_WINDOW_MS = 60 * 60_000;
-export const NOTIFY_RECIPIENT_MAX_ATTEMPTS = 20;
+export const NOTIFY_PAIR_MAX_ATTEMPTS = 20;
+export const NOTIFY_RECIPIENT_MAX_ATTEMPTS = 100;
 
-// Keyed on the recipient, not on whoever caused the write: a burst naming many
-// people spends one message from each of their separate budgets, while a loop
-// aimed at one address spends the same budget every time. A verdict rather than
-// a throw, because the mutation has already committed.
+interface Budget {
+  key: string;
+  max: number;
+}
+
+// One line per key per window: an abuse loop is the high-volume case, so an
+// unconditional line would turn a flood into log spam, but dropping mail with
+// no trace at all leaves a silenced recipient invisible.
+async function warnOnce(logKey: string, fields: LogFields): Promise<void> {
+  if (await consumeRateLimit(`notify-drop-log:${logKey}`, Date.now(), 1, NOTIFY_WINDOW_MS)) {
+    logger.warn(fields);
+  }
+}
+
+// Keyed on the pair. A budget keyed on the recipient alone is spent by whoever
+// causes the write, so a stranger can exhaust it on someone else's behalf and
+// silence the people that recipient actually works with; one keyed on the
+// sender alone bounds nothing about what a mailbox receives. The ceiling above
+// the pair only bites once many separate senders are involved. A verdict rather
+// than a throw, because the mutation has already committed.
 export async function allowNotificationEmail(
   recipientId: string,
+  actorId: string,
   repeatKey: string
 ): Promise<boolean> {
   const now = Date.now();
-  const firstOfItsKind = await consumeRateLimit(
-    `notify-repeat:${recipientId}:${repeatKey}`,
-    now,
-    1,
-    NOTIFY_WINDOW_MS
-  );
-  if (!firstOfItsKind) {
+  const repeat: Budget = { key: `notify-repeat:${recipientId}:${repeatKey}`, max: 1 };
+  const pair: Budget = {
+    key: `notify-pair:${recipientId}:${actorId}`,
+    max: NOTIFY_PAIR_MAX_ATTEMPTS,
+  };
+  const recipient: Budget = {
+    key: `notify-recipient:${recipientId}`,
+    max: NOTIFY_RECIPIENT_MAX_ATTEMPTS,
+  };
+
+  // Every budget agrees before any of it is spent: a slot spent on a message
+  // that was then dropped denies the next one for the rest of the window, and
+  // nothing retries it.
+  if (!(await peekRateLimit(repeat.key, now, repeat.max))) {
     return false;
   }
-  return await consumeRateLimit(
-    `notify-recipient:${recipientId}`,
-    now,
-    NOTIFY_RECIPIENT_MAX_ATTEMPTS,
-    NOTIFY_WINDOW_MS
-  );
+  if (!(await peekRateLimit(pair.key, now, pair.max))) {
+    await warnOnce(`pair:${recipientId}:${actorId}`, {
+      msg: 'Notification email dropped: one sender has spent their budget for this recipient',
+      recipient_id: recipientId,
+      actor_id: actorId,
+    });
+    return false;
+  }
+  if (!(await peekRateLimit(recipient.key, now, recipient.max))) {
+    await warnOnce(`recipient:${recipientId}`, {
+      msg: 'Notification email dropped: this recipient is over their total budget',
+      recipient_id: recipientId,
+    });
+    return false;
+  }
+
+  for (const budget of [repeat, pair, recipient]) {
+    await consumeRateLimit(budget.key, now, budget.max, NOTIFY_WINDOW_MS);
+  }
+  return true;
 }
 
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {

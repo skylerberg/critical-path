@@ -21,7 +21,7 @@ export const NOTIFY_COLUMN = {
 
 export interface Notification {
   kind: NotificationKind;
-  actorName: string;
+  actor: { id: string; name: string };
   project: { id: string; name: string; created_by: string | null };
   task?: { id: string; title: string };
   recipientUserIds: string[];
@@ -59,13 +59,13 @@ function messageFor(notification: Notification, recipient: Recipient): EmailMess
   const { page, oneClick } = unsubscribeLinks(recipient, notification.kind);
   const subject =
     notification.task === undefined
-      ? `${notification.actorName} added you to ${notification.project.name}`
-      : `${notification.actorName} assigned you: ${notification.task.title}`;
+      ? `${notification.actor.name} added you to ${notification.project.name}`
+      : `${notification.actor.name} assigned you: ${notification.task.title}`;
   const body =
     notification.task === undefined
-      ? `${notification.actorName} added you to the board "${notification.project.name}" on ${APP_NAME}.\n\n` +
+      ? `${notification.actor.name} added you to the board "${notification.project.name}" on ${APP_NAME}.\n\n` +
         `Open it here: ${env.appUrlBase}/projects/${notification.project.id}`
-      : `${notification.actorName} assigned you "${notification.task.title}" on the board ` +
+      : `${notification.actor.name} assigned you "${notification.task.title}" on the board ` +
         `"${notification.project.name}".\n\n` +
         `Open it here: ${env.appUrlBase}/projects/${notification.project.id}/tasks/${notification.task.id}`;
 
@@ -116,7 +116,7 @@ export const notificationDelivery: {
     const key = repeatKey(notification);
     const results = await Promise.allSettled(
       recipients.map(async (recipient) => {
-        if (await allowNotificationEmail(recipient.id, key)) {
+        if (await allowNotificationEmail(recipient.id, notification.actor.id, key)) {
           await sender.send(messageFor(notification, recipient));
         }
       })
@@ -164,7 +164,7 @@ export async function notify(
 
   const notification: Notification = {
     kind: args.kind,
-    actorName: args.actor.name,
+    actor: { id: args.actor.id, name: args.actor.name },
     project: {
       id: args.project.id,
       name: args.project.name,

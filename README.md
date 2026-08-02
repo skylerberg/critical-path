@@ -823,20 +823,45 @@ The recipient list is snapshotted inside the transaction, so the access gate is
 re-evaluated at send time rather than trusted from that snapshot: a member
 removed between the commit and the send is never told the board's name.
 
-Two budgets bound what any one mailbox can be made to receive, both keyed on
-the *recipient* rather than on whoever caused the write, and both consumed in
-the same layer:
+Three budgets bound what any one mailbox can be made to receive, all consumed
+in the same layer:
 
 - The same notification — same person, same kind, same card or board — is sent
   at most once an hour, so redoing a membership or an assignment cannot repeat
-  it.
-- A recipient receives at most 20 notification emails an hour in total.
+  it. This one deliberately ignores who performed the write, or a loop would
+  only have to alternate between two accounts to make every message look new.
+- One **sender** may cause at most 20 notification emails an hour to any one
+  recipient.
+- A recipient receives at most 100 notification emails an hour across all
+  senders.
 
-A legitimate burst is unaffected, because it spreads over many recipients: one
-write naming 50 people spends one message from each of 50 separate budgets. A
-loop aimed at one address spends the same budget every time, so it is collapsed
-by the first rule and then stopped by the second. A throttled message is
-dropped, not queued — there is no retry and no dead-letter.
+The second budget is keyed on the (recipient, sender) pair, not on the
+recipient alone, and that is the load-bearing part. A budget keyed on the
+recipient alone is *spent by whoever causes the write*, so anyone who knows an
+address can burn it — `added_to_project` needs no consent from the target and
+no prior relationship. The victim then takes the spam *and* is silenced for the
+rest of the hour, losing the assignment their own team just made. Keyed on the
+pair, an attacker can exhaust only their own share, and mail from everyone else
+is untouched. The per-recipient ceiling above it is a backstop against a farm
+of accounts, and only bites once at least five separate senders have each spent
+their full share on the same person.
+
+The alternative considered was to charge only notifications arising from
+projects the recipient already belonged to. It was rejected: it leaves a
+stranger's flood unbounded, which is the abuse the budget exists to stop, and
+it makes the bound depend on a membership query at send time rather than on the
+message itself.
+
+A legitimate burst is unaffected. One write naming 50 people spends one message
+from each of 50 separate pairs; a sprint's worth of assignments from one person
+to one person fits inside 20; and a recipient hearing from ten colleagues in an
+hour is nowhere near 100.
+
+A refused message is dropped, not queued — there is no retry and no
+dead-letter. Nothing is consumed until every budget has agreed, so a message
+that is dropped leaves the slot the next one needs. Each refusal is logged at
+most once per key per hour: unconditional logging would turn a flood into log
+spam, but silent drops leave a silenced recipient invisible to the operator.
 
 Three rules bound what is sent:
 
@@ -872,8 +897,12 @@ It is not a session credential: it is refused by every authenticating path.
 The address hash is the one revocation that exists. Nothing else retires a
 token — not a password change, not a session revocation — so moving the account
 to a different mailbox is what kills every link already sent to the old one. A
-link whose address no longer matches writes nothing and answers exactly as a
-live one does, so it is not an account-existence oracle either.
+link whose address no longer matches writes nothing and returns the same
+response a live one does, so it is not an account-existence oracle either. The
+write it skips does leave a timing difference, which is knowingly accepted:
+minting a token that names an account of your choosing requires the signing
+secret, so the difference separates live from dead only for a link the caller
+already holds, about an account they were already mailed.
 
 - `POST /api/auth/unsubscribe` (`{ token }`) switches off the kind the token
   names and answers `200 { kind }` so the landing page can say what it did.
