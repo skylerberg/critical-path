@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/owner-decisions/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/public-comments/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -1112,7 +1112,7 @@ export interface paths {
         };
         /**
          * Get public board
-         * @description Serve a read-only board for a project whose is_public flag is set. Unauthenticated: anyone holding the project id can read it. The payload carries columns, labels, and tasks with their descriptions, due dates, labels, blockers, image counts, and assignee ids, plus the name and avatar of each assigned user. Member ids, the creator, timestamps, and email addresses are never included. Projects that are private, unknown, or deleted are all 404.
+         * @description Serve a read-only board for a project whose is_public flag is set. Unauthenticated: anyone holding the project id can read it. The payload carries columns, labels, and tasks with their descriptions, due dates, labels, blockers, image counts, comment counts, and assignee ids, plus every comment on those tasks and the name and avatar of each user who is assigned one or wrote one. Comments on archived tasks are not served. Member ids, the creator, task timestamps, the activity log, and email addresses are never included. Projects that are private, unknown, or deleted are all 404.
          */
         get: operations["getApiPublicProjectsByIdBoard"];
         put?: never;
@@ -1687,6 +1687,7 @@ export interface components {
         };
         PublicBoard: {
             columns: components["schemas"]["BoardColumn"][];
+            comments: components["schemas"]["Comment"][];
             labels: components["schemas"]["BoardLabel"][];
             project: components["schemas"]["PublicBoardProject"];
             tasks: components["schemas"]["PublicBoardTask"][];
@@ -1701,6 +1702,7 @@ export interface components {
             assignee_ids: string[];
             blocker_ids: string[];
             column_id: string;
+            comment_count: number;
             cover_image_url: components["schemas"]["UserAvatarurl"];
             description: components["schemas"]["NullableTiptapDoc"];
             due_date: components["schemas"]["UserAvatarurl"];

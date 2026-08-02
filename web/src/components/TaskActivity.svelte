@@ -18,9 +18,12 @@
 
   interface Props {
     taskId: string;
+    // Not the same as read-only: a viewer may still write, edit and delete their
+    // own comments, and an anonymous reader has no identity to attribute one to.
+    anonymous?: boolean;
   }
 
-  let { taskId }: Props = $props();
+  let { taskId, anonymous = false }: Props = $props();
 
   type StreamItem =
     | { id: string; at: string; comment: TaskComment; entry?: undefined }
@@ -30,6 +33,8 @@
   const mentionUsers = $derived(currentProjectMentionCandidates());
   const commentCount = $derived(board.tasks.find((t) => t.id === taskId)?.comment_count ?? 0);
 
+  const history: TaskActivityEntry[] = $derived(anonymous ? [] : taskActivity.entries);
+
   const items: StreamItem[] = $derived(
     [
       ...(comments ?? []).map((comment) => ({
@@ -37,7 +42,7 @@
         at: comment.created_at,
         comment,
       })),
-      ...taskActivity.entries.map((entry) => ({
+      ...history.map((entry) => ({
         id: `activity-${entry.id}`,
         at: entry.created_at,
         entry,
@@ -47,7 +52,7 @@
 
   const loading = $derived(
     (comments === undefined && commentCount > 0) ||
-      (taskActivity.loading && taskActivity.entries.length === 0)
+      (!anonymous && taskActivity.loading && taskActivity.entries.length === 0)
   );
 
   let composer = $state<ReturnType<typeof RichTextEditor>>();
@@ -135,14 +140,14 @@
   }
 </script>
 
-{#if taskActivity.error}
+{#if taskActivity.error && !anonymous}
   <p class="text-sm text-muted">The history of this task could not be loaded.</p>
 {/if}
 
 {#if loading && items.length === 0}
-  <Spinner size="sm" label="Loading activity" />
-{:else if items.length === 0 && !taskActivity.error}
-  <p class="text-sm text-muted">No activity yet.</p>
+  <Spinner size="sm" label={anonymous ? 'Loading comments' : 'Loading activity'} />
+{:else if items.length === 0 && (anonymous || !taskActivity.error)}
+  <p class="text-sm text-muted">{anonymous ? 'No comments yet.' : 'No activity yet.'}</p>
 {:else if items.length > 0}
   <ul class="flex flex-col gap-4">
     {#each items as item (item.id)}
@@ -181,7 +186,7 @@
               {#key comment.body}
                 <RichTextEditor content={comment.body} readonly bare />
               {/key}
-              {#if comment.user_id === session.user?.id}
+              {#if !anonymous && comment.user_id === session.user?.id}
                 <div class="flex gap-2">
                   <Button
                     variant="ghost"
@@ -275,27 +280,29 @@
   </ul>
 {/if}
 
-<!-- Keyed so switching tasks in the open overlay starts a fresh composer instead of
-     carrying half-written text onto someone else's card. -->
-{#key taskId}
-  <div
-    class="flex flex-col gap-2"
-    onkeydowncapture={(event) => {
-      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        submit();
-      }
-    }}
-  >
-    <RichTextEditor
-      bind:this={composer}
-      content={null}
-      onChange={(doc) => (composerDoc = doc)}
-      placeholder="Write a comment…"
-      {mentionUsers}
-    />
-    <div class="flex">
-      <Button disabled={composerDoc === null} onclick={submit}>Comment</Button>
+{#if !anonymous}
+  <!-- Keyed so switching tasks in the open overlay starts a fresh composer instead of
+       carrying half-written text onto someone else's card. -->
+  {#key taskId}
+    <div
+      class="flex flex-col gap-2"
+      onkeydowncapture={(event) => {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          submit();
+        }
+      }}
+    >
+      <RichTextEditor
+        bind:this={composer}
+        content={null}
+        onChange={(doc) => (composerDoc = doc)}
+        placeholder="Write a comment…"
+        {mentionUsers}
+      />
+      <div class="flex">
+        <Button disabled={composerDoc === null} onclick={submit}>Comment</Button>
+      </div>
     </div>
-  </div>
-{/key}
+  {/key}
+{/if}
