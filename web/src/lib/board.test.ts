@@ -6,6 +6,8 @@ import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
 import { router } from './router.svelte';
 import { session } from './session.svelte';
+import { projectHref, taskHref } from './short-links';
+import { testUuid } from './test-ids';
 import { taskActivity } from './taskActivity.svelte';
 import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
@@ -1316,9 +1318,30 @@ describe('filters carried by load', () => {
 });
 
 describe('filters in the query string', () => {
+  const PROJECT_ID = testUuid('p1');
+  const TASK_ID = testUuid('t1');
+  const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
+  const TASK_PATH = taskHref(TASK_ID, 'A');
+
+  // Every id in this block reaches the address bar through encodeId, which takes
+  // uuids only.
+  function aliasPayload(): BoardPayload {
+    const base = payload();
+    return {
+      ...base,
+      project: { ...base.project, id: PROJECT_ID },
+      tasks: base.tasks.map((t) => (t.id === 't1' ? { ...t, id: TASK_ID } : t)),
+    };
+  }
+
   beforeEach(async () => {
-    router.navigate('/projects/p1', { replace: true });
-    await board.load('p1');
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === `/api/projects/${PROJECT_ID}`
+        ? jsonResponse(200, aliasPayload())
+        : undefined
+    );
+    router.navigate(BOARD_PATH, { replace: true });
+    await board.load(PROJECT_ID);
   });
 
   afterEach(() => {
@@ -1338,7 +1361,7 @@ describe('filters in the query string', () => {
 
     board.setFilterQuery('boss');
 
-    expect(router.path).toBe('/projects/p1?q=boss');
+    expect(router.path).toBe(`${BOARD_PATH}?q=boss`);
     expect(window.history.length).toBe(historyBefore);
   });
 
@@ -1348,58 +1371,81 @@ describe('filters in the query string', () => {
     replaceState.mockClear();
 
     board.toggleLabelFilter('l1');
-    expect(router.path).toBe('/projects/p1?labels=l1');
+    expect(router.path).toBe(`${BOARD_PATH}?labels=l1`);
 
     board.setFilterQuery('boss');
-    expect(router.path).toBe('/projects/p1?labels=l1&q=boss');
+    expect(router.path).toBe(`${BOARD_PATH}?labels=l1&q=boss`);
     expect(replaceState).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the overlay path when a filter changes behind an open task', () => {
-    router.navigate('/projects/p1/tasks/t1', { replace: true });
+    router.navigate(TASK_PATH, { replace: true });
 
     board.toggleLabelFilter('l1');
 
-    expect(router.path).toBe('/projects/p1/tasks/t1?labels=l1');
+    expect(router.path).toBe(`${TASK_PATH}?labels=l1`);
+  });
+
+  it('keeps writing behind an overlay for an archived task', () => {
+    const archivedId = testUuid('t9');
+    const archivedPath = taskHref(archivedId, 'Old');
+    board.archivedTasks = [
+      { ...task(archivedId, 'c1', 1500, 'Old'), archived_at: SERVER_ARCHIVED_AT },
+    ];
+    router.navigate(archivedPath, { replace: true });
+
+    board.toggleLabelFilter('l1');
+
+    expect(router.path).toBe(`${archivedPath}?labels=l1`);
+  });
+
+  it('leaves the address bar alone on a task URL this board does not hold', () => {
+    const elsewhere = taskHref(testUuid('t-elsewhere'), 'Elsewhere');
+    router.navigate(elsewhere, { replace: true });
+
+    board.toggleLabelFilter('l1');
+
+    expect(board.filterLabelIds).toEqual(['l1']);
+    expect(router.path).toBe(elsewhere);
   });
 
   it('leaves query keys it does not own in the address bar', () => {
-    router.navigate('/projects/p1/tasks/t1?from=my-tasks', { replace: true });
+    router.navigate(`${TASK_PATH}?from=my-tasks`, { replace: true });
 
     board.setFilters(parseFilters('?from=my-tasks'));
-    expect(router.path).toBe('/projects/p1/tasks/t1?from=my-tasks');
+    expect(router.path).toBe(`${TASK_PATH}?from=my-tasks`);
 
     board.toggleLabelFilter('l1');
-    expect(router.path).toBe('/projects/p1/tasks/t1?labels=l1&from=my-tasks');
+    expect(router.path).toBe(`${TASK_PATH}?labels=l1&from=my-tasks`);
 
     board.clearFilters();
-    expect(router.path).toBe('/projects/p1/tasks/t1?from=my-tasks');
+    expect(router.path).toBe(`${TASK_PATH}?from=my-tasks`);
   });
 
   it('drops the query string again when the filters are cleared', () => {
     board.setFilterQuery('boss');
-    expect(router.path).toBe('/projects/p1?q=boss');
+    expect(router.path).toBe(`${BOARD_PATH}?q=boss`);
 
     board.clearFilters();
 
-    expect(router.path).toBe('/projects/p1');
+    expect(router.path).toBe(BOARD_PATH);
   });
 
   it('rewrites a hand-ordered query string into the canonical one', () => {
-    router.navigate('/projects/p1?q=boss&labels=l1', { replace: true });
+    router.navigate(`${BOARD_PATH}?q=boss&labels=l1`, { replace: true });
 
     board.setFilters(parseFilters('?q=boss&labels=l1'));
 
-    expect(router.path).toBe('/projects/p1?labels=l1&q=boss');
+    expect(router.path).toBe(`${BOARD_PATH}?labels=l1&q=boss`);
   });
 
   it('drops a label the project does not have from an already-unfiltered address bar', () => {
-    router.navigate('/projects/p1?labels=l-gone', { replace: true });
+    router.navigate(`${BOARD_PATH}?labels=l-gone`, { replace: true });
 
     board.setFilters(parseFilters('?labels=l-gone'));
 
     expect(board.hasActiveFilters).toBe(false);
-    expect(router.path).toBe('/projects/p1');
+    expect(router.path).toBe(BOARD_PATH);
   });
 
   it('does not touch history when the filter state serializes unchanged', () => {
@@ -1416,31 +1462,32 @@ describe('filters in the query string', () => {
   it('prunes a deleted label from both the filter and the query string', async () => {
     board.toggleLabelFilter('l1');
     board.setFilterQuery('alpha');
-    expect(router.path).toBe('/projects/p1?labels=l1&q=alpha');
+    expect(router.path).toBe(`${BOARD_PATH}?labels=l1&q=alpha`);
 
     await board.deleteLabel('l1');
 
     expect(board.filterLabelIds).toEqual([]);
-    expect(router.path).toBe('/projects/p1?q=alpha');
+    expect(router.path).toBe(`${BOARD_PATH}?q=alpha`);
   });
 
   it('prunes a label another member deleted from the query string', () => {
     board.toggleLabelFilter('l1');
-    expect(router.path).toBe('/projects/p1?labels=l1');
+    expect(router.path).toBe(`${BOARD_PATH}?labels=l1`);
 
-    board.applyRealtime({ type: 'label_deleted', project_id: 'p1', data: { id: 'l1' } });
+    board.applyRealtime({ type: 'label_deleted', project_id: PROJECT_ID, data: { id: 'l1' } });
 
     expect(board.filterLabelIds).toEqual([]);
-    expect(router.path).toBe('/projects/p1');
+    expect(router.path).toBe(BOARD_PATH);
   });
 
   it('leaves the address bar alone while another route is showing', () => {
-    router.navigate('/projects/p2', { replace: true });
+    const otherBoard = projectHref(testUuid('p2'), 'Other');
+    router.navigate(otherBoard, { replace: true });
 
     board.toggleLabelFilter('l1');
 
     expect(board.filterLabelIds).toEqual(['l1']);
-    expect(router.path).toBe('/projects/p2');
+    expect(router.path).toBe(otherBoard);
   });
 });
 
@@ -2315,6 +2362,42 @@ describe('applyRealtime does not resurrect a deleted task', () => {
     });
 
     expect(board.tasks.find((t) => t.id === 't2')?.title).toBe('B renamed');
+  });
+});
+
+describe('applyRealtime project_updated', () => {
+  beforeEach(async () => {
+    await board.load('p1');
+    board.project = {
+      ...board.project!,
+      created_by: 'u-owner',
+      member_ids: ['u-me'],
+      members: [{ user_id: 'u-me', role: 'editor' }],
+    };
+  });
+
+  it('adopts a rename that carries nothing else, leaving membership as it was', () => {
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: { id: 'p1', name: 'Renamed' },
+    });
+
+    expect(board.project?.name).toBe('Renamed');
+    expect(board.project?.created_by).toBe('u-owner');
+    expect(board.project?.member_ids).toEqual(['u-me']);
+    expect(board.project?.members).toEqual([{ user_id: 'u-me', role: 'editor' }]);
+  });
+
+  it('leaves the name alone when the event carries only membership', () => {
+    board.applyRealtime({
+      type: 'project_updated',
+      project_id: 'p1',
+      data: { id: 'p1', member_ids: ['u-me'], members: [{ user_id: 'u-me', role: 'viewer' }] },
+    });
+
+    expect(board.project?.name).toBe('Game');
+    expect(board.project?.members).toEqual([{ user_id: 'u-me', role: 'viewer' }]);
   });
 });
 

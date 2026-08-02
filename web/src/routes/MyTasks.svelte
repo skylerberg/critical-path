@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { myTasks, type MyTaskPersonGroup } from '../lib/myTasks.svelte';
   import { link } from '../lib/router.svelte';
+  import { taskHref } from '../lib/short-links';
   import { session } from '../lib/session.svelte';
   import { truncateTitle } from '../lib/titles';
   import { displayName, users } from '../lib/users.svelte';
@@ -45,7 +46,7 @@
       {#each group.tasks as task (task.id)}
         <li>
           <a
-            href="/projects/{task.project_id}/tasks/{task.id}?from=my-tasks"
+            href={taskHref(task.id, task.title) + '?from=my-tasks'}
             class="flex min-h-11 items-center rounded-md px-2 text-sm text-muted hover:bg-accent-soft hover:text-ink"
           >
             {truncateTitle(task.title)}

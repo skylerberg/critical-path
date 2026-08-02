@@ -5,15 +5,20 @@ import ProjectMembersModal from './ProjectMembersModal.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
+import { projectHref, publicBoardHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
 
 const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
+const PROJECT_ID = testUuid('p-1');
+const PROJECT_A = testUuid('p-A');
+const PROJECT_B = testUuid('p-B');
 
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [me.id];
   return {
-    id: 'p-1',
+    id: PROJECT_ID,
     name: 'Team Game',
     description: '',
     archived_at: null,
@@ -43,7 +48,7 @@ describe('ProjectMembersModal', () => {
   it('marks the owner and offers no remove button for them or yourself', () => {
     projects.projects = [project()];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     expect(screen.getByText('Ada')).toBeInTheDocument();
     expect(screen.getByText('Owner')).toBeInTheDocument();
@@ -56,7 +61,7 @@ describe('ProjectMembersModal', () => {
   it('hides the leave button for the creator', () => {
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     expect(screen.queryByRole('button', { name: 'Leave board' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Remove Ada' })).toBeInTheDocument();
@@ -68,7 +73,7 @@ describe('ProjectMembersModal', () => {
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
     fetchMock.mockImplementation(async () => jsonResponse(200, { users: [me, ada, bob] }));
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     expect(screen.getByLabelText('Add people')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add Bob' })).toBeInTheDocument();
@@ -81,10 +86,10 @@ describe('ProjectMembersModal', () => {
   it('leaving from the board route PUTs minus self and navigates to the projects page', async () => {
     projects.projects = [project({ member_ids: [me.id, 'u-3'] })];
     fetchMock.mockImplementation(async () => jsonResponse(204));
-    router.navigate('/projects/p-1');
+    router.navigate(projectHref(PROJECT_ID, 'Team Game'));
     const onclose = vi.fn();
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Leave board' }));
 
@@ -92,7 +97,7 @@ describe('ProjectMembersModal', () => {
       expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
     });
     const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
-    expect(new URL(put.url).pathname).toBe('/api/projects/p-1/members');
+    expect(new URL(put.url).pathname).toBe(`/api/projects/${PROJECT_ID}/members`);
     expect(await put.clone().json()).toEqual({ user_ids: ['u-3'] });
     expect(projects.projects).toEqual([]);
     expect(onclose).toHaveBeenCalled();
@@ -104,7 +109,7 @@ describe('ProjectMembersModal', () => {
     projects.projects = [project()];
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Leave board' }));
 
@@ -116,7 +121,7 @@ describe('ProjectMembersModal', () => {
   it('offers "Make owner" only to the owner, and explains why they cannot leave', () => {
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     expect(screen.getByRole('button', { name: 'Make owner: Ada' })).toBeInTheDocument();
     expect(
@@ -128,7 +133,7 @@ describe('ProjectMembersModal', () => {
   it('offers no "Make owner" button to an ordinary member', () => {
     projects.projects = [project()];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     expect(screen.queryByRole('button', { name: /Make owner/ })).toBeNull();
   });
@@ -136,7 +141,7 @@ describe('ProjectMembersModal', () => {
   it('confirms before transferring, and cancelling sends nothing', async () => {
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     const makeOwner = screen.getByRole('button', { name: 'Make owner: Ada' });
     await fireEvent.click(makeOwner);
@@ -155,7 +160,7 @@ describe('ProjectMembersModal', () => {
   it('focuses the confirmation so it is announced and scrolled into view', async () => {
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Make owner: Ada' }));
 
@@ -170,7 +175,7 @@ describe('ProjectMembersModal', () => {
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Make owner: Ada' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Remove Ada' }));
@@ -185,7 +190,7 @@ describe('ProjectMembersModal', () => {
     fetchMock.mockImplementation(async (input) => {
       if ((input as Request).method === 'PUT') {
         return jsonResponse(200, {
-          id: 'p-1',
+          id: PROJECT_ID,
           name: 'Team Game',
           description: '',
           archived_at: null,
@@ -197,7 +202,7 @@ describe('ProjectMembersModal', () => {
       return jsonResponse(200, { users: [me, ada] });
     });
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Make owner: Ada' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Transfer ownership' }));
@@ -206,7 +211,7 @@ describe('ProjectMembersModal', () => {
       expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
     });
     const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
-    expect(new URL(put.url).pathname).toBe('/api/projects/p-1/owner');
+    expect(new URL(put.url).pathname).toBe(`/api/projects/${PROJECT_ID}/owner`);
     expect(await put.clone().json()).toEqual({ user_id: ada.id });
 
     expect(projects.projects[0]!.created_by).toBe(ada.id);
@@ -242,7 +247,7 @@ describe('ProjectMembersModal public link', () => {
   it('offers publishing behind a confirm dialog that names what becomes visible', async () => {
     projects.projects = [project()];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     expect(screen.queryByLabelText('Public link')).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: 'Publish read-only link' }));
@@ -258,7 +263,7 @@ describe('ProjectMembersModal public link', () => {
   it('confirming PATCHes is_public and then shows the copyable link', async () => {
     projects.projects = [project()];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
     await fireEvent.click(screen.getByRole('button', { name: 'Publish read-only link' }));
     const confirm = screen
       .getAllByRole('button', { name: 'Publish read-only link' })
@@ -267,11 +272,11 @@ describe('ProjectMembersModal public link', () => {
 
     await waitFor(() => expect(patchRequests()).toHaveLength(1));
     const patch = patchRequests()[0]!;
-    expect(new URL(patch.url).pathname).toBe('/api/projects/p-1');
+    expect(new URL(patch.url).pathname).toBe(`/api/projects/${PROJECT_ID}`);
     expect(await patch.clone().json()).toEqual({ is_public: true });
 
     const field = await screen.findByLabelText('Public link');
-    expect(field).toHaveValue(`${location.origin}/public/projects/p-1`);
+    expect(field).toHaveValue(`${location.origin}${publicBoardHref(PROJECT_ID)}`);
   });
 
   it('copies the link to the clipboard', async () => {
@@ -279,17 +284,17 @@ describe('ProjectMembersModal public link', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
     await fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
 
-    expect(writeText).toHaveBeenCalledWith(`${location.origin}/public/projects/p-1`);
+    expect(writeText).toHaveBeenCalledWith(`${location.origin}${publicBoardHref(PROJECT_ID)}`);
     vi.unstubAllGlobals();
   });
 
   it('stops sharing without a second confirm', async () => {
     projects.projects = [project({ is_public: true })];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
     await fireEvent.click(screen.getByRole('button', { name: 'Stop sharing' }));
 
     await waitFor(() => expect(patchRequests()).toHaveLength(1));
@@ -298,17 +303,17 @@ describe('ProjectMembersModal public link', () => {
   });
 
   it('targets the project it was given, not whichever board is open', async () => {
-    projects.projects = [project({ id: 'p-A' }), project({ id: 'p-B' })];
+    projects.projects = [project({ id: PROJECT_A }), project({ id: PROJECT_B })];
 
-    render(ProjectMembersModal, { projectId: 'p-B', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_B, onclose: () => {} });
     await fireEvent.click(screen.getByRole('button', { name: 'Publish read-only link' }));
     await fireEvent.click(
       screen.getAllByRole('button', { name: 'Publish read-only link' }).at(-1) as HTMLElement
     );
 
     await waitFor(() => expect(patchRequests()).toHaveLength(1));
-    expect(new URL(patchRequests()[0]!.url).pathname).toBe('/api/projects/p-B');
-    expect(projects.projects.find((p) => p.id === 'p-A')?.is_public).toBe(false);
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe(`/api/projects/${PROJECT_B}`);
+    expect(projects.projects.find((p) => p.id === PROJECT_A)?.is_public).toBe(false);
   });
 });
 
@@ -333,7 +338,7 @@ describe('ProjectMembersModal roles', () => {
     ];
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     expect(roleSelect('Ada').value).toBe('editor');
     expect(roleSelect('Bob').value).toBe('viewer');
@@ -345,7 +350,7 @@ describe('ProjectMembersModal roles', () => {
       expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'PUT')).toBe(true);
     });
     const put = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PUT')![0] as Request;
-    expect(new URL(put.url).pathname).toBe('/api/projects/p-1/members');
+    expect(new URL(put.url).pathname).toBe(`/api/projects/${PROJECT_ID}/members`);
     expect(await put.clone().json()).toEqual({ roles: [{ user_id: ada.id, role: 'viewer' }] });
     expect(projects.projects[0]!.members).toEqual([
       { user_id: ada.id, role: 'viewer' },
@@ -366,7 +371,7 @@ describe('ProjectMembersModal roles', () => {
       }),
     ];
 
-    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
 
     expect(screen.queryByLabelText('Add people')).toBeNull();
     expect(screen.queryByLabelText(/^Role for /)).toBeNull();

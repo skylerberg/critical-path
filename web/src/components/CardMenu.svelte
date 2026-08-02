@@ -2,7 +2,8 @@
   import { board } from '../lib/board.svelte';
   import { CARD_ACTION_KEYS, type CardActionId } from '../lib/card-actions';
   import { cardMenu } from '../lib/card-menu.svelte';
-  import { boardPath, link } from '../lib/router.svelte';
+  import { link } from '../lib/router.svelte';
+  import { publicTaskHref, taskHref } from '../lib/short-links';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { truncateTitle } from '../lib/titles';
   import { toasts } from '../lib/toasts.svelte';
@@ -28,10 +29,17 @@
   let placed = $state({ x: cardMenu.x, y: cardMenu.y });
 
   const task = $derived(board.tasks.find((t) => t.id === cardMenu.taskId));
-  const href = $derived(
+  const shareHref = $derived(
     task === undefined
       ? ''
-      : `${boardPath(projectId, board.readonly)}/tasks/${task.id}${board.filterSearch}`
+      : board.readonly
+        ? publicTaskHref(projectId, task.id)
+        : taskHref(task.id, task.title)
+  );
+  // Opening stays in this board, so it keeps the filters; a copied link goes to
+  // someone else, who should not inherit the sharer's narrowing.
+  const href = $derived(
+    task === undefined || board.readonly ? shareHref : shareHref + board.filterSearch
   );
   const completable = $derived(
     task !== undefined && board.doneColumnIds.size > 0 && !board.doneColumnIds.has(task.column_id)
@@ -125,7 +133,7 @@
 
   async function copyLink(): Promise<void> {
     try {
-      await navigator.clipboard.writeText(new URL(href, window.location.origin).href);
+      await navigator.clipboard.writeText(new URL(shareHref, window.location.origin).href);
       toasts.success('Link copied');
     } catch {
       toasts.error('Could not copy the link');

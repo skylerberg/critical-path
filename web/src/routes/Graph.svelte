@@ -6,6 +6,7 @@
   import type { BoardTask } from '../lib/board-types';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { link } from '../lib/router.svelte';
+  import { projectHref, taskHref } from '../lib/short-links';
   import { toasts } from '../lib/toasts.svelte';
   import { truncateTitle } from '../lib/titles';
   import {
@@ -615,7 +616,9 @@
         <p class="text-base font-medium">No tasks to graph</p>
         <p class="max-w-sm text-sm text-muted" use:link>
           Add tasks on the
-          <a href="/projects/{projectId}{board.filterSearch}" class="text-accent underline">board</a
+          <a
+            href={projectHref(projectId, board.project?.name ?? '', 'board') + board.filterSearch}
+            class="text-accent underline">board</a
           >, then link them to see the dependency graph.
         </p>
       {/if}
@@ -765,7 +768,7 @@
             <a
               use:link
               use:suppressTouchContextMenu
-              href="/projects/{projectId}/graph/tasks/{n.id}{board.filterSearch}"
+              href={taskHref(n.id, n.title, 'graph') + board.filterSearch}
               draggable="false"
               aria-label="Open task {truncateTitle(n.title)}"
               class="flex h-full w-full touch-callout-none cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3"

@@ -5,19 +5,23 @@ import MyTasks from './MyTasks.svelte';
 import { myTasks, type MyTask, type MyTaskPersonGroup } from '../lib/myTasks.svelte';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
+import { taskHref } from '../lib/short-links';
+import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { users } from '../lib/users.svelte';
 
 const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null };
 
-function task(id: string, bucket: MyTask['bucket'], overrides: Partial<MyTask> = {}): MyTask {
+const PROJECT_ID = testUuid('p-1');
+
+function task(key: string, bucket: MyTask['bucket'], overrides: Partial<MyTask> = {}): MyTask {
   return {
-    id,
-    project_id: 'p-1',
+    id: testUuid(key),
+    project_id: PROJECT_ID,
     project_name: 'Colori',
     column_name: 'In Progress',
-    title: `Task ${id}`,
+    title: `Task ${key}`,
     assignee_ids: [me.id],
     bucket,
     waiting_user_ids: [],
@@ -68,7 +72,10 @@ describe('MyTasks', () => {
     render(MyTasks);
 
     const anchor = await screen.findByRole('link', { name: 'Ship the export API' });
-    expect(anchor).toHaveAttribute('href', '/projects/p-1/tasks/t-1?from=my-tasks');
+    expect(anchor).toHaveAttribute(
+      'href',
+      `${taskHref(testUuid('t-1'), 'Ship the export API')}?from=my-tasks`
+    );
     expect(screen.getByText('Colori')).toBeInTheDocument();
     expect(screen.getByText('In Progress')).toBeInTheDocument();
     // Nobody else is on this task, so the row has no hidden name to hang a tooltip on.
@@ -92,8 +99,17 @@ describe('MyTasks', () => {
         task('t-1', 'blocked', {
           assignee_ids: [me.id, ada.id],
           waiting_user_ids: [ada.id],
-          blocking: [{ id: 't-9', project_id: 'p-1', title: 'Importer', assignee_ids: [ada.id] }],
-          blocked_by: [{ id: 't-8', project_id: 'p-1', title: 'Format', assignee_ids: [] }],
+          blocking: [
+            {
+              id: testUuid('t-9'),
+              project_id: PROJECT_ID,
+              title: 'Importer',
+              assignee_ids: [ada.id],
+            },
+          ],
+          blocked_by: [
+            { id: testUuid('t-8'), project_id: PROJECT_ID, title: 'Format', assignee_ids: [] },
+          ],
         }),
       ],
     });
@@ -119,7 +135,14 @@ describe('MyTasks', () => {
       you_are_waiting_on: [
         {
           user_id: 'u-gone',
-          tasks: [{ id: 't-8', project_id: 'p-1', title: 'Decide the format', assignee_ids: [] }],
+          tasks: [
+            {
+              id: testUuid('t-8'),
+              project_id: PROJECT_ID,
+              title: 'Decide the format',
+              assignee_ids: [],
+            },
+          ],
         },
       ],
     });
@@ -141,18 +164,37 @@ describe('MyTasks', () => {
         {
           user_id: ada.id,
           tasks: [
-            { id: 't-9', project_id: 'p-1', title: 'Wire up the importer', assignee_ids: [] },
+            {
+              id: testUuid('t-9'),
+              project_id: PROJECT_ID,
+              title: 'Wire up the importer',
+              assignee_ids: [],
+            },
           ],
         },
       ],
       you_are_waiting_on: [
         {
           user_id: ada.id,
-          tasks: [{ id: 't-7', project_id: 'p-1', title: 'Pick a palette', assignee_ids: [] }],
+          tasks: [
+            {
+              id: testUuid('t-7'),
+              project_id: PROJECT_ID,
+              title: 'Pick a palette',
+              assignee_ids: [],
+            },
+          ],
         },
         {
           user_id: null,
-          tasks: [{ id: 't-8', project_id: 'p-1', title: 'Decide the format', assignee_ids: [] }],
+          tasks: [
+            {
+              id: testUuid('t-8'),
+              project_id: PROJECT_ID,
+              title: 'Decide the format',
+              assignee_ids: [],
+            },
+          ],
         },
       ],
     });
@@ -169,7 +211,7 @@ describe('MyTasks', () => {
 
     expect(screen.getByRole('link', { name: 'Decide the format' })).toHaveAttribute(
       'href',
-      '/projects/p-1/tasks/t-8?from=my-tasks'
+      `${taskHref(testUuid('t-8'), 'Decide the format')}?from=my-tasks`
     );
   });
 

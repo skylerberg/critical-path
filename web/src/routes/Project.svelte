@@ -3,7 +3,8 @@
   import { announcer } from '../lib/announcer.svelte';
   import { board } from '../lib/board.svelte';
   import { mergeFilterSearch, noFilters, type BoardFilters } from '../lib/board-filters';
-  import type { ProjectView } from '../lib/router.svelte';
+  import { router, splitPath, type ProjectView } from '../lib/router.svelte';
+  import { projectHref, taskHref } from '../lib/short-links';
   import { selection } from '../lib/selection.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { users } from '../lib/users.svelte';
@@ -75,15 +76,37 @@
       board.project !== null
   );
   const readonly = $derived(!board.canEdit);
-  const viewBasePath = $derived(
-    view === 'graph' ? `/projects/${projectId}/graph` : `/projects/${projectId}`
-  );
+  const viewBasePath = $derived(projectHref(projectId, board.project?.name ?? '', view));
   const closePath = $derived(from === 'my-tasks' ? '/my-tasks' : viewBasePath + board.filterSearch);
   // What an overlay URL in this view carries: the live filters, plus the return marker
   // when the card was reached from My Tasks.
   const overlaySearch = $derived(
     mergeFilterSearch(from === 'my-tasks' ? '?from=my-tasks' : '', board.filters)
   );
+
+  // Re-slugs from the live title, so the address bar follows a rename — the user's
+  // own or a teammate's over realtime — and corrects a stale or absent slug on
+  // arrival. Guarded on `ready` rather than the id alone: a project switch assigns
+  // the new id before the payload lands, leaving a window with no project to name.
+  // Only the pathname is touched; the filter writer owns the search.
+  $effect(() => {
+    if (!ready) {
+      return;
+    }
+    const task = taskId === undefined ? undefined : board.tasks.find((t) => t.id === taskId);
+    // An archived card opened cold is absent from the board payload, so there is no
+    // title to slug and the URL is left as it arrived.
+    const canonical =
+      taskId === undefined
+        ? projectHref(board.project!.id, board.project!.name, view)
+        : task === undefined
+          ? null
+          : taskHref(task.id, task.title, view);
+    const { pathname, search } = splitPath(router.path);
+    if (canonical !== null && pathname !== canonical) {
+      router.redirect(canonical + search);
+    }
+  });
 </script>
 
 {#if board.error !== null && board.currentProjectId === projectId}
@@ -109,7 +132,8 @@
       {taskId}
       {closePath}
       {readonly}
-      taskPath={(id) => `${viewBasePath}/tasks/${id}${overlaySearch}`}
+      taskPath={(id) =>
+        taskHref(id, board.tasks.find((t) => t.id === id)?.title ?? '', view) + overlaySearch}
     />
   {/if}
   {#if shortcuts.labelMenu !== null}

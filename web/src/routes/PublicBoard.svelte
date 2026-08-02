@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
-  import { boardPath } from '../lib/router.svelte';
+  import { publicBoardHref, publicTaskHref } from '../lib/short-links';
   import { users } from '../lib/users.svelte';
   import TaskDetail from '../components/TaskDetail.svelte';
   import Badge from '../components/ui/Badge.svelte';
@@ -76,8 +76,8 @@
   {#if taskId !== undefined}
     <TaskDetail
       {taskId}
-      closePath={boardPath(projectId, true)}
-      taskPath={(id) => `${boardPath(projectId, true)}/tasks/${id}`}
+      closePath={publicBoardHref(projectId)}
+      taskPath={(id) => publicTaskHref(projectId, id)}
       readonly
     />
   {/if}

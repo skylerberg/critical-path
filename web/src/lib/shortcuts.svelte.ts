@@ -2,8 +2,10 @@ import { board } from './board.svelte';
 import { cardMenu } from './card-menu.svelte';
 import type { DependencyDirection } from './dependency-types';
 import { router } from './router.svelte';
+import { projectHref, taskHref } from './short-links';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
+import { currentProjectId } from './task-route.svelte';
 
 const CHORD_WINDOW_MS = 800;
 
@@ -90,7 +92,7 @@ class ShortcutController {
     }
 
     const route = router.current;
-    const projectId = route.name === 'project' ? route.params.id : null;
+    const projectId = currentProjectId();
     const view = route.name === 'project' ? route.params.view : null;
     const overlayTaskId = route.name === 'project' ? route.params.taskId : undefined;
 
@@ -131,11 +133,13 @@ class ShortcutController {
       return false;
     }
     if (key === 'b') {
-      router.navigate(`/projects/${projectId}${board.filterSearch}`);
+      router.navigate(projectHref(projectId, board.project?.name ?? '') + board.filterSearch);
       return true;
     }
     if (key === 'g') {
-      router.navigate(`/projects/${projectId}/graph${board.filterSearch}`);
+      router.navigate(
+        projectHref(projectId, board.project?.name ?? '', 'graph') + board.filterSearch
+      );
       return true;
     }
     return false;
@@ -160,12 +164,14 @@ class ShortcutController {
         break;
       case 'Enter':
       case 'o':
-      case 'e':
+      case 'e': {
         if (selectedId === null || projectId === null) {
           return false;
         }
-        router.navigate(`/projects/${projectId}/tasks/${selectedId}${board.filterSearch}`);
+        const title = board.tasks.find((t) => t.id === selectedId)?.title ?? '';
+        router.navigate(taskHref(selectedId, title) + board.filterSearch);
         break;
+      }
       case 'n': {
         const columnId = selection.selectedColumnId ?? board.columns[0]?.id ?? null;
         if (columnId === null || !board.canEdit) {

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { isProjectOwner, projects, type Project } from '../lib/projects.svelte';
   import { link, router } from '../lib/router.svelte';
+  import { projectHref } from '../lib/short-links';
   import ProjectMembersModal from '../components/ProjectMembersModal.svelte';
   import Badge from '../components/ui/Badge.svelte';
   import Button from '../components/ui/Button.svelte';
@@ -59,7 +60,7 @@
     creating = false;
     createOpen = false;
     if (id !== null) {
-      router.navigate(`/projects/${id}`);
+      router.navigate(projectHref(id, name));
     }
   }
 
@@ -196,7 +197,7 @@
              can hit: one composed title here, and the focus ring on the article, outside
              the heading's truncate clip. -->
         <a
-          href="/projects/{project.id}"
+          href={projectHref(project.id, project.name)}
           title={project.description === ''
             ? project.name
             : `${project.name}\n${project.description}`}

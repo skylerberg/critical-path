@@ -4,9 +4,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import FilterBar from './FilterBar.svelte';
 import { board } from '../lib/board.svelte';
 import { router } from '../lib/router.svelte';
+import { projectHref } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
+import { testUuid } from '../lib/test-ids';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
+
+const PROJECT_ID = testUuid('p1');
+const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
 
 function task(id: string, assigneeIds: string[]): BoardTask {
   return {
@@ -33,7 +38,7 @@ beforeEach(() => {
   board.reset();
   users.reset();
   shortcuts.reset();
-  board.currentProjectId = 'p1';
+  board.currentProjectId = PROJECT_ID;
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
   users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada', avatar_url: null }];
 });
@@ -104,7 +109,7 @@ describe('FilterBar', () => {
 
   it('makes the narrowed board a shareable URL without growing the history', async () => {
     board.tasks = [task('t1', ['u1'])];
-    router.navigate('/projects/p1', { replace: true });
+    router.navigate(BOARD_PATH, { replace: true });
     const historyBefore = window.history.length;
 
     render(FilterBar);
@@ -113,14 +118,14 @@ describe('FilterBar', () => {
     });
 
     await waitFor(() => {
-      expect(router.path).toBe('/projects/p1?q=boss');
+      expect(router.path).toBe(`${BOARD_PATH}?q=boss`);
     });
 
     await fireEvent.click(screen.getByTitle('Filter by Ada'));
-    expect(router.path).toBe('/projects/p1?assignees=u1&q=boss');
+    expect(router.path).toBe(`${BOARD_PATH}?assignees=u1&q=boss`);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
-    expect(router.path).toBe('/projects/p1');
+    expect(router.path).toBe(BOARD_PATH);
     expect(window.history.length).toBe(historyBefore);
   });
 

@@ -4,6 +4,7 @@
   import { downloadProjectExport } from '../lib/export';
   import { projects } from '../lib/projects.svelte';
   import { link, type ProjectView } from '../lib/router.svelte';
+  import { projectHref } from '../lib/short-links';
   import { toasts } from '../lib/toasts.svelte';
   import ArchivedTasksModal from './ArchivedTasksModal.svelte';
   import FilterBar from './FilterBar.svelte';
@@ -88,7 +89,7 @@
     {/if}
     <nav use:link aria-label="Project views" class="flex gap-1">
       <a
-        href={`/projects/${projectId}${board.filterSearch}`}
+        href={projectHref(projectId, board.project?.name ?? '', 'board') + board.filterSearch}
         aria-current={boardActive ? 'page' : undefined}
         class="flex min-h-11 items-center rounded-md px-3 text-sm font-medium {boardActive
           ? 'bg-accent-soft text-accent'
@@ -97,7 +98,7 @@
         Board
       </a>
       <a
-        href={`/projects/${projectId}/graph${board.filterSearch}`}
+        href={projectHref(projectId, board.project?.name ?? '', 'graph') + board.filterSearch}
         aria-current={graphActive ? 'page' : undefined}
         class="flex min-h-11 items-center rounded-md px-3 text-sm font-medium {graphActive
           ? 'bg-accent-soft text-accent'

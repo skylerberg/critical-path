@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { mount, tick, unmount } from 'svelte';
 import Project from './Project.svelte';
+import ProjectRoute from './ProjectRoute.svelte';
 import { board } from '../lib/board.svelte';
 import { noFilters } from '../lib/board-filters';
 import { drafts } from '../lib/drafts.svelte';
@@ -12,9 +13,23 @@ import { session } from '../lib/session.svelte';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { users } from '../lib/users.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
+import { encodeId, projectHref, taskHref } from '../lib/short-links';
+import { taskRoute } from '../lib/task-route.svelte';
+import { testUuid } from '../lib/test-ids';
 import type { ProjectView } from '../lib/router.svelte';
 
 const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+
+const T1 = testUuid('t1');
+const T2 = testUuid('t2');
+const T3 = testUuid('t3');
+const T9 = testUuid('t9');
+const PROJECT_NAME = 'Rulebook';
+
+// The slug follows the live title, exactly as the component builds it.
+function titleOf(taskId: string): string {
+  return board.tasks.find((t) => t.id === taskId)?.title ?? '';
+}
 
 // The app shell owns the window listener, so these call the handler directly. The
 // shortcut layer reads the live route, so they must still drive the router to the same
@@ -28,8 +43,10 @@ function pressKey(
   taskId?: string,
   init: KeyboardEventInit = {}
 ): void {
-  const base = view === 'graph' ? `/projects/${id}/graph` : `/projects/${id}`;
-  const path = taskId === undefined ? base : `${base}/tasks/${taskId}`;
+  const path =
+    taskId === undefined
+      ? projectHref(id, PROJECT_NAME, view)
+      : taskHref(taskId, titleOf(taskId), view);
   router.navigate(path + board.filterSearch, { replace: true });
   shortcuts.handleKeydown(new KeyboardEvent('keydown', { key, cancelable: true, ...init }));
 }
@@ -61,7 +78,7 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
     users: [],
     project: {
       id: projectId,
-      name: 'Rulebook',
+      name: PROJECT_NAME,
       description: '',
       archived_at: null,
       created_by: me.id,
@@ -109,9 +126,35 @@ function requestedPaths(): string[] {
   });
 }
 
+function mountOnRoute(): ReturnType<typeof mount> {
+  const target = document.createElement('div');
+  document.body.append(target);
+  return mount(ProjectRoute, {
+    target,
+    props: {
+      get projectId() {
+        return router.current.name === 'project' ? router.current.params.projectId : null;
+      },
+      get view() {
+        return router.current.name === 'project' ? router.current.params.view : 'board';
+      },
+      get taskId() {
+        return router.current.name === 'project' ? router.current.params.taskId : undefined;
+      },
+      get filters() {
+        return router.current.name === 'project' ? router.current.params.filters : noFilters();
+      },
+      get from() {
+        return router.current.name === 'project' ? router.current.params.from : undefined;
+      },
+    },
+  });
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  taskRoute.reset();
   drafts.clearAll();
   selection.clear();
   shortcuts.reset();
@@ -126,8 +169,8 @@ afterEach(() => {
 
 describe('Project', () => {
   it('renders the header and the board view by default', async () => {
-    const projectId = 'p-shell-board';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-board');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
     render(Project, { props: { projectId, view: 'board' } });
 
@@ -139,8 +182,8 @@ describe('Project', () => {
   });
 
   it('renders the graph view with the shared header and its filter bar', async () => {
-    const projectId = 'p-shell-graph';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-graph');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 
@@ -151,8 +194,8 @@ describe('Project', () => {
   });
 
   it('fetches project-scoped users on the graph view for the header assignee chips', async () => {
-    const projectId = 'p-shell-graph-users';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-graph-users');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
     render(Project, { props: { projectId, view: 'graph' } });
 
@@ -163,7 +206,7 @@ describe('Project', () => {
   });
 
   it('shows the error shell with retry and fetches exactly once on failure', async () => {
-    const projectId = 'p-shell-error';
+    const projectId = testUuid('p-shell-error');
     let calls = 0;
     fetchMock.mockImplementation(async () => {
       calls += 1;
@@ -182,11 +225,11 @@ describe('Project', () => {
   });
 
   it('opens the task overlay above the graph without leaving the graph view', async () => {
-    const projectId = 'p-shell-graph-task';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-graph-task');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
     const { container } = render(Project, {
-      props: { projectId, view: 'graph', taskId: 't1' },
+      props: { projectId, view: 'graph', taskId: T1 },
     });
 
     expect(await screen.findByLabelText('Task title')).toHaveValue('Design cards');
@@ -195,33 +238,41 @@ describe('Project', () => {
   });
 
   it('closes the overlay back to the graph base with replaceState', async () => {
-    const projectId = 'p-shell-graph-close';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-graph-close');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
+    router.navigate(taskHref(T1, 'Design cards', 'graph'), { replace: true });
 
-    render(Project, { props: { projectId, view: 'graph', taskId: 't1' } });
-
-    await screen.findByLabelText('Task title');
-    const pushState = vi.spyOn(window.history, 'pushState');
-    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(window.location.pathname).toBe(`/projects/${projectId}/graph`);
-    expect(pushState).not.toHaveBeenCalled();
-    pushState.mockRestore();
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      const pushState = vi.spyOn(window.history, 'pushState');
+      await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(window.location.pathname).toBe(projectHref(projectId, PROJECT_NAME, 'graph'));
+      expect(pushState).not.toHaveBeenCalled();
+      pushState.mockRestore();
+    } finally {
+      void unmount(app);
+    }
   });
 
   it('closes the overlay back to the board base from the board view', async () => {
-    const projectId = 'p-shell-board-close';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-board-close');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
+    router.navigate(taskHref(T1, 'Design cards'), { replace: true });
 
-    render(Project, { props: { projectId, view: 'board', taskId: 't1' } });
-
-    await screen.findByLabelText('Task title');
-    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(window.location.pathname).toBe(`/projects/${projectId}`);
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(window.location.pathname).toBe(projectHref(projectId, PROJECT_NAME));
+    } finally {
+      void unmount(app);
+    }
   });
 
   it('scrolls the card created by quick-add into view', async () => {
-    const projectId = 'p-board-scroll';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-board-scroll');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
     const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
 
     render(Project, { props: { projectId, view: 'board' } });
@@ -257,16 +308,16 @@ describe('Project', () => {
       });
     });
 
-    const view = render(Project, { props: { projectId: 'p-draft-a', view: 'board' } });
+    const view = render(Project, { props: { projectId: testUuid('p-draft-a'), view: 'board' } });
     await fireEvent.click(await screen.findByRole('button', { name: '+ Add task' }));
     await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Half typed' } });
 
-    await view.rerender({ projectId: 'p-draft-b', view: 'board' });
+    await view.rerender({ projectId: testUuid('p-draft-b'), view: 'board' });
 
     expect(await screen.findByRole('button', { name: '+ Add task' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument();
 
-    await view.rerender({ projectId: 'p-draft-a', view: 'board' });
+    await view.rerender({ projectId: testUuid('p-draft-a'), view: 'board' });
 
     const restored = await waitFor(() => screen.getByLabelText('Task title'));
     expect(restored).toHaveValue('Half typed');
@@ -275,8 +326,8 @@ describe('Project', () => {
 
   // The dialog itself is the app shell's; the shell route only has to route the key.
   it('routes ? to the shared help state', async () => {
-    const projectId = 'p-shell-board-keys';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-board-keys');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
     render(Project, { props: { projectId, view: 'board' } });
 
@@ -287,8 +338,8 @@ describe('Project', () => {
   });
 
   it('toggles the my-tasks filter with q and clears it with x from the board shell', async () => {
-    const projectId = 'p-shell-board-filter';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-board-filter');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
     users.users = [me];
 
     render(Project, { props: { projectId, view: 'board' } });
@@ -307,8 +358,8 @@ describe('Project', () => {
   });
 
   it('clears an active filter with x from the graph shell', async () => {
-    const projectId = 'p-shell-graph-filter';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-graph-filter');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
     render(Project, { props: { projectId, view: 'graph' } });
     await screen.findByRole('heading', { name: 'Rulebook' });
@@ -324,8 +375,8 @@ describe('Project', () => {
   });
 
   it('leaves the filters alone when x is pressed behind the label manager', async () => {
-    const projectId = 'p-shell-board-modal';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-board-modal');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
     render(Project, { props: { projectId, view: 'board' } });
     await screen.findByRole('heading', { name: 'Rulebook' });
@@ -341,35 +392,32 @@ describe('Project', () => {
   });
 
   it('opens the label menu for the open task from the graph overlay', async () => {
-    const projectId = 'p-shell-graph-keys';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-graph-keys');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
-    render(Project, { props: { projectId, view: 'graph', taskId: 't1' } });
+    render(Project, { props: { projectId, view: 'graph', taskId: T1 } });
 
     await screen.findByLabelText('Task title');
-    pressKey('l', projectId, 'graph', 't1');
+    pressKey('l', projectId, 'graph', T1);
     expect(await screen.findByRole('heading', { level: 2, name: 'Labels' })).toBeInTheDocument();
-    expect(shortcuts.labelMenu).toBe('t1');
+    expect(shortcuts.labelMenu).toBe(T1);
   });
 
   it('opens a focused blocked-by picker for the board selection with b', async () => {
-    const projectId = 'p-shell-board-blockers';
-    mockProjectApi(projectId, [
-      task('t1', 'todo', 'Design cards'),
-      task('t2', 'todo', 'Cut cards'),
-    ]);
+    const projectId = testUuid('p-shell-board-blockers');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards'), task(T2, 'todo', 'Cut cards')]);
 
     render(Project, { props: { projectId, view: 'board' } });
 
     await screen.findByText('Design cards');
-    selection.set('t1');
+    selection.set(T1);
     pressKey('b', projectId, 'board');
 
     const heading = await screen.findByRole('heading', {
       level: 2,
       name: 'Blocked by — Design cards',
     });
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: T1, direction: 'blocker' });
 
     const menu = heading.closest('dialog')!;
     const input = within(menu).getByLabelText<HTMLInputElement>('Search tasks that block this one');
@@ -378,20 +426,20 @@ describe('Project', () => {
     const spy = vi.spyOn(board, 'addBlocker').mockResolvedValue(true);
     await fireEvent.input(input, { target: { value: 'cut' } });
     await fireEvent.keyDown(input, { key: 'Enter' });
-    expect(spy).toHaveBeenCalledWith('t1', 't2');
+    expect(spy).toHaveBeenCalledWith(T1, T2);
   });
 
   it('opens the blocks picker for the open task with Shift+B from the graph overlay', async () => {
-    const projectId = 'p-shell-graph-blocks';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-graph-blocks');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
-    render(Project, { props: { projectId, view: 'graph', taskId: 't1' } });
+    render(Project, { props: { projectId, view: 'graph', taskId: T1 } });
 
     await screen.findByLabelText('Task title');
-    pressKey('B', projectId, 'graph', 't1', { shiftKey: true });
+    pressKey('B', projectId, 'graph', T1, { shiftKey: true });
 
     const heading = await screen.findByRole('heading', { level: 2, name: 'Blocks — Design cards' });
-    expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: T1, direction: 'blocked' });
     // The open task detail renders both pickers with the same aria-labels, so the
     // query has to be scoped to the quick menu's own dialog.
     const menu = heading.closest('dialog')!;
@@ -399,18 +447,18 @@ describe('Project', () => {
   });
 
   it('moves the board selection through the m menu and announces where it landed', async () => {
-    const projectId = 'p-shell-board-move';
+    const projectId = testUuid('p-shell-board-move');
     mockProjectApi(projectId, [
-      task('t1', 'todo', 'Design cards'),
-      task('t2', 'done', 'Cut cards', 1000),
-      task('t3', 'done', 'Print rules', 2000),
+      task(T1, 'todo', 'Design cards'),
+      task(T2, 'done', 'Cut cards', 1000),
+      task(T3, 'done', 'Print rules', 2000),
     ]);
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
 
     render(Project, { props: { projectId, view: 'board' } });
 
     await screen.findByText('Design cards');
-    selection.set('t1');
+    selection.set(T1);
     pressKey('m', projectId, 'board');
 
     const heading = await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' });
@@ -420,7 +468,7 @@ describe('Project', () => {
     await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
     await fireEvent.click(within(menu).getByRole('button', { name: /^Bottom/ }));
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 3000);
+    expect(moveTask).toHaveBeenCalledWith(T1, 'done', 3000);
     expect(shortcuts.moveMenu).toBeNull();
     await waitFor(() => {
       expect(screen.getAllByRole('status').map((region) => region.textContent)).toContain(
@@ -432,25 +480,25 @@ describe('Project', () => {
   // jsdom implements neither showModal nor inertness, so only the presence of the
   // in-overlay region is checkable here; that it is the one spoken is manual.
   it('announces a move made from the graph overlay inside the overlay dialog', async () => {
-    const projectId = 'p-shell-graph-move';
+    const projectId = testUuid('p-shell-graph-move');
     mockProjectApi(projectId, [
-      task('t1', 'todo', 'Design cards'),
-      task('t2', 'done', 'Cut cards', 1000),
-      task('t3', 'done', 'Print rules', 2000),
+      task(T1, 'todo', 'Design cards'),
+      task(T2, 'done', 'Cut cards', 1000),
+      task(T3, 'done', 'Print rules', 2000),
     ]);
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
 
-    render(Project, { props: { projectId, view: 'graph', taskId: 't1' } });
+    render(Project, { props: { projectId, view: 'graph', taskId: T1 } });
 
     await screen.findByLabelText('Task title');
-    pressKey('m', projectId, 'graph', 't1');
+    pressKey('m', projectId, 'graph', T1);
 
     const heading = await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' });
     const menu = heading.closest('dialog')!;
     await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
     await fireEvent.click(within(menu).getByRole('button', { name: /^Top/ }));
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 0);
+    expect(moveTask).toHaveBeenCalledWith(T1, 'done', 0);
     const overlay = screen.getByLabelText('Task title').closest('dialog')!;
     await waitFor(() => {
       expect(
@@ -462,10 +510,10 @@ describe('Project', () => {
   });
 
   it('opens the move menu from the overlay Move… button', async () => {
-    const projectId = 'p-shell-move-button';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-move-button');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
-    render(Project, { props: { projectId, view: 'board', taskId: 't1' } });
+    render(Project, { props: { projectId, view: 'board', taskId: T1 } });
 
     await screen.findByLabelText('Task title');
     await fireEvent.click(screen.getByRole('button', { name: 'Move…' }));
@@ -478,8 +526,8 @@ describe('Project', () => {
   // A live region created in the same flush as its text is not announced, so it has
   // to outlive the loading and error shells rather than sit inside the ready branch.
   it('keeps the live region mounted while the board is still loading', async () => {
-    const projectId = 'p-shell-announcer-mount';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Design cards')]);
+    const projectId = testUuid('p-shell-announcer-mount');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
 
     const { container } = render(Project, { props: { projectId, view: 'board' } });
 
@@ -498,18 +546,18 @@ describe('Project', () => {
       return jsonResponse(
         200,
         payload(id, [
-          task('t1', 'todo', 'Design cards'),
-          task('t2', 'done', 'Cut cards', 1000),
-          task('t3', 'done', 'Print rules', 2000),
+          task(T1, 'todo', 'Design cards'),
+          task(T2, 'done', 'Cut cards', 1000),
+          task(T3, 'done', 'Print rules', 2000),
         ])
       );
     });
     vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
 
-    const projectId = 'p-shell-announcer-clear';
+    const projectId = testUuid('p-shell-announcer-clear');
     const view = render(Project, { props: { projectId, view: 'board' } });
     await screen.findByText('Design cards');
-    selection.set('t1');
+    selection.set(T1);
     pressKey('m', projectId, 'board');
 
     const heading = await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' });
@@ -522,7 +570,7 @@ describe('Project', () => {
       );
     });
 
-    await view.rerender({ projectId: 'p-shell-announcer-next', view: 'board' });
+    await view.rerender({ projectId: testUuid('p-shell-announcer-next'), view: 'board' });
 
     await waitFor(() => {
       expect(liveRegions(view.container)).toEqual(['']);
@@ -532,9 +580,9 @@ describe('Project', () => {
 
 describe('Project filters from the URL', () => {
   it('narrows the board to the filters the URL arrived with', async () => {
-    const projectId = 'p-url-filter-mount';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight'), task('t2', 'todo', 'Credits')]);
-    router.navigate(`/projects/${projectId}?q=boss`, { replace: true });
+    const projectId = testUuid('p-url-filter-mount');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight'), task(T2, 'todo', 'Credits')]);
+    router.navigate(`${projectHref(projectId, PROJECT_NAME)}?q=boss`, { replace: true });
 
     render(Project, {
       props: {
@@ -549,14 +597,14 @@ describe('Project filters from the URL', () => {
     expect(screen.getByLabelText<HTMLInputElement>('Filter tasks by title')).toHaveValue('boss');
     expect(screen.getByRole('link', { name: /Boss fight/ })).toHaveAttribute(
       'href',
-      `/projects/${projectId}/tasks/t1?q=boss`
+      `${taskHref(T1, 'Boss fight')}?q=boss`
     );
   });
 
   it('re-narrows the board when Back lands on an entry with different filters', async () => {
-    const projectId = 'p-url-filter-back';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight'), task('t2', 'todo', 'Credits')]);
-    router.navigate(`/projects/${projectId}?q=boss`, { replace: true });
+    const projectId = testUuid('p-url-filter-back');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight'), task(T2, 'todo', 'Credits')]);
+    router.navigate(`${projectHref(projectId, PROJECT_NAME)}?q=boss`, { replace: true });
 
     const view = render(Project, {
       props: {
@@ -579,27 +627,189 @@ describe('Project filters from the URL', () => {
         'credits'
       );
     });
-    expect(router.path).toBe(`/projects/${projectId}?q=credits`);
+    expect(router.path).toBe(`${projectHref(projectId, PROJECT_NAME)}?q=credits`);
   });
 
   it('closes the task overlay back to the filtered board', async () => {
-    const projectId = 'p-url-filter-close';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}/tasks/t1?q=boss`, { replace: true });
+    const projectId = testUuid('p-url-filter-close');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(`${taskHref(T1, 'Boss fight')}?q=boss`, { replace: true });
 
-    render(Project, {
-      props: {
-        projectId,
-        view: 'board',
-        taskId: 't1',
-        filters: { labelIds: [], assigneeIds: [], query: 'boss' },
-      },
-    });
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
-    await screen.findByLabelText('Task title');
-    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(router.path).toBe(`${projectHref(projectId, PROJECT_NAME)}?q=boss`);
+    } finally {
+      void unmount(app);
+    }
+  });
+});
 
-    expect(router.path).toBe(`/projects/${projectId}?q=boss`);
+describe('canonical URL', () => {
+  it('replaces a wrong slug with the real one and adds no history entry', async () => {
+    const projectId = testUuid('p-canon-slug');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(`/t/${encodeId(T1)}/completely-wrong-slug`, { replace: true });
+
+    const pushState = vi.spyOn(window.history, 'pushState');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      await waitFor(() => {
+        expect(router.path).toBe(taskHref(T1, 'Boss fight'));
+      });
+      // A pushState canonicaliser looks identical on screen and breaks Back.
+      expect(pushState).not.toHaveBeenCalled();
+      expect(replaceState).toHaveBeenCalledTimes(1);
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('adds the missing slug to a slugless link', async () => {
+    const projectId = testUuid('p-canon-bare');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(`/p/${encodeId(projectId)}`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByRole('heading', { name: PROJECT_NAME });
+      await waitFor(() => {
+        expect(router.path).toBe(projectHref(projectId, PROJECT_NAME));
+      });
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('settles after one rewrite when the title slugifies to nothing', async () => {
+    const projectId = testUuid('p-canon-empty');
+    mockProjectApi(projectId, [task(T1, 'todo', '★★★')]);
+    router.navigate(`/t/${encodeId(T1)}`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      await waitFor(() => {
+        expect(router.path).toBe(`/t/${encodeId(T1)}/-`);
+      });
+
+      const replaceState = vi.spyOn(window.history, 'replaceState');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(replaceState).not.toHaveBeenCalled();
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('re-slugs live when a teammate renames the open card', async () => {
+    const projectId = testUuid('p-canon-task-rename');
+    // Mutated in place so the overlay's own refetch agrees with the event rather
+    // than restoring the old title underneath it.
+    const tasks = [task(T1, 'todo', 'Boss fight')];
+    mockProjectApi(projectId, tasks);
+    router.navigate(taskHref(T1, 'Boss fight'), { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+      // The board's revalidation must land first, or its in-flight response
+      // overwrites the event with the title it was built from.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      tasks[0] = task(T1, 'todo', 'Final boss fight');
+      board.applyRealtime({
+        type: 'task_updated',
+        project_id: projectId,
+        data: { ...tasks[0] },
+      } as never);
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(board.tasks.find((t) => t.id === T1)?.title).toBe('Final boss fight');
+      expect(router.path).toBe(taskHref(T1, 'Final boss fight'));
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('re-slugs live when a teammate renames the project', async () => {
+    const projectId = testUuid('p-canon-project-rename');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(projectHref(projectId, PROJECT_NAME), { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByRole('heading', { name: PROJECT_NAME });
+
+      board.applyRealtime({
+        type: 'project_updated',
+        project_id: projectId,
+        data: { name: 'Playbook' },
+      } as never);
+
+      await waitFor(() => {
+        expect(router.path).toBe(projectHref(projectId, 'Playbook'));
+      });
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('leaves the URL alone for a card the board payload does not hold', async () => {
+    const projectId = testUuid('p-canon-archived');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    const archivedPath = `/t/${encodeId(T9)}`;
+    router.navigate(archivedPath, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await waitFor(() => {
+        expect(board.currentProjectId).toBe(projectId);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(router.path).toBe(archivedPath);
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('rewrites only the pathname, leaving the filter query string alone', async () => {
+    const projectId = testUuid('p-canon-filters');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(`/p/${encodeId(projectId)}/stale?q=boss`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByRole('heading', { name: PROJECT_NAME });
+      await waitFor(() => {
+        expect(router.path).toBe(`${projectHref(projectId, PROJECT_NAME)}?q=boss`);
+      });
+      expect(board.filterQuery).toBe('boss');
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('still syncs filter edits to the URL while an overlay is open on a task URL', async () => {
+    const projectId = testUuid('p-canon-overlay-filter');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(taskHref(T1, 'Boss fight'), { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByLabelText('Task title');
+
+      board.setFilterQuery('boss');
+
+      await waitFor(() => {
+        expect(router.path).toBe(`${taskHref(T1, 'Boss fight')}?q=boss`);
+      });
+    } finally {
+      void unmount(app);
+    }
   });
 });
 
@@ -607,35 +817,10 @@ describe('Project filters from the URL', () => {
 // that reads a prop directly depends on the whole route object, which is replaced on
 // every query-string rewrite.
 describe('Project mounted on the live route', () => {
-  function mountOnRoute(): ReturnType<typeof mount> {
-    const target = document.createElement('div');
-    document.body.append(target);
-    return mount(Project, {
-      target,
-      props: {
-        get projectId() {
-          return router.current.name === 'project' ? router.current.params.id : '';
-        },
-        get view() {
-          return router.current.name === 'project' ? router.current.params.view : 'board';
-        },
-        get taskId() {
-          return router.current.name === 'project' ? router.current.params.taskId : undefined;
-        },
-        get filters() {
-          return router.current.name === 'project' ? router.current.params.filters : noFilters();
-        },
-        get from() {
-          return router.current.name === 'project' ? router.current.params.from : undefined;
-        },
-      },
-    });
-  }
-
   it('restores the filters of the history entry Back lands on', async () => {
-    const projectId = 'p-route-back';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}?q=boss`, { replace: true });
+    const projectId = testUuid('p-route-back');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(`${projectHref(projectId, PROJECT_NAME)}?q=boss`, { replace: true });
 
     const app = mountOnRoute();
     try {
@@ -643,7 +828,7 @@ describe('Project mounted on the live route', () => {
         expect(board.filterQuery).toBe('boss');
       });
 
-      window.history.pushState(null, '', `/projects/${projectId}`);
+      window.history.pushState(null, '', projectHref(projectId, PROJECT_NAME));
       window.dispatchEvent(new PopStateEvent('popstate'));
 
       await waitFor(() => {
@@ -657,14 +842,14 @@ describe('Project mounted on the live route', () => {
   // The board's filter rewrite runs on mount and owns the query string, so the return
   // path only survives if that rewrite leaves the keys it does not own alone.
   it('keeps the my-tasks return path through mount and closes back to it', async () => {
-    const projectId = 'p-route-from';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}/tasks/t1?from=my-tasks`, { replace: true });
+    const projectId = testUuid('p-route-from');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(`${taskHref(T1, 'Boss fight')}?from=my-tasks`, { replace: true });
 
     const app = mountOnRoute();
     try {
       await screen.findByLabelText('Task title');
-      expect(router.path).toBe(`/projects/${projectId}/tasks/t1?from=my-tasks`);
+      expect(router.path).toBe(`${taskHref(T1, 'Boss fight')}?from=my-tasks`);
 
       await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
@@ -676,9 +861,9 @@ describe('Project mounted on the live route', () => {
   });
 
   it('keeps the return path alongside a filter the board writes', async () => {
-    const projectId = 'p-route-from-filter';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}/tasks/t1?from=my-tasks`, { replace: true });
+    const projectId = testUuid('p-route-from-filter');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(`${taskHref(T1, 'Boss fight')}?from=my-tasks`, { replace: true });
 
     const app = mountOnRoute();
     try {
@@ -686,7 +871,7 @@ describe('Project mounted on the live route', () => {
 
       board.setFilterQuery('boss');
 
-      expect(router.path).toBe(`/projects/${projectId}/tasks/t1?q=boss&from=my-tasks`);
+      expect(router.path).toBe(`${taskHref(T1, 'Boss fight')}?q=boss&from=my-tasks`);
       await tick();
       expect(router.current.name === 'project' && router.current.params.from).toBe('my-tasks');
     } finally {
@@ -695,10 +880,13 @@ describe('Project mounted on the live route', () => {
   });
 
   it('opens the copy on a real route that keeps the active filter', async () => {
-    const projectId = 'p-route-duplicate-filter';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}/tasks/t1?q=boss`, { replace: true });
-    vi.spyOn(board, 'duplicateTask').mockResolvedValue('t9');
+    const projectId = testUuid('p-route-duplicate-filter');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(`${taskHref(T1, 'Boss fight')}?q=boss`, { replace: true });
+    vi.spyOn(board, 'duplicateTask').mockImplementation(async () => {
+      board.tasks = [...board.tasks, task(T9, 'todo', 'Boss fight')];
+      return T9;
+    });
 
     const app = mountOnRoute();
     try {
@@ -706,9 +894,9 @@ describe('Project mounted on the live route', () => {
       await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
 
       await waitFor(() => {
-        expect(router.path).toBe(`/projects/${projectId}/tasks/t9?q=boss`);
+        expect(router.path).toBe(`${taskHref(T9, 'Boss fight')}?q=boss`);
       });
-      expect(router.current.name === 'project' && router.current.params.taskId).toBe('t9');
+      expect(router.current.name === 'project' && router.current.params.taskId).toBe(T9);
       expect(board.filterQuery).toBe('boss');
     } finally {
       void unmount(app);
@@ -716,10 +904,13 @@ describe('Project mounted on the live route', () => {
   });
 
   it('opens the copy on a real route that keeps the my-tasks return path', async () => {
-    const projectId = 'p-route-duplicate-from';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}/tasks/t1?from=my-tasks`, { replace: true });
-    vi.spyOn(board, 'duplicateTask').mockResolvedValue('t9');
+    const projectId = testUuid('p-route-duplicate-from');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(`${taskHref(T1, 'Boss fight')}?from=my-tasks`, { replace: true });
+    vi.spyOn(board, 'duplicateTask').mockImplementation(async () => {
+      board.tasks = [...board.tasks, task(T9, 'todo', 'Boss fight')];
+      return T9;
+    });
 
     const app = mountOnRoute();
     try {
@@ -727,9 +918,9 @@ describe('Project mounted on the live route', () => {
       await fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }));
 
       await waitFor(() => {
-        expect(router.path).toBe(`/projects/${projectId}/tasks/t9?from=my-tasks`);
+        expect(router.path).toBe(`${taskHref(T9, 'Boss fight')}?from=my-tasks`);
       });
-      expect(router.current.name === 'project' && router.current.params.taskId).toBe('t9');
+      expect(router.current.name === 'project' && router.current.params.taskId).toBe(T9);
 
       await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
       expect(router.path).toBe('/my-tasks');
@@ -739,16 +930,16 @@ describe('Project mounted on the live route', () => {
   });
 
   it('closes a quick menu when the route leaves the task it points at', async () => {
-    const projectId = 'p-route-menu';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}/tasks/t1`, { replace: true });
+    const projectId = testUuid('p-route-menu');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(taskHref(T1, 'Boss fight'), { replace: true });
 
     const app = mountOnRoute();
     try {
       await screen.findByLabelText('Task title');
-      shortcuts.labelMenu = 't1';
+      shortcuts.labelMenu = T1;
 
-      router.navigate(`/projects/${projectId}`);
+      router.navigate(projectHref(projectId, PROJECT_NAME));
 
       await waitFor(() => {
         expect(shortcuts.labelMenu).toBeNull();
@@ -759,29 +950,29 @@ describe('Project mounted on the live route', () => {
   });
 
   it('keeps the board selection through a filter-only rewrite', async () => {
-    const projectId = 'p-route-selection';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}`, { replace: true });
+    const projectId = testUuid('p-route-selection');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(projectHref(projectId, PROJECT_NAME), { replace: true });
 
     const app = mountOnRoute();
     try {
       await screen.findByText('Boss fight');
-      selection.set('t1');
+      selection.set(T1);
 
       board.setFilterQuery('boss');
-      expect(router.path).toBe(`/projects/${projectId}?q=boss`);
+      expect(router.path).toBe(`${projectHref(projectId, PROJECT_NAME)}?q=boss`);
       await tick();
 
-      expect(selection.selectedTaskId).toBe('t1');
+      expect(selection.selectedTaskId).toBe(T1);
     } finally {
       void unmount(app);
     }
   });
 
   it('revalidates the board when the route moves within the project', async () => {
-    const projectId = 'p-route-revalidate';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}`, { replace: true });
+    const projectId = testUuid('p-route-revalidate');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(projectHref(projectId, PROJECT_NAME), { replace: true });
 
     const app = mountOnRoute();
     try {
@@ -790,7 +981,7 @@ describe('Project mounted on the live route', () => {
         (path) => path === `/api/projects/${projectId}`
       ).length;
 
-      router.navigate(`/projects/${projectId}/graph`);
+      router.navigate(projectHref(projectId, PROJECT_NAME, 'graph'));
 
       await waitFor(() => {
         expect(
@@ -803,9 +994,9 @@ describe('Project mounted on the live route', () => {
   });
 
   it('does not refetch the board when only the filters change', async () => {
-    const projectId = 'p-route-refetch';
-    mockProjectApi(projectId, [task('t1', 'todo', 'Boss fight')]);
-    router.navigate(`/projects/${projectId}`, { replace: true });
+    const projectId = testUuid('p-route-refetch');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(projectHref(projectId, PROJECT_NAME), { replace: true });
 
     const app = mountOnRoute();
 
@@ -819,7 +1010,7 @@ describe('Project mounted on the live route', () => {
 
       board.setFilterQuery('boss');
       await waitFor(() => {
-        expect(router.path).toBe(`/projects/${projectId}?q=boss`);
+        expect(router.path).toBe(`${projectHref(projectId, PROJECT_NAME)}?q=boss`);
       });
       await tick();
 
@@ -834,8 +1025,8 @@ describe('Project mounted on the live route', () => {
 
 describe('Project shell for a viewer', () => {
   it('renders both views read-only and drops the task overlay write controls', async () => {
-    const projectId = 'p-viewer-shell';
-    const tasks = [task('t1', 'todo', 'Design cards')];
+    const projectId = testUuid('p-viewer-shell');
+    const tasks = [task(T1, 'todo', 'Design cards')];
     fetchMock.mockImplementation(async (input) => {
       const request = input as Request;
       const url = new URL(request.url);
@@ -857,7 +1048,7 @@ describe('Project shell for a viewer', () => {
       });
     });
 
-    render(Project, { props: { projectId, view: 'board', taskId: 't1' } });
+    render(Project, { props: { projectId, view: 'board', taskId: T1 } });
 
     expect(await screen.findByText('View only')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ Add column' })).toBeNull();

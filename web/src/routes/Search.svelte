@@ -2,6 +2,7 @@
   import { onDestroy, untrack } from 'svelte';
   import { link, router } from '../lib/router.svelte';
   import { SEARCH_MAX_QUERY_LENGTH, searchPath } from '../lib/search-query';
+  import { projectHref, taskHref } from '../lib/short-links';
   import { search } from '../lib/search.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { truncateTitle } from '../lib/titles';
@@ -173,13 +174,15 @@
       {#each search.groups as group (group.projectId)}
         <section class="flex flex-col gap-1">
           <h2 class="text-base font-semibold">
-            <a href="/projects/{group.projectId}" class="hover:text-accent">{group.projectName}</a>
+            <a href={projectHref(group.projectId, group.projectName)} class="hover:text-accent"
+              >{group.projectName}</a
+            >
           </h2>
           <ul class="flex flex-col rounded-lg border border-edge bg-surface">
             {#each group.results as result (result.task_id)}
               <li class="border-b border-edge last:border-b-0">
                 <a
-                  href="/projects/{result.project_id}/tasks/{result.task_id}"
+                  href={taskHref(result.task_id, result.title)}
                   class="flex min-h-11 flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-accent-soft"
                 >
                   <span class="text-ink">{truncateTitle(result.title)}</span>

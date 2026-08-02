@@ -4,6 +4,7 @@
   import { projects } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { link } from '../lib/router.svelte';
+  import { projectHref } from '../lib/short-links';
   import { session } from '../lib/session.svelte';
   import { users } from '../lib/users.svelte';
   import DeleteAccountDialog from '../components/DeleteAccountDialog.svelte';
@@ -319,7 +320,10 @@
       <ul class="flex list-inside list-disc flex-col gap-1 text-sm" use:link>
         {#each blockingProjects as project (project.id)}
           <li>
-            <a href="/projects/{project.id}" class="font-medium text-accent hover:underline">
+            <a
+              href={projectHref(project.id, project.name)}
+              class="font-medium text-accent hover:underline"
+            >
               {project.name}
             </a>
           </li>
