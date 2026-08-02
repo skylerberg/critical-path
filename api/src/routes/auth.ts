@@ -46,7 +46,9 @@ import {
   generatePersonalAccessToken,
 } from '../services/personalAccessTokens';
 import { createSession, deleteSessionByTokenHash, hashBearerToken } from '../services/sessions';
+import { accountExportFilename, buildAccountExport } from '../services/export/account';
 import {
+  accountExportSchema,
   signupRequestSchema,
   loginRequestSchema,
   authResponseSchema,
@@ -1141,6 +1143,63 @@ router.post(
     enqueueVerificationEmail(c, user);
 
     return c.body(null, 204);
+  }
+);
+
+router.get(
+  '/me/export',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Export account data',
+    description:
+      'Download everything held about the calling account that is not board content, as one ' +
+      'JSON file, with Content-Disposition attachment and a fixed filename that carries no ' +
+      'user text. It is free, never gated, and a personal access token may fetch it: every ' +
+      'collection in it is already readable one endpoint at a time, so this adds no reach, ' +
+      'only convenience. format identifies the shape and version is bumped only on a breaking ' +
+      'change to it. account carries the profile plus the notification preferences; sessions ' +
+      'lists every session row including ones already past expires_at, which the session ' +
+      'listing hides because they authenticate nothing; personal_access_tokens and feedback ' +
+      'are the metadata and the prose the account submitted; projects names each board the ' +
+      'account created or is a member of, with role owner for one it created and joined_at ' +
+      'taken from the membership, or from the board itself for one it created. Board content ' +
+      'is deliberately absent — cards, labels, assignments and images belong to a project and ' +
+      'come out of GET /api/projects/{id}/export, which every member of a board can call. ' +
+      'Comments and activity come out of no route at all yet; when they do it will be that ' +
+      'one, where a comment arrives attached to its card. ' +
+      'Nothing here names another person, and no credential material is included: no password ' +
+      'hash, no session or token hash, and no invitation record, since an invitation carries a ' +
+      "token hash and an invitee's address. avatar_url is a server-relative path that stops " +
+      'resolving once the account is gone; fetch the bytes before deleting the account.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Account export manifest',
+        content: {
+          'application/json': {
+            schema: resolver(accountExportSchema),
+          },
+        },
+      },
+      ...unauthorizedErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  async (c) => {
+    // One reading, so the manifest timestamp and the filename date agree.
+    const now = new Date();
+
+    // One snapshot: under read committed a revoke landing between two of these
+    // reads produces a file that contradicts itself and cannot be corrected.
+    const payload = await c
+      .get('db')
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .execute((trx) => buildAccountExport(trx, c.get('user').id, now));
+
+    c.header('Content-Disposition', `attachment; filename="${accountExportFilename(now)}"`);
+    return c.json(payload, 200);
   }
 );
 
