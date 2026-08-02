@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
+import { getPublicBoard } from '../../../src/services/boardPayload';
 import { newId } from '../../helpers/fixtures';
 import {
   BoardColumnPayload,
@@ -154,6 +155,32 @@ describe('GET /api/public/projects/:id/board', () => {
     const publicRes = await ctx.request().get(`/api/public/projects/${board.project.id}/board`);
     expect(publicRes.status).toBe(404);
     expect(await publicRes.json()).toEqual({ error: 'This board is not public' });
+  });
+
+  // The 404 above passes whichever order the flag and the payload are read in, so
+  // this watches which tables are touched instead. Anonymous callers must not be
+  // able to spend a board query on a project they are refused.
+  it('reads nothing but the flag when the board is private', async () => {
+    const board = await createProject('Never assembled');
+    await insertTask({ projectId: board.project.id, columnId: board.columns[0]!.id });
+
+    const tables: string[] = [];
+    const recording = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === 'selectFrom') {
+          return (table: Parameters<typeof db.selectFrom>[0]) => {
+            tables.push(String(table));
+            return target.selectFrom(table);
+          };
+        }
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    }) as typeof db;
+
+    await expect(getPublicBoard(recording, board.project.id)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    expect(tables).toEqual(['project']);
   });
 
   it('serves the board to an anonymous caller once published, and stops on unpublish', async () => {
