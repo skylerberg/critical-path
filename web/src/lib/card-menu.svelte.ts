@@ -15,6 +15,11 @@ function cardElement(taskId: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(taskId)}"]`);
 }
 
+/** The drag wrapper, not the card body, is what holds a card's focus. */
+export function focusCard(taskId: string): void {
+  cardElement(taskId)?.focus({ preventScroll: true });
+}
+
 /**
  * The drag library offers no way to abort a pointer drag: the window touchend it
  * listens for is the only path into its teardown, and its handler reads nothing
@@ -46,8 +51,12 @@ function swallowNextClick(): void {
   const stop = (): void => {
     clearTimeout(timer);
     document.removeEventListener('click', swallow, true);
+    document.removeEventListener('pointerdown', stop, true);
   };
   document.addEventListener('click', swallow, true);
+  // A fresh gesture proves the press's own click never came — the drag teardown
+  // detaches the node it would have landed on — so it must not eat that one.
+  document.addEventListener('pointerdown', stop, true);
 }
 
 class CardMenuController {
@@ -55,6 +64,9 @@ class CardMenuController {
   x = $state(0);
   y = $state(0);
   renamingTaskId = $state<string | null>(null);
+  // A press arms a drag well before it becomes a menu, so the board needs to know
+  // that the drag it is watching is one nobody asked to move anything with.
+  pressPending = $state(false);
 
   #timer: ReturnType<typeof setTimeout> | undefined;
   #press: Press | null = null;
@@ -77,7 +89,7 @@ class CardMenuController {
     }
     this.taskId = null;
     if (restoreFocus) {
-      cardElement(taskId)?.focus({ preventScroll: true });
+      focusCard(taskId);
     }
   }
 
@@ -108,6 +120,7 @@ class CardMenuController {
     }
     this.cancelPress();
     this.#press = { taskId, x: event.clientX, y: event.clientY };
+    this.pressPending = true;
     document.addEventListener('pointermove', this.#track, true);
     document.addEventListener('pointerup', this.#endPress, true);
     document.addEventListener('pointercancel', this.#endPress, true);
@@ -118,6 +131,7 @@ class CardMenuController {
     clearTimeout(this.#timer);
     this.#timer = undefined;
     this.#press = null;
+    this.pressPending = false;
     document.removeEventListener('pointermove', this.#track, true);
     document.removeEventListener('pointerup', this.#endPress, true);
     document.removeEventListener('pointercancel', this.#endPress, true);

@@ -41,6 +41,7 @@
   let columnDragging = $state(false);
   let taskDragging = $state(false);
   let dragOrigin: { columnId: string; index: number } | null = null;
+  let columnDragOrigin: number | null = null;
 
   const columnKey = $derived(draftKey.addColumn(projectId));
   const newColumnName = $derived(drafts.get(columnKey));
@@ -109,6 +110,12 @@
       return;
     }
     centeringTarget = null; // a new drag cancels any pending drop-center
+    // A long press arms this drag before it opens the card menu, and the menu is
+    // anchored to the finger: a press held near a column edge must not drift the
+    // board while it waits, nor once the menu is sitting on top of it.
+    if (cardMenu.pressPending || cardMenu.taskId !== null) {
+      return;
+    }
     let pointerX: number | null = null;
     const onMove = (event: Event) => {
       const x =
@@ -272,6 +279,9 @@
   // Keyboard drags end with a consider event (trigger DRAG_STOPPED), not a
   // finalize, so the dragging flags must reset here too.
   function handleColumnConsider(event: CustomEvent<DndEvent<BoardColumn>>): void {
+    if (event.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
+      columnDragOrigin = localColumns.findIndex((column) => column.id === event.detail.info.id);
+    }
     columnDragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
     localColumns = event.detail.items;
   }
@@ -284,6 +294,13 @@
     // shortcuts and realtime updates fire mid-drag.
     columnDragging = event.detail.info.source === SOURCES.KEYBOARD;
     if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
+      const origin = columnDragOrigin;
+      columnDragOrigin = null;
+      // Same as a card put back where it was, except a wasted column write also
+      // fans a realtime update out to everyone else looking at the project.
+      if (origin === items.findIndex((column) => column.id === event.detail.info.id)) {
+        return;
+      }
       if (event.detail.info.source === SOURCES.POINTER) {
         centeringTarget = event.detail.info.id;
       }
@@ -312,19 +329,20 @@
       taskDragging = event.detail.info.source === SOURCES.KEYBOARD;
     }
     if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
-      if (event.detail.info.source === SOURCES.POINTER) {
-        centeringTarget = columnId;
-      }
       const origin = dragOrigin;
       dragOrigin = null;
       // A card put back exactly where it was is not a move: writing one would
       // renumber it and log it for nothing, and a long press opening the card menu
-      // has to unwind its drag through this path.
+      // has to unwind its drag through this path — which must not then slide the
+      // board under the menu it just anchored to the finger.
       if (
         origin?.columnId === columnId &&
         origin.index === items.findIndex((task) => task.id === event.detail.info.id)
       ) {
         return;
+      }
+      if (event.detail.info.source === SOURCES.POINTER) {
+        centeringTarget = columnId;
       }
       void board.moveTask(
         event.detail.info.id,

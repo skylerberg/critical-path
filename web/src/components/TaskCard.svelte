@@ -3,7 +3,7 @@
   import { isDirectPointerEvent, isTextEntry, suppressTouchContextMenu } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import type { BoardLabel, BoardTask } from '../lib/board-types';
-  import { cardMenu } from '../lib/card-menu.svelte';
+  import { cardMenu, focusCard } from '../lib/card-menu.svelte';
   import { boardPath, link } from '../lib/router.svelte';
   import { selection } from '../lib/selection.svelte';
   import { isCalendarDate } from '../lib/dates';
@@ -167,11 +167,16 @@
       autocapitalize="sentences"
       onblur={commitRename}
       onkeydown={(event) => {
+        // Unmounting the focused textarea drops focus to the body, so the two keys
+        // that end the edit hand it back. A blur has already sent focus somewhere
+        // the user chose, so it is left alone.
         if (event.key === 'Enter') {
           event.preventDefault();
           event.currentTarget.blur();
+          focusCard(task.id);
         } else if (event.key === 'Escape') {
           cardMenu.endRename();
+          focusCard(task.id);
         }
       }}
       class="relative z-10 block w-full resize-none rounded-md border border-accent bg-canvas p-1 text-sm font-medium outline-none"

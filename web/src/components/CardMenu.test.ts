@@ -1,5 +1,5 @@
 import { fetchMock } from '../api/testUtils';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import CardMenu from './CardMenu.svelte';
 import { board } from '../lib/board.svelte';
@@ -34,6 +34,23 @@ function task(id: string, columnId: string): BoardTask {
 function open(canEdit = true) {
   cardMenu.open('t1', 40, 60);
   return render(CardMenu, { projectId: 'p1', canEdit });
+}
+
+// The focusable wrapper the board draws around every card, which is what the menu
+// hands focus back to.
+function cardWrapper(): HTMLElement {
+  const element = document.createElement('div');
+  element.tabIndex = 0;
+  element.dataset.taskId = 't1';
+  document.body.append(element);
+  onTestFinished(() => element.remove());
+  return element;
+}
+
+// A row the app deliberately leaves to the browser is one jsdom tries to follow
+// for real. Bubble phase, so the router still sees the click untouched.
+function swallowTheNavigation(): void {
+  document.addEventListener('click', (event) => event.preventDefault(), { once: true });
 }
 
 function itemLabels(): string[] {
@@ -275,17 +292,71 @@ describe('CardMenu', () => {
     });
 
     it('closes on Escape and puts focus back on the card', async () => {
-      const card = document.createElement('div');
-      card.tabIndex = 0;
-      card.dataset.taskId = 't1';
-      document.body.append(card);
+      const card = cardWrapper();
       open();
 
       await fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
 
       expect(cardMenu.taskId).toBeNull();
       expect(document.activeElement).toBe(card);
-      card.remove();
+    });
+
+    // An anchor has no Space activation of its own, and for a viewer two of the
+    // three rows there are anchors.
+    it('activates the focused row on Space', async () => {
+      open();
+      const link = screen.getByRole('menuitem', { name: 'Open' });
+      link.focus();
+
+      await fireEvent.keyDown(link, { key: ' ' });
+
+      expect(router.path).toBe('/projects/p1/tasks/t1');
+      expect(cardMenu.taskId).toBeNull();
+    });
+
+    it('activates a button row on Space too', async () => {
+      open();
+      const rename = screen.getByRole('menuitem', { name: 'Edit title' });
+      rename.focus();
+
+      await fireEvent.keyDown(rename, { key: ' ' });
+
+      expect(cardMenu.renamingTaskId).toBe('t1');
+    });
+
+    // aria-keyshortcuts promises the key activates the row, not merely that the
+    // key exists somewhere else in the app.
+    it('runs the row whose advertised key was pressed', async () => {
+      open();
+      const menu = screen.getByRole('menu');
+
+      await fireEvent.keyDown(menu, { key: 'B', shiftKey: true });
+
+      expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocked' });
+      expect(cardMenu.taskId).toBeNull();
+    });
+
+    it('tells a shifted advertised key from its unshifted one', async () => {
+      open();
+
+      await fireEvent.keyDown(screen.getByRole('menu'), { key: 'b' });
+
+      expect(shortcuts.dependencyMenu).toEqual({ taskId: 't1', direction: 'blocker' });
+    });
+
+    // Enter belongs to whichever row has focus, so the row that advertises it
+    // must not take it from the rest.
+    it('leaves Enter to the focused row', async () => {
+      open();
+      screen.getByRole('menuitem', { name: 'Archive' }).focus();
+
+      const event = await fireEvent.keyDown(screen.getByRole('menu'), {
+        key: 'Enter',
+        cancelable: true,
+      });
+
+      expect(event).toBe(true);
+      expect(router.path).toBe('/projects/p1');
     });
 
     // Closing without swallowing the key is what keeps focus out of a trap.
@@ -321,10 +392,86 @@ describe('CardMenu', () => {
     expect(cardMenu.taskId).toBeNull();
   });
 
-  it('anchors to the pointer, kept clear of the viewport edges', () => {
+  it('anchors to the pointer', () => {
     cardMenu.open('t1', 40, 60);
     render(CardMenu, { projectId: 'p1', canEdit: true });
 
     expect(screen.getByRole('menu')).toHaveStyle({ left: '40px', top: '60px' });
+  });
+
+  // jsdom lays nothing out, so the menu has to be given a size for the clamp to
+  // have anything to work against.
+  it('keeps a menu opened at the edge of the viewport on screen', () => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, 0, 256, 400)
+    );
+
+    cardMenu.open('t1', 1000, 700);
+    const { unmount } = render(CardMenu, { projectId: 'p1', canEdit: true });
+    // 1024x768 less the menu and an 8px margin.
+    expect(screen.getByRole('menu')).toHaveStyle({ left: '760px', top: '360px' });
+    unmount();
+
+    cardMenu.open('t1', 2, 1);
+    render(CardMenu, { projectId: 'p1', canEdit: true });
+    expect(screen.getByRole('menu')).toHaveStyle({ left: '8px', top: '8px' });
+  });
+
+  describe('leaving the menu', () => {
+    it('puts focus back on the card when the row leaves the user on the board', async () => {
+      const card = cardWrapper();
+      open();
+
+      await fireEvent.click(screen.getByRole('menuitem', { name: /Labels/ }));
+
+      expect(document.activeElement).toBe(card);
+    });
+
+    it('leaves focus alone when the row navigates to the card', async () => {
+      const card = cardWrapper();
+      open();
+
+      await fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }));
+
+      expect(router.path).toBe('/projects/p1/tasks/t1');
+      expect(document.activeElement).not.toBe(card);
+    });
+
+    // A modifier-click loads the card in a tab the user is not looking at, so
+    // they are still on the board and still need somewhere to be.
+    it('puts focus back on the card when a modifier-click opens the link elsewhere', async () => {
+      const card = cardWrapper();
+      open();
+      swallowTheNavigation();
+
+      await fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }), { metaKey: true });
+
+      expect(router.path).toBe('/projects/p1');
+      expect(cardMenu.taskId).toBeNull();
+      expect(document.activeElement).toBe(card);
+    });
+
+    it('puts focus back on the card when a new tab is asked for', async () => {
+      const card = cardWrapper();
+      open();
+      swallowTheNavigation();
+
+      await fireEvent.click(screen.getByRole('menuitem', { name: 'Open in new tab' }));
+
+      expect(document.activeElement).toBe(card);
+    });
+
+    // The middle button fires auxclick, never click, so nothing else here would
+    // take the menu off the board it is floating over.
+    it('closes when a middle-click sends the card to a background tab', async () => {
+      open();
+
+      await fireEvent(
+        screen.getByRole('menuitem', { name: 'Open' }),
+        new MouseEvent('auxclick', { bubbles: true, button: 1 })
+      );
+
+      expect(cardMenu.taskId).toBeNull();
+    });
   });
 });

@@ -133,11 +133,28 @@
 
   // Run before close: closing empties the menu's view of the card, and an action
   // that reads it would find nothing there.
-  function activate(item: Item): void {
+  function activate(item: Item, event: MouseEvent): void {
     item.run?.();
-    // Following the card's own link takes the card away with it; everything else
-    // leaves the user where they were, so focus belongs back on the card.
-    cardMenu.close({ restoreFocus: item.href === undefined || item.newTab === true });
+    // Only a plain click on the card's own link takes the card away with it. A
+    // modifier-click loads it in a tab the user is not looking at, so like every
+    // other row it leaves them here, and focus belongs back on the card.
+    const leaves =
+      item.href !== undefined &&
+      item.newTab !== true &&
+      !(event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
+    cardMenu.close({ restoreFocus: !leaves });
+  }
+
+  // Enter is left out: it activates whichever row has focus, which is the menu's
+  // own contract and would otherwise be stolen by the row that advertises it.
+  function rowForKey(event: KeyboardEvent): number {
+    if (event.key === 'Enter' || event.metaKey || event.ctrlKey || event.altKey) {
+      return -1;
+    }
+    const pressed = event.shiftKey ? `Shift+${event.key.toUpperCase()}` : event.key;
+    return [...editItems, ...linkItems].findIndex((item) =>
+      CARD_ACTION_KEYS[item.id].includes(pressed)
+    );
   }
 
   function onkeydown(event: KeyboardEvent): void {
@@ -147,6 +164,7 @@
       cardMenu.close({ restoreFocus: true });
       return;
     }
+    const rows = menuItems();
     switch (event.key) {
       case 'ArrowDown':
         moveFocus(1);
@@ -163,8 +181,21 @@
       case 'Escape':
         cardMenu.close({ restoreFocus: true });
         break;
-      default:
-        return;
+      // Anchors have no Space activation of their own, and cancelling the key is
+      // what keeps a button from firing a second time on keyup. Clicking rather
+      // than calling the action: a link row does its work through its anchor.
+      case ' ':
+        rows.find((row) => row === document.activeElement)?.click();
+        break;
+      default: {
+        // The keys every row advertises have to work while the row is on screen,
+        // or the promise aria-keyshortcuts makes is one the menu does not keep.
+        const index = rowForKey(event);
+        if (index === -1) {
+          return;
+        }
+        rows[index]?.click();
+      }
     }
     event.preventDefault();
     event.stopPropagation();
@@ -226,7 +257,7 @@
         tabindex="-1"
         aria-keyshortcuts={keyShortcuts(item)}
         class={itemClass}
-        onclick={() => activate(item)}
+        onclick={(event) => activate(item, event)}
       >
         {@render row(item)}
       </button>
@@ -242,7 +273,7 @@
           tabindex="-1"
           aria-keyshortcuts={keyShortcuts(item)}
           class={itemClass}
-          onclick={() => activate(item)}
+          onclick={(event) => activate(item, event)}
         >
           {@render row(item)}
         </button>
@@ -258,7 +289,14 @@
           target={item.newTab === true ? '_blank' : undefined}
           rel={item.newTab === true ? 'noopener' : undefined}
           class={itemClass}
-          onclick={() => activate(item)}
+          onclick={(event) => activate(item, event)}
+          onauxclick={(event) => {
+            // The middle button opens the tab natively and dispatches no click, so
+            // nothing else here would take the menu off the board it is floating over.
+            if (event.button === 1) {
+              cardMenu.close({ restoreFocus: true });
+            }
+          }}
         >
           {@render row(item)}
         </a>

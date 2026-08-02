@@ -179,6 +179,23 @@ describe('long press', () => {
     expect(activated).toHaveBeenCalled();
   });
 
+  // The drag teardown detaches the pressed card before the finger lifts, so the
+  // click this was armed for usually never arrives — and the next tap must not
+  // be the one it eats instead.
+  it('stops swallowing clicks once another gesture starts', () => {
+    const card = document.createElement('a');
+    document.body.append(card);
+    const followed = vi.fn();
+    card.addEventListener('click', followed);
+
+    cardMenu.pressStart(press(), 't1');
+    vi.advanceTimersByTime(LONG_PRESS_MS);
+    document.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch' }));
+    card.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(followed).toHaveBeenCalled();
+  });
+
   it('stops swallowing clicks once the press is well behind us', () => {
     const card = document.createElement('a');
     document.body.append(card);

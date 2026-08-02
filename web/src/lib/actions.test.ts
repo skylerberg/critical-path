@@ -54,6 +54,24 @@ describe('suppressTouchContextMenu', () => {
     expect(contextMenu(label, 'touch')).toBe(true);
   });
 
+  // A long press inside text being edited is asking for Select and Paste, which
+  // nothing here has a better answer for.
+  it('leaves text entry inside a guarded element to the platform', () => {
+    const guarded = anchor();
+
+    for (const tag of ['input', 'textarea'] as const) {
+      const field = document.createElement(tag);
+      guarded.append(field);
+      expect(contextMenu(field, 'touch')).toBe(false);
+    }
+
+    const editable = document.createElement('div');
+    // jsdom leaves isContentEditable hardcoded to false.
+    Object.defineProperty(editable, 'isContentEditable', { value: true });
+    guarded.append(editable);
+    expect(contextMenu(editable, 'touch')).toBe(false);
+  });
+
   // The drag preview under the finger is a listener-less clone of the card.
   it('cancels the menu on a detached clone of a guarded element', () => {
     const clone = anchor().cloneNode(true);
