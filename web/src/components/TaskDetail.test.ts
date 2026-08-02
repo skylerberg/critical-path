@@ -135,6 +135,7 @@ beforeEach(() => {
     member_ids: [],
     members: [],
     is_public: false,
+    color: null,
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [
@@ -947,6 +948,7 @@ describe('TaskDetail', () => {
         member_ids: ['u2'],
         members: [{ user_id: 'u2', role: 'editor' as const }],
         is_public: false,
+        color: null,
         archived_at: null,
         created_at: '2026-01-01T00:00:00Z',
         open_task_count: 0,

@@ -67,6 +67,7 @@ function project(overrides: Partial<Project> = {}): Project {
     member_ids: memberIds,
     members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
+    color: null,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -132,6 +133,44 @@ describe('Nav sidebar', () => {
     expect(team).toHaveAttribute('aria-current', 'page');
 
     expect(screen.queryByRole('link', { name: 'Archived' })).toBeNull();
+  });
+
+  it('dots a coloured board and leaves an uncoloured one bare', () => {
+    projects.projects = [
+      project({ id: SOLO_ID, name: 'Solo Game', color: 'rose' }),
+      project({ id: TEAM_ID, name: 'Team Game', created_at: '2026-01-02T00:00:00.000Z' }),
+    ];
+
+    render(Nav);
+
+    const solo = screen.getByRole('link', { name: 'Solo Game' });
+    const dot = solo.querySelector('span[aria-hidden="true"]');
+    expect(dot).toHaveStyle({ backgroundColor: 'var(--cp-project-rose)' });
+    expect(dot).toHaveClass('shrink-0');
+    expect(
+      screen.getByRole('link', { name: 'Team Game' }).querySelector('span[aria-hidden="true"]')
+    ).toBeNull();
+  });
+
+  // Worst case for the placeholder: an item carrying nothing but an id, which is
+  // what an indexed palette lookup dies on — and the death lands mid-drag.
+  it('survives a drag placeholder that carries no colour at all', async () => {
+    projects.projects = [
+      project({ id: A_ID, name: 'A', position: 1000, color: 'sky' }),
+      project({ id: B_ID, name: 'B', position: 2000 }),
+    ];
+
+    render(Nav);
+    const linkA = await screen.findByRole('link', { name: 'A' });
+    const zone = linkA.parentElement!.parentElement!;
+    const detail = {
+      items: [{ id: SHADOW_PLACEHOLDER_ITEM_ID } as Project, projects.active[1]!],
+      info: { trigger: TRIGGERS.DRAG_STARTED, id: A_ID, source: SOURCES.POINTER },
+    };
+    await fireEvent(zone, new CustomEvent('consider', { detail }));
+
+    expect(sidebarRowNames()).toEqual(['', 'B']);
+    expect(sidebarProjectNames()).toEqual(['B']);
   });
 
   it('renders sidebar projects in position order with nulls last', async () => {

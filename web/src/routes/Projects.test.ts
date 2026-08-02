@@ -30,6 +30,7 @@ function project(overrides: Partial<Project> = {}): Project {
     member_ids: memberIds,
     members: memberIds.map((user_id) => ({ user_id, role: 'editor' as const })),
     is_public: false,
+    color: null,
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
@@ -279,6 +280,46 @@ describe('Projects', () => {
     expect(body.name).toBe('Alpha copy');
   });
 
+  it('rails a coloured card and leaves an uncoloured one bare', async () => {
+    const coloured = project({ id: testUuid('p-hue'), name: 'Hued', color: 'fuchsia' });
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { projects: [activeProject, coloured] })
+    );
+    render(Projects);
+
+    const railed = (await screen.findByRole('link', { name: 'Hued' })).closest('article')!;
+    expect(railed).toHaveStyle({ boxShadow: 'inset 4px 0 0 var(--cp-project-fuchsia)' });
+    expect(
+      screen.getByRole('link', { name: 'Alpha' }).closest('article')!.getAttribute('style')
+    ).toBeNull();
+  });
+
+  it('sets a colour from the card menu and rails the card without a refetch', async () => {
+    mockApi((request) =>
+      request.method === 'PATCH'
+        ? jsonResponse(200, { ...activeProject, color: 'lime' })
+        : jsonResponse(200, { projects: [activeProject] })
+    );
+    render(Projects);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for Alpha' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Board colour' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Lime' }));
+
+    const patch = await waitFor(() => {
+      const call = fetchMock.mock.calls.find((c) => (c[0] as Request).method === 'PATCH');
+      expect(call).toBeDefined();
+      return call![0] as Request;
+    });
+    expect(new URL(patch.url).pathname).toBe(`/api/projects/${ACTIVE_ID}`);
+    expect(await patch.clone().json()).toEqual({ color: 'lime' });
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'Alpha' }).closest('article')).toHaveStyle({
+        boxShadow: 'inset 4px 0 0 var(--cp-project-lime)',
+      })
+    );
+  });
+
   it('opens the delete confirmation from the card menu of a board you own', async () => {
     fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [activeProject] }));
     render(Projects);
@@ -304,7 +345,7 @@ describe('Projects', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Ada Game' }));
 
     expect(screen.queryByRole('menuitem', { name: 'Delete' })).toBeNull();
-    for (const name of ['Rename', 'Copy', 'Share', 'Archive']) {
+    for (const name of ['Rename', 'Board colour', 'Copy', 'Share', 'Archive']) {
       expect(screen.getByRole('menuitem', { name })).toBeInTheDocument();
     }
   });
@@ -429,7 +470,7 @@ describe('Projects card menu for a viewer', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Ada Game' }));
 
-    for (const name of ['Rename', 'Archive', 'Delete']) {
+    for (const name of ['Rename', 'Board colour', 'Archive', 'Delete']) {
       expect(screen.queryByRole('menuitem', { name })).toBeNull();
     }
     for (const name of ['Copy', 'Share']) {

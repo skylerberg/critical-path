@@ -1,5 +1,6 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
+import type { ProjectAccent } from './accents';
 import { newId } from './ids';
 import { invitations } from './invitations.svelte';
 import { reorderPositionUpdates } from './positions';
@@ -102,6 +103,10 @@ class ProjectsStore {
 
   async setPublic(id: string, isPublic: boolean): Promise<void> {
     await this.#patch(id, { is_public: isPublic }, 'Failed to update sharing');
+  }
+
+  async setColor(id: string, color: ProjectAccent | null): Promise<void> {
+    await this.#patch(id, { color }, 'Failed to update board colour');
   }
 
   async remove(id: string): Promise<void> {
@@ -314,6 +319,7 @@ class ProjectsStore {
         member_ids: [],
         members: [],
         is_public: false,
+        color: null,
         created_at: new Date().toISOString(),
         open_task_count: 0,
         done_task_count: 0,
@@ -336,6 +342,7 @@ class ProjectsStore {
       member_ids: [],
       members: [],
       is_public: false,
+      color: null,
       created_at: new Date().toISOString(),
       open_task_count: 0,
       done_task_count: 0,
@@ -358,6 +365,11 @@ class ProjectsStore {
       const row = assertOk(
         await api.PATCH('/api/projects/{id}', { params: { path: { id } }, body })
       );
+      // An API older than a field in the body drops it and still answers 200, so
+      // the echo is the only thing telling "applied" apart from "ignored".
+      if (Object.keys(body).some((key) => !(key in row))) {
+        throw new Error('The server did not apply the change');
+      }
       this.#update(id, (p) => ({ ...p, ...row }));
     } catch (error) {
       await this.#mutationFailed(error, failMessage);
