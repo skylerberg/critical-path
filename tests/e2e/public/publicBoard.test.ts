@@ -37,9 +37,18 @@ interface PublicBoardBody {
     blocker_ids: string[];
     image_count: number;
     cover_image_url: string | null;
+    comment_count: number;
   }>;
   labels: Array<{ id: string; name: string; color: string }>;
   users: Array<{ id: string; name: string; avatar_url: string | null }>;
+  comments: Array<{
+    id: string;
+    task_id: string;
+    user_id: string;
+    body: unknown;
+    created_at: string;
+    updated_at: string;
+  }>;
 }
 
 describe('GET /api/public/projects/:id/board', () => {
@@ -74,12 +83,26 @@ describe('GET /api/public/projects/:id/board', () => {
     return ctx.request(owner.token).patch(`/api/projects/${projectId}`, { is_public: isPublic });
   }
 
+  async function postComment(user: TestUser, taskId: string, text: string): Promise<string> {
+    const id = newId();
+    const res = await ctx.request(user.token).post('/api/comments', {
+      id,
+      task_id: taskId,
+      body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] },
+    });
+    expect(res.status).toBe(201);
+    return id;
+  }
+
   async function seedBoard(board: BoardPayloadBody): Promise<{
     imageId: string;
     labelId: string;
     unusedLabelId: string;
     blockerTaskId: string;
     mainTaskId: string;
+    ownerCommentId: string;
+    assigneeCommentId: string;
+    blockerCommentId: string;
   }> {
     const projectId = board.project.id;
     const backlog = board.columns.find((column) => column.name === 'Backlog')!;
@@ -134,7 +157,22 @@ describe('GET /api/public/projects/:id/board', () => {
       .values({ blocker_task_id: blockerTaskId, blocked_task_id: mainTaskId })
       .execute();
 
-    return { imageId, labelId, unusedLabelId, blockerTaskId, mainTaskId };
+    // The owner is assigned nothing, so a comment is the only thing that can
+    // name him on the published board.
+    const ownerCommentId = await postComment(owner, mainTaskId, 'Shipping this week');
+    const assigneeCommentId = await postComment(assignee, mainTaskId, 'On it');
+    const blockerCommentId = await postComment(assignee, blockerTaskId, 'Blocked on review');
+
+    return {
+      imageId,
+      labelId,
+      unusedLabelId,
+      blockerTaskId,
+      mainTaskId,
+      ownerCommentId,
+      assigneeCommentId,
+      blockerCommentId,
+    };
   }
 
   it('defaults to private and 404s the public board', async () => {
@@ -157,15 +195,8 @@ describe('GET /api/public/projects/:id/board', () => {
     expect(await publicRes.json()).toEqual({ error: 'This board is not public' });
   });
 
-  // The 404 above passes whichever order the flag and the payload are read in, so
-  // this watches which tables are touched instead. Anonymous callers must not be
-  // able to spend a board query on a project they are refused.
-  it('reads nothing but the flag when the board is private', async () => {
-    const board = await createProject('Never assembled');
-    await insertTask({ projectId: board.project.id, columnId: board.columns[0]!.id });
-
-    const tables: string[] = [];
-    const recording = new Proxy(db, {
+  function recordTables(tables: string[]): typeof db {
+    return new Proxy(db, {
       get(target, prop, receiver) {
         if (prop === 'selectFrom') {
           return (table: Parameters<typeof db.selectFrom>[0]) => {
@@ -176,11 +207,40 @@ describe('GET /api/public/projects/:id/board', () => {
         return Reflect.get(target, prop, receiver) as unknown;
       },
     }) as typeof db;
+  }
 
-    await expect(getPublicBoard(recording, board.project.id)).rejects.toMatchObject({
+  // The 404 above passes whichever order the flag and the payload are read in, so
+  // this watches which tables are touched instead. Anonymous callers must not be
+  // able to spend a board query on a project they are refused.
+  it('reads nothing but the flag when the board is private', async () => {
+    const board = await createProject('Never assembled');
+    const taskId = await insertTask({
+      projectId: board.project.id,
+      columnId: board.columns[0]!.id,
+    });
+    await postComment(owner, taskId, 'Not for strangers');
+
+    const tables: string[] = [];
+    await expect(getPublicBoard(recordTables(tables), board.project.id)).rejects.toMatchObject({
       statusCode: 404,
     });
     expect(tables).toEqual(['project']);
+  });
+
+  it('reads the flag before it reads a single comment', async () => {
+    const board = await createProject('Gate first');
+    const projectId = board.project.id;
+    await seedBoard(board);
+    expect((await publish(projectId, true)).status).toBe(200);
+
+    const tables: string[] = [];
+    await getPublicBoard(recordTables(tables), projectId);
+
+    expect(tables[0]).toBe('project');
+    expect(tables).toContain('task_comment');
+    expect(tables.indexOf('task_comment')).toBeGreaterThan(0);
+    // One read for the whole board, however many cards carry comments.
+    expect(tables.filter((table) => table === 'task_comment')).toHaveLength(1);
   });
 
   it('serves the board to an anonymous caller once published, and stops on unpublish', async () => {
@@ -210,9 +270,25 @@ describe('GET /api/public/projects/:id/board', () => {
       blocker_ids: [seeded.blockerTaskId],
       image_count: 0,
       cover_image_url: null,
+      comment_count: 2,
     });
     const blocker = payload.tasks.find((task) => task.id === seeded.blockerTaskId)!;
     expect(blocker.cover_image_url).toBe(`/api/images/${seeded.imageId}`);
+    expect(blocker.comment_count).toBe(1);
+
+    expect(payload.comments.map((comment) => comment.id)).toEqual([
+      seeded.ownerCommentId,
+      seeded.assigneeCommentId,
+      seeded.blockerCommentId,
+    ]);
+    expect(payload.comments[0]).toMatchObject({
+      task_id: seeded.mainTaskId,
+      user_id: owner.id,
+      body: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shipping this week' }] }],
+      },
+    });
     expect(payload.labels.map((label) => label.id).sort()).toEqual(
       [seeded.labelId, seeded.unusedLabelId].sort()
     );
@@ -252,27 +328,36 @@ describe('GET /api/public/projects/:id/board', () => {
         blocker_ids: task.blocker_ids,
         image_count: task.image_count,
         cover_image_url: task.cover_image_url,
+        comment_count: task.comment_count,
       }))
     );
+
+    for (const task of publicPayload.tasks) {
+      const served = publicPayload.comments.filter((comment) => comment.task_id === task.id);
+      expect(served).toHaveLength(task.comment_count);
+    }
   });
 
-  it('never serves an archived task, nor names one as a blocker', async () => {
+  it('never serves an archived task, nor names one as a blocker, nor its comments', async () => {
     const board = await createProject('Archived');
     const projectId = board.project.id;
-    const { blockerTaskId, mainTaskId } = await seedBoard(board);
+    const seeded = await seedBoard(board);
     expect((await publish(projectId, true)).status).toBe(200);
 
     expect(
-      (await ctx.request(owner.token).post(`/api/tasks/${blockerTaskId}/archive`)).status
+      (await ctx.request(owner.token).post(`/api/tasks/${seeded.blockerTaskId}/archive`)).status
     ).toBe(200);
 
     const res = await ctx.request().get(`/api/public/projects/${projectId}/board`);
     const payload = (await res.json()) as PublicBoardBody;
-    expect(payload.tasks.map((task) => task.id)).not.toContain(blockerTaskId);
-    expect(payload.tasks.find((task) => task.id === mainTaskId)?.blocker_ids).toEqual([]);
+    expect(payload.tasks.map((task) => task.id)).not.toContain(seeded.blockerTaskId);
+    expect(payload.tasks.find((task) => task.id === seeded.mainTaskId)?.blocker_ids).toEqual([]);
+    expect(payload.comments.map((comment) => comment.id)).not.toContain(seeded.blockerCommentId);
+    expect(payload.comments.map((comment) => comment.task_id)).not.toContain(seeded.blockerTaskId);
+    expect(JSON.stringify(payload)).not.toContain('Blocked on review');
   });
 
-  it('drops identity fields and exposes only assigned users, without emails', async () => {
+  it('drops identity fields and names only assigned and commenting users, without emails', async () => {
     const board = await createProject('Shaping');
     const projectId = board.project.id;
     await seedBoard(board);
@@ -281,13 +366,21 @@ describe('GET /api/public/projects/:id/board', () => {
     const res = await ctx.request().get(`/api/public/projects/${projectId}/board`);
     const payload = (await res.json()) as PublicBoardBody;
 
-    expect(Object.keys(payload).sort()).toEqual(['columns', 'labels', 'project', 'tasks', 'users']);
+    expect(Object.keys(payload).sort()).toEqual([
+      'columns',
+      'comments',
+      'labels',
+      'project',
+      'tasks',
+      'users',
+    ]);
     expect(Object.keys(payload.project).sort()).toEqual(['description', 'id', 'name']);
     for (const task of payload.tasks) {
       expect(Object.keys(task).sort()).toEqual([
         'assignee_ids',
         'blocker_ids',
         'column_id',
+        'comment_count',
         'cover_image_url',
         'description',
         'due_date',
@@ -298,12 +391,26 @@ describe('GET /api/public/projects/:id/board', () => {
         'title',
       ]);
     }
+    for (const comment of payload.comments) {
+      expect(Object.keys(comment).sort()).toEqual([
+        'body',
+        'created_at',
+        'id',
+        'task_id',
+        'updated_at',
+        'user_id',
+      ]);
+    }
 
-    expect(payload.users).toEqual([{ id: assignee.id, name: assignee.name, avatar_url: null }]);
+    expect([...payload.users].sort((a, b) => a.id.localeCompare(b.id))).toEqual(
+      [
+        { id: assignee.id, name: assignee.name, avatar_url: null },
+        { id: owner.id, name: owner.name, avatar_url: null },
+      ].sort((a, b) => a.id.localeCompare(b.id))
+    );
     expect(JSON.stringify(payload)).not.toContain(assignee.email);
     expect(JSON.stringify(payload)).not.toContain(owner.email);
     expect(payload.users.map((user) => user.id)).not.toContain(idleMember.id);
-    expect(payload.users.map((user) => user.id)).not.toContain(owner.id);
   });
 
   it('never serves a task’s activity log to an anonymous reader', async () => {
@@ -368,6 +475,7 @@ describe('GET /api/public/projects/:id/board', () => {
     const board = await createProject('Read only');
     const projectId = board.project.id;
     const column = board.columns[0];
+    const seeded = await seedBoard(board);
     expect((await publish(projectId, true)).status).toBe(200);
 
     const anon = ctx.request();
@@ -385,8 +493,56 @@ describe('GET /api/public/projects/:id/board', () => {
     expect((await anon.delete(`/api/projects/${projectId}`)).status).toBe(401);
     expect((await anon.get(`/api/projects/${projectId}`)).status).toBe(401);
 
+    // A published board is readable but has no author to attribute a reply to.
+    expect(
+      (
+        await anon.post('/api/comments', {
+          id: newId(),
+          task_id: seeded.mainTaskId,
+          body: {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Injected' }] }],
+          },
+        })
+      ).status
+    ).toBe(401);
+    expect(
+      (
+        await anon.patch(`/api/comments/${seeded.ownerCommentId}`, {
+          body: {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rewritten' }] }],
+          },
+        })
+      ).status
+    ).toBe(401);
+    expect((await anon.delete(`/api/comments/${seeded.ownerCommentId}`)).status).toBe(401);
+
     const outsiderRes = await ctx.request(outsider.token).get(`/api/projects/${projectId}`);
     expect(outsiderRes.status).toBe(404);
+  });
+
+  it('does not let a published board hand an outsider the comment routes', async () => {
+    const board = await createProject('Outsiders stay out');
+    const projectId = board.project.id;
+    const seeded = await seedBoard(board);
+    expect((await publish(projectId, true)).status).toBe(200);
+
+    const stranger = ctx.request(outsider.token);
+    expect(
+      (
+        await stranger.post('/api/comments', {
+          id: newId(),
+          task_id: seeded.mainTaskId,
+          body: {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }],
+          },
+        })
+      ).status
+    ).toBe(404);
+    expect((await stranger.delete(`/api/comments/${seeded.ownerCommentId}`)).status).toBe(404);
+    expect((await stranger.get(`/api/tasks/${seeded.mainTaskId}`)).status).toBe(404);
   });
 
   it('404s an outsider trying to publish someone else’s project', async () => {
