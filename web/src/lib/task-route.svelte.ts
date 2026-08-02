@@ -115,11 +115,10 @@ class TaskRouteResolver {
 
 export const taskRoute = new TaskRouteResolver();
 
+// A shared read-only board names a project too, but not one its visitor may act
+// on, so only the signed-in project routes answer here.
 export function currentProjectId(): string | null {
   const route = router.current;
-  if (route.name === 'public-board') {
-    return route.params.id;
-  }
   if (route.name !== 'project') {
     return null;
   }

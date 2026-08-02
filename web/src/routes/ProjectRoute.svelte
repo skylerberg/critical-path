@@ -19,8 +19,8 @@
 
   const located = $derived(taskRoute.locate({ projectId, taskId }));
 
-  // One attempt per arrival: a failure is worth another request when the route is
-  // entered again, but retrying the failure this run produced would spin.
+  // One attempt per arrival. `located` derives from several stores, so any of them
+  // churning while the error is on screen would otherwise re-fire the lookup.
   let attempted: string | undefined;
 
   $effect(() => {

@@ -5,7 +5,7 @@ import { selection } from './selection.svelte';
 import { board } from './board.svelte';
 import { router } from './router.svelte';
 import { session } from './session.svelte';
-import { projectHref, taskHref } from './short-links';
+import { projectHref, publicBoardHref, taskHref } from './short-links';
 import { testUuid } from './test-ids';
 import type { BoardTask } from './board-types';
 
@@ -598,6 +598,22 @@ describe('g-chords', () => {
     press('g');
     press('b');
     expect(navigate).toHaveBeenCalledTimes(2);
+  });
+
+  // The visitor on a shared link cannot load either signed-in screen, so the
+  // in-project chords have to stay dead there.
+  it('leaves g b and g g inert on a public board', () => {
+    const publicPath = publicBoardHref(PROJECT_ID);
+    router.navigate(publicPath, { replace: true });
+
+    press('g');
+    const toBoard = press('b');
+    expect(router.path).toBe(publicPath);
+    expect(toBoard.defaultPrevented).toBe(false);
+
+    press('g');
+    press('g');
+    expect(router.path).toBe(publicPath);
   });
 
   it('completes the chord under CapsLock rather than opening the dependency menu', () => {

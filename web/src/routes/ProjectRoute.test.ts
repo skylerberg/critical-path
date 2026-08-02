@@ -7,6 +7,7 @@ import { board } from '../lib/board.svelte';
 import { noFilters } from '../lib/board-filters';
 import { drafts } from '../lib/drafts.svelte';
 import { router } from '../lib/router.svelte';
+import { search } from '../lib/search.svelte';
 import { selection } from '../lib/selection.svelte';
 import { session } from '../lib/session.svelte';
 import { shortcuts } from '../lib/shortcuts.svelte';
@@ -128,6 +129,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
   taskRoute.reset();
+  search.reset();
   drafts.clearAll();
   selection.clear();
   shortcuts.reset();
@@ -190,6 +192,39 @@ describe('a cold task link', () => {
 
       expect(await screen.findByLabelText('Task title')).toHaveValue('Boss fight');
       expect(board.currentProjectId).toBe(PROJECT_ID);
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  // Resolving a task reads several stores, any of which can churn on its own while
+  // the failure is on screen. Only the retry button may ask again.
+  it('does not ask again when an unrelated store changes under the error', async () => {
+    let attempts = 0;
+    mockApi([task(T1, 'Boss fight')], () => {
+      attempts += 1;
+      return jsonResponse(500, { error: 'boom' });
+    });
+    router.navigate(taskHref(T1, 'boom'), { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByRole('button', { name: 'Try again' });
+      expect(attempts).toBe(1);
+
+      search.results = [
+        {
+          task_id: T2,
+          title: 'Credits',
+          project_id: PROJECT_ID,
+          project_name: PROJECT_NAME,
+          column_name: 'To Do',
+        },
+      ];
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      expect(attempts).toBe(1);
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     } finally {
       void unmount(app);
     }
