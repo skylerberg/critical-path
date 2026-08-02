@@ -17,6 +17,7 @@
   import { edgeScrollSpeed } from '../lib/board-scroll';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
+  import { truncateTitle } from '../lib/titles';
   import CardMenu from '../components/CardMenu.svelte';
   import ColumnHeader from '../components/ColumnHeader.svelte';
   import QuickAddTask from '../components/QuickAddTask.svelte';
@@ -431,7 +432,7 @@
               <div
                 animate:flip={{ duration: flipMs }}
                 data-task-id={task.id}
-                aria-label={task.title}
+                aria-label={truncateTitle(task.title)}
                 class="rounded-md focus-visible:outline-2 focus-visible:outline-accent"
               >
                 <TaskCard

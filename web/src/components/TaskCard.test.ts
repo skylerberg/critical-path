@@ -7,6 +7,7 @@ import type { BoardTask } from '../lib/board-types';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { todayISO } from '../lib/dates';
 import { router } from '../lib/router.svelte';
+import { TASK_TITLE_MAX_LENGTH, TITLE_DISPLAY_LIMIT, truncateTitle } from '../lib/titles';
 import { users } from '../lib/users.svelte';
 
 const task: BoardTask = {
@@ -358,6 +359,29 @@ describe('TaskCard', () => {
 
       expect(rightClick(input)).toBe(false);
       expect(cardMenu.taskId).toBeNull();
+    });
+  });
+
+  describe('long titles', () => {
+    const long = task.title + 'x'.repeat(TASK_TITLE_MAX_LENGTH - task.title.length);
+
+    it('clips the face and the link name to the display limit', () => {
+      render(TaskCard, { task: { ...task, title: long }, projectId: 'p1' });
+
+      const shown = truncateTitle(long);
+      expect(screen.getByText(shown)).toBeInTheDocument();
+      expect(screen.queryByText(long)).toBeNull();
+      expect(screen.getByRole('link')).toHaveAccessibleName(shown);
+      expect([...shown]).toHaveLength(TITLE_DISPLAY_LIMIT + 1);
+    });
+
+    it('hands the rename editor the whole stored title, not the clipped one', async () => {
+      render(TaskCard, { task: { ...task, title: long }, projectId: 'p1' });
+      cardMenu.rename('t1');
+
+      const input = await screen.findByLabelText('Task title');
+      expect(input).toHaveValue(long);
+      expect(input).toHaveAttribute('maxlength', String(TASK_TITLE_MAX_LENGTH));
     });
   });
 

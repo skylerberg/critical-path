@@ -9,6 +9,7 @@
     taskActivity,
     type TaskActivityEntry,
   } from '../lib/taskActivity.svelte';
+  import { truncateTitle } from '../lib/titles';
   import { users, type User } from '../lib/users.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -226,8 +227,9 @@
               {#if entry.kind === 'created'}
                 created this task
               {:else if entry.kind === 'title_changed'}
-                renamed this from <span class="text-ink">“{from?.text ?? ''}”</span> to
-                <span class="text-ink">“{to?.text ?? ''}”</span>
+                renamed this from
+                <span class="text-ink">“{truncateTitle(from?.text ?? '')}”</span>
+                to <span class="text-ink">“{truncateTitle(to?.text ?? '')}”</span>
               {:else if entry.kind === 'description_changed'}
                 edited the description
               {:else if entry.kind === 'column_changed'}

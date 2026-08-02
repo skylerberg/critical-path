@@ -20,6 +20,7 @@ import { router, splitPath } from './router.svelte';
 import { projects } from './projects.svelte';
 import { session } from './session.svelte';
 import { taskActivity } from './taskActivity.svelte';
+import { truncateTitle } from './titles';
 import { toasts } from './toasts.svelte';
 import { users, type User } from './users.svelte';
 
@@ -99,16 +100,12 @@ function mergeCopy(base: BoardTask, current: BoardTask, server: BoardTask): Boar
   return merged;
 }
 
-function truncateTitle(title: string): string {
-  return title.length > MAX_CYCLE_TITLE_CHARS ? `${title.slice(0, MAX_CYCLE_TITLE_CHARS)}…` : title;
-}
-
 // Elision keeps the repeated last entry so the message still reads as a loop.
 function cycleMessage(prefix: string, titles: readonly string[]): string {
   if (titles.length === 0) {
     return prefix;
   }
-  const shown = titles.map(truncateTitle);
+  const shown = titles.map((title) => truncateTitle(title, MAX_CYCLE_TITLE_CHARS));
   const parts =
     shown.length <= MAX_CYCLE_TITLES
       ? shown

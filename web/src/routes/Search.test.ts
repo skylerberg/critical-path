@@ -7,6 +7,7 @@ import { router } from '../lib/router.svelte';
 import { search } from '../lib/search.svelte';
 import { searchPath, type SearchResult } from '../lib/search-query';
 import { shortcuts } from '../lib/shortcuts.svelte';
+import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 
 const DEBOUNCE_MS = 250;
 
@@ -200,6 +201,20 @@ describe('Search page', () => {
       '/projects/p-1'
     );
     expect(screen.getByRole('status')).toHaveTextContent('3 results');
+  });
+
+  it('clips a long result title to the display limit', async () => {
+    const long = 'S'.repeat(TASK_TITLE_MAX_LENGTH);
+    respondWith([result('t-1', 'p-1', 'Colori', long)]);
+    renderAt('');
+
+    await type('export');
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Colori' })).toBeInTheDocument();
+    });
+    expect(screen.getByText(truncateTitle(long))).toBeInTheDocument();
+    expect(screen.queryByText(long)).toBeNull();
   });
 
   it('runs the query already in the URL on arrival', async () => {

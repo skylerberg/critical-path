@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ArchivedTasksModal from './ArchivedTasksModal.svelte';
 import { board } from '../lib/board.svelte';
 import { session } from '../lib/session.svelte';
+import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import type { ArchivedTask } from '../lib/board-types';
 
 const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
@@ -79,6 +80,18 @@ describe('ArchivedTasksModal', () => {
     expect(screen.getByText(`Done · ${ARCHIVED_LABEL}`)).toBeInTheDocument();
     expect(screen.getByLabelText('Restore card Old idea')).toBeInTheDocument();
     expect(screen.getByLabelText('Restore card Shipped thing')).toBeInTheDocument();
+  });
+
+  it('clips a long title in the row and in its restore control', async () => {
+    const long = 'A'.repeat(TASK_TITLE_MAX_LENGTH);
+    mockArchive([archived('t1', long)]);
+
+    render(ArchivedTasksModal, { open: true, onclose: () => {} });
+
+    const shown = truncateTitle(long);
+    await waitFor(() => expect(screen.getByText(shown)).toBeInTheDocument());
+    expect(screen.queryByText(long)).toBeNull();
+    expect(screen.getByLabelText(`Restore card ${shown}`)).toBeInTheDocument();
   });
 
   it('renders the date alone when the column is gone', async () => {

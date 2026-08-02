@@ -1,6 +1,7 @@
 <script lang="ts">
   import { board } from '../lib/board.svelte';
   import type { DependencyDirection } from '../lib/dependency-types';
+  import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
   import Input from './ui/Input.svelte';
 
   type Row = { kind: 'create'; title: string } | { kind: 'task'; id: string; title: string };
@@ -145,6 +146,7 @@
     oninput={() => (highlightedKey = null)}
     aria-label={label}
     placeholder="{label}…"
+    maxlength={TASK_TITLE_MAX_LENGTH}
     autocapitalize="sentences"
   />
   {#if trimmed !== ''}
@@ -176,7 +178,9 @@
             >
               <span class="text-accent" aria-hidden="true">+</span>
               <span class="min-w-0 flex-1 truncate"
-                >{row.kind === 'create' ? `Create "${row.title}"` : row.title}</span
+                >{row.kind === 'create'
+                  ? `Create "${truncateTitle(row.title)}"`
+                  : truncateTitle(row.title)}</span
               >
             </button>
           </li>
