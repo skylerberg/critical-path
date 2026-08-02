@@ -38,16 +38,33 @@ function forgetPointer(event: PointerEvent): void {
   directPointers.delete(event.pointerId);
 }
 
+/**
+ * Engines that still dispatch contextmenu as a plain MouseEvent carry no
+ * pointerType, so fall back to whether a finger or stylus is currently down.
+ */
+export function isDirectPointerEvent(event: MouseEvent): boolean {
+  return event instanceof PointerEvent ? isDirectInput(event.pointerType) : directPointers.size > 0;
+}
+
+export function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
+}
+
 function onContextMenu(event: MouseEvent): void {
   const target = event.target;
   if (!(target instanceof Element) || !target.closest(`[${TOUCH_CONTEXT_MENU_MARKER}]`)) {
     return;
   }
-  // Engines that still dispatch contextmenu as a plain MouseEvent carry no
-  // pointerType, so fall back to whether a finger or stylus is currently down.
-  const direct =
-    event instanceof PointerEvent ? isDirectInput(event.pointerType) : directPointers.size > 0;
-  if (direct) {
+  // Text being edited inside a marked node keeps the platform's own selection and
+  // paste menu — that press is not a gesture the app has a better answer for.
+  if (isTextEntry(target)) {
+    return;
+  }
+  if (isDirectPointerEvent(event)) {
     event.preventDefault();
   }
 }

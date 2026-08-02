@@ -1,4 +1,5 @@
 import { board } from './board.svelte';
+import { cardMenu } from './card-menu.svelte';
 import type { DependencyDirection } from './dependency-types';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
@@ -43,16 +44,21 @@ class ShortcutController {
       this.labelMenu !== null ||
       this.assigneeMenu !== null ||
       this.dependencyMenu !== null ||
-      this.moveMenu !== null
+      this.moveMenu !== null ||
+      cardMenu.taskId !== null
     );
   }
 
+  // No focus restore: this is also what a route change calls, and pulling focus
+  // back onto a card the user has navigated away from is not a courtesy. The menu
+  // itself returns focus on the paths that dismiss it in place.
   closeMenus(): void {
     this.helpOpen = false;
     this.labelMenu = null;
     this.assigneeMenu = null;
     this.dependencyMenu = null;
     this.moveMenu = null;
+    cardMenu.reset();
   }
 
   reset(): void {

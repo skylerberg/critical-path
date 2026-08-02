@@ -1,7 +1,10 @@
 import '@testing-library/jest-dom/vitest';
 
-// jsdom does not implement scrollIntoView.
+// jsdom implements neither scrolling nor the Web Animations API, and Svelte's
+// flip animation asks an element what it is already animating.
 Element.prototype.scrollIntoView ??= () => {};
+Element.prototype.scrollTo ??= () => {};
+Element.prototype.getAnimations ??= () => [];
 
 // jsdom has no layout, so a Range has none of the rect APIs ProseMirror calls
 // while scrolling the caret into view.

@@ -1,9 +1,10 @@
 import '../api/testUtils';
-import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import TaskCard from './TaskCard.svelte';
 import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
+import { cardMenu } from '../lib/card-menu.svelte';
 import { todayISO } from '../lib/dates';
 import { router } from '../lib/router.svelte';
 import { users } from '../lib/users.svelte';
@@ -29,7 +30,14 @@ const task: BoardTask = {
 beforeEach(() => {
   board.reset();
   users.reset();
+  cardMenu.reset();
+  board.tasks = [task];
   users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null }];
+});
+
+afterEach(() => {
+  cardMenu.reset();
+  vi.restoreAllMocks();
 });
 
 // Relative to the real today, so the colour bands stay meaningful as time passes.
@@ -240,12 +248,17 @@ describe('TaskCard', () => {
       expect(card().className).toContain('touch-callout-none');
     });
 
-    it('cancels a touch context menu but leaves right-click alone', () => {
+    // A finger's menu comes from the press handler, so the platform event has to
+    // die here without also being the thing that opens it.
+    it('cancels a touch context menu, and answers a right-click with the card menu', () => {
       render(TaskCard, { task, projectId: 'p1' });
 
       expect(contextMenu(screen.getByRole('link'), 'touch')).toBe(true);
       expect(contextMenu(screen.getByRole('link'), 'pen')).toBe(true);
-      expect(contextMenu(screen.getByRole('link'), 'mouse')).toBe(false);
+      expect(cardMenu.taskId).toBeNull();
+
+      expect(contextMenu(screen.getByRole('link'), 'mouse')).toBe(true);
+      expect(cardMenu.taskId).toBe('t1');
     });
 
     // An assignee avatar is an <img>, which raises a callout of its own.
@@ -265,6 +278,185 @@ describe('TaskCard', () => {
       const anchor = clone.querySelector('a');
       expect(anchor).not.toBeNull();
       expect(contextMenu(anchor!, 'touch')).toBe(true);
+    });
+  });
+
+  describe('context menu', () => {
+    function rightClick(target: Element, init: MouseEventInit = {}): boolean {
+      const event = new PointerEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        pointerType: 'mouse',
+        button: 2,
+        clientX: 120,
+        clientY: 90,
+        ...init,
+      });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    }
+
+    it('opens on right-click, at the pointer, in place of the browser menu', () => {
+      render(TaskCard, { task, projectId: 'p1' });
+
+      expect(rightClick(screen.getByRole('link'))).toBe(true);
+      expect(cardMenu.taskId).toBe('t1');
+      expect(cardMenu.x).toBe(120);
+      expect(cardMenu.y).toBe(90);
+    });
+
+    // Losing "open link in new tab" and "copy link" on every card is the cost of
+    // owning the menu, so Shift is the way back to the browser's own.
+    it('stands aside for a Shift+right-click', () => {
+      render(TaskCard, { task, projectId: 'p1' });
+
+      expect(rightClick(screen.getByRole('link'), { shiftKey: true })).toBe(false);
+      expect(cardMenu.taskId).toBeNull();
+    });
+
+    it('stays out of a drag', () => {
+      board.dragging = true;
+      render(TaskCard, { task, projectId: 'p1' });
+
+      expect(rightClick(screen.getByRole('link'))).toBe(false);
+      expect(cardMenu.taskId).toBeNull();
+    });
+
+    // Tab focuses the drag wrapper, so that — not the card — is what Shift+F10 and
+    // the context-menu key fire on.
+    it('opens from the keyboard on the card wrapper that holds focus', () => {
+      const { container } = render(TaskCard, { task, projectId: 'p1' });
+
+      expect(rightClick(container, { clientX: 0, clientY: 0 })).toBe(true);
+      expect(cardMenu.taskId).toBe('t1');
+    });
+
+    // Pressed on the card's own padding, which is what a finger held beside the
+    // open editor lands on: the title itself is gone by then.
+    it('starts a long press only for a finger, and never mid-rename', async () => {
+      const pressStart = vi.spyOn(cardMenu, 'pressStart');
+      const { container } = render(TaskCard, { task, projectId: 'p1' });
+
+      await fireEvent.pointerDown(screen.getByRole('link'), { pointerType: 'touch' });
+      expect(pressStart).toHaveBeenCalledTimes(1);
+
+      cardMenu.rename('t1');
+      await screen.findByLabelText('Task title');
+      const body = container.querySelector('[role="presentation"]');
+      expect(body?.isConnected).toBe(true);
+
+      await fireEvent.pointerDown(body!, { pointerType: 'touch' });
+      expect(pressStart).toHaveBeenCalledTimes(1);
+    });
+
+    // Cut, copy and paste are the browser's to offer, and taking them would also
+    // blur the edit they belong to.
+    it('leaves the browser its own menu inside the open title editor', async () => {
+      render(TaskCard, { task, projectId: 'p1' });
+      cardMenu.rename('t1');
+      const input = await screen.findByLabelText('Task title');
+
+      expect(rightClick(input)).toBe(false);
+      expect(cardMenu.taskId).toBeNull();
+    });
+  });
+
+  describe('inline rename', () => {
+    it('swaps the title for an editor and takes the overlay link out of the way', async () => {
+      render(TaskCard, { task, projectId: 'p1' });
+      expect(screen.getByRole('link')).toBeInTheDocument();
+
+      cardMenu.rename('t1');
+      await vi.waitFor(() => expect(screen.getByLabelText('Task title')).toHaveFocus());
+
+      expect(screen.getByLabelText('Task title')).toHaveValue('Design cards');
+      expect(screen.queryByRole('link')).toBeNull();
+    });
+
+    it('saves on Enter without opening the card', async () => {
+      const updateTask = vi.spyOn(board, 'updateTask').mockResolvedValue({
+        status: 'ok',
+        updated_at: '2026-01-02T00:00:00Z',
+      });
+      render(TaskCard, { task, projectId: 'p1' });
+      cardMenu.rename('t1');
+      const input = await screen.findByLabelText('Task title');
+
+      await fireEvent.input(input, { target: { value: 'Redesign cards' } });
+      await fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(updateTask).toHaveBeenCalledWith('t1', { title: 'Redesign cards' });
+      expect(cardMenu.renamingTaskId).toBeNull();
+    });
+
+    it('saves on blur', async () => {
+      const updateTask = vi.spyOn(board, 'updateTask').mockResolvedValue({
+        status: 'ok',
+        updated_at: '2026-01-02T00:00:00Z',
+      });
+      render(TaskCard, { task, projectId: 'p1' });
+      cardMenu.rename('t1');
+      const input = await screen.findByLabelText('Task title');
+
+      await fireEvent.input(input, { target: { value: 'Redesign cards' } });
+      await fireEvent.blur(input);
+
+      expect(updateTask).toHaveBeenCalledWith('t1', { title: 'Redesign cards' });
+    });
+
+    // Unmounting the editor drops focus to the body, which strands a keyboard user
+    // at the top of the document with a long column to tab back down.
+    it('hands focus back to the card when a key ends the rename', async () => {
+      vi.spyOn(board, 'updateTask').mockResolvedValue({
+        status: 'ok',
+        updated_at: '2026-01-02T00:00:00Z',
+      });
+      const wrapper = document.createElement('div');
+      wrapper.tabIndex = 0;
+      wrapper.dataset.taskId = 't1';
+      document.body.append(wrapper);
+      onTestFinished(() => wrapper.remove());
+
+      const first = render(TaskCard, { task, projectId: 'p1' });
+      cardMenu.rename('t1');
+      await fireEvent.keyDown(await screen.findByLabelText('Task title'), { key: 'Enter' });
+      expect(document.activeElement).toBe(wrapper);
+      first.unmount();
+
+      render(TaskCard, { task, projectId: 'p1' });
+      cardMenu.rename('t1');
+      await fireEvent.keyDown(await screen.findByLabelText('Task title'), { key: 'Escape' });
+      expect(document.activeElement).toBe(wrapper);
+    });
+
+    it('discards the edit on Escape', async () => {
+      const updateTask = vi.spyOn(board, 'updateTask');
+      render(TaskCard, { task, projectId: 'p1' });
+      cardMenu.rename('t1');
+      const input = await screen.findByLabelText('Task title');
+
+      await fireEvent.input(input, { target: { value: 'Redesign cards' } });
+      await fireEvent.keyDown(input, { key: 'Escape' });
+
+      expect(updateTask).not.toHaveBeenCalled();
+      expect(cardMenu.renamingTaskId).toBeNull();
+      expect(screen.getByText('Design cards')).toBeInTheDocument();
+    });
+
+    it('writes nothing for an unchanged or emptied title', async () => {
+      const updateTask = vi.spyOn(board, 'updateTask');
+      const { unmount } = render(TaskCard, { task, projectId: 'p1' });
+      cardMenu.rename('t1');
+      await fireEvent.blur(await screen.findByLabelText('Task title'));
+      unmount();
+
+      render(TaskCard, { task, projectId: 'p1' });
+      cardMenu.rename('t1');
+      const input = await screen.findByLabelText('Task title');
+      await fireEvent.input(input, { target: { value: '   ' } });
+      await fireEvent.blur(input);
+
+      expect(updateTask).not.toHaveBeenCalled();
     });
   });
 

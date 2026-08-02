@@ -1,13 +1,15 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import type { Options } from 'svelte-dnd-action';
+import { SOURCES, TRIGGERS, type Options } from 'svelte-dnd-action';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
+import { cardMenu } from '../lib/card-menu.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';
 import { selection } from '../lib/selection.svelte';
+import { session } from '../lib/session.svelte';
 import type { BoardTask } from '../lib/board-types';
 
 const { zoneOptions } = vi.hoisted(() => ({ zoneOptions: [] as Options[] }));
@@ -64,6 +66,8 @@ beforeEach(() => {
   motion.reduced = false;
   board.reset();
   selection.clear();
+  cardMenu.reset();
+  session.user = null;
   drafts.clearAll();
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
   board.tasks = [
@@ -72,6 +76,10 @@ beforeEach(() => {
     task('t3', 'c1', 3000, 'plain two'),
     task('t4', 'c1', 4000, 'match b'),
   ];
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 function column(): HTMLElement {
@@ -126,6 +134,36 @@ function patchRequests(): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
     .filter((request) => request.method === 'PATCH');
+}
+
+function pickUp(id: string, list = 'Todo tasks'): void {
+  void fireEvent(
+    taskList(list),
+    new CustomEvent('consider', {
+      detail: {
+        items: board.tasksInColumn('c1'),
+        info: { trigger: TRIGGERS.DRAG_STARTED, id, source: SOURCES.POINTER },
+      },
+    })
+  );
+}
+
+function drop(id: string, items: BoardTask[], list = 'Todo tasks'): void {
+  void fireEvent(
+    taskList(list),
+    new CustomEvent('finalize', {
+      detail: {
+        items,
+        info: { trigger: TRIGGERS.DROPPED_INTO_ZONE, id, source: SOURCES.POINTER },
+      },
+    })
+  );
+}
+
+async function frames(count = 3): Promise<void> {
+  for (let i = 0; i < count; i += 1) {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
 }
 
 describe('Board display order', () => {
@@ -655,5 +693,276 @@ describe('Board filter scrolling', () => {
 
     expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
     expect(taskList().scrollTop).toBe(240);
+  });
+});
+
+describe('Board pointer drops', () => {
+  function twoColumns(): void {
+    board.columns = [
+      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+    ];
+  }
+
+  // Long-pressing a card for its menu unwinds the drag the press already armed
+  // through exactly this path, and a card put back where it was is not a move.
+  it('writes nothing when a card is dropped where it was picked up', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+
+    pickUp('t1');
+    drop('t1', board.tasksInColumn('c1'));
+    await tick();
+
+    expect(patchRequests()).toHaveLength(0);
+  });
+
+  it('still writes a drop that reorders the column', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    const [first, ...rest] = board.tasksInColumn('c1');
+
+    pickUp('t1');
+    drop('t1', [...rest, first!]);
+    await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe('/api/tasks/t1');
+  });
+
+  // Same slot number, different column: only the column half of the guard can
+  // tell this apart from a card put straight back down.
+  it('still writes a drop that lands the card at the same index elsewhere', async () => {
+    twoColumns();
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+
+    pickUp('t1');
+    drop('t1', [board.tasksInColumn('c1')[0]!], 'Doing tasks');
+    await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+
+    const patch = patchRequests()[0]!;
+    expect(new URL(patch.url).pathname).toBe('/api/tasks/t1');
+    expect(await patch.clone().json()).toMatchObject({ column_id: 'c2' });
+  });
+
+  // The menu the unwinding drop belongs to is pinned to the finger's viewport
+  // coordinates, so centering the column would slide the board out from under it —
+  // and hold the scroller unswipeable while it did.
+  it('leaves the board where it is when a card is dropped where it was picked up', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    const resting = scroller().className;
+
+    pickUp('t1');
+    drop('t1', board.tasksInColumn('c1'));
+    await tick();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(scroller().className).toBe(resting);
+  });
+
+  it('centers the destination column after a drop that moved something', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    const [first, ...rest] = board.tasksInColumn('c1');
+
+    pickUp('t1');
+    drop('t1', [...rest, first!]);
+    await tick();
+
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(scroller().className).toContain('overflow-x-hidden');
+
+    await fireEvent(scroller(), new Event('scrollend'));
+    expect(scroller().className).toContain('snap-mandatory');
+  });
+});
+
+describe('Board column drops', () => {
+  function columnZone(): HTMLElement {
+    const element = document.querySelector('[aria-label="Columns"]');
+    if (!(element instanceof HTMLElement)) {
+      throw new Error('Column zone not rendered');
+    }
+    return element;
+  }
+
+  function dragColumn(id: string, type: 'consider' | 'finalize', items: unknown[]): void {
+    void fireEvent(
+      columnZone(),
+      new CustomEvent(type, {
+        detail: {
+          items,
+          info: {
+            trigger: type === 'consider' ? TRIGGERS.DRAG_STARTED : TRIGGERS.DROPPED_INTO_ZONE,
+            id,
+            source: SOURCES.POINTER,
+          },
+        },
+      })
+    );
+  }
+
+  beforeEach(() => {
+    board.columns = [
+      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+    ];
+  });
+
+  // A wasted column write renumbers it for nothing and broadcasts the change to
+  // everyone else looking at the project.
+  it('writes nothing when a column is dropped where it was picked up', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    const columns = [...board.columns];
+
+    dragColumn('c1', 'consider', columns);
+    dragColumn('c1', 'finalize', columns);
+    await tick();
+
+    expect(patchRequests()).toHaveLength(0);
+  });
+
+  it('still writes a drop that reorders the columns', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    const [first, second] = board.columns;
+
+    dragColumn('c1', 'consider', [first, second]);
+    dragColumn('c1', 'finalize', [second, first]);
+    await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe('/api/columns/c1');
+  });
+});
+
+describe('Board drag edge scrolling', () => {
+  function nearTheLeftEdge(): ReturnType<typeof vi.fn> {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, 0, 400, 600)
+    );
+    const scrollBy = vi.fn();
+    scroller().scrollBy = scrollBy;
+    return scrollBy;
+  }
+
+  function holdFinger(): void {
+    cardMenu.pressStart(
+      new PointerEvent('pointerdown', {
+        pointerType: 'touch',
+        isPrimary: true,
+        clientX: 5,
+        clientY: 5,
+      }),
+      't1'
+    );
+    onTestFinished(() => cardMenu.cancelPress());
+  }
+
+  it('scrolls the board while a card is dragged against its edge', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    const scrollBy = nearTheLeftEdge();
+
+    pickUp('t1');
+    await tick();
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 5 }));
+    await frames();
+
+    expect(scrollBy).toHaveBeenCalled();
+  });
+
+  // The drag is armed well before the press becomes a menu, so without this the
+  // board drifts under a finger that is only asking for one.
+  it('holds the board still while a long press waits to open the card menu', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    const scrollBy = nearTheLeftEdge();
+
+    holdFinger();
+    pickUp('t1');
+    await tick();
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 5 }));
+    await frames();
+
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it('holds the board still while the menu that press opened is on screen', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    const scrollBy = nearTheLeftEdge();
+
+    cardMenu.open('t1', 5, 5);
+    pickUp('t1');
+    await tick();
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 5 }));
+    await frames();
+
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+});
+
+describe('Board card menu', () => {
+  function signInAsTheCreator(): void {
+    board.project = {
+      id: 'p1',
+      name: 'Game',
+      description: '',
+      archived_at: null,
+      created_by: 'u-me',
+      member_ids: [],
+      members: [],
+      is_public: false,
+      created_at: '2026-07-15T00:00:00Z',
+    };
+    session.user = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+  }
+
+  function rightClickCard(title: string): void {
+    const card = [...column().querySelectorAll<HTMLElement>('[data-task-id]')].find(
+      (el) => el.textContent?.includes(title) === true
+    );
+    card?.dispatchEvent(
+      new PointerEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        pointerType: 'mouse',
+        button: 2,
+        clientX: 30,
+        clientY: 40,
+      })
+    );
+  }
+
+  it('opens the editing menu for the card that was right-clicked', async () => {
+    signInAsTheCreator();
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain two');
+
+    rightClickCard('plain two');
+    await tick();
+
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for plain two');
+    expect(screen.getByRole('menuitem', { name: 'Edit title' })).toBeInTheDocument();
+  });
+
+  // The editor is signed in and may write this project: the read-only route, not
+  // the permission, is the only thing that takes the writing rows away.
+  it('gives a viewer the menu without any of the writing rows', async () => {
+    signInAsTheCreator();
+    expect(board.canEdit).toBe(true);
+    render(Board, { props: { projectId: 'p1', readonly: true } });
+    await screen.findByText('plain one');
+
+    rightClickCard('plain one');
+    await tick();
+
+    expect(
+      screen.getAllByRole('menuitem').map((item) => item.querySelector('span')?.textContent)
+    ).toEqual(['Open', 'Open in new tab', 'Copy link']);
   });
 });
