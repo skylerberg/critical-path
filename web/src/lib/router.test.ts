@@ -40,11 +40,30 @@ describe('matchRoute', () => {
     });
   });
 
-  it('drops a token it cannot decode rather than failing to route at all', () => {
-    expect(matchRoute('/invite', '?token=%E0%A4%A')).toEqual({ name: 'invite', params: {} });
-    expect(matchRoute('/reset-password', '?token=%E0%A4%A')).toEqual({
+  it('hands an invitation token it cannot decode on rather than dropping it', () => {
+    expect(matchRoute('/invite', '?token=%E0%A4%A')).toEqual({
+      name: 'invite',
+      params: { token: '%E0%A4%A' },
+    });
+  });
+
+  it('reads the verify-email token from the query string', () => {
+    expect(matchRoute('/verify-email')).toEqual({ name: 'verify-email', params: {} });
+    expect(matchRoute('/verify-email', '?token=abc.def')).toEqual({
+      name: 'verify-email',
+      params: { token: 'abc.def' },
+    });
+    expect(matchRoute('/verify-email/')).toEqual({ name: 'verify-email', params: {} });
+  });
+
+  it('hands on an undecodable token instead of throwing', () => {
+    expect(matchRoute('/verify-email', '?token=ab%zz')).toEqual({
+      name: 'verify-email',
+      params: { token: 'ab%zz' },
+    });
+    expect(matchRoute('/reset-password', '?token=50%')).toEqual({
       name: 'reset-password',
-      params: {},
+      params: { token: '50%' },
     });
   });
 

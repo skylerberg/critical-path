@@ -269,7 +269,13 @@ describe('projects store', () => {
   });
 
   it('still sends the DELETE for a board it does not own, and restores it on refusal', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     const item = project({ created_by: 'u-other' });
     await loadWith([item]);
     fetchMock.mockImplementation(async (input) => {
@@ -447,7 +453,13 @@ describe('projects store', () => {
   });
 
   it('transfers ownership optimistically and merges the returned row', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     const item = project({ created_by: 'u-me', member_ids: ['u-ada', 'u-2'] });
     await loadWith([item]);
     const confirmed = projectRow(project({ created_by: 'u-ada', member_ids: ['u-2', 'u-me'] }));
@@ -468,7 +480,13 @@ describe('projects store', () => {
   });
 
   it('toasts and refetches when the server refuses a transfer', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     const item = project({ created_by: 'u-me', member_ids: ['u-ada'] });
     await loadWith([item]);
     fetchMock.mockImplementation(async (input) => {
@@ -497,7 +515,13 @@ describe('projects store', () => {
   });
 
   it('leave PUTs the member set minus self and drops the project', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     await loadWith([project({ created_by: 'u-owner', member_ids: ['u-me', 'u-2'] })]);
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
@@ -513,7 +537,13 @@ describe('projects store', () => {
   });
 
   it('restores the list when leaving fails', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     const item = project({ created_by: 'u-owner', member_ids: ['u-me'] });
     await loadWith([item]);
     fetchMock.mockImplementation(async (input) => {
@@ -664,7 +694,13 @@ describe('projects store', () => {
 });
 
 describe('isProjectOwner', () => {
-  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+  const me = {
+    id: 'u-me',
+    email: 'me@example.com',
+    name: 'Me',
+    avatar_url: null,
+    email_verified: false,
+  };
 
   it('is true only for the signed-in creator', () => {
     session.user = me;
@@ -681,7 +717,13 @@ describe('isProjectOwner', () => {
 });
 
 describe('project roles', () => {
-  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+  const me = {
+    id: 'u-me',
+    email: 'me@example.com',
+    name: 'Me',
+    avatar_url: null,
+    email_verified: false,
+  };
 
   it('reports canEdit from the stored role', async () => {
     session.user = me;

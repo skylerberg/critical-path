@@ -9,7 +9,13 @@ import { session } from '../lib/session.svelte';
 import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
 
 const DAY_MS = 86_400_000;

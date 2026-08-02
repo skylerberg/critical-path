@@ -36,7 +36,13 @@ function project(overrides: Partial<Project> = {}): Project {
   };
 }
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
 
 // The share modal loads the pending list for an editor, so tests that open it

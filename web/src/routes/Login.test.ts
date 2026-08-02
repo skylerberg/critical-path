@@ -4,7 +4,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import Login from './Login.svelte';
 import { session } from '../lib/session.svelte';
 
-const user = { id: 'a3bb189e-8bf9-3888-9912-ace4e6543002', email: 'ada@example.com', name: 'Ada' };
+const user = {
+  id: 'a3bb189e-8bf9-3888-9912-ace4e6543002',
+  email: 'ada@example.com',
+  name: 'Ada',
+  avatar_url: null,
+  email_verified: false,
+};
 
 async function fillCredentials(email: string, password: string): Promise<void> {
   await fireEvent.input(screen.getByLabelText('Email'), { target: { value: email } });

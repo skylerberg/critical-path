@@ -16,7 +16,13 @@ beforeEach(() => {
   projects.reset();
   toasts.toasts = [];
   sessionStorage.clear();
-  session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+  session.user = {
+    id: 'u-me',
+    email: 'me@example.com',
+    name: 'Me',
+    avatar_url: null,
+    email_verified: false,
+  };
   session.status = 'authed';
   router.beforeNavigate = undefined;
   router.navigate('/invite?token=tok-123', { replace: true });

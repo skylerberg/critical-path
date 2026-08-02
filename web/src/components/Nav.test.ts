@@ -34,7 +34,13 @@ function sidebarZoneConfigs(): Options[] {
   return zoneOptions.filter((options) => options.type === 'sidebar-project');
 }
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
 
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [];

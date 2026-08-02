@@ -6,7 +6,13 @@ import { projects, type Project } from '../lib/projects.svelte';
 import { session } from '../lib/session.svelte';
 import { users } from '../lib/users.svelte';
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null };
 const bob = { id: 'u-bob', email: 'bob@example.com', name: 'Bob Ross', avatar_url: null };
 const cleo = { id: 'u-cleo', email: 'cleo@example.com', name: 'Cleo Zhang', avatar_url: null };
