@@ -98,13 +98,20 @@ row: a viewer attempting a mutation, and the two owner-only operations
   body is ignored. Any other viewer request is 403, and the role gate runs
   before the user-existence check so the endpoint cannot be used as a
   user-existence oracle.
-- `POST /api/projects/:id/members/by-email` (`{ email, role? }`) adds one user
-  by exact, case-insensitive email and returns `{ user, role }` (the user with
-  `avatar_url`, and the effective role after the call). `role` defaults to
-  `editor`; omitting it on a re-invite leaves an existing member's role alone,
-  so re-inviting never silently promotes a viewer. Unknown emails return 404;
-  adding the creator is a no-op that stores nothing and reports `editor`.
-  **Editors only** — a viewer gets 403, non-accessors 404.
+- `POST /api/projects/:id/members/by-email` (`{ email, role? }`) shares a board
+  with one exact, case-insensitive address and answers
+  `{ status, role, user, invitation }`. An address that already has an account
+  is added straight away (`status: "member"`, `user` populated,
+  `invitation: null`, and any invitation still pending for that address on the
+  board is dropped); one that does not gets a pending invitation instead
+  (`status: "invited"`, `user: null`) — see
+  [Pending invitations](#pending-invitations). `role` defaults to `editor`;
+  omitting it on a re-invite leaves an existing member's or invitation's role
+  alone, so re-inviting never silently promotes a viewer. Adding the creator is
+  a no-op that stores nothing and reports `editor`. **Editors only** — a viewer
+  gets 403, non-accessors 404, and the role gate runs before the address is
+  looked up, so neither can use the route to learn whether an address has an
+  account.
 - `PUT /api/projects/:id/owner` (`{ user_id }`) transfers ownership and
   returns the updated project. Only the current creator may call it (other
   members get 403, non-accessors 404). `user_id` must already be a member (422
@@ -128,6 +135,123 @@ Copied projects start personal: members are never copied from the source.
 project with them (as creator or member on either side); `GET
 /api/users?project_id=` returns the users who can access that project plus
 users still assigned to its tasks or still holding a comment on them.
+
+### Pending invitations
+
+Sharing a board with an address that has no account yet stores a
+`project_invitation` row and emails a link. The row is the whole lifecycle: it
+grants nothing until it is claimed, it can be revoked by deleting it, and it
+cascades away with either its project or the account that sent it.
+
+An invitation is claimed in exactly two ways, and joining through either
+consumes it:
+
+- **signing up with the invited address.** Every unexpired invitation for that
+  address, across every project, takes effect during signup at its invited
+  role.
+- **`POST /api/invitations/accept`** (`{ token }`, authenticated) with the token
+  from the link. The caller need not be signed in as the invited address — an
+  invitation is a grant to whoever holds the link, so someone who signs up
+  under a different address can still accept.
+
+It is deliberately **not** claimed by an existing account changing its address
+to an invited one: otherwise an invitation would be a standing grant that fires
+months later on an address edit. Claiming never demotes — accepting a `viewer`
+invitation for a board you already edit leaves you an editor — and it sends no
+"you were added to a board" mail, because the person just clicked the
+invitation.
+
+A claimer who already has access joins nothing, so the row is left alone rather
+than spent: an owner opening the copy that was mailed to them, or a member
+following a forwarded link, does not destroy the invitation the recipient is
+still holding. The response reports the access they already had.
+
+A claim deletes the row before it grants from it, and grants only from rows its
+own delete removed, so a claim and a revoke racing each other cannot both
+succeed. A revoke that gets there first wins outright — the joiner is granted
+nothing rather than seated on an invitation that was already withdrawn, and
+their redemption answers 422. A claim that gets there first wins instead, and
+the revoke behind it answers 404. Which one wins is decided by the delete, not
+by the reads either side of it.
+
+Before any of that, a claim locks every board its invitations name — the ones it
+will not join included. Every route that writes a member row takes the board
+first and its invitations second, and a claim taking them the other way round
+deadlocks against a revoke issued under that lock. Locking more than one board
+at a time is done by id everywhere it is done at all: two lockers that disagree
+about the order deadlock as soon as their sets overlap, which random ids make
+about half of all pairs.
+
+The claim locks the membership rows it reads as well. The one writer of a
+member row that holds no board is the cascade behind an account deletion,
+which takes only the boards its user created: their member rows on everyone
+else's boards go with the account unlocked. Accepting an invitation to a board
+you already belong to while your own account deletion is in flight would
+otherwise be answered with the role of a row on its way out, so a share lock on
+those rows is what makes the role reported to the joiner the role that was
+actually stored.
+
+- `GET /api/projects/:id/invitations` lists what is outstanding, expired rows
+  included with their `expires_at` so the UI can offer resend rather than let
+  them vanish. **Editors only**: the list is a management surface made entirely
+  of email addresses that only editors can create, so a viewer gets 403. This
+  is the one project-scoped read gated on write rather than access.
+- `DELETE /api/projects/:id/invitations/:invitationId` revokes one. Every copy
+  of its link dies at once, including one already in the recipient's mailbox,
+  because redemption always consults the row.
+- `POST /api/projects/:id/invitations/:invitationId/resend` mails it again and
+  gives it a fresh 14-day deadline, which is also how an expired invitation is
+  revived. **The link does not change**, so the copy the recipient already has
+  keeps working. It also re-derives the stored hash, so rows left unredeemable
+  by a rotation of the signing secret are repaired by a resend rather than
+  needing revoke-and-reinvite.
+
+Re-inviting an address that is already invited re-mails the identical link and
+re-derives the stored hash for the same reason a resend does. It gets there by
+reusing the row's id, which is also the link, so a revoke takes the board row
+before it deletes: landing between the read that found the row and the insert
+that recreates it would otherwise revive the very copy it was withdrawing.
+Sharing with an address that has since gained an account instead drops any
+invitation still pending for it, since only signup claims one: the row could
+never be consumed again, while its link stayed redeemable by anyone holding it.
+Pending invitations are also revoked when the account that sent them loses write
+access to the board, so a demoted or removed editor cannot re-admit themselves
+days later through a link they sent in advance.
+
+Tokens are never returned by any response; the raw token exists only in the
+email. It is derived by HMAC from the row id under `EMAIL_TOKEN_SECRET` rather
+than stored, which is what lets a resend reproduce a link that was already sent
+without persisting a usable secret. It authenticates nothing: it is not
+accepted as a bearer credential and creates no session.
+
+Limits: 100 pending invitations per project (expired ones count until revoked)
+answers 422; three hourly budgets answer 429. Mailing an unproven address and
+finding out whether an address has an account are separate harms, so they are
+metered separately:
+
+- **100 addresses looked up an hour, per caller**, spent by every call before
+  the address is looked up. This is what bounds the rate at which this route can
+  be asked about addresses, and spending it whatever the answer is what stops a
+  reply about an address ever being free — a budget charged only for addresses
+  with no account would leave probing for the ones that do unmetered, and would
+  make the 429 itself the answer.
+- **20 invitation emails an hour, per caller**, spent only where mail actually
+  goes out — the invitation branch here and `/resend`, both of them after the
+  per-invitation budget has passed, so a call that ends in 429 rather than an
+  email costs nothing. Adding people who already have accounts is the ordinary
+  way a board gets its team, and it never runs this down. What it does do, once
+  it is gone, is turn away every call for the rest of the hour, an address with
+  an account included: refusing only the addresses with no account is the shape
+  that would make the 429 the answer.
+- **3 re-mails an hour, per invitation**, covering re-inviting an address that
+  is already invited as well as `/resend`, since both re-mail the identical
+  link.
+
+An invitation is a 14-day grant to whoever controls that mailbox, which is the
+same trust model as adding a member by email. If the address is claimed by a
+different person before it is used, that person can join the board — bounded to
+one project at a known role, and bounded in time by the deadline and by
+revocation.
 
 ### Personal access tokens
 
@@ -733,8 +857,8 @@ live retries are never pruned. The log has a `limit` but no cursor, so only the
 
 ### Email
 
-Password-reset, email-verification and feedback emails go through the driver
-named by `EMAIL_DRIVER`:
+Password-reset, email-verification, board-invitation and feedback emails go
+through the driver named by `EMAIL_DRIVER`:
 
 - `console` (default) — logs the full email; the reset link is usable from the
   server log in development.
@@ -770,7 +894,22 @@ A verification email is sent on signup and whenever `PATCH /api/auth/me` moves
 the account to a different mailbox (a change of letter case alone sends
 nothing and keeps the existing verification). The mail links to
 `${APP_URL_BASE}/verify-email?token=…`; `APP_URL_BASE` is the web app's origin
-and defaults to `http://localhost:5173`.
+and defaults to `http://localhost:5173`. The web app redeems that link on a
+page open to signed-out visitors, since the usual click arrives from a mail
+client on a device with no session.
+
+Signup's send carries its own per-IP budget, on its own counter so that
+spending it cannot deny anyone their own resends. Signup is unauthenticated and
+its other limiter keys every bucket on the address, so without this one source
+could mail an unbounded number of distinct, non-consenting addresses. It is
+capped at the same ten an hour as the authenticated per-IP budget below and
+deliberately not looser: this is the one that mails addresses nobody consented
+to. The budget withholds only the mail — past it signup still answers `201` and
+the session still starts, and the account can ask for a link from its account
+page. It is deliberately not a `429`: signup denied by a shared egress IP's
+exhausted budget would hand an attacker a way to keep a whole office from
+registering. Nothing in the response distinguishes a withheld send from a
+delivered one, so each source IP that hits the budget is logged once per window.
 
 - `POST /api/auth/verify-email` takes `{ "token": "…" }` and answers `204`.
   It is unauthenticated and deliberately inert: the token creates no session,
@@ -1075,6 +1214,8 @@ cpath task archived --project "My Project" --search bug
 cpath task restore "Fix the bug" --project "My Project"
 cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Project"
 cpath project invite "My Project" --email them@example.com --role viewer  # editor by default
+cpath project invitations "My Project"  # pending invites: id, email, role, expiry
+cpath project resend-invite "My Project" --id 3f9a1c2b   # id as listed, a prefix, or the address
 cpath project set-role "My Project" them@example.com --role editor
 cpath project members "My Project"      # ROLE column reads owner / editor / viewer
 cpath task url "Fix the bug" --project "My Project"   # shareable web link
@@ -1196,6 +1337,16 @@ npm run openapi:dump && npm run --prefix cli generate-api
 
 - Email verification exists but gates nothing, and there is no bounce or
   complaint handling.
+- `POST /api/projects/:id/members/by-email` tells an editor whether an address
+  already has an account: `status` is `member` for one that does and `invited`
+  for one that does not. Removing that would mean making every share an
+  invitation that has to be accepted, which would end instant sharing with
+  someone who already has an account. It is bounded to editors of a project and
+  to 100 addresses an hour each, whatever the answer. That budget bounds this
+  route, not the question: signup answers 409 to an address that is already
+  taken before it has proved anything, and so does an address change, so whether
+  an address has an account is learnable without a board at all. Metering those
+  two is open.
 - Float `position` ordering with no automatic rebalancing.
 - Project roles are only `editor` and `viewer`. Every editor can rename,
   archive and publish the board and manage its member set — including demoting

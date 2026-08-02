@@ -1,8 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
-import { resetRateLimiter, VERIFY_USER_MAX_ATTEMPTS } from '../../../src/middleware/rateLimit';
+import {
+  resetRateLimiter,
+  SIGNUP_VERIFY_IP_MAX_ATTEMPTS,
+  VERIFY_IP_MAX_ATTEMPTS,
+  VERIFY_USER_MAX_ATTEMPTS,
+} from '../../../src/middleware/rateLimit';
 import {
   createVerificationToken,
   VERIFICATION_TOKEN_TTL_MS,
@@ -53,6 +58,32 @@ describe('Email verification', () => {
   });
 
   describe('signup', () => {
+    const budgetSpenders: string[] = [];
+
+    async function signUpSpendingBudget(prefix: string): Promise<string> {
+      const id = newId();
+      const email = uniqueEmail(prefix);
+      const res = await ctx
+        .request()
+        .post('/api/auth/signup', { id, email, password: 'password-123', name: 'Budget' });
+      expect(res.status).toBe(201);
+      budgetSpenders.push(id);
+      return email;
+    }
+
+    async function spendSignupBudget(): Promise<void> {
+      for (let i = 0; i < SIGNUP_VERIFY_IP_MAX_ATTEMPTS; i++) {
+        await signUpSpendingBudget(`signup-budget-${i}`);
+      }
+    }
+
+    afterEach(async () => {
+      if (budgetSpenders.length > 0) {
+        await db.deleteFrom('app_user').where('id', 'in', budgetSpenders).execute();
+        budgetSpenders.length = 0;
+      }
+    });
+
     it('sends exactly one verification email carrying an app link, and starts unverified', async () => {
       const id = newId();
       const email = uniqueEmail('verify-signup');
@@ -86,6 +117,61 @@ describe('Email verification', () => {
 
       await db.deleteFrom('app_user').where('id', '=', id).execute();
     });
+
+    // Every address is distinct, which is exactly what the auth limiter's
+    // address-keyed buckets leave unbounded.
+    it('stops mailing past the per-IP budget without refusing the account', async () => {
+      await spendSignupBudget();
+      expect(sentEmails()).toHaveLength(SIGNUP_VERIFY_IP_MAX_ATTEMPTS);
+
+      const overflow = await signUpSpendingBudget('signup-budget-over');
+      expect(sentEmails()).toHaveLength(SIGNUP_VERIFY_IP_MAX_ATTEMPTS);
+      expect(sentEmails().some((email) => email.to === overflow)).toBe(false);
+
+      const login = await ctx
+        .request()
+        .post('/api/auth/login', { email: overflow, password: 'password-123' });
+      expect(login.status).toBe(200);
+    });
+
+    // Nothing else in the response distinguishes a withheld send from a delivered
+    // one, so without the log a shared egress hitting this is invisible.
+    it('records the withheld send once per window rather than dropping it silently', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await spendSignupBudget();
+        expect(warn).not.toHaveBeenCalled();
+
+        await signUpSpendingBudget('signup-budget-logged');
+        await signUpSpendingBudget('signup-budget-logged-again');
+
+        expect(warn.mock.calls).toHaveLength(1);
+        expect(String(warn.mock.calls[0][0])).toContain('Withheld signup verification email');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    // The relation rather than the number, because every other test imports the
+    // constant and so moves with any mutation of it.
+    it('never budgets the unauthenticated send looser than the authenticated one', () => {
+      expect(SIGNUP_VERIFY_IP_MAX_ATTEMPTS).toBeLessThanOrEqual(VERIFY_IP_MAX_ATTEMPTS);
+    });
+
+    // Sharing the authenticated counter would let signups from a shared egress
+    // deny everyone behind it the resend that is their only way back.
+    it('leaves an authenticated resend working from an IP that has spent the budget', async () => {
+      await spendSignupBudget();
+      await signUpSpendingBudget('signup-budget-spent');
+
+      const user = await ctx.createUser('signup-budget-resend');
+      clearSentEmails();
+
+      const res = await ctx.request(user.token).post('/api/auth/verify-email/resend');
+      expect(res.status).toBe(204);
+      expect(sentEmails()).toHaveLength(1);
+      expect(sentEmails()[0].to).toBe(user.email);
+    });
   });
 
   describe('POST /api/auth/verify-email', () => {
@@ -114,6 +200,49 @@ describe('Email verification', () => {
 
       expect((await ctx.request().post('/api/auth/verify-email', { token })).status).toBe(204);
       expect((await verifiedAtOf(user.id))?.getTime()).toBe(first?.getTime());
+    });
+
+    // The interleave is forced with a held row lock rather than raced: the handler's
+    // read is a plain select and runs to completion, then its write blocks until the
+    // address has already moved underneath it.
+    it('never verifies an address the token was not issued for', async () => {
+      clearSentEmails();
+      const user = await ctx.createUser('verify-race');
+      const token = extractToken(sentEmails()[0].text);
+      const moved = uniqueEmail('verify-race-moved');
+
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const mover = db.transaction().execute(async (trx) => {
+        await trx
+          .selectFrom('app_user')
+          .select('id')
+          .where('id', '=', user.id)
+          .forUpdate()
+          .execute();
+        await held;
+        await trx
+          .updateTable('app_user')
+          .set({ email: moved, email_verified_at: null })
+          .where('id', '=', user.id)
+          .execute();
+      });
+
+      const redeeming = ctx.request().post('/api/auth/verify-email', { token });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      release();
+      await mover;
+      await redeeming;
+
+      const row = await db
+        .selectFrom('app_user')
+        .select(['email', 'email_verified_at'])
+        .where('id', '=', user.id)
+        .executeTakeFirstOrThrow();
+      expect(row.email).toBe(moved);
+      expect(row.email_verified_at).toBeNull();
     });
 
     it('treats every outstanding token for the address as equivalent', async () => {

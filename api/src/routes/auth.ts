@@ -9,6 +9,7 @@ import { paramValidator } from '../middleware/requestValidator';
 import {
   enforceAuthRateLimit,
   enforceResetRateLimit,
+  enforceSignupVerificationRateLimit,
   enforceVerificationRateLimit,
 } from '../middleware/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -29,6 +30,7 @@ import { hashPassword, verifyPassword, verifyDummyPassword } from '../services/p
 import { PROJECT_COLUMNS, fetchMembers, publishProjectListItem } from '../services/projectListItem';
 import { emailAddressHash, verifyVerificationToken } from '../services/emailToken';
 import { enqueueVerificationEmail } from '../services/emailVerification';
+import { claimInvitationsForNewAccount } from '../services/invitations';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
 import { SESSIONS_REVOKED, USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
 import { storage } from '../services/storage/index';
@@ -128,7 +130,11 @@ router.post(
     description:
       'Create a new user account and start a session. The client supplies the user id. A ' +
       'verification email is sent to the address; the account is usable immediately and ' +
-      '`email_verified` starts false.',
+      '`email_verified` starts false. That send is budgeted per source IP, and the budget ' +
+      'only ever withholds the mail: past it the account is still created and the session ' +
+      'still starts, and the account can ask for a fresh link at any time. Every unexpired ' +
+      'invitation outstanding for the address, across every project, takes effect here and ' +
+      'the account joins those boards at the invited role.',
     responses: {
       201: {
         description: 'Account created',
@@ -177,7 +183,10 @@ router.post(
     }
 
     const token = await createSession(db, id);
-    enqueueVerificationEmail(c, { id, email });
+    if (await enforceSignupVerificationRateLimit(c)) {
+      enqueueVerificationEmail(c, { id, email });
+    }
+    await claimInvitationsForNewAccount(c, db, id, email);
 
     return c.json(
       { token, user: { id, email, name, avatar_url: null, email_verified: false } },
@@ -878,10 +887,15 @@ router.post(
       throw new AppError(422, 'Invalid verification link');
     }
 
+    // The address is re-asserted here, not just in the check above: an address
+    // change committing between the two statements would otherwise satisfy the
+    // null guard — it nulls that column itself — and stamp a mailbox nobody
+    // confirmed as verified.
     await db
       .updateTable('app_user')
       .set({ email_verified_at: new Date() })
       .where('id', '=', user.id)
+      .where('email', '=', user.email)
       .where('email_verified_at', 'is', null)
       .execute();
 
