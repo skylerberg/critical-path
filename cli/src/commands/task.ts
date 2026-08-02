@@ -485,10 +485,7 @@ async function updateAssignees(
   );
   const users = await listUsers(ctx, board.project.id);
   const userById = new Map(users.map((u) => [u.id, u]));
-  const names = userIds.map((id) => {
-    const user = userById.get(id);
-    return user == null ? id : `${user.name} <${user.email}>`;
-  });
+  const names = userIds.map((id) => userById.get(id)?.name ?? id);
   ctx.out.data({ task_id: task.id, assignee_ids: userIds }, () =>
     ctx.out.line(
       names.length > 0
@@ -506,7 +503,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
       .description('List tasks with optional filters')
       .option('--column <column>', 'filter by column (id or name)')
       .option('--label <label>', 'filter by label (id or name)')
-      .option('--assignee <user>', 'filter by assignee (user id, name, or email)')
+      .option('--assignee <user>', 'filter by assignee (user id or name)')
       .option('--ready', 'only unfinished tasks with no unfinished blockers')
       .option('--blocked', 'only tasks with unfinished blockers')
       .option('--done', 'only tasks in done columns')
@@ -614,10 +611,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
               ctx.out.line(`Labels:    ${names.join(', ')}`);
             }
             if (detail.assignee_ids.length > 0) {
-              const names = detail.assignee_ids.map((id) => {
-                const user = userById.get(id);
-                return user == null ? id : `${user.name} <${user.email}>`;
-              });
+              const names = detail.assignee_ids.map((id) => userById.get(id)?.name ?? id);
               ctx.out.line(`Assignees: ${names.join(', ')}`);
             }
             renderDependencySection(ctx, board, 'Blocked by', blockedBy);
@@ -656,7 +650,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
         .option('--label <label>', 'label id or name (repeatable)', collect, [] as string[])
         .option(
           '--assignee <user>',
-          'assignee user id, name, or email (repeatable)',
+          'assignee user id or name (repeatable)',
           collect,
           [] as string[]
         )
@@ -974,7 +968,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
     taskLeaf('assign')
       .description('Add assignees to a task')
       .argument('<task>', 'task id or title')
-      .argument('<users...>', 'user ids, names, or emails')
+      .argument('<users...>', 'user ids or names')
       .action(
         withCtx(deps, async (ctx, opts, taskRef, ...rest) => {
           await updateAssignees(ctx, opts, taskRef, rest.flat(), (current, ids) =>
@@ -988,7 +982,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
     taskLeaf('unassign')
       .description('Remove assignees from a task')
       .argument('<task>', 'task id or title')
-      .argument('<users...>', 'user ids, names, or emails')
+      .argument('<users...>', 'user ids or names')
       .action(
         withCtx(deps, async (ctx, opts, taskRef, ...rest) => {
           await updateAssignees(ctx, opts, taskRef, rest.flat(), (current, ids) =>
@@ -1004,7 +998,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
     taskLeaf('set')
       .description('Replace the assignees on a task (no users clears them)')
       .argument('<task>', 'task id or title')
-      .argument('[users...]', 'user ids, names, or emails')
+      .argument('[users...]', 'user ids or names')
       .action(
         withCtx(deps, async (ctx, opts, taskRef, ...rest) => {
           await updateAssignees(ctx, opts, taskRef, rest.flat(), (_current, ids) => ids);

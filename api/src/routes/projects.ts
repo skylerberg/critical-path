@@ -899,7 +899,7 @@ router.post(
     const emailLower = email.toLowerCase();
     const target = await db
       .selectFrom('app_user')
-      .select(['id', 'email', 'name', 'avatar_storage_key'])
+      .select(['id', 'name', 'avatar_storage_key'])
       .where((eb) => eb(eb.fn<string>('lower', ['email']), '=', emailLower))
       .executeTakeFirst();
 
@@ -946,7 +946,6 @@ router.post(
           role: effectiveRole,
           user: {
             id: target.id,
-            email: target.email,
             name: target.name,
             avatar_url: avatarUrl(target.avatar_storage_key),
           },

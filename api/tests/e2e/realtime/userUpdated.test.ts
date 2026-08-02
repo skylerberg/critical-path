@@ -96,7 +96,6 @@ describe('user_updated realtime event', () => {
     expect(event.project_id).toBeNull();
     expect(event.data).toEqual({
       id: changer.id,
-      email: changer.email,
       name: changer.name,
       avatar_url: body.avatar_url,
     });
@@ -121,7 +120,6 @@ describe('user_updated realtime event', () => {
     expect(event.project_id).toBeNull();
     expect(event.data).toEqual({
       id: changer.id,
-      email: changer.email,
       name: changer.name,
       avatar_url: null,
     });
@@ -152,7 +150,6 @@ describe('user_updated realtime event', () => {
     expect(event.project_id).toBeNull();
     expect(event.data).toEqual({
       id: changer.id,
-      email: changer.email,
       name: 'Renamed Live',
       avatar_url: null,
     });
@@ -167,25 +164,29 @@ describe('user_updated realtime event', () => {
     expect(outsiderClient.events).toEqual([]);
   });
 
-  it('delivers user_updated on an email change without reaching outsiders', async () => {
+  it('fans an email change out to sharers with neither address on the wire', async () => {
+    const from = sharerClient.events.length;
+    const ownFrom = changerSecondClient.events.length;
+    const oldEmail = changer.email;
     const newEmail = uniqueEmail('uu-changed');
     const res = await ctx.request(changer.token).patch('/api/auth/me', { email: newEmail });
     expect(res.status).toBe(200);
+    expect((await res.json()).email).toBe(newEmail);
 
-    const event = await sharerClient.waitForEvent(
-      (e) => e.type === 'user_updated' && e.data.email === newEmail
-    );
+    const event = await sharerClient.waitForEvent((e) => e.type === 'user_updated', { from });
     expect(event.data).toEqual({
       id: changer.id,
-      email: newEmail,
       name: 'Renamed Live',
       avatar_url: null,
     });
+    expect(JSON.stringify(event)).not.toContain(newEmail);
+    expect(JSON.stringify(event)).not.toContain(oldEmail);
     changer.email = newEmail;
 
-    await changerSecondClient.waitForEvent(
-      (e) => e.type === 'user_updated' && e.data.email === newEmail
-    );
+    const own = await changerSecondClient.waitForEvent((e) => e.type === 'user_updated', {
+      from: ownFrom,
+    });
+    expect(JSON.stringify(own)).not.toContain(newEmail);
     await settle();
     expect(outsiderClient.events).toEqual([]);
   });

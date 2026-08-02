@@ -134,7 +134,7 @@ describe('task commands', () => {
       '--label',
       'bug',
       '--assignee',
-      user.email,
+      user.name,
       '--json',
     ]);
     expect(res.exitCode).toBe(0);
@@ -206,7 +206,7 @@ describe('task commands', () => {
       '--project',
       projectId,
       '--assignee',
-      user.email,
+      user.name,
       '--json',
     ]);
     expect(assigned.json<StatefulTask[]>().map((t) => t.title)).toEqual(['Labeled task']);
@@ -417,12 +417,12 @@ describe('task commands', () => {
     expect(((await detail.json()) as TaskDetailResponse).label_ids).toEqual([]);
   });
 
-  it('assign and unassign resolve users by email', async () => {
+  it('assign and unassign resolve users by name', async () => {
     const assign = await h.runCli([
       'task',
       'assign',
       'Gamma task',
-      user.email,
+      user.name,
       '--project',
       projectId,
       '--json',
@@ -434,7 +434,7 @@ describe('task commands', () => {
       'task',
       'unassign',
       'Gamma task',
-      user.email,
+      user.name,
       '--project',
       projectId,
       '--json',
@@ -447,7 +447,7 @@ describe('task commands', () => {
       'assignees',
       'set',
       'Gamma task',
-      user.email,
+      user.name,
       '--project',
       projectId,
       '--json',
@@ -1061,7 +1061,7 @@ describe('task create - (one title per stdin line)', () => {
   it('fails with exit 2 when combined with options the batch cannot carry', async () => {
     for (const extra of [
       ['--label', 'bug'],
-      ['--assignee', user.email],
+      ['--assignee', user.name],
       ['--description', 'nope'],
       ['--due', '2026-09-01'],
     ]) {

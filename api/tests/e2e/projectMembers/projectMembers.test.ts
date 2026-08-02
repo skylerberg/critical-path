@@ -210,7 +210,7 @@ describe('Project members API', () => {
       expect(await res.json()).toEqual({
         status: 'member',
         role: 'editor',
-        user: { id: member.id, email: member.email, name: member.name, avatar_url: null },
+        user: { id: member.id, name: member.name, avatar_url: null },
         invitation: null,
       });
 

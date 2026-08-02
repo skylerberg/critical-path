@@ -268,14 +268,9 @@ export async function resolveUser(
   ref: string,
   projectId?: string
 ): Promise<User> {
-  const users = await listUsers(ctx, projectId);
-  const byEmail = users.filter((u) => u.email.toLowerCase() === ref.toLowerCase());
-  if (byEmail.length === 1) {
-    return byEmail[0];
-  }
   return matchRef(
     ref,
-    users,
+    await listUsers(ctx, projectId),
     'user',
     (u) => u.id,
     (u) => u.name

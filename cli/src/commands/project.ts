@@ -186,14 +186,13 @@ export function registerProject(program: Command, deps: CliDeps): void {
             return {
               id,
               name: user?.name ?? null,
-              email: user?.email ?? null,
               role: id === target.created_by ? 'owner' : (roleById.get(id) ?? 'editor'),
             };
           });
           ctx.out.data(members, () => {
             ctx.out.table(
-              ['ID', 'NAME', 'EMAIL', 'ROLE'],
-              members.map((m) => [m.id.slice(0, 8), m.name ?? '(unknown)', m.email ?? '', m.role])
+              ['ID', 'NAME', 'ROLE'],
+              members.map((m) => [m.id.slice(0, 8), m.name ?? '(unknown)', m.role])
             );
           });
         })
@@ -204,7 +203,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
     leaf('set-members')
       .description('Replace the member list (the creator always keeps access)')
       .argument('<project>', 'project id or name')
-      .argument('<users...>', 'user ids, names, or emails')
+      .argument('<users...>', 'user ids or names')
       .action(
         withCtx(deps, async (ctx, _opts, ref, ...rest) => {
           const target = await resolveProject(ctx, ref);
@@ -234,7 +233,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
     leaf('set-role')
       .description('Change one member’s role without touching the member list')
       .argument('<project>', 'project id or name')
-      .argument('<user>', 'member id, name, or email')
+      .argument('<user>', 'member id or name')
       .requiredOption('--role <role>', 'editor or viewer')
       .action(
         withCtx(deps, async (ctx, opts, ref, userRef) => {
@@ -266,7 +265,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
     leaf('transfer')
       .description('Transfer ownership of a project to another member')
       .argument('<project>', 'project id or name')
-      .requiredOption('--to <user>', 'member to hand the project to (id, name, or email)')
+      .requiredOption('--to <user>', 'member to hand the project to (id or name)')
       .option('--force', 'skip the confirmation prompt')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {

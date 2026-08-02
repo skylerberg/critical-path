@@ -94,7 +94,7 @@ async function cachedArchive(ctx: RuntimeContext, projectId: string): Promise<Ca
 
 async function cachedUsers(ctx: RuntimeContext, projectId?: string): Promise<Candidate[]> {
   return cached(ctx, `users:${projectId ?? 'all'}`, async () =>
-    (await listUsers(ctx, projectId)).map((user) => ({ value: user.email, description: user.name }))
+    toCandidates(await listUsers(ctx, projectId))
   );
 }
 

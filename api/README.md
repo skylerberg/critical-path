@@ -134,7 +134,8 @@ Copied projects start personal: members are never copied from the source.
 `GET /api/users` returns the caller plus every user sharing at least one
 project with them (as creator or member on either side); `GET
 /api/users?project_id=` returns the users who can access that project plus
-users still assigned to its tasks or still holding a comment on them.
+users still assigned to its tasks or still holding a comment on them. Either
+way a user record is `{ id, name, avatar_url }` — never an email address.
 
 ### Pending invitations
 
@@ -576,9 +577,8 @@ from the ordinary board payload, so anything added to that payload later stays
 private until it is published deliberately. Public boards carry card titles,
 descriptions (with their `/api/images/:id` nodes), positions, due dates,
 labels, blockers, image counts, cover images, and the name and avatar of
-assigned users; member ids, the creator, timestamps, and email addresses are
-not on the wire, and users who are not assigned to anything are not listed at
-all.
+assigned users; member ids, the creator, and timestamps are not on the wire,
+and users who are not assigned to anything are not listed at all.
 
 Responses are `no-store` and carry `X-Robots-Tag: noindex, nofollow`. The
 board itself is unlisted: nothing enumerates published projects. Anonymous
@@ -675,7 +675,7 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `project_created` / `project_updated` | projects-list item (with `member_ids`, `members` and task counts, without the per-user `position`) |
 | `project_deleted`                     | `{ id }`                                                                                           |
 | `project_position_updated`            | `{ id, position }`                                                                                 |
-| `user_updated`                        | public user `{ id, email, name, avatar_url }`                                                      |
+| `user_updated`                        | public user `{ id, name, avatar_url }`                                                             |
 | `sessions_revoked`                    | `{ user_id }`, optionally plus `personal_access_token_id`                                          |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
@@ -726,9 +726,9 @@ name/email changes, never from password or session flows) carries
 other devices) plus every authenticated socket whose user shares at least one
 project with them — creator or member on either side, re-checked live per
 event with a single query over the connected users. That recipient set is
-the visibility set of the global `GET /api/users` listing (the per-project mode can be broader via task assignees; those extra viewers simply do not receive live updates), which already exposes email to
-project-sharers, so the event's `email` field never reaches a user who could
-not already fetch it.
+the visibility set of the global `GET /api/users` listing (the per-project mode can be broader via task assignees; those extra viewers simply do not receive live updates), so the event
+never tells anyone about a user they could not already fetch. The payload
+carries no email address: no user record does.
 
 ### Outbound webhooks
 
@@ -935,12 +935,16 @@ A token carries a hash of the address rather than the address itself, which is
 both what binds it (redemption recomputes the hash from the stored address) and
 what keeps addresses out of load-balancer logs and browser history.
 
-`email_verified` is returned **only to the caller about themselves** — the
-`Me` shape, used by signup, login, `GET`/`PATCH /api/auth/me`,
-change-password and the avatar routes. It is absent from the `User` shape that
-describes other people, and therefore from `GET /api/users`, project member
-lists and the `user_updated` realtime payload, which fans out to everyone who
-shares a project.
+`email` and `email_verified` are returned **only to the caller about
+themselves** — the `Me` shape, used by signup, login, `GET`/`PATCH
+/api/auth/me`, change-password and the avatar routes. Both are absent from the
+`User` shape that describes other people, and therefore from `GET /api/users`,
+project member lists, the project export manifest and the `user_updated`
+realtime payload, which fans out to everyone who shares a project. No user
+record discloses one person's address to another, on private boards or
+anywhere else; the one place an address is on the wire between two people is a
+pending invitation, which only editors may read and which exists because an
+editor typed that address.
 
 ### Notification email
 
@@ -1181,11 +1185,11 @@ back:
 ```jsonc
 {
   "format": "critical-path-project-export",
-  "version": 2,
+  "version": 3,
   "exported_at": "2026-07-26T12:00:00.000Z",
   "project": { "id", "name", "description", "archived_at", "created_at",
                "created_by", "member_ids", "is_public" },
-  "users":   [ { "id", "email", "name" } ],
+  "users":   [ { "id", "name" } ],
   "columns": [ { "id", "name", "position", "is_done" } ],
   "labels":  [ { "id", "name", "color" } ],
   "tasks": [ {
@@ -1203,7 +1207,8 @@ back:
 
 - `version` is bumped only on a breaking shape change. It went to `2` when
   archived cards joined `tasks[]`: a reader of a `1` export could take every row
-  as live, which is no longer true.
+  as live, which is no longer true. It went to `3` when `users[].email` was
+  dropped: no user record carries an address any more.
 - Archived cards are exported. Each carries the `archived_at` that marks it and
   the `column_id` it was archived from, so an importer can restore it archived,
   drop it, or ask. A live card has `archived_at: null`. `blocker_ids` still
@@ -1241,7 +1246,7 @@ id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_coun
 ```
 
 one row per task in the manifest's order, RFC 4180 quoting, CRLF line endings.
-Labels, assignees (as emails) and blockers (as titles) are joined with `"; "`,
+Labels, assignees (as names) and blockers (as titles) are joined with `"; "`,
 `archived_at` is empty for a live card, and the description is flattened to
 plain text, mentions included as `@label`. Values
 are written exactly as the user typed them — a title starting with `=` is not
@@ -1347,7 +1352,7 @@ cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Projec
 cpath project invite "My Project" --email them@example.com --role viewer  # editor by default
 cpath project invitations "My Project"  # pending invites: id, email, role, expiry
 cpath project resend-invite "My Project" --id 3f9a1c2b   # id as listed, a prefix, or the address
-cpath project set-role "My Project" them@example.com --role editor
+cpath project set-role "My Project" "Their Name" --role editor   # member id or name
 cpath project members "My Project"      # ROLE column reads owner / editor / viewer
 cpath task url "Fix the bug" --project "My Project"   # shareable web link
 cpath config set default-project "My Project"   # makes --project optional
@@ -1439,7 +1444,7 @@ cpath completion -s fish > ~/.config/fish/completions/cpath.fish
 ```
 
 TAB completes subcommands and flags, and — where a reference is expected —
-project, column, label and task names plus member emails, taken from the
+project, column, label, task and member names, taken from the
 project named on the command line or, failing that, from
 `CRITICAL_PATH_PROJECT` / the configured `default-project`. Those lookups are
 cached for ~30 seconds under the config directory and fail silently: an

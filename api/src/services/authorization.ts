@@ -257,10 +257,10 @@ export async function projectAccessIdsAmong(
 export async function usersWithProjectAccess(
   db: Kysely<DB>,
   projectId: string
-): Promise<Array<{ id: string; email: string; name: string; avatar_url: string | null }>> {
+): Promise<Array<{ id: string; name: string; avatar_url: string | null }>> {
   const rows = await db
     .selectFrom('app_user')
-    .select(['app_user.id', 'app_user.email', 'app_user.name', 'app_user.avatar_storage_key'])
+    .select(['app_user.id', 'app_user.name', 'app_user.avatar_storage_key'])
     .where((eb) =>
       eb.or([
         eb.exists(
