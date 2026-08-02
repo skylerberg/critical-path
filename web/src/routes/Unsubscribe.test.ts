@@ -105,6 +105,26 @@ describe('Unsubscribe', () => {
     ).toBeInTheDocument();
   });
 
+  it('stops inviting a retry once the link itself is refused', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { kind: 'added_to_project' }));
+    render(Unsubscribe, { token: 'tok-123' });
+    await confirm();
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(422, { error: 'This unsubscribe link is not valid' })
+    );
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Turn off all email notifications' })
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This link is no longer valid. Sign in to change the rest of your email settings.'
+    );
+    expect(
+      screen.getByText("You'll no longer get email when someone adds you to a board.")
+    ).toBeInTheDocument();
+  });
+
   it('never calls the API without a token', async () => {
     render(Unsubscribe, { token: undefined });
 

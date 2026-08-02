@@ -20,9 +20,12 @@
   };
 
   const RETRY_MESSAGE = 'Something went wrong. Please try again.';
+  const DEAD_LINK_MESSAGE =
+    'This link is no longer valid. Sign in to change the rest of your email settings.';
 
   // Nothing may be written before a human presses the button: mail security
-  // scanners and browser prerenders follow the link here on their own.
+  // scanners and browser prerenders follow the link here on their own, and
+  // there is deliberately no request shape that undoes it.
   let phase = $state<'confirm' | 'working' | 'done' | 'all' | 'invalid'>('confirm');
   let kind = $state<Kind | null>(null);
   let stoppingAll = $state(false);
@@ -62,10 +65,11 @@
     try {
       assertOk(await api.POST('/api/auth/unsubscribe/all', { body: { token } }));
       phase = 'all';
-    } catch {
+    } catch (err) {
       // The single unsubscribe already committed, so its result outranks this
-      // failure and stays on screen.
-      error = RETRY_MESSAGE;
+      // failure and stays on screen. A dead token says so instead of inviting a
+      // retry that can only fail the same way.
+      error = err instanceof ApiError && err.status === 422 ? DEAD_LINK_MESSAGE : RETRY_MESSAGE;
     } finally {
       stoppingAll = false;
     }
