@@ -6,7 +6,7 @@ import { session } from '../lib/session.svelte';
 
 const ASSIGNED = 'When someone assigns me a task';
 const ADDED = 'When someone adds me to a board';
-const UNVERIFIED_LINE = /hasn't been verified yet/;
+const WITHHELD_LINE = 'These emails are on hold until your address is verified.';
 
 function signIn(emailVerified: boolean): void {
   session.user = {
@@ -89,44 +89,23 @@ describe('NotificationSettings', () => {
     expect(screen.getByText('save failed')).toBeInTheDocument();
   });
 
-  it('explains why mail is not being sent, only while the address is unverified', async () => {
+  it('says nothing about verification once the address is verified', async () => {
     fetchMock.mockResolvedValue(settingsResponse(true, true));
     render(NotificationSettings);
 
     await screen.findByLabelText(ASSIGNED);
-    expect(screen.queryByText(UNVERIFIED_LINE)).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: 'Resend verification email' })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(WITHHELD_LINE)).not.toBeInTheDocument();
   });
 
-  it('offers a resend when the address is unverified, and leaves the toggles usable', async () => {
+  it('says mail is withheld while unverified, without offering its own remedy', async () => {
     signIn(false);
     fetchMock.mockResolvedValue(settingsResponse(true, true));
     render(NotificationSettings);
 
-    expect(await screen.findByText(UNVERIFIED_LINE)).toHaveTextContent('ada@example.com');
+    expect(await screen.findByText(WITHHELD_LINE)).toBeInTheDocument();
     expect(await screen.findByLabelText(ASSIGNED)).toBeEnabled();
-
-    const resend = screen.getByRole('button', { name: 'Resend verification email' });
-    fetchMock.mockResolvedValueOnce(jsonResponse(204));
-    await fireEvent.click(resend);
-
-    expect(await screen.findByText('Verification email sent')).toBeInTheDocument();
-    expect(new URL(requestAt(1).url).pathname).toBe('/api/auth/verify-email/resend');
-  });
-
-  it('reports a throttled resend in plain language', async () => {
-    signIn(false);
-    fetchMock.mockResolvedValueOnce(settingsResponse(true, true));
-    render(NotificationSettings);
-
-    const resend = await screen.findByRole('button', { name: 'Resend verification email' });
-    fetchMock.mockResolvedValueOnce(jsonResponse(429, { error: 'Too many verification emails' }));
-    await fireEvent.click(resend);
-
-    expect(
-      await screen.findByText('Too many requests — try again in a little while.')
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /verif/i })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/auth/me/notification-settings');
   });
 });

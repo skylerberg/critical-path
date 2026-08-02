@@ -160,6 +160,25 @@ describe('Account', () => {
     expect(requestTo('/api/auth/verify-email/resend').method).toBe('POST');
   });
 
+  // An exact inventory, not a presence check: the duplicate this caught was two
+  // sections, each covered by a test file blind to the other's copy.
+  it('says the address is unverified once, and offers one way to fix it', () => {
+    mockRoutes(204);
+    render(Account);
+
+    expect(screen.getAllByText(/verif/i).map((node) => node.textContent?.trim())).toEqual([
+      'This address is not verified yet. Verifying it confirms we can reach you here.',
+      'Send verification email',
+      'These emails are on hold until your address is verified.',
+    ]);
+    expect(
+      screen
+        .getAllByRole('button')
+        .filter((node) => /verif|resend|new link/i.test(node.textContent ?? ''))
+        .map((node) => node.textContent?.trim())
+    ).toEqual(['Send verification email']);
+  });
+
   // The server answers the same 204 having sent nothing when this tab's flag has
   // gone stale, so a flat claim that mail went out would be a lie half the time.
   it('does not promise mail the resend may not have sent', async () => {
@@ -373,7 +392,9 @@ describe('Account', () => {
     expect(screen.getByRole('heading', { name: 'Email notifications' })).toBeInTheDocument();
     expect(await screen.findByLabelText('When someone assigns me a task')).toBeChecked();
     expect(pathsRequested()).toContain('/api/auth/me/notification-settings');
-    expect(screen.queryByText(/hasn't been verified yet/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('These emails are on hold until your address is verified.')
+    ).not.toBeInTheDocument();
   });
 
   it('shows the personal access token section and loads the list', async () => {

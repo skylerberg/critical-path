@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, ApiError, assertOk } from '../api/client';
+  import { api, assertOk } from '../api/client';
   import type { components } from '../api/api.generated';
   import { apiMessage } from '../lib/apiMessages';
   import { session } from '../lib/session.svelte';
@@ -18,8 +18,6 @@
   let loadError = $state<string | null>(null);
   let saveStatus = $state<Status>(null);
   let saving = $state(false);
-  let resending = $state(false);
-  let resendStatus = $state<Status>(null);
 
   const unverified = $derived(session.user?.email_verified === false);
 
@@ -55,23 +53,6 @@
       saving = false;
     }
   }
-
-  async function resendVerification(): Promise<void> {
-    resending = true;
-    resendStatus = null;
-    try {
-      assertOk(await api.POST('/api/auth/verify-email/resend'));
-      resendStatus = { kind: 'success', message: 'Verification email sent' };
-    } catch (error) {
-      const message =
-        error instanceof ApiError && error.status === 429
-          ? 'Too many requests — try again in a little while.'
-          : apiMessage(error);
-      resendStatus = { kind: 'error', message };
-    } finally {
-      resending = false;
-    }
-  }
 </script>
 
 {#snippet status(value: Status)}
@@ -86,15 +67,7 @@
 {/snippet}
 
 {#if unverified}
-  <div class="flex flex-col items-start gap-2">
-    <p class="text-sm text-muted">
-      We're not sending email to {session.user?.email} because it hasn't been verified yet.
-    </p>
-    <Button variant="secondary" disabled={resending} onclick={resendVerification}>
-      {resending ? 'Sending…' : 'Resend verification email'}
-    </Button>
-    {@render status(resendStatus)}
-  </div>
+  <p class="text-sm text-muted">These emails are on hold until your address is verified.</p>
 {/if}
 
 {#if settings === null}
