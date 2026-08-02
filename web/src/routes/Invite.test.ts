@@ -39,7 +39,22 @@ describe('Invite', () => {
     expect(accept.method).toBe('POST');
     expect(await accept.clone().json()).toEqual({ token: 'tok-123' });
     expect(pathsCalled()).toContain('/api/projects');
-    expect(toasts.toasts.map((t) => t.message)).toContain('You joined the board');
+    expect(toasts.toasts.map((t) => t.message)).toContain('You have edit access to this board');
+  });
+
+  it('reports view-only access when the link leaves the caller a viewer', async () => {
+    fetchMock.mockImplementation(async (input) =>
+      new URL((input as Request).url).pathname === '/api/invitations/accept'
+        ? jsonResponse(200, { project_id: 'p-shared', role: 'viewer' })
+        : jsonResponse(200, { projects: [] })
+    );
+
+    render(Invite, { token: 'tok-123' });
+
+    await waitFor(() => expect(router.path).toBe('/projects/p-shared'));
+    expect(toasts.toasts.map((t) => t.message)).toEqual([
+      'You have view-only access to this board',
+    ]);
   });
 
   it('sends a signed-out visitor to log in and brings them back to the link', async () => {

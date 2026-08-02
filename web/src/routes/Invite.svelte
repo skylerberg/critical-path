@@ -39,11 +39,18 @@
       return;
     }
     try {
-      const { project_id } = assertOk(
+      const { project_id, role } = assertOk(
         await api.POST('/api/invitations/accept', { body: { token } })
       );
       await projects.load();
-      toasts.success('You joined the board');
+      // The link is redeemable by someone who already has access, and by a
+      // viewer it would promote but does not, so the role is the only thing
+      // a 200 actually promises.
+      toasts.success(
+        role === 'editor'
+          ? 'You have edit access to this board'
+          : 'You have view-only access to this board'
+      );
       router.redirect(boardPath(project_id, false));
     } catch (err) {
       error = err instanceof ApiError && err.status === 422 ? DEAD_LINK : apiMessage(err);
