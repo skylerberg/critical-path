@@ -34,6 +34,10 @@ export class SesEmailSender implements EmailSender {
           Simple: {
             Subject: { Data: message.subject },
             Body: { Text: { Data: message.text } },
+            Headers: Object.entries(message.headers ?? {}).map(([Name, Value]) => ({
+              Name,
+              Value,
+            })),
           },
         },
       })
