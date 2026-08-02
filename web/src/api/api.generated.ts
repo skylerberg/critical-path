@@ -14,7 +14,7 @@ export interface paths {
         put?: never;
         /**
          * Sign up
-         * @description Create a new user account and start a session. The client supplies the user id. A verification email is sent to the address; the account is usable immediately and `email_verified` starts false. That send is budgeted per source IP, and the budget only ever withholds the mail: past it the account is still created and the session still starts, and the account can ask for a fresh link at any time. Every unexpired invitation outstanding for the address, across every project, takes effect here and the account joins those boards at the invited role.
+         * @description Create a new user account and start a session. The client supplies the user id. A verification email is sent to the address; the account is usable immediately and `email_verified` starts false. Account creation is capped at 50 an hour per source IP, whatever addresses are used: past that the call answers 429 and creates nothing. Every unexpired invitation outstanding for the address, across every project, takes effect here and the account joins those boards at the invited role.
          */
         post: operations["postApiAuthSignup"];
         delete?: never;
@@ -392,7 +392,7 @@ export interface paths {
         };
         /**
          * List visible users
-         * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name.
+         * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name. email narrows either listing to the one user holding that exact address, case-insensitively, and is the only way to name someone by address: a user record never carries one. It selects from the same set the unfiltered call already returns in full, so it discloses nothing new — an address that belongs to nobody visible yields an empty list rather than 404, which on this route means the project is missing or unreadable. A malformed address is 400.
          */
         get: operations["getApiUsers"];
         put?: never;
@@ -3122,6 +3122,7 @@ export interface operations {
     getApiUsers: {
         parameters: {
             query?: {
+                email?: string;
                 project_id?: string;
             };
             header?: never;
