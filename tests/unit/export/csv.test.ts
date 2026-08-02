@@ -165,7 +165,9 @@ function exportFixture(overrides: Partial<ProjectExport> = {}): ProjectExport {
       created_at: '2026-07-01T00:00:00.000Z',
       created_by: 'u1',
       member_ids: [],
+      members: [],
       is_public: false,
+      color: null,
     },
     users: [{ id: 'u1', name: 'Owner' }],
     columns: [
