@@ -75,6 +75,7 @@ export interface PersonalAccessToken {
 
 export interface Project {
   archived_at: Timestamp | null;
+  color: string | null;
   created_at: Generated<Timestamp>;
   created_by: string;
   description: Generated<string>;

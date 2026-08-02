@@ -97,6 +97,7 @@ function canonicalize(exportPayload: ProjectExport): unknown {
       created_by: exportPayload.project.created_by,
       member_ids: [...exportPayload.project.member_ids].sort(),
       is_public: exportPayload.project.is_public,
+      color: exportPayload.project.color,
     },
     users: exportPayload.users,
     columns: exportPayload.columns,
@@ -141,6 +142,12 @@ async function reimport(
   if (exportPayload.project.description !== '') {
     const res = await client.patch(`/api/projects/${projectId}`, {
       description: exportPayload.project.description,
+    });
+    expect(res.status).toBe(200);
+  }
+  if (exportPayload.project.color !== null) {
+    const res = await client.patch(`/api/projects/${projectId}`, {
+      color: exportPayload.project.color,
     });
     expect(res.status).toBe(200);
   }
@@ -259,6 +266,9 @@ describe('GET /api/projects/:id/export', () => {
     const client = ctx.request(owner.token);
 
     projectId = await createProject(owner, 'My Project! 🎉');
+    expect((await client.patch(`/api/projects/${projectId}`, { color: 'violet' })).status).toBe(
+      200
+    );
     expect(
       (
         await client.put(`/api/projects/${projectId}/members`, {
@@ -410,6 +420,7 @@ describe('GET /api/projects/:id/export', () => {
 
       const board = await (await ctx.request(owner.token).get(`/api/projects/${projectId}`)).json();
       expect(exportPayload.project).toEqual(board.project);
+      expect(exportPayload.project.color).toBe('violet');
       expect(exportPayload.columns).toEqual(board.columns);
       expect(exportPayload.labels.map((label) => label.name)).toEqual(['bug', 'ui']);
       expect(exportPayload.tasks.map((task) => task.position)).toEqual([1000, 2000, 3000]);

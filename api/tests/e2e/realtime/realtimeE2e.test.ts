@@ -800,6 +800,28 @@ describe('Realtime end to end', () => {
     expect(unpublished.data).toMatchObject({ id: projectId, is_public: false });
   });
 
+  it('delivers project_updated carrying the accent colour, including its removal', async () => {
+    const beforeSet = clientB2.events.length;
+    expect(
+      (await ctx.request(userA.token).patch(`/api/projects/${projectId}`, { color: 'sky' })).status
+    ).toBe(200);
+    const coloured = await clientB2.waitForEvent(
+      (e) => e.type === 'project_updated' && e.data.id === projectId,
+      { from: beforeSet }
+    );
+    expect(coloured.data).toMatchObject({ id: projectId, color: 'sky' });
+
+    const beforeClear = clientB2.events.length;
+    expect(
+      (await ctx.request(userA.token).patch(`/api/projects/${projectId}`, { color: null })).status
+    ).toBe(200);
+    const cleared = await clientB2.waitForEvent(
+      (e) => e.type === 'project_updated' && e.data.id === projectId,
+      { from: beforeClear }
+    );
+    expect(cleared.data).toMatchObject({ id: projectId, color: null });
+  });
+
   it('sends project_deleted to everyone who had access before the delete', async () => {
     const otherProjectId = newId();
     const createRes = await ctx
