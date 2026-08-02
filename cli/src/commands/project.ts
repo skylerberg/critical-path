@@ -203,7 +203,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
     leaf('set-members')
       .description('Replace the member list (the creator always keeps access)')
       .argument('<project>', 'project id or name')
-      .argument('<users...>', 'user ids or names')
+      .argument('<users...>', 'user ids, names, or emails')
       .action(
         withCtx(deps, async (ctx, _opts, ref, ...rest) => {
           const target = await resolveProject(ctx, ref);
@@ -233,7 +233,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
     leaf('set-role')
       .description('Change one member’s role without touching the member list')
       .argument('<project>', 'project id or name')
-      .argument('<user>', 'member id or name')
+      .argument('<user>', 'member id, name, or email')
       .requiredOption('--role <role>', 'editor or viewer')
       .action(
         withCtx(deps, async (ctx, opts, ref, userRef) => {
@@ -265,7 +265,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
     leaf('transfer')
       .description('Transfer ownership of a project to another member')
       .argument('<project>', 'project id or name')
-      .requiredOption('--to <user>', 'member to hand the project to (id or name)')
+      .requiredOption('--to <user>', 'member to hand the project to (id, name, or email)')
       .option('--force', 'skip the confirmation prompt')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {

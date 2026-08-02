@@ -392,7 +392,7 @@ export interface paths {
     };
     /**
      * List visible users
-     * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name.
+     * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name. email narrows either listing to the one user holding that exact address, case-insensitively, and is the only way to name someone by address: a user record never carries one. It selects from the same set the unfiltered call already returns in full, so it discloses nothing new — an address that belongs to nobody visible yields an empty list rather than 404, which on this route means the project is missing or unreadable. A malformed address is 400.
      */
     get: operations['getApiUsers'];
     put?: never;
@@ -3137,6 +3137,7 @@ export interface operations {
   getApiUsers: {
     parameters: {
       query?: {
+        email?: string;
         project_id?: string;
       };
       header?: never;

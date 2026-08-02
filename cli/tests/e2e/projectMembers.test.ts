@@ -149,8 +149,8 @@ describe('project member commands', () => {
       'project',
       'set-members',
       projectId,
-      user.name,
-      member.name,
+      user.email,
+      member.email,
       '--json',
     ]);
     expect(res.exitCode).toBe(0);
@@ -211,7 +211,7 @@ describe('project member commands', () => {
       'project',
       'set-role',
       projectId,
-      member.name,
+      member.email.toUpperCase(),
       '--role',
       'editor',
       '--json',
@@ -261,16 +261,11 @@ describe('project member commands', () => {
   });
 
   it('transfer rejects a --to target with no project access before sending a request', async () => {
-    const res = await h.runCli([
-      'project',
-      'transfer',
-      projectId,
-      '--to',
-      outsider.name,
-      '--force',
-    ]);
-    expect(res.exitCode).toBe(4);
-    expect(res.stderr).toMatch(/No user matching/);
+    for (const ref of [outsider.name, outsider.email]) {
+      const res = await h.runCli(['project', 'transfer', projectId, '--to', ref, '--force']);
+      expect(res.exitCode).toBe(4);
+      expect(res.stderr).toContain(`No user matching "${ref}"`);
+    }
   });
 
   it('transfer hands the project to a member and demotes the caller', async () => {

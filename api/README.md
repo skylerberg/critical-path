@@ -137,6 +137,16 @@ project with them (as creator or member on either side); `GET
 users still assigned to its tasks or still holding a comment on them. Either
 way a user record is `{ id, name, avatar_url }` — never an email address.
 
+`?email=` narrows either listing to the one user holding that exact address,
+case-insensitively, and is how a client names somebody by address now that no
+user record carries one. It is a filter over the set the same call already
+returns in full, so it tells a caller nothing about anyone they could not
+already list — an address belonging to a stranger, or to nobody, comes back as
+an empty `users` array rather than a 404, which on this route already means the
+project is missing or unreadable. A malformed address is 400. The address is
+compared in SQL and the column is never selected, so it exists nowhere the
+response could pick it up.
+
 ### Pending invitations
 
 Sharing a board with an address that has no account yet stores a
@@ -1407,7 +1417,7 @@ cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Projec
 cpath project invite "My Project" --email them@example.com --role viewer  # editor by default
 cpath project invitations "My Project"  # pending invites: id, email, role, expiry
 cpath project resend-invite "My Project" --id 3f9a1c2b   # id as listed, a prefix, or the address
-cpath project set-role "My Project" "Their Name" --role editor   # member id or name
+cpath project set-role "My Project" them@example.com --role editor   # id, name, or address
 cpath project members "My Project"      # ROLE column reads owner / editor / viewer
 cpath task url "Fix the bug" --project "My Project"   # shareable web link
 cpath config set default-project "My Project"   # makes --project optional
@@ -1417,7 +1427,11 @@ cpath watch --project "My Project" | jq 'select(.type=="task_created")'
 
 Entity references accept a UUID, a unique id prefix (>= 4 chars), an exact
 name/title (case-insensitive), or a unique substring; ambiguity is an error
-listing the candidates. Project and task references additionally accept the
+listing the candidates. A user reference additionally accepts an email address,
+which is tried first and matched by the server, since no user record the CLI
+receives carries one; an address naming nobody visible falls through to the
+name tiers rather than failing outright. Project and task references
+additionally accept the
 22-character short alias the web app puts in its URLs; column, label,
 invitation and user references do not. The alias is base64url of the id's 16
 raw bytes and is **case sensitive** — one flipped letter is a different
@@ -1545,6 +1559,14 @@ npm run openapi:dump && npm run --prefix cli generate-api
   taken before it has proved anything, and so does an address change, so whether
   an address has an account is learnable without a board at all. Metering those
   two is open.
+- `GET /api/users?email=` likewise tells a caller whether an address belongs to
+  someone they share a project with, and is deliberately not metered. It ranges
+  only over users the same route already returns in full and unfiltered, so it
+  cannot name anyone the caller could not already enumerate; against that set it
+  only confirms a guessed address, and confirming one is the point. Widening the
+  set means gaining a project with the person, which runs through the
+  invitation route above and its hourly budget. A limiter here would instead
+  meter ordinary work: naming an assignee costs one such call.
 - Float `position` ordering with no automatic rebalancing.
 - Project roles are only `editor` and `viewer`. Every editor can rename,
   archive and publish the board and manage its member set — including demoting
