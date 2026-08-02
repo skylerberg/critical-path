@@ -6,7 +6,12 @@ import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { errorHandler } from '../../../src/middleware/errorHandler';
 import { transactionMiddleware } from '../../../src/middleware/transaction';
-import { NOTIFY_RECIPIENT_MAX_ATTEMPTS, resetRateLimiter } from '../../../src/middleware/rateLimit';
+import {
+  NOTIFY_PAIR_MAX_ATTEMPTS,
+  NOTIFY_RECIPIENT_MAX_ATTEMPTS,
+  NOTIFY_WINDOW_MS,
+  resetRateLimiter,
+} from '../../../src/middleware/rateLimit';
 import { env } from '../../../src/config/env';
 import { logger } from '../../../src/utils/logger';
 import {
@@ -696,10 +701,14 @@ describe('Notifications', () => {
   });
 
   describe('what one mailbox can be made to receive', () => {
-    async function deliverAbout(taskId: string, recipientUserIds: string[]): Promise<void> {
+    async function deliverAbout(
+      taskId: string,
+      recipientUserIds: string[],
+      actorId = owner.id
+    ): Promise<void> {
       await realDeliver({
         kind: 'task_assigned',
-        actorName: 'Owner',
+        actor: { id: actorId, name: 'Owner' },
         project: { id: projectId, name: 'Notify board', created_by: owner.id },
         task: { id: taskId, title: `Card ${taskId}` },
         recipientUserIds,
@@ -724,17 +733,59 @@ describe('Notifications', () => {
       expect(sentEmails().map((email) => email.to)).toEqual([member.email]);
     });
 
-    it('bounds distinct notifications per recipient without touching anyone else', async () => {
+    it('bounds what one sender can put in one mailbox without touching anyone else', async () => {
       await grantAccess([member.id, member2.id]);
 
-      for (let index = 0; index < NOTIFY_RECIPIENT_MAX_ATTEMPTS + 5; index++) {
+      for (let index = 0; index < NOTIFY_PAIR_MAX_ATTEMPTS + 5; index++) {
         await deliverAbout(`card-${String(index)}`, [member.id]);
       }
-      expect(sentEmails()).toHaveLength(NOTIFY_RECIPIENT_MAX_ATTEMPTS);
+      expect(sentEmails()).toHaveLength(NOTIFY_PAIR_MAX_ATTEMPTS);
 
       clearSentEmails();
       await deliverAbout('card-0', [member2.id]);
       expect(sentEmails().map((email) => email.to)).toEqual([member2.email]);
+    });
+
+    it('collapses a repeat whoever performs it', async () => {
+      await grantAccess([member.id]);
+
+      await deliverAbout('shared-card', [member.id], owner.id);
+      expect(sentEmails()).toHaveLength(1);
+
+      // A second actor, so the collapse cannot be coming from the sender budget:
+      // alternating who performs the write must not make the message look new.
+      clearSentEmails();
+      await deliverAbout('shared-card', [member.id], member2.id);
+      expect(sentEmails()).toEqual([]);
+    });
+
+    it('still bounds the total across many senders, and says so once', async () => {
+      await grantAccess([member.id]);
+      const warnings = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      const senders = NOTIFY_RECIPIENT_MAX_ATTEMPTS / NOTIFY_PAIR_MAX_ATTEMPTS;
+      for (let sender = 0; sender < senders; sender++) {
+        for (let index = 0; index < NOTIFY_PAIR_MAX_ATTEMPTS; index++) {
+          await deliverAbout(
+            `card-${String(sender)}-${String(index)}`,
+            [member.id],
+            `s-${String(sender)}`
+          );
+        }
+      }
+      expect(sentEmails()).toHaveLength(NOTIFY_RECIPIENT_MAX_ATTEMPTS);
+
+      clearSentEmails();
+      await deliverAbout('one-more', [member.id], 'a-fresh-sender');
+      await deliverAbout('and-another', [member.id], 'another-fresh-sender');
+      expect(sentEmails()).toEqual([]);
+
+      const silenced = warnings.mock.calls.filter(
+        ([fields]) =>
+          fields.msg === 'Notification email dropped: this recipient is over their total budget'
+      );
+      expect(silenced).toHaveLength(1);
+      expect(silenced[0][0]).toMatchObject({ recipient_id: member.id });
     });
 
     it('lets one write mail everyone it names', async () => {
@@ -749,6 +800,84 @@ describe('Notifications', () => {
       ).toEqual([member.email, member2.email].sort());
     });
 
+    it('lets a stranger spend only their own budget, so genuine mail still arrives', async () => {
+      const attacker = await createVerifiedUser('notify-attacker');
+      const victim = await createVerifiedUser('notify-victim');
+      const boss = await createVerifiedUser('notify-boss');
+      clearSentEmails();
+      const warnings = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      async function addVictim(token: string, id: string): Promise<void> {
+        const res = await ctx
+          .request(token)
+          .post(`/api/projects/${id}/members/by-email`, { email: victim.email });
+        expect(res.status).toBe(200);
+        await settle();
+      }
+
+      // Boards the victim has never heard of, from an account that shares no
+      // project with them and needed their consent for none of it. Each one is a
+      // fresh repeat key, so nothing collapses them.
+      for (let index = 0; index < NOTIFY_PAIR_MAX_ATTEMPTS; index++) {
+        const junk = await createProject(attacker.token, `Junk ${String(index)}`);
+        await addVictim(attacker.token, junk.project.id);
+      }
+      expect(sentEmails()).toHaveLength(NOTIFY_PAIR_MAX_ATTEMPTS);
+
+      clearSentEmails();
+      const extra = await createProject(attacker.token, 'Junk extra');
+      await addVictim(attacker.token, extra.project.id);
+      expect(sentEmails()).toEqual([]);
+      expect(warnings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          msg: 'Notification email dropped: one sender has spent their budget for this recipient',
+          recipient_id: victim.id,
+          actor_id: attacker.id,
+        })
+      );
+
+      clearSentEmails();
+      const real = await createProject(boss.token, 'Real board');
+      await addVictim(boss.token, real.project.id);
+      expect(sentEmails().map((email) => email.to)).toEqual([victim.email]);
+
+      clearSentEmails();
+      const created = await ctx.request(boss.token).post('/api/tasks', {
+        id: newId(),
+        project_id: real.project.id,
+        column_id: real.columns[0].id,
+        title: 'Ship the release',
+        position: 1000,
+        assignee_ids: [victim.id],
+      });
+      expect(created.status).toBe(201);
+      await settle();
+
+      expect(sentEmails().map((email) => email.to)).toEqual([victim.email]);
+    });
+
+    it('leaves a refused message re-sendable once the budget frees', async () => {
+      await grantAccess([member.id]);
+      const start = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
+
+      for (let index = 0; index < NOTIFY_PAIR_MAX_ATTEMPTS; index++) {
+        await deliverAbout(`card-${String(index)}`, [member.id]);
+      }
+      expect(sentEmails()).toHaveLength(NOTIFY_PAIR_MAX_ATTEMPTS);
+
+      // Late in the window: a collapse slot spent here would outlive the budget
+      // that refused the message, and nothing re-sends it.
+      clearSentEmails();
+      clock.mockReturnValue(start + NOTIFY_WINDOW_MS - 10 * 60_000);
+      await deliverAbout('urgent', [member.id]);
+      expect(sentEmails()).toEqual([]);
+
+      clock.mockReturnValue(start + NOTIFY_WINDOW_MS + 60_000);
+      await deliverAbout('urgent', [member.id]);
+      expect(sentEmails().map((email) => email.to)).toEqual([member.email]);
+    });
+
     it('sends nothing to a recipient whose access is gone by the time the hook runs', async () => {
       await grantAccess([member.id, member2.id]);
       await db
@@ -759,7 +888,7 @@ describe('Notifications', () => {
 
       await realDeliver({
         kind: 'added_to_project',
-        actorName: 'Owner',
+        actor: owner,
         project: { id: projectId, name: 'Notify board', created_by: owner.id },
         recipientUserIds: [member.id, member2.id],
       });

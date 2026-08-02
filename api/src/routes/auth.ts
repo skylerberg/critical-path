@@ -117,8 +117,15 @@ async function deleteStorageObjects(keys: string[]): Promise<void> {
 const INVALID_UNSUBSCRIBE_MESSAGE = 'This unsubscribe link is not valid';
 
 // A null id means the link no longer names a live mailbox — the account is gone
-// or has moved to a different address. Answering exactly as for a hit is what
-// keeps every one of these endpoints silent about whether an account exists.
+// or has moved to a different address. The *response* is then identical to a
+// hit's, which is what keeps these endpoints silent about whether an account
+// exists; the write a miss skips is still visible in timing, but minting a
+// token that names an account needs the signing secret, so that separates live
+// from dead only for a link the caller already holds.
+//
+// Locked, because the caller writes what this reads and an address change
+// committing between the two would let a link the move was meant to retire
+// write anyway.
 async function unsubscribeTarget(
   c: Pick<AppContext, 'get'>,
   token: string
@@ -133,6 +140,7 @@ async function unsubscribeTarget(
     .selectFrom('app_user')
     .select('email')
     .where('id', '=', verification.user_id)
+    .forUpdate()
     .executeTakeFirst();
   const bound = row !== undefined && emailAddressHash(row.email) === verification.email_hash;
 
