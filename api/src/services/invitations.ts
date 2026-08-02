@@ -5,6 +5,7 @@ import { env } from '../config/env';
 import type { DB, ProjectInvitation } from '../db/types';
 import { getEmailSender } from './email/index';
 import { normalizeProjectRole, type ProjectRole } from './authorization';
+import { inProjectLockOrder } from './projectLock';
 import {
   PROJECT_COLUMNS,
   publishProjectListItems,
@@ -102,25 +103,27 @@ export async function claimInvitations(
   }
 
   const projectIds = rows.map((row) => row.project_id);
-  // Every other writer of a member row takes the project row before it touches
-  // an invitation; claiming in the other order closes a deadlock cycle against
-  // one revoking invitations under that lock, and sorting keeps two claims over
-  // overlapping boards from closing one of their own. Holding these rows is
-  // also what makes the membership read below survive the insert.
+  // Every writer that touches an invitation takes the project row first;
+  // claiming in the other order closes a deadlock cycle against one revoking
+  // invitations under that lock.
   const projects = await db
     .selectFrom('project')
     .select(PROJECT_COLUMNS)
     .where('id', 'in', projectIds)
-    .orderBy('id')
-    .forUpdate()
+    .$call(inProjectLockOrder)
     .execute();
   const projectById = new Map(projects.map((project) => [project.id, project]));
 
+  // Locked rather than read: the role answered below has to be the one this
+  // transaction leaves stored, and a share lock is the weakest that a demotion
+  // or a removal conflicts with. Nothing obliges either of those to have taken
+  // the project row first, so holding that is not enough on its own.
   const held = await db
     .selectFrom('project_member')
     .select(['project_id', 'role'])
     .where('user_id', '=', userId)
     .where('project_id', 'in', projectIds)
+    .forShare()
     .execute();
   const heldRole = new Map(held.map((row) => [row.project_id, normalizeProjectRole(row.role)]));
 
