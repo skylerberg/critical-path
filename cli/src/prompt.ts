@@ -29,25 +29,26 @@ function ask(ctx: RuntimeContext, question: string, hidden: boolean): Promise<st
     output: echo,
     terminal: isTty,
   });
-  if (isTty) {
-    tty.setRawMode!(true);
+  // readline's output carries the prompt and the echo of what is typed, and it redraws
+  // that line from scratch — erasing anything written around it. A visible answer must
+  // therefore let readline own the prompt; a hidden one, whose echo is dropped
+  // wholesale, must write its own.
+  if (hidden) {
+    stderr.write(question);
   }
-  // Written only after raw mode is on: input arriving between the prompt and
-  // the raw-mode switch would otherwise be echoed by the tty.
-  stderr.write(question);
   const finish = () => {
-    if (isTty) {
-      tty.setRawMode!(false);
-    }
     rl.close();
-    stderr.write('\n');
+    // In terminal mode readline has already echoed the newline it was given.
+    if (hidden || !isTty) {
+      stderr.write('\n');
+    }
   };
   return new Promise((resolve, reject) => {
     rl.on('SIGINT', () => {
       finish();
       reject(new CliError('Aborted', EXIT.failure));
     });
-    rl.question('', (answer) => {
+    rl.question(hidden ? '' : question, (answer) => {
       finish();
       resolve(answer);
     });

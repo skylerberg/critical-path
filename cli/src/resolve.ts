@@ -1,4 +1,5 @@
 import { CliError, EXIT, assertOk } from './api/errors';
+import { configPath } from './config';
 import { decodeId } from './short-links';
 import { displayTitle } from './output';
 import type { RuntimeContext } from './context';
@@ -73,6 +74,21 @@ export function matchRef<T>(
 // The matcher lowercases every ref and a case-flipped alias is a different id, so
 // the decode happens out here. A decode that names nothing present falls through
 // to the name tiers rather than shadowing them.
+export function matchRefOrAliasOrNull<T>(
+  ref: string,
+  items: readonly T[],
+  kind: string,
+  getId: (item: T) => string,
+  getName: (item: T) => string
+): T | null {
+  const decoded = decodeId(ref);
+  const byAlias =
+    decoded === null
+      ? undefined
+      : items.find((item) => getId(item).toLowerCase() === decoded.toLowerCase());
+  return byAlias ?? matchRefOrNull(ref, items, kind, getId, getName);
+}
+
 export function matchRefOrAlias<T>(
   ref: string,
   items: readonly T[],
@@ -80,12 +96,11 @@ export function matchRefOrAlias<T>(
   getId: (item: T) => string,
   getName: (item: T) => string
 ): T {
-  const decoded = decodeId(ref);
-  const byAlias =
-    decoded === null
-      ? undefined
-      : items.find((item) => getId(item).toLowerCase() === decoded.toLowerCase());
-  return byAlias ?? matchRef(ref, items, kind, getId, getName);
+  const match = matchRefOrAliasOrNull(ref, items, kind, getId, getName);
+  if (match === null) {
+    throw new CliError(`No ${kind} matching "${ref}"`, EXIT.notFound);
+  }
+  return match;
 }
 
 export async function listProjects(ctx: RuntimeContext): Promise<ProjectListItem[]> {
@@ -96,20 +111,37 @@ export async function listMyTasks(ctx: RuntimeContext): Promise<MyTasksResponse>
   return assertOk(await ctx.api.GET('/api/my-tasks'));
 }
 
-export function projectRefOrNull(ctx: RuntimeContext, ref?: string): string | null {
-  const effective = ref ?? ctx.deps.env.CRITICAL_PATH_PROJECT ?? ctx.config.default_project;
-  return effective == null || effective === '' ? null : effective;
+type ProjectRef = { value: string; source: 'argument' | 'env' | 'config' };
+
+function projectRef(ctx: RuntimeContext, ref?: string): ProjectRef | null {
+  const chosen: ProjectRef | null =
+    ref != null
+      ? { value: ref, source: 'argument' }
+      : ctx.deps.env.CRITICAL_PATH_PROJECT != null
+        ? { value: ctx.deps.env.CRITICAL_PATH_PROJECT, source: 'env' }
+        : ctx.config.default_project != null
+          ? { value: ctx.config.default_project, source: 'config' }
+          : null;
+  return chosen === null || chosen.value === '' ? null : chosen;
 }
 
-export function effectiveProjectRef(ctx: RuntimeContext, ref?: string): string {
-  const effective = projectRefOrNull(ctx, ref);
-  if (effective === null) {
+function requireProjectRef(ctx: RuntimeContext, ref?: string): ProjectRef {
+  const chosen = projectRef(ctx, ref);
+  if (chosen === null) {
     throw new CliError(
       'No project specified; pass --project, set CRITICAL_PATH_PROJECT, or run: cpath config set default-project <project>',
       EXIT.usage
     );
   }
-  return effective;
+  return chosen;
+}
+
+export function projectRefOrNull(ctx: RuntimeContext, ref?: string): string | null {
+  return projectRef(ctx, ref)?.value ?? null;
+}
+
+export function effectiveProjectRef(ctx: RuntimeContext, ref?: string): string {
+  return requireProjectRef(ctx, ref).value;
 }
 
 export function matchProject<T extends { id: string; name: string }>(
@@ -126,7 +158,26 @@ export function matchProject<T extends { id: string; name: string }>(
 }
 
 export async function resolveProject(ctx: RuntimeContext, ref?: string): Promise<ProjectListItem> {
-  return matchProject(effectiveProjectRef(ctx, ref), await listProjects(ctx));
+  const { value, source } = requireProjectRef(ctx, ref);
+  const match = matchRefOrAliasOrNull(
+    value,
+    await listProjects(ctx),
+    'project',
+    (p) => p.id,
+    (p) => p.name
+  );
+  if (match !== null) {
+    return match;
+  }
+  // A ref the caller never typed has to name where it came from, or the id in the
+  // message looks like the CLI's own invention.
+  const origin =
+    source === 'config'
+      ? `; it is the default-project in ${configPath(ctx.configDir)} — replace it with "cpath config set default-project <project>" or drop it with "cpath config unset default-project"`
+      : source === 'env'
+        ? '; it is the value of CRITICAL_PATH_PROJECT'
+        : '';
+  throw new CliError(`No project matching "${value}"${origin}`, EXIT.notFound);
 }
 
 export async function fetchBoard(ctx: RuntimeContext, projectId: string): Promise<BoardPayload> {
