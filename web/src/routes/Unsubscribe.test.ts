@@ -27,14 +27,18 @@ describe('Unsubscribe', () => {
     await confirm();
 
     expect(
-      await screen.findByText("You'll no longer get email when someone assigns you a task.")
+      await screen.findByText(
+        'This address will no longer get email when someone assigns you a task.'
+      )
     ).toBeInTheDocument();
     const request = requestAt(0);
     expect(new URL(request.url).pathname).toBe('/api/auth/unsubscribe');
     expect(await request.clone().json()).toEqual({ token: 'tok-123' });
   });
 
-  it('offers a second step that switches every kind off', async () => {
+  // A 204 here is also the answer for a link whose address has moved on, which
+  // matches no row, so the promise has to be one that holds in that case too.
+  it('offers a second step, and promises it of the address rather than of a write', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { kind: 'added_to_project' }));
     render(Unsubscribe, { token: 'tok-123' });
     await confirm();
@@ -44,7 +48,7 @@ describe('Unsubscribe', () => {
     await fireEvent.click(button);
 
     expect(
-      await screen.findByText("You'll no longer get any notification email from us.")
+      await screen.findByText('This address will no longer get any notification email from us.')
     ).toBeInTheDocument();
     expect(new URL(requestAt(1).url).pathname).toBe('/api/auth/unsubscribe/all');
   });
@@ -75,7 +79,9 @@ describe('Unsubscribe', () => {
     await confirm();
 
     expect(
-      await screen.findByText("You'll no longer get email when someone assigns you a task.")
+      await screen.findByText(
+        'This address will no longer get email when someone assigns you a task.'
+      )
     ).toBeInTheDocument();
   });
 
@@ -94,34 +100,14 @@ describe('Unsubscribe', () => {
     );
     expect(screen.queryByText("This unsubscribe link isn't valid.")).not.toBeInTheDocument();
     expect(
-      screen.getByText("You'll no longer get email when someone adds you to a board.")
+      screen.getByText('This address will no longer get email when someone adds you to a board.')
     ).toBeInTheDocument();
 
     fetchMock.mockResolvedValueOnce(jsonResponse(204));
     await fireEvent.click(screen.getByRole('button', { name: 'Turn off all email notifications' }));
 
     expect(
-      await screen.findByText("You'll no longer get any notification email from us.")
-    ).toBeInTheDocument();
-  });
-
-  it('stops inviting a retry once the link itself is refused', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { kind: 'added_to_project' }));
-    render(Unsubscribe, { token: 'tok-123' });
-    await confirm();
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(422, { error: 'This unsubscribe link is not valid' })
-    );
-    await fireEvent.click(
-      await screen.findByRole('button', { name: 'Turn off all email notifications' })
-    );
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This link is no longer valid. Sign in to change the rest of your email settings.'
-    );
-    expect(
-      screen.getByText("You'll no longer get email when someone adds you to a board.")
+      await screen.findByText('This address will no longer get any notification email from us.')
     ).toBeInTheDocument();
   });
 
@@ -135,12 +121,21 @@ describe('Unsubscribe', () => {
     });
   });
 
-  it('says nothing about the account behind the link', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { kind: 'task_assigned' }));
+  it('says nothing about the account behind the link, at either step', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { kind: 'task_assigned' }));
     const { container } = render(Unsubscribe, { token: 'tok-123' });
     await confirm();
 
-    await screen.findByText("You'll no longer get email when someone assigns you a task.");
+    await screen.findByText(
+      'This address will no longer get email when someone assigns you a task.'
+    );
+    expect(container.textContent).not.toContain('@');
+    expect(screen.queryByRole('link', { name: /sign in/i })).not.toBeInTheDocument();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(204));
+    await fireEvent.click(screen.getByRole('button', { name: 'Turn off all email notifications' }));
+
+    await screen.findByText('This address will no longer get any notification email from us.');
     expect(container.textContent).not.toContain('@');
     expect(screen.queryByRole('link', { name: /sign in/i })).not.toBeInTheDocument();
   });

@@ -14,14 +14,16 @@
 
   type Kind = components['schemas']['UnsubscribeResponse']['kind'];
 
+  // Promised of the address the link was mailed to, never of the account
+  // behind it. A link whose address has moved on is answered exactly as a live
+  // one is, so nothing here can know a row was written — but that address
+  // stops getting the mail either way, which is all this may claim.
   const KIND_COPY: Record<Kind, string> = {
-    task_assigned: "You'll no longer get email when someone assigns you a task.",
-    added_to_project: "You'll no longer get email when someone adds you to a board.",
+    task_assigned: 'This address will no longer get email when someone assigns you a task.',
+    added_to_project: 'This address will no longer get email when someone adds you to a board.',
   };
 
   const RETRY_MESSAGE = 'Something went wrong. Please try again.';
-  const DEAD_LINK_MESSAGE =
-    'This link is no longer valid. Sign in to change the rest of your email settings.';
 
   // Nothing may be written before a human presses the button: mail security
   // scanners and browser prerenders follow the link here on their own, and
@@ -65,11 +67,10 @@
     try {
       assertOk(await api.POST('/api/auth/unsubscribe/all', { body: { token } }));
       phase = 'all';
-    } catch (err) {
+    } catch {
       // The single unsubscribe already committed, so its result outranks this
-      // failure and stays on screen. A dead token says so instead of inviting a
-      // retry that can only fail the same way.
-      error = err instanceof ApiError && err.status === 422 ? DEAD_LINK_MESSAGE : RETRY_MESSAGE;
+      // failure and stays on screen.
+      error = RETRY_MESSAGE;
     } finally {
       stoppingAll = false;
     }
@@ -91,7 +92,9 @@
     {:else if phase === 'invalid'}
       <p role="alert" class="mt-6 text-sm text-danger">This unsubscribe link isn't valid.</p>
     {:else if phase === 'all'}
-      <p role="status" class="mt-6 text-sm">You'll no longer get any notification email from us.</p>
+      <p role="status" class="mt-6 text-sm">
+        This address will no longer get any notification email from us.
+      </p>
     {:else}
       <p role="status" class="mt-6 text-sm">{kind === null ? '' : KIND_COPY[kind]}</p>
       <div class="mt-4">
