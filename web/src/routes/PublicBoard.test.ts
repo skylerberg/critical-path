@@ -28,6 +28,7 @@ function payload() {
         blocker_ids: [],
         image_count: 1,
         cover_image_url: '/api/images/img1',
+        comment_count: 2,
       },
       {
         id: 't2',
@@ -41,10 +42,39 @@ function payload() {
         blocker_ids: [],
         image_count: 0,
         cover_image_url: null,
+        comment_count: 0,
       },
     ],
     labels: [],
-    users: [{ id: 'u-ada', name: 'Ada Lovelace', avatar_url: null }],
+    users: [
+      { id: 'u-ada', name: 'Ada Lovelace', avatar_url: null },
+      { id: 'u-bo', name: 'Bo Peep', avatar_url: null },
+    ],
+    comments: [
+      {
+        id: 'cm1',
+        task_id: 't1',
+        user_id: 'u-ada',
+        body: commentBody('Locking the layout this week'),
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'cm2',
+        task_id: 't1',
+        user_id: 'u-bo',
+        body: commentBody('Sounds right to me'),
+        created_at: '2026-01-02T00:00:00.000Z',
+        updated_at: '2026-01-02T00:00:00.000Z',
+      },
+    ],
+  };
+}
+
+function commentBody(text: string) {
+  return {
+    type: 'doc' as const,
+    content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
   };
 }
 
@@ -177,12 +207,35 @@ describe('PublicBoard', () => {
     expect(requestedPaths()).not.toContain('/api/tasks/t1');
   });
 
+  it('reads the comment stream out of the board payload, with no second request', async () => {
+    mockPublicApi(jsonResponse(200, payload()));
+
+    render(PublicBoard, { props: { projectId: PROJECT_ID, taskId: 't1' } });
+
+    expect(await screen.findByText('Locking the layout this week')).toBeInTheDocument();
+    expect(screen.getByText('Sounds right to me')).toBeInTheDocument();
+    expect(screen.getByText('Bo Peep')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
+
+    expect(requestedPaths()).toEqual([`/api/public/projects/${PROJECT_ID}/board`]);
+  });
+
+  it('counts comments on the card face', async () => {
+    mockPublicApi(jsonResponse(200, payload()));
+
+    render(PublicBoard, { props: { projectId: PROJECT_ID } });
+
+    await screen.findByText('Design cards');
+    expect(screen.getByTitle('2 comments')).toBeInTheDocument();
+    expect(screen.queryByTitle('0 comments')).toBeNull();
+  });
+
   it('drops the assignee-only user cache on unmount', async () => {
     mockPublicApi(jsonResponse(200, payload()));
 
     const view = render(PublicBoard, { props: { projectId: PROJECT_ID } });
     await screen.findByText('Design cards');
-    expect(users.forProject(PROJECT_ID)).toHaveLength(1);
+    expect(users.forProject(PROJECT_ID)).toHaveLength(2);
 
     view.unmount();
 

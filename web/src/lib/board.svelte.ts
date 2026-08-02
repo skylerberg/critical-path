@@ -210,13 +210,14 @@ class BoardStore {
     }
     const token = ++this.#fetchToken;
     try {
-      const { data, projectUsers } = this.readonly
+      const { data, projectUsers, comments } = this.readonly
         ? await this.#fetchPublic(projectId)
         : {
             data: assertOk(
               await api.GET('/api/projects/{id}', { params: { path: { id: projectId } } })
             ),
             projectUsers: null,
+            comments: null,
           };
       if (token !== this.#fetchToken) {
         return;
@@ -225,6 +226,9 @@ class BoardStore {
       // cache the read-only page dropped on its way out.
       if (projectUsers !== null) {
         users.setForProject(projectId, projectUsers);
+      }
+      if (comments !== null) {
+        this.taskComments = comments;
       }
       this.project = data.project;
       projects.adoptMembership(data.project);
@@ -302,10 +306,21 @@ class BoardStore {
       labels: BoardLabel[];
     };
     projectUsers: User[];
+    comments: Record<string, TaskComment[]>;
   }> {
     const data: PublicBoardPayload = assertOk(
       await api.GET('/api/public/projects/{id}/board', { params: { path: { id: projectId } } })
     );
+    // Every task gets an entry, empty ones included: an absent one reads as
+    // "not fetched yet", and there is no detail request coming to fill it.
+    const comments: Record<string, TaskComment[]> = Object.fromEntries(
+      data.tasks.map((task) => [task.id, [] as TaskComment[]])
+    );
+    // Coalesced despite the type: an API pod that predates public comments omits
+    // the field entirely.
+    for (const comment of data.comments ?? []) {
+      comments[comment.task_id]?.push(comment);
+    }
     return {
       data: {
         project: {
@@ -323,11 +338,11 @@ class BoardStore {
           created_at: '',
           updated_at: '',
           column_since: '',
-          comment_count: 0,
         })),
         labels: data.labels,
       },
       projectUsers: data.users.map((user) => ({ ...user, email: '' })),
+      comments,
     };
   }
 

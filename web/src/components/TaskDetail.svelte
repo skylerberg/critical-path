@@ -521,12 +521,16 @@
             />
           {/if}
         </section>
+      {/if}
 
+      {#if !anonymous || task.comment_count > 0}
         <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold text-muted">Activity</h3>
-          <TaskActivity {taskId} />
+          <h3 class="text-sm font-semibold text-muted">{anonymous ? 'Comments' : 'Activity'}</h3>
+          <TaskActivity {taskId} {anonymous} />
         </section>
+      {/if}
 
+      {#if !anonymous}
         <div
           class="flex flex-col gap-3 border-t border-edge pt-4 sm:flex-row sm:items-center sm:justify-between"
         >

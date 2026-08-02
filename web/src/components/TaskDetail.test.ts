@@ -1027,6 +1027,7 @@ describe('TaskDetail on a public board', () => {
     expect(screen.queryByRole('button', { name: 'Upload image' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     expect(screen.queryByText(/Created .+ · Updated .+/)).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Activity' })).toBeNull();
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Column' })).toBeVisible());
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
@@ -1098,6 +1099,7 @@ describe('TaskDetail on a public board', () => {
     expect(screen.queryByRole('heading', { name: 'Blocked by' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Blocks' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Due date' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Comments' })).toBeNull();
   });
 
   it('shows a published due date as plain text with nothing to edit', () => {
@@ -1109,6 +1111,73 @@ describe('TaskDetail on a public board', () => {
     expect(screen.getByText(/2026/)).toBeInTheDocument();
     expect(screen.queryByLabelText('Due date')).toBeNull();
     expect(screen.queryByRole('button', { name: '+ Add due date' })).toBeNull();
+  });
+
+  it('shows the published comments and their authors, with nothing to write with', async () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 1 } : t));
+    board.taskComments = { t1: [comment] };
+
+    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+
+    const heading = screen.getByRole('heading', { name: 'Comments' });
+    expect(await screen.findByText('first thoughts')).toBeInTheDocument();
+    expect(within(heading.closest('section')!).getByText('Ada Lovelace')).toBeInTheDocument();
+
+    expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
+    expect(screen.queryByPlaceholderText('Write a comment…')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Edit comment/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Delete comment/ })).toBeNull();
+  });
+
+  // A member reading their own project through the shared link is signed in, but
+  // the board in the store came from the anonymous payload — writing against it
+  // would mutate a copy no refetch can reconcile.
+  it('offers no comment controls to a signed-in reader who came through the link', async () => {
+    session.user = me;
+    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 1 } : t));
+    board.taskComments = { t1: [comment] };
+
+    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+
+    expect(await screen.findByText('first thoughts')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Edit comment/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Delete comment/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
+  });
+
+  it('never shows the activity log alongside the published comments', async () => {
+    taskActivity.entries = [activityEntry];
+    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 1 } : t));
+    board.taskComments = { t1: [comment] };
+
+    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+
+    expect(await screen.findByText('first thoughts')).toBeInTheDocument();
+    expect(screen.queryByText('created this task')).toBeNull();
+  });
+
+  it('renders a mention in a published comment as a name', async () => {
+    board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 1 } : t));
+    board.taskComments = {
+      t1: [
+        {
+          ...comment,
+          body: {
+            type: 'doc' as const,
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'mention', attrs: { id: 'u1', label: 'Stale Name' } }],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+
+    expect(await screen.findByText('@Ada Lovelace')).toBeInTheDocument();
   });
 });
 

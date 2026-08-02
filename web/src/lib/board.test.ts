@@ -413,10 +413,45 @@ describe('board store readonly mode', () => {
         blocker_ids: [],
         image_count: 2,
         cover_image_url: '/api/images/img1',
+        comment_count: 2,
+      },
+      {
+        id: 't2',
+        column_id: 'c1',
+        title: 'B',
+        description: null,
+        position: 2000,
+        label_ids: [],
+        assignee_ids: [],
+        blocker_ids: [],
+        image_count: 0,
+        cover_image_url: null,
+        comment_count: 0,
       },
     ],
     labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
-    users: [{ id: 'u-ada', name: 'Ada', avatar_url: null }],
+    users: [
+      { id: 'u-ada', name: 'Ada', avatar_url: null },
+      { id: 'u-bo', name: 'Bo', avatar_url: null },
+    ],
+    comments: [
+      {
+        id: 'cm1',
+        task_id: 't1',
+        user_id: 'u-ada',
+        body: commentBody('First'),
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'cm2',
+        task_id: 't1',
+        user_id: 'u-bo',
+        body: commentBody('Second'),
+        created_at: '2026-01-02T00:00:00.000Z',
+        updated_at: '2026-01-02T00:00:00.000Z',
+      },
+    ],
   };
 
   function mockPublic(): void {
@@ -447,7 +482,7 @@ describe('board store readonly mode', () => {
     expect(board.project?.name).toBe('Public Game');
     expect(board.project?.is_public).toBe(true);
     expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2']);
-    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1', 't2']);
     expect(board.tasks[0]?.cover_image_url).toBe('/api/images/img1');
     expect(board.labels.map((l) => l.id)).toEqual(['l1']);
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
@@ -461,6 +496,7 @@ describe('board store readonly mode', () => {
 
     expect(users.forProject('p1')).toEqual([
       { id: 'u-ada', name: 'Ada', avatar_url: null, email: '' },
+      { id: 'u-bo', name: 'Bo', avatar_url: null, email: '' },
     ]);
     expect(users.displayFor('u-ada').name).toBe('Ada');
   });
@@ -514,7 +550,7 @@ describe('board store readonly mode', () => {
       data: { id: 't1' },
     });
 
-    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1', 't2']);
   });
 
   it('re-fetches privately when the same project is opened signed in', async () => {
@@ -537,6 +573,47 @@ describe('board store readonly mode', () => {
     board.reset();
 
     expect(board.readonly).toBe(false);
+  });
+
+  it('takes the comment stream and counts straight off the published payload', async () => {
+    mockPublic();
+
+    await board.load('p1', undefined, { readonly: true });
+
+    expect(board.tasks.map((t) => t.comment_count)).toEqual([2, 0]);
+    expect(board.taskComments['t1']?.map((comment) => comment.id)).toEqual(['cm1', 'cm2']);
+    const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+    expect(paths).toEqual(['/api/public/projects/p1/board']);
+  });
+
+  // Undefined is the store's "not loaded" sentinel, and a public board has no
+  // detail request coming that would ever resolve it.
+  it('marks a commentless published task as loaded rather than pending', async () => {
+    mockPublic();
+
+    await board.load('p1', undefined, { readonly: true });
+
+    expect(board.taskComments['t2']).toEqual([]);
+  });
+
+  it('names comment authors who are assigned nothing', async () => {
+    mockPublic();
+
+    await board.load('p1', undefined, { readonly: true });
+
+    expect(users.displayFor('u-bo').name).toBe('Bo');
+    expect(users.displayFor('u-bo').email).toBe('');
+  });
+
+  it('serves a board from a pod that predates public comments', async () => {
+    const legacy: Record<string, unknown> = { ...publicPayload };
+    delete legacy.comments;
+    fetchMock.mockImplementation(async () => jsonResponse(200, legacy));
+
+    await board.load('p1', undefined, { readonly: true });
+
+    expect(board.error).toBeNull();
+    expect(board.taskComments['t1']).toEqual([]);
   });
 });
 
