@@ -9,7 +9,13 @@ import { projectHref, taskHref } from './short-links';
 import { testUuid } from './test-ids';
 import type { BoardTask } from './board-types';
 
-const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+const me = {
+  id: 'u-me',
+  name: 'Ada',
+  email: 'ada@example.com',
+  avatar_url: null,
+  email_verified: false,
+};
 const PROJECT_ID = testUuid('p1');
 const TASK_1 = testUuid('t1');
 const TASK_2 = testUuid('t2');

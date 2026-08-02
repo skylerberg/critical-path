@@ -36,7 +36,13 @@ function sidebarZoneConfigs(): Options[] {
   return zoneOptions.filter((options) => options.type === 'sidebar-project');
 }
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
 
 const SOLO_ID = testUuid('p-solo');
 const TEAM_ID = testUuid('p-team');

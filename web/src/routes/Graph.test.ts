@@ -13,7 +13,13 @@ import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 
-const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+const me = {
+  id: 'u-me',
+  name: 'Ada',
+  email: 'ada@example.com',
+  avatar_url: null,
+  email_verified: false,
+};
 
 const A = testUuid('a');
 const B = testUuid('b');

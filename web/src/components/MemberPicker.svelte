@@ -19,6 +19,7 @@
   let query = $state('');
   let highlighted = $state(0);
   let error = $state('');
+  let notice = $state('');
   let inviting = $state(false);
   let listEl = $state<HTMLDivElement>();
   let inputEl = $state<HTMLInputElement | null>(null);
@@ -79,6 +80,7 @@
     query = '';
     highlighted = 0;
     error = '';
+    notice = '';
     void projects.addMember(projectId, user.id);
     inputEl?.focus();
   }
@@ -87,18 +89,21 @@
     if (!showInvite || inviting) {
       return;
     }
+    const address = needle;
     inviting = true;
     error = '';
-    const result = await projects.addMemberByEmail(projectId, needle);
+    notice = '';
+    const result = await projects.addMemberByEmail(projectId, address);
     inviting = false;
     if (result.ok) {
       query = '';
       highlighted = 0;
-      inputEl?.focus();
+      // Nothing joins the board on an invitation, so this is the only sign it worked.
+      notice = result.status === 'invited' ? `Invitation sent to ${address}` : '';
     } else {
-      error = result.error ?? 'Failed to add member';
-      inputEl?.focus();
+      error = result.error;
     }
+    inputEl?.focus();
   }
 
   function activate(index: number): void {
@@ -147,6 +152,7 @@
   function oninput(): void {
     highlighted = 0;
     error = '';
+    notice = '';
     if (listEl !== undefined) {
       listEl.scrollTop = 0;
     }
@@ -226,4 +232,10 @@
       <p class="px-3 py-2 text-sm text-muted">{emptyMessage}</p>
     {/if}
   </div>
+  {#if notice !== ''}
+    <p role="status" class="text-sm text-muted">
+      <span class="font-medium text-ink">{notice}</span>
+      They join the board once they open the link and sign in.
+    </p>
+  {/if}
 </div>

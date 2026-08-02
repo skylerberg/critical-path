@@ -7,7 +7,13 @@ import { session } from '../lib/session.svelte';
 import { projectHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
 const PROJECT_ID = testUuid('p1');
 const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
 

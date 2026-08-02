@@ -6,7 +6,13 @@ import { projects, type Project } from '../lib/projects.svelte';
 import { session } from '../lib/session.svelte';
 import { users } from '../lib/users.svelte';
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null };
 const bob = { id: 'u-bob', email: 'bob@example.com', name: 'Bob Ross', avatar_url: null };
 const cleo = { id: 'u-cleo', email: 'cleo@example.com', name: 'Cleo Zhang', avatar_url: null };
@@ -187,19 +193,65 @@ describe('MemberPicker', () => {
     expect(screen.getByRole('button', { name: 'Invite "ghost@example.com"' })).toBeInTheDocument();
   });
 
-  it('invites an unknown email and surfaces a 404 inline', async () => {
-    fetchMock.mockImplementation(async () => jsonResponse(404, { error: 'not found' }));
+  it('confirms an invitation was mailed when the address has no account', async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, {
+        status: 'invited',
+        role: 'editor',
+        user: null,
+        invitation: {
+          id: 'inv-1',
+          project_id: 'p-1',
+          email: 'ghost@example.com',
+          role: 'editor',
+          invited_by: me.id,
+          created_at: '2026-01-01T00:00:00.000Z',
+          expires_at: '2026-01-15T00:00:00.000Z',
+        },
+      })
+    );
 
     render(MemberPicker, { projectId: 'p-1' });
     await fireEvent.input(field(), { target: { value: 'ghost@example.com' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Invite "ghost@example.com"' }));
 
-    expect(await screen.findByText('No user with that email')).toBeInTheDocument();
+    expect(await screen.findByText('Invitation sent to ghost@example.com')).toBeInTheDocument();
+    expect(projects.projects[0]!.member_ids).toEqual([]);
+    expect(field()).toHaveValue('');
     const post = fetchMock.mock.calls.find(
       (c) => (c[0] as Request).method === 'POST'
     )![0] as Request;
     expect(new URL(post.url).pathname).toBe('/api/projects/p-1/members/by-email');
     expect(await post.clone().json()).toEqual({ email: 'ghost@example.com' });
+  });
+
+  it('surfaces a refusal inline and keeps what was typed', async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(422, { error: 'This project has too many pending invitations' })
+    );
+
+    render(MemberPicker, { projectId: 'p-1' });
+    await fireEvent.input(field(), { target: { value: 'ghost@example.com' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Invite "ghost@example.com"' }));
+
+    expect(
+      await screen.findByText('This project has too many pending invitations')
+    ).toBeInTheDocument();
+    expect(field()).toHaveValue('ghost@example.com');
+  });
+
+  it('says nothing about an invitation when the address turned out to have an account', async () => {
+    const pat = { id: 'u-pat', email: 'pat@example.com', name: 'Pat', avatar_url: null };
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { status: 'member', role: 'editor', user: pat, invitation: null })
+    );
+
+    render(MemberPicker, { projectId: 'p-1' });
+    await fireEvent.input(field(), { target: { value: 'pat@example.com' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Invite "pat@example.com"' }));
+
+    await waitFor(() => expect(projects.projects[0]!.member_ids).toEqual([pat.id]));
+    expect(screen.queryByText(/^Invitation sent to/)).toBeNull();
   });
 
   it('says so instead of inviting when the typed email is already on the board', async () => {

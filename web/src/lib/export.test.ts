@@ -30,7 +30,13 @@ beforeEach(() => {
   ) {
     clicks.push(this);
   });
-  session.adopt('test-token', { id: 'u1', email: 'a@example.com', name: 'A', avatar_url: null });
+  session.adopt('test-token', {
+    id: 'u1',
+    email: 'a@example.com',
+    name: 'A',
+    avatar_url: null,
+    email_verified: false,
+  });
 });
 
 afterEach(() => {

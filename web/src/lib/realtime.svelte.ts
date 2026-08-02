@@ -280,7 +280,11 @@ class RealtimeClient {
     } else if (event.type === 'user_updated') {
       const updated = users.applyRealtime(event.data);
       if (updated !== null && session.user?.id === updated.id) {
-        session.user = updated;
+        // The broadcast carries only what is public to everyone sharing a board,
+        // so private fields survive the merge — except on a move to a mailbox
+        // nobody has confirmed yet.
+        const sameMailbox = updated.email.toLowerCase() === session.user.email.toLowerCase();
+        session.user = { ...updated, email_verified: sameMailbox && session.user.email_verified };
       }
     }
   }

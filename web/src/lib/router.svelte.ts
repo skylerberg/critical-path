@@ -14,6 +14,8 @@ export type Route =
   | { name: 'account' }
   | { name: 'forgot-password' }
   | { name: 'reset-password'; params: { token?: string } }
+  | { name: 'invite'; params: { token?: string } }
+  | { name: 'verify-email'; params: { token?: string } }
   | {
       name: 'project';
       params: {
@@ -86,6 +88,19 @@ function overlayFrom(search: string): { from?: 'my-tasks' } {
   return new URLSearchParams(search).get('from') === 'my-tasks' ? { from: 'my-tasks' } : {};
 }
 
+// An emailed link can pick up a mangled escape in transit, and routing must not
+// die with the decode.
+function tokenParam(search: string): { token?: string } {
+  const match = /[?&]token=([^&]*)/.exec(search);
+  if (!match) return {};
+  const raw = match[1]!;
+  try {
+    return { token: decodeURIComponent(raw) };
+  } catch {
+    return { token: raw };
+  }
+}
+
 function projectRoute(
   projectId: string | null,
   view: ProjectView,
@@ -113,11 +128,9 @@ export function matchRoute(pathname: string, search = ''): Route {
   if (path === '/signup') return { name: 'signup' };
   if (path === '/account') return { name: 'account' };
   if (path === '/forgot-password') return { name: 'forgot-password' };
-  if (path === '/reset-password') {
-    const match = /[?&]token=([^&]*)/.exec(search);
-    const token = match ? decodeURIComponent(match[1]!) : null;
-    return { name: 'reset-password', params: token === null ? {} : { token } };
-  }
+  if (path === '/reset-password') return { name: 'reset-password', params: tokenParam(search) };
+  if (path === '/invite') return { name: 'invite', params: tokenParam(search) };
+  if (path === '/verify-email') return { name: 'verify-email', params: tokenParam(search) };
   // Segment 2 is always the slug, never a view keyword, so a project named
   // "Graph" still reaches its board rather than its graph.
   let ids = matchIds('/p/:projectAlias', path);

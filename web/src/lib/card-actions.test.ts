@@ -11,7 +11,13 @@ import { shortcuts } from './shortcuts.svelte';
 import { projectHref, taskHref } from './short-links';
 import { testUuid } from './test-ids';
 
-const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+const me = {
+  id: 'u-me',
+  name: 'Ada',
+  email: 'ada@example.com',
+  avatar_url: null,
+  email_verified: false,
+};
 const PROJECT_ID = testUuid('p1');
 const TASK_ID = testUuid('t1');
 const TASK_TITLE = 'Design cards';

@@ -1,5 +1,6 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { invitations } from './invitations.svelte';
 import { isProjectOwner, projects, type Project } from './projects.svelte';
 import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
@@ -73,6 +74,7 @@ async function bodyOf(request: Request): Promise<unknown> {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  invitations.reset();
   projects.reset();
   users.reset();
   session.user = null;
@@ -267,7 +269,13 @@ describe('projects store', () => {
   });
 
   it('still sends the DELETE for a board it does not own, and restores it on refusal', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     const item = project({ created_by: 'u-other' });
     await loadWith([item]);
     fetchMock.mockImplementation(async (input) => {
@@ -357,11 +365,13 @@ describe('projects store', () => {
     const item = project({ created_by: 'u-me', member_ids: ['u-1'] });
     await loadWith([item]);
     const added = { id: 'u-2', email: 'pat@example.com', name: 'Pat', avatar_url: null };
-    fetchMock.mockImplementation(async () => jsonResponse(200, { user: added }));
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { status: 'member', role: 'editor', user: added, invitation: null })
+    );
 
     const result = await projects.addMemberByEmail('p-1', 'pat@example.com');
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, status: 'member' });
     expect(requestAt(1).method).toBe('POST');
     expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/members/by-email');
     expect(await bodyOf(requestAt(1))).toEqual({ email: 'pat@example.com' });
@@ -372,27 +382,84 @@ describe('projects store', () => {
   it('does not list the creator when added by their own email', async () => {
     const owner = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
     await loadWith([project({ created_by: 'u-me' })]);
-    fetchMock.mockImplementation(async () => jsonResponse(200, { user: owner }));
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { status: 'member', role: 'editor', user: owner, invitation: null })
+    );
 
     const result = await projects.addMemberByEmail('p-1', 'me@example.com');
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, status: 'member' });
     expect(projects.projects[0]!.member_ids).toEqual([]);
   });
 
-  it('reports an unknown email without toasting', async () => {
-    await loadWith([project()]);
-    fetchMock.mockImplementation(async () => jsonResponse(404, { error: 'not found' }));
+  // A null user read through throws, and the throw is swallowed as a generic
+  // failure, so `ok` is what catches a client still expecting a member here.
+  it('reports an invitation for an address with no account, adding nobody', async () => {
+    await loadWith([project({ created_by: 'u-me' })]);
+    const created = {
+      id: 'inv-1',
+      project_id: 'p-1',
+      email: 'ghost@example.com',
+      role: 'editor',
+      invited_by: 'u-me',
+      created_at: '2026-01-01T00:00:00.000Z',
+      expires_at: '2026-01-15T00:00:00.000Z',
+    };
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { status: 'invited', role: 'editor', user: null, invitation: created })
+    );
 
     const result = await projects.addMemberByEmail('p-1', 'ghost@example.com');
 
-    expect(result).toEqual({ ok: false, error: 'No user with that email' });
+    expect(result).toEqual({ ok: true, status: 'invited' });
+    expect(projects.projects[0]!.member_ids).toEqual([]);
+    expect(projects.projects[0]!.members).toEqual([]);
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('hands a pending invitation to the invitations store when that board is open', async () => {
+    await loadWith([project({ created_by: 'u-me' })]);
+    const created = {
+      id: 'inv-1',
+      project_id: 'p-1',
+      email: 'ghost@example.com',
+      role: 'editor' as const,
+      invited_by: 'u-me',
+      created_at: '2026-01-01T00:00:00.000Z',
+      expires_at: '2026-01-15T00:00:00.000Z',
+    };
+    fetchMock.mockImplementation(async () => jsonResponse(200, { invitations: [] }));
+    await invitations.load('p-1');
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { status: 'invited', role: 'editor', user: null, invitation: created })
+    );
+
+    await projects.addMemberByEmail('p-1', 'ghost@example.com');
+
+    expect(invitations.list).toEqual([created]);
+  });
+
+  // 404 no longer means "no such address" — it means no access to this board — so
+  // reporting it as an unknown user would be a lie.
+  it('passes a genuine 404 through as the server worded it, without toasting', async () => {
+    await loadWith([project()]);
+    fetchMock.mockImplementation(async () => jsonResponse(404, { error: 'Project not found' }));
+
+    const result = await projects.addMemberByEmail('p-1', 'ghost@example.com');
+
+    expect(result).toEqual({ ok: false, error: 'Project not found' });
     expect(projects.projects[0]!.member_ids).toEqual([]);
     expect(toasts.toasts).toEqual([]);
   });
 
   it('transfers ownership optimistically and merges the returned row', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     const item = project({ created_by: 'u-me', member_ids: ['u-ada', 'u-2'] });
     await loadWith([item]);
     const confirmed = projectRow(project({ created_by: 'u-ada', member_ids: ['u-2', 'u-me'] }));
@@ -413,7 +480,13 @@ describe('projects store', () => {
   });
 
   it('toasts and refetches when the server refuses a transfer', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     const item = project({ created_by: 'u-me', member_ids: ['u-ada'] });
     await loadWith([item]);
     fetchMock.mockImplementation(async (input) => {
@@ -442,7 +515,13 @@ describe('projects store', () => {
   });
 
   it('leave PUTs the member set minus self and drops the project', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     await loadWith([project({ created_by: 'u-owner', member_ids: ['u-me', 'u-2'] })]);
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
@@ -458,7 +537,13 @@ describe('projects store', () => {
   });
 
   it('restores the list when leaving fails', async () => {
-    session.user = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      email: 'me@example.com',
+      name: 'Me',
+      avatar_url: null,
+      email_verified: false,
+    };
     const item = project({ created_by: 'u-owner', member_ids: ['u-me'] });
     await loadWith([item]);
     fetchMock.mockImplementation(async (input) => {
@@ -609,7 +694,13 @@ describe('projects store', () => {
 });
 
 describe('isProjectOwner', () => {
-  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+  const me = {
+    id: 'u-me',
+    email: 'me@example.com',
+    name: 'Me',
+    avatar_url: null,
+    email_verified: false,
+  };
 
   it('is true only for the signed-in creator', () => {
     session.user = me;
@@ -626,7 +717,13 @@ describe('isProjectOwner', () => {
 });
 
 describe('project roles', () => {
-  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+  const me = {
+    id: 'u-me',
+    email: 'me@example.com',
+    name: 'Me',
+    avatar_url: null,
+    email_verified: false,
+  };
 
   it('reports canEdit from the stored role', async () => {
     session.user = me;
@@ -750,7 +847,7 @@ describe('project roles', () => {
     const added = { id: 'u-2', email: 'pat@example.com', name: 'Pat', avatar_url: null };
     await loadWith([project({ created_by: 'u-me' })]);
     fetchMock.mockImplementation(async () =>
-      jsonResponse(200, { user: added, role: 'viewer' as const })
+      jsonResponse(200, { status: 'member', role: 'viewer', user: added, invitation: null })
     );
 
     await projects.addMemberByEmail('p-1', 'pat@example.com');

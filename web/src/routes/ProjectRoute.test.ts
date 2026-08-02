@@ -16,7 +16,13 @@ import { encodeId, projectHref, taskHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 
-const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+const me = {
+  id: 'u-me',
+  name: 'Ada',
+  email: 'ada@example.com',
+  avatar_url: null,
+  email_verified: false,
+};
 
 const PROJECT_ID = testUuid('p-route');
 const T1 = testUuid('t1');

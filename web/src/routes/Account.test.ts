@@ -18,7 +18,13 @@ vi.mock('../lib/realtime.svelte', () => ({
 const cacheDelete = vi.fn<(name: string) => Promise<boolean>>().mockResolvedValue(true);
 vi.stubGlobal('caches', { delete: cacheDelete });
 
-const user = { id: 'u-1', email: 'ada@example.com', name: 'Ada', avatar_url: null };
+const user = {
+  id: 'u-1',
+  email: 'ada@example.com',
+  name: 'Ada',
+  avatar_url: null,
+  email_verified: false,
+};
 const PROJECT_ID = testUuid('p-1');
 const BLOCKING_PROJECT_ID = testUuid('p-9');
 
@@ -133,6 +139,85 @@ describe('Account', () => {
 
     expect(await screen.findByText('That email is taken')).toBeInTheDocument();
     expect(session.user?.email).toBe('ada@example.com');
+  });
+
+  // The emailed link is the only other way to ask for one, so an account whose
+  // mail was withheld, bounced or filed as spam has no route forward without it.
+  it('lets an unverified account see it is unverified and ask for a link', async () => {
+    mockRoutes(204);
+    render(Account);
+
+    expect(
+      screen.getByText(
+        'This address is not verified yet. Verifying it confirms we can reach you here.'
+      )
+    ).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Send verification email' }));
+
+    expect(
+      await screen.findByText('If this address still needs verifying, a new link is on its way.')
+    ).toBeInTheDocument();
+    expect(requestTo('/api/auth/verify-email/resend').method).toBe('POST');
+  });
+
+  // The server answers the same 204 having sent nothing when this tab's flag has
+  // gone stale, so a flat claim that mail went out would be a lie half the time.
+  it('does not promise mail the resend may not have sent', async () => {
+    mockRoutes(204);
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Send verification email' }));
+    const sent = await screen.findByText(/still needs verifying/);
+
+    expect(sent.textContent).not.toMatch(/\bsent\b/i);
+    expect(sent).toHaveAttribute('role', 'status');
+  });
+
+  // A cold load whose session lookup fails with anything but a 401 renders this
+  // page with no user at all for the frame before the redirect.
+  it('does not claim verification for a session that has not resolved', () => {
+    session.user = null;
+    mockRoutes(204);
+    render(Account);
+
+    expect(screen.queryByText('This address is verified.')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Send verification email' })).toBeInTheDocument();
+  });
+
+  it('tells a verified account it is verified and offers it nothing to do', () => {
+    session.user = { ...user, email_verified: true };
+    mockRoutes(204);
+    render(Account);
+
+    expect(screen.getByText('This address is verified.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send verification email' })).toBeNull();
+  });
+
+  it('reports a throttled verification send as an error', async () => {
+    mockRoutes(429, { error: 'Too many verification emails, please try again later' });
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Send verification email' }));
+
+    const throttled = await screen.findByText(
+      'Too many verification emails, please try again later'
+    );
+    expect(throttled).toHaveAttribute('role', 'alert');
+  });
+
+  it('goes back to unverified when the address moves to a new mailbox', async () => {
+    session.user = { ...user, email_verified: true };
+    render(Account);
+    expect(screen.getByText('This address is verified.')).toBeInTheDocument();
+
+    mockRoutes(200, { ...user, email: 'new@example.com', email_verified: false });
+    await fireEvent.input(screen.getByLabelText('Email'), {
+      target: { value: 'new@example.com' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save email' }));
+
+    expect(await screen.findByText('Email updated')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send verification email' })).toBeInTheDocument();
   });
 
   it('changes the password, adopts the new session, and stays logged in', async () => {

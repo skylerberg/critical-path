@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import App from './App.svelte';
 import { board } from './lib/board.svelte';
+import { invitations } from './lib/invitations.svelte';
 import { myTasks } from './lib/myTasks.svelte';
 import { projects } from './lib/projects.svelte';
 import { realtime } from './lib/realtime.svelte';
@@ -25,7 +26,23 @@ class FakeWebSocket {
 
 vi.stubGlobal('WebSocket', FakeWebSocket);
 
-const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+const me = {
+  id: 'u-me',
+  email: 'me@example.com',
+  name: 'Me',
+  avatar_url: null,
+  email_verified: false,
+};
+
+const invite = {
+  id: 'inv-1',
+  project_id: 'p-1',
+  email: 'ghost@example.com',
+  role: 'editor' as const,
+  invited_by: me.id,
+  created_at: '2026-01-01T00:00:00.000Z',
+  expires_at: '2026-01-15T00:00:00.000Z',
+};
 
 const PROJECT_ID = testUuid('p1');
 const TASK_ID = testUuid('t1');
@@ -58,6 +75,9 @@ function routeResponses(): void {
     if (path.startsWith('/api/public/projects/')) {
       return jsonResponse(200, publicBoard());
     }
+    if (path === '/api/auth/verify-email') {
+      return jsonResponse(204);
+    }
     return jsonResponse(404, { error: `unexpected ${path}` });
   });
 }
@@ -72,6 +92,7 @@ beforeEach(() => {
   sessionStorage.clear();
   realtime.disconnect();
   board.reset();
+  invitations.reset();
   myTasks.reset();
   projects.reset();
   shortcuts.reset();
@@ -92,6 +113,20 @@ describe('App chrome', () => {
     expect(navs()).toEqual([]);
     expect(session.status).toBe('anon');
     expect(window.location.pathname).toBe(publicBoardHref(PROJECT_ID));
+  });
+
+  // The emailed link is the only way anyone reaches this page, and no other test
+  // renders it through the shell.
+  it('redeems an emailed verification link for a visitor with no session', async () => {
+    router.navigate('/verify-email?token=t', { replace: true });
+
+    render(App);
+
+    expect(await screen.findByText('That email address is verified.')).toBeInTheDocument();
+    expect(navs()).toEqual([]);
+    expect(session.status).toBe('anon');
+    expect(window.location.pathname + window.location.search).toBe('/verify-email?token=t');
+    expect(sessionStorage.getItem('cp.intendedPath')).toBeNull();
   });
 
   it('renders the navigation on an authenticated route', async () => {
@@ -125,6 +160,26 @@ describe('App chrome', () => {
 
     await vi.waitFor(() => expect(window.location.pathname).toBe('/login'));
     expect(sessionStorage.getItem('cp.intendedPath')).toBe('/my-tasks');
+  });
+
+  it('empties every per-account cache when the session ends', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/my-tasks', { replace: true });
+
+    render(App);
+    await screen.findByRole('heading', { name: 'My tasks' });
+
+    fetchMock.mockImplementation(async () => jsonResponse(200, { invitations: [invite] }));
+    await invitations.load('p-1');
+    expect(invitations.list).toHaveLength(1);
+
+    localStorage.removeItem('cp.token');
+    await session.init();
+
+    await vi.waitFor(() => expect(invitations.list).toEqual([]));
+    expect(invitations.currentProjectId).toBeNull();
+    expect(invitations.loaded).toBe(false);
+    expect(projects.projects).toEqual([]);
   });
 
   it('runs the keymap off the project routes', async () => {

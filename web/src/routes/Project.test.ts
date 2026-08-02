@@ -18,7 +18,13 @@ import { taskRoute } from '../lib/task-route.svelte';
 import { testUuid } from '../lib/test-ids';
 import type { ProjectView } from '../lib/router.svelte';
 
-const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+const me = {
+  id: 'u-me',
+  name: 'Ada',
+  email: 'ada@example.com',
+  avatar_url: null,
+  email_verified: false,
+};
 
 const T1 = testUuid('t1');
 const T2 = testUuid('t2');

@@ -28,6 +28,9 @@
   let emailStatus = $state<Status>(null);
   let savingEmail = $state(false);
 
+  let verifyStatus = $state<Status>(null);
+  let sendingVerification = $state(false);
+
   let feedbackOpen = $state(false);
   let deleteOpen = $state(false);
 
@@ -148,6 +151,24 @@
     }
   }
 
+  async function sendVerification(): Promise<void> {
+    sendingVerification = true;
+    verifyStatus = null;
+    try {
+      assertOk(await api.POST('/api/auth/verify-email/resend'));
+      // Hedged, not "sent": the same 204 comes back with nothing sent when the
+      // address is already verified, which this tab has no way to have learned.
+      verifyStatus = {
+        kind: 'success',
+        message: 'If this address still needs verifying, a new link is on its way.',
+      };
+    } catch (error) {
+      verifyStatus = { kind: 'error', message: apiMessage(error) };
+    } finally {
+      sendingVerification = false;
+    }
+  }
+
   async function submitPassword(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (currentPassword === '') {
@@ -254,6 +275,21 @@
         </Button>
       </div>
     </form>
+    <!-- Verified is the positive test on purpose: a session that has not resolved,
+         or one predating the flag, must not be told an address is confirmed. -->
+    {#if session.user?.email_verified === true}
+      <p class="text-sm text-muted">This address is verified.</p>
+    {:else}
+      <p class="text-sm text-muted">
+        This address is not verified yet. Verifying it confirms we can reach you here.
+      </p>
+      {@render status(verifyStatus)}
+      <div class="flex justify-end">
+        <Button variant="secondary" disabled={sendingVerification} onclick={sendVerification}>
+          {sendingVerification ? 'Sending…' : 'Send verification email'}
+        </Button>
+      </div>
+    {/if}
   </section>
 
   <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">

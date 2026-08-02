@@ -930,7 +930,13 @@ describe('Board card menu', () => {
       is_public: false,
       created_at: '2026-07-15T00:00:00Z',
     };
-    session.user = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+    session.user = {
+      id: 'u-me',
+      name: 'Ada',
+      email: 'ada@example.com',
+      avatar_url: null,
+      email_verified: false,
+    };
   }
 
   function rightClickCard(title: string): void {
