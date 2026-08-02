@@ -12,13 +12,18 @@ export interface TestUser {
 export class TestContext {
   private users: TestUser[] = [];
 
-  async createUser(prefix: string): Promise<TestUser> {
+  async createUser(prefix: string, userAgent?: string): Promise<TestUser> {
     const id = crypto.randomUUID();
     const email = `${prefix}-${crypto.randomUUID()}@test.example.com`;
     const password = 'test-password-123';
     const name = `${prefix} user`;
 
-    const res = await this.request().post('/api/auth/signup', { id, email, password, name });
+    const res = await this.request(undefined, userAgent).post('/api/auth/signup', {
+      id,
+      email,
+      password,
+      name,
+    });
     if (res.status !== 201) {
       throw new Error(`Test signup failed: ${res.status} ${await res.text()}`);
     }
@@ -39,26 +44,34 @@ export class TestContext {
     this.users = [];
   }
 
-  request(token?: string): TestApiClient {
-    return new TestApiClient(token);
+  request(token?: string, userAgent?: string): TestApiClient {
+    return new TestApiClient(token, userAgent);
   }
 }
 
 export class TestApiClient {
-  constructor(private token?: string) {}
+  constructor(
+    private token?: string,
+    private userAgent?: string
+  ) {}
 
-  private async makeRequest(method: string, path: string, body?: unknown): Promise<Response> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+  private headers(extra: Record<string, string> = {}): Record<string, string> {
+    const headers: Record<string, string> = { ...extra };
 
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
+    if (this.userAgent !== undefined) {
+      headers['User-Agent'] = this.userAgent;
+    }
 
+    return headers;
+  }
+
+  private async makeRequest(method: string, path: string, body?: unknown): Promise<Response> {
     return app.request(path, {
       method,
-      headers,
+      headers: this.headers({ 'Content-Type': 'application/json' }),
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   }
@@ -89,27 +102,17 @@ export class TestApiClient {
     path: string,
     rawBody: string
   ): Promise<Response> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-
-    return app.request(path, { method, headers, body: rawBody });
+    return app.request(path, {
+      method,
+      headers: this.headers({ 'Content-Type': 'application/json' }),
+      body: rawBody,
+    });
   }
 
   async postMultipart(path: string, formData: FormData): Promise<Response> {
-    const headers: Record<string, string> = {};
-
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-
     return app.request(path, {
       method: 'POST',
-      headers,
+      headers: this.headers(),
       body: formData,
     });
   }

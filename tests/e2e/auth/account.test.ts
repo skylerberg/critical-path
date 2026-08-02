@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../helpers/database';
@@ -5,6 +6,10 @@ import { uniqueEmail } from '../../helpers/fixtures';
 import { resetRateLimiter } from '../../../src/middleware/rateLimit';
 import { createResetToken } from '../../../src/services/resetToken';
 import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
+
+function sha256Hex(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
 
 async function alternativeIdOf(userId: string): Promise<string> {
   const row = await db
@@ -198,8 +203,17 @@ describe('Account management', () => {
         });
         newToken = body.token;
       });
+      const replacement = await db
+        .selectFrom('session')
+        .select('session.id')
+        .where('session.token_hash', '=', sha256Hex(newToken))
+        .executeTakeFirstOrThrow();
       expect(seen).toEqual([
-        { type: SESSIONS_REVOKED, project_id: null, data: { user_id: user.id } },
+        {
+          type: SESSIONS_REVOKED,
+          project_id: null,
+          data: { user_id: user.id, except_session_id: replacement.id },
+        },
       ]);
 
       expect((await ctx.request(user.token).get('/api/auth/me')).status).toBe(401);

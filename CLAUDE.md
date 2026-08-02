@@ -79,9 +79,12 @@ for the frontend's conventions.
   The handshake token is either a session token or a personal access token.
   Credential revocation publishes `sessions_revoked` on the realtime bus, which
   closes sockets with code 4401: a payload of `{ user_id }` closes that user's
-  session sockets, and one that also carries `personal_access_token_id` closes
-  only the sockets authenticated with that token. Any new publisher must keep
-  sending `user_id` — it is the dispatch fallback in `handleBusEntry`.
+  session sockets; one that also carries `personal_access_token_id` closes only
+  the sockets authenticated with that token; one that carries `session_id`
+  closes only that session's; and one that carries `except_session_id` closes
+  the user's session sockets apart from that one, which is how a password
+  change keeps the replacement session it just issued. Any new publisher must
+  keep sending `user_id` — it is the dispatch fallback in `handleBusEntry`.
 - The realtime bus is in-process by default; when `REDIS_URL` is set (as in
   production, which runs 2+ replicas) publishes fan out via Redis pub/sub so
   every replica delivers to its own sockets. Rate limits also share Redis
