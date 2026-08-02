@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/short-aliases/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/session-list-revoke/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -130,6 +130,46 @@ export interface paths {
          * @description Revoke one of your personal access tokens. Any WebSocket authenticated with that token is closed; other tokens and browser sessions are untouched. Another user's token answers 404, the same as one that does not exist.
          */
         delete: operations["deleteApiAuthTokensById"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List sessions
+         * @description List the caller's live sessions, newest first, with `is_current` true on the one this request was made with. Each carries the `User-Agent` sent when it was created, verbatim and unparsed, or null when the client sent none; no network address is recorded, here or anywhere. Sessions past their expiry are left out — they authenticate nothing, so listing them would misreport where the account is signed in. This lists sessions only: personal access tokens authenticate the same requests and are listed by GET /api/auth/tokens, so neither endpoint alone shows everything that can act as the account. A caller holding a personal access token sees every session and none marked current, since a token is not a session.
+         */
+        get: operations["getApiAuthSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke session
+         * @description Revoke one of your own sessions. Its token stops working immediately and any WebSocket authenticated with it is closed; other sessions and every personal access token are untouched. Revoking the session the request was made with is allowed and is a sign-out of this device. Another user's session answers 404, the same as one that does not exist.
+         */
+        delete: operations["deleteApiAuthSessionsById"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1409,6 +1449,16 @@ export interface components {
         PersonalAccessTokensResponse: {
             personal_access_tokens: components["schemas"]["PersonalAccessToken"][];
         };
+        SessionsResponse: {
+            sessions: components["schemas"]["Session"][];
+        };
+        Session: {
+            created_at: string;
+            expires_at: string;
+            id: string;
+            is_current: boolean;
+            user_agent: components["schemas"]["UserAvatarurl"];
+        };
         ChangePassword: {
             current_password: string;
             new_password: string;
@@ -2404,6 +2454,100 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Token revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiAuthSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Live sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionsResponse"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiAuthSessionsById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session revoked */
             204: {
                 headers: {
                     [name: string]: unknown;
