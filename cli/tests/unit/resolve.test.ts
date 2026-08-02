@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { matchRef } from '../../src/resolve';
+import { matchRef, matchRefOrAlias } from '../../src/resolve';
+import { encodeId } from '../../src/short-links';
 import { CliError } from '../../src/api/errors';
 
 interface Item {
@@ -76,5 +77,47 @@ describe('matchRef', () => {
     const err = errorOf(() => match('does-not-exist'));
     expect(err.exitCode).toBe(4);
     expect(err.message).toContain('No task matching');
+  });
+});
+
+describe('matchRefOrAlias', () => {
+  const target = items[0];
+  const alias = encodeId(target.id);
+  // Decodes to a valid uuid, which is what lets a decode shadow a name.
+  const alsoANameShapedLikeAnAlias = 'ReleaseNotesVersion12Q';
+  const withAliasShapedName: Item[] = [
+    ...items,
+    { id: 'dddd1111-0000-4000-8000-000000000005', name: alsoANameShapedLikeAnAlias },
+  ];
+
+  function aliasMatch(ref: string, list: Item[] = items): Item {
+    return matchRefOrAlias(
+      ref,
+      list,
+      'task',
+      (i) => i.id,
+      (i) => i.name
+    );
+  }
+
+  it('resolves an alias to the row it names', () => {
+    expect(aliasMatch(alias)).toBe(target);
+  });
+
+  it('does not resolve a case-flipped alias to the same row', () => {
+    const first = alias[0];
+    const flipped = `${first === first.toUpperCase() ? first.toLowerCase() : first.toUpperCase()}${alias.slice(1)}`;
+    expect(flipped).not.toBe(alias);
+    expect(errorOf(() => aliasMatch(flipped)).exitCode).toBe(4);
+  });
+
+  it('leaves a name that is shaped like an alias reachable by that name', () => {
+    expect(aliasMatch(alsoANameShapedLikeAnAlias, withAliasShapedName).id).toContain('dddd1111');
+  });
+
+  it('names the ref as typed when a decodable ref matches nothing', () => {
+    const err = errorOf(() => aliasMatch('ReleaseNotesVersion34Q', withAliasShapedName));
+    expect(err.exitCode).toBe(4);
+    expect(err.message).toBe('No task matching "ReleaseNotesVersion34Q"');
   });
 });

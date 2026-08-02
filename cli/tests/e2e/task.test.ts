@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import { displayTitle } from '../../src/output';
+import { decodeId, encodeId, slugify } from '../../src/short-links';
 import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
 import type { components } from '../../src/api/api.generated';
 
@@ -467,6 +468,224 @@ describe('task commands', () => {
     expect(clear.json<{ assignee_ids: string[] }>().assignee_ids).toEqual([]);
   });
 
+  it('resolves a task by its short alias with no --project', async () => {
+    const alias = encodeId(alpha.id);
+    const show = await h.runCli(['task', 'show', alias, '--json']);
+    expect(show.exitCode).toBe(0);
+    expect(show.json<TaskDetailResponse>().id).toBe(alpha.id);
+  });
+
+  it('treats an alias as case sensitive rather than lowercasing it', async () => {
+    const alias = encodeId(alpha.id);
+    // Digits have no case, and only the last character carries the padding bits, so
+    // a letter flipped before it is a canonical alias for a different id rather than
+    // a spelling the decoder would reject anyway.
+    const at = [...alias.slice(0, 21)].findIndex((c) => /[a-z]/i.test(c));
+    expect(at).toBeGreaterThanOrEqual(0);
+    const swapped =
+      alias[at] === alias[at].toLowerCase() ? alias[at].toUpperCase() : alias[at].toLowerCase();
+    const flipped = alias.slice(0, at) + swapped + alias.slice(at + 1);
+    const decoded = decodeId(flipped);
+    expect(decoded).not.toBeNull();
+    expect(decoded).not.toBe(alpha.id);
+
+    const show = await h.runCli(['task', 'show', flipped, '--json']);
+    expect(show.exitCode).toBe(4);
+    expect(show.stdout).toBe('');
+  });
+
+  it('accepts an alias as a placement anchor, for --before and --after alike', async () => {
+    const created = await tc.request(user.token).post('/api/projects', {
+      id: crypto.randomUUID(),
+      name: 'CLI Anchor Fixture',
+    });
+    expect(created.status).toBe(201);
+    const anchorProjectId = ((await created.json()) as BoardPayload).project.id;
+    try {
+      const first = await h.runCli([
+        'task',
+        'create',
+        'Anchor task',
+        '--project',
+        anchorProjectId,
+        '--json',
+      ]);
+      expect(first.exitCode).toBe(0);
+      const anchor = first.json<BoardTask>();
+
+      const before = await h.runCli([
+        'task',
+        'create',
+        'Lands before',
+        '--project',
+        anchorProjectId,
+        '--before',
+        encodeId(anchor.id),
+        '--json',
+      ]);
+      expect(before.exitCode).toBe(0);
+      expect(before.json<BoardTask>().position).toBeLessThan(anchor.position);
+
+      const after = await h.runCli([
+        'task',
+        'create',
+        'Lands after',
+        '--project',
+        anchorProjectId,
+        '--after',
+        encodeId(anchor.id),
+        '--json',
+      ]);
+      expect(after.exitCode).toBe(0);
+      expect(after.json<BoardTask>().position).toBeGreaterThan(anchor.position);
+
+      const moved = await h.runCli([
+        'task',
+        'move',
+        'Lands after',
+        '--project',
+        anchorProjectId,
+        '--before',
+        encodeId(anchor.id),
+        '--json',
+      ]);
+      expect(moved.exitCode).toBe(0);
+      expect(moved.json<BoardTask>().position).toBeLessThan(anchor.position);
+    } finally {
+      await tc.request(user.token).delete(`/api/projects/${anchorProjectId}`);
+    }
+  });
+
+  it('rejects a non-canonical spelling of an alias', async () => {
+    const alias = encodeId(alpha.id);
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const variant = alias.slice(0, 21) + ALPHABET[ALPHABET.indexOf(alias[21]) + 1];
+    const show = await h.runCli(['task', 'show', variant, '--json']);
+    expect(show.exitCode).not.toBe(0);
+  });
+
+  it('leaves a title that is shaped like an alias reachable by that title', async () => {
+    // Decodes to a valid uuid, which is what lets a decode shadow a title.
+    const title = 'ReleaseNotesVersion12Q';
+    expect(decodeId(title)).not.toBeNull();
+    const created = await tc.request(user.token).post('/api/projects', {
+      id: crypto.randomUUID(),
+      name: 'CLI Alias Title Fixture',
+    });
+    expect(created.status).toBe(201);
+    const fixtureId = ((await created.json()) as BoardPayload).project.id;
+    try {
+      const made = await h.runCli(['task', 'create', title, '--project', fixtureId, '--json']);
+      expect(made.exitCode).toBe(0);
+      const target = made.json<BoardTask>();
+
+      const show = await h.runCli(['task', 'show', title, '--project', fixtureId, '--json']);
+      expect(show.exitCode).toBe(0);
+      expect(show.json<TaskDetailResponse>().id).toBe(target.id);
+
+      const url = await h.runCli(['task', 'url', title, '--project', fixtureId, '--json']);
+      expect(url.exitCode).toBe(0);
+      expect(url.json<{ url: string }>().url).toContain(`/t/${encodeId(target.id)}/`);
+
+      const comment = await h.runCli([
+        'comment',
+        'add',
+        title,
+        'Reachable by title',
+        '--project',
+        fixtureId,
+        '--json',
+      ]);
+      expect(comment.exitCode).toBe(0);
+
+      const update = await h.runCli([
+        'task',
+        'update',
+        title,
+        '--project',
+        fixtureId,
+        '--title',
+        'Renamed by title',
+        '--json',
+      ]);
+      expect(update.exitCode).toBe(0);
+      expect(update.json<BoardTask>().id).toBe(target.id);
+    } finally {
+      await tc.request(user.token).delete(`/api/projects/${fixtureId}`);
+    }
+  });
+
+  it('gives an alias to the task it names, not to a card titled that alias', async () => {
+    const alias = encodeId(alpha.id);
+    const decoy = await h.runCli(['task', 'create', alias, '--project', projectId, '--json']);
+    expect(decoy.exitCode).toBe(0);
+    const decoyId = decoy.json<BoardTask>().id;
+    try {
+      const show = await h.runCli(['task', 'show', alias, '--project', projectId, '--json']);
+      expect(show.exitCode).toBe(0);
+      expect(show.json<TaskDetailResponse>().id).toBe(alpha.id);
+
+      const url = await h.runCli(['task', 'url', alias, '--project', projectId, '--json']);
+      expect(url.exitCode).toBe(0);
+      expect(url.json<{ url: string }>().url).toContain(`/t/${alias}/`);
+    } finally {
+      await h.runCli(['task', 'delete', decoyId, '--force']);
+    }
+  });
+
+  it('quotes the ref when an alias names no task and no project can be searched', async () => {
+    const alias = encodeId(crypto.randomUUID());
+    const show = await h.runCli(['task', 'show', alias]);
+    expect(show.exitCode).toBe(4);
+    expect(show.stderr).toContain(`No task matching "${alias}"`);
+
+    const url = await h.runCli(['task', 'url', alias]);
+    expect(url.exitCode).toBe(4);
+    expect(url.stderr).toContain(`No task matching "${alias}"`);
+  });
+
+  it('url prints the canonical web URL, and --json carries the same string', async () => {
+    const expected = `https://criticalpath.skylerberg.com/t/${encodeId(alpha.id)}/${slugify(alpha.title)}`;
+
+    const human = await h.runCli(['task', 'url', 'Alpha task', '--project', projectId]);
+    expect(human.exitCode).toBe(0);
+    expect(human.stdout.trim()).toBe(expected);
+
+    const json = await h.runCli(['task', 'url', 'Alpha task', '--project', projectId, '--json']);
+    expect(json.json<{ url: string }>().url).toBe(expected);
+  });
+
+  it('url honors a configured web-url and resolves an alias ref', async () => {
+    const set = await h.runCli(['config', 'set', 'web-url', 'https://cp.example.test/']);
+    expect(set.exitCode).toBe(0);
+    try {
+      const res = await h.runCli(['task', 'url', encodeId(alpha.id)]);
+      expect(res.exitCode).toBe(0);
+      expect(res.stdout.trim()).toBe(
+        `https://cp.example.test/t/${encodeId(alpha.id)}/${slugify(alpha.title)}`
+      );
+    } finally {
+      await h.runCli(['config', 'unset', 'web-url']);
+    }
+  });
+
+  it('url holds the environment to the same rules as the stored value', async () => {
+    const alias = encodeId(alpha.id);
+    for (const base of ['not a url', 'cp.example.test', 'https://user:pw@cp.example.test']) {
+      const res = await h.runCli(['task', 'url', alias], {
+        env: { CRITICAL_PATH_WEB_URL: base },
+      });
+      expect(res.exitCode).toBe(2);
+      expect(res.stdout).toBe('');
+    }
+
+    const ok = await h.runCli(['task', 'url', alias], {
+      env: { CRITICAL_PATH_WEB_URL: 'https://cp.example.test/' },
+    });
+    expect(ok.exitCode).toBe(0);
+    expect(ok.stdout.trim()).toBe(`https://cp.example.test/t/${alias}/${slugify(alpha.title)}`);
+  });
+
   it('archive, archived, restore and show address a card the board no longer holds', async () => {
     const created = await h.runCli([
       'task',
@@ -516,6 +735,16 @@ describe('task commands', () => {
     const show = await h.runCli(['task', 'show', 'Shelved work', '--project', projectId]);
     expect(show.exitCode).toBe(0);
     expect(show.stdout).toContain('Archived:');
+
+    // An alias names the card outright, so it still resolves once the board no
+    // longer lists it — which is what a months-old pasted link relies on.
+    const byAlias = await h.runCli(['task', 'show', encodeId(shelved.id), '--json']);
+    expect(byAlias.exitCode).toBe(0);
+    expect(byAlias.json<TaskDetailResponse>().id).toBe(shelved.id);
+
+    const url = await h.runCli(['task', 'url', encodeId(shelved.id)]);
+    expect(url.exitCode).toBe(0);
+    expect(url.stdout.trim()).toContain(`/t/${encodeId(shelved.id)}/`);
 
     const move = await h.runCli([
       'task',

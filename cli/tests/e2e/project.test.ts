@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
+import { decodeId, encodeId } from '../../src/short-links';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardPayload'];
@@ -137,6 +138,32 @@ describe('project commands', () => {
     const res = await h.runCli(['project', 'show', 'ambig']);
     expect(res.exitCode).toBe(2);
     expect(res.stderr).toContain('Ambiguous');
+  });
+
+  it('resolves a project by its short alias', async () => {
+    const board = await createProject('Alias Board');
+    const show = await h.runCli(['project', 'show', encodeId(board.project.id), '--json']);
+    expect(show.exitCode).toBe(0);
+    expect(show.json<BoardPayload>().project.id).toBe(board.project.id);
+  });
+
+  it('leaves a name that is shaped like an alias reachable by that name', async () => {
+    // Decodes to a valid uuid, which is what lets a decode shadow a name.
+    const name = 'ReleaseNotesVersion12Q';
+    expect(decodeId(name)).not.toBeNull();
+    const board = await createProject(name);
+    const show = await h.runCli(['project', 'show', name, '--json']);
+    expect(show.exitCode).toBe(0);
+    expect(show.json<BoardPayload>().project.id).toBe(board.project.id);
+  });
+
+  it('rejects a non-canonical spelling of a project alias', async () => {
+    const board = await createProject('Non Canonical Board');
+    const alias = encodeId(board.project.id);
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const variant = alias.slice(0, 21) + ALPHABET[ALPHABET.indexOf(alias[21]) + 1];
+    const show = await h.runCli(['project', 'show', variant]);
+    expect(show.exitCode).toBe(4);
   });
 
   it('unresolvable project ref exits 4', async () => {

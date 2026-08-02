@@ -1,6 +1,12 @@
 import { createApi, type Api } from './api/client';
 import { createCredentialStore, type CredentialStore } from './credentials/store';
-import { loadConfig, resolveConfigDir, DEFAULT_API_URL, type CliConfig } from './config';
+import {
+  loadConfig,
+  resolveConfigDir,
+  DEFAULT_API_URL,
+  DEFAULT_WEB_URL,
+  type CliConfig,
+} from './config';
 import { Output, type Writer } from './output';
 
 export interface CliDeps {
@@ -25,6 +31,7 @@ export interface RuntimeContext {
   deps: CliDeps;
   api: Api;
   baseUrl: string;
+  webUrl: string;
   credentials: CredentialStore;
   config: CliConfig;
   configDir: string;
@@ -43,6 +50,9 @@ export async function createContext(deps: CliDeps, flags: GlobalFlags): Promise<
     config.api_url ??
     DEFAULT_API_URL
   ).replace(/\/+$/, '');
+  // Left as given: it only shapes links, so a bad value should fail the command
+  // that builds one rather than every command.
+  const webUrl = deps.env.CRITICAL_PATH_WEB_URL ?? config.web_url ?? DEFAULT_WEB_URL;
   const credentials = deps.credentials ?? createCredentialStore(deps.platform, configDir);
   const envToken = deps.env.CRITICAL_PATH_TOKEN;
   const token = envToken ?? (await credentials.get(baseUrl));
@@ -53,6 +63,7 @@ export async function createContext(deps: CliDeps, flags: GlobalFlags): Promise<
     deps,
     api,
     baseUrl,
+    webUrl,
     credentials,
     config,
     configDir,
