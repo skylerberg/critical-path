@@ -74,13 +74,18 @@ describe('search store', () => {
     expect(search.groups.map((group) => group.projectId)).toEqual(['p-1']);
   });
 
-  it('does not call the API for a query below the minimum length', async () => {
+  it('does not call the API for a query that is empty once trimmed', async () => {
     await search.run('   ');
-    await search.run('a');
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(search.status).toBe('idle');
     expect(search.results).toEqual([]);
+  });
+
+  it('calls the API for a single character', async () => {
+    await search.run('a');
+
+    expect(fetchMock).toHaveBeenCalled();
     expect(search.query).toBe('a');
   });
 

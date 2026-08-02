@@ -1,11 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import { link, router } from '../lib/router.svelte';
-  import {
-    SEARCH_MAX_QUERY_LENGTH,
-    SEARCH_MIN_QUERY_LENGTH,
-    searchPath,
-  } from '../lib/search-query';
+  import { SEARCH_MAX_QUERY_LENGTH, searchPath } from '../lib/search-query';
   import { search } from '../lib/search.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import Button from '../components/ui/Button.svelte';
@@ -99,9 +95,6 @@
   const showSpinner = $derived(search.status === 'loading' && !showResults);
   const statusText = $derived.by(() => {
     const length = search.query.length;
-    if (length > 0 && length < SEARCH_MIN_QUERY_LENGTH) {
-      return `Keep typing — searches need at least ${SEARCH_MIN_QUERY_LENGTH} characters.`;
-    }
     if (length > SEARCH_MAX_QUERY_LENGTH) {
       return `That is too long — searches take at most ${SEARCH_MAX_QUERY_LENGTH} characters.`;
     }
