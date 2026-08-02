@@ -38,17 +38,23 @@ interface Budget {
 // passing too, and over a network that gap is a round trip wide.
 //
 // Answers 0, or the 1-based position of the first full budget having spent
-// nothing. Expiry is conditional on the key having none rather than on the
-// count being one: a counter that loses its expiry never resets at all.
+// nothing. Every key it looks at is given an expiry if it has none, whatever
+// the verdict: a counter that lost its expiry never resets, and repairing only
+// what gets spent would strand exactly the full ones, forever.
 //
 // Sent in full rather than by hash, because a NOSCRIPT answer after a Redis
 // restart would silently drop every budget back to the per-process window.
 const CONSUME_SCRIPT = `
 local n = #KEYS
+local refused = 0
 for i = 1, n do
-  if tonumber(redis.call('GET', KEYS[i]) or '0') >= tonumber(ARGV[i]) then
-    return i
+  redis.call('PEXPIRE', KEYS[i], ARGV[n + 1], 'NX')
+  if refused == 0 and tonumber(redis.call('GET', KEYS[i]) or '0') >= tonumber(ARGV[i]) then
+    refused = i
   end
+end
+if refused > 0 then
+  return refused
 end
 for i = 1, n do
   redis.call('INCR', KEYS[i])
@@ -237,7 +243,7 @@ export const NOTIFY_RECIPIENT_MAX_ATTEMPTS = 100;
 // Distinct senders named per silenced mailbox per window. One line cannot tell
 // a single loop from a farm of accounts, which is the attack the ceiling exists
 // for; one line per sender is unbounded, which is the log spam it was avoiding.
-const NOTIFY_SILENCE_LOG_MAX = 10;
+export const NOTIFY_SILENCE_LOG_MAX = 10;
 
 // An abuse loop is the high-volume case, so an unconditional line would turn a
 // flood into log spam, but dropping mail with no trace at all leaves a silenced
@@ -299,9 +305,11 @@ export async function withNotificationBudget(
   try {
     await send();
   } catch (err) {
-    // Nothing was delivered, so nothing stays spent — least of all the collapse
-    // slot, which would otherwise refuse the re-send for the rest of the hour.
-    await refundBudgets(budgets, now);
+    // Only the collapse slot comes back: its job is to not say the same thing
+    // twice, and nothing was said. The other two bound attempts, not
+    // deliveries, and an address the provider rejects every time is the case
+    // they exist for — refunding those uncaps the loop that never succeeds.
+    await refundBudgets([repeat], now);
     throw err;
   }
 }

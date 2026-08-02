@@ -4,6 +4,7 @@ import {
   resetRateLimiter,
   NOTIFY_PAIR_MAX_ATTEMPTS,
   NOTIFY_RECIPIENT_MAX_ATTEMPTS,
+  NOTIFY_SILENCE_LOG_MAX,
 } from '../../src/middleware/rateLimit';
 import { logger } from '../../src/utils/logger';
 import { FakeRedis } from '../helpers/fakeRedis';
@@ -30,6 +31,8 @@ async function deliver(actorId: string, repeatKey: string, send?: () => Promise<
 function tick(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
+
+const boom = () => Promise.reject(new Error('smtp is down'));
 
 describe.each([
   ['with a shared counter', true],
@@ -99,14 +102,32 @@ describe.each([
     expect(await deliver('colleague', 'urgent')).toBe(true);
   });
 
-  it('spends nothing when the send itself fails', async () => {
-    const boom = () => Promise.reject(new Error('smtp is down'));
-
-    for (let index = 0; index < NOTIFY_PAIR_MAX_ATTEMPTS + 5; index++) {
-      await expect(deliver('spender', 'urgent', boom)).rejects.toThrow('smtp is down');
-    }
+  it('lets the same notification be re-sent when the send itself fails', async () => {
+    await expect(deliver('spender', 'urgent', boom)).rejects.toThrow('smtp is down');
 
     expect(await deliver('spender', 'urgent')).toBe(true);
+  });
+
+  it("counts a failed send against the sender's share", async () => {
+    for (let index = 0; index < NOTIFY_PAIR_MAX_ATTEMPTS; index++) {
+      await expect(deliver('spender', `card-${String(index)}`, boom)).rejects.toThrow(
+        'smtp is down'
+      );
+    }
+
+    expect(await deliver('spender', 'fresh-card')).toBe(false);
+  });
+
+  // An address the provider rejects every time fails on send, so a budget that
+  // only counts deliveries would let one write rate straight through.
+  it('counts a failed send against the mailbox ceiling', async () => {
+    for (let index = 0; index < NOTIFY_RECIPIENT_MAX_ATTEMPTS; index++) {
+      await expect(
+        deliver(`actor-${String(index)}`, `card-${String(index)}`, boom)
+      ).rejects.toThrow('smtp is down');
+    }
+
+    expect(await deliver('late-sender', 'late-card')).toBe(false);
   });
 
   it('names the sender that was refused when a mailbox hits its ceiling', async () => {
@@ -139,5 +160,24 @@ describe.each([
     expect(silenced.length).toBeGreaterThan(1);
     expect(silenced.length).toBeLessThan(40);
     expect(new Set(silenced.map((fields) => fields.actor_id)).size).toBe(silenced.length);
+  });
+
+  it('names one repeating sender once, so the rest can still be named', async () => {
+    for (let index = 0; index < NOTIFY_RECIPIENT_MAX_ATTEMPTS; index++) {
+      await deliver(`actor-${String(index)}`, `card-${String(index)}`);
+    }
+
+    for (let index = 0; index < NOTIFY_SILENCE_LOG_MAX * 3; index++) {
+      await deliver('loud', `loud-card-${String(index)}`);
+    }
+    for (let index = 0; index < 5; index++) {
+      await deliver(`quiet-${String(index)}`, `quiet-card-${String(index)}`);
+    }
+
+    const named = warnings.mock.calls
+      .map(([fields]) => fields as { msg: string; actor_id?: string })
+      .filter((fields) => fields.msg.includes('over their total budget'))
+      .map((fields) => fields.actor_id);
+    expect(named).toEqual(['loud', 'quiet-0', 'quiet-1', 'quiet-2', 'quiet-3', 'quiet-4']);
   });
 });

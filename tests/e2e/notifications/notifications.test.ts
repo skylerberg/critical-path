@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
+import type {
+  KyselyPlugin,
+  PluginTransformQueryArgs,
+  PluginTransformResultArgs,
+  QueryId,
+  QueryResult,
+  RootOperationNode,
+  UnknownRow,
+} from 'kysely';
 import { app } from '../../../src/index';
+import authRouter from '../../../src/routes/auth';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
@@ -591,6 +601,81 @@ describe('Notifications', () => {
         added_to_project: false,
       });
       expect(await settingsOf(owner.id)).toEqual({ task_assigned: true, added_to_project: true });
+    });
+
+    // Nothing outside a request can be slipped into the middle of one, and the
+    // clause under test only bites on a change that commits between the read
+    // and the write. A result transform is the one hook that runs there and
+    // can await.
+    async function unsubscribeInterleavedWith(
+      token: string,
+      move: () => Promise<unknown>
+    ): Promise<Response> {
+      let pending: (() => Promise<unknown>) | null = move;
+      const reads = new WeakSet<QueryId>();
+      const plugin: KyselyPlugin = {
+        transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
+          if (args.node.kind === 'SelectQueryNode') {
+            reads.add(args.queryId);
+          }
+          return args.node;
+        },
+        async transformResult(args: PluginTransformResultArgs): Promise<QueryResult<UnknownRow>> {
+          if (pending !== null && reads.has(args.queryId)) {
+            const run = pending;
+            pending = null;
+            await run();
+          }
+          return args.result;
+        },
+      };
+
+      const harness = new Hono<{ Variables: Variables }>();
+      harness.use('*', transactionMiddleware);
+      harness.use('*', async (c, next) => {
+        c.set('db', c.get('db').withPlugin(plugin));
+        await next();
+      });
+      harness.onError(errorHandler);
+      harness.route('/api/auth', authRouter);
+
+      return harness.request('/api/auth/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+    }
+
+    it('writes nothing when the address moves between the read and the write', async () => {
+      const mover = await createVerifiedUser('notify-interleave');
+      const token = createUnsubscribeToken(mover.id, mover.email, 'task_assigned');
+
+      // The same interleave leaving the address alone, so the untouched
+      // settings below cannot be the seam refusing every write.
+      const stayed = await unsubscribeInterleavedWith(token, () =>
+        db.updateTable('app_user').set({ name: 'Still here' }).where('id', '=', mover.id).execute()
+      );
+      expect(stayed.status).toBe(200);
+      expect(await settingsOf(mover.id)).toEqual({
+        task_assigned: false,
+        added_to_project: true,
+      });
+
+      await db
+        .updateTable('app_user')
+        .set({ notify_task_assigned: true })
+        .where('id', '=', mover.id)
+        .execute();
+
+      const moved = await unsubscribeInterleavedWith(token, () =>
+        db
+          .updateTable('app_user')
+          .set({ email: `moved-${newId()}@test.example.com` })
+          .where('id', '=', mover.id)
+          .execute()
+      );
+      expect(moved.status).toBe(200);
+      expect(await settingsOf(mover.id)).toEqual({ task_assigned: true, added_to_project: true });
     });
 
     it('stops working once the account moves to a different address', async () => {

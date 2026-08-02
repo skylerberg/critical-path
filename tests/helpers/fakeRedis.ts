@@ -57,12 +57,20 @@ export class FakeRedis {
     if (!script.includes('INCR')) {
       throw new Error('This fake was never taught that script');
     }
+    const windowMs = Number(args[keys.length]);
+    let refused = 0;
     for (const [index, key] of keys.entries()) {
-      if ((this.live(key)?.value ?? 0) >= Number(args[index])) {
-        return index + 1;
+      const entry = this.live(key);
+      if (entry !== undefined) {
+        entry.expiresAt ??= this.now + windowMs;
+      }
+      if (refused === 0 && (entry?.value ?? 0) >= Number(args[index])) {
+        refused = index + 1;
       }
     }
-    const windowMs = Number(args[keys.length]);
+    if (refused > 0) {
+      return refused;
+    }
     for (const key of keys) {
       const entry = this.live(key);
       if (entry === undefined) {
