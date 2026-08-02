@@ -1,8 +1,17 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, beforeEach } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
-import { resetRateLimiter } from '../../../src/middleware/rateLimit';
+import { resetRateLimiter, SIGNUP_IP_MAX_ATTEMPTS } from '../../../src/middleware/rateLimit';
+
+async function accountCount(emailPrefix: string): Promise<number> {
+  const rows = await db
+    .selectFrom('app_user')
+    .select('id')
+    .where('email', 'like', `${emailPrefix}%`)
+    .execute();
+  return rows.length;
+}
 
 describe('Auth', () => {
   const ctx = new TestContext();
@@ -96,6 +105,56 @@ describe('Auth', () => {
       expect(res.status).toBe(422);
       const body = (await res.json()) as { error: string };
       expect(body.error).toBe('Validation failed');
+    });
+
+    describe('per-IP cap on account creation', () => {
+      const OFFICE = '203.0.113.7';
+      const ELSEWHERE = '198.51.100.9';
+
+      function signUp(sourceIp: string, prefix: string): Promise<Response> {
+        const id = newId();
+        manualUserIds.push(id);
+        return ctx.request(undefined, undefined, sourceIp).post('/api/auth/signup', {
+          id,
+          email: uniqueEmail(prefix),
+          password: 'password-123',
+          name: 'Capped',
+        });
+      }
+
+      beforeEach(() => {
+        resetRateLimiter();
+        process.env.TRUST_PROXY = 'true';
+      });
+
+      afterEach(() => {
+        delete process.env.TRUST_PROXY;
+        resetRateLimiter();
+      });
+
+      // Every address is distinct, which is exactly what the other limiter's
+      // address-keyed buckets leave unbounded. The second source is the whole
+      // point: one counter for everyone would refuse it too.
+      it('refuses one source past the budget however many addresses it uses', async () => {
+        for (let i = 0; i < SIGNUP_IP_MAX_ATTEMPTS; i++) {
+          expect((await signUp(OFFICE, `cap-${i}`)).status).toBe(201);
+        }
+
+        const refused = await signUp(OFFICE, 'cap-over');
+        expect(refused.status).toBe(429);
+        expect(await accountCount('cap-over')).toBe(0);
+
+        expect((await signUp(ELSEWHERE, 'cap-elsewhere')).status).toBe(201);
+      });
+
+      // A whole office onboarding together is the burst the ceiling is chosen
+      // to clear, so the number may only ever move up.
+      it('clears an office of twenty signing up together', async () => {
+        for (let i = 0; i < 20; i++) {
+          expect((await signUp(OFFICE, `office-${i}`)).status).toBe(201);
+        }
+        expect(await accountCount('office-')).toBe(20);
+      });
     });
   });
 
