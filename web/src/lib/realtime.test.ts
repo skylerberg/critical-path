@@ -950,6 +950,59 @@ describe('user_updated dispatch', () => {
     expect(session.user?.name).toBe('Me Renamed');
   });
 
+  it('keeps the private verification flag the public payload cannot carry', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u1', name: 'Me Renamed', email: 'm@e.com', avatar_url: null },
+    });
+
+    expect(session.user?.name).toBe('Me Renamed');
+    expect(session.user?.email_verified).toBe(true);
+  });
+
+  it('drops the flag when the broadcast moves the account to another mailbox', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u1', name: 'Me', email: 'brand-new@e.com', avatar_url: null },
+    });
+
+    expect(session.user?.email).toBe('brand-new@e.com');
+    expect(session.user?.email_verified).toBe(false);
+  });
+
+  it('keeps the flag when the broadcast only recases the same mailbox', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = { ...session.user!, email: 'Bob@Example.com', email_verified: true };
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u1', name: 'Me', email: 'bob@example.com', avatar_url: null },
+    });
+
+    expect(session.user?.email).toBe('bob@example.com');
+    expect(session.user?.email_verified).toBe(true);
+  });
+
+  it('leaves the session user alone when the broadcast is about someone else', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u-peer', name: 'Peer', email: 'peer@e.com', avatar_url: null },
+    });
+
+    expect(session.user?.email).toBe('m@e.com');
+    expect(session.user?.email_verified).toBe(true);
+    expect(users.byId('u-peer')?.email).toBe('peer@e.com');
+  });
+
   it('drops malformed user_updated payloads', async () => {
     const socket = await connectAndAuth('p1');
     socket.receive({ type: 'user_updated', data: { id: 7 } });

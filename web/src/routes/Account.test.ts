@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import Account from './Account.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
@@ -37,8 +37,12 @@ async function bodyOf(request: Request): Promise<unknown> {
 function mockRoutes(status: number, body?: unknown): void {
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
-    if (new URL(request.url).pathname === '/api/auth/tokens') {
+    const path = new URL(request.url).pathname;
+    if (path === '/api/auth/tokens') {
       return jsonResponse(200, { personal_access_tokens: [] });
+    }
+    if (path === '/api/auth/me/notification-settings') {
+      return jsonResponse(200, { task_assigned: true, added_to_project: true });
     }
     return jsonResponse(status, body);
   });
@@ -70,6 +74,18 @@ function callOrderOf(pathname: string): number {
 
 function deleteDialog(): HTMLElement | null {
   return screen.queryByRole('dialog', { name: 'Delete account' });
+}
+
+async function renderedLines(emailVerified: boolean): Promise<string[]> {
+  session.user = { ...user, email_verified: emailVerified };
+  const { container } = render(Account);
+  await screen.findByLabelText('When someone adds me to a board');
+  await screen.findByText('You have no personal access tokens yet.');
+  const lines = [...container.querySelectorAll('p, button')].map((node) =>
+    (node.textContent ?? '').replace(/\s+/g, ' ').trim()
+  );
+  cleanup();
+  return lines;
 }
 
 function seedProject(overrides: Partial<Project>): void {
@@ -154,6 +170,26 @@ describe('Account', () => {
       await screen.findByText('If this address still needs verifying, a new link is on its way.')
     ).toBeInTheDocument();
     expect(requestTo('/api/auth/verify-email/resend').method).toBe('POST');
+  });
+
+  // An exact inventory, not a presence check: the duplicate this caught was two
+  // sections, each covered by a test file blind to the other's copy. Whatever
+  // differs between the two states is what speaks about verification, so a third
+  // copy is caught whatever words it picks — which a keyword filter would not do.
+  it('says once whether the address is verified, and offers one way to fix it', async () => {
+    mockRoutes(204);
+
+    const unverified = await renderedLines(false);
+    const verified = await renderedLines(true);
+
+    expect(unverified.filter((line) => !verified.includes(line))).toEqual([
+      'This address is not verified yet. Verifying it confirms we can reach you here.',
+      'Send verification email',
+      'These emails are on hold until your address is verified.',
+    ]);
+    expect(verified.filter((line) => !unverified.includes(line))).toEqual([
+      'This address is verified.',
+    ]);
   });
 
   // The server answers the same 204 having sent nothing when this tab's flag has
@@ -286,7 +322,10 @@ describe('Account', () => {
     expect(
       await screen.findByText('New password must be at least 8 characters')
     ).toBeInTheDocument();
-    expect(pathsRequested()).toEqual(['/api/auth/tokens']);
+    expect(pathsRequested().sort()).toEqual([
+      '/api/auth/me/notification-settings',
+      '/api/auth/tokens',
+    ]);
   });
 
   it('uploads a profile image and updates the session and users store', async () => {
@@ -321,7 +360,7 @@ describe('Account', () => {
   });
 
   it('removes the profile image', async () => {
-    session.user = { ...user, avatar_url: '/api/avatars/key-1' };
+    session.user = { ...user, avatar_url: '/api/avatars/key-1', email_verified: false };
     mockRoutes(200, { ...user, avatar_url: null });
     render(Account);
 
@@ -358,6 +397,19 @@ describe('Account', () => {
     expect(screen.getByRole('button', { name: 'Send feedback' })).toBeInTheDocument();
   });
 
+  it('shows the notification section and loads the preferences', async () => {
+    session.user = { ...user, email_verified: true };
+    mockRoutes(500);
+    render(Account);
+
+    expect(screen.getByRole('heading', { name: 'Email notifications' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('When someone assigns me a task')).toBeChecked();
+    expect(pathsRequested()).toContain('/api/auth/me/notification-settings');
+    expect(
+      screen.queryByText('These emails are on hold until your address is verified.')
+    ).not.toBeInTheDocument();
+  });
+
   it('shows the personal access token section and loads the list', async () => {
     mockRoutes(500);
     render(Account);
@@ -375,7 +427,10 @@ describe('Account', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
 
     expect(deleteDialog()).not.toBeNull();
-    expect(pathsRequested()).toEqual(['/api/auth/tokens']);
+    expect(pathsRequested().sort()).toEqual([
+      '/api/auth/me/notification-settings',
+      '/api/auth/tokens',
+    ]);
   });
 
   it('deletes the account, clears the session, and lands on the login page', async () => {
@@ -538,6 +593,9 @@ describe('Account', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
 
     expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
-    expect(pathsRequested()).toEqual(['/api/auth/tokens']);
+    expect(pathsRequested().sort()).toEqual([
+      '/api/auth/me/notification-settings',
+      '/api/auth/tokens',
+    ]);
   });
 });
