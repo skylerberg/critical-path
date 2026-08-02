@@ -44,6 +44,19 @@
       .filter((user) => needle === '' || user.name.toLowerCase().includes(needle))
       .slice(0, MAX_SUGGESTIONS)
   );
+  // Two people sharing a name render identically down to the avatar colour, and
+  // picking the wrong one grants board access to a stranger.
+  const ambiguousIds = $derived(
+    new Set(
+      candidates
+        .filter((user) =>
+          candidates.some(
+            (other) => other.id !== user.id && other.name.toLowerCase() === user.name.toLowerCase()
+          )
+        )
+        .map((user) => user.id)
+    )
+  );
   // Offered even for someone already listed: which addresses have accounts is
   // knowledge the server keeps, and inviting one that does is an idempotent add.
   const showInvite = $derived(EMAIL.test(needle));
@@ -178,10 +191,12 @@
   >
     {#each candidates as user, i (user.id)}
       {@const added = addedIds.has(user.id)}
+      {@const shortId = ambiguousIds.has(user.id) ? user.id.slice(0, 8) : undefined}
+      {@const label = shortId === undefined ? user.name : `${user.name} ${shortId}`}
       <button
         type="button"
         disabled={added}
-        aria-label={added ? `${user.name} added` : `Add ${user.name}`}
+        aria-label={added ? `${label} added` : `Add ${label}`}
         onclick={() => add(user)}
         onkeydown={(event) => onkeydown(event, i)}
         onfocus={() => (highlighted = i)}
@@ -194,6 +209,9 @@
       >
         <Avatar name={user.name} src={user.avatar_url} size="sm" />
         <span class="min-w-0 flex-1 truncate font-medium">{user.name}</span>
+        {#if shortId !== undefined}
+          <span class="shrink-0 font-mono text-xs text-muted">{shortId}</span>
+        {/if}
         {#if added}
           <span class="text-xs">Added</span>
         {/if}

@@ -16,6 +16,8 @@ const me = {
 const ada = { id: 'u-ada', name: 'Ada Lovelace', avatar_url: null };
 const bob = { id: 'u-bob', name: 'Bob Ross', avatar_url: null };
 const cleo = { id: 'u-cleo', name: 'Cleo Zhang', avatar_url: null };
+const alexOne = { id: '3f2a1b4c-1111-4aaa-8bbb-000000000001', name: 'Alex Kim', avatar_url: null };
+const alexTwo = { id: '9c8d7e6f-2222-4ccc-8ddd-000000000002', name: 'Alex Kim', avatar_url: null };
 
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [];
@@ -66,6 +68,22 @@ describe('MemberPicker', () => {
     expect(screen.getByRole('button', { name: 'Add Ada Lovelace' })).toBeInTheDocument();
     expect(view.container.querySelector('img[src="/api/avatars/k"]')).not.toBeNull();
     expect(view.container.textContent).not.toContain('@');
+  });
+
+  it('tells same-named people apart by id and adds the one that was clicked', async () => {
+    users.users = [alexOne, alexTwo, bob, me];
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    render(MemberPicker, { projectId: 'p-1' });
+
+    expect(screen.getByRole('button', { name: 'Add Alex Kim 3f2a1b4c' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Alex Kim 9c8d7e6f' })).toBeInTheDocument();
+    expect(screen.getByText('3f2a1b4c')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Add Bob Ross' })).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Add Alex Kim 9c8d7e6f' }));
+
+    expect(projects.projects[0]!.member_ids).toEqual([alexTwo.id]);
   });
 
   it('excludes the owner, existing members, and yourself', () => {
