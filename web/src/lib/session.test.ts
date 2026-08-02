@@ -292,6 +292,16 @@ describe('session.guardRoute', () => {
     expect(session.guardRoute(matchRoute(BOARD_PATH), BOARD_PATH)).toBeUndefined();
   });
 
+  it('lets both anon and authed visitors reach the unsubscribe page', async () => {
+    expect(
+      session.guardRoute(matchRoute('/unsubscribe', '?token=t'), '/unsubscribe?token=t')
+    ).toBeUndefined();
+    await loginAs();
+    expect(
+      session.guardRoute(matchRoute('/unsubscribe', '?token=t'), '/unsubscribe?token=t')
+    ).toBeUndefined();
+  });
+
   it('lets both anon and authed visitors reach a public board', async () => {
     expect(session.guardRoute(matchRoute(PUBLIC_BOARD_PATH), PUBLIC_BOARD_PATH)).toBeUndefined();
     await loginAs();

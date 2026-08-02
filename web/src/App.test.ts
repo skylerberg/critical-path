@@ -129,6 +129,29 @@ describe('App chrome', () => {
     expect(sessionStorage.getItem('cp.intendedPath')).toBeNull();
   });
 
+  it('sends a signed-out visitor from an emailed invitation link to log in', async () => {
+    router.navigate('/invite?token=t', { replace: true });
+
+    render(App);
+
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/login'));
+    expect(sessionStorage.getItem('cp.intendedPath')).toBe('/invite?token=t');
+  });
+
+  // The empty token is load-bearing: it is the one invitation link a signed-out
+  // visitor stays on, so it can tell reaching the page from being bounced first.
+  it('leaves a signed-out visitor on a spent invitation link rather than bouncing them', async () => {
+    router.navigate('/invite?token=', { replace: true });
+
+    render(App);
+
+    expect(await screen.findByText('This invitation link is no longer valid.')).toBeInTheDocument();
+    expect(navs()).toEqual([]);
+    expect(session.status).toBe('anon');
+    expect(window.location.pathname).toBe('/invite');
+    expect(sessionStorage.getItem('cp.intendedPath')).toBeNull();
+  });
+
   it('renders the navigation on an authenticated route', async () => {
     localStorage.setItem('cp.token', 'token');
     router.navigate('/', { replace: true });
@@ -137,6 +160,30 @@ describe('App chrome', () => {
 
     expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
     expect(navs().length).toBeGreaterThan(0);
+  });
+
+  // Verification state belongs on the account page and nowhere else; a
+  // well-meaning banner added to the shell has to trip something.
+  it('nags an unverified account nowhere in the shell', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/', { replace: true });
+
+    const { container } = render(App);
+
+    await screen.findByRole('heading', { name: 'Projects' });
+    expect(session.user?.email_verified).toBe(false);
+    expect(container.textContent).not.toMatch(/verif/i);
+  });
+
+  it('renders the unsubscribe page to a signed-out visitor', async () => {
+    router.navigate('/unsubscribe?token=t', { replace: true });
+    fetchMock.mockResolvedValue(jsonResponse(200, { kind: 'task_assigned' }));
+
+    render(App);
+
+    expect(await screen.findByRole('button', { name: 'Unsubscribe' })).toBeInTheDocument();
+    expect(navs()).toEqual([]);
+    expect(window.location.pathname).toBe('/unsubscribe');
   });
 
   it('renders my tasks on its own route', async () => {

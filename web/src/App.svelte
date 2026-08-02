@@ -18,6 +18,7 @@
   import Account from './routes/Account.svelte';
   import ForgotPassword from './routes/ForgotPassword.svelte';
   import ResetPassword from './routes/ResetPassword.svelte';
+  import Unsubscribe from './routes/Unsubscribe.svelte';
   import Invite from './routes/Invite.svelte';
   import VerifyEmail from './routes/VerifyEmail.svelte';
   import Projects from './routes/Projects.svelte';
@@ -108,6 +109,8 @@
       <ForgotPassword />
     {:else if route.name === 'reset-password'}
       <ResetPassword token={route.params.token} />
+    {:else if route.name === 'unsubscribe'}
+      <Unsubscribe token={route.params.token} />
     {:else if route.name === 'invite'}
       <Invite token={route.params.token} />
     {:else if route.name === 'verify-email'}

@@ -9,6 +9,7 @@
   import { users } from '../lib/users.svelte';
   import DeleteAccountDialog from '../components/DeleteAccountDialog.svelte';
   import FeedbackDialog from '../components/FeedbackDialog.svelte';
+  import NotificationSettings from '../components/NotificationSettings.svelte';
   import PersonalAccessTokens from '../components/PersonalAccessTokens.svelte';
   import Avatar from '../components/ui/Avatar.svelte';
   import Button from '../components/ui/Button.svelte';
@@ -323,6 +324,15 @@
         </Button>
       </div>
     </form>
+  </section>
+
+  <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
+    <h2 class="text-lg font-semibold">Email notifications</h2>
+    <p class="text-sm text-muted">
+      We only email you when someone puts your name on something. Every message has an unsubscribe
+      link.
+    </p>
+    <NotificationSettings />
   </section>
 
   <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">

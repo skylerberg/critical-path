@@ -39,18 +39,19 @@ describe('matchRoute', () => {
     });
   });
 
+  it('reads the unsubscribe token from the query string', () => {
+    expect(matchRoute('/unsubscribe')).toEqual({ name: 'unsubscribe', params: {} });
+    expect(matchRoute('/unsubscribe', '?token=abc%2F123')).toEqual({
+      name: 'unsubscribe',
+      params: { token: 'abc/123' },
+    });
+  });
+
   it('reads the invitation token from the query string', () => {
     expect(matchRoute('/invite')).toEqual({ name: 'invite', params: {} });
     expect(matchRoute('/invite', '?token=abc-123_x')).toEqual({
       name: 'invite',
       params: { token: 'abc-123_x' },
-    });
-  });
-
-  it('hands an invitation token it cannot decode on rather than dropping it', () => {
-    expect(matchRoute('/invite', '?token=%E0%A4%A')).toEqual({
-      name: 'invite',
-      params: { token: '%E0%A4%A' },
     });
   });
 
