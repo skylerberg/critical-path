@@ -6,16 +6,19 @@ import { CliError, EXIT } from './api/errors';
 export interface CliConfig {
   api_url?: string;
   default_project?: string;
+  web_url?: string;
 }
 
 export const CONFIG_KEYS = {
   'api-url': 'api_url',
   'default-project': 'default_project',
+  'web-url': 'web_url',
 } as const;
 
 export type ConfigKey = keyof typeof CONFIG_KEYS;
 
 export const DEFAULT_API_URL = 'https://criticalpath.skylerberg.com';
+export const DEFAULT_WEB_URL = 'https://criticalpath.skylerberg.com';
 
 export function resolveConfigDir(env: Record<string, string | undefined>): string {
   if (env.CRITICAL_PATH_CONFIG_DIR) {

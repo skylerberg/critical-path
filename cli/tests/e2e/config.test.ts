@@ -79,6 +79,28 @@ describe('config commands', () => {
     expect(names).toEqual(['Backlog', 'To Do', 'In Progress', 'Done']);
   });
 
+  it('set, get and unset round-trip web-url', async () => {
+    const set = await h.runCli(['config', 'set', 'web-url', 'https://cp.example.test/']);
+    expect(set.exitCode).toBe(0);
+
+    const get = await h.runCli(['config', 'get', 'web-url']);
+    expect(get.stdout.trim()).toBe('https://cp.example.test/');
+
+    const unset = await h.runCli(['config', 'unset', 'web-url']);
+    expect(unset.exitCode).toBe(0);
+    const after = await h.runCli(['config', 'get', 'web-url']);
+    expect(after.stdout.trim()).toBe('');
+  });
+
+  it('set web-url rejects a value that is not an absolute http url', async () => {
+    for (const value of ['cp.example.test', '/boards', 'ftp://cp.example.test', 'not a url']) {
+      const res = await h.runCli(['config', 'set', 'web-url', value]);
+      expect(res.exitCode).toBe(2);
+    }
+    const get = await h.runCli(['config', 'get', 'web-url']);
+    expect(get.stdout.trim()).toBe('');
+  });
+
   it('set default-project with an unresolvable ref exits 4 and stores nothing', async () => {
     const res = await h.runCli(['config', 'set', 'default-project', 'zz-no-such-project']);
     expect(res.exitCode).toBe(4);
