@@ -274,9 +274,7 @@ describe('Avatars', () => {
       const users = await ctx.request(user.token).get('/api/users');
       expect(users.status).toBe(200);
       const body = await users.json();
-      expect(body.users).toEqual([
-        { id: user.id, email: user.email, name: user.name, avatar_url: avatarUrl },
-      ]);
+      expect(body.users).toEqual([{ id: user.id, name: user.name, avatar_url: avatarUrl }]);
 
       const login = await ctx
         .request()

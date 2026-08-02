@@ -186,14 +186,13 @@ export function registerProject(program: Command, deps: CliDeps): void {
             return {
               id,
               name: user?.name ?? null,
-              email: user?.email ?? null,
               role: id === target.created_by ? 'owner' : (roleById.get(id) ?? 'editor'),
             };
           });
           ctx.out.data(members, () => {
             ctx.out.table(
-              ['ID', 'NAME', 'EMAIL', 'ROLE'],
-              members.map((m) => [m.id.slice(0, 8), m.name ?? '(unknown)', m.email ?? '', m.role])
+              ['ID', 'NAME', 'ROLE'],
+              members.map((m) => [m.id.slice(0, 8), m.name ?? '(unknown)', m.role])
             );
           });
         })

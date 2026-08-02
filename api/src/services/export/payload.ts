@@ -5,7 +5,7 @@ import { usersWithProjectAccess } from '../authorization';
 import { getArchivedTasks } from '../boardPayload';
 
 export const PROJECT_EXPORT_FORMAT = 'critical-path-project-export';
-export const PROJECT_EXPORT_VERSION = 2;
+export const PROJECT_EXPORT_VERSION = 3;
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
@@ -86,7 +86,7 @@ export async function buildProjectExport(
     version: PROJECT_EXPORT_VERSION,
     exported_at: now.toISOString(),
     project: payload.project,
-    users: users.map(({ id, email, name }) => ({ id, email, name })),
+    users: users.map(({ id, name }) => ({ id, name })),
     columns: payload.columns,
     labels: payload.labels,
     // Archived cards trail the live ones instead of merging into them: they keep

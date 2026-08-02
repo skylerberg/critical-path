@@ -9,7 +9,10 @@ export const publicBoardProjectSchema = type({
   description: 'string',
 });
 
-export const publicBoardUserSchema = type({
+// Spelled out rather than reusing the authenticated user shape: the day a field
+// is added there, what a stranger receives must stay where it is until someone
+// widens it here on purpose.
+const publicBoardUserSchema = type({
   id: 'string',
   name: 'string',
   avatar_url: 'string | null',

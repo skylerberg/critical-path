@@ -21,8 +21,8 @@ function sendTo(
   }
 }
 
-// Capped to self plus project-sharers because the payload carries the email,
-// which only that set may already read.
+// Capped to self plus project-sharers: that is exactly the set allowed to read
+// the changed user's record at all, so nobody else may learn it changed.
 async function deliverUserUpdated(
   entry: BusEntry,
   message: string,

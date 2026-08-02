@@ -399,8 +399,8 @@ describe('usersWithProjectAccess', () => {
     const users = await usersWithProjectAccess(db, sharedProjectId);
     expect(users.map((u) => u.id).sort()).toEqual([creator, member, viewer].sort());
     for (const user of users) {
+      expect(Object.keys(user).sort()).toEqual(['avatar_url', 'id', 'name']);
       expect(user).toMatchObject({ avatar_url: null });
-      expect(typeof user.email).toBe('string');
       expect(typeof user.name).toBe('string');
     }
   });

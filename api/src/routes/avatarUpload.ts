@@ -142,12 +142,11 @@ router.post(
     // sharer, so it carries only the fields they may already read.
     const publicUser = {
       id: user.id,
-      email: user.email,
       name: user.name,
       avatar_url: avatarUrl(storageKey),
     };
     publishAfterCommit(c, USER_UPDATED, null, publicUser);
-    return c.json({ ...publicUser, email_verified: user.email_verified }, 200);
+    return c.json({ ...publicUser, email: user.email, email_verified: user.email_verified }, 200);
   }
 );
 
@@ -196,7 +195,6 @@ router.delete(
       c.get('postCommitHooks').push(() => storage.delete(oldKey));
       publishAfterCommit(c, USER_UPDATED, null, {
         id: user.id,
-        email: user.email,
         name: user.name,
         avatar_url: null,
       });
