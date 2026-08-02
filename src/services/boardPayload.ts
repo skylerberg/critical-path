@@ -220,9 +220,45 @@ export async function getBoardPayload(
   };
 }
 
+interface PublicCommentRow {
+  id: string;
+  task_id: string;
+  user_id: string;
+  body: unknown;
+  created_at: Date;
+  updated_at: Date;
+}
+
+async function fetchCommentsForTasks(
+  db: Kysely<DB>,
+  taskIds: readonly string[]
+): Promise<PublicCommentRow[]> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+  return db
+    .selectFrom('task_comment')
+    .select([
+      'task_comment.id',
+      'task_comment.task_id',
+      'task_comment.user_id',
+      'task_comment.body',
+      'task_comment.created_at',
+      'task_comment.updated_at',
+    ])
+    .where('task_comment.task_id', 'in', [...taskIds])
+    .orderBy('task_comment.created_at')
+    .orderBy('task_comment.id')
+    .execute();
+}
+
 // Never spread: listing every field by hand is what keeps a newly added board
 // field private until someone deliberately publishes it here.
-export function toPublicBoard(payload: BoardPayload, users: PublicBoardUser[]): PublicBoard {
+export function toPublicBoard(
+  payload: BoardPayload,
+  users: PublicBoardUser[],
+  comments: PublicCommentRow[]
+): PublicBoard {
   return {
     project: {
       id: payload.project.id,
@@ -247,6 +283,7 @@ export function toPublicBoard(payload: BoardPayload, users: PublicBoardUser[]): 
       blocker_ids: task.blocker_ids,
       image_count: task.image_count,
       cover_image_url: task.cover_image_url,
+      comment_count: task.comment_count,
     })),
     labels: payload.labels.map((label) => ({
       id: label.id,
@@ -257,6 +294,14 @@ export function toPublicBoard(payload: BoardPayload, users: PublicBoardUser[]): 
       id: user.id,
       name: user.name,
       avatar_url: user.avatar_url,
+    })),
+    comments: comments.map((comment) => ({
+      id: comment.id,
+      task_id: comment.task_id,
+      user_id: comment.user_id,
+      body: comment.body as TiptapDoc,
+      created_at: comment.created_at.toISOString(),
+      updated_at: comment.updated_at.toISOString(),
     })),
   };
 }
@@ -285,13 +330,24 @@ export async function getPublicBoard(
   }
   assertPublicProject(payload.project);
 
-  const assigneeIds = new Set(payload.tasks.flatMap((task) => task.assignee_ids));
+  // Scoping to the published tasks is what keeps an archived task's comments
+  // out, since those tasks are not in the payload.
+  const comments = await fetchCommentsForTasks(
+    db,
+    payload.tasks.map((task) => task.id)
+  );
+
+  // A member who is neither assigned nor quoted stays unnamed.
+  const namedIds = new Set([
+    ...payload.tasks.flatMap((task) => task.assignee_ids),
+    ...comments.map((comment) => comment.user_id),
+  ]);
   const users =
-    assigneeIds.size === 0
+    namedIds.size === 0
       ? []
       : (await usersWithProjectAccess(db, projectId))
-          .filter((user) => assigneeIds.has(user.id))
+          .filter((user) => namedIds.has(user.id))
           .map(({ id, name, avatar_url }) => ({ id, name, avatar_url }));
 
-  return toPublicBoard(payload, users);
+  return toPublicBoard(payload, users, comments);
 }
