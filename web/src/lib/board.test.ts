@@ -816,6 +816,22 @@ describe('board store mutations', () => {
     await pending;
   });
 
+  it('duplicateTask keeps a rename typed while the request was in flight', async () => {
+    const pending = board.duplicateTask('t1');
+    const copyId = board.tasksInColumn('c1')[1]!.id;
+
+    board.tasks = board.tasks.map((t) => (t.id === copyId ? { ...t, title: 'Renamed' } : t));
+
+    await pending;
+
+    const copy = board.tasks.find((t) => t.id === copyId);
+    expect(copy?.title).toBe('Renamed');
+    // Untouched fields still come from the response, or the merge would be
+    // preserving stale optimistic guesses rather than real edits.
+    expect(copy?.created_at).toBe(SERVER_CREATED_AT);
+    expect(copy?.updated_at).toBe(SERVER_UPDATED_AT);
+  });
+
   it('duplicateTask shows a cover immediately and takes the server copy of it', async () => {
     board.tasks = board.tasks.map((t) =>
       t.id === 't1' ? { ...t, cover_image_url: '/api/images/img1' } : t
