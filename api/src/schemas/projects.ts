@@ -78,12 +78,45 @@ export const addProjectMemberByEmailSchema = type({
   'role?': projectMemberRole,
 });
 
-export const projectMemberUserResponseSchema = type({
-  user: userSchema,
-  role: projectMemberRole,
+export const projectInvitationParamsSchema = type({
+  id: uuid,
+  invitationId: uuid,
 });
 
-export type ProjectMemberUserResponse = typeof projectMemberUserResponseSchema.infer;
+export const projectInvitationSchema = type({
+  id: 'string',
+  project_id: 'string',
+  email: 'string',
+  role: projectMemberRole,
+  invited_by: 'string',
+  created_at: 'string',
+  expires_at: 'string',
+});
+
+export type ProjectInvitationResponse = typeof projectInvitationSchema.infer;
+
+export const projectInvitationsResponseSchema = type({
+  invitations: projectInvitationSchema.array(),
+});
+
+// Flat and discriminated by `status` rather than a union of two arms: a
+// top-level union renders as oneOf, which both generated clients would have to
+// narrow through openapi-fetch.
+export const addMemberByEmailResponseSchema = type({
+  status: "'member' | 'invited'",
+  role: projectMemberRole,
+  user: userSchema.or('null'),
+  invitation: projectInvitationSchema.or('null'),
+});
+
+export const acceptInvitationSchema = type({
+  token: type('string').atMostLength(512),
+});
+
+export const acceptedInvitationSchema = type({
+  project_id: 'string',
+  role: projectMemberRole,
+});
 
 export const boardPayloadSchema = type({
   project: projectSchema,

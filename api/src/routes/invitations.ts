@@ -1,0 +1,78 @@
+import { Hono } from 'hono';
+import { describeRoute, resolver } from 'hono-openapi';
+import { authMiddleware } from '../middleware/auth';
+import { jsonValidator } from '../middleware/jsonValidator';
+import { AppError } from '../utils/errors';
+import { claimInvitations } from '../services/invitations';
+import { hashBearerToken } from '../services/sessions';
+import {
+  acceptInvitationSchema,
+  acceptedInvitationSchema,
+  unauthorizedErrorResponse,
+  validationOrUnprocessableErrorResponse,
+  internalServerErrorResponse,
+} from '../schemas/index';
+import { AppHono } from '../types/index';
+
+const router: AppHono = new Hono();
+
+router.post(
+  '/accept',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'Accept a project invitation',
+    description:
+      'Redeem an invitation link and join the board it names. The caller must be signed in ' +
+      'but need not be signed in as the invited address — an invitation is a grant to ' +
+      'whoever holds the link, so someone who signs up under a different address can still ' +
+      'accept. The invitation is consumed: a second attempt with the same token answers 422, ' +
+      'as does one that was revoked, expired, or whose board has been deleted. An existing ' +
+      'member is never demoted, so the role in the response is the effective one. There is ' +
+      'no project id in the path because the holder of a link does not know it.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'The board that was joined, and the role held on it',
+        content: {
+          'application/json': {
+            schema: resolver(acceptedInvitationSchema),
+          },
+        },
+      },
+      ...unauthorizedErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  jsonValidator(acceptInvitationSchema),
+  async (c) => {
+    const { token } = c.req.valid('json');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    const invitation = await db
+      .selectFrom('project_invitation')
+      .select(['id', 'project_id', 'role', 'expires_at'])
+      .where('token_hash', '=', hashBearerToken(token))
+      .forUpdate()
+      .executeTakeFirst();
+    // Revoked, already redeemed and never-existed are one answer: the holder of
+    // a failing link learns nothing about which.
+    if (!invitation) {
+      throw new AppError(422, 'This invitation is no longer valid');
+    }
+    if (invitation.expires_at.getTime() <= Date.now()) {
+      throw new AppError(422, 'This invitation has expired');
+    }
+
+    const claimed = await claimInvitations(c, db, user.id, [invitation]);
+    if (claimed.length === 0) {
+      throw new AppError(422, 'This invitation is no longer valid');
+    }
+
+    return c.json(claimed[0], 200);
+  }
+);
+
+export default router;

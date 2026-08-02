@@ -19,6 +19,12 @@ function parseRole(value: unknown): ProjectRole {
   return value as ProjectRole;
 }
 
+function expiryLabel(expiresAt: string): string {
+  const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  if (days <= 0) return 'expired';
+  return days === 1 ? 'in 1 day' : `in ${days} days`;
+}
+
 async function patchProject(
   ctx: RuntimeContext,
   id: string,
@@ -315,9 +321,9 @@ export function registerProject(program: Command, deps: CliDeps): void {
 
   project.addCommand(
     leaf('invite')
-      .description('Add a member by email')
+      .description('Share a board with an email address')
       .argument('<project>', 'project id or name')
-      .requiredOption('--email <email>', 'email of the user to add')
+      .requiredOption('--email <email>', 'email of the person to invite')
       .option('--role <role>', 'editor (default) or viewer')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
@@ -329,10 +335,89 @@ export function registerProject(program: Command, deps: CliDeps): void {
               body: { email: opts.email as string, role },
             })
           );
-          ctx.out.data(added, () =>
+          ctx.out.data(added, () => {
+            if (added.status === 'invited') {
+              ctx.out.line(
+                `Invited ${added.invitation?.email ?? (opts.email as string)} to project ${target.name} as ${added.role} — pending until they accept`
+              );
+              return;
+            }
             ctx.out.line(
-              `Added ${added.user.name} <${added.user.email}> to project ${target.name} as ${added.role}`
-            )
+              `Added ${added.user?.name ?? 'them'} to project ${target.name} as ${added.role}`
+            );
+          });
+        })
+      )
+  );
+
+  project.addCommand(
+    leaf('invitations')
+      .description('List invitations pending on a board')
+      .argument('<project>', 'project id or name')
+      .action(
+        withCtx(deps, async (ctx, _opts, ref) => {
+          const target = await resolveProject(ctx, ref);
+          const { invitations } = assertOk(
+            await ctx.api.GET('/api/projects/{id}/invitations', {
+              params: { path: { id: target.id } },
+            })
+          );
+          ctx.out.data(invitations, () => {
+            if (invitations.length === 0) {
+              ctx.out.line(`No pending invitations on project ${target.name}`);
+              return;
+            }
+            ctx.out.table(
+              ['ID', 'EMAIL', 'ROLE', 'EXPIRES'],
+              invitations.map((invitation) => [
+                invitation.id.slice(0, 8),
+                invitation.email,
+                invitation.role,
+                expiryLabel(invitation.expires_at),
+              ])
+            );
+          });
+        })
+      )
+  );
+
+  project.addCommand(
+    leaf('revoke-invite')
+      .description('Withdraw a pending invitation')
+      .argument('<project>', 'project id or name')
+      .requiredOption('--id <id>', 'invitation id')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const target = await resolveProject(ctx, ref);
+          const id = opts.id as string;
+          assertOk(
+            await ctx.api.DELETE('/api/projects/{id}/invitations/{invitationId}', {
+              params: { path: { id: target.id, invitationId: id } },
+            })
+          );
+          ctx.out.data({ revoked: true, id }, () =>
+            ctx.out.line(`Revoked invitation ${id.slice(0, 8)} on project ${target.name}`)
+          );
+        })
+      )
+  );
+
+  project.addCommand(
+    leaf('resend-invite')
+      .description('Email a pending invitation again and extend its deadline')
+      .argument('<project>', 'project id or name')
+      .requiredOption('--id <id>', 'invitation id')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const target = await resolveProject(ctx, ref);
+          const id = opts.id as string;
+          assertOk(
+            await ctx.api.POST('/api/projects/{id}/invitations/{invitationId}/resend', {
+              params: { path: { id: target.id, invitationId: id } },
+            })
+          );
+          ctx.out.data({ resent: true, id }, () =>
+            ctx.out.line(`Resent invitation ${id.slice(0, 8)} on project ${target.name}`)
           );
         })
       )
