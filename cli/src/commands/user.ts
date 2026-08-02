@@ -18,8 +18,8 @@ export function registerUser(program: Command, deps: CliDeps): void {
           const users = await listUsers(ctx, projectId);
           ctx.out.data(users, () => {
             ctx.out.table(
-              ['ID', 'NAME', 'EMAIL'],
-              users.map((u) => [u.id.slice(0, 8), u.name, u.email])
+              ['ID', 'NAME'],
+              users.map((u) => [u.id.slice(0, 8), u.name])
             );
           });
         })

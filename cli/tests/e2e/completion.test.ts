@@ -137,7 +137,7 @@ describe('completion commands', () => {
     expect(tasks.values).toEqual(expect.arrayContaining(['Alpha task', 'Beta task']));
 
     const assignees = await complete(['task', 'list', '--project', projectId, '--assignee', '']);
-    expect(assignees.values).toContain(user.email);
+    expect(assignees.values).toContain(user.name);
   });
 
   it('completes restore from the archive and every other task argument from the board', async () => {

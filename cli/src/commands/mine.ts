@@ -22,7 +22,7 @@ function personLabel(group: MyTaskPersonGroup, users: Map<string, User>): string
     return 'Unassigned';
   }
   const user = users.get(group.user_id);
-  return user === undefined ? group.user_id.slice(0, 8) : `${user.name} <${user.email}>`;
+  return user === undefined ? group.user_id.slice(0, 8) : user.name;
 }
 
 function taskRow(task: MyTask): string[] {

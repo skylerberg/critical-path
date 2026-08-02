@@ -460,13 +460,17 @@ router.patch(
         .where('id', '=', user.id)
         .returning(['id', 'email', 'name'])
         .executeTakeFirstOrThrow();
-      const publicUser = { ...row, avatar_url: user.avatar_url };
+      const publicUser = { id: row.id, name: row.name, avatar_url: user.avatar_url };
       publishAfterCommit(c, USER_UPDATED, null, publicUser);
       if (newMailbox) {
         enqueueVerificationEmail(c, row);
       }
       return c.json(
-        { ...publicUser, email_verified: newMailbox ? false : user.email_verified },
+        {
+          ...publicUser,
+          email: row.email,
+          email_verified: newMailbox ? false : user.email_verified,
+        },
         200
       );
     } catch (err) {

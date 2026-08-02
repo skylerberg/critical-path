@@ -1,15 +1,10 @@
 import { type } from 'arktype';
 import { boardColumnSchema, boardLabelSchema, boardTaskSchema } from './board';
+import { namedRefSchema } from './common';
 import { projectSchema } from './projects';
 
 // Nested pieces stay module-private: the OpenAPI schema-name registry reads the
 // barrel and throws when two exports produce identical JSON Schema.
-const exportUserSchema = type({
-  id: 'string',
-  email: 'string',
-  name: 'string',
-});
-
 const exportImageSchema = type({
   id: 'string',
   path: 'string',
@@ -32,7 +27,7 @@ export const projectExportSchema = type({
   version: 'number',
   exported_at: 'string',
   project: projectSchema,
-  users: exportUserSchema.array(),
+  users: namedRefSchema.array(),
   columns: boardColumnSchema.array(),
   labels: boardLabelSchema.array(),
   tasks: exportTaskSchema.array(),

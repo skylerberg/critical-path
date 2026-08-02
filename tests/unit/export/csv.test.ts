@@ -155,7 +155,7 @@ describe('tiptapToPlainText', () => {
 function exportFixture(overrides: Partial<ProjectExport> = {}): ProjectExport {
   return {
     format: 'critical-path-project-export',
-    version: 2,
+    version: 3,
     exported_at: '2026-07-26T12:00:00.000Z',
     project: {
       id: 'p1',
@@ -167,7 +167,7 @@ function exportFixture(overrides: Partial<ProjectExport> = {}): ProjectExport {
       member_ids: [],
       is_public: false,
     },
-    users: [{ id: 'u1', email: 'owner@example.com', name: 'Owner' }],
+    users: [{ id: 'u1', name: 'Owner' }],
     columns: [
       { id: 'c1', name: 'To Do', position: 1000, is_done: false },
       { id: 'c2', name: 'Done', position: 2000, is_done: true },
@@ -241,7 +241,7 @@ describe('tasksCsv', () => {
       't1,Blocker task,Done,true,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
     );
     expect(lines[2]).toBe(
-      't2,Blocked task,To Do,false,2000,2026-08-03,bug,owner@example.com,Blocker task,1,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
+      't2,Blocked task,To Do,false,2000,2026-08-03,bug,Owner,Blocker task,1,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
     );
     expect(lines[3]).toBe('');
   });
@@ -254,8 +254,8 @@ describe('tasksCsv', () => {
           { id: 'l2', name: 'ui', color: '#00ff00' },
         ],
         users: [
-          { id: 'u1', email: 'owner@example.com', name: 'Owner' },
-          { id: 'u2', email: 'dev@example.com', name: 'Dev' },
+          { id: 'u1', name: 'Owner' },
+          { id: 'u2', name: 'Dev' },
         ],
         tasks: [
           taskFixture({ id: 't1', title: 'One' }),
@@ -273,7 +273,7 @@ describe('tasksCsv', () => {
     );
 
     expect(csv.split('\r\n')[3]).toBe(
-      't3,Three,To Do,false,3000,,bug; ui,owner@example.com; dev@example.com,One; Two,0,' +
+      't3,Three,To Do,false,3000,,bug; ui,Owner; Dev,One; Two,0,' +
         '2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
     );
   });
@@ -286,8 +286,8 @@ describe('tasksCsv', () => {
           { id: 'l1', name: 'zebra', color: '#ff0000' },
         ],
         users: [
-          { id: 'u2', email: 'ann@example.com', name: 'Ann' },
-          { id: 'u1', email: 'zoe@example.com', name: 'Zoe' },
+          { id: 'u2', name: 'Ann' },
+          { id: 'u1', name: 'Zoe' },
         ],
         tasks: [
           taskFixture({ id: 't1', title: 'First' }),
@@ -306,7 +306,7 @@ describe('tasksCsv', () => {
 
     const row = csv.split('\r\n')[3];
     expect(row).toContain('aardvark; zebra');
-    expect(row).toContain('ann@example.com; zoe@example.com');
+    expect(row).toContain('Ann; Zoe');
     expect(row).toContain('First; Second');
   });
 

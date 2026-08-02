@@ -62,7 +62,7 @@ router.get(
 
     const rows = await db
       .selectFrom('app_user')
-      .select(['app_user.id', 'app_user.email', 'app_user.name', 'app_user.avatar_storage_key'])
+      .select(['app_user.id', 'app_user.name', 'app_user.avatar_storage_key'])
       .where((eb) => eb.or([eb('app_user.id', '=', user.id), sharesProjectFilter(user.id)(eb)]))
       .orderBy('app_user.name')
       .orderBy('app_user.id')

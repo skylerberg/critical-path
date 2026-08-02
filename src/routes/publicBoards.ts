@@ -25,8 +25,8 @@ router.get(
       'tasks with their descriptions, due dates, labels, blockers, image counts, comment ' +
       'counts, and assignee ids, plus every comment on those tasks and the name and avatar of ' +
       'each user who is assigned one or wrote one. Comments on archived tasks are not served. ' +
-      'Member ids, the creator, task timestamps, the activity log, and email addresses are ' +
-      'never included. Projects that are private, unknown, or deleted are all 404.',
+      'Member ids, the creator, task timestamps, and the activity log are never included. ' +
+      'Projects that are private, unknown, or deleted are all 404.',
     responses: {
       200: {
         description: 'Public board payload',

@@ -60,7 +60,6 @@ describe('GET /api/users', () => {
     const aliceRow = body.users.find((u: { id: string }) => u.id === alice.id);
     expect(aliceRow).toEqual({
       id: alice.id,
-      email: alice.email,
       name: alice.name,
       avatar_url: null,
     });
@@ -79,9 +78,29 @@ describe('GET /api/users', () => {
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.users).toEqual([
-      { id: stranger.id, email: stranger.email, name: stranger.name, avatar_url: null },
-    ]);
+    expect(body.users).toEqual([{ id: stranger.id, name: stranger.name, avatar_url: null }]);
+  });
+
+  it('never carries an email address, in either mode', async () => {
+    const responses = [
+      await ctx.request(alice.token).get('/api/users'),
+      await ctx.request(alice.token).get(`/api/users?project_id=${sharedProjectId}`),
+    ];
+
+    for (const res of responses) {
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      const ids = body.users.map((u: { id: string }) => u.id);
+      // Asserted before the absence, so an empty payload cannot pass this.
+      expect(ids).toEqual(expect.arrayContaining([alice.id, bob.id, carol.id]));
+      for (const user of body.users) {
+        expect(Object.keys(user).sort()).toEqual(['avatar_url', 'id', 'name']);
+      }
+      const serialized = JSON.stringify(body);
+      for (const address of [alice.email, bob.email, carol.email]) {
+        expect(serialized).not.toContain(address);
+      }
+    }
   });
 
   describe('?project_id=', () => {

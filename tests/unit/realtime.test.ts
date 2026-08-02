@@ -292,7 +292,7 @@ describe('realtime delivery', () => {
     await deliver({
       type: USER_UPDATED,
       project_id: null,
-      data: { id: member, email: 'rt@example.com', name: 'rt member', avatar_url: null },
+      data: { id: member, name: 'rt member', avatar_url: null },
     });
 
     expect(creatorSocket.sent).toHaveLength(1);
@@ -303,7 +303,7 @@ describe('realtime delivery', () => {
       {
         type: USER_UPDATED,
         project_id: null,
-        data: { id: member, email: 'rt@example.com', name: 'rt member', avatar_url: null },
+        data: { id: member, name: 'rt member', avatar_url: null },
       },
     ]);
   });
@@ -315,7 +315,7 @@ describe('realtime delivery', () => {
     await deliver({
       type: USER_UPDATED,
       project_id: null,
-      data: { id: outsider, email: 'rt@example.com', name: 'rt outsider', avatar_url: null },
+      data: { id: outsider, name: 'rt outsider', avatar_url: null },
     });
 
     expect(outsiderSocket.sent).toHaveLength(1);

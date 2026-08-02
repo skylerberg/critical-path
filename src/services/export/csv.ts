@@ -93,7 +93,7 @@ function resolveNames(ids: string[], index: NameIndex): string {
 export function tasksCsv(exportPayload: ProjectExport): string {
   const columns = new Map(exportPayload.columns.map((column) => [column.id, column]));
   const labelNames = nameIndex(exportPayload.labels);
-  const userEmails = nameIndex(exportPayload.users.map(({ id, email }) => ({ id, name: email })));
+  const userNames = nameIndex(exportPayload.users);
   const taskTitles = nameIndex(exportPayload.tasks.map(({ id, title }) => ({ id, name: title })));
 
   const rows = [TASKS_CSV_HEADER];
@@ -107,7 +107,7 @@ export function tasksCsv(exportPayload: ProjectExport): string {
       String(task.position),
       task.due_date ?? '',
       resolveNames(task.label_ids, labelNames),
-      resolveNames(task.assignee_ids, userEmails),
+      resolveNames(task.assignee_ids, userNames),
       resolveNames(task.blocker_ids, taskTitles),
       String(task.images.length),
       task.created_at,

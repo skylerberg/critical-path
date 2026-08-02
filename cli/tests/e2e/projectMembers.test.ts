@@ -6,7 +6,7 @@ import type { components } from '../../src/api/api.generated';
 type BoardPayload = components['schemas']['BoardPayload'];
 type User = components['schemas']['User'];
 type ProjectListItem = components['schemas']['ProjectListItem'];
-type Member = { id: string; name: string | null; email: string | null; role: string };
+type Member = { id: string; name: string | null; role: string };
 type InviteResult = { user: User; role: string };
 
 describe('project member commands', () => {
@@ -49,9 +49,7 @@ describe('project member commands', () => {
   it('members lists only the implicit owner on a fresh project', async () => {
     const res = await h.runCli(['project', 'members', 'CLI Members Project', '--json']);
     expect(res.exitCode).toBe(0);
-    expect(res.json<Member[]>()).toEqual([
-      { id: user.id, name: user.name, email: user.email, role: 'owner' },
-    ]);
+    expect(res.json<Member[]>()).toEqual([{ id: user.id, name: user.name, role: 'owner' }]);
   });
 
   it('invite adds a member by email', async () => {
@@ -71,8 +69,8 @@ describe('project member commands', () => {
 
     const members = await h.runCli(['project', 'members', projectId, '--json']);
     expect(members.json<Member[]>()).toEqual([
-      { id: user.id, name: user.name, email: user.email, role: 'owner' },
-      { id: member.id, name: member.name, email: member.email, role: 'editor' },
+      { id: user.id, name: user.name, role: 'owner' },
+      { id: member.id, name: member.name, role: 'editor' },
     ]);
   });
 
@@ -151,8 +149,8 @@ describe('project member commands', () => {
       'project',
       'set-members',
       projectId,
-      user.email,
-      member.email,
+      user.name,
+      member.name,
       '--json',
     ]);
     expect(res.exitCode).toBe(0);
@@ -160,7 +158,7 @@ describe('project member commands', () => {
   });
 
   it('set-members can remove everyone but the owner', async () => {
-    const res = await h.runCli(['project', 'set-members', projectId, user.email, '--json']);
+    const res = await h.runCli(['project', 'set-members', projectId, user.name, '--json']);
     expect(res.exitCode).toBe(0);
     expect(res.json<ProjectListItem>().member_ids).toEqual([]);
 
@@ -201,7 +199,7 @@ describe('project member commands', () => {
   });
 
   it('set-members leaves an existing viewer’s role alone', async () => {
-    const res = await h.runCli(['project', 'set-members', projectId, member.email, '--json']);
+    const res = await h.runCli(['project', 'set-members', projectId, member.name, '--json']);
     expect(res.exitCode).toBe(0);
 
     const members = await h.runCli(['project', 'members', projectId, '--json']);
@@ -213,7 +211,7 @@ describe('project member commands', () => {
       'project',
       'set-role',
       projectId,
-      member.email,
+      member.name,
       '--role',
       'editor',
       '--json',
@@ -226,7 +224,7 @@ describe('project member commands', () => {
       'project',
       'set-role',
       projectId,
-      member.email,
+      member.name,
       '--role',
       'viewer',
       '--json',
@@ -237,7 +235,7 @@ describe('project member commands', () => {
   });
 
   it('set-role on the creator exits 2 without sending a request', async () => {
-    const res = await h.runCli(['project', 'set-role', projectId, user.email, '--role', 'viewer']);
+    const res = await h.runCli(['project', 'set-role', projectId, user.name, '--role', 'viewer']);
     expect(res.exitCode).toBe(2);
     expect(res.stderr).toMatch(/always an editor/);
   });
@@ -268,7 +266,7 @@ describe('project member commands', () => {
       'transfer',
       projectId,
       '--to',
-      outsider.email,
+      outsider.name,
       '--force',
     ]);
     expect(res.exitCode).toBe(4);
@@ -291,7 +289,7 @@ describe('project member commands', () => {
       'transfer',
       projectId,
       '--to',
-      member.email,
+      member.name,
       '--force',
       '--json',
     ]);
@@ -305,25 +303,18 @@ describe('project member commands', () => {
     const res = await h.runCli(['project', 'members', projectId, '--json']);
     expect(res.exitCode).toBe(0);
     expect(res.json<Member[]>()).toEqual([
-      { id: member.id, name: member.name, email: member.email, role: 'owner' },
-      { id: user.id, name: user.name, email: user.email, role: 'editor' },
+      { id: member.id, name: member.name, role: 'owner' },
+      { id: user.id, name: user.name, role: 'editor' },
     ]);
   });
 
   it('transfer as a non-owner exits 1', async () => {
-    const res = await h.runCli(['project', 'transfer', projectId, '--to', user.email, '--force']);
+    const res = await h.runCli(['project', 'transfer', projectId, '--to', user.name, '--force']);
     expect(res.exitCode).toBe(1);
   });
 
   it('transfer without --force under --no-input exits 2', async () => {
-    const res = await h.runCli([
-      'project',
-      'transfer',
-      projectId,
-      '--to',
-      user.email,
-      '--no-input',
-    ]);
+    const res = await h.runCli(['project', 'transfer', projectId, '--to', user.name, '--no-input']);
     expect(res.exitCode).toBe(2);
   });
 
@@ -352,7 +343,7 @@ describe('project member commands', () => {
       'transfer',
       'CLI Solo Project',
       '--to',
-      user.email,
+      user.name,
       '--force',
     ]);
     expect(res.exitCode).toBe(2);
