@@ -4,6 +4,9 @@ metadata:
   name: critical-path-migrate-{COMMITHASH}
   namespace: critical-path
 spec:
+  # Lock contention is retried inside the run itself, where an attempt costs
+  # milliseconds. A pod-level retry would also re-run migrations that are simply
+  # wrong, delaying the report of a failure that will not resolve on its own.
   backoffLimit: 0
   ttlSecondsAfterFinished: 86400
   template:
