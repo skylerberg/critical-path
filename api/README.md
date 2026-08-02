@@ -175,18 +175,21 @@ the revoke behind it answers 404. Which one wins is decided by the delete, not
 by the reads either side of it.
 
 Before any of that, a claim locks every board its invitations name — the ones it
-will not join included. Every other writer of a member row takes the board first
-and its invitations second, and a claim taking them the other way round
+will not join included. Every route that writes a member row takes the board
+first and its invitations second, and a claim taking them the other way round
 deadlocks against a revoke issued under that lock. Locking more than one board
 at a time is done by id everywhere it is done at all: two lockers that disagree
 about the order deadlock as soon as their sets overlap, which random ids make
 about half of all pairs.
 
-The claim locks the membership rows it reads as well. Nothing obliges a writer
-of a member row to hold the board — a role update and a removal take no lock on
-it, and only an insert does, through its foreign key — so a share lock on those
-rows is what makes the role reported to the joiner the role that was actually
-stored, rather than the role the invitation asked for.
+The claim locks the membership rows it reads as well. The one writer of a
+member row that holds no board is the cascade behind an account deletion,
+which takes only the boards its user created: their member rows on everyone
+else's boards go with the account unlocked. Accepting an invitation to a board
+you already belong to while your own account deletion is in flight would
+otherwise be answered with the role of a row on its way out, so a share lock on
+those rows is what makes the role reported to the joiner the role that was
+actually stored.
 
 - `GET /api/projects/:id/invitations` lists what is outstanding, expired rows
   included with their `expires_at` so the UI can offer resend rather than let

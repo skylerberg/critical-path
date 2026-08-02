@@ -1128,6 +1128,9 @@ router.post(
       throw new AppError(404, 'Invitation not found');
     }
 
+    // Refused before anything is spent: a re-mail unit burned by a resend the
+    // mail budget was never going to allow outlives the budget that refused it.
+    await assertInvitationSendBudget(user.id);
     await enforceInvitationResendRateLimit(invitationId);
     await enforceInvitationSendRateLimit(user.id);
 
