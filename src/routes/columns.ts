@@ -6,6 +6,7 @@ import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
+import { assertColumnInProject, type ColumnInProject } from '../services/boardColumns';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
@@ -57,22 +58,14 @@ async function loadMoveTarget(
   sourceColumnId: string,
   projectId: string,
   field: string
-): Promise<{ id: string; name: string }> {
+): Promise<ColumnInProject> {
   if (targetColumnId === sourceColumnId) {
     throw new AppError(422, `${field} must not be the source column`);
   }
-  const target = await db
-    .selectFrom('board_column')
-    .select(['id', 'project_id', 'name'])
-    .where('id', '=', targetColumnId)
-    .executeTakeFirst();
-  if (!target) {
-    throw new AppError(422, `${field} column does not exist`);
-  }
-  if (target.project_id !== projectId) {
-    throw new AppError(422, `${field} column belongs to another project`);
-  }
-  return { id: target.id, name: target.name };
+  return assertColumnInProject(db, targetColumnId, projectId, {
+    missing: `${field} column does not exist`,
+    otherProject: `${field} column belongs to another project`,
+  });
 }
 
 async function relocateTasks(

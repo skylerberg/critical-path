@@ -361,6 +361,7 @@ describe('Tasks CRUD', () => {
         .request(user.token)
         .patch(`/api/tasks/${id}`, { column_id: otherColumn, position: 500 });
       expect(res.status).toBe(422);
+      expect((await res.json()).error).toContain('column_id');
     });
 
     it('accepts a title patch whose expected_updated_at matches the stored row', async () => {
