@@ -1,7 +1,9 @@
 import { APP_NAME } from '../config/constants';
 import { env } from '../config/env';
 import { db } from '../db/index';
+import { allowNotificationEmail } from '../middleware/rateLimit';
 import { logger } from '../utils/logger';
+import { projectAccessIdsAmong } from './authorization';
 import { getEmailSender } from './email/index';
 import { createUnsubscribeToken } from './emailToken';
 import type { EmailMessage } from './email/types';
@@ -20,7 +22,7 @@ export const NOTIFY_COLUMN = {
 export interface Notification {
   kind: NotificationKind;
   actorName: string;
-  project: { id: string; name: string };
+  project: { id: string; name: string; created_by: string | null };
   task?: { id: string; title: string };
   recipientUserIds: string[];
 }
@@ -31,8 +33,14 @@ interface Recipient {
   name: string;
 }
 
+// Deliberately no actor: otherwise a loop only has to alternate who performs
+// the write to make every message look new.
+function repeatKey(notification: Notification): string {
+  return `${notification.kind}:${notification.project.id}:${notification.task?.id ?? ''}`;
+}
+
 function unsubscribeLinks(
-  recipientId: string,
+  recipient: Recipient,
   kind: NotificationKind
 ): {
   page: string;
@@ -40,7 +48,7 @@ function unsubscribeLinks(
 } {
   // The web app and this service share an origin, so the app's base is also
   // what a mail client has to post back to.
-  const token = encodeURIComponent(createUnsubscribeToken(recipientId, kind));
+  const token = encodeURIComponent(createUnsubscribeToken(recipient.id, recipient.email, kind));
   return {
     page: `${env.appUrlBase}/unsubscribe?token=${token}`,
     oneClick: `${env.appUrlBase}/api/auth/unsubscribe/one-click?token=${token}`,
@@ -48,7 +56,7 @@ function unsubscribeLinks(
 }
 
 function messageFor(notification: Notification, recipient: Recipient): EmailMessage {
-  const { page, oneClick } = unsubscribeLinks(recipient.id, notification.kind);
+  const { page, oneClick } = unsubscribeLinks(recipient, notification.kind);
   const subject =
     notification.task === undefined
       ? `${notification.actorName} added you to ${notification.project.name}`
@@ -81,20 +89,37 @@ export const notificationDelivery: {
     // The module-level connection, not the request's: by the time a post-commit
     // hook runs its transaction is closed.
     //
-    // Both gates are one predicate per recipient row: below every call site so
-    // account-access mail cannot be caught by them, and per-row so one
-    // unverified recipient never suppresses mail to the rest.
-    const recipients = await db
+    // Every gate here is per recipient: below every call site so account-access
+    // mail cannot be caught by them, and per-row so one unverified, opted-out,
+    // since-evicted or throttled recipient never suppresses mail to the rest.
+    const rows = await db
       .selectFrom('app_user')
       .select(['id', 'email', 'name'])
       .where('id', 'in', notification.recipientUserIds)
       .where('email_verified_at', 'is not', null)
       .where(NOTIFY_COLUMN[notification.kind], '=', true)
       .execute();
+    if (rows.length === 0) return;
+
+    // The recipient list was snapshotted inside the transaction; access can
+    // have been revoked between the commit and this hook.
+    const accessible = new Set(
+      await projectAccessIdsAmong(
+        db,
+        notification.project,
+        rows.map((recipient) => recipient.id)
+      )
+    );
+    const recipients = rows.filter((recipient) => accessible.has(recipient.id));
 
     const sender = getEmailSender();
+    const key = repeatKey(notification);
     const results = await Promise.allSettled(
-      recipients.map((recipient) => sender.send(messageFor(notification, recipient)))
+      recipients.map(async (recipient) => {
+        if (await allowNotificationEmail(recipient.id, key)) {
+          await sender.send(messageFor(notification, recipient));
+        }
+      })
     );
     for (const result of results) {
       if (result.status === 'rejected') {
@@ -113,7 +138,7 @@ export async function notify(
   args: {
     kind: NotificationKind;
     actor: { id: string; name: string };
-    project: { id: string; name: string };
+    project: { id: string; name: string; created_by: string | null };
     taskId?: string;
     recipientUserIds: string[];
   }
@@ -140,7 +165,11 @@ export async function notify(
   const notification: Notification = {
     kind: args.kind,
     actorName: args.actor.name,
-    project: { id: args.project.id, name: args.project.name },
+    project: {
+      id: args.project.id,
+      name: args.project.name,
+      created_by: args.project.created_by,
+    },
     task,
     recipientUserIds,
   };

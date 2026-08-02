@@ -1,13 +1,23 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { Hono } from 'hono';
 import { app } from '../../../src/index';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
-import { resetRateLimiter } from '../../../src/middleware/rateLimit';
+import { errorHandler } from '../../../src/middleware/errorHandler';
+import { transactionMiddleware } from '../../../src/middleware/transaction';
+import { NOTIFY_RECIPIENT_MAX_ATTEMPTS, resetRateLimiter } from '../../../src/middleware/rateLimit';
 import { env } from '../../../src/config/env';
-import { notificationDelivery, type Notification } from '../../../src/services/notifications';
-import { createUnsubscribeToken } from '../../../src/services/emailToken';
+import { logger } from '../../../src/utils/logger';
+import {
+  notificationDelivery,
+  notify,
+  type Notification,
+} from '../../../src/services/notifications';
+import { createUnsubscribeToken, verifyUnsubscribeToken } from '../../../src/services/emailToken';
 import { MemoryEmailSender, sentEmails, clearSentEmails } from '../../../src/services/email/index';
+import type { EmailMessage } from '../../../src/services/email/types';
+import type { Variables } from '../../../src/types/index';
 
 interface BoardPayload {
   project: { id: string };
@@ -38,6 +48,7 @@ describe('Notifications', () => {
   let pending: Promise<void>[] = [];
   let owner: TestUser;
   let member: TestUser;
+  let member2: TestUser;
   let unverified: TestUser;
   let projectId: string;
   let columnId: string;
@@ -90,14 +101,29 @@ describe('Notifications', () => {
     return { id };
   }
 
-  async function addMember(userId: string, role?: string): Promise<void> {
-    const res = await ctx.request(owner.token).put(`/api/projects/${projectId}/members`, {
-      user_ids: [userId],
-      ...(role === undefined ? {} : { roles: [{ user_id: userId, role }] }),
-    });
+  async function addMembers(userIds: string[]): Promise<void> {
+    const res = await ctx
+      .request(owner.token)
+      .put(`/api/projects/${projectId}/members`, { user_ids: userIds });
     expect(res.status).toBe(204);
     await settle();
     clearSentEmails();
+  }
+
+  // Access without the membership notification, so a test that measures what
+  // reaches a mailbox starts from an empty one and an unspent budget.
+  async function grantAccess(userIds: string[]): Promise<void> {
+    await db
+      .insertInto('project_member')
+      .values(userIds.map((user_id) => ({ project_id: projectId, user_id, role: 'editor' })))
+      .execute();
+  }
+
+  function unsubscribeTokenIn(email: EmailMessage): string {
+    const header = email.headers?.['List-Unsubscribe'] ?? '';
+    const token = new URL(header.slice(1, -1)).searchParams.get('token');
+    expect(token).not.toBeNull();
+    return token ?? '';
   }
 
   beforeAll(async () => {
@@ -110,6 +136,7 @@ describe('Notifications', () => {
 
     owner = await createVerifiedUser('notify-owner');
     member = await createVerifiedUser('notify-member');
+    member2 = await createVerifiedUser('notify-member2');
     unverified = await ctx.createUser('notify-unverified');
 
     const board = await createProject(owner.token, 'Notify board');
@@ -134,19 +161,19 @@ describe('Notifications', () => {
     await db
       .updateTable('app_user')
       .set({ notify_task_assigned: true, notify_added_to_project: true })
-      .where('id', 'in', [owner.id, member.id, unverified.id])
+      .where('id', 'in', [owner.id, member.id, member2.id, unverified.id])
       .execute();
     await db
       .deleteFrom('project_member')
       .where('project_id', '=', projectId)
-      .where('user_id', 'in', [member.id, unverified.id])
+      .where('user_id', 'in', [member.id, member2.id, unverified.id])
       .execute();
     clearSentEmails();
   });
 
   describe('task_assigned', () => {
     it('mails the newly assigned member with a link to the card', async () => {
-      await addMember(member.id);
+      await addMembers([member.id]);
       const task = await createTask(owner.token);
 
       const res = await ctx
@@ -163,7 +190,7 @@ describe('Notifications', () => {
     });
 
     it('mails an assignee supplied at task creation', async () => {
-      await addMember(member.id);
+      await addMembers([member.id]);
       await createTask(owner.token, { assignee_ids: [member.id] });
       await settle();
 
@@ -171,7 +198,7 @@ describe('Notifications', () => {
     });
 
     it('sends nothing when the current assignee set is echoed back', async () => {
-      await addMember(member.id);
+      await addMembers([member.id]);
       const task = await createTask(owner.token, { assignee_ids: [member.id] });
       await settle();
       clearSentEmails();
@@ -197,8 +224,8 @@ describe('Notifications', () => {
       expect(sentEmails()).toEqual([]);
     });
 
-    it('sends nothing when a duplicate task id rolls the transaction back', async () => {
-      await addMember(member.id);
+    it('sends nothing when a duplicate task id is refused before the notification', async () => {
+      await addMembers([member.id]);
       const id = newId();
       await createTask(owner.token, { assignee_ids: [member.id] });
       await settle();
@@ -228,9 +255,49 @@ describe('Notifications', () => {
     });
   });
 
+  describe('the post-commit boundary', () => {
+    // The routes all reach notify() last, so the only way to observe the
+    // rollback rule is a handler that fails after it.
+    function notifyThenMaybeFail(): Hono<{ Variables: Variables }> {
+      const harness = new Hono<{ Variables: Variables }>();
+      harness.use('*', transactionMiddleware);
+      harness.onError(errorHandler);
+      harness.post('/notify/:outcome', async (c) => {
+        await notify(c, {
+          kind: 'added_to_project',
+          actor: owner,
+          project: { id: projectId, name: 'Notify board', created_by: owner.id },
+          recipientUserIds: [member.id],
+        });
+        if (c.req.param('outcome') === 'fail') {
+          throw new Error('failed after the notification was queued');
+        }
+        return c.body(null, 204);
+      });
+      return harness;
+    }
+
+    it('mails nobody when the mutation rolls back after notify()', async () => {
+      await grantAccess([member.id]);
+      const harness = notifyThenMaybeFail();
+
+      const rolledBack = await harness.request('/notify/fail', { method: 'POST' });
+      expect(rolledBack.status).toBe(500);
+      await settle();
+      expect(sentEmails()).toEqual([]);
+
+      // The same notification down the committing path, so the empty inbox
+      // above cannot be passing because nothing was ever queued.
+      const committed = await harness.request('/notify/commit', { method: 'POST' });
+      expect(committed.status).toBe(204);
+      await settle();
+      expect(sentEmails().map((email) => email.to)).toEqual([member.email]);
+    });
+  });
+
   describe('copying never notifies', () => {
     it('sends nothing when a card assigned to someone else is duplicated', async () => {
-      await addMember(member.id);
+      await addMembers([member.id]);
       const task = await createTask(owner.token, { assignee_ids: [member.id] });
       await settle();
       clearSentEmails();
@@ -252,7 +319,7 @@ describe('Notifications', () => {
     });
 
     it('sends nothing when a whole board is copied', async () => {
-      await addMember(member.id);
+      await addMembers([member.id]);
       await createTask(owner.token, { assignee_ids: [member.id] });
       await settle();
       clearSentEmails();
@@ -305,7 +372,7 @@ describe('Notifications', () => {
     });
 
     it('sends nothing for a role change or a removal', async () => {
-      await addMember(member.id);
+      await addMembers([member.id]);
 
       const demote = await ctx.request(owner.token).put(`/api/projects/${projectId}/members`, {
         user_ids: [member.id],
@@ -427,7 +494,7 @@ describe('Notifications', () => {
 
   describe('unsubscribe', () => {
     it('switches off the kind the token names, and is idempotent', async () => {
-      const token = createUnsubscribeToken(member.id, 'task_assigned');
+      const token = createUnsubscribeToken(member.id, member.email, 'task_assigned');
 
       const first = await ctx.request().post('/api/auth/unsubscribe', { token });
       expect(first.status).toBe(200);
@@ -446,7 +513,7 @@ describe('Notifications', () => {
     });
 
     it('switches everything off through the all form', async () => {
-      const token = createUnsubscribeToken(member.id, 'task_assigned');
+      const token = createUnsubscribeToken(member.id, member.email, 'task_assigned');
 
       const res = await ctx.request().post('/api/auth/unsubscribe/all', { token });
       expect(res.status).toBe(204);
@@ -457,7 +524,7 @@ describe('Notifications', () => {
     });
 
     it('accepts the form-encoded one-click post a mail client sends', async () => {
-      const token = createUnsubscribeToken(member.id, 'added_to_project');
+      const token = createUnsubscribeToken(member.id, member.email, 'added_to_project');
 
       const res = await app.request(
         `/api/auth/unsubscribe/one-click?token=${encodeURIComponent(token)}`,
@@ -475,7 +542,7 @@ describe('Notifications', () => {
     });
 
     it('answers 422 for a tampered, foreign or missing token without touching anything', async () => {
-      const token = createUnsubscribeToken(member.id, 'task_assigned');
+      const token = createUnsubscribeToken(member.id, member.email, 'task_assigned');
       const [payload, signature] = token.split('.');
       const tampered = `${payload}.${(signature[0] === 'A' ? 'B' : 'A') + signature.slice(1)}`;
 
@@ -491,7 +558,7 @@ describe('Notifications', () => {
     });
 
     it('never authenticates a session', async () => {
-      const token = createUnsubscribeToken(member.id, 'task_assigned');
+      const token = createUnsubscribeToken(member.id, member.email, 'task_assigned');
 
       const me = await ctx.request(token).get('/api/auth/me');
       expect(me.status).toBe(401);
@@ -509,7 +576,7 @@ describe('Notifications', () => {
     });
 
     it("cannot reach another account's settings", async () => {
-      const token = createUnsubscribeToken(member.id, 'task_assigned');
+      const token = createUnsubscribeToken(member.id, member.email, 'task_assigned');
 
       const res = await ctx.request().post('/api/auth/unsubscribe/all', { token });
       expect(res.status).toBe(204);
@@ -519,6 +586,83 @@ describe('Notifications', () => {
         added_to_project: false,
       });
       expect(await settingsOf(owner.id)).toEqual({ task_assigned: true, added_to_project: true });
+    });
+
+    it('stops working once the account moves to a different address', async () => {
+      const mover = await createVerifiedUser('notify-mover');
+      const stale = createUnsubscribeToken(mover.id, mover.email, 'task_assigned');
+
+      const newAddress = `moved-${newId()}@test.example.com`;
+      const moved = await ctx.request(mover.token).patch('/api/auth/me', { email: newAddress });
+      expect(moved.status).toBe(200);
+      await settle();
+      clearSentEmails();
+
+      // Answered exactly as a live link is, so a dead link is not an oracle.
+      const single = await ctx.request().post('/api/auth/unsubscribe', { token: stale });
+      expect(single.status).toBe(200);
+      expect(await single.json()).toEqual({ kind: 'task_assigned' });
+      const all = await ctx.request().post('/api/auth/unsubscribe/all', { token: stale });
+      expect(all.status).toBe(204);
+      expect(await settingsOf(mover.id)).toEqual({ task_assigned: true, added_to_project: true });
+
+      // The same call with a link naming the address the account is on now, so
+      // the no-ops above cannot be passing for an unrelated reason.
+      const fresh = createUnsubscribeToken(mover.id, newAddress, 'task_assigned');
+      expect((await ctx.request().post('/api/auth/unsubscribe', { token: fresh })).status).toBe(
+        200
+      );
+      expect(await settingsOf(mover.id)).toEqual({ task_assigned: false, added_to_project: true });
+    });
+  });
+
+  describe('the mailed unsubscribe link', () => {
+    it('names its own recipient and its own kind, for every recipient of one send', async () => {
+      const res = await ctx
+        .request(owner.token)
+        .put(`/api/projects/${projectId}/members`, { user_ids: [member.id, member2.id] });
+      expect(res.status).toBe(204);
+      await settle();
+
+      const emails = sentEmails();
+      expect(emails.map((email) => email.to).sort()).toEqual([member.email, member2.email].sort());
+
+      const expectedId = new Map([
+        [member.email, member.id],
+        [member2.email, member2.id],
+      ]);
+      for (const email of emails) {
+        expect(verifyUnsubscribeToken(unsubscribeTokenIn(email))).toEqual({
+          status: 'valid',
+          user_id: expectedId.get(email.to),
+          email_hash: expect.any(String),
+          kind: 'added_to_project',
+        });
+        expect(email.text).toContain(
+          `${env.appUrlBase}/unsubscribe?token=${encodeURIComponent(unsubscribeTokenIn(email))}`
+        );
+      }
+    });
+
+    it('is redeemable by its own recipient and moves only that account', async () => {
+      const res = await ctx
+        .request(owner.token)
+        .put(`/api/projects/${projectId}/members`, { user_ids: [member.id, member2.id] });
+      expect(res.status).toBe(204);
+      await settle();
+
+      const mine = sentEmails().filter((email) => email.to === member2.email);
+      expect(mine).toHaveLength(1);
+      const redeemed = await ctx
+        .request()
+        .post('/api/auth/unsubscribe', { token: unsubscribeTokenIn(mine[0]) });
+      expect(redeemed.status).toBe(200);
+
+      expect(await settingsOf(member2.id)).toEqual({
+        task_assigned: true,
+        added_to_project: false,
+      });
+      expect(await settingsOf(member.id)).toEqual({ task_assigned: true, added_to_project: true });
     });
   });
 
@@ -551,24 +695,115 @@ describe('Notifications', () => {
     });
   });
 
+  describe('what one mailbox can be made to receive', () => {
+    async function deliverAbout(taskId: string, recipientUserIds: string[]): Promise<void> {
+      await realDeliver({
+        kind: 'task_assigned',
+        actorName: 'Owner',
+        project: { id: projectId, name: 'Notify board', created_by: owner.id },
+        task: { id: taskId, title: `Card ${taskId}` },
+        recipientUserIds,
+      });
+    }
+
+    it('mails the same person about the same thing once, however often it is redone', async () => {
+      for (let round = 0; round < 4; round++) {
+        const add = await ctx
+          .request(owner.token)
+          .put(`/api/projects/${projectId}/members`, { user_ids: [member.id] });
+        expect(add.status).toBe(204);
+        await settle();
+
+        const remove = await ctx
+          .request(owner.token)
+          .put(`/api/projects/${projectId}/members`, { user_ids: [] });
+        expect(remove.status).toBe(204);
+        await settle();
+      }
+
+      expect(sentEmails().map((email) => email.to)).toEqual([member.email]);
+    });
+
+    it('bounds distinct notifications per recipient without touching anyone else', async () => {
+      await grantAccess([member.id, member2.id]);
+
+      for (let index = 0; index < NOTIFY_RECIPIENT_MAX_ATTEMPTS + 5; index++) {
+        await deliverAbout(`card-${String(index)}`, [member.id]);
+      }
+      expect(sentEmails()).toHaveLength(NOTIFY_RECIPIENT_MAX_ATTEMPTS);
+
+      clearSentEmails();
+      await deliverAbout('card-0', [member2.id]);
+      expect(sentEmails().map((email) => email.to)).toEqual([member2.email]);
+    });
+
+    it('lets one write mail everyone it names', async () => {
+      await grantAccess([member.id, member2.id]);
+
+      await deliverAbout('shared-card', [member.id, member2.id]);
+
+      expect(
+        sentEmails()
+          .map((email) => email.to)
+          .sort()
+      ).toEqual([member.email, member2.email].sort());
+    });
+
+    it('sends nothing to a recipient whose access is gone by the time the hook runs', async () => {
+      await grantAccess([member.id, member2.id]);
+      await db
+        .deleteFrom('project_member')
+        .where('project_id', '=', projectId)
+        .where('user_id', '=', member.id)
+        .execute();
+
+      await realDeliver({
+        kind: 'added_to_project',
+        actorName: 'Owner',
+        project: { id: projectId, name: 'Notify board', created_by: owner.id },
+        recipientUserIds: [member.id, member2.id],
+      });
+
+      expect(sentEmails().map((email) => email.to)).toEqual([member2.email]);
+    });
+  });
+
   describe('delivery failure', () => {
-    it('leaves the mutation committed when a send throws', async () => {
-      await addMember(member.id);
+    it('leaves the mutation committed, mails everyone queued behind it, and logs', async () => {
+      await addMembers([member.id, member2.id]);
       const task = await createTask(owner.token);
-      vi.spyOn(MemoryEmailSender.prototype, 'send').mockRejectedValue(new Error('smtp is down'));
+      const errors = vi.spyOn(logger, 'error').mockImplementation(() => {});
+      const realSend = MemoryEmailSender.prototype.send;
+      const passthrough = new MemoryEmailSender();
+      vi.spyOn(MemoryEmailSender.prototype, 'send').mockImplementation(
+        async (message: EmailMessage) => {
+          if (message.to === member.email) {
+            throw new Error('smtp is down');
+          }
+          await realSend.call(passthrough, message);
+        }
+      );
 
       const res = await ctx
         .request(owner.token)
-        .put(`/api/tasks/${task.id}/assignees`, { user_ids: [member.id] });
+        .put(`/api/tasks/${task.id}/assignees`, { user_ids: [member.id, member2.id] });
       expect(res.status).toBe(204);
       await settle();
+
+      expect(sentEmails().map((email) => email.to)).toEqual([member2.email]);
+      expect(errors).toHaveBeenCalledWith(
+        expect.objectContaining({ msg: 'Notification email failed', kind: 'task_assigned' })
+      );
+      // The hook itself must not have rejected, or the middleware would have
+      // logged its own failure on top.
+      expect(errors).toHaveBeenCalledTimes(1);
 
       const rows = await db
         .selectFrom('task_assignee')
         .select('user_id')
         .where('task_id', '=', task.id)
         .execute();
-      expect(rows.map((row) => row.user_id)).toEqual([member.id]);
+      expect(rows.map((row) => row.user_id).sort()).toEqual([member.id, member2.id].sort());
     });
   });
 });

@@ -163,6 +163,35 @@ export async function enforceVerificationRateLimit(c: Context, userId: string): 
   }
 }
 
+export const NOTIFY_WINDOW_MS = 60 * 60_000;
+export const NOTIFY_RECIPIENT_MAX_ATTEMPTS = 20;
+
+// Keyed on the recipient, not on whoever caused the write: a burst naming many
+// people spends one message from each of their separate budgets, while a loop
+// aimed at one address spends the same budget every time. A verdict rather than
+// a throw, because the mutation has already committed.
+export async function allowNotificationEmail(
+  recipientId: string,
+  repeatKey: string
+): Promise<boolean> {
+  const now = Date.now();
+  const firstOfItsKind = await consumeRateLimit(
+    `notify-repeat:${recipientId}:${repeatKey}`,
+    now,
+    1,
+    NOTIFY_WINDOW_MS
+  );
+  if (!firstOfItsKind) {
+    return false;
+  }
+  return await consumeRateLimit(
+    `notify-recipient:${recipientId}`,
+    now,
+    NOTIFY_RECIPIENT_MAX_ATTEMPTS,
+    NOTIFY_WINDOW_MS
+  );
+}
+
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
   const normalizedEmail = email.toLowerCase();
   const ipAllowed = await consumeRateLimit(`ip:${clientIp(c)}:${normalizedEmail}`);
