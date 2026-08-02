@@ -11,6 +11,7 @@ export * from './tiptap';
 export * from './board';
 export * from './projects';
 export * from './export';
+export * from './accountExport';
 export * from './publicBoard';
 export * from './columns';
 export * from './tasks';
