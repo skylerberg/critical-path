@@ -127,8 +127,8 @@ beforeEach(() => {
   board.currentProjectId = 'p1';
   board.tasks = [task(2)];
   users.users = [
-    { id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null },
-    { id: 'u2', email: 'bob@example.com', name: 'Bob Barker', avatar_url: null },
+    { id: 'u1', name: 'Ada Lovelace', avatar_url: null },
+    { id: 'u2', name: 'Bob Barker', avatar_url: null },
   ];
   session.user = {
     id: 'u1',
@@ -212,7 +212,7 @@ describe('TaskActivity comments', () => {
     projects.projects = [projectListItem(['u2'])];
     users.setForProject('p1', [
       ...users.users,
-      { id: 'u3', email: 'stale@example.com', name: 'Stale Assignee', avatar_url: null },
+      { id: 'u3', name: 'Stale Assignee', avatar_url: null },
     ]);
     const { component } = render(TaskActivity, { taskId: 't1' });
     await tick();

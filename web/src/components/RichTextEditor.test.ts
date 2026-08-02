@@ -21,19 +21,13 @@ function insertedMentionAttrs(editor: Editor): Record<string, unknown> | undefin
   return doc.content?.[0].content?.find((node) => node.type === 'mention')?.attrs;
 }
 
-const ada: User = { id: 'u-ada', name: 'Ada Lovelace', email: 'ada@example.com', avatar_url: null };
-const alan: User = {
-  id: 'u-alan',
-  name: 'Alan Turing',
-  email: 'alan@example.com',
-  avatar_url: null,
-};
-const zed: User = { id: 'u-zed', name: 'Zed', email: 'zed@example.com', avatar_url: null };
+const ada: User = { id: 'u-ada', name: 'Ada Lovelace', avatar_url: null };
+const alan: User = { id: 'u-alan', name: 'Alan Turing', avatar_url: null };
+const zed: User = { id: 'u-zed', name: 'Zed', avatar_url: null };
 
 const manyUsers: User[] = Array.from({ length: 8 }, (_, i) => ({
   id: `u-${i}`,
   name: `Person ${i}`,
-  email: `person${i}@example.com`,
   avatar_url: null,
 }));
 

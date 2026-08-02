@@ -338,7 +338,7 @@ class BoardStore {
         })),
         labels: data.labels,
       },
-      projectUsers: data.users.map((user) => ({ ...user, email: '' })),
+      projectUsers: data.users,
       comments,
     };
   }

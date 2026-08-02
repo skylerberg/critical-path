@@ -156,7 +156,7 @@ beforeEach(() => {
     { id: 'l1', name: 'art', color: '#ff0000' },
     { id: 'l2', name: 'rules', color: '#00ff00' },
   ];
-  users.users = [{ id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null }];
+  users.users = [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null }];
   mockRoutes();
 });
 
@@ -956,8 +956,8 @@ describe('TaskDetail', () => {
     ];
     users.setForProject(PROJECT_ID, [
       ...users.users,
-      { id: 'u2', email: 'bob@example.com', name: 'Bob Barker', avatar_url: null },
-      { id: 'u3', email: 'stale@example.com', name: 'Stale Assignee', avatar_url: null },
+      { id: 'u2', name: 'Bob Barker', avatar_url: null },
+      { id: 'u3', name: 'Stale Assignee', avatar_url: null },
     ]);
     const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await tick();
@@ -1072,9 +1072,7 @@ describe('TaskDetail on a public board', () => {
   beforeEach(() => {
     session.user = null;
     board.readonly = true;
-    users.setForProject(PROJECT_ID, [
-      { id: 'u1', name: 'Ada Lovelace', avatar_url: null, email: '' },
-    ]);
+    users.setForProject(PROJECT_ID, [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null }]);
   });
 
   it('renders the card as text with no editing surface and no authenticated fetches', async () => {
@@ -1258,9 +1256,7 @@ describe('TaskDetail on a public board', () => {
 describe('TaskDetail for a viewer', () => {
   beforeEach(() => {
     mockRoutes();
-    users.setForProject(PROJECT_ID, [
-      { id: 'u1', name: 'Ada Lovelace', avatar_url: null, email: '' },
-    ]);
+    users.setForProject(PROJECT_ID, [{ id: 'u1', name: 'Ada Lovelace', avatar_url: null }]);
   });
 
   it('drops every write control but keeps the comment stream and the history', async () => {

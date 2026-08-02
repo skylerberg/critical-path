@@ -938,69 +938,68 @@ describe('user_updated dispatch', () => {
 
     socket.receive({
       type: 'user_updated',
-      data: { id: 'u-peer', name: 'Peer', email: 'peer@example.com', avatar_url: '/api/avatars/k' },
+      data: { id: 'u-peer', name: 'Peer', avatar_url: '/api/avatars/k' },
     });
     expect(users.byId('u-peer')?.avatar_url).toBe('/api/avatars/k');
     expect(session.user?.name).toBe('Me');
 
     socket.receive({
       type: 'user_updated',
-      data: { id: 'u1', name: 'Me Renamed', email: 'm@e.com', avatar_url: null },
+      data: { id: 'u1', name: 'Me Renamed', avatar_url: null },
     });
     expect(session.user?.name).toBe('Me Renamed');
   });
 
-  it('keeps the private verification flag the public payload cannot carry', async () => {
+  it('keeps the private account fields the public payload cannot carry', async () => {
     const socket = await connectAndAuth('p1');
     session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
 
     socket.receive({
       type: 'user_updated',
-      data: { id: 'u1', name: 'Me Renamed', email: 'm@e.com', avatar_url: null },
+      data: { id: 'u1', name: 'Me Renamed', avatar_url: '/api/avatars/k' },
     });
 
     expect(session.user?.name).toBe('Me Renamed');
+    expect(session.user?.avatar_url).toBe('/api/avatars/k');
+    expect(session.user?.email).toBe('m@e.com');
     expect(session.user?.email_verified).toBe(true);
   });
 
-  it('drops the flag when the broadcast moves the account to another mailbox', async () => {
+  it('refetches the account when the broadcast is about self', async () => {
     const socket = await connectAndAuth('p1');
-    session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
+    session.user = { ...session.user!, email: 'old@e.com', email_verified: true };
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        id: 'u1',
+        name: 'Me',
+        avatar_url: null,
+        email: 'brand-new@e.com',
+        email_verified: false,
+      })
+    );
 
     socket.receive({
       type: 'user_updated',
-      data: { id: 'u1', name: 'Me', email: 'brand-new@e.com', avatar_url: null },
+      data: { id: 'u1', name: 'Me', avatar_url: null },
     });
 
-    expect(session.user?.email).toBe('brand-new@e.com');
+    await vi.waitFor(() => expect(session.user?.email).toBe('brand-new@e.com'));
     expect(session.user?.email_verified).toBe(false);
   });
 
-  it('keeps the flag when the broadcast only recases the same mailbox', async () => {
-    const socket = await connectAndAuth('p1');
-    session.user = { ...session.user!, email: 'Bob@Example.com', email_verified: true };
-
-    socket.receive({
-      type: 'user_updated',
-      data: { id: 'u1', name: 'Me', email: 'bob@example.com', avatar_url: null },
-    });
-
-    expect(session.user?.email).toBe('bob@example.com');
-    expect(session.user?.email_verified).toBe(true);
-  });
-
-  it('leaves the session user alone when the broadcast is about someone else', async () => {
+  it('leaves the session user and the account alone when the broadcast is someone else', async () => {
     const socket = await connectAndAuth('p1');
     session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
 
     socket.receive({
       type: 'user_updated',
-      data: { id: 'u-peer', name: 'Peer', email: 'peer@e.com', avatar_url: null },
+      data: { id: 'u-peer', name: 'Peer', avatar_url: null },
     });
 
     expect(session.user?.email).toBe('m@e.com');
     expect(session.user?.email_verified).toBe(true);
-    expect(users.byId('u-peer')?.email).toBe('peer@e.com');
+    expect(users.byId('u-peer')?.name).toBe('Peer');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('drops malformed user_updated payloads', async () => {
@@ -1008,64 +1007,6 @@ describe('user_updated dispatch', () => {
     socket.receive({ type: 'user_updated', data: { id: 7 } });
     expect(users.users).toEqual([]);
     expect(session.user?.name).toBe('Me');
-  });
-
-  // The payload fans out to everyone sharing a board, so it cannot carry the
-  // verification flag; a plain assignment would therefore erase it on a rename.
-  it('keeps verification through a broadcast that only renames', async () => {
-    const socket = await connectAndAuth('p1');
-    session.user = {
-      id: 'u1',
-      name: 'Me',
-      email: 'm@e.com',
-      avatar_url: null,
-      email_verified: true,
-    };
-
-    socket.receive({
-      type: 'user_updated',
-      data: { id: 'u1', name: 'Me Renamed', email: 'm@e.com', avatar_url: '/api/avatars/k' },
-    });
-
-    expect(session.user.email_verified).toBe(true);
-    expect(session.user.avatar_url).toBe('/api/avatars/k');
-  });
-
-  it('keeps verification when only the letter case of the address changes', async () => {
-    const socket = await connectAndAuth('p1');
-    session.user = {
-      id: 'u1',
-      name: 'Me',
-      email: 'm@e.com',
-      avatar_url: null,
-      email_verified: true,
-    };
-
-    socket.receive({
-      type: 'user_updated',
-      data: { id: 'u1', name: 'Me', email: 'M@E.com', avatar_url: null },
-    });
-
-    expect(session.user.email).toBe('M@E.com');
-    expect(session.user.email_verified).toBe(true);
-  });
-
-  it('drops verification when the broadcast moves the account to another mailbox', async () => {
-    const socket = await connectAndAuth('p1');
-    session.user = {
-      id: 'u1',
-      name: 'Me',
-      email: 'm@e.com',
-      avatar_url: null,
-      email_verified: true,
-    };
-
-    socket.receive({
-      type: 'user_updated',
-      data: { id: 'u1', name: 'Me', email: 'new@e.com', avatar_url: null },
-    });
-
-    expect(session.user.email_verified).toBe(false);
   });
 });
 

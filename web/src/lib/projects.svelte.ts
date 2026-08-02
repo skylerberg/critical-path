@@ -15,7 +15,8 @@ type CreateProject = components['schemas']['CreateProject'];
 type PatchProject = components['schemas']['PatchProject'];
 
 export type AddMemberResult =
-  | { ok: true; status: 'member' | 'invited' }
+  | { ok: true; status: 'invited' }
+  | { ok: true; status: 'member'; name: string }
   | { ok: false; error: string };
 
 function byCreation(a: Project, b: Project): number {
@@ -211,7 +212,7 @@ class ProjectsStore {
             }
       );
       users.invalidateAll();
-      return { ok: true, status: 'member' };
+      return { ok: true, status: 'member', name: user.name };
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Failed to add member';
       return { ok: false, error: message };

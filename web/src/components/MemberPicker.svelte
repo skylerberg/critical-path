@@ -19,7 +19,7 @@
   let query = $state('');
   let highlighted = $state(0);
   let error = $state('');
-  let notice = $state('');
+  let notice = $state<{ message: string; pending: boolean } | null>(null);
   let inviting = $state(false);
   let listEl = $state<HTMLDivElement>();
   let inputEl = $state<HTMLInputElement | null>(null);
@@ -41,24 +41,12 @@
   );
   const candidates = $derived(
     pool
-      .filter(
-        (user) =>
-          needle === '' ||
-          user.name.toLowerCase().includes(needle) ||
-          user.email.toLowerCase().includes(needle)
-      )
+      .filter((user) => needle === '' || user.name.toLowerCase().includes(needle))
       .slice(0, MAX_SUGGESTIONS)
   );
-  // Matched against every visible user rather than the suggestions, so an address
-  // that belongs to someone already on the board cannot offer a no-op invite.
-  const alreadyHere = $derived(
-    EMAIL.test(needle)
-      ? users.users.find((user) => excludedIds.has(user.id) && user.email.toLowerCase() === needle)
-      : undefined
-  );
-  const showInvite = $derived(
-    EMAIL.test(needle) && !users.users.some((user) => user.email.toLowerCase() === needle)
-  );
+  // Offered even for someone already listed: which addresses have accounts is
+  // knowledge the server keeps, and inviting one that does is an idempotent add.
+  const showInvite = $derived(EMAIL.test(needle));
   const rowCount = $derived(candidates.length + (showInvite ? 1 : 0));
   // A realtime membership change can shrink the rows under a stale highlight.
   const activeIndex = $derived(Math.max(0, Math.min(highlighted, rowCount - 1)));
@@ -80,7 +68,7 @@
     query = '';
     highlighted = 0;
     error = '';
-    notice = '';
+    notice = null;
     void projects.addMember(projectId, user.id);
     inputEl?.focus();
   }
@@ -92,14 +80,18 @@
     const address = needle;
     inviting = true;
     error = '';
-    notice = '';
+    notice = null;
     const result = await projects.addMemberByEmail(projectId, address);
     inviting = false;
     if (result.ok) {
       query = '';
       highlighted = 0;
-      // Nothing joins the board on an invitation, so this is the only sign it worked.
-      notice = result.status === 'invited' ? `Invitation sent to ${address}` : '';
+      // An address is all the client knows, so naming who it reached is the only
+      // way to tell an account that just joined from one that was already here.
+      notice =
+        result.status === 'invited'
+          ? { message: `Invitation sent to ${address}`, pending: true }
+          : { message: `${result.name} is on this board.`, pending: false };
     } else {
       error = result.error;
     }
@@ -152,7 +144,7 @@
   function oninput(): void {
     highlighted = 0;
     error = '';
-    notice = '';
+    notice = null;
     if (listEl !== undefined) {
       listEl.scrollTop = 0;
     }
@@ -204,8 +196,6 @@
         <span class="min-w-0 flex-1 truncate font-medium">{user.name}</span>
         {#if added}
           <span class="text-xs">Added</span>
-        {:else}
-          <span class="min-w-0 truncate text-xs text-muted">{user.email}</span>
         {/if}
       </button>
     {/each}
@@ -226,16 +216,14 @@
         {inviting ? 'Inviting…' : `Invite "${needle}"`}
       </button>
     {/if}
-    {#if alreadyHere !== undefined}
-      <p class="px-3 py-2 text-sm text-muted">{alreadyHere.name} is already on this board.</p>
-    {:else if rowCount === 0}
+    {#if rowCount === 0}
       <p class="px-3 py-2 text-sm text-muted">{emptyMessage}</p>
     {/if}
   </div>
-  {#if notice !== ''}
+  {#if notice !== null}
     <p role="status" class="text-sm text-muted">
-      <span class="font-medium text-ink">{notice}</span>
-      They join the board once they open the link and sign in.
+      <span class="font-medium text-ink">{notice.message}</span>
+      {#if notice.pending}They join the board once they open the link and sign in.{/if}
     </p>
   {/if}
 </div>

@@ -2,9 +2,9 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { users } from './users.svelte';
 
-const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada' };
-const brin = { id: 'u-brin', email: 'brin@example.com', name: 'Brin' };
-const zed = { id: 'u-zed', email: 'zed@example.com', name: 'Zed' };
+const ada = { id: 'u-ada', name: 'Ada' };
+const brin = { id: 'u-brin', name: 'Brin' };
+const zed = { id: 'u-zed', name: 'Zed' };
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -169,7 +169,7 @@ describe('users loadForProject', () => {
 describe('users displayFor', () => {
   it('returns a neutral placeholder for an unknown id', () => {
     const placeholder = users.displayFor('ghost');
-    expect(placeholder).toEqual({ id: 'ghost', name: '', email: '', avatar_url: null });
+    expect(placeholder).toEqual({ id: 'ghost', name: '', avatar_url: null });
   });
 
   it('returns the real user when known', async () => {
@@ -181,11 +181,11 @@ describe('users displayFor', () => {
 describe('users upsert', () => {
   it('adds a new user in sorted order and replaces an existing one', async () => {
     await users.load();
-    users.upsert({ id: 'u-mel', email: 'mel@example.com', name: 'Mel', avatar_url: null });
+    users.upsert({ id: 'u-mel', name: 'Mel', avatar_url: null });
     expect(users.users.map((u) => u.name)).toEqual(['Ada', 'Brin', 'Mel', 'Zed']);
 
-    users.upsert({ id: 'u-ada', email: 'ada@new.com', name: 'Ada', avatar_url: null });
-    expect(users.byId('u-ada')?.email).toBe('ada@new.com');
+    users.upsert({ id: 'u-ada', name: 'Ada Renamed', avatar_url: null });
+    expect(users.byId('u-ada')?.name).toBe('Ada Renamed');
   });
 });
 
@@ -197,7 +197,6 @@ describe('users applyRealtime', () => {
     const updated = users.applyRealtime({
       id: 'u-ada',
       name: 'Ada Prime',
-      email: 'ada@new.com',
       avatar_url: '/api/avatars/abc',
     });
 
@@ -205,7 +204,6 @@ describe('users applyRealtime', () => {
     expect(users.byId('u-ada')).toEqual({
       id: 'u-ada',
       name: 'Ada Prime',
-      email: 'ada@new.com',
       avatar_url: '/api/avatars/abc',
     });
     expect(users.forProject('p-1').find((u) => u.id === 'u-ada')?.name).toBe('Ada Prime');
@@ -216,11 +214,22 @@ describe('users applyRealtime', () => {
     const updated = users.applyRealtime({
       id: 'u-new',
       name: 'New',
-      email: 'new@example.com',
       avatar_url: null,
     });
     expect(updated).not.toBeNull();
-    expect(users.byId('u-new')?.email).toBe('new@example.com');
+    expect(users.byId('u-new')?.name).toBe('New');
+  });
+
+  it('keeps an address out of the store even when one arrives on the wire', () => {
+    const updated = users.applyRealtime({
+      id: 'u-leak',
+      name: 'Leaky',
+      email: 'leaky@example.com',
+      avatar_url: null,
+    });
+
+    expect(updated).toEqual({ id: 'u-leak', name: 'Leaky', avatar_url: null });
+    expect(JSON.stringify(users.byId('u-leak'))).not.toContain('leaky@example.com');
   });
 
   it('ignores malformed payloads', () => {

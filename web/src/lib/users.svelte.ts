@@ -33,7 +33,7 @@ class UsersStore {
   // A user who is no longer visible (e.g. an assignee who lost project access)
   // still needs to render, so callers get a neutral placeholder instead of undefined.
   displayFor(id: string): User {
-    return this.#byId.get(id) ?? { id, name: '', email: '', avatar_url: null };
+    return this.#byId.get(id) ?? { id, name: '', avatar_url: null };
   }
 
   forProject(projectId: string): User[] {
@@ -91,14 +91,13 @@ class UsersStore {
     if (typeof data !== 'object' || data === null) {
       return null;
     }
-    const { id, name, email, avatar_url } = data as Record<string, unknown>;
-    if (typeof id !== 'string' || typeof name !== 'string' || typeof email !== 'string') {
+    const { id, name, avatar_url } = data as Record<string, unknown>;
+    if (typeof id !== 'string' || typeof name !== 'string') {
       return null;
     }
     const user: User = {
       id,
       name,
-      email,
       avatar_url: typeof avatar_url === 'string' ? avatar_url : null,
     };
     this.upsert(user);
