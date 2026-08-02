@@ -28,79 +28,119 @@ function sweep(now: number): void {
   }
 }
 
-function consumeRateLimitLocal(
-  key: string,
-  now: number,
-  maxAttempts: number,
-  windowMs: number
-): boolean {
-  sweep(now);
-  const window = windows.get(key);
-  if (!window || window.resetAt <= now) {
-    windows.set(key, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-  window.count++;
-  return window.count <= maxAttempts;
+interface Budget {
+  key: string;
+  max: number;
 }
 
-function sharedUnavailable(err: unknown): null {
-  logger.warn({
-    msg: 'Shared rate limit unavailable; using per-process fallback',
-    error: err instanceof Error ? err.message : String(err),
-  });
-  return null;
-}
+// Deciding and spending have to be one step. Reading a counter and then raising
+// it leaves everything that arrives in between reading the stale value and
+// passing too, and over a network that gap is a round trip wide.
+//
+// Answers 0, or the 1-based position of the first full budget having spent
+// nothing. Expiry is conditional on the key having none rather than on the
+// count being one: a counter that loses its expiry never resets at all.
+//
+// Sent in full rather than by hash, because a NOSCRIPT answer after a Redis
+// restart would silently drop every budget back to the per-process window.
+const CONSUME_SCRIPT = `
+local n = #KEYS
+for i = 1, n do
+  if tonumber(redis.call('GET', KEYS[i]) or '0') >= tonumber(ARGV[i]) then
+    return i
+  end
+end
+for i = 1, n do
+  redis.call('INCR', KEYS[i])
+  redis.call('PEXPIRE', KEYS[i], ARGV[n + 1], 'NX')
+end
+return 0
+`;
+
+// Guarded rather than a plain DECR: on a key whose window has already expired
+// that would recreate it at -1 with no expiry at all.
+const REFUND_SCRIPT = `
+for i = 1, #KEYS do
+  if tonumber(redis.call('GET', KEYS[i]) or '0') > 0 then
+    redis.call('DECR', KEYS[i])
+  end
+end
+return 0
+`;
 
 // null means "no shared verdict" (Redis unconfigured or unreachable); the
 // caller then falls back to the per-process window, which still bounds abuse
 // per replica rather than failing closed on a Redis outage.
-async function consumeRateLimitShared(
-  key: string,
-  maxAttempts: number,
+async function runShared(
+  script: string,
+  budgets: Budget[],
+  args: string[]
+): Promise<number | null> {
+  if (!redisConfigured()) {
+    return null;
+  }
+  try {
+    const reply = await getRedis().eval(script, {
+      keys: budgets.map((budget) => `ratelimit:${budget.key}`),
+      arguments: args,
+    });
+    // An error reply arrives as a normal completion, not a lost connection, so
+    // anything that is not a position has to be refused as a verdict.
+    if (typeof reply !== 'number' || reply < 0 || reply > budgets.length) {
+      throw new Error(`Unreadable rate limit reply: ${JSON.stringify(reply)}`);
+    }
+    return reply;
+  } catch (err) {
+    logger.warn({
+      msg: 'Shared rate limit unavailable; using per-process fallback',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+function consumeBudgetsLocal(budgets: Budget[], now: number, windowMs: number): number {
+  sweep(now);
+  for (const [index, budget] of budgets.entries()) {
+    const window = windows.get(budget.key);
+    if (window !== undefined && window.resetAt > now && window.count >= budget.max) {
+      return index + 1;
+    }
+  }
+  for (const budget of budgets) {
+    const window = windows.get(budget.key);
+    if (window === undefined || window.resetAt <= now) {
+      windows.set(budget.key, { count: 1, resetAt: now + windowMs });
+    } else {
+      window.count++;
+    }
+  }
+  return 0;
+}
+
+// All or nothing, so a message one budget refuses never denies the next one
+// another budget's slot.
+async function consumeBudgets(
+  budgets: Budget[],
+  now: number,
   windowMs: number
-): Promise<boolean | null> {
-  if (!redisConfigured()) {
-    return null;
-  }
-  try {
-    // Conditional on the key having no expiry rather than on the count being
-    // one, and in the same transaction: a counter that loses its expiry never
-    // resets, and locks out whoever it is keyed on for good.
-    const [count] = await getRedis()
-      .multi()
-      .incr(`ratelimit:${key}`)
-      .pExpire(`ratelimit:${key}`, windowMs, 'NX')
-      .exec();
-    return Number(count) <= maxAttempts;
-  } catch (err) {
-    return sharedUnavailable(err);
-  }
+): Promise<Budget | null> {
+  const args = [...budgets.map((budget) => String(budget.max)), String(windowMs)];
+  const shared = await runShared(CONSUME_SCRIPT, budgets, args);
+  const refused = shared ?? consumeBudgetsLocal(budgets, now, windowMs);
+  return refused === 0 ? null : budgets[refused - 1];
 }
 
-async function peekRateLimitShared(key: string, maxAttempts: number): Promise<boolean | null> {
-  if (!redisConfigured()) {
-    return null;
+async function refundBudgets(budgets: Budget[], now: number): Promise<void> {
+  if ((await runShared(REFUND_SCRIPT, budgets, [])) !== null) {
+    return;
   }
-  try {
-    const value = await getRedis().get(`ratelimit:${key}`);
-    return value === null || Number(value) < maxAttempts;
-  } catch (err) {
-    return sharedUnavailable(err);
+  for (const budget of budgets) {
+    const window = windows.get(budget.key);
+    if (window !== undefined && window.resetAt > now && window.count > 0) {
+      window.count--;
+    }
   }
-}
-
-function peekRateLimitLocal(key: string, now: number, maxAttempts: number): boolean {
-  const window = windows.get(key);
-  return window === undefined || window.resetAt <= now || window.count < maxAttempts;
-}
-
-async function peekRateLimit(key: string, now: number, maxAttempts: number): Promise<boolean> {
-  const shared = await peekRateLimitShared(key, maxAttempts);
-  if (shared !== null) {
-    return shared;
-  }
-  return peekRateLimitLocal(key, now, maxAttempts);
 }
 
 export async function consumeRateLimit(
@@ -109,11 +149,7 @@ export async function consumeRateLimit(
   maxAttempts = MAX_ATTEMPTS,
   windowMs = WINDOW_MS
 ): Promise<boolean> {
-  const shared = await consumeRateLimitShared(key, maxAttempts, windowMs);
-  if (shared !== null) {
-    return shared;
-  }
-  return consumeRateLimitLocal(key, now, maxAttempts, windowMs);
+  return (await consumeBudgets([{ key, max: maxAttempts }], now, windowMs)) === null;
 }
 
 export function resetRateLimiter(): void {
@@ -198,17 +234,16 @@ export async function enforceVerificationRateLimit(c: Context, userId: string): 
 export const NOTIFY_WINDOW_MS = 60 * 60_000;
 export const NOTIFY_PAIR_MAX_ATTEMPTS = 20;
 export const NOTIFY_RECIPIENT_MAX_ATTEMPTS = 100;
+// Distinct senders named per silenced mailbox per window. One line cannot tell
+// a single loop from a farm of accounts, which is the attack the ceiling exists
+// for; one line per sender is unbounded, which is the log spam it was avoiding.
+const NOTIFY_SILENCE_LOG_MAX = 10;
 
-interface Budget {
-  key: string;
-  max: number;
-}
-
-// One line per key per window: an abuse loop is the high-volume case, so an
-// unconditional line would turn a flood into log spam, but dropping mail with
-// no trace at all leaves a silenced recipient invisible.
-async function warnOnce(logKey: string, fields: LogFields): Promise<void> {
-  if (await consumeRateLimit(`notify-drop-log:${logKey}`, Date.now(), 1, NOTIFY_WINDOW_MS)) {
+// An abuse loop is the high-volume case, so an unconditional line would turn a
+// flood into log spam, but dropping mail with no trace at all leaves a silenced
+// recipient invisible.
+async function warnDropped(budgets: Budget[], fields: LogFields): Promise<void> {
+  if ((await consumeBudgets(budgets, Date.now(), NOTIFY_WINDOW_MS)) === null) {
     logger.warn(fields);
   }
 }
@@ -217,13 +252,14 @@ async function warnOnce(logKey: string, fields: LogFields): Promise<void> {
 // causes the write, so a stranger can exhaust it on someone else's behalf and
 // silence the people that recipient actually works with; one keyed on the
 // sender alone bounds nothing about what a mailbox receives. The ceiling above
-// the pair only bites once many separate senders are involved. A verdict rather
-// than a throw, because the mutation has already committed.
-export async function allowNotificationEmail(
+// the pair only bites once many separate senders are involved. Refusal is
+// silent rather than thrown, because the mutation has already committed.
+export async function withNotificationBudget(
   recipientId: string,
   actorId: string,
-  repeatKey: string
-): Promise<boolean> {
+  repeatKey: string,
+  send: () => Promise<void>
+): Promise<void> {
   const now = Date.now();
   const repeat: Budget = { key: `notify-repeat:${recipientId}:${repeatKey}`, max: 1 };
   const pair: Budget = {
@@ -234,33 +270,40 @@ export async function allowNotificationEmail(
     key: `notify-recipient:${recipientId}`,
     max: NOTIFY_RECIPIENT_MAX_ATTEMPTS,
   };
+  const budgets = [repeat, pair, recipient];
 
-  // Every budget agrees before any of it is spent: a slot spent on a message
-  // that was then dropped denies the next one for the rest of the window, and
-  // nothing retries it.
-  if (!(await peekRateLimit(repeat.key, now, repeat.max))) {
-    return false;
-  }
-  if (!(await peekRateLimit(pair.key, now, pair.max))) {
-    await warnOnce(`pair:${recipientId}:${actorId}`, {
+  const refusedBy = await consumeBudgets(budgets, now, NOTIFY_WINDOW_MS);
+  if (refusedBy === pair) {
+    await warnDropped([{ key: `notify-drop-log:pair:${recipientId}:${actorId}`, max: 1 }], {
       msg: 'Notification email dropped: one sender has spent their budget for this recipient',
       recipient_id: recipientId,
       actor_id: actorId,
     });
-    return false;
+  } else if (refusedBy === recipient) {
+    await warnDropped(
+      [
+        { key: `notify-drop-log:silenced:${recipientId}:${actorId}`, max: 1 },
+        { key: `notify-drop-log:silenced:${recipientId}`, max: NOTIFY_SILENCE_LOG_MAX },
+      ],
+      {
+        msg: 'Notification email dropped: this recipient is over their total budget',
+        recipient_id: recipientId,
+        actor_id: actorId,
+      }
+    );
   }
-  if (!(await peekRateLimit(recipient.key, now, recipient.max))) {
-    await warnOnce(`recipient:${recipientId}`, {
-      msg: 'Notification email dropped: this recipient is over their total budget',
-      recipient_id: recipientId,
-    });
-    return false;
+  if (refusedBy !== null) {
+    return;
   }
 
-  for (const budget of [repeat, pair, recipient]) {
-    await consumeRateLimit(budget.key, now, budget.max, NOTIFY_WINDOW_MS);
+  try {
+    await send();
+  } catch (err) {
+    // Nothing was delivered, so nothing stays spent — least of all the collapse
+    // slot, which would otherwise refuse the re-send for the rest of the hour.
+    await refundBudgets(budgets, now);
+    throw err;
   }
-  return true;
 }
 
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
