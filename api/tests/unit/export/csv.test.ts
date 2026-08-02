@@ -155,7 +155,7 @@ describe('tiptapToPlainText', () => {
 function exportFixture(overrides: Partial<ProjectExport> = {}): ProjectExport {
   return {
     format: 'critical-path-project-export',
-    version: 1,
+    version: 2,
     exported_at: '2026-07-26T12:00:00.000Z',
     project: {
       id: 'p1',
@@ -190,6 +190,7 @@ function taskFixture(
     due_date: null,
     created_at: '2026-07-02T00:00:00.000Z',
     updated_at: '2026-07-03T00:00:00.000Z',
+    archived_at: null,
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
@@ -203,7 +204,7 @@ describe('tasksCsv', () => {
     const csv = tasksCsv(exportFixture());
     expect(csv.startsWith('\ufeff')).toBe(true);
     expect(csv.slice(1)).toBe(
-      'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,description\r\n'
+      'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,description\r\n'
     );
   });
 
@@ -237,10 +238,10 @@ describe('tasksCsv', () => {
 
     const lines = csv.split('\r\n');
     expect(lines[1]).toBe(
-      't1,Blocker task,Done,true,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,'
+      't1,Blocker task,Done,true,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
     );
     expect(lines[2]).toBe(
-      't2,Blocked task,To Do,false,2000,2026-08-03,bug,owner@example.com,Blocker task,1,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,'
+      't2,Blocked task,To Do,false,2000,2026-08-03,bug,owner@example.com,Blocker task,1,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
     );
     expect(lines[3]).toBe('');
   });
@@ -273,7 +274,7 @@ describe('tasksCsv', () => {
 
     expect(csv.split('\r\n')[3]).toBe(
       't3,Three,To Do,false,3000,,bug; ui,owner@example.com; dev@example.com,One; Two,0,' +
-        '2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,'
+        '2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
     );
   });
 
@@ -323,7 +324,32 @@ describe('tasksCsv', () => {
     );
 
     expect(csv.split('\r\n')[1]).toBe(
-      't1,Task,To Do,false,1000,,bug,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,'
+      't1,Task,To Do,false,1000,,bug,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
+    );
+  });
+
+  it('writes the archive timestamp of an archived task and leaves it empty otherwise', () => {
+    const csv = tasksCsv(
+      exportFixture({
+        tasks: [
+          taskFixture({ id: 't1', title: 'Live' }),
+          taskFixture({
+            id: 't2',
+            title: 'Shelved',
+            position: 2000,
+            archived_at: '2026-07-05T00:00:00.000Z',
+          }),
+        ],
+      })
+    );
+
+    const lines = csv.split('\r\n');
+    expect(lines[1]).toBe(
+      't1,Live,To Do,false,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
+    );
+    expect(lines[2]).toBe(
+      't2,Shelved,To Do,false,2000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,' +
+        '2026-07-05T00:00:00.000Z,'
     );
   });
 
