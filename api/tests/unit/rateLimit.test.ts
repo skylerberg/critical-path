@@ -1,13 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import {
   consumeRateLimit,
   enforceAuthRateLimit,
   enforceResetRateLimit,
+  enforceSignupVerificationRateLimit,
   resetRateLimiter,
   EMAIL_MAX_ATTEMPTS,
   RESET_IP_MAX_ATTEMPTS,
   RESET_EMAIL_MAX_ATTEMPTS,
+  SIGNUP_VERIFY_IP_MAX_ATTEMPTS,
 } from '../../src/middleware/rateLimit';
 import { errorHandler } from '../../src/middleware/errorHandler';
 
@@ -208,5 +210,85 @@ describe('enforceResetRateLimit', () => {
     });
     const res = await authApp.request('/attempt', { method: 'POST' });
     expect(res.status).toBe(204);
+  });
+});
+
+describe('enforceSignupVerificationRateLimit', () => {
+  const app = new Hono();
+  app.onError(errorHandler);
+  app.post('/signup', async (c) => {
+    const shouldSend = await enforceSignupVerificationRateLimit(c);
+    return c.json({ shouldSend }, 200);
+  });
+
+  async function signUp(ip: string): Promise<boolean> {
+    const res = await app.request('/signup', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': ip },
+    });
+    const body = (await res.json()) as { shouldSend: boolean };
+    return body.shouldSend;
+  }
+
+  async function spendBudget(ip: string): Promise<void> {
+    for (let i = 0; i < SIGNUP_VERIFY_IP_MAX_ATTEMPTS; i++) {
+      expect(await signUp(ip)).toBe(true);
+    }
+  }
+
+  beforeEach(() => {
+    resetRateLimiter();
+    process.env.TRUST_PROXY = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.TRUST_PROXY;
+  });
+
+  it('leaves every other source IP a full budget once one has spent its own', async () => {
+    await spendBudget('203.0.113.1');
+    expect(await signUp('203.0.113.1')).toBe(false);
+
+    expect(await signUp('198.51.100.9')).toBe(true);
+  });
+
+  // A global log key would let one noisy source silence the only signal that
+  // anyone else's mail is being withheld at all.
+  it('records the withheld send once per source IP, not once overall', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await spendBudget('203.0.113.1');
+      expect(warn).not.toHaveBeenCalled();
+      await signUp('203.0.113.1');
+      await signUp('203.0.113.1');
+
+      await spendBudget('198.51.100.9');
+      await signUp('198.51.100.9');
+
+      expect(warn.mock.calls).toHaveLength(2);
+      expect(JSON.stringify(warn.mock.calls[0])).toContain('203.0.113.1');
+      expect(JSON.stringify(warn.mock.calls[1])).toContain('198.51.100.9');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // Elapsed times are written out rather than derived from the window constant,
+  // which would move with any shortening of it.
+  it('holds a spent budget for the hour rather than a minute', async () => {
+    const start = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
+    try {
+      await spendBudget('203.0.113.1');
+      expect(await signUp('203.0.113.1')).toBe(false);
+
+      clock.mockReturnValue(start + 30 * 60_000);
+      expect(await signUp('203.0.113.1')).toBe(false);
+
+      clock.mockReturnValue(start + 60 * 60_000 + 1);
+      expect(await signUp('203.0.113.1')).toBe(true);
+    } finally {
+      clock.mockRestore();
+    }
   });
 });
