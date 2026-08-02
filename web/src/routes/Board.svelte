@@ -12,10 +12,12 @@
   import { focusIf, scrollToTopOn } from '../lib/actions';
   import { board, positionAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
+  import { cardMenu } from '../lib/card-menu.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { edgeScrollSpeed } from '../lib/board-scroll';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
+  import CardMenu from '../components/CardMenu.svelte';
   import ColumnHeader from '../components/ColumnHeader.svelte';
   import QuickAddTask from '../components/QuickAddTask.svelte';
   import TaskCard from '../components/TaskCard.svelte';
@@ -38,6 +40,7 @@
   let localTasks = $state<Record<string, BoardTask[]>>({});
   let columnDragging = $state(false);
   let taskDragging = $state(false);
+  let dragOrigin: { columnId: string; index: number } | null = null;
 
   const columnKey = $derived(draftKey.addColumn(projectId));
   const newColumnName = $derived(drafts.get(columnKey));
@@ -289,6 +292,12 @@
   }
 
   function handleTaskConsider(columnId: string, event: CustomEvent<DndEvent<BoardTask>>): void {
+    if (event.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
+      dragOrigin = {
+        columnId,
+        index: (localTasks[columnId] ?? []).findIndex((task) => task.id === event.detail.info.id),
+      };
+    }
     taskDragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
     localTasks[columnId] = event.detail.items;
   }
@@ -305,6 +314,17 @@
     if (event.detail.info.trigger === TRIGGERS.DROPPED_INTO_ZONE) {
       if (event.detail.info.source === SOURCES.POINTER) {
         centeringTarget = columnId;
+      }
+      const origin = dragOrigin;
+      dragOrigin = null;
+      // A card put back exactly where it was is not a move: writing one would
+      // renumber it and log it for nothing, and a long press opening the card menu
+      // has to unwind its drag through this path.
+      if (
+        origin?.columnId === columnId &&
+        origin.index === items.findIndex((task) => task.id === event.detail.info.id)
+      ) {
+        return;
       }
       void board.moveTask(
         event.detail.info.id,
@@ -458,3 +478,7 @@
     {/if}
   </div>
 </div>
+
+{#if cardMenu.taskId !== null}
+  <CardMenu {projectId} canEdit={!readonly && board.canEdit} />
+{/if}

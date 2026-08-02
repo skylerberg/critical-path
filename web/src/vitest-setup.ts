@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 
-// jsdom does not implement scrollIntoView.
+// jsdom does not implement scrollIntoView or scrollTo.
 Element.prototype.scrollIntoView ??= () => {};
+Element.prototype.scrollTo ??= () => {};
 
 // jsdom has no layout, so a Range has none of the rect APIs ProseMirror calls
 // while scrolling the caret into view.

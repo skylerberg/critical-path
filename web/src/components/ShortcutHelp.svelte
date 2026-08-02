@@ -1,5 +1,6 @@
 <script lang="ts">
   import { board } from '../lib/board.svelte';
+  import { CARD_ACTION_KEYS } from '../lib/card-actions';
   import { router } from '../lib/router.svelte';
   import Modal from './ui/Modal.svelte';
 
@@ -42,16 +43,29 @@
     {
       heading: 'Task',
       bindings: [
-        { keys: ['Enter', 'o'], label: 'Open selected task' },
-        { keys: ['e'], label: 'Open selected task detail' },
+        { keys: CARD_ACTION_KEYS.open, label: 'Open selected task' },
+        { keys: CARD_ACTION_KEYS.openDetail, label: 'Open selected task detail' },
+        { keys: ['Shift+F10'], label: 'Open the menu for the focused card' },
         { keys: ['n'], label: 'New task in selected column', edits: true },
-        { keys: ['l'], label: 'Label the selected task', edits: true },
-        { keys: ['a'], label: 'Assign the selected task', edits: true },
-        { keys: ['b'], label: 'Add a task that blocks the selection', edits: true },
-        { keys: ['Shift+B'], label: 'Add a task the selection blocks', edits: true },
-        { keys: ['d'], label: 'Move selected task to done', edits: true },
-        { keys: ['Shift+D'], label: 'Duplicate the selected task', edits: true },
-        { keys: ['m'], label: 'Move the selected task to a column and position', edits: true },
+        { keys: CARD_ACTION_KEYS.labels, label: 'Label the selected task', edits: true },
+        { keys: CARD_ACTION_KEYS.assignees, label: 'Assign the selected task', edits: true },
+        {
+          keys: CARD_ACTION_KEYS.blockers,
+          label: 'Add a task that blocks the selection',
+          edits: true,
+        },
+        {
+          keys: CARD_ACTION_KEYS.blocking,
+          label: 'Add a task the selection blocks',
+          edits: true,
+        },
+        { keys: CARD_ACTION_KEYS.done, label: 'Move selected task to done', edits: true },
+        { keys: CARD_ACTION_KEYS.duplicate, label: 'Duplicate the selected task', edits: true },
+        {
+          keys: CARD_ACTION_KEYS.move,
+          label: 'Move the selected task to a column and position',
+          edits: true,
+        },
       ],
     },
     {

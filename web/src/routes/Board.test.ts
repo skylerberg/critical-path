@@ -2,12 +2,14 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import type { Options } from 'svelte-dnd-action';
+import { SOURCES, TRIGGERS, type Options } from 'svelte-dnd-action';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
+import { cardMenu } from '../lib/card-menu.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';
 import { selection } from '../lib/selection.svelte';
+import { session } from '../lib/session.svelte';
 import type { BoardTask } from '../lib/board-types';
 
 const { zoneOptions } = vi.hoisted(() => ({ zoneOptions: [] as Options[] }));
@@ -64,6 +66,8 @@ beforeEach(() => {
   motion.reduced = false;
   board.reset();
   selection.clear();
+  cardMenu.reset();
+  session.user = null;
   drafts.clearAll();
   board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
   board.tasks = [
@@ -655,5 +659,109 @@ describe('Board filter scrolling', () => {
 
     expect(cardTitles()).toEqual(['match a', 'match b', 'plain one', 'plain two']);
     expect(taskList().scrollTop).toBe(240);
+  });
+});
+
+describe('Board pointer drops', () => {
+  function pickUp(id: string): void {
+    void fireEvent(
+      taskList(),
+      new CustomEvent('consider', {
+        detail: {
+          items: board.tasksInColumn('c1'),
+          info: { trigger: TRIGGERS.DRAG_STARTED, id, source: SOURCES.POINTER },
+        },
+      })
+    );
+  }
+
+  function drop(id: string, items: BoardTask[]): void {
+    void fireEvent(
+      taskList(),
+      new CustomEvent('finalize', {
+        detail: {
+          items,
+          info: { trigger: TRIGGERS.DROPPED_INTO_ZONE, id, source: SOURCES.POINTER },
+        },
+      })
+    );
+  }
+
+  // Long-pressing a card for its menu unwinds the drag the press already armed
+  // through exactly this path, and a card put back where it was is not a move.
+  it('writes nothing when a card is dropped where it was picked up', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+
+    pickUp('t1');
+    drop('t1', board.tasksInColumn('c1'));
+    await tick();
+
+    expect(patchRequests()).toHaveLength(0);
+  });
+
+  it('still writes a drop that reorders the column', async () => {
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain one');
+    const [first, ...rest] = board.tasksInColumn('c1');
+
+    pickUp('t1');
+    drop('t1', [...rest, first!]);
+    await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe('/api/tasks/t1');
+  });
+});
+
+describe('Board card menu', () => {
+  function rightClickCard(title: string): void {
+    const card = [...column().querySelectorAll<HTMLElement>('[data-task-id]')].find(
+      (el) => el.textContent?.includes(title) === true
+    );
+    card?.dispatchEvent(
+      new PointerEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        pointerType: 'mouse',
+        button: 2,
+        clientX: 30,
+        clientY: 40,
+      })
+    );
+  }
+
+  it('opens the editing menu for the card that was right-clicked', async () => {
+    board.project = {
+      id: 'p1',
+      name: 'Game',
+      description: '',
+      archived_at: null,
+      created_by: 'u-me',
+      member_ids: [],
+      members: [],
+      is_public: false,
+      created_at: '2026-07-15T00:00:00Z',
+    };
+    session.user = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+    render(Board, { props: { projectId: 'p1' } });
+    await screen.findByText('plain two');
+
+    rightClickCard('plain two');
+    await tick();
+
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for plain two');
+    expect(screen.getByRole('menuitem', { name: 'Edit title' })).toBeInTheDocument();
+  });
+
+  it('gives a viewer the menu without any of the writing rows', async () => {
+    render(Board, { props: { projectId: 'p1', readonly: true } });
+    await screen.findByText('plain one');
+
+    rightClickCard('plain one');
+    await tick();
+
+    expect(
+      screen.getAllByRole('menuitem').map((item) => item.querySelector('span')?.textContent)
+    ).toEqual(['Open', 'Open in new tab', 'Copy link']);
   });
 });
