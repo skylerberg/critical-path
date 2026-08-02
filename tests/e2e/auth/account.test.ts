@@ -45,6 +45,7 @@ describe('Account management', () => {
         email: user.email,
         name: 'Renamed User',
         avatar_url: null,
+        email_verified: false,
       });
 
       const me = await ctx.request(user.token).get('/api/auth/me');
@@ -53,6 +54,7 @@ describe('Account management', () => {
         email: user.email,
         name: 'Renamed User',
         avatar_url: null,
+        email_verified: false,
       });
     });
 
@@ -67,6 +69,7 @@ describe('Account management', () => {
         email: newEmail,
         name: user.name,
         avatar_url: null,
+        email_verified: false,
       });
 
       const me = await ctx.request(user.token).get('/api/auth/me');
@@ -116,7 +119,13 @@ describe('Account management', () => {
       expect((await res.json()).error).toBeTypeOf('string');
 
       const me = await ctx.request(b.token).get('/api/auth/me');
-      expect(await me.json()).toEqual({ id: b.id, email: b.email, name: b.name, avatar_url: null });
+      expect(await me.json()).toEqual({
+        id: b.id,
+        email: b.email,
+        name: b.name,
+        avatar_url: null,
+        email_verified: false,
+      });
     });
 
     it('returns the current user unchanged for an empty patch', async () => {
@@ -129,6 +138,7 @@ describe('Account management', () => {
         email: user.email,
         name: user.name,
         avatar_url: null,
+        email_verified: false,
       });
     });
 
@@ -184,6 +194,7 @@ describe('Account management', () => {
           email: user.email,
           name: user.name,
           avatar_url: null,
+          email_verified: false,
         });
         newToken = body.token;
       });

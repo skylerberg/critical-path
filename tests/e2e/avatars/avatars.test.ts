@@ -54,6 +54,7 @@ describe('Avatars', () => {
         email: user.email,
         name: user.name,
         avatar_url: expect.stringMatching(/^\/api\/avatars\/[0-9a-f-]{36}$/),
+        email_verified: false,
       });
       trackKey(body.avatar_url);
 
@@ -225,6 +226,7 @@ describe('Avatars', () => {
         email: user.email,
         name: user.name,
         avatar_url: null,
+        email_verified: false,
       });
 
       const row = await db
@@ -266,6 +268,7 @@ describe('Avatars', () => {
         email: user.email,
         name: user.name,
         avatar_url: avatarUrl,
+        email_verified: false,
       });
 
       const users = await ctx.request(user.token).get('/api/users');

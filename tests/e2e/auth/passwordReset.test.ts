@@ -28,6 +28,14 @@ function extractToken(text: string): string {
 describe('Password reset', () => {
   const ctx = new TestContext();
 
+  // Signing up mails a verification link; drop it so each test sees only the
+  // mail it is about.
+  async function createUser(prefix: string) {
+    const user = await ctx.createUser(prefix);
+    clearSentEmails();
+    return user;
+  }
+
   beforeAll(() => {
     process.env.EMAIL_DRIVER = 'memory';
   });
@@ -54,7 +62,7 @@ describe('Password reset', () => {
     });
 
     it('emails a reset link for a known email', async () => {
-      const user = await ctx.createUser('forgot');
+      const user = await createUser('forgot');
       const res = await ctx.request().post('/api/auth/forgot-password', { email: user.email });
 
       expect(res.status).toBe(204);
@@ -66,7 +74,7 @@ describe('Password reset', () => {
     });
 
     it('matches the email case-insensitively and sends to the stored address', async () => {
-      const user = await ctx.createUser('forgot-case');
+      const user = await createUser('forgot-case');
       const res = await ctx
         .request()
         .post('/api/auth/forgot-password', { email: user.email.toUpperCase() });
@@ -78,7 +86,7 @@ describe('Password reset', () => {
     });
 
     it('still returns 204 when rate limited, without sending', async () => {
-      const user = await ctx.createUser('forgot-limit');
+      const user = await createUser('forgot-limit');
       for (let i = 0; i < RESET_EMAIL_MAX_ATTEMPTS; i++) {
         const res = await ctx.request().post('/api/auth/forgot-password', { email: user.email });
         expect(res.status).toBe(204);
@@ -102,7 +110,7 @@ describe('Password reset', () => {
 
   describe('POST /api/auth/reset-password', () => {
     it('rejects a tampered token with 422', async () => {
-      const user = await ctx.createUser('reset-tamper');
+      const user = await createUser('reset-tamper');
       const token = createResetToken(await alternativeIdOf(user.id));
       const tampered = (token[0] === 'A' ? 'B' : 'A') + token.slice(1);
 
@@ -115,7 +123,7 @@ describe('Password reset', () => {
     });
 
     it('rejects an expired token with a distinct 422 message', async () => {
-      const user = await ctx.createUser('reset-expired');
+      const user = await createUser('reset-expired');
       const token = createResetToken(
         await alternativeIdOf(user.id),
         Date.now() - RESET_TOKEN_TTL_MS - 1000
@@ -140,7 +148,7 @@ describe('Password reset', () => {
     });
 
     it('resets via the emailed link, revokes sessions, and rotates the token', async () => {
-      const user = await ctx.createUser('reset-ok');
+      const user = await createUser('reset-ok');
       const otherLogin = await ctx
         .request()
         .post('/api/auth/login', { email: user.email, password: user.password });
@@ -184,7 +192,7 @@ describe('Password reset', () => {
     });
 
     it('returns 422 for a too-short new password without consuming the token', async () => {
-      const user = await ctx.createUser('reset-short');
+      const user = await createUser('reset-short');
       const token = createResetToken(await alternativeIdOf(user.id));
 
       const res = await ctx

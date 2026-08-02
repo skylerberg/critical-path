@@ -29,7 +29,13 @@ describe('Auth', () => {
       const body = await res.json();
       expect(body.token).toBeTypeOf('string');
       expect(body.token.length).toBeGreaterThan(20);
-      expect(body.user).toEqual({ id, email, name: 'Signup User', avatar_url: null });
+      expect(body.user).toEqual({
+        id,
+        email,
+        name: 'Signup User',
+        avatar_url: null,
+        email_verified: false,
+      });
     });
 
     it('rejects a taken email case-insensitively with 409', async () => {
@@ -109,6 +115,7 @@ describe('Auth', () => {
         email: user.email,
         name: user.name,
         avatar_url: null,
+        email_verified: false,
       });
     });
 
@@ -173,6 +180,7 @@ describe('Auth', () => {
         email: user.email,
         name: user.name,
         avatar_url: null,
+        email_verified: false,
       });
     });
 

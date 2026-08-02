@@ -58,8 +58,18 @@ export const env = {
     return 'dev-only-password-reset-secret';
   },
 
+  // Falls back to the reset secret so no new production secret is required;
+  // rotating that one therefore also invalidates outstanding email links.
+  get emailTokenSecret(): string {
+    return process.env.EMAIL_TOKEN_SECRET || env.passwordResetSecret;
+  },
+
   get resetUrlBase(): string {
     return process.env.RESET_URL_BASE || 'http://localhost:5173/reset-password';
+  },
+
+  get appUrlBase(): string {
+    return process.env.APP_URL_BASE || 'http://localhost:5173';
   },
 
   get emailDriver(): string {
