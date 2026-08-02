@@ -1,10 +1,11 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../../db/types';
-import type { BoardPayload, ProjectExport } from '../../schemas/index';
+import type { BoardPayload, BoardTask, ProjectExport } from '../../schemas/index';
 import { usersWithProjectAccess } from '../authorization';
+import { getArchivedTasks } from '../boardPayload';
 
 export const PROJECT_EXPORT_FORMAT = 'critical-path-project-export';
-export const PROJECT_EXPORT_VERSION = 1;
+export const PROJECT_EXPORT_VERSION = 2;
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
@@ -36,8 +37,9 @@ export async function buildProjectExport(
 ): Promise<{ exportPayload: ProjectExport; images: ExportImageRow[] }> {
   const projectId = payload.project.id;
 
-  const [users, images] = await Promise.all([
+  const [users, archivedTasks, images] = await Promise.all([
     usersWithProjectAccess(db, projectId),
+    getArchivedTasks(db, projectId),
     db
       .selectFrom('task_image')
       .innerJoin('task', 'task.id', 'task_image.task_id')
@@ -51,9 +53,6 @@ export async function buildProjectExport(
         'task_image.created_at',
       ])
       .where('task.project_id', '=', projectId)
-      // The manifest is built from the board payload, which has no archived
-      // tasks; without this the zip would carry image files nothing references.
-      .where('task.archived_at', 'is', null)
       .orderBy('task_image.created_at')
       .orderBy('task_image.id')
       .execute(),
@@ -73,6 +72,15 @@ export async function buildProjectExport(
     imagesByTask.set(image.task_id, manifestEntries);
   }
 
+  const exportTask = (
+    { image_count: _imageCount, ...task }: BoardTask,
+    archived_at: string | null
+  ): ProjectExport['tasks'][number] => ({
+    ...task,
+    archived_at,
+    images: imagesByTask.get(task.id) ?? [],
+  });
+
   const exportPayload: ProjectExport = {
     format: PROJECT_EXPORT_FORMAT,
     version: PROJECT_EXPORT_VERSION,
@@ -81,10 +89,12 @@ export async function buildProjectExport(
     users: users.map(({ id, email, name }) => ({ id, email, name })),
     columns: payload.columns,
     labels: payload.labels,
-    tasks: payload.tasks.map(({ image_count: _imageCount, ...task }) => ({
-      ...task,
-      images: imagesByTask.get(task.id) ?? [],
-    })),
+    // Archived cards trail the live ones instead of merging into them: they keep
+    // the position they were archived at, which a live card may since have taken.
+    tasks: [
+      ...payload.tasks.map((task) => exportTask(task, null)),
+      ...archivedTasks.map(({ archived_at, ...task }) => exportTask(task, archived_at)),
+    ],
   };
 
   return { exportPayload, images };

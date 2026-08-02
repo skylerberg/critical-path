@@ -19,7 +19,7 @@ const JPEG_1X1 = Buffer.from(
 );
 
 const CSV_HEADER =
-  'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,description';
+  'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,description';
 
 const ctx = new TestContext();
 const createdProjectIds: string[] = [];
@@ -55,6 +55,14 @@ async function exportJson(projectId: string, token: string): Promise<ProjectExpo
 // to assert is present.
 function decode(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('utf8');
+}
+
+// A manifest entry with no file names bytes the archive does not carry; a file
+// with no entry is bytes nothing in the manifest can attribute.
+function expectImagesAgree(manifest: ProjectExport, files: Record<string, Uint8Array>): void {
+  const listed = manifest.tasks.flatMap((task) => task.images.map((image) => image.path));
+  const packed = Object.keys(files).filter((name) => name.startsWith('images/'));
+  expect(listed.sort()).toEqual(packed.sort());
 }
 
 async function exportZip(
@@ -100,6 +108,7 @@ function canonicalize(exportPayload: ProjectExport): unknown {
       description: task.description,
       position: task.position,
       due_date: task.due_date,
+      archived_at: task.archived_at,
       label_ids: [...task.label_ids].sort(),
       assignee_ids: [...task.assignee_ids].sort(),
       blocker_ids: [...task.blocker_ids].sort(),
@@ -396,7 +405,7 @@ describe('GET /api/projects/:id/export', () => {
       const exportPayload = await exportJson(projectId, owner.token);
 
       expect(exportPayload.format).toBe('critical-path-project-export');
-      expect(exportPayload.version).toBe(1);
+      expect(exportPayload.version).toBe(2);
       expect(Number.isNaN(Date.parse(exportPayload.exported_at))).toBe(false);
 
       const board = await (await ctx.request(owner.token).get(`/api/projects/${projectId}`)).json();
@@ -511,6 +520,7 @@ describe('GET /api/projects/:id/export', () => {
       );
       expect(Buffer.from(files[`images/${pngImageId}.png`])).toEqual(PNG_1X1);
       expect(Buffer.from(files[`images/${jpegImageId}.jpg`])).toEqual(JPEG_1X1);
+      expectImagesAgree(await exportJson(projectId, owner.token), files);
     });
 
     it('packages the same manifest the json format returns', async () => {
@@ -539,18 +549,18 @@ describe('GET /api/projects/:id/export', () => {
       const [blocker, main, done] = exportPayload.tasks;
       expect(rows[1]).toBe(
         `${blocker.id},Blocker task,Backlog,false,1000,,,,,0,` +
-          `${blocker.created_at},${blocker.updated_at},`
+          `${blocker.created_at},${blocker.updated_at},,`
       );
       // Assignee emails follow the users[] order, which is by name, so
       // "export-member user" precedes "export-owner user".
       expect(rows[2]).toBe(
         `${main.id},"He said ""hi"", then\nleft",Backlog,false,2000,2026-08-03,bug; ui,` +
           `${member.email}; ${owner.email},Blocker task,2,` +
-          `${main.created_at},${main.updated_at},"Notes\nA paragraph.\none\ntwo"`
+          `${main.created_at},${main.updated_at},,"Notes\nA paragraph.\none\ntwo"`
       );
       expect(rows[3]).toBe(
         `${done.id},Finished,Done,true,3000,,,${exMember.email},,0,` +
-          `${done.created_at},${done.updated_at},`
+          `${done.created_at},${done.updated_at},,`
       );
     });
 
@@ -632,13 +642,21 @@ describe('GET /api/projects/:id/export', () => {
   });
 
   describe('archived tasks', () => {
-    it('leaves an archived card and its image bytes out of both formats', async () => {
-      const archiveProjectId = await createProject(owner, 'Archive export');
-      const columns = await columnsOf(archiveProjectId, owner.token);
-      const client = ctx.request(owner.token);
+    let archiveProjectId: string;
+    let archiveColumnId: string;
+    let liveTaskId: string;
+    let archivedTaskId: string;
+    let liveImageId: string;
+    let archivedImageId: string;
+    let archivedAt: string;
 
-      const liveTaskId = newId();
-      const archivedTaskId = newId();
+    beforeAll(async () => {
+      const client = ctx.request(owner.token);
+      archiveProjectId = await createProject(owner, 'Archive export');
+      archiveColumnId = (await columnsOf(archiveProjectId, owner.token))[0].id;
+
+      liveTaskId = newId();
+      archivedTaskId = newId();
       for (const [id, title, position] of [
         [liveTaskId, 'Stays visible', 1000],
         [archivedTaskId, 'Shelved work', 2000],
@@ -648,7 +666,7 @@ describe('GET /api/projects/:id/export', () => {
             await client.post('/api/tasks', {
               id,
               project_id: archiveProjectId,
-              column_id: columns[0].id,
+              column_id: archiveColumnId,
               title,
               position,
             })
@@ -656,8 +674,8 @@ describe('GET /api/projects/:id/export', () => {
         ).toBe(201);
       }
 
-      const liveImageId = newId();
-      const archivedImageId = newId();
+      liveImageId = newId();
+      archivedImageId = newId();
       expect(
         (
           await client.postMultipart(
@@ -675,19 +693,59 @@ describe('GET /api/projects/:id/export', () => {
         ).status
       ).toBe(201);
 
-      expect((await client.post(`/api/tasks/${archivedTaskId}/archive`)).status).toBe(200);
+      const res = await client.post(`/api/tasks/${archivedTaskId}/archive`);
+      expect(res.status).toBe(200);
+      archivedAt = (await res.json()).archived_at;
+    });
 
+    it('exports an archived card marked with archived_at, after the live ones', async () => {
       const manifest = await exportJson(archiveProjectId, owner.token);
-      expect(manifest.tasks.map((task) => task.id)).toEqual([liveTaskId]);
+
+      expect(manifest.tasks.map((task) => task.id)).toEqual([liveTaskId, archivedTaskId]);
+      const [live, archived] = manifest.tasks;
+      expect(live.archived_at).toBeNull();
+      expect(archived.archived_at).toBe(archivedAt);
+      expect(archived.title).toBe('Shelved work');
+    });
+
+    it('keeps the column the card was archived from', async () => {
+      const manifest = await exportJson(archiveProjectId, owner.token);
+      const archived = manifest.tasks.find((task) => task.id === archivedTaskId);
+
+      expect(archived?.column_id).toBe(archiveColumnId);
+      expect(manifest.columns.map((column) => column.id)).toContain(archiveColumnId);
+    });
+
+    it('packs the image bytes of an archived card and lists them in the manifest', async () => {
+      const manifest = await exportJson(archiveProjectId, owner.token);
+      const { files } = await exportZip(archiveProjectId, owner.token);
+
+      expectImagesAgree(manifest, files);
       expect(manifest.tasks.flatMap((task) => task.images.map((image) => image.id))).toEqual([
         liveImageId,
+        archivedImageId,
       ]);
-
-      const { files } = await exportZip(archiveProjectId, owner.token);
       expect(Object.keys(files).sort()).toEqual(
-        ['project.json', 'tasks.csv', `images/${liveImageId}.png`].sort()
+        [
+          'project.json',
+          'tasks.csv',
+          `images/${liveImageId}.png`,
+          `images/${archivedImageId}.jpg`,
+        ].sort()
       );
-      expect(decode(files['tasks.csv'])).not.toContain('Shelved work');
+      expect(Buffer.from(files[`images/${archivedImageId}.jpg`])).toEqual(JPEG_1X1);
+    });
+
+    it('writes the archived card into the csv with its timestamp', async () => {
+      const { files } = await exportZip(archiveProjectId, owner.token);
+      const rows = decode(files['tasks.csv']).slice(1).split('\r\n').filter(Boolean);
+
+      expect(rows[0]).toBe(CSV_HEADER);
+      expect(rows).toHaveLength(3);
+      expect(rows[1]).toContain('Stays visible');
+      expect(rows[1].endsWith(',,')).toBe(true);
+      expect(rows[2]).toContain('Shelved work');
+      expect(rows[2].endsWith(`,${archivedAt},`)).toBe(true);
     });
   });
 

@@ -397,8 +397,9 @@ router.get(
     description:
       'Download everything in a project. The default zip holds project.json (the manifest ' +
       'below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes ' +
-      'of every attached image, so the archive survives losing the account. Archived cards ' +
-      'are not exported, matching every other read of the board. Pass format=json ' +
+      'of every attached image, so the archive survives losing the account. Archived cards are ' +
+      'exported too, after the live ones, each carrying the archived_at that marks it and the ' +
+      'column_id it was archived from; a live card has archived_at null. Pass format=json ' +
       'for the manifest alone. The manifest is the documented, stable interchange format the ' +
       'importer reads back: format identifies it, version is bumped only on a breaking shape ' +
       'change, and ids are the original server ids — created_by, member_ids and assignee_ids ' +
