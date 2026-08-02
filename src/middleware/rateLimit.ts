@@ -267,35 +267,6 @@ export async function enforceVerificationRateLimit(c: Context, userId: string): 
   }
 }
 
-export const SIGNUP_VERIFY_IP_WINDOW_MS = 60 * 60_000;
-// No looser than the authenticated one above: this one mails addresses nobody
-// has consented to, which is the more dangerous of the two.
-export const SIGNUP_VERIFY_IP_MAX_ATTEMPTS = VERIFY_IP_MAX_ATTEMPTS;
-
-// Returns shouldSend rather than throwing, on its own counter: signup is
-// unauthenticated, so denying the operation would let anyone burn a shared
-// egress IP's budget to keep everyone behind it from registering — and spending
-// the authenticated verification budget here would do that to their resends.
-export async function enforceSignupVerificationRateLimit(c: Context): Promise<boolean> {
-  const ip = clientIp(c);
-  const now = Date.now();
-  const allowed = await consumeRateLimit(
-    `signup-verify-ip:${ip}`,
-    now,
-    SIGNUP_VERIFY_IP_MAX_ATTEMPTS,
-    SIGNUP_VERIFY_IP_WINDOW_MS
-  );
-  // A withheld send is otherwise indistinguishable from an ordinary signup; the
-  // second counter surfaces that once a window rather than on every request.
-  if (
-    !allowed &&
-    (await consumeRateLimit(`signup-verify-log:${ip}`, now, 1, SIGNUP_VERIFY_IP_WINDOW_MS))
-  ) {
-    logger.warn({ msg: 'Withheld signup verification email: per-IP budget spent', ip });
-  }
-  return allowed;
-}
-
 export const INVITE_LOOKUP_WINDOW_MS = 60 * 60_000;
 export const INVITE_LOOKUP_MAX_ATTEMPTS = 100;
 export const INVITE_SEND_WINDOW_MS = 60 * 60_000;
@@ -454,5 +425,25 @@ export async function enforceAuthRateLimit(c: Context, email: string): Promise<v
   );
   if (!ipAllowed || !emailAllowed) {
     throw new AppError(429, 'Too many attempts, please try again later');
+  }
+}
+
+export const SIGNUP_IP_WINDOW_MS = 60 * 60_000;
+export const SIGNUP_IP_MAX_ATTEMPTS = 50;
+
+// The only bound on how many accounts one source can open on addresses it does
+// not own: the buckets signup already spends are keyed on the address, so a
+// fresh one costs an attacker nothing in either dimension. Refuses rather than
+// withholding a side effect — what is capped is the account, not a message —
+// at a ceiling far above a whole office signing up together.
+export async function enforceSignupRateLimit(c: Context): Promise<void> {
+  const allowed = await consumeRateLimit(
+    `signup-ip:${clientIp(c)}`,
+    Date.now(),
+    SIGNUP_IP_MAX_ATTEMPTS,
+    SIGNUP_IP_WINDOW_MS
+  );
+  if (!allowed) {
+    throw new AppError(429, 'Too many accounts created, please try again later');
   }
 }
