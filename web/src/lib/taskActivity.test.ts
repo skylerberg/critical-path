@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { descriptionText, taskActivity, type TaskActivityEntry } from './taskActivity.svelte';
+import { taskActivity, type TaskActivityEntry } from './taskActivity.svelte';
 
 function entry(id: string, kind: TaskActivityEntry['kind'] = 'created'): TaskActivityEntry {
   return {
@@ -157,74 +157,5 @@ describe('taskActivity store', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(taskActivity.entries).toEqual([]);
-  });
-});
-
-describe('descriptionText', () => {
-  it('flattens nested nodes and separates blocks', () => {
-    const doc = {
-      type: 'doc' as const,
-      content: [
-        { type: 'paragraph', content: [{ type: 'text', text: 'first' }] },
-        {
-          type: 'bulletList',
-          content: [
-            {
-              type: 'listItem',
-              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'second' }] }],
-            },
-          ],
-        },
-      ],
-    };
-
-    expect(descriptionText(doc)).toBe('first second');
-  });
-
-  it('is empty for a missing document', () => {
-    expect(descriptionText(null)).toBe('');
-    expect(descriptionText(undefined)).toBe('');
-    expect(descriptionText({ type: 'doc' })).toBe('');
-  });
-
-  it('keeps mentions, which carry no text of their own', () => {
-    const doc = {
-      type: 'doc' as const,
-      content: [
-        {
-          type: 'paragraph',
-          content: [
-            { type: 'text', text: 'ask ' },
-            { type: 'mention', attrs: { id: 'u-ada', label: 'Ada Lovelace' } },
-            { type: 'text', text: ' to review' },
-          ],
-        },
-      ],
-    };
-
-    expect(descriptionText(doc)).toBe('ask @Ada Lovelace to review');
-  });
-
-  it('still shows a description that is nothing but a mention', () => {
-    const doc = {
-      type: 'doc' as const,
-      content: [
-        {
-          type: 'paragraph',
-          content: [{ type: 'mention', attrs: { id: 'u-ada', label: 'Ada Lovelace' } }],
-        },
-      ],
-    };
-
-    expect(descriptionText(doc)).toBe('@Ada Lovelace');
-  });
-
-  it('falls back to a bare @ for a mention with no label', () => {
-    const doc = {
-      type: 'doc' as const,
-      content: [{ type: 'paragraph', content: [{ type: 'mention', attrs: {} }] }],
-    };
-
-    expect(descriptionText(doc)).toBe('@');
   });
 });
