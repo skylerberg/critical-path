@@ -21,7 +21,7 @@ const exportImageSchema = type({
 
 const exportTaskSchema = boardTaskSchema
   .omit('image_count')
-  .merge({ images: exportImageSchema.array() });
+  .merge({ archived_at: 'string | null', images: exportImageSchema.array() });
 
 export const projectExportQuerySchema = type({
   'format?': "'zip' | 'json'",

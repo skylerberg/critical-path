@@ -87,13 +87,13 @@ describe('GET /api/search', () => {
     expect(res.status).toBe(401);
   });
 
-  it('rejects a missing, too short, blank, over-long, or control-bearing q', async () => {
+  it('rejects a missing, blank, over-long, or control-bearing q', async () => {
     const caller = await newCaller();
     const client = ctx.request(caller.token);
 
     for (const path of [
       '/api/search',
-      '/api/search?q=a',
+      '/api/search?q=',
       '/api/search?q=%20%20',
       `/api/search?q=${'x'.repeat(201)}`,
       // A NUL reaching the driver is a 500, not a 400.
@@ -213,7 +213,7 @@ describe('GET /api/search', () => {
     );
 
     const word = 'authentication';
-    const prefixes = Array.from({ length: word.length - 1 }, (_, i) => word.slice(0, i + 2));
+    const prefixes = Array.from({ length: word.length }, (_, i) => word.slice(0, i + 1));
     for (const prefix of prefixes) {
       const body = await search(caller, prefix);
       expect(
@@ -239,6 +239,18 @@ describe('GET /api/search', () => {
         `q=${q}`
       ).toEqual([taskId]);
     }
+  });
+
+  it('accepts a single character and matches every word starting with it', async () => {
+    const caller = await newCaller();
+    const project = await projectFor(caller, 'One character board');
+    const quailId = await fixtures.createTaskRow(project.id, project.columnId, 'Quail migration');
+    const quietId = await fixtures.createTaskRow(project.id, project.columnId, 'Quiet hours');
+    await fixtures.createTaskRow(project.id, project.columnId, 'Heron nesting');
+
+    const body = await search(caller, 'q');
+    expect(body.results.map((row) => row.task_id).sort()).toEqual([quailId, quietId].sort());
+    expect(body.truncated).toBe(false);
   });
 
   it('matches prefixes that are English stopwords', async () => {

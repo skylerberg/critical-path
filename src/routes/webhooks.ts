@@ -9,6 +9,7 @@ import {
   assertCanWriteProject,
   assertProjectAccess,
   assertProjectWrite,
+  projectRole,
 } from '../services/authorization';
 import type { ProjectWebhook, WebhookDelivery } from '../db/types';
 import {
@@ -42,12 +43,15 @@ import { AppHono } from '../types/index';
 
 const DEFAULT_DELIVERY_LIMIT = 20;
 
-function toWebhookResponse(row: Selectable<ProjectWebhook>): WebhookResponse {
+// The secret is what proves a delivery came from here, so anyone holding it can
+// forge one. Every other route returning this shape is editor-only; the list is
+// the one a viewer can reach.
+function toWebhookResponse(row: Selectable<ProjectWebhook>, includeSecret = true): WebhookResponse {
   return {
     id: row.id,
     project_id: row.project_id,
     url: row.url,
-    secret: row.secret,
+    ...(includeSecret ? { secret: row.secret } : {}),
     disabled_at: row.disabled_at?.toISOString() ?? null,
     consecutive_failures: row.consecutive_failures,
     created_at: row.created_at.toISOString(),
@@ -176,7 +180,8 @@ router.get(
     const db = c.get('db');
     const user = c.get('user');
 
-    await assertProjectAccess(db, user.id, project_id);
+    const project = await assertProjectAccess(db, user.id, project_id);
+    const isEditor = (await projectRole(db, user.id, project)) === 'editor';
 
     const rows = await db
       .selectFrom('project_webhook')
@@ -185,7 +190,7 @@ router.get(
       .orderBy('project_webhook.created_at')
       .orderBy('project_webhook.id')
       .execute();
-    return c.json({ webhooks: rows.map(toWebhookResponse) }, 200);
+    return c.json({ webhooks: rows.map((row) => toWebhookResponse(row, isEditor)) }, 200);
   }
 );
 

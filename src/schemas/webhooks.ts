@@ -39,7 +39,7 @@ export const webhookSchema = type({
   id: 'string',
   project_id: 'string',
   url: 'string',
-  secret: 'string',
+  'secret?': 'string',
   disabled_at: 'string | null',
   consecutive_failures: 'number',
   created_at: 'string',

@@ -1,8 +1,7 @@
 import { type } from 'arktype';
 import { stringWithLength } from './common';
 
-// One character prefix-matches most of the board, so the floor is two.
-export const SEARCH_QUERY_MIN_LENGTH = 2;
+export const SEARCH_QUERY_MIN_LENGTH = 1;
 export const SEARCH_QUERY_MAX_LENGTH = 200;
 
 export const searchQuerySchema = type({
