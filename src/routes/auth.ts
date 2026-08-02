@@ -27,7 +27,13 @@ import { avatarUrl } from '../services/avatars';
 import { getEmailSender } from '../services/email/index';
 import { hashPassword, verifyPassword, verifyDummyPassword } from '../services/passwords';
 import { PROJECT_COLUMNS, fetchMembers, publishProjectListItem } from '../services/projectListItem';
-import { emailAddressHash, verifyVerificationToken } from '../services/emailToken';
+import {
+  emailAddressHash,
+  verifyUnsubscribeToken,
+  verifyVerificationToken,
+} from '../services/emailToken';
+import { NOTIFY_COLUMN } from '../services/notifications';
+import type { NotificationKind } from '../schemas/notifications';
 import { enqueueVerificationEmail } from '../services/emailVerification';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
 import { SESSIONS_REVOKED, USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
@@ -48,7 +54,9 @@ import {
   deleteAccountConflictSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
-  verifyEmailSchema,
+  emailTokenRequestSchema,
+  notificationSettingsSchema,
+  unsubscribeResponseSchema,
   meSchema,
   idSchema,
   createPersonalAccessTokenSchema,
@@ -60,6 +68,7 @@ import {
   conflictErrorResponse,
   validationErrorResponse,
   validationOrUnprocessableErrorResponse,
+  unprocessableErrorResponse,
   tooManyRequestsErrorResponse,
   internalServerErrorResponse,
   type PersonalAccessTokenResponse,
@@ -103,6 +112,29 @@ async function deleteStorageObjects(keys: string[]): Promise<void> {
       }
     });
   }
+}
+
+const INVALID_UNSUBSCRIBE_MESSAGE = 'This unsubscribe link is not valid';
+
+// Only ever writes false. That is what bounds a non-expiring bearer token to
+// nothing: replay is idempotent and a leaked link cannot switch anything on.
+async function applyUnsubscribe(
+  c: Pick<AppContext, 'get'>,
+  token: string
+): Promise<NotificationKind> {
+  const verification = verifyUnsubscribeToken(token);
+  if (verification.status === 'invalid') {
+    throw new AppError(422, INVALID_UNSUBSCRIBE_MESSAGE);
+  }
+
+  await c
+    .get('db')
+    .updateTable('app_user')
+    .set({ [NOTIFY_COLUMN[verification.kind]]: false })
+    .where('id', '=', verification.user_id)
+    .execute();
+
+  return verification.kind;
 }
 
 async function setPasswordAndRevokeSessions(
@@ -854,7 +886,7 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  jsonValidator(verifyEmailSchema),
+  jsonValidator(emailTokenRequestSchema),
   async (c) => {
     const { token } = c.req.valid('json');
 
@@ -925,6 +957,193 @@ router.post(
     await enforceVerificationRateLimit(c, user.id);
     enqueueVerificationEmail(c, user);
 
+    return c.body(null, 204);
+  }
+);
+
+router.get(
+  '/me/notification-settings',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Read notification settings',
+    description:
+      'Return which notification emails the authenticated user has switched on. Both default ' +
+      'to true. They are read here rather than on the user record because that record is ' +
+      'published to everyone sharing a project and a preference is private.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Current notification settings',
+        content: {
+          'application/json': {
+            schema: resolver(notificationSettingsSchema),
+          },
+        },
+      },
+      ...unauthorizedErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  async (c) => {
+    const row = await c
+      .get('db')
+      .selectFrom('app_user')
+      .select(['notify_task_assigned', 'notify_added_to_project'])
+      .where('id', '=', c.get('user').id)
+      .executeTakeFirstOrThrow();
+
+    return c.json(
+      {
+        task_assigned: row.notify_task_assigned,
+        added_to_project: row.notify_added_to_project,
+      },
+      200
+    );
+  }
+);
+
+router.put(
+  '/me/notification-settings',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Set notification settings',
+    description:
+      'Replace the full set of notification preferences for the authenticated user. A ' +
+      'preference stays meaningful while the address is unverified — no mail is sent then ' +
+      'either way — so the toggles are never forced off.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Updated notification settings',
+        content: {
+          'application/json': {
+            schema: resolver(notificationSettingsSchema),
+          },
+        },
+      },
+      ...unauthorizedErrorResponse,
+      ...validationErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  jsonValidator(notificationSettingsSchema),
+  async (c) => {
+    const settings = c.req.valid('json');
+
+    await c
+      .get('db')
+      .updateTable('app_user')
+      .set({
+        notify_task_assigned: settings.task_assigned,
+        notify_added_to_project: settings.added_to_project,
+      })
+      .where('id', '=', c.get('user').id)
+      .execute();
+
+    return c.json(settings, 200);
+  }
+);
+
+router.post(
+  '/unsubscribe',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Unsubscribe from one kind of notification',
+    description:
+      'Switch off the one notification kind the token names, and report which it was so the ' +
+      'landing page can say what it did. Unauthenticated and idempotent: the token proves ' +
+      'nothing beyond itself, is refused by every authenticating path, and never expires, ' +
+      'because an unsubscribe link has to work in a year-old email. There is deliberately no ' +
+      'request shape that switches a preference back on — that is what makes a leaked or ' +
+      'replayed link harmless, and it must not be weakened by adding one. The response is the ' +
+      'same whether or not the account still exists, so nothing here reveals that.',
+    responses: {
+      200: {
+        description: 'The notification kind that was switched off',
+        content: {
+          'application/json': {
+            schema: resolver(unsubscribeResponseSchema),
+          },
+        },
+      },
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  jsonValidator(emailTokenRequestSchema),
+  async (c) => {
+    const { token } = c.req.valid('json');
+    const kind = await applyUnsubscribe(c, token);
+    return c.json({ kind }, 200);
+  }
+);
+
+router.post(
+  '/unsubscribe/all',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'Unsubscribe from every notification',
+    description:
+      'Switch off every notification email for the account the token names, whatever kind the ' +
+      'token itself carries. Same properties as the single-kind form: unauthenticated, ' +
+      'idempotent, and incapable of switching anything on.',
+    responses: {
+      204: {
+        description: 'All notification email switched off',
+      },
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  jsonValidator(emailTokenRequestSchema),
+  async (c) => {
+    const { token } = c.req.valid('json');
+    const verification = verifyUnsubscribeToken(token);
+    if (verification.status === 'invalid') {
+      throw new AppError(422, INVALID_UNSUBSCRIBE_MESSAGE);
+    }
+
+    await c
+      .get('db')
+      .updateTable('app_user')
+      .set({ notify_task_assigned: false, notify_added_to_project: false })
+      .where('id', '=', verification.user_id)
+      .execute();
+
+    return c.body(null, 204);
+  }
+);
+
+router.post(
+  '/unsubscribe/one-click',
+  describeRoute({
+    tags: ['Auth'],
+    summary: 'One-click unsubscribe (RFC 8058)',
+    description:
+      'The target of the List-Unsubscribe header on notification email. A mail client posts ' +
+      'List-Unsubscribe=One-Click as form data, which is not JSON, so the token comes from the ' +
+      'query string and the body is never read. It switches off the kind the token names.',
+    parameters: [
+      {
+        name: 'token',
+        in: 'query',
+        required: true,
+        schema: { type: 'string' },
+        description: 'The unsubscribe token from the mailed link',
+      },
+    ],
+    responses: {
+      204: {
+        description: 'Notification kind switched off',
+      },
+      ...unprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  async (c) => {
+    await applyUnsubscribe(c, c.req.query('token') ?? '');
     return c.body(null, 204);
   }
 );

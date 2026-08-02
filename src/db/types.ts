@@ -35,6 +35,8 @@ export interface AppUser {
   email_verified_at: Timestamp | null;
   id: string;
   name: string;
+  notify_added_to_project: Generated<boolean>;
+  notify_task_assigned: Generated<boolean>;
   password_hash: string;
 }
 

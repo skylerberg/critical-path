@@ -1,8 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
 import {
+  createUnsubscribeToken,
   createVerificationToken,
   emailAddressHash,
+  verifyUnsubscribeToken,
   verifyVerificationToken,
   VERIFICATION_TOKEN_TTL_MS,
 } from '../../src/services/emailToken';
@@ -131,5 +133,62 @@ describe('createVerificationToken / verifyVerificationToken', () => {
     const spy = vi.spyOn(crypto, 'timingSafeEqual');
     expect(verifyVerificationToken(createVerificationToken(USER_ID, EMAIL)).status).toBe('valid');
     expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe('createUnsubscribeToken / verifyUnsubscribeToken', () => {
+  it('round-trips each kind', () => {
+    for (const kind of ['task_assigned', 'added_to_project'] as const) {
+      expect(verifyUnsubscribeToken(createUnsubscribeToken(USER_ID, kind))).toEqual({
+        status: 'valid',
+        user_id: USER_ID,
+        kind,
+      });
+    }
+  });
+
+  it('never expires', () => {
+    const claims = JSON.parse(
+      Buffer.from(
+        createUnsubscribeToken(USER_ID, 'task_assigned').split('.')[0],
+        'base64url'
+      ).toString('utf8')
+    ) as Record<string, unknown>;
+    expect(claims).not.toHaveProperty('exp');
+  });
+
+  it('carries no email address', () => {
+    const token = createUnsubscribeToken(USER_ID, 'task_assigned');
+    expect(Buffer.from(token.split('.')[0], 'base64url').toString('utf8')).not.toContain('@');
+  });
+
+  it('rejects a flipped signature byte and a foreign secret', () => {
+    const token = createUnsubscribeToken(USER_ID, 'task_assigned');
+    const [payload, signature] = token.split('.');
+    const flipped = (signature[0] === 'A' ? 'B' : 'A') + signature.slice(1);
+    expect(verifyUnsubscribeToken(`${payload}.${flipped}`)).toEqual({ status: 'invalid' });
+
+    process.env.EMAIL_TOKEN_SECRET = 'a-different-secret';
+    expect(verifyUnsubscribeToken(token)).toEqual({ status: 'invalid' });
+  });
+
+  it('rejects a signed token naming a kind that does not exist', () => {
+    expect(
+      verifyUnsubscribeToken(forge({ t: 'unsubscribe', uid: USER_ID, k: 'everything' }))
+    ).toEqual({ status: 'invalid' });
+    expect(verifyUnsubscribeToken(forge({ t: 'unsubscribe', uid: USER_ID }))).toEqual({
+      status: 'invalid',
+    });
+  });
+
+  it('is not interchangeable with the other two token families in either direction', () => {
+    const unsubscribe = createUnsubscribeToken(USER_ID, 'task_assigned');
+    expect(verifyVerificationToken(unsubscribe)).toEqual({ status: 'invalid' });
+    expect(verifyResetTokenDetailed(unsubscribe)).toEqual({ status: 'invalid' });
+
+    expect(verifyUnsubscribeToken(createVerificationToken(USER_ID, EMAIL))).toEqual({
+      status: 'invalid',
+    });
+    expect(verifyUnsubscribeToken(createResetToken(USER_ID))).toEqual({ status: 'invalid' });
   });
 });
