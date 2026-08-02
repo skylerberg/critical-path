@@ -2,7 +2,14 @@ import { Command } from 'commander';
 import { leaf, withCtx } from '../kit';
 import { CliError, EXIT, assertOk } from '../api/errors';
 import { confirmOrAbort } from '../prompt';
-import { listProjects, listUsers, resolveBoard, resolveProject, resolveUser } from '../resolve';
+import {
+  listProjects,
+  listUsers,
+  resolveBoard,
+  resolveInvitation,
+  resolveProject,
+  resolveUser,
+} from '../resolve';
 import { sortedColumns, sortedTasksIn } from '../board';
 import type { CliDeps, RuntimeContext } from '../context';
 import type { components } from '../api/api.generated';
@@ -385,18 +392,18 @@ export function registerProject(program: Command, deps: CliDeps): void {
     leaf('revoke-invite')
       .description('Withdraw a pending invitation')
       .argument('<project>', 'project id or name')
-      .requiredOption('--id <id>', 'invitation id')
+      .requiredOption('--id <id>', 'invitation id, id prefix, or invited email')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
           const target = await resolveProject(ctx, ref);
-          const id = opts.id as string;
+          const invitation = await resolveInvitation(ctx, target.id, opts.id as string);
           assertOk(
             await ctx.api.DELETE('/api/projects/{id}/invitations/{invitationId}', {
-              params: { path: { id: target.id, invitationId: id } },
+              params: { path: { id: target.id, invitationId: invitation.id } },
             })
           );
-          ctx.out.data({ revoked: true, id }, () =>
-            ctx.out.line(`Revoked invitation ${id.slice(0, 8)} on project ${target.name}`)
+          ctx.out.data({ revoked: true, id: invitation.id }, () =>
+            ctx.out.line(`Revoked invitation for ${invitation.email} on project ${target.name}`)
           );
         })
       )
@@ -406,18 +413,18 @@ export function registerProject(program: Command, deps: CliDeps): void {
     leaf('resend-invite')
       .description('Email a pending invitation again and extend its deadline')
       .argument('<project>', 'project id or name')
-      .requiredOption('--id <id>', 'invitation id')
+      .requiredOption('--id <id>', 'invitation id, id prefix, or invited email')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
           const target = await resolveProject(ctx, ref);
-          const id = opts.id as string;
+          const invitation = await resolveInvitation(ctx, target.id, opts.id as string);
           assertOk(
             await ctx.api.POST('/api/projects/{id}/invitations/{invitationId}/resend', {
-              params: { path: { id: target.id, invitationId: id } },
+              params: { path: { id: target.id, invitationId: invitation.id } },
             })
           );
-          ctx.out.data({ resent: true, id }, () =>
-            ctx.out.line(`Resent invitation ${id.slice(0, 8)} on project ${target.name}`)
+          ctx.out.data({ resent: true, id: invitation.id }, () =>
+            ctx.out.line(`Resent invitation for ${invitation.email} on project ${target.name}`)
           );
         })
       )

@@ -25,10 +25,12 @@ router.post(
       'Redeem an invitation link and join the board it names. The caller must be signed in ' +
       'but need not be signed in as the invited address — an invitation is a grant to ' +
       'whoever holds the link, so someone who signs up under a different address can still ' +
-      'accept. The invitation is consumed: a second attempt with the same token answers 422, ' +
-      'as does one that was revoked, expired, or whose board has been deleted. An existing ' +
-      'member is never demoted, so the role in the response is the effective one. There is ' +
-      'no project id in the path because the holder of a link does not know it.',
+      'accept. Joining consumes the invitation: a second attempt with the same token answers ' +
+      '422, as does one that was revoked, expired, or whose board has been deleted. A caller ' +
+      'who already has access joins nothing, so the link survives for whoever it was ' +
+      'addressed to and the response reports the access they already had — an existing ' +
+      'member is never demoted, and the board’s owner is always an editor. There is no ' +
+      'project id in the path because the holder of a link does not know it.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
