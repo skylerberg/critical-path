@@ -878,10 +878,15 @@ router.post(
       throw new AppError(422, 'Invalid verification link');
     }
 
+    // The address is re-asserted here, not just in the check above: an address
+    // change committing between the two statements would otherwise satisfy the
+    // null guard — it nulls that column itself — and stamp a mailbox nobody
+    // confirmed as verified.
     await db
       .updateTable('app_user')
       .set({ email_verified_at: new Date() })
       .where('id', '=', user.id)
+      .where('email', '=', user.email)
       .where('email_verified_at', 'is', null)
       .execute();
 
