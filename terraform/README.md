@@ -110,5 +110,10 @@ kubectl -n critical-path create secret generic critical-path-secrets \
   --from-literal=DB_PASSWORD=... \
   --from-literal=PASSWORD_RESET_SECRET=... \
   --from-literal=REDIS_PASSWORD=... \
-  --from-literal=REDIS_URL=redis://:<password>@critical-path-redis:6379
+  --from-literal=REDIS_URL=redis://:<password>@critical-path-redis:6379 \
+  --from-literal=AWS_ACCESS_KEY_ID=... \
+  --from-literal=AWS_SECRET_ACCESS_KEY=...
 ```
+
+The AWS keys belong to an IAM user whose only permission is `ses:SendEmail`
+in `SES_REGION`; they are what `EMAIL_DRIVER=ses` authenticates with.
