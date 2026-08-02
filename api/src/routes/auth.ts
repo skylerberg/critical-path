@@ -36,6 +36,7 @@ import {
 import { NOTIFY_COLUMN } from '../services/notifications';
 import type { NotificationKind } from '../schemas/notifications';
 import { enqueueVerificationEmail } from '../services/emailVerification';
+import { claimInvitationsForNewAccount } from '../services/invitations';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
 import { SESSIONS_REVOKED, USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
 import { storage } from '../services/storage/index';
@@ -206,7 +207,9 @@ router.post(
       'verification email is sent to the address; the account is usable immediately and ' +
       '`email_verified` starts false. That send is budgeted per source IP, and the budget ' +
       'only ever withholds the mail: past it the account is still created and the session ' +
-      'still starts, and the account can ask for a fresh link at any time.',
+      'still starts, and the account can ask for a fresh link at any time. Every unexpired ' +
+      'invitation outstanding for the address, across every project, takes effect here and ' +
+      'the account joins those boards at the invited role.',
     responses: {
       201: {
         description: 'Account created',
@@ -258,6 +261,7 @@ router.post(
     if (await enforceSignupVerificationRateLimit(c)) {
       enqueueVerificationEmail(c, { id, email });
     }
+    await claimInvitationsForNewAccount(c, db, id, email);
 
     return c.json(
       { token, user: { id, email, name, avatar_url: null, email_verified: false } },

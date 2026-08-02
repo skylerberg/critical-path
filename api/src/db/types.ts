@@ -83,6 +83,18 @@ export interface Project {
   name: string;
 }
 
+export interface ProjectInvitation {
+  created_at: Generated<Timestamp>;
+  email: string;
+  email_lower: Generated<string | null>;
+  expires_at: Timestamp;
+  id: string;
+  invited_by: string;
+  project_id: string;
+  role: Generated<string>;
+  token_hash: string;
+}
+
 export interface ProjectMember {
   created_at: Generated<Timestamp>;
   project_id: string;
@@ -199,6 +211,7 @@ export interface DB {
   label: Label;
   personal_access_token: PersonalAccessToken;
   project: Project;
+  project_invitation: ProjectInvitation;
   project_member: ProjectMember;
   project_user_position: ProjectUserPosition;
   project_webhook: ProjectWebhook;

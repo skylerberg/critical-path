@@ -87,15 +87,63 @@ describe('project member commands', () => {
     expect(list.json<ProjectListItem[]>().map((p) => p.id)).toContain(projectId);
   });
 
-  it('invite with an unknown email exits 4', async () => {
-    const res = await h.runCli([
+  it('invite with an unknown email creates a pending invitation it can list and revoke', async () => {
+    const address = `cli-pending-${crypto.randomUUID()}@test.example.com`;
+    const res = await h.runCli(['project', 'invite', projectId, '--email', address]);
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain(`Invited ${address} to project`);
+    expect(res.stdout).toContain('pending until they accept');
+
+    const listed = await h.runCli(['project', 'invitations', projectId, '--json']);
+    expect(listed.exitCode).toBe(0);
+    const invitations = listed.json<{ id: string; email: string; role: string }[]>();
+    expect(invitations.map((invitation) => invitation.email)).toContain(address);
+    const invitation = invitations.find((entry) => entry.email === address)!;
+    expect(invitation.role).toBe('editor');
+
+    const table = await h.runCli(['project', 'invitations', projectId]);
+    expect(table.stdout).toContain(address);
+    expect(table.stdout).toMatch(/in 14 days/);
+
+    const resent = await h.runCli([
       'project',
-      'invite',
+      'resend-invite',
       projectId,
-      '--email',
-      'nobody-zz@test.example.com',
+      '--id',
+      invitation.id,
+      '--json',
     ]);
-    expect(res.exitCode).toBe(4);
+    expect(resent.exitCode).toBe(0);
+    expect(resent.json<{ resent: boolean }>().resent).toBe(true);
+
+    const revoked = await h.runCli(['project', 'revoke-invite', projectId, '--id', invitation.id]);
+    expect(revoked.exitCode).toBe(0);
+    expect(revoked.stdout).toContain('Revoked invitation');
+
+    const after = await h.runCli(['project', 'invitations', projectId]);
+    expect(after.stdout).toContain('No pending invitations');
+  });
+
+  it('resends and revokes using the id exactly as the table prints it', async () => {
+    const address = `cli-printed-${crypto.randomUUID()}@test.example.com`;
+    expect((await h.runCli(['project', 'invite', projectId, '--email', address])).exitCode).toBe(0);
+
+    const table = await h.runCli(['project', 'invitations', projectId]);
+    const printedId = table.stdout
+      .split('\n')
+      .find((line) => line.includes(address))!
+      .trim()
+      .split(/\s+/)[0];
+
+    const resent = await h.runCli(['project', 'resend-invite', projectId, '--id', printedId]);
+    expect(resent.exitCode).toBe(0);
+    expect(resent.stdout).toContain(address);
+
+    const revoked = await h.runCli(['project', 'revoke-invite', projectId, '--id', printedId]);
+    expect(revoked.exitCode).toBe(0);
+
+    const after = await h.runCli(['project', 'invitations', projectId, '--json']);
+    expect(after.json<{ email: string }[]>().map((entry) => entry.email)).not.toContain(address);
   });
 
   it('set-members replaces the member list and strips the owner', async () => {
