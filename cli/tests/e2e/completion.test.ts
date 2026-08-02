@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { completionCachePath } from '../../src/completion/cache';
 import { createCliHarness, type CliHarness } from './helpers';
+import { encodeId } from '../../src/short-links';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardPayload'];
@@ -145,6 +146,15 @@ describe('completion commands', () => {
 
     const move = await complete(['task', 'move', '--project', archiveProjectId, '']);
     expect(move.values).toEqual(['Still live']);
+  });
+
+  it('completes against a project named by its alias', async () => {
+    const alias = encodeId(projectId);
+    const columns = await complete(['task', 'list', '--project', alias, '--column', '']);
+    expect(columns.values).toEqual(['Backlog', 'To Do', 'In Progress', 'Done']);
+
+    const labels = await complete(['task', 'list', '--project', alias, '--label', '']);
+    expect(labels.values).toEqual(['urgent']);
   });
 
   it('filters entity candidates case-insensitively', async () => {

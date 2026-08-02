@@ -7,10 +7,12 @@ import { displayTitle } from '../output';
 import {
   UUID_RE,
   fetchBoard,
+  fetchTaskOrNull,
   listArchivedTasks,
   listUsers,
   matchArchivedTask,
   matchRefOrNull,
+  projectRefOrNull,
   resolveBoard,
   resolveColumn,
   resolveLabel,
@@ -42,6 +44,8 @@ import {
   type Placement,
 } from '../positions';
 import { markdownToTiptap, tiptapToMarkdown, type TiptapDoc } from '../markdown';
+import { normalizeWebUrl } from '../config';
+import { decodeId, taskUrl } from '../short-links';
 import type { CliDeps, RuntimeContext } from '../context';
 
 function collect(value: string, previous: string[]): string[] {
@@ -153,40 +157,53 @@ interface TaskContext {
   task: BoardTask;
 }
 
-// Archived cards are absent from the board every task ref resolves through, so
-// the commands that must still address them opt into a second lookup.
+// Null rather than a throw: the caller may still have a title tier to try.
+async function taskContextById(
+  ctx: RuntimeContext,
+  id: string,
+  opts: { includeArchived?: boolean }
+): Promise<TaskContext | null> {
+  const detail = await fetchTaskOrNull(ctx, id);
+  if (detail === null) {
+    return null;
+  }
+  const board = await fetchBoard(ctx, detail.project_id);
+  const named = (t: BoardTask | ArchivedTask): boolean => t.id.toLowerCase() === id.toLowerCase();
+  const task = board.tasks.find(named);
+  if (task != null) {
+    return { board, task };
+  }
+  // Archived cards are absent from the board every task ref resolves through, so
+  // the commands that must still address them opt into a second lookup.
+  if (opts.includeArchived === true) {
+    const archived = (await listArchivedTasks(ctx, board.project.id)).find(named);
+    if (archived != null) {
+      return { board, task: archived };
+    }
+  }
+  return null;
+}
+
 async function resolveTaskContext(
   ctx: RuntimeContext,
   ref: string,
   projectRef?: string,
   opts: { includeArchived?: boolean } = {}
 ): Promise<TaskContext> {
-  const archivedFallback = async (
-    board: BoardPayload,
-    match: (archived: ArchivedTask[]) => BoardTask | null
-  ): Promise<TaskContext> => {
-    if (opts.includeArchived === true) {
-      const task = match(await listArchivedTasks(ctx, board.project.id));
-      if (task != null) {
-        return { board, task };
-      }
+  // Both forms name a task outright, so neither needs a project to look in.
+  const decoded = decodeId(ref);
+  const id = UUID_RE.test(ref) ? ref : decoded;
+  if (id !== null) {
+    const found = await taskContextById(ctx, id, opts);
+    if (found !== null) {
+      return found;
     }
-    throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
-  };
-
-  if (UUID_RE.test(ref)) {
-    const detail = assertOk(
-      await ctx.api.GET('/api/tasks/{id}', { params: { path: { id: ref } } })
-    );
-    const board = await fetchBoard(ctx, detail.project_id);
-    const task = board.tasks.find((t) => t.id.toLowerCase() === ref.toLowerCase());
-    if (task != null) {
-      return { board, task };
+    // An alias is also a legal title, so one that names no task falls through to
+    // the title tiers instead of shadowing them — but a uuid is only ever an id,
+    // and titles need a project to live in.
+    if (decoded === null || projectRefOrNull(ctx, projectRef) === null) {
+      throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
     }
-    return archivedFallback(
-      board,
-      (archived) => archived.find((t) => t.id.toLowerCase() === ref.toLowerCase()) ?? null
-    );
   }
   const board = await resolveBoard(ctx, projectRef);
   const task = matchRefOrNull(
@@ -199,7 +216,10 @@ async function resolveTaskContext(
   if (task !== null) {
     return { board, task };
   }
-  return archivedFallback(board, (archived) => matchArchivedTask(archived, ref));
+  if (opts.includeArchived === true) {
+    return { board, task: matchArchivedTask(await listArchivedTasks(ctx, board.project.id), ref) };
+  }
+  throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
 }
 
 async function descriptionFrom(
@@ -1092,6 +1112,24 @@ export function registerTask(program: Command, deps: CliDeps): void {
               renderDependencySection(ctx, board, 'Blocks', blocks);
             }
           );
+        })
+      )
+  );
+
+  task.addCommand(
+    taskLeaf('url')
+      .description('Print the shareable web URL of a task')
+      .argument('<task>', 'task id or title')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const { task: target } = await resolveTaskContext(
+            ctx,
+            ref,
+            opts.project as string | undefined,
+            { includeArchived: true }
+          );
+          const url = taskUrl(normalizeWebUrl(ctx.webUrl), target.id, target.title);
+          ctx.out.data({ url }, () => ctx.out.line(url));
         })
       )
   );

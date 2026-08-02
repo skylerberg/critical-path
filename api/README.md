@@ -1349,18 +1349,27 @@ cpath project invitations "My Project"  # pending invites: id, email, role, expi
 cpath project resend-invite "My Project" --id 3f9a1c2b   # id as listed, a prefix, or the address
 cpath project set-role "My Project" them@example.com --role editor
 cpath project members "My Project"      # ROLE column reads owner / editor / viewer
+cpath task url "Fix the bug" --project "My Project"   # shareable web link
 cpath config set default-project "My Project"   # makes --project optional
+cpath config set web-url https://criticalpath.example.com   # base for task url
 cpath watch --project "My Project" | jq 'select(.type=="task_created")'
 ```
 
 Entity references accept a UUID, a unique id prefix (>= 4 chars), an exact
 name/title (case-insensitive), or a unique substring; ambiguity is an error
-listing the candidates. Task references resolve against the board, which has
-no archived cards in it, so `task archive`, `task restore`, `task show` and
-`task delete` fall back to the archive on a miss; every board-shaped mutation
+listing the candidates. Project and task references additionally accept the
+22-character short alias the web app puts in its URLs; column, label,
+invitation and user references do not. The alias is base64url of the id's 16
+raw bytes and is **case sensitive** — one flipped letter is a different
+reference, and a non-canonical spelling is rejected rather than silently
+resolving to the same card. A task alias names the card outright, so it needs
+no `--project`; what it does not do is let a board mutation reach an archived
+card. Task references resolve against the board, which has no archived cards in
+it, so `task show`, `task duplicate`, `task archive`, `task restore`, `task delete`
+and `task url` fall back to the archive on a miss; every board-shaped mutation
 (`move`, `done`, `update`, `label`, `assign`, `block`) deliberately does not,
-and answers `No task matching` for an archived card, by id as well as by
-title. Task descriptions are Markdown in and out, converted to the API's
+and answers `No task matching` for an archived card — by alias and id just as
+by title. Task descriptions are Markdown in and out, converted to the API's
 restricted Tiptap JSON (`--description-json` is the raw escape hatch). A due
 date is one calendar day and `--due` accepts `YYYY-MM-DD` only — there is no
 shorthand parsing.
@@ -1370,6 +1379,14 @@ one as `@label`, and writing that text back with `task update --description` or
 `comment edit` stores plain text, dropping the link to the person for everyone.
 `--description-json` is the lossless path; comment bodies have no equivalent,
 so edit one from the web app if it contains a mention.
+
+`cpath task url <task>` prints the card's canonical web URL — the bare URL on
+stdout so it pipes into `git commit -m`, or `{ "url": ... }` under `--json`. The
+base comes from `CRITICAL_PATH_WEB_URL`, then the configured `web-url`, then the
+public instance. Wherever it comes from, it has to be an absolute http(s) URL
+with no query, fragment or credentials — a path is appended to it, so anything
+else yields a broken link, and credentials would ride along in every link
+shared from it. Only the origin and path are kept.
 
 Every command takes `--json` for machine-readable output and `--no-input` to
 fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2
@@ -1438,7 +1455,10 @@ The CLI talks to the production instance
 (or `--api-url`, or `cpath config set api-url`) selects another server — e.g.
 `cpath config set api-url http://localhost:3001` for local development.
 Tokens are stored per server URL. `CRITICAL_PATH_TOKEN` overrides the stored
-token; `CRITICAL_PATH_PROJECT` sets the default project.
+token; `CRITICAL_PATH_PROJECT` sets the default project;
+`CRITICAL_PATH_WEB_URL` (or `cpath config set web-url`) sets the base that
+`cpath task url` builds links from, which is a separate setting because the web
+app and the API need not share an origin.
 
 After changing the API surface, regenerate the CLI's committed types:
 
