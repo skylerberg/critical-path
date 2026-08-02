@@ -265,6 +265,10 @@
                 archived this task
               {:else if entry.kind === 'restored'}
                 restored this task
+              {:else}
+                <!-- Unreachable per the generated union, but a client left on the previous
+                     bundle by a rolling deploy is handed kinds that union does not list. -->
+                updated this task
               {/if}
             </p>
             {#if entry.kind === 'description_changed' && descriptionText(from?.doc) !== ''}
