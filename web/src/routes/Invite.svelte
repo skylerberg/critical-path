@@ -43,9 +43,6 @@
         await api.POST('/api/invitations/accept', { body: { token } })
       );
       await projects.load();
-      // The link is redeemable by someone who already has access, and by a
-      // viewer it would promote but does not, so the role is the only thing
-      // a 200 actually promises.
       toasts.success(
         role === 'editor'
           ? 'You have edit access to this board'
