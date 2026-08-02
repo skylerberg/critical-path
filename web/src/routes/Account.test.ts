@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import Account from './Account.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
@@ -74,6 +74,18 @@ function callOrderOf(pathname: string): number {
 
 function deleteDialog(): HTMLElement | null {
   return screen.queryByRole('dialog', { name: 'Delete account' });
+}
+
+async function renderedLines(emailVerified: boolean): Promise<string[]> {
+  session.user = { ...user, email_verified: emailVerified };
+  const { container } = render(Account);
+  await screen.findByLabelText('When someone adds me to a board');
+  await screen.findByText('You have no personal access tokens yet.');
+  const lines = [...container.querySelectorAll('p, button')].map((node) =>
+    (node.textContent ?? '').replace(/\s+/g, ' ').trim()
+  );
+  cleanup();
+  return lines;
 }
 
 function seedProject(overrides: Partial<Project>): void {
@@ -161,22 +173,23 @@ describe('Account', () => {
   });
 
   // An exact inventory, not a presence check: the duplicate this caught was two
-  // sections, each covered by a test file blind to the other's copy.
-  it('says the address is unverified once, and offers one way to fix it', () => {
+  // sections, each covered by a test file blind to the other's copy. Whatever
+  // differs between the two states is what speaks about verification, so a third
+  // copy is caught whatever words it picks — which a keyword filter would not do.
+  it('says once whether the address is verified, and offers one way to fix it', async () => {
     mockRoutes(204);
-    render(Account);
 
-    expect(screen.getAllByText(/verif/i).map((node) => node.textContent?.trim())).toEqual([
+    const unverified = await renderedLines(false);
+    const verified = await renderedLines(true);
+
+    expect(unverified.filter((line) => !verified.includes(line))).toEqual([
       'This address is not verified yet. Verifying it confirms we can reach you here.',
       'Send verification email',
       'These emails are on hold until your address is verified.',
     ]);
-    expect(
-      screen
-        .getAllByRole('button')
-        .filter((node) => /verif|resend|new link/i.test(node.textContent ?? ''))
-        .map((node) => node.textContent?.trim())
-    ).toEqual(['Send verification email']);
+    expect(verified.filter((line) => !unverified.includes(line))).toEqual([
+      'This address is verified.',
+    ]);
   });
 
   // The server answers the same 204 having sent nothing when this tab's flag has

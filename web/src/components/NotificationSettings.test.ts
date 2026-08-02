@@ -89,7 +89,7 @@ describe('NotificationSettings', () => {
     expect(screen.getByText('save failed')).toBeInTheDocument();
   });
 
-  it('says nothing about verification once the address is verified', async () => {
+  it('stops saying mail is on hold once the address is verified', async () => {
     fetchMock.mockResolvedValue(settingsResponse(true, true));
     render(NotificationSettings);
 

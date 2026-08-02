@@ -122,6 +122,29 @@ describe('App chrome', () => {
     expect(sessionStorage.getItem('cp.intendedPath')).toBeNull();
   });
 
+  it('sends a signed-out visitor from an emailed invitation link to log in', async () => {
+    router.navigate('/invite?token=t', { replace: true });
+
+    render(App);
+
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/login'));
+    expect(sessionStorage.getItem('cp.intendedPath')).toBe('/invite?token=t');
+  });
+
+  // The empty token is load-bearing: it is the one invitation link a signed-out
+  // visitor stays on, so it can tell reaching the page from being bounced first.
+  it('leaves a signed-out visitor on a spent invitation link rather than bouncing them', async () => {
+    router.navigate('/invite?token=', { replace: true });
+
+    render(App);
+
+    expect(await screen.findByText('This invitation link is no longer valid.')).toBeInTheDocument();
+    expect(navs()).toEqual([]);
+    expect(session.status).toBe('anon');
+    expect(window.location.pathname).toBe('/invite');
+    expect(sessionStorage.getItem('cp.intendedPath')).toBeNull();
+  });
+
   it('renders the navigation on an authenticated route', async () => {
     localStorage.setItem('cp.token', 'token');
     router.navigate('/', { replace: true });
