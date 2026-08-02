@@ -1109,7 +1109,10 @@ so edit one from the web app if it contains a mention.
 `cpath task url <task>` prints the card's canonical web URL — the bare URL on
 stdout so it pipes into `git commit -m`, or `{ "url": ... }` under `--json`. The
 base comes from `CRITICAL_PATH_WEB_URL`, then the configured `web-url`, then the
-public instance; `config set web-url` requires an absolute http(s) URL.
+public instance. Wherever it comes from, it has to be an absolute http(s) URL
+with no query, fragment or credentials — a path is appended to it, so anything
+else yields a broken link, and credentials would ride along in every link
+shared from it. Only the origin and path are kept.
 
 Every command takes `--json` for machine-readable output and `--no-input` to
 fail instead of prompting. Exit codes: 0 ok, 1 network/server error, 2

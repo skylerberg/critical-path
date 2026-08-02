@@ -68,6 +68,24 @@ export function matchRef<T>(
   return match;
 }
 
+// The matcher lowercases every ref and a case-flipped alias is a different id, so
+// the decode happens out here. A decode that names nothing present falls through
+// to the name tiers rather than shadowing them.
+export function matchRefOrAlias<T>(
+  ref: string,
+  items: readonly T[],
+  kind: string,
+  getId: (item: T) => string,
+  getName: (item: T) => string
+): T {
+  const decoded = decodeId(ref);
+  const byAlias =
+    decoded === null
+      ? undefined
+      : items.find((item) => getId(item).toLowerCase() === decoded.toLowerCase());
+  return byAlias ?? matchRef(ref, items, kind, getId, getName);
+}
+
 export async function listProjects(ctx: RuntimeContext): Promise<ProjectListItem[]> {
   return assertOk(await ctx.api.GET('/api/projects')).projects;
 }
@@ -91,7 +109,7 @@ export function matchProject<T extends { id: string; name: string }>(
   ref: string,
   projects: readonly T[]
 ): T {
-  return matchRef(
+  return matchRefOrAlias(
     ref,
     projects,
     'project',
@@ -100,11 +118,8 @@ export function matchProject<T extends { id: string; name: string }>(
   );
 }
 
-// Decoded here rather than inside the matcher: aliases are case sensitive and the
-// matcher lowercases every ref before comparing.
 export async function resolveProject(ctx: RuntimeContext, ref?: string): Promise<ProjectListItem> {
-  const effective = effectiveProjectRef(ctx, ref);
-  return matchProject(decodeId(effective) ?? effective, await listProjects(ctx));
+  return matchProject(effectiveProjectRef(ctx, ref), await listProjects(ctx));
 }
 
 export async function fetchBoard(ctx: RuntimeContext, projectId: string): Promise<BoardPayload> {
@@ -130,7 +145,7 @@ export function resolveColumn(board: BoardPayload, ref: string): BoardColumn {
 }
 
 export function resolveTaskInBoard(board: BoardPayload, ref: string): BoardTask {
-  return matchRef(
+  return matchRefOrAlias(
     ref,
     board.tasks,
     'task',
