@@ -157,6 +157,36 @@ describe('realtime state', () => {
     expect(secondToken.closes).toEqual([]);
     expect(getSocketState(secondToken)).toBeDefined();
   });
+
+  it('closeSessionSocketsForUser spares the excepted session and closes its other sockets', () => {
+    const replacement = new FakeSocket();
+    const stale = new FakeSocket();
+    const otherUser = new FakeSocket();
+    registerSocket(replacement, { kind: 'session', id: 'fresh', userId: 'u1' });
+    registerSocket(stale, { kind: 'session', id: 'stale', userId: 'u1' });
+    registerSocket(otherUser, { kind: 'session', id: 'fresh', userId: 'u2' });
+
+    closeSessionSocketsForUser('u1', 'fresh');
+
+    expect(replacement.closes).toEqual([]);
+    expect(getSocketState(replacement)).toBeDefined();
+    expect(stale.closes).toEqual([{ code: 4401, reason: 'Session revoked' }]);
+    expect(otherUser.closes).toEqual([]);
+  });
+
+  it('closeSocketsForCredential closes one session without touching the user other sessions', () => {
+    const revoked = new FakeSocket();
+    const sibling = new FakeSocket();
+    registerSocket(revoked, { kind: 'session', id: 's1', userId: 'u1' });
+    registerSocket(sibling, { kind: 'session', id: 's2', userId: 'u1' });
+
+    closeSocketsForCredential('session', 's1');
+
+    expect(revoked.closes).toEqual([{ code: 4401, reason: 'Session revoked' }]);
+    expect(getSocketState(revoked)).toBeUndefined();
+    expect(sibling.closes).toEqual([]);
+    expect(getSocketState(sibling)).toBeDefined();
+  });
 });
 
 describe('realtime delivery', () => {
