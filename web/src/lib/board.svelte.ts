@@ -85,6 +85,20 @@ function optimisticTask(id: string, columnId: string, title: string, position: n
   };
 }
 
+// The response describes the card as created, so adopting it wholesale reverts
+// anything edited while it was in flight. Diffing against what was inserted finds
+// those fields without enumerating which are editable — which holds only because
+// the store replaces values rather than mutating them in place.
+function mergeCopy(base: BoardTask, current: BoardTask, server: BoardTask): BoardTask {
+  const merged = { ...server };
+  for (const key of Object.keys(server) as (keyof BoardTask)[]) {
+    if (current[key] !== base[key]) {
+      (merged as Record<string, unknown>)[key] = current[key];
+    }
+  }
+  return merged;
+}
+
 function truncateTitle(title: string): string {
   return title.length > MAX_CYCLE_TITLE_CHARS ? `${title.slice(0, MAX_CYCLE_TITLE_CHARS)}…` : title;
 }
@@ -441,19 +455,17 @@ class BoardStore {
     const now = new Date().toISOString();
     // Labels, assignees and image_count come along because the server copies them.
     // Edges and comments it does not copy, so they start empty on the copy.
-    this.tasks = [
-      ...this.tasks,
-      {
-        ...source,
-        id,
-        position,
-        blocker_ids: [],
-        comment_count: 0,
-        created_at: now,
-        updated_at: now,
-        column_since: now,
-      },
-    ];
+    const optimistic: BoardTask = {
+      ...source,
+      id,
+      position,
+      blocker_ids: [],
+      comment_count: 0,
+      created_at: now,
+      updated_at: now,
+      column_since: now,
+    };
+    this.tasks = [...this.tasks, optimistic];
     try {
       const created = assertOk(
         await api.POST('/api/tasks/{id}/duplicate', {
@@ -461,7 +473,9 @@ class BoardStore {
           body: { id, position },
         })
       );
-      this.tasks = this.tasks.map((task) => (task.id === id ? created : task));
+      this.tasks = this.tasks.map((task) =>
+        task.id === id ? mergeCopy(optimistic, task, created) : task
+      );
       return id;
     } catch (error) {
       await this.#mutationFailed(error);
