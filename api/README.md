@@ -45,6 +45,19 @@ behind a reverse proxy that appends the client IP to `X-Forwarded-For`, set
 `TRUST_PROXY=true` so the rightmost forwarded entry is used instead; leave it
 unset otherwise, since the header is client-forgeable.
 
+Account creation is capped at **50 an hour per source IP**, identified the same
+way; past it `POST /api/auth/signup` answers `429` and creates nothing. Nothing
+else bounds it: the auth limiter keys both of its buckets on the address being
+signed up as, so every fresh address is a fresh bucket in both dimensions and
+one source faces no cap at all. Without this, someone can register thousands of
+addresses they do not own, and the real owner's only notice is a later
+`409 Email already in use` they cannot explain. Unlike the mail budgets this
+one refuses rather than withholding a side effect, because what is capped is
+the account and not a message. The ceiling is far above any real shared egress
+— a whole office onboarding together stays well under it — at the cost of a
+theoretical denial of registration behind a NAT that sustains fifty signups an
+hour.
+
 ### Project members and access
 
 Every project is shared per-project: it is visible to its creator and to the
@@ -952,18 +965,12 @@ and defaults to `http://localhost:5173`. The web app redeems that link on a
 page open to signed-out visitors, since the usual click arrives from a mail
 client on a device with no session.
 
-Signup's send carries its own per-IP budget, on its own counter so that
-spending it cannot deny anyone their own resends. Signup is unauthenticated and
-its other limiter keys every bucket on the address, so without this one source
-could mail an unbounded number of distinct, non-consenting addresses. It is
-capped at the same ten an hour as the authenticated per-IP budget below and
-deliberately not looser: this is the one that mails addresses nobody consented
-to. The budget withholds only the mail — past it signup still answers `201` and
-the session still starts, and the account can ask for a link from its account
-page. It is deliberately not a `429`: signup denied by a shared egress IP's
-exhausted budget would hand an attacker a way to keep a whole office from
-registering. Nothing in the response distinguishes a withheld send from a
-delivered one, so each source IP that hits the budget is logged once per window.
+Signup's send carries no budget of its own: every account it creates is mailed.
+Signup is the only thing that sends this mail unauthenticated, so the per-IP cap
+on creating accounts (see [Development](#development)) already bounds it, and a
+second, lower budget could only withhold mail from a legitimate burst. An office
+of twenty signing up together would have had ten of them silently receive
+nothing — exactly the case the link exists for.
 
 - `POST /api/auth/verify-email` takes `{ "token": "…" }` and answers `204`.
   It is unauthenticated and deliberately inert: the token creates no session,
@@ -1342,6 +1349,12 @@ The suite loads `.env.test`, migrates the test DB in global setup, and
 truncates all tables at suite start — never point it at a database with data
 you care about.
 
+The in-process rate limiter is reset once per test file, so each file starts on
+a full budget rather than on whatever the file before it left. Every test
+request presents the same source IP, so a file shares one budget of 50 account
+creations; a file needing more than that has to call `resetRateLimiter()`
+between tests.
+
 ## Checks
 
 ```sh
@@ -1538,8 +1551,12 @@ npm run openapi:dump && npm run --prefix cli generate-api
   to 100 addresses an hour each, whatever the answer. That budget bounds this
   route, not the question: signup answers 409 to an address that is already
   taken before it has proved anything, and so does an address change, so whether
-  an address has an account is learnable without a board at all. Metering those
-  two is open.
+  an address has an account is learnable without a board at all. That is
+  accepted rather than open. An address is input-only here — only a caller who
+  already holds one can ask about it, and no route ever returns one the caller
+  did not supply — so the answer tells an asker nothing they could not have got
+  by trying to sign up. Signup's side of it is bounded anyway, at 50 an hour per
+  source IP.
 - Float `position` ordering with no automatic rebalancing.
 - Project roles are only `editor` and `viewer`. Every editor can rename,
   archive and publish the board and manage its member set — including demoting
