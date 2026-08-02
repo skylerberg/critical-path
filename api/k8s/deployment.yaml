@@ -86,6 +86,16 @@ spec:
               value: us-west-2
             - name: SES_FROM_ADDRESS
               value: 'Critical Path <noreply@criticalpath.skylerberg.com>'
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: critical-path-secrets
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: critical-path-secrets
+                  key: AWS_SECRET_ACCESS_KEY
             - name: FEEDBACK_EMAIL_ADDRESS
               value: criticalpath@skylerberg.com
           readinessProbe:
