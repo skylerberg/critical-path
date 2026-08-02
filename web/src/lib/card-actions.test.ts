@@ -9,7 +9,13 @@ import { selection } from './selection.svelte';
 import { session } from './session.svelte';
 import { shortcuts } from './shortcuts.svelte';
 
-const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+const me = {
+  id: 'u-me',
+  name: 'Ada',
+  email: 'ada@example.com',
+  avatar_url: null,
+  email_verified: false,
+};
 
 function task(id: string, columnId: string, position: number): BoardTask {
   return {

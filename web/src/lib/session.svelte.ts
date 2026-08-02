@@ -3,7 +3,7 @@ import type { components } from '../api/api.generated';
 import { newId } from './ids';
 import { router, type Route } from './router.svelte';
 
-export type SessionUser = components['schemas']['User'];
+export type SessionUser = components['schemas']['Me'];
 export type SessionStatus = 'unknown' | 'authed' | 'anon';
 
 const TOKEN_KEY = 'cp.token';
@@ -22,7 +22,7 @@ export function isPublicRoute(name: Route['name']): boolean {
 
 // Distinct from PUBLIC_ROUTES, which means "signed-out only" and bounces an
 // authed visitor away. These open for both.
-const AUTH_OPTIONAL_ROUTES = new Set<Route['name']>(['public-board']);
+const AUTH_OPTIONAL_ROUTES = new Set<Route['name']>(['public-board', 'verify-email']);
 
 export function isAuthOptionalRoute(name: Route['name']): boolean {
   return AUTH_OPTIONAL_ROUTES.has(name);
@@ -73,6 +73,21 @@ class SessionStore {
         this.user = null;
       }
     }
+  }
+
+  // Narrower than init(): the session is already established, so re-reading the
+  // account must not drop back through 'unknown' and blank the screen.
+  async refresh(): Promise<void> {
+    if (this.status !== 'authed') {
+      return;
+    }
+    const token = this.#token;
+    const user = assertOk(await api.GET('/api/auth/me'));
+    // A session cleared or replaced while this was in flight is the newer truth.
+    if (this.#token !== token) {
+      return;
+    }
+    this.user = user;
   }
 
   async login(email: string, password: string): Promise<void> {
