@@ -1,5 +1,6 @@
 import type { Kysely, Selectable } from 'kysely';
 import type { DB, Project } from '../db/types';
+import { projectAccent, type ProjectAccent } from '../schemas/projects';
 import { normalizeProjectRole, type ProjectRole } from './authorization';
 import { publishAfterCommit } from './realtime/index';
 
@@ -10,7 +11,14 @@ export interface ProjectMemberEntry {
 
 export type ProjectRow = Pick<
   Selectable<Project>,
-  'id' | 'name' | 'description' | 'archived_at' | 'created_at' | 'created_by' | 'is_public'
+  | 'id'
+  | 'name'
+  | 'description'
+  | 'archived_at'
+  | 'created_at'
+  | 'created_by'
+  | 'is_public'
+  | 'color'
 >;
 
 export const PROJECT_COLUMNS = [
@@ -21,7 +29,14 @@ export const PROJECT_COLUMNS = [
   'created_at',
   'created_by',
   'is_public',
+  'color',
 ] as const;
+
+// Fail closed, like roles: a key a newer release wrote reaches an older client as
+// "no colour" rather than as a key it has no swatch for.
+export function normalizeProjectAccent(color: string | null): ProjectAccent | null {
+  return color !== null && projectAccent.allows(color) ? color : null;
+}
 
 // member_ids is redundant with members and is kept only because clients from
 // before roles existed read it; it is derived here so the two cannot drift.
@@ -36,6 +51,7 @@ export function toProjectResponse(row: ProjectRow, members: ProjectMemberEntry[]
     member_ids: members.map((member) => member.user_id),
     members,
     is_public: row.is_public,
+    color: normalizeProjectAccent(row.color),
   };
 }
 
