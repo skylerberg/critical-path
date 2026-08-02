@@ -623,9 +623,9 @@ describe('Pending project invitations', () => {
       expect(await invitationRows(board.project.id)).toHaveLength(1);
     });
 
-    // A role update and a removal take no lock on the board, so holding the
-    // board is not what makes these two honest; the share lock on the
-    // membership rows is.
+    // Both write the member row under no board lock, as the cascade behind an
+    // account deletion does, so holding the board is not what makes these two
+    // honest; the share lock on the membership rows is.
     it('reports the demoted role when a demotion the board lock cannot stop lands mid-claim', async () => {
       const board = await createProject('inv accept vs unlocked demote');
       const address = uniqueEmail('inv-accept-unlocked-demote');
@@ -1230,6 +1230,30 @@ describe('Pending project invitations', () => {
         ).status
       ).toBe(200);
       expect(invitationMailTo(other).to).toBe(other);
+    });
+
+    it('spends no re-mail unit on a resend the mail budget refuses', async () => {
+      const board = await createProject('inv budget refused resend');
+      await invite(board.project.id, member.email, 'editor');
+      const address = uniqueEmail('inv-budget-refused-resend');
+      const body = await invite(board.project.id, address);
+      const path = `/api/projects/${board.project.id}/invitations/${body.invitation!.id}/resend`;
+
+      for (let i = 1; i < INVITE_SEND_MAX_ATTEMPTS; i++) {
+        await invite(board.project.id, uniqueEmail(`inv-budget-refused-${i}`));
+      }
+      for (let i = 0; i <= INVITE_RESEND_MAX_ATTEMPTS; i++) {
+        expect((await ctx.request(owner.token).post(path)).status).toBe(429);
+      }
+
+      // The mail budget is the caller's and the re-mail budget the invitation's,
+      // so a second editor with units left is where a charge would show up.
+      clearSentEmails();
+      for (let i = 0; i < INVITE_RESEND_MAX_ATTEMPTS; i++) {
+        expect((await ctx.request(member.token).post(path)).status).toBe(204);
+      }
+      expect((await ctx.request(member.token).post(path)).status).toBe(429);
+      expect(sentEmails()).toHaveLength(INVITE_RESEND_MAX_ATTEMPTS);
     });
   });
 

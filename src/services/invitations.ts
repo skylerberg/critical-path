@@ -114,10 +114,10 @@ export async function claimInvitations(
     .execute();
   const projectById = new Map(projects.map((project) => [project.id, project]));
 
-  // Locked rather than read: the role answered below has to be the one this
-  // transaction leaves stored, and a share lock is the weakest that a demotion
-  // or a removal conflicts with. Nothing obliges either of those to have taken
-  // the project row first, so holding that is not enough on its own.
+  // Locked rather than read: deleting an account cascades these rows away while
+  // holding only the boards that account created, so the boards taken above are
+  // not enough to keep the role answered below from being one on its way out. A
+  // share lock is the weakest that conflicts with the cascade.
   const held = await db
     .selectFrom('project_member')
     .select(['project_id', 'role'])
