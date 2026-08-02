@@ -131,6 +131,10 @@ describe('Viewer enforcement across every mutating route', () => {
         send: (t) => ctx.request(t).patch(`/api/projects/${projectId}`, { is_public: true }),
       },
       {
+        name: 'PATCH /api/projects/:id (colour)',
+        send: (t) => ctx.request(t).patch(`/api/projects/${projectId}`, { color: 'violet' }),
+      },
+      {
         name: 'DELETE /api/projects/:id',
         send: (t) => ctx.request(t).delete(`/api/projects/${projectId}`),
       },
@@ -327,10 +331,10 @@ describe('Viewer enforcement across every mutating route', () => {
     it('leaves every row it tried to change intact', async () => {
       const project = await db
         .selectFrom('project')
-        .select(['name', 'is_public'])
+        .select(['name', 'is_public', 'color'])
         .where('id', '=', projectId)
         .executeTakeFirst();
-      expect(project).toEqual({ name: 've project', is_public: false });
+      expect(project).toEqual({ name: 've project', is_public: false, color: null });
 
       const task = await db
         .selectFrom('task')

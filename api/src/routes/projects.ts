@@ -163,6 +163,7 @@ router.get(
         'project.created_at',
         'project.created_by',
         'project.is_public',
+        'project.color',
         'project_user_position.position',
         jsonArrayFrom(
           eb
@@ -216,7 +217,8 @@ router.post(
       'Create a project with the default Backlog / To Do / In Progress / Done columns, or ' +
       'deep-copy an existing project by passing source_project_id (copies columns, labels, ' +
       'tasks, task labels, dependencies, and images — not comments, assignees, members, ' +
-      'archived cards, or the archived state of the project itself; copies start personal). ' +
+      'archived cards, the accent colour, or the archived state of the project itself; copies ' +
+      'start personal). ' +
       'Returns 422 when source_project_id does not ' +
       'reference an existing project and 404 when it references a project the caller cannot access.',
     security: [{ bearerAuth: [] }],
@@ -490,8 +492,11 @@ router.patch(
       'unarchive. Set is_public to true to publish the board read-only at ' +
       'GET /api/public/projects/:id/board, which serves card titles, descriptions and their ' +
       'embedded images, labels, blockers, and assignee names and avatars to anyone with the ' +
-      'project id and no account. Set it back to false to stop serving it. Editors only: a ' +
-      'viewer gets 403 and non-accessors 404.',
+      'project id and no account. Set it back to false to stop serving it. Set color to one of ' +
+      'the fixed accent keys to mark the board across every surface that lists it, or null for ' +
+      'no colour; the choice is shared with everyone who can see the board and rides the ' +
+      'project_updated realtime and webhook events. The public board never carries it. ' +
+      'Editors only: a viewer gets 403 and non-accessors 404.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -526,6 +531,7 @@ router.patch(
     if (body.description !== undefined) updates.description = body.description;
     if (body.archived_at !== undefined) updates.archived_at = body.archived_at;
     if (body.is_public !== undefined) updates.is_public = body.is_public;
+    if (body.color !== undefined) updates.color = body.color;
 
     const row =
       Object.keys(updates).length > 0
