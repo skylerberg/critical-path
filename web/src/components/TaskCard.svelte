@@ -5,7 +5,7 @@
   import type { BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, focusCard } from '../lib/card-menu.svelte';
   import { link } from '../lib/router.svelte';
-  import { publicTaskHref, taskHref } from '../lib/short-links';
+  import { isDragPlaceholder, publicTaskHref, taskHref } from '../lib/short-links';
   import { selection } from '../lib/selection.svelte';
   import { isCalendarDate } from '../lib/dates';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
@@ -42,6 +42,8 @@
   const selected = $derived(selection.selectedTaskId === task.id);
   const renaming = $derived(cardMenu.renamingTaskId === task.id);
   const shownTitle = $derived(truncateTitle(task.title));
+  // Still drawn, only unlinked, so the gap it leaves keeps the card's size.
+  const placeholder = $derived(isDragPlaceholder(task.id));
 
   let cardEl = $state<HTMLDivElement>();
   let draft = $state('');
@@ -128,7 +130,7 @@
     ? 'border-accent ring-2 ring-accent'
     : 'border-edge'} {dimmed ? 'opacity-30' : ''}"
 >
-  {#if !renaming}
+  {#if !renaming && !placeholder}
     <a
       use:link
       href={board.readonly

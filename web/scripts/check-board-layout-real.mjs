@@ -90,6 +90,7 @@ const MEASURE = `(() => {
   const de = document.documentElement;
   return {
     cols: cols.length,
+    cards: document.querySelectorAll('[data-task-id]').length,
     vw: innerWidth,
     vh: innerHeight,
     htmlSW: de.scrollWidth,
@@ -108,6 +109,10 @@ const MEASURE = `(() => {
 
 function check(m, vp) {
   const f = [];
+  // Every height assertion below is satisfied trivially by a column that drew no
+  // cards, so a card that throws while rendering would otherwise pass this check.
+  if (m.cards !== vp.cols * vp.tasks)
+    f.push(`cards did not render (${m.cards} of ${vp.cols * vp.tasks})`);
   if (m.htmlSW > vp.w + 2)
     f.push(`document overflows horizontally (scrollWidth=${m.htmlSW} > ${vp.w})`);
   if (m.vw > vp.w + 2) f.push(`mobile viewport expanded (innerWidth=${m.vw} > ${vp.w})`);

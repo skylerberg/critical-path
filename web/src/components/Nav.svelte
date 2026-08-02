@@ -13,7 +13,7 @@
   import { projects, type Project } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { link, router } from '../lib/router.svelte';
-  import { projectHref } from '../lib/short-links';
+  import { isDragPlaceholder, projectHref } from '../lib/short-links';
   import { currentProjectId } from '../lib/task-route.svelte';
   import { session } from '../lib/session.svelte';
   import FeedbackDialog from './FeedbackDialog.svelte';
@@ -161,9 +161,11 @@
 
 {#snippet projectLink(project: Project)}
   {@const active = activeProjectId === project.id}
+  <!-- Still drawn, only unlinked, so the gap it leaves keeps the row's size. -->
+  {@const href = isDragPlaceholder(project.id) ? undefined : projectHref(project.id, project.name)}
   <a
     use:suppressTouchContextMenu
-    href={projectHref(project.id, project.name)}
+    {href}
     draggable="false"
     aria-current={active ? 'page' : undefined}
     class="flex min-h-11 touch-callout-none items-center truncate rounded-md px-3 text-sm {active

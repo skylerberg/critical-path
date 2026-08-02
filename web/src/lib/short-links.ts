@@ -1,3 +1,5 @@
+import { SHADOW_PLACEHOLDER_ITEM_ID } from 'svelte-dnd-action';
+
 export type ProjectView = 'board' | 'graph';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -60,6 +62,14 @@ export function slugify(title: string): string {
     .replace(/^-+|-+$/g, '');
   const slug = trimmed.slice(0, SLUG_MAX_LENGTH).replace(/-+$/, '');
   return slug === '' ? EMPTY_SLUG : slug;
+}
+
+// A drag seeds a gap-filling placeholder into the item list under an id that names
+// nothing, so any list drawing its items as links must skip building one for it:
+// encoding it throws, and that throw lands mid-drag and kills the render the drag
+// needs. Asking here rather than loosening the encoder keeps malformed ids fatal.
+export function isDragPlaceholder(id: string): boolean {
+  return id === SHADOW_PLACEHOLDER_ITEM_ID;
 }
 
 export function projectHref(projectId: string, name: string, view: ProjectView = 'board'): string {
