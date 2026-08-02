@@ -32,6 +32,22 @@ describe('matchRoute', () => {
     });
   });
 
+  it('reads the invitation token from the query string', () => {
+    expect(matchRoute('/invite')).toEqual({ name: 'invite', params: {} });
+    expect(matchRoute('/invite', '?token=abc-123_x')).toEqual({
+      name: 'invite',
+      params: { token: 'abc-123_x' },
+    });
+  });
+
+  it('drops a token it cannot decode rather than failing to route at all', () => {
+    expect(matchRoute('/invite', '?token=%E0%A4%A')).toEqual({ name: 'invite', params: {} });
+    expect(matchRoute('/reset-password', '?token=%E0%A4%A')).toEqual({
+      name: 'reset-password',
+      params: {},
+    });
+  });
+
   it('matches the project board view', () => {
     expect(matchRoute('/projects/abc-123')).toEqual({
       name: 'project',

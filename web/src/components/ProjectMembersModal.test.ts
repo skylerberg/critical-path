@@ -2,13 +2,46 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ProjectMembersModal from './ProjectMembersModal.svelte';
+import { invitations, type Invitation } from '../lib/invitations.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
+import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
 
 const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
+
+const DAY_MS = 86_400_000;
+
+function invitation(overrides: Partial<Invitation> = {}): Invitation {
+  return {
+    id: 'inv-1',
+    project_id: 'p-1',
+    email: 'ghost@example.com',
+    role: 'editor',
+    invited_by: me.id,
+    created_at: '2026-01-01T00:00:00.000Z',
+    expires_at: new Date(Date.now() + 14 * DAY_MS).toISOString(),
+    ...overrides,
+  };
+}
+
+// Every render an editor sees loads the pending list, so tests that are not about
+// it still need a well-formed answer for that one request.
+function mockApi(
+  handler: (request: Request, url: URL) => Response | Promise<Response>,
+  pending: Invitation[] = []
+): void {
+  fetchMock.mockImplementation(async (input) => {
+    const request = input as Request;
+    const url = new URL(request.url);
+    if (url.pathname.endsWith('/invitations')) {
+      return jsonResponse(200, { invitations: pending });
+    }
+    return handler(request, url);
+  });
+}
 
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [me.id];
@@ -31,12 +64,15 @@ function project(overrides: Partial<Project> = {}): Project {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  invitations.reset();
   projects.reset();
   users.reset();
+  toasts.toasts = [];
   session.user = me;
   users.users = [me, ada];
   router.beforeNavigate = undefined;
   router.navigate('/', { replace: true });
+  mockApi(() => jsonResponse(200, { users: [me, ada] }));
 });
 
 describe('ProjectMembersModal', () => {
@@ -66,7 +102,7 @@ describe('ProjectMembersModal', () => {
     const bob = { id: 'u-bob', email: 'bob@example.com', name: 'Bob', avatar_url: null };
     users.users = [me, ada, bob];
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
-    fetchMock.mockImplementation(async () => jsonResponse(200, { users: [me, ada, bob] }));
+    mockApi(() => jsonResponse(200, { users: [me, ada, bob] }));
 
     render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
 
@@ -80,7 +116,7 @@ describe('ProjectMembersModal', () => {
 
   it('leaving from the board route PUTs minus self and navigates to the projects page', async () => {
     projects.projects = [project({ member_ids: [me.id, 'u-3'] })];
-    fetchMock.mockImplementation(async () => jsonResponse(204));
+    mockApi(() => jsonResponse(204));
     router.navigate('/projects/p-1');
     const onclose = vi.fn();
 
@@ -102,7 +138,7 @@ describe('ProjectMembersModal', () => {
 
   it('leaving from the projects page stays put', async () => {
     projects.projects = [project()];
-    fetchMock.mockImplementation(async () => jsonResponse(204));
+    mockApi(() => jsonResponse(204));
 
     render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
 
@@ -168,7 +204,7 @@ describe('ProjectMembersModal', () => {
 
   it('drops a pending transfer when that member is removed', async () => {
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
-    fetchMock.mockImplementation(async () => jsonResponse(204));
+    mockApi(() => jsonResponse(204));
 
     render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
 
@@ -182,8 +218,8 @@ describe('ProjectMembersModal', () => {
 
   it('confirming PUTs the new owner and reveals the leave button', async () => {
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
-    fetchMock.mockImplementation(async (input) => {
-      if ((input as Request).method === 'PUT') {
+    mockApi((request) => {
+      if (request.method === 'PUT') {
         return jsonResponse(200, {
           id: 'p-1',
           name: 'Team Game',
@@ -228,11 +264,10 @@ describe('ProjectMembersModal public link', () => {
   }
 
   beforeEach(() => {
-    fetchMock.mockImplementation(async (input) => {
-      const request = input as Request;
+    mockApi(async (request, url) => {
       if (request.method === 'PATCH') {
         const body = (await request.clone().json()) as { is_public: boolean };
-        const id = new URL(request.url).pathname.split('/').at(-1)!;
+        const id = url.pathname.split('/').at(-1)!;
         return jsonResponse(200, { ...project({ id }), ...body });
       }
       return jsonResponse(200, { users: [me, ada] });
@@ -331,7 +366,7 @@ describe('ProjectMembersModal roles', () => {
         ],
       }),
     ];
-    fetchMock.mockImplementation(async () => jsonResponse(204));
+    mockApi(() => jsonResponse(204));
 
     render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
 
@@ -375,5 +410,104 @@ describe('ProjectMembersModal roles', () => {
     expect(screen.queryByRole('button', { name: 'Publish read-only link' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Leave board' })).toBeInTheDocument();
     expect(screen.getByText('Viewer')).toBeInTheDocument();
+  });
+});
+
+describe('ProjectMembersModal pending invitations', () => {
+  const ghost = 'ghost@example.com';
+
+  function renderAsEditor(): void {
+    projects.projects = [project({ created_by: me.id, member_ids: [] })];
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+  }
+
+  it('lists an address with no account, when it expires, and how to act on it', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    renderAsEditor();
+
+    expect(await screen.findByText(ghost)).toBeInTheDocument();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByText(/^Expires /)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Resend invitation to ${ghost}` })).toBeVisible();
+    expect(screen.getByRole('button', { name: `Revoke invitation to ${ghost}` })).toBeVisible();
+    const listed = fetchMock.mock.calls.map((c) => new URL((c[0] as Request).url).pathname);
+    expect(listed).toContain('/api/projects/p-1/invitations');
+  });
+
+  it('distinguishes an expired invitation from a live one instead of dropping it', async () => {
+    mockApi(
+      () => jsonResponse(200, { users: [me] }),
+      [invitation({ expires_at: new Date(Date.now() - DAY_MS).toISOString() })]
+    );
+    renderAsEditor();
+
+    expect(await screen.findByText('Expired')).toBeInTheDocument();
+    expect(screen.queryByText('Pending')).toBeNull();
+    expect(screen.getByText(/^Expired .* — resend to revive it$/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Resend invitation to ${ghost}` })).toBeVisible();
+  });
+
+  it('resending revives an expired row before the server answers', async () => {
+    mockApi(
+      (request) =>
+        request.method === 'POST' ? jsonResponse(204) : jsonResponse(200, { users: [me] }),
+      [invitation({ expires_at: new Date(Date.now() - DAY_MS).toISOString() })]
+    );
+    renderAsEditor();
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: `Resend invitation to ${ghost}` })
+    );
+
+    expect(await screen.findByText(/^Expires /)).toBeInTheDocument();
+    expect(screen.queryByText('Expired')).toBeNull();
+    await waitFor(() => {
+      expect(toasts.toasts.map((t) => t.message)).toContain('Invitation resent');
+    });
+    const post = fetchMock.mock.calls.find(
+      (c) => (c[0] as Request).method === 'POST'
+    )![0] as Request;
+    expect(new URL(post.url).pathname).toBe('/api/projects/p-1/invitations/inv-1/resend');
+  });
+
+  it('revoking drops the row and DELETEs it', async () => {
+    mockApi(
+      (request) =>
+        request.method === 'DELETE' ? jsonResponse(204) : jsonResponse(200, { users: [me] }),
+      [invitation()]
+    );
+    renderAsEditor();
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: `Revoke invitation to ${ghost}` })
+    );
+
+    expect(screen.queryByText(ghost)).toBeNull();
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((c) => (c[0] as Request).method === 'DELETE')).toBe(true);
+    });
+    const del = fetchMock.mock.calls.find(
+      (c) => (c[0] as Request).method === 'DELETE'
+    )![0] as Request;
+    expect(new URL(del.url).pathname).toBe('/api/projects/p-1/invitations/inv-1');
+  });
+
+  it('never shows a viewer the invited addresses, nor asks the server for them', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    projects.projects = [
+      project({
+        created_by: ada.id,
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      }),
+    ];
+
+    render(ProjectMembersModal, { projectId: 'p-1', onclose: () => {} });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.queryByText(ghost)).toBeNull();
+    expect(screen.queryByText('Invited')).toBeNull();
+    const listed = fetchMock.mock.calls.map((c) => new URL((c[0] as Request).url).pathname);
+    expect(listed).not.toContain('/api/projects/p-1/invitations');
   });
 });

@@ -13,6 +13,7 @@ export type Route =
   | { name: 'account' }
   | { name: 'forgot-password' }
   | { name: 'reset-password'; params: { token?: string } }
+  | { name: 'invite'; params: { token?: string } }
   | {
       name: 'project';
       params: {
@@ -62,6 +63,20 @@ function overlayFrom(search: string): { from?: 'my-tasks' } {
   return new URLSearchParams(search).get('from') === 'my-tasks' ? { from: 'my-tasks' } : {};
 }
 
+// A malformed escape yields no token rather than throwing, which would take
+// routing down for the length of one bad link.
+function tokenFrom(search: string): { token?: string } {
+  const match = /[?&]token=([^&]*)/.exec(search);
+  if (match === null) {
+    return {};
+  }
+  try {
+    return { token: decodeURIComponent(match[1]!) };
+  } catch {
+    return {};
+  }
+}
+
 function projectRoute(id: string, view: ProjectView, search: string, taskId?: string): Route {
   return {
     name: 'project',
@@ -84,11 +99,8 @@ export function matchRoute(pathname: string, search = ''): Route {
   if (path === '/signup') return { name: 'signup' };
   if (path === '/account') return { name: 'account' };
   if (path === '/forgot-password') return { name: 'forgot-password' };
-  if (path === '/reset-password') {
-    const match = /[?&]token=([^&]*)/.exec(search);
-    const token = match ? decodeURIComponent(match[1]!) : null;
-    return { name: 'reset-password', params: token === null ? {} : { token } };
-  }
+  if (path === '/reset-password') return { name: 'reset-password', params: tokenFrom(search) };
+  if (path === '/invite') return { name: 'invite', params: tokenFrom(search) };
   let params = matchPattern('/projects/:id', path);
   if (params) return projectRoute(params.id!, 'board', search);
   params = matchPattern('/projects/:id/graph', path);

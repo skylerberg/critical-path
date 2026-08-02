@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import App from './App.svelte';
 import { board } from './lib/board.svelte';
+import { invitations } from './lib/invitations.svelte';
 import { myTasks } from './lib/myTasks.svelte';
 import { projects } from './lib/projects.svelte';
 import { realtime } from './lib/realtime.svelte';
@@ -23,6 +24,16 @@ class FakeWebSocket {
 vi.stubGlobal('WebSocket', FakeWebSocket);
 
 const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+
+const invite = {
+  id: 'inv-1',
+  project_id: 'p-1',
+  email: 'ghost@example.com',
+  role: 'editor' as const,
+  invited_by: me.id,
+  created_at: '2026-01-01T00:00:00.000Z',
+  expires_at: '2026-01-15T00:00:00.000Z',
+};
 
 function publicBoard() {
   return {
@@ -66,6 +77,7 @@ beforeEach(() => {
   sessionStorage.clear();
   realtime.disconnect();
   board.reset();
+  invitations.reset();
   myTasks.reset();
   projects.reset();
   shortcuts.reset();
@@ -118,6 +130,26 @@ describe('App chrome', () => {
 
     await vi.waitFor(() => expect(window.location.pathname).toBe('/login'));
     expect(sessionStorage.getItem('cp.intendedPath')).toBe('/my-tasks');
+  });
+
+  it('empties every per-account cache when the session ends', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/my-tasks', { replace: true });
+
+    render(App);
+    await screen.findByRole('heading', { name: 'My tasks' });
+
+    fetchMock.mockImplementation(async () => jsonResponse(200, { invitations: [invite] }));
+    await invitations.load('p-1');
+    expect(invitations.list).toHaveLength(1);
+
+    localStorage.removeItem('cp.token');
+    await session.init();
+
+    await vi.waitFor(() => expect(invitations.list).toEqual([]));
+    expect(invitations.currentProjectId).toBeNull();
+    expect(invitations.loaded).toBe(false);
+    expect(projects.projects).toEqual([]);
   });
 
   it('runs the keymap off the project routes', async () => {
