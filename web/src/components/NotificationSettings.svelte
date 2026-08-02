@@ -32,6 +32,9 @@
     try {
       settings = assertOk(await api.GET('/api/auth/me/notification-settings'));
     } catch (error) {
+      // Dropped rather than left standing: when this runs as the resync after a
+      // failed save, the toggles hold a value the server never stored.
+      settings = null;
       loadError = apiMessage(error);
     }
   }
@@ -118,5 +121,5 @@
       </label>
     {/each}
   </div>
-  {@render status(saveStatus)}
 {/if}
+{@render status(saveStatus)}

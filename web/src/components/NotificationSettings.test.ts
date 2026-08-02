@@ -73,6 +73,22 @@ describe('NotificationSettings', () => {
     });
   });
 
+  it('shows no toggle at all when the save and the resync both fail', async () => {
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true));
+    render(NotificationSettings);
+
+    const toggle = await screen.findByLabelText(ASSIGNED);
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'save failed' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'reload failed' }));
+    await fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(ASSIGNED)).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByText('save failed')).toBeInTheDocument();
+  });
+
   it('explains why mail is not being sent, only while the address is unverified', async () => {
     fetchMock.mockResolvedValue(settingsResponse(true, true));
     render(NotificationSettings);

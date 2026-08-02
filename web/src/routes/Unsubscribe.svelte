@@ -19,12 +19,17 @@
     added_to_project: "You'll no longer get email when someone adds you to a board.",
   };
 
-  let phase = $state<'working' | 'done' | 'all' | 'invalid'>('working');
+  let phase = $state<'confirm' | 'working' | 'done' | 'all' | 'invalid'>('confirm');
   let kind = $state<Kind | null>(null);
   let stoppingAll = $state(false);
 
+  // Nothing is written until the button is pressed: this page is reached by an
+  // ordinary link, which mail security scanners and browser prerenders follow
+  // on their own, and there is deliberately no request shape that undoes it.
   onMount(() => {
-    void unsubscribe();
+    if (token === undefined || token === '') {
+      phase = 'invalid';
+    }
   });
 
   async function unsubscribe(): Promise<void> {
@@ -32,6 +37,7 @@
       phase = 'invalid';
       return;
     }
+    phase = 'working';
     try {
       const data = assertOk(await api.POST('/api/auth/unsubscribe', { body: { token } }));
       kind = data.kind;
@@ -60,10 +66,15 @@
     <h1 class="text-xl font-semibold">{APP_NAME}</h1>
     <p class="mt-1 text-sm text-muted">Email preferences</p>
 
-    {#if phase === 'working'}
+    {#if phase === 'confirm'}
+      <p class="mt-6 text-sm">Stop sending you these notification emails?</p>
+      <div class="mt-4">
+        <Button onclick={unsubscribe}>Unsubscribe</Button>
+      </div>
+    {:else if phase === 'working'}
       <p class="mt-6 text-sm text-muted">Updating your preferences…</p>
     {:else if phase === 'invalid'}
-      <p role="alert" class="mt-6 text-sm text-danger">This link is no longer valid.</p>
+      <p role="alert" class="mt-6 text-sm text-danger">This unsubscribe link isn't valid.</p>
     {:else if phase === 'all'}
       <p role="status" class="mt-6 text-sm">You'll no longer get any notification email from us.</p>
     {:else}

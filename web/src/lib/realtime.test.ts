@@ -938,7 +938,7 @@ describe('user_updated dispatch', () => {
 
   it('keeps the private verification flag the public payload cannot carry', async () => {
     const socket = await connectAndAuth('p1');
-    session.user = { ...session.user!, email_verified: true };
+    session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
 
     socket.receive({
       type: 'user_updated',
@@ -947,6 +947,19 @@ describe('user_updated dispatch', () => {
 
     expect(session.user?.name).toBe('Me Renamed');
     expect(session.user?.email_verified).toBe(true);
+  });
+
+  it('drops the flag when the broadcast moves the account to another mailbox', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u1', name: 'Me', email: 'brand-new@e.com', avatar_url: null },
+    });
+
+    expect(session.user?.email).toBe('brand-new@e.com');
+    expect(session.user?.email_verified).toBe(false);
   });
 
   it('drops malformed user_updated payloads', async () => {

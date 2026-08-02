@@ -122,9 +122,7 @@ describe('App chrome', () => {
 
     render(App);
 
-    expect(
-      await screen.findByText("You'll no longer get email when someone assigns you a task.")
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Unsubscribe' })).toBeInTheDocument();
     expect(navs()).toEqual([]);
     expect(window.location.pathname).toBe('/unsubscribe');
   });

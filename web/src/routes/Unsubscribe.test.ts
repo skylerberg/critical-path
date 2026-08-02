@@ -8,15 +8,27 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/unsubscribe');
 });
 
+async function confirm(): Promise<void> {
+  await fireEvent.click(await screen.findByRole('button', { name: 'Unsubscribe' }));
+}
+
 describe('Unsubscribe', () => {
-  it('unsubscribes on mount and names the kind it switched off', async () => {
+  it('writes nothing until the visitor presses the button', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { kind: 'task_assigned' }));
     render(Unsubscribe, { token: 'tok-123' });
 
     expect(
+      await screen.findByText('Stop sending you these notification emails?')
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    await confirm();
+
+    expect(
       await screen.findByText("You'll no longer get email when someone assigns you a task.")
     ).toBeInTheDocument();
-
     const request = requestAt(0);
     expect(new URL(request.url).pathname).toBe('/api/auth/unsubscribe');
     expect(await request.clone().json()).toEqual({ token: 'tok-123' });
@@ -25,6 +37,7 @@ describe('Unsubscribe', () => {
   it('offers a second step that switches every kind off', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { kind: 'added_to_project' }));
     render(Unsubscribe, { token: 'tok-123' });
+    await confirm();
 
     const button = await screen.findByRole('button', { name: 'Turn off all email notifications' });
     fetchMock.mockResolvedValueOnce(jsonResponse(204));
@@ -39,8 +52,9 @@ describe('Unsubscribe', () => {
   it('reports a rejected token without offering anything else', async () => {
     fetchMock.mockResolvedValue(jsonResponse(422, { error: 'This unsubscribe link is not valid' }));
     render(Unsubscribe, { token: 'stale' });
+    await confirm();
 
-    expect(await screen.findByText('This link is no longer valid.')).toBeInTheDocument();
+    expect(await screen.findByText("This unsubscribe link isn't valid.")).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Turn off all email notifications' })
     ).not.toBeInTheDocument();
@@ -49,7 +63,8 @@ describe('Unsubscribe', () => {
   it('never calls the API without a token', async () => {
     render(Unsubscribe, { token: undefined });
 
-    expect(await screen.findByText('This link is no longer valid.')).toBeInTheDocument();
+    expect(await screen.findByText("This unsubscribe link isn't valid.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Unsubscribe' })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -58,6 +73,7 @@ describe('Unsubscribe', () => {
   it('says nothing about the account behind the link', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { kind: 'task_assigned' }));
     const { container } = render(Unsubscribe, { token: 'tok-123' });
+    await confirm();
 
     await screen.findByText("You'll no longer get email when someone assigns you a task.");
     expect(container.textContent).not.toContain('@');
