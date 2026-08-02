@@ -32,6 +32,21 @@ describe('matchRoute', () => {
     });
   });
 
+  it('reads the invitation token from the query string', () => {
+    expect(matchRoute('/invite')).toEqual({ name: 'invite', params: {} });
+    expect(matchRoute('/invite', '?token=abc-123_x')).toEqual({
+      name: 'invite',
+      params: { token: 'abc-123_x' },
+    });
+  });
+
+  it('hands an invitation token it cannot decode on rather than dropping it', () => {
+    expect(matchRoute('/invite', '?token=%E0%A4%A')).toEqual({
+      name: 'invite',
+      params: { token: '%E0%A4%A' },
+    });
+  });
+
   it('reads the verify-email token from the query string', () => {
     expect(matchRoute('/verify-email')).toEqual({ name: 'verify-email', params: {} });
     expect(matchRoute('/verify-email', '?token=abc.def')).toEqual({

@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import Projects from './Projects.svelte';
+import { invitations } from '../lib/invitations.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { noFilters } from '../lib/board-filters';
 import { router } from '../lib/router.svelte';
@@ -44,6 +45,18 @@ const me = {
 };
 const ada = { id: 'u-ada', email: 'ada@example.com', name: 'Ada', avatar_url: null };
 
+// The share modal loads the pending list for an editor, so tests that open it
+// still need a well-formed answer for that one request.
+function mockApi(handler: (request: Request, url: URL) => Response): void {
+  fetchMock.mockImplementation(async (input) => {
+    const request = input as Request;
+    const url = new URL(request.url);
+    return url.pathname.endsWith('/invitations')
+      ? jsonResponse(200, { invitations: [] })
+      : handler(request, url);
+  });
+}
+
 const activeProject = project({
   id: 'p-active',
   name: 'Alpha',
@@ -61,6 +74,7 @@ const archivedProject = project({
 
 beforeEach(() => {
   fetchMock.mockReset();
+  invitations.reset();
   projects.reset();
   users.reset();
   session.user = me;
@@ -297,7 +311,7 @@ describe('Projects', () => {
       created_by: me.id,
       member_ids: [ada.id],
     });
-    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [shared] }));
+    mockApi(() => jsonResponse(200, { projects: [shared] }));
 
     render(Projects);
 
@@ -316,14 +330,11 @@ describe('Projects', () => {
     users.users = [me];
     const added = { id: 'u-added', email: 'pat@example.com', name: 'Pat', avatar_url: null };
     const mine = project({ id: 'p-mine', name: 'Solo Game', created_by: me.id });
-    fetchMock.mockImplementation(async (input) => {
-      const request = input as Request;
-      const url = new URL(request.url);
-      if (url.pathname === '/api/projects/p-mine/members/by-email') {
-        return jsonResponse(200, { user: added });
-      }
-      return jsonResponse(200, { projects: [mine] });
-    });
+    mockApi((_request, url) =>
+      url.pathname === '/api/projects/p-mine/members/by-email'
+        ? jsonResponse(200, { status: 'member', role: 'editor', user: added, invitation: null })
+        : jsonResponse(200, { projects: [mine] })
+    );
 
     render(Projects);
 
@@ -350,12 +361,9 @@ describe('Projects', () => {
       created_by: me.id,
       member_ids: [ada.id, 'u-3'],
     });
-    fetchMock.mockImplementation(async (input) => {
-      if ((input as Request).method === 'PUT') {
-        return jsonResponse(204);
-      }
-      return jsonResponse(200, { projects: [shared] });
-    });
+    mockApi((request) =>
+      request.method === 'PUT' ? jsonResponse(204) : jsonResponse(200, { projects: [shared] })
+    );
 
     render(Projects);
 
@@ -381,12 +389,9 @@ describe('Projects', () => {
       created_by: ada.id,
       member_ids: [me.id, 'u-3'],
     });
-    fetchMock.mockImplementation(async (input) => {
-      if ((input as Request).method === 'PUT') {
-        return jsonResponse(204);
-      }
-      return jsonResponse(200, { projects: [shared] });
-    });
+    mockApi((request) =>
+      request.method === 'PUT' ? jsonResponse(204) : jsonResponse(200, { projects: [shared] })
+    );
 
     render(Projects);
 

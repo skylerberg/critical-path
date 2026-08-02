@@ -1,6 +1,7 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import { newId } from './ids';
+import { invitations } from './invitations.svelte';
 import { reorderPositionUpdates } from './positions';
 import type { RealtimeEvent } from './realtime-types';
 import { canEditProject, type ProjectRole } from './roles';
@@ -13,10 +14,9 @@ type BoardPayload = components['schemas']['BoardPayload'];
 type CreateProject = components['schemas']['CreateProject'];
 type PatchProject = components['schemas']['PatchProject'];
 
-export interface AddMemberResult {
-  ok: boolean;
-  error?: string;
-}
+export type AddMemberResult =
+  | { ok: true; status: 'member' | 'invited' }
+  | { ok: false; error: string };
 
 function byCreation(a: Project, b: Project): number {
   return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
@@ -181,14 +181,22 @@ class ProjectsStore {
     await this.setMembers(id, [...project.member_ids, userId]);
   }
 
+  // An address with no account yields an invitation, not a member: this board
+  // gains nobody until it is redeemed.
   async addMemberByEmail(id: string, email: string): Promise<AddMemberResult> {
     try {
-      const { user, role } = assertOk(
+      const { status, role, user, invitation } = assertOk(
         await api.POST('/api/projects/{id}/members/by-email', {
           params: { path: { id } },
           body: { email },
         })
       );
+      if (status === 'invited' || user === null) {
+        if (invitation !== null) {
+          invitations.adopt(invitation);
+        }
+        return { ok: true, status: 'invited' };
+      }
       users.upsert(user);
       // The creator is implicit and never listed, mirroring the server's no-op.
       this.#update(id, (p) =>
@@ -203,11 +211,8 @@ class ProjectsStore {
             }
       );
       users.invalidateAll();
-      return { ok: true };
+      return { ok: true, status: 'member' };
     } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        return { ok: false, error: 'No user with that email' };
-      }
       const message = error instanceof ApiError ? error.message : 'Failed to add member';
       return { ok: false, error: message };
     }

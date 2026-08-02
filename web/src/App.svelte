@@ -4,6 +4,7 @@
   import { users } from './lib/users.svelte';
   import { board } from './lib/board.svelte';
   import { drafts } from './lib/drafts.svelte';
+  import { invitations } from './lib/invitations.svelte';
   import { myTasks } from './lib/myTasks.svelte';
   import { projects } from './lib/projects.svelte';
   import { realtime } from './lib/realtime.svelte';
@@ -16,6 +17,7 @@
   import Account from './routes/Account.svelte';
   import ForgotPassword from './routes/ForgotPassword.svelte';
   import ResetPassword from './routes/ResetPassword.svelte';
+  import Invite from './routes/Invite.svelte';
   import VerifyEmail from './routes/VerifyEmail.svelte';
   import Projects from './routes/Projects.svelte';
   import MyTasks from './routes/MyTasks.svelte';
@@ -46,6 +48,7 @@
       // Per-account caches must not survive into the next session in this tab.
       users.reset();
       board.reset();
+      invitations.reset();
       myTasks.reset();
       projects.reset();
       search.reset();
@@ -103,6 +106,8 @@
       <ForgotPassword />
     {:else if route.name === 'reset-password'}
       <ResetPassword token={route.params.token} />
+    {:else if route.name === 'invite'}
+      <Invite token={route.params.token} />
     {:else if route.name === 'verify-email'}
       <VerifyEmail token={route.params.token} />
     {:else if route.name === 'account'}
