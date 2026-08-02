@@ -4,6 +4,12 @@ import type { Kysely, Updateable } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
+import {
+  assertInvitationSendBudget,
+  enforceInvitationLookupRateLimit,
+  enforceInvitationResendRateLimit,
+  enforceInvitationSendRateLimit,
+} from '../middleware/rateLimit';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
@@ -23,6 +29,16 @@ import { getArchivedTasks, getBoardPayload } from '../services/boardPayload';
 import { exportFilename, projectExportArchive } from '../services/export/archive';
 import { buildProjectExport } from '../services/export/payload';
 import { copyProject } from '../services/projectCopy';
+import { lockProject } from '../services/projectLock';
+import {
+  INVITATION_COLUMNS,
+  MAX_PENDING_INVITATIONS_PER_PROJECT,
+  enqueueInvitationEmail,
+  invitationExpiry,
+  invitationTokenHash,
+  revokeInvitationsFromNonEditors,
+  toInvitationResponse,
+} from '../services/invitations';
 import {
   PROJECT_COLUMNS,
   fetchMembers,
@@ -48,7 +64,9 @@ import {
   setProjectMembersSchema,
   setProjectOwnerSchema,
   addProjectMemberByEmailSchema,
-  projectMemberUserResponseSchema,
+  addMemberByEmailResponseSchema,
+  projectInvitationParamsSchema,
+  projectInvitationsResponseSchema,
   projectExportQuerySchema,
   projectExportSchema,
   badRequestErrorResponse,
@@ -59,6 +77,7 @@ import {
   payloadTooLargeErrorResponse,
   validationErrorResponse,
   validationOrUnprocessableErrorResponse,
+  tooManyRequestsErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
@@ -69,22 +88,6 @@ const DEFAULT_COLUMNS = [
   { name: 'In Progress', is_done: false },
   { name: 'Done', is_done: true },
 ];
-
-// Every project_member write decides what to write from created_by, so that
-// read has to hold the project row: without the lock an ownership transfer can
-// commit mid-request and leave the new creator holding a member row.
-async function lockProject(db: Kysely<DB>, projectId: string): Promise<ProjectRow> {
-  const row = await db
-    .selectFrom('project')
-    .select(PROJECT_COLUMNS)
-    .where('id', '=', projectId)
-    .forUpdate()
-    .executeTakeFirst();
-  if (!row) {
-    throw new AppError(404, 'Project not found');
-  }
-  return row;
-}
 
 async function removeMembers(
   c: Parameters<typeof publishAfterCommit>[0],
@@ -674,7 +677,8 @@ router.put(
       'both user_ids and roles if present. Every newly added id must reference an existing ' +
       'user and every roles entry must name someone in the resulting member set (422 with a ' +
       'plain error body otherwise). A retained member with no roles entry keeps their stored ' +
-      'role. Removed members lose their task assignments in the project.',
+      'role. Removed members lose their task assignments in the project, and pending ' +
+      'invitations sent by anyone this leaves without write access are revoked with it.',
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
@@ -718,7 +722,9 @@ router.put(
       }
       await removeMembers(c, db, project, user.id, [user.id]);
       publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: [user.id] });
-      await publishProjectListItem(c, db, project, await fetchMembers(db, id));
+      const remaining = await fetchMembers(db, id);
+      await revokeInvitationsFromNonEditors(db, id, project.created_by, remaining);
+      await publishProjectListItem(c, db, project, remaining);
       return c.body(null, 204);
     }
 
@@ -800,9 +806,11 @@ router.put(
     if (removed.length > 0) {
       publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: removed });
     }
+    const remaining = await fetchMembers(db, id);
+    await revokeInvitationsFromNonEditors(db, id, project.created_by, remaining);
     // A demotion keeps access, so the broadcast plus the per-event access
     // re-check is what re-renders an open client.
-    await publishProjectListItem(c, db, project, await fetchMembers(db, id));
+    await publishProjectListItem(c, db, project, remaining);
 
     return c.body(null, 204);
   }
@@ -814,19 +822,36 @@ router.post(
     tags: ['Projects'],
     summary: 'Add project member by email',
     description:
-      'Add a user to a project by their exact email (case-insensitive), as an editor unless ' +
-      'role says otherwise. Editors may call; a viewer gets 403 and non-accessors 404. An ' +
-      'unknown email returns 404. Adding an existing member is an idempotent no-op that ' +
-      'changes their role only when role is given, so re-inviting never silently promotes a ' +
-      'viewer. Adding the creator, who has implicit access and is always an editor, stores ' +
-      'nothing. The response carries the effective role after the call.',
+      'Share a project with one exact, case-insensitive email address. When the address ' +
+      'already has an account the user is added immediately and the response is ' +
+      'status "member": adding an existing member is an idempotent no-op that changes ' +
+      'their role only when role is given, so re-inviting never silently promotes a viewer, ' +
+      'and adding the creator (implicit access, always an editor) stores nothing. When the ' +
+      'address has no account a pending invitation is created instead and the response is ' +
+      'status "invited"; the invitation is emailed a link and takes effect when the ' +
+      'recipient signs up with that address or accepts the link, whichever comes first. ' +
+      'role defaults to editor and is the effective role either way. The invitation token ' +
+      'is never returned. Unlike other POSTs this one takes no client-supplied id: the ' +
+      'invitation is keyed by project and address, which the client already supplies, and ' +
+      'whether a row is created at all depends on server state the client cannot see, so ' +
+      'there is nothing to render optimistically. A pending invitation for an address that ' +
+      'has since gained an account is dropped as the member is added, since only signup ' +
+      'claims one. 422 past 100 pending invitations on the project (expired ones count ' +
+      'until they are revoked). Two hourly budgets answer 429: 100 addresses looked up per ' +
+      'caller, which every call spends whether or not the address has an account, and 20 ' +
+      'invitation emails per caller, which only a call that actually sends one spends — so ' +
+      'adding people who already have accounts never runs the mail budget down, though once ' +
+      'that budget is gone every call answers 429 until the hour is out, whatever the address, ' +
+      'rather than letting the 429 itself say which addresses have accounts. A third limit ' +
+      'allows three re-mails an hour of any one address. Editors may call; a viewer gets 403 ' +
+      'and non-accessors 404.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
-        description: 'The added (or already present) member',
+        description: 'The added member, or the pending invitation that was created',
         content: {
           'application/json': {
-            schema: resolver(projectMemberUserResponseSchema),
+            schema: resolver(addMemberByEmailResponseSchema),
           },
         },
       },
@@ -834,7 +859,8 @@ router.post(
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
-      ...validationErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
+      ...tooManyRequestsErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -849,47 +875,277 @@ router.post(
 
     // Locked before the role is read: this write's target is the caller's own
     // authorization state, so a demotion committing against an unlocked read
-    // would be undone by the upsert that follows it.
+    // would be undone by the upsert that follows it. It is also what serializes
+    // two editors inviting the same address.
     const project = await lockProject(db, id);
     await assertCanWriteProject(db, user.id, project);
 
+    // Both budgets are settled before the address is looked up — one spent
+    // whatever the answer, the other refusing the call whatever the answer — so
+    // that neither the reply nor the 429 tells an address with an account from
+    // one without.
+    await enforceInvitationLookupRateLimit(user.id);
+    await assertInvitationSendBudget(user.id);
+
+    const emailLower = email.toLowerCase();
     const target = await db
       .selectFrom('app_user')
       .select(['id', 'email', 'name', 'avatar_storage_key'])
-      .where((eb) => eb(eb.fn<string>('lower', ['email']), '=', email.toLowerCase()))
+      .where((eb) => eb(eb.fn<string>('lower', ['email']), '=', emailLower))
       .executeTakeFirst();
-    if (!target) {
-      throw new AppError(404, 'User not found');
+
+    if (target) {
+      // The address can only have gained its account after the invitation was
+      // sent, and signup is the sole claimer, so nothing will ever consume this
+      // row — while its link stays redeemable by anyone holding it.
+      await db
+        .deleteFrom('project_invitation')
+        .where('project_id', '=', id)
+        .where('email_lower', '=', emailLower)
+        .execute();
+
+      let effectiveRole: ProjectRole = 'editor';
+      if (target.id !== project.created_by) {
+        await db
+          .insertInto('project_member')
+          .values({ project_id: id, user_id: target.id, role: role ?? 'editor' })
+          .onConflict((oc) =>
+            role === undefined
+              ? oc.columns(['project_id', 'user_id']).doNothing()
+              : oc.columns(['project_id', 'user_id']).doUpdateSet({ role })
+          )
+          .execute();
+        const members = await fetchMembers(db, id);
+        effectiveRole = members.find((member) => member.user_id === target.id)?.role ?? 'editor';
+        await publishProjectListItem(c, db, project, members);
+      }
+
+      return c.json(
+        {
+          status: 'member' as const,
+          role: effectiveRole,
+          user: {
+            id: target.id,
+            email: target.email,
+            name: target.name,
+            avatar_url: avatarUrl(target.avatar_storage_key),
+          },
+          invitation: null,
+        },
+        200
+      );
     }
 
-    let effectiveRole: ProjectRole = 'editor';
-    if (target.id !== project.created_by) {
-      await db
-        .insertInto('project_member')
-        .values({ project_id: id, user_id: target.id, role: role ?? 'editor' })
-        .onConflict((oc) =>
-          role === undefined
-            ? oc.columns(['project_id', 'user_id']).doNothing()
-            : oc.columns(['project_id', 'user_id']).doUpdateSet({ role })
-        )
-        .execute();
-      const members = await fetchMembers(db, id);
-      effectiveRole = members.find((member) => member.user_id === target.id)?.role ?? 'editor';
-      await publishProjectListItem(c, db, project, members);
+    const existing = await db
+      .selectFrom('project_invitation')
+      .select('id')
+      .where('project_id', '=', id)
+      .where('email_lower', '=', emailLower)
+      .executeTakeFirst();
+
+    if (existing === undefined) {
+      const { total } = await db
+        .selectFrom('project_invitation')
+        .select((eb) => eb.fn.countAll<string>().as('total'))
+        .where('project_id', '=', id)
+        .executeTakeFirstOrThrow();
+      if (Number(total) >= MAX_PENDING_INVITATIONS_PER_PROJECT) {
+        throw new AppError(422, 'This project has too many pending invitations');
+      }
+    } else {
+      // Re-inviting re-mails the identical link to the identical address, so it
+      // has to answer to the same per-invitation budget a resend does.
+      await enforceInvitationResendRateLimit(existing.id);
     }
+    await enforceInvitationSendRateLimit(user.id);
+
+    // Reusing the id keeps the link already in the recipient's mailbox the one
+    // that works, and lets both branches store the hash of the link being mailed
+    // — a re-invite under a rotated signing secret otherwise stores neither.
+    const invitationId = existing?.id ?? crypto.randomUUID();
+    const row = await db
+      .insertInto('project_invitation')
+      .values({
+        id: invitationId,
+        project_id: id,
+        email,
+        role: role ?? 'editor',
+        invited_by: user.id,
+        token_hash: invitationTokenHash(invitationId),
+        expires_at: invitationExpiry(),
+      })
+      .onConflict((oc) =>
+        oc.columns(['project_id', 'email_lower']).doUpdateSet({
+          expires_at: invitationExpiry(),
+          token_hash: invitationTokenHash(invitationId),
+          ...(role === undefined ? {} : { role }),
+        })
+      )
+      .returning(INVITATION_COLUMNS)
+      .executeTakeFirstOrThrow();
+
+    const invitation = toInvitationResponse(row);
+    enqueueInvitationEmail(c, invitation, project.name, user.name);
 
     return c.json(
-      {
-        user: {
-          id: target.id,
-          email: target.email,
-          name: target.name,
-          avatar_url: avatarUrl(target.avatar_storage_key),
-        },
-        role: effectiveRole,
-      },
+      { status: 'invited' as const, role: invitation.role, user: null, invitation },
       200
     );
+  }
+);
+
+router.get(
+  '/:id/invitations',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'List pending project invitations',
+    description:
+      'List the invitations outstanding on a project — addresses invited to share it that ' +
+      'have no account yet. Expired invitations stay listed with their expires_at so they ' +
+      'can be resent or revoked rather than silently vanishing. Invitation tokens are never ' +
+      'returned. Editors only: the list is a management surface made entirely of email ' +
+      'addresses that only editors can create, so a viewer gets 403 and non-accessors 404.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'The project’s pending invitations',
+        content: {
+          'application/json': {
+            schema: resolver(projectInvitationsResponseSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const db = c.get('db');
+
+    await assertProjectWrite(db, c.get('user').id, id);
+
+    const rows = await db
+      .selectFrom('project_invitation')
+      .select(INVITATION_COLUMNS)
+      .where('project_id', '=', id)
+      .orderBy('created_at')
+      .orderBy('id')
+      .execute();
+
+    return c.json({ invitations: rows.map(toInvitationResponse) }, 200);
+  }
+);
+
+router.delete(
+  '/:id/invitations/:invitationId',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'Revoke a project invitation',
+    description:
+      'Withdraw a pending invitation. Every copy of its link stops working at once, ' +
+      'including one already sitting in the recipient’s mailbox, because redemption always ' +
+      'consults the row. 404 when the project has no such invitation. Editors only.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Invitation revoked',
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(projectInvitationParamsSchema),
+  async (c) => {
+    const { id, invitationId } = c.req.valid('param');
+    const db = c.get('db');
+
+    await assertProjectWrite(db, c.get('user').id, id);
+    await lockProject(db, id);
+
+    const deleted = await db
+      .deleteFrom('project_invitation')
+      .where('id', '=', invitationId)
+      .where('project_id', '=', id)
+      .executeTakeFirst();
+    if (deleted.numDeletedRows === 0n) {
+      throw new AppError(404, 'Invitation not found');
+    }
+
+    return c.body(null, 204);
+  }
+);
+
+router.post(
+  '/:id/invitations/:invitationId/resend',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'Resend a project invitation',
+    description:
+      'Email a pending invitation again and give it a fresh 14-day deadline, which is also ' +
+      'how an expired invitation is revived. The link is unchanged, so the copy the ' +
+      'recipient already has keeps working. 404 when the project has no such invitation, ' +
+      '429 past three resends an hour for one invitation or past the caller’s hourly ' +
+      'budget of invitation emails. Editors only.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Invitation resent',
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
+      ...notFoundErrorResponse,
+      ...tooManyRequestsErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(projectInvitationParamsSchema),
+  async (c) => {
+    const { id, invitationId } = c.req.valid('param');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    const project = await assertProjectWrite(db, user.id, id);
+
+    const existing = await db
+      .selectFrom('project_invitation')
+      .select(['id', 'email'])
+      .where('id', '=', invitationId)
+      .where('project_id', '=', id)
+      .executeTakeFirst();
+    if (!existing) {
+      throw new AppError(404, 'Invitation not found');
+    }
+
+    // Refused before anything is spent: a re-mail unit burned by a resend the
+    // mail budget was never going to allow outlives the budget that refused it.
+    await assertInvitationSendBudget(user.id);
+    await enforceInvitationResendRateLimit(invitationId);
+    await enforceInvitationSendRateLimit(user.id);
+
+    await db
+      .updateTable('project_invitation')
+      // Re-derived rather than left alone: the stored hash is the only thing
+      // that can match the link being mailed, and a rotation of the signing
+      // secret would otherwise strand every outstanding row unredeemable.
+      .set({ expires_at: invitationExpiry(), token_hash: invitationTokenHash(invitationId) })
+      .where('id', '=', invitationId)
+      .execute();
+
+    enqueueInvitationEmail(c, existing, project.name, user.name);
+
+    return c.body(null, 204);
   }
 );
 

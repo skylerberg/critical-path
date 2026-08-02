@@ -15,6 +15,7 @@ export type MyTask = components['schemas']['MyTask'];
 export type MyTaskLink = components['schemas']['MyTaskLink'];
 export type MyTaskPersonGroup = components['schemas']['MyTaskPersonGroup'];
 export type MyTasksResponse = components['schemas']['MyTasksResponse'];
+export type ProjectInvitation = components['schemas']['ProjectInvitation'];
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -213,6 +214,25 @@ export async function resolveTaskId(
     return matchArchivedTask(await listArchivedTasks(ctx, board.project.id), ref).id;
   }
   throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
+}
+
+// Resolved against the pending list rather than sent as typed, so the id the
+// table prints is one that can be pasted back.
+export async function resolveInvitation(
+  ctx: RuntimeContext,
+  projectId: string,
+  ref: string
+): Promise<ProjectInvitation> {
+  const { invitations } = assertOk(
+    await ctx.api.GET('/api/projects/{id}/invitations', { params: { path: { id: projectId } } })
+  );
+  return matchRef(
+    ref,
+    invitations,
+    'invitation',
+    (invitation) => invitation.id,
+    (invitation) => invitation.email
+  );
 }
 
 export async function listUsers(ctx: RuntimeContext, projectId?: string): Promise<User[]> {
