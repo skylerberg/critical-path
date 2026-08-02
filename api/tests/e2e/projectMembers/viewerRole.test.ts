@@ -347,8 +347,10 @@ describe('Viewer role on the member endpoints', () => {
         });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
-        user: { id: member.id, email: member.email, name: member.name, avatar_url: null },
+        status: 'member',
         role: 'viewer',
+        user: { id: member.id, email: member.email, name: member.name, avatar_url: null },
+        invitation: null,
       });
       expect(await roleOf(project.id, member.id)).toBe('viewer');
     });
