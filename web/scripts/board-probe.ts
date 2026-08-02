@@ -13,9 +13,17 @@ const COLS = Number(params.get('cols') ?? '4');
 const TASKS = Number(params.get('tasks') ?? '12');
 const READONLY = params.get('readonly') === '1';
 
-board.currentProjectId = 'p1';
+// Card links are built by encoding the id, which rejects anything that is not a
+// uuid, so seeded ids have to be shaped like the real ones or nothing renders.
+function probeId(n: number): string {
+  const hex = n.toString(16).padStart(12, '0');
+  return `00000000-0000-4000-8000-${hex}`;
+}
+
+const PROJECT_ID = probeId(1);
+board.currentProjectId = PROJECT_ID;
 // Minimal project: the board only needs project to be non-null for derived state.
-(board as unknown as { project: unknown }).project = { id: 'p1', name: 'Probe project' };
+(board as unknown as { project: unknown }).project = { id: PROJECT_ID, name: 'Probe project' };
 
 (board as unknown as { columns: unknown[] }).columns = Array.from({ length: COLS }, (_, c) => ({
   id: `c${c}`,
@@ -28,7 +36,7 @@ const tasks: unknown[] = [];
 for (let c = 0; c < COLS; c++) {
   for (let t = 0; t < TASKS; t++) {
     tasks.push({
-      id: `t-${c}-${t}`,
+      id: probeId(1000 + c * 100 + t),
       column_id: `c${c}`,
       title: `Task ${t + 1} in column ${c + 1}`,
       description: null,
@@ -73,5 +81,5 @@ document.getElementById('app')!.innerHTML = `
 
 mount(Board, {
   target: document.getElementById('project-shell')!,
-  props: { projectId: 'p1', readonly: READONLY },
+  props: { projectId: PROJECT_ID, readonly: READONLY },
 });
