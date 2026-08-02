@@ -39,10 +39,12 @@ describe('the shared rate limit counter', () => {
     expect(redis.store.get('ratelimit:key')?.expiresAt).toBe(60_000);
   });
 
+  // Seeded over the max: refusal is the verdict that strands the key, so a
+  // counter repaired only where it is spent stays refusing forever.
   it('gives an expiry back to a counter left without one', async () => {
-    redis.store.set('ratelimit:key', { value: 1, expiresAt: null });
+    redis.store.set('ratelimit:key', { value: 9, expiresAt: null });
 
-    expect(await consumeRateLimit('key', 0, 2, 60_000)).toBe(true);
+    expect(await consumeRateLimit('key', 0, 2, 60_000)).toBe(false);
     expect(redis.store.get('ratelimit:key')?.expiresAt).toBe(60_000);
 
     redis.now = 60_001;
