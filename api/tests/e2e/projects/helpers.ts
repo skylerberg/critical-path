@@ -35,6 +35,7 @@ export interface BoardPayloadBody {
     member_ids: string[];
     members: { user_id: string; role: string }[];
     is_public: boolean;
+    color: string | null;
   };
   columns: BoardColumnPayload[];
   tasks: BoardTaskPayload[];

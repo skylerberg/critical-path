@@ -10,6 +10,16 @@ export const projectMemberSchema = type({
   role: projectMemberRole,
 });
 
+// A key, not a colour: each one resolves in the client to a light and a dark
+// value, so the rendering can be retuned for contrast without a data migration.
+export const projectAccent = type(
+  "'rose' | 'amber' | 'lime' | 'emerald' | 'sky' | 'violet' | 'fuchsia' | 'slate'"
+);
+
+export type ProjectAccent = typeof projectAccent.infer;
+
+export const nullableProjectAccentSchema = projectAccent.or('null');
+
 export const projectSchema = type({
   id: 'string',
   name: 'string',
@@ -20,6 +30,7 @@ export const projectSchema = type({
   member_ids: 'string[]',
   members: projectMemberSchema.array(),
   is_public: 'boolean',
+  color: nullableProjectAccentSchema,
 });
 
 export type ProjectResponse = typeof projectSchema.infer;
@@ -50,6 +61,7 @@ export const patchProjectSchema = type({
   'description?': stringWithLength(0, 10000),
   'archived_at?': isoDateString.or('null'),
   'is_public?': 'boolean',
+  'color?': nullableProjectAccentSchema,
 });
 
 export const projectMemberRoleEntrySchema = type({
