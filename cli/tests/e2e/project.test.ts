@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
-import { encodeId } from '../../src/short-links';
+import { decodeId, encodeId } from '../../src/short-links';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardPayload'];
@@ -143,6 +143,16 @@ describe('project commands', () => {
   it('resolves a project by its short alias', async () => {
     const board = await createProject('Alias Board');
     const show = await h.runCli(['project', 'show', encodeId(board.project.id), '--json']);
+    expect(show.exitCode).toBe(0);
+    expect(show.json<BoardPayload>().project.id).toBe(board.project.id);
+  });
+
+  it('leaves a name that is shaped like an alias reachable by that name', async () => {
+    // Decodes to a valid uuid, which is what lets a decode shadow a name.
+    const name = 'ReleaseNotesVersion12Q';
+    expect(decodeId(name)).not.toBeNull();
+    const board = await createProject(name);
+    const show = await h.runCli(['project', 'show', name, '--json']);
     expect(show.exitCode).toBe(0);
     expect(show.json<BoardPayload>().project.id).toBe(board.project.id);
   });

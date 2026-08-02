@@ -40,10 +40,14 @@ Then `--project` is optional on every command. Confirm with `cpath config get`.
 
 A `<task>`/`<project>`/`<column>`/`<label>`/`<user>` ref accepts: a UUID, an id
 prefix (≥ 4 chars), an exact name/title (case-insensitive), or a unique
-substring. Ambiguity is an error that **lists the candidates** — read it and
-narrow the ref. Task refs resolve against the live board (no archived cards); a
-few commands (`archive`, `restore`, `show`, `delete`) fall back to the archive
-on a miss, board mutations (`move`, `done`, `update`, `label`, `assign`,
+substring. Task and project refs also accept the 22-character short alias out
+of a web URL (`/t/<alias>/…`, `/p/<alias>/…`); it is **case sensitive**, and a
+task alias names the card outright so it needs no `--project`. Column, label,
+invitation and user refs take no alias. Ambiguity is an error that **lists the
+candidates** — read it and narrow the ref. Task refs resolve against the live
+board (no archived cards); the commands that opt into the archive (`show`,
+`duplicate`, `archive`, `restore`, `delete`, `url`) find an archived card by
+any ref form, board mutations (`move`, `done`, `update`, `label`, `assign`,
 `block`) do not.
 
 ## Read

@@ -564,6 +564,86 @@ describe('task commands', () => {
     expect(show.exitCode).not.toBe(0);
   });
 
+  it('leaves a title that is shaped like an alias reachable by that title', async () => {
+    // Decodes to a valid uuid, which is what lets a decode shadow a title.
+    const title = 'ReleaseNotesVersion12Q';
+    expect(decodeId(title)).not.toBeNull();
+    const created = await tc.request(user.token).post('/api/projects', {
+      id: crypto.randomUUID(),
+      name: 'CLI Alias Title Fixture',
+    });
+    expect(created.status).toBe(201);
+    const fixtureId = ((await created.json()) as BoardPayload).project.id;
+    try {
+      const made = await h.runCli(['task', 'create', title, '--project', fixtureId, '--json']);
+      expect(made.exitCode).toBe(0);
+      const target = made.json<BoardTask>();
+
+      const show = await h.runCli(['task', 'show', title, '--project', fixtureId, '--json']);
+      expect(show.exitCode).toBe(0);
+      expect(show.json<TaskDetailResponse>().id).toBe(target.id);
+
+      const url = await h.runCli(['task', 'url', title, '--project', fixtureId, '--json']);
+      expect(url.exitCode).toBe(0);
+      expect(url.json<{ url: string }>().url).toContain(`/t/${encodeId(target.id)}/`);
+
+      const comment = await h.runCli([
+        'comment',
+        'add',
+        title,
+        'Reachable by title',
+        '--project',
+        fixtureId,
+        '--json',
+      ]);
+      expect(comment.exitCode).toBe(0);
+
+      const update = await h.runCli([
+        'task',
+        'update',
+        title,
+        '--project',
+        fixtureId,
+        '--title',
+        'Renamed by title',
+        '--json',
+      ]);
+      expect(update.exitCode).toBe(0);
+      expect(update.json<BoardTask>().id).toBe(target.id);
+    } finally {
+      await tc.request(user.token).delete(`/api/projects/${fixtureId}`);
+    }
+  });
+
+  it('gives an alias to the task it names, not to a card titled that alias', async () => {
+    const alias = encodeId(alpha.id);
+    const decoy = await h.runCli(['task', 'create', alias, '--project', projectId, '--json']);
+    expect(decoy.exitCode).toBe(0);
+    const decoyId = decoy.json<BoardTask>().id;
+    try {
+      const show = await h.runCli(['task', 'show', alias, '--project', projectId, '--json']);
+      expect(show.exitCode).toBe(0);
+      expect(show.json<TaskDetailResponse>().id).toBe(alpha.id);
+
+      const url = await h.runCli(['task', 'url', alias, '--project', projectId, '--json']);
+      expect(url.exitCode).toBe(0);
+      expect(url.json<{ url: string }>().url).toContain(`/t/${alias}/`);
+    } finally {
+      await h.runCli(['task', 'delete', decoyId, '--force']);
+    }
+  });
+
+  it('quotes the ref when an alias names no task and no project can be searched', async () => {
+    const alias = encodeId(crypto.randomUUID());
+    const show = await h.runCli(['task', 'show', alias]);
+    expect(show.exitCode).toBe(4);
+    expect(show.stderr).toContain(`No task matching "${alias}"`);
+
+    const url = await h.runCli(['task', 'url', alias]);
+    expect(url.exitCode).toBe(4);
+    expect(url.stderr).toContain(`No task matching "${alias}"`);
+  });
+
   it('url prints the canonical web URL, and --json carries the same string', async () => {
     const expected = `https://criticalpath.skylerberg.com/t/${encodeId(alpha.id)}/${slugify(alpha.title)}`;
 
