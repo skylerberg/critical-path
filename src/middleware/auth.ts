@@ -23,6 +23,7 @@ export async function authMiddleware(c: AppContext, next: Next) {
     email: credential.user.email,
     name: credential.user.name,
     avatar_url: avatarUrl(credential.user.avatar_storage_key),
+    email_verified: credential.user.email_verified_at !== null,
   });
 
   return await next();
