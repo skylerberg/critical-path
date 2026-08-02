@@ -4,6 +4,7 @@
   import { APP_NAME } from '../lib/constants';
   import { link, router } from '../lib/router.svelte';
   import { consumeIntendedPath, session } from '../lib/session.svelte';
+  import { toasts } from '../lib/toasts.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
 
@@ -39,6 +40,12 @@
     try {
       await session.signup(name.trim(), email.trim(), password);
       router.redirect(consumeIntendedPath());
+      // A toast rather than something to dismiss on this screen: the account is
+      // usable immediately, so nothing should stand between signing up and the app.
+      toasts.info(
+        'Check your inbox to verify your email address. You can send a fresh link from your account.',
+        10_000
+      );
     } catch (error) {
       formError = messageFor(error);
     } finally {

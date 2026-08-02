@@ -130,7 +130,13 @@ beforeEach(() => {
     { id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null },
     { id: 'u2', email: 'bob@example.com', name: 'Bob Barker', avatar_url: null },
   ];
-  session.user = { id: 'u1', email: 'ada@example.com', name: 'Ada Lovelace', avatar_url: null };
+  session.user = {
+    id: 'u1',
+    email: 'ada@example.com',
+    name: 'Ada Lovelace',
+    avatar_url: null,
+    email_verified: false,
+  };
   board.taskComments = { t1: [ownComment, theirComment] };
 });
 

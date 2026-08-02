@@ -14,7 +14,13 @@ import { users } from '../lib/users.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 import type { ProjectView } from '../lib/router.svelte';
 
-const me = { id: 'u-me', name: 'Ada', email: 'ada@example.com', avatar_url: null };
+const me = {
+  id: 'u-me',
+  name: 'Ada',
+  email: 'ada@example.com',
+  avatar_url: null,
+  email_verified: false,
+};
 
 // The app shell owns the window listener, so these call the handler directly. The
 // shortcut layer reads the live route, so they must still drive the router to the same

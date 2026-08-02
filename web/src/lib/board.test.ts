@@ -2762,7 +2762,13 @@ describe('positionAfterDrop', () => {
 });
 
 describe('board store canEdit', () => {
-  const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
+  const me = {
+    id: 'u-me',
+    email: 'me@example.com',
+    name: 'Me',
+    avatar_url: null,
+    email_verified: false,
+  };
 
   function withProject(created_by: string | null, members: BoardPayload['project']['members']) {
     board.project = {

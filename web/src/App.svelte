@@ -16,6 +16,7 @@
   import Account from './routes/Account.svelte';
   import ForgotPassword from './routes/ForgotPassword.svelte';
   import ResetPassword from './routes/ResetPassword.svelte';
+  import VerifyEmail from './routes/VerifyEmail.svelte';
   import Projects from './routes/Projects.svelte';
   import MyTasks from './routes/MyTasks.svelte';
   import Search from './routes/Search.svelte';
@@ -102,6 +103,8 @@
       <ForgotPassword />
     {:else if route.name === 'reset-password'}
       <ResetPassword token={route.params.token} />
+    {:else if route.name === 'verify-email'}
+      <VerifyEmail token={route.params.token} />
     {:else if route.name === 'account'}
       <Account />
     {:else if route.name === 'projects'}

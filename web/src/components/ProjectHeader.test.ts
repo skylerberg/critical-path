@@ -10,7 +10,13 @@ import { users } from '../lib/users.svelte';
 import { webhooks } from '../lib/webhooks.svelte';
 import type { BoardTask } from '../lib/board-types';
 
-const me = { id: 'u1', email: 'ada@example.com', name: 'Ada', avatar_url: null };
+const me = {
+  id: 'u1',
+  email: 'ada@example.com',
+  name: 'Ada',
+  avatar_url: null,
+  email_verified: false,
+};
 
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [];

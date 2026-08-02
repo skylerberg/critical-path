@@ -4,7 +4,13 @@ import { api, ApiError } from '../api/client';
 import { consumeIntendedPath, rememberIntendedPath, session } from './session.svelte';
 import { matchRoute, router } from './router.svelte';
 
-const user = { id: 'a3bb189e-8bf9-3888-9912-ace4e6543002', email: 'ada@example.com', name: 'Ada' };
+const user = {
+  id: 'a3bb189e-8bf9-3888-9912-ace4e6543002',
+  email: 'ada@example.com',
+  name: 'Ada',
+  avatar_url: null,
+  email_verified: false,
+};
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 async function loginAs(email = user.email): Promise<void> {
@@ -117,6 +123,62 @@ describe('session.login', () => {
   });
 });
 
+describe('session.refresh', () => {
+  it('re-reads the account without passing through unknown', async () => {
+    await loginAs();
+    fetchMock.mockResolvedValue(jsonResponse(200, { ...user, name: 'Ada L' }));
+
+    const refreshed = session.refresh();
+    expect(session.status).toBe('authed');
+    await refreshed;
+
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/auth/me');
+    expect(session.user?.name).toBe('Ada L');
+    expect(session.status).toBe('authed');
+  });
+
+  it('does nothing without a token', async () => {
+    await session.refresh();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Account deletion, password reset and a 401 all clear the session from under
+  // an in-flight read; letting the late answer land would restore the account.
+  it('discards a result for a session that ended while it was in flight', async () => {
+    await loginAs();
+    let release!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementationOnce(() => pending);
+
+    const refreshing = session.refresh();
+    session.forget();
+    release(jsonResponse(200, { ...user, name: 'Stale Ada' }));
+    await refreshing;
+
+    expect(session.user).toBeNull();
+    expect(session.status).toBe('anon');
+    expect(session.token).toBeNull();
+  });
+
+  it('discards a result for a session replaced by a newer token', async () => {
+    await loginAs();
+    let release!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementationOnce(() => pending);
+
+    const refreshing = session.refresh();
+    session.adopt('tok-newer', { ...user, name: 'Fresh Ada' });
+    release(jsonResponse(200, { ...user, name: 'Stale Ada' }));
+    await refreshing;
+
+    expect(session.user?.name).toBe('Fresh Ada');
+  });
+});
+
 describe('session.signup', () => {
   it('sends a client-generated id and starts the session', async () => {
     fetchMock.mockResolvedValue(jsonResponse(201, { token: 'tok-signup', user }));
@@ -215,6 +277,16 @@ describe('session.guardRoute', () => {
     expect(
       session.guardRoute(matchRoute('/public/projects/p1'), '/public/projects/p1')
     ).toBeUndefined();
+    expect(consumeIntendedPath()).toBe('/');
+  });
+
+  // The usual click arrives from a mail client with no session; bouncing it
+  // through sign-in first loses the token.
+  it('lets both anon and authed visitors redeem a verification link', async () => {
+    const path = '/verify-email?token=t';
+    expect(session.guardRoute(matchRoute('/verify-email', '?token=t'), path)).toBeUndefined();
+    await loginAs();
+    expect(session.guardRoute(matchRoute('/verify-email', '?token=t'), path)).toBeUndefined();
     expect(consumeIntendedPath()).toBe('/');
   });
 
