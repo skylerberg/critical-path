@@ -1354,7 +1354,7 @@ back:
   "version": 3,
   "exported_at": "2026-07-26T12:00:00.000Z",
   "project": { "id", "name", "description", "archived_at", "created_at",
-               "created_by", "member_ids", "is_public" },
+               "created_by", "member_ids", "is_public", "color" },
   "users":   [ { "id", "name" } ],
   "columns": [ { "id", "name", "position", "is_done" } ],
   "labels":  [ { "id", "name", "color" } ],
@@ -1465,6 +1465,35 @@ a full budget rather than on whatever the file before it left. Every test
 request presents the same source IP, so a file shares one budget of 50 account
 creations; a file needing more than that has to call `resetRateLimiter()`
 between tests.
+
+### Real Redis
+
+Nearly every test file leaves Redis unconfigured and exercises the per-process
+fallback instead; the two that cover the shared limiter drive a fake, which is
+what gives them an injectable clock, injectable failures and a round-trip
+counter. So until this, nothing ran the shipped Lua or the pub/sub anywhere.
+Two more files do, against a real server, because the shared path silently
+falls back to per-process state when anything about it is wrong: a broken
+script, a flag the server does not support, or a client upgrade that changes a
+reply type would leave every limiter running per-replica in production with
+nothing but a log line to say so.
+
+Those two files need `REDIS_TEST_URL` in `.env.test`. Without it they skip and
+print a notice — except on CI, where a run that cannot reach a Redis fails
+rather than quietly losing the coverage.
+
+```sh
+brew install redis && brew services start redis
+echo 'REDIS_TEST_URL=redis://127.0.0.1:6379/15' >> .env.test
+```
+
+Database 15 keeps the test keys away from anything else on a local server.
+Nothing ever flushes: each run prefixes its keys with a fresh UUID and unlinks
+only those. It must be loopback; anything else is refused rather than trusted,
+because the pub/sub channel has one name on every server and a misaimed URL
+would deliver fabricated events to live sockets. `REDIS_URL` is deliberately a
+different variable — setting it would put every test file on one shared signup
+budget and the run would collapse into 429s.
 
 ## Checks
 

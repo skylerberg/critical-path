@@ -284,6 +284,32 @@ describe('POST /api/projects with source_project_id', () => {
     expect(publicRes.status).toBe(404);
   });
 
+  // A copy lands beside its source in the same sidebar, which is exactly when the
+  // two boards must not look alike.
+  it('never inherits the source board’s accent colour', async () => {
+    const sourceId = newId();
+    projectIds.push(sourceId);
+    expect(
+      (await ctx.request(user.token).post('/api/projects', { id: sourceId, name: 'Coloured' }))
+        .status
+    ).toBe(201);
+    expect(
+      (await ctx.request(user.token).patch(`/api/projects/${sourceId}`, { color: 'emerald' }))
+        .status
+    ).toBe(200);
+
+    const copyId = newId();
+    projectIds.push(copyId);
+    const copyRes = await ctx
+      .request(user.token)
+      .post('/api/projects', { id: copyId, name: 'Copy', source_project_id: sourceId });
+    expect(copyRes.status).toBe(201);
+    expect(((await copyRes.json()) as BoardPayloadBody).project.color).toBeNull();
+
+    const sourceBoard = await ctx.request(user.token).get(`/api/projects/${sourceId}`);
+    expect(((await sourceBoard.json()) as BoardPayloadBody).project.color).toBe('emerald');
+  });
+
   it('copies neither archived tasks nor their labels, images or dependency edges', async () => {
     const sourceId = newId();
     projectIds.push(sourceId);
