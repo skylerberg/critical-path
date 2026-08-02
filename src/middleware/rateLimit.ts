@@ -193,6 +193,35 @@ export async function enforceVerificationRateLimit(c: Context, userId: string): 
   }
 }
 
+export const SIGNUP_VERIFY_IP_WINDOW_MS = 60 * 60_000;
+// No looser than the authenticated one above: this one mails addresses nobody
+// has consented to, which is the more dangerous of the two.
+export const SIGNUP_VERIFY_IP_MAX_ATTEMPTS = VERIFY_IP_MAX_ATTEMPTS;
+
+// Returns shouldSend rather than throwing, on its own counter: signup is
+// unauthenticated, so denying the operation would let anyone burn a shared
+// egress IP's budget to keep everyone behind it from registering — and spending
+// the authenticated verification budget here would do that to their resends.
+export async function enforceSignupVerificationRateLimit(c: Context): Promise<boolean> {
+  const ip = clientIp(c);
+  const now = Date.now();
+  const allowed = await consumeRateLimit(
+    `signup-verify-ip:${ip}`,
+    now,
+    SIGNUP_VERIFY_IP_MAX_ATTEMPTS,
+    SIGNUP_VERIFY_IP_WINDOW_MS
+  );
+  // A withheld send is otherwise indistinguishable from an ordinary signup; the
+  // second counter surfaces that once a window rather than on every request.
+  if (
+    !allowed &&
+    (await consumeRateLimit(`signup-verify-log:${ip}`, now, 1, SIGNUP_VERIFY_IP_WINDOW_MS))
+  ) {
+    logger.warn({ msg: 'Withheld signup verification email: per-IP budget spent', ip });
+  }
+  return allowed;
+}
+
 export const INVITE_LOOKUP_WINDOW_MS = 60 * 60_000;
 export const INVITE_LOOKUP_MAX_ATTEMPTS = 100;
 export const INVITE_SEND_WINDOW_MS = 60 * 60_000;
