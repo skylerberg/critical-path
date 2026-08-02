@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
+import { configPath, saveConfig } from '../../src/config';
 import type { components } from '../../src/api/api.generated';
 
 type BoardPayload = components['schemas']['BoardPayload'];
@@ -112,8 +113,33 @@ describe('config commands', () => {
   it('set default-project with an unresolvable ref exits 4 and stores nothing', async () => {
     const res = await h.runCli(['config', 'set', 'default-project', 'zz-no-such-project']);
     expect(res.exitCode).toBe(4);
+    expect(res.stderr).toContain('zz-no-such-project');
+    expect(res.stderr).not.toContain('default-project');
 
     const get = await h.runCli(['config', 'get', 'default-project']);
     expect(get.stdout.trim()).toBe(projectId);
+  });
+
+  it('a stale default-project blames the config and says how to fix it', async () => {
+    const stale = crypto.randomUUID();
+    const fresh = await createCliHarness();
+    await fresh.runCli(['login', '--email', user.email, '--password-stdin'], {
+      stdin: `${user.password}\n`,
+    });
+    await saveConfig(fresh.configDir, { default_project: stale });
+
+    const res = await fresh.runCli(['ready']);
+    expect(res.exitCode).toBe(4);
+    expect(res.stderr).toContain(stale);
+    expect(res.stderr).toContain('default-project');
+    expect(res.stderr).toContain(configPath(fresh.configDir));
+  });
+
+  it('a stale CRITICAL_PATH_PROJECT names the variable', async () => {
+    const stale = crypto.randomUUID();
+    const res = await h.runCli(['ready'], { env: { CRITICAL_PATH_PROJECT: stale } });
+    expect(res.exitCode).toBe(4);
+    expect(res.stderr).toContain(stale);
+    expect(res.stderr).toContain('CRITICAL_PATH_PROJECT');
   });
 });
