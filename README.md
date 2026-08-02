@@ -770,7 +770,22 @@ A verification email is sent on signup and whenever `PATCH /api/auth/me` moves
 the account to a different mailbox (a change of letter case alone sends
 nothing and keeps the existing verification). The mail links to
 `${APP_URL_BASE}/verify-email?token=…`; `APP_URL_BASE` is the web app's origin
-and defaults to `http://localhost:5173`.
+and defaults to `http://localhost:5173`. The web app redeems that link on a
+page open to signed-out visitors, since the usual click arrives from a mail
+client on a device with no session.
+
+Signup's send carries its own per-IP budget, on its own counter so that
+spending it cannot deny anyone their own resends. Signup is unauthenticated and
+its other limiter keys every bucket on the address, so without this one source
+could mail an unbounded number of distinct, non-consenting addresses. It is
+capped at the same ten an hour as the authenticated per-IP budget below and
+deliberately not looser: this is the one that mails addresses nobody consented
+to. The budget withholds only the mail — past it signup still answers `201` and
+the session still starts, and the account can ask for a link from its account
+page. It is deliberately not a `429`: signup denied by a shared egress IP's
+exhausted budget would hand an attacker a way to keep a whole office from
+registering. Nothing in the response distinguishes a withheld send from a
+delivered one, so each source IP that hits the budget is logged once per window.
 
 - `POST /api/auth/verify-email` takes `{ "token": "…" }` and answers `204`.
   It is unauthenticated and deliberately inert: the token creates no session,

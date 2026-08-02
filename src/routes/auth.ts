@@ -9,6 +9,7 @@ import { paramValidator } from '../middleware/requestValidator';
 import {
   enforceAuthRateLimit,
   enforceResetRateLimit,
+  enforceSignupVerificationRateLimit,
   enforceVerificationRateLimit,
 } from '../middleware/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -128,7 +129,9 @@ router.post(
     description:
       'Create a new user account and start a session. The client supplies the user id. A ' +
       'verification email is sent to the address; the account is usable immediately and ' +
-      '`email_verified` starts false.',
+      '`email_verified` starts false. That send is budgeted per source IP, and the budget ' +
+      'only ever withholds the mail: past it the account is still created and the session ' +
+      'still starts, and the account can ask for a fresh link at any time.',
     responses: {
       201: {
         description: 'Account created',
@@ -177,7 +180,9 @@ router.post(
     }
 
     const token = await createSession(db, id);
-    enqueueVerificationEmail(c, { id, email });
+    if (await enforceSignupVerificationRateLimit(c)) {
+      enqueueVerificationEmail(c, { id, email });
+    }
 
     return c.json(
       { token, user: { id, email, name, avatar_url: null, email_verified: false } },
