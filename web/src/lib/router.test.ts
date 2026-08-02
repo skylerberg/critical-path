@@ -168,6 +168,20 @@ describe('matchRoute', () => {
     });
   });
 
+  it('percent-decodes a segment before reading it as an alias', () => {
+    const escapeFirst = (alias: string): string =>
+      `%${alias.charCodeAt(0).toString(16).padStart(2, '0')}${alias.slice(1)}`;
+    expect(escapeFirst(P)).not.toBe(P);
+    expect(matchRoute(`/p/${escapeFirst(P)}`)).toEqual({
+      name: 'project',
+      params: { projectId: PROJECT_ID, view: 'board', taskId: undefined, filters: noFilters() },
+    });
+    expect(matchRoute(`/t/${escapeFirst(T)}`)).toEqual({
+      name: 'project',
+      params: { projectId: null, view: 'board', taskId: TASK_ID, filters: noFilters() },
+    });
+  });
+
   it('returns not-found for malformed percent-encoding instead of throwing', () => {
     expect(matchRoute('/p/50%')).toEqual({ name: 'not-found', path: '/p/50%' });
     expect(matchRoute('/p/abc%zz')).toEqual({ name: 'not-found', path: '/p/abc%zz' });

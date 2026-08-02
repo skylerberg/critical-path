@@ -78,11 +78,17 @@ class TaskRouteResolver {
     if (
       this.#inflight.has(taskId) ||
       this.#byTask[taskId] !== undefined ||
-      this.#failed[taskId] !== undefined
+      this.#failed[taskId] === 'not-found'
     ) {
       return;
     }
     this.#inflight.add(taskId);
+    // Dropped up front so a retry loads instead of re-rendering what it is retrying.
+    if (this.#failed[taskId] !== undefined) {
+      const remaining = { ...this.#failed };
+      delete remaining[taskId];
+      this.#failed = remaining;
+    }
     void this.#lookup(taskId).finally(() => this.#inflight.delete(taskId));
   }
 
@@ -93,8 +99,8 @@ class TaskRouteResolver {
       );
       this.#byTask = { ...this.#byTask, [taskId]: detail.project_id };
     } catch (error) {
-      // A 404 is also what no-access returns, deliberately. Anything else is
-      // transient and must not be cached, or a retry could never succeed.
+      // A 404 is also what no-access returns, deliberately, and is the only answer
+      // worth keeping: anything else is transient, so ensure() will ask again.
       const missing = error instanceof ApiError && error.status === 404;
       this.#failed = { ...this.#failed, [taskId]: missing ? 'not-found' : 'error' };
     }

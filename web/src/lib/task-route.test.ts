@@ -152,6 +152,34 @@ describe('ensure', () => {
     expect(taskRoute.locate({ projectId: null, taskId: TASK_ID })).toEqual({ status: 'error' });
   });
 
+  it('asks again after a server failure, and the second answer wins', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(500, { error: 'boom' }));
+    taskRoute.ensure(TASK_ID);
+    await settle();
+    expect(taskRoute.locate({ projectId: null, taskId: TASK_ID })).toEqual({ status: 'error' });
+
+    fetchMock.mockResolvedValue(jsonResponse(200, { id: TASK_ID, project_id: PROJECT_ID }));
+    taskRoute.ensure(TASK_ID);
+    await settle();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(taskRoute.locate({ projectId: null, taskId: TASK_ID })).toEqual({
+      status: 'ready',
+      projectId: PROJECT_ID,
+    });
+  });
+
+  it('reads as pending while a retry is in flight, not as the failure it is retrying', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(500, { error: 'boom' }));
+    taskRoute.ensure(TASK_ID);
+    await settle();
+
+    fetchMock.mockReturnValue(new Promise<Response>(() => {}));
+    taskRoute.ensure(TASK_ID);
+
+    expect(taskRoute.locate({ projectId: null, taskId: TASK_ID })).toEqual({ status: 'pending' });
+  });
+
   it('lets a board payload win over a cached failure once it lands', async () => {
     fetchMock.mockResolvedValue(jsonResponse(500, { error: 'boom' }));
     taskRoute.ensure(TASK_ID);

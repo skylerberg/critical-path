@@ -2,6 +2,7 @@
   import { noFilters, type BoardFilters } from '../lib/board-filters';
   import { router, type ProjectView } from '../lib/router.svelte';
   import { taskRoute } from '../lib/task-route.svelte';
+  import Button from '../components/ui/Button.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import NotFound from './NotFound.svelte';
   import Project from './Project.svelte';
@@ -18,11 +19,25 @@
 
   const located = $derived(taskRoute.locate({ projectId, taskId }));
 
+  // One attempt per arrival: a failure is worth another request when the route is
+  // entered again, but retrying the failure this run produced would spin.
+  let attempted: string | undefined;
+
   $effect(() => {
-    if (located.status === 'pending' && taskId !== undefined) {
+    if (taskId === undefined) {
+      return;
+    }
+    if (located.status === 'pending' || (located.status === 'error' && attempted !== taskId)) {
+      attempted = taskId;
       taskRoute.ensure(taskId);
     }
   });
+
+  function retry(): void {
+    if (taskId !== undefined) {
+      taskRoute.ensure(taskId);
+    }
+  }
 </script>
 
 <!-- Rendering the board here rather than navigating to a project URL is what keeps
@@ -33,6 +48,13 @@
 {:else if located.status === 'pending'}
   <div class="flex h-[var(--cp-board-h)] items-center justify-center lg:h-dvh">
     <Spinner size="lg" />
+  </div>
+{:else if located.status === 'error'}
+  <div
+    class="flex h-[var(--cp-board-h)] flex-col items-center justify-center gap-4 p-4 text-center lg:h-dvh"
+  >
+    <p class="text-muted">Could not open that card.</p>
+    <Button variant="secondary" onclick={retry}>Try again</Button>
   </div>
 {:else}
   <NotFound path={router.path} />

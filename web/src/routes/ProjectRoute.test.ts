@@ -165,16 +165,52 @@ describe('a cold task link', () => {
     }
   });
 
-  it('renders NotFound on a server error but does not cache it as missing', async () => {
-    mockApi([], () => jsonResponse(500, { error: 'boom' }));
+  it('offers a retry on a server error rather than calling the card missing', async () => {
+    let attempts = 0;
+    mockApi([task(T1, 'Boss fight')], (id) => {
+      attempts += 1;
+      return attempts === 1
+        ? jsonResponse(500, { error: 'boom' })
+        : jsonResponse(200, { ...task(id, 'Boss fight'), project_id: PROJECT_ID, images: [] });
+    });
     router.navigate(taskHref(T1, 'boom'), { replace: true });
 
     const app = mountOnRoute();
     try {
-      await screen.findByText(/not found/i);
-      expect(taskRoute.locate({ projectId: null, taskId: T1 })).toEqual({ status: 'error' });
+      const again = await screen.findByRole('button', { name: 'Try again' });
+      expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+
+      await fireEvent.click(again);
+
+      expect(await screen.findByLabelText('Task title')).toHaveValue('Boss fight');
+      expect(board.currentProjectId).toBe(PROJECT_ID);
     } finally {
       void unmount(app);
+    }
+  });
+
+  it('tries again on the next arrival, which a reload is no longer needed for', async () => {
+    let attempts = 0;
+    mockApi([task(T1, 'Boss fight')], (id) => {
+      attempts += 1;
+      return attempts === 1
+        ? jsonResponse(500, { error: 'boom' })
+        : jsonResponse(200, { ...task(id, 'Boss fight'), project_id: PROJECT_ID, images: [] });
+    });
+    router.navigate(taskHref(T1, 'boom'), { replace: true });
+
+    const first = mountOnRoute();
+    try {
+      await screen.findByRole('button', { name: 'Try again' });
+    } finally {
+      await unmount(first);
+    }
+
+    const second = mountOnRoute();
+    try {
+      expect(await screen.findByLabelText('Task title')).toHaveValue('Boss fight');
+    } finally {
+      void unmount(second);
     }
   });
 
