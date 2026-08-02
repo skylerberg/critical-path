@@ -40,6 +40,26 @@ describe('matchRoute', () => {
     });
   });
 
+  it('reads the verify-email token from the query string', () => {
+    expect(matchRoute('/verify-email')).toEqual({ name: 'verify-email', params: {} });
+    expect(matchRoute('/verify-email', '?token=abc.def')).toEqual({
+      name: 'verify-email',
+      params: { token: 'abc.def' },
+    });
+    expect(matchRoute('/verify-email/')).toEqual({ name: 'verify-email', params: {} });
+  });
+
+  it('hands on an undecodable token instead of throwing', () => {
+    expect(matchRoute('/verify-email', '?token=ab%zz')).toEqual({
+      name: 'verify-email',
+      params: { token: 'ab%zz' },
+    });
+    expect(matchRoute('/reset-password', '?token=50%')).toEqual({
+      name: 'reset-password',
+      params: { token: '50%' },
+    });
+  });
+
   it('matches the project board view', () => {
     expect(matchRoute('/projects/abc-123')).toEqual({
       name: 'project',

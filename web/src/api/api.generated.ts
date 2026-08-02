@@ -14,7 +14,7 @@ export interface paths {
         put?: never;
         /**
          * Sign up
-         * @description Create a new user account and start a session. The client supplies the user id. A verification email is sent to the address; the account is usable immediately and `email_verified` starts false.
+         * @description Create a new user account and start a session. The client supplies the user id. A verification email is sent to the address; the account is usable immediately and `email_verified` starts false. That send is budgeted per source IP, and the budget only ever withholds the mail: past it the account is still created and the session still starts, and the account can ask for a fresh link at any time.
          */
         post: operations["postApiAuthSignup"];
         delete?: never;

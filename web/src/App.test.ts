@@ -58,6 +58,9 @@ function routeResponses(): void {
     if (path.startsWith('/api/public/projects/')) {
       return jsonResponse(200, publicBoard());
     }
+    if (path === '/api/auth/verify-email') {
+      return jsonResponse(204);
+    }
     return jsonResponse(404, { error: `unexpected ${path}` });
   });
 }
@@ -91,6 +94,20 @@ describe('App chrome', () => {
     expect(navs()).toEqual([]);
     expect(session.status).toBe('anon');
     expect(window.location.pathname).toBe('/public/projects/p1');
+  });
+
+  // The emailed link is the only way anyone reaches this page, and no other test
+  // renders it through the shell.
+  it('redeems an emailed verification link for a visitor with no session', async () => {
+    router.navigate('/verify-email?token=t', { replace: true });
+
+    render(App);
+
+    expect(await screen.findByText('That email address is verified.')).toBeInTheDocument();
+    expect(navs()).toEqual([]);
+    expect(session.status).toBe('anon');
+    expect(window.location.pathname + window.location.search).toBe('/verify-email?token=t');
+    expect(sessionStorage.getItem('cp.intendedPath')).toBeNull();
   });
 
   it('renders the navigation on an authenticated route', async () => {

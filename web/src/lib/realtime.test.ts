@@ -162,7 +162,15 @@ beforeEach(async () => {
   board.reset();
   projects.reset();
   localStorage.setItem('cp.token', 'test-token');
-  fetchMock.mockResolvedValue(jsonResponse(200, { id: 'u1', name: 'Me', email: 'm@e.com' }));
+  fetchMock.mockResolvedValue(
+    jsonResponse(200, {
+      id: 'u1',
+      name: 'Me',
+      email: 'm@e.com',
+      avatar_url: null,
+      email_verified: false,
+    })
+  );
   await session.init();
   fetchMock.mockReset();
 });
@@ -746,7 +754,13 @@ describe('session revoked (4401)', () => {
     fetchMock.mockImplementation(async (input) => {
       const url = new URL((input as Request).url);
       if (url.pathname === '/api/auth/me') {
-        return jsonResponse(200, { id: 'u1', name: 'Me', email: 'm@e.com' });
+        return jsonResponse(200, {
+          id: 'u1',
+          name: 'Me',
+          email: 'm@e.com',
+          avatar_url: null,
+          email_verified: false,
+        });
       }
       return jsonResponse(200, { projects: [] });
     });
@@ -994,6 +1008,64 @@ describe('user_updated dispatch', () => {
     socket.receive({ type: 'user_updated', data: { id: 7 } });
     expect(users.users).toEqual([]);
     expect(session.user?.name).toBe('Me');
+  });
+
+  // The payload fans out to everyone sharing a board, so it cannot carry the
+  // verification flag; a plain assignment would therefore erase it on a rename.
+  it('keeps verification through a broadcast that only renames', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = {
+      id: 'u1',
+      name: 'Me',
+      email: 'm@e.com',
+      avatar_url: null,
+      email_verified: true,
+    };
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u1', name: 'Me Renamed', email: 'm@e.com', avatar_url: '/api/avatars/k' },
+    });
+
+    expect(session.user.email_verified).toBe(true);
+    expect(session.user.avatar_url).toBe('/api/avatars/k');
+  });
+
+  it('keeps verification when only the letter case of the address changes', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = {
+      id: 'u1',
+      name: 'Me',
+      email: 'm@e.com',
+      avatar_url: null,
+      email_verified: true,
+    };
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u1', name: 'Me', email: 'M@E.com', avatar_url: null },
+    });
+
+    expect(session.user.email).toBe('M@E.com');
+    expect(session.user.email_verified).toBe(true);
+  });
+
+  it('drops verification when the broadcast moves the account to another mailbox', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = {
+      id: 'u1',
+      name: 'Me',
+      email: 'm@e.com',
+      avatar_url: null,
+      email_verified: true,
+    };
+
+    socket.receive({
+      type: 'user_updated',
+      data: { id: 'u1', name: 'Me', email: 'new@e.com', avatar_url: null },
+    });
+
+    expect(session.user.email_verified).toBe(false);
   });
 });
 

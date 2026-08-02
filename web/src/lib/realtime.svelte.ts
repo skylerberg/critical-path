@@ -280,17 +280,11 @@ class RealtimeClient {
     } else if (event.type === 'user_updated') {
       const updated = users.applyRealtime(event.data);
       if (updated !== null && session.user?.id === updated.id) {
-        // The broadcast payload deliberately carries only the four fields that
-        // are public to everyone sharing a board, so anything private on the
-        // session user has to survive the merge instead of being erased — but
-        // only while it is still true of what arrived: a mailbox the account
-        // has just moved to is one nobody has confirmed. Case is folded because
-        // the server folds it too: a case-only edit stays the same mailbox.
+        // The broadcast carries only what is public to everyone sharing a board,
+        // so private fields survive the merge — except on a move to a mailbox
+        // nobody has confirmed yet.
         const sameMailbox = updated.email.toLowerCase() === session.user.email.toLowerCase();
-        session.user = {
-          ...updated,
-          email_verified: sameMailbox && session.user.email_verified,
-        };
+        session.user = { ...updated, email_verified: sameMailbox && session.user.email_verified };
       }
     }
   }

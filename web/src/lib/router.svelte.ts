@@ -14,6 +14,7 @@ export type Route =
   | { name: 'forgot-password' }
   | { name: 'reset-password'; params: { token?: string } }
   | { name: 'unsubscribe'; params: { token?: string } }
+  | { name: 'verify-email'; params: { token?: string } }
   | {
       name: 'project';
       params: {
@@ -63,6 +64,19 @@ function overlayFrom(search: string): { from?: 'my-tasks' } {
   return new URLSearchParams(search).get('from') === 'my-tasks' ? { from: 'my-tasks' } : {};
 }
 
+// An emailed link can pick up a mangled escape in transit, and routing must not
+// die with the decode.
+function tokenParam(search: string): { token?: string } {
+  const match = /[?&]token=([^&]*)/.exec(search);
+  if (!match) return {};
+  const raw = match[1]!;
+  try {
+    return { token: decodeURIComponent(raw) };
+  } catch {
+    return { token: raw };
+  }
+}
+
 function projectRoute(id: string, view: ProjectView, search: string, taskId?: string): Route {
   return {
     name: 'project',
@@ -76,11 +90,6 @@ function projectRoute(id: string, view: ProjectView, search: string, taskId?: st
   };
 }
 
-function tokenParam(search: string): { token?: string } {
-  const match = /[?&]token=([^&]*)/.exec(search);
-  return match ? { token: decodeURIComponent(match[1]!) } : {};
-}
-
 export function matchRoute(pathname: string, search = ''): Route {
   const path = pathname !== '/' ? pathname.replace(/\/+$/, '') : pathname;
   if (path === '/' || path === '') return { name: 'projects' };
@@ -90,12 +99,9 @@ export function matchRoute(pathname: string, search = ''): Route {
   if (path === '/signup') return { name: 'signup' };
   if (path === '/account') return { name: 'account' };
   if (path === '/forgot-password') return { name: 'forgot-password' };
-  if (path === '/reset-password') {
-    return { name: 'reset-password', params: tokenParam(search) };
-  }
-  if (path === '/unsubscribe') {
-    return { name: 'unsubscribe', params: tokenParam(search) };
-  }
+  if (path === '/reset-password') return { name: 'reset-password', params: tokenParam(search) };
+  if (path === '/unsubscribe') return { name: 'unsubscribe', params: tokenParam(search) };
+  if (path === '/verify-email') return { name: 'verify-email', params: tokenParam(search) };
   let params = matchPattern('/projects/:id', path);
   if (params) return projectRoute(params.id!, 'board', search);
   params = matchPattern('/projects/:id/graph', path);
