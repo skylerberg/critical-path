@@ -9,7 +9,7 @@ import { paramValidator } from '../middleware/requestValidator';
 import {
   enforceAuthRateLimit,
   enforceResetRateLimit,
-  enforceSignupVerificationRateLimit,
+  enforceSignupRateLimit,
   enforceVerificationRateLimit,
 } from '../middleware/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -223,11 +223,10 @@ router.post(
     description:
       'Create a new user account and start a session. The client supplies the user id. A ' +
       'verification email is sent to the address; the account is usable immediately and ' +
-      '`email_verified` starts false. That send is budgeted per source IP, and the budget ' +
-      'only ever withholds the mail: past it the account is still created and the session ' +
-      'still starts, and the account can ask for a fresh link at any time. Every unexpired ' +
-      'invitation outstanding for the address, across every project, takes effect here and ' +
-      'the account joins those boards at the invited role.',
+      '`email_verified` starts false. Account creation is capped at 50 an hour per source ' +
+      'IP, whatever addresses are used: past that the call answers 429 and creates nothing. ' +
+      'Every unexpired invitation outstanding for the address, across every project, takes ' +
+      'effect here and the account joins those boards at the invited role.',
     responses: {
       201: {
         description: 'Account created',
@@ -246,6 +245,7 @@ router.post(
   jsonValidator(signupRequestSchema),
   async (c) => {
     const { id, email, password, name } = c.req.valid('json');
+    await enforceSignupRateLimit(c);
     await enforceAuthRateLimit(c, email);
 
     const db = c.get('db');
@@ -276,9 +276,7 @@ router.post(
     }
 
     const { token } = await createSession(c, id);
-    if (await enforceSignupVerificationRateLimit(c)) {
-      enqueueVerificationEmail(c, { id, email });
-    }
+    enqueueVerificationEmail(c, { id, email });
     await claimInvitationsForNewAccount(c, db, id, email);
 
     return c.json(

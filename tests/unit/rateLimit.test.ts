@@ -4,12 +4,12 @@ import {
   consumeRateLimit,
   enforceAuthRateLimit,
   enforceResetRateLimit,
-  enforceSignupVerificationRateLimit,
+  enforceSignupRateLimit,
   resetRateLimiter,
   EMAIL_MAX_ATTEMPTS,
   RESET_IP_MAX_ATTEMPTS,
   RESET_EMAIL_MAX_ATTEMPTS,
-  SIGNUP_VERIFY_IP_MAX_ATTEMPTS,
+  SIGNUP_IP_MAX_ATTEMPTS,
 } from '../../src/middleware/rateLimit';
 import { errorHandler } from '../../src/middleware/errorHandler';
 
@@ -213,26 +213,25 @@ describe('enforceResetRateLimit', () => {
   });
 });
 
-describe('enforceSignupVerificationRateLimit', () => {
+describe('enforceSignupRateLimit', () => {
   const app = new Hono();
   app.onError(errorHandler);
   app.post('/signup', async (c) => {
-    const shouldSend = await enforceSignupVerificationRateLimit(c);
-    return c.json({ shouldSend }, 200);
+    await enforceSignupRateLimit(c);
+    return c.body(null, 204);
   });
 
-  async function signUp(ip: string): Promise<boolean> {
+  async function signUp(ip: string): Promise<number> {
     const res = await app.request('/signup', {
       method: 'POST',
       headers: { 'X-Forwarded-For': ip },
     });
-    const body = (await res.json()) as { shouldSend: boolean };
-    return body.shouldSend;
+    return res.status;
   }
 
   async function spendBudget(ip: string): Promise<void> {
-    for (let i = 0; i < SIGNUP_VERIFY_IP_MAX_ATTEMPTS; i++) {
-      expect(await signUp(ip)).toBe(true);
+    for (let i = 0; i < SIGNUP_IP_MAX_ATTEMPTS; i++) {
+      expect(await signUp(ip)).toBe(204);
     }
   }
 
@@ -245,32 +244,16 @@ describe('enforceSignupVerificationRateLimit', () => {
     delete process.env.TRUST_PROXY;
   });
 
-  it('leaves every other source IP a full budget once one has spent its own', async () => {
+  it('refuses the request past the budget instead of letting it through', async () => {
     await spendBudget('203.0.113.1');
-    expect(await signUp('203.0.113.1')).toBe(false);
-
-    expect(await signUp('198.51.100.9')).toBe(true);
+    expect(await signUp('203.0.113.1')).toBe(429);
   });
 
-  // A global log key would let one noisy source silence the only signal that
-  // anyone else's mail is being withheld at all.
-  it('records the withheld send once per source IP, not once overall', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      await spendBudget('203.0.113.1');
-      expect(warn).not.toHaveBeenCalled();
-      await signUp('203.0.113.1');
-      await signUp('203.0.113.1');
+  it('leaves every other source IP a full budget once one has spent its own', async () => {
+    await spendBudget('203.0.113.1');
+    expect(await signUp('203.0.113.1')).toBe(429);
 
-      await spendBudget('198.51.100.9');
-      await signUp('198.51.100.9');
-
-      expect(warn.mock.calls).toHaveLength(2);
-      expect(JSON.stringify(warn.mock.calls[0])).toContain('203.0.113.1');
-      expect(JSON.stringify(warn.mock.calls[1])).toContain('198.51.100.9');
-    } finally {
-      warn.mockRestore();
-    }
+    expect(await signUp('198.51.100.9')).toBe(204);
   });
 
   // Elapsed times are written out rather than derived from the window constant,
@@ -280,15 +263,35 @@ describe('enforceSignupVerificationRateLimit', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
     try {
       await spendBudget('203.0.113.1');
-      expect(await signUp('203.0.113.1')).toBe(false);
+      expect(await signUp('203.0.113.1')).toBe(429);
 
       clock.mockReturnValue(start + 30 * 60_000);
-      expect(await signUp('203.0.113.1')).toBe(false);
+      expect(await signUp('203.0.113.1')).toBe(429);
 
       clock.mockReturnValue(start + 60 * 60_000 + 1);
-      expect(await signUp('203.0.113.1')).toBe(true);
+      expect(await signUp('203.0.113.1')).toBe(204);
     } finally {
       clock.mockRestore();
     }
+  });
+
+  // Sharing a counter with the address-keyed limiter would make the generous
+  // ceiling the effective bound on ordinary sign-in attempts too.
+  it('spends a counter of its own, untouched by the auth limiter', async () => {
+    const authApp = new Hono();
+    authApp.onError(errorHandler);
+    authApp.post('/attempt', async (c) => {
+      await enforceAuthRateLimit(c, 'victim@example.com');
+      return c.body(null, 204);
+    });
+
+    await spendBudget('203.0.113.1');
+    expect(await signUp('203.0.113.1')).toBe(429);
+
+    const res = await authApp.request('/attempt', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '203.0.113.1' },
+    });
+    expect(res.status).toBe(204);
   });
 });

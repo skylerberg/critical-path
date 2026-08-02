@@ -12,6 +12,7 @@ export default defineConfig({
     fileParallelism: false,
     include: ['tests/e2e/**/*.test.ts', 'tests/unit/**/*.test.ts', 'cli/tests/**/*.test.ts'],
     globalSetup: ['./tests/setup/globalSetup.ts'],
+    setupFiles: ['./tests/setup/resetRateLimits.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
