@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, assertOk } from '../api/client';
+  import { api, ApiError, assertOk } from '../api/client';
   import type { components } from '../api/api.generated';
   import { APP_NAME } from '../lib/constants';
   import { link } from '../lib/router.svelte';
@@ -19,13 +19,15 @@
     added_to_project: "You'll no longer get email when someone adds you to a board.",
   };
 
+  const RETRY_MESSAGE = 'Something went wrong. Please try again.';
+
+  // Nothing may be written before a human presses the button: mail security
+  // scanners and browser prerenders follow the link here on their own.
   let phase = $state<'confirm' | 'working' | 'done' | 'all' | 'invalid'>('confirm');
   let kind = $state<Kind | null>(null);
   let stoppingAll = $state(false);
+  let error = $state<string | null>(null);
 
-  // Nothing is written until the button is pressed: this page is reached by an
-  // ordinary link, which mail security scanners and browser prerenders follow
-  // on their own, and there is deliberately no request shape that undoes it.
   onMount(() => {
     if (token === undefined || token === '') {
       phase = 'invalid';
@@ -37,24 +39,33 @@
       phase = 'invalid';
       return;
     }
+    error = null;
     phase = 'working';
     try {
       const data = assertOk(await api.POST('/api/auth/unsubscribe', { body: { token } }));
       kind = data.kind;
       phase = 'done';
-    } catch {
-      phase = 'invalid';
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 422) {
+        phase = 'invalid';
+      } else {
+        phase = 'confirm';
+        error = RETRY_MESSAGE;
+      }
     }
   }
 
   async function stopAll(): Promise<void> {
     if (token === undefined || token === '') return;
+    error = null;
     stoppingAll = true;
     try {
       assertOk(await api.POST('/api/auth/unsubscribe/all', { body: { token } }));
       phase = 'all';
     } catch {
-      phase = 'invalid';
+      // The single unsubscribe already committed, so its result outranks this
+      // failure and stays on screen.
+      error = RETRY_MESSAGE;
     } finally {
       stoppingAll = false;
     }
@@ -84,6 +95,10 @@
           Turn off all email notifications
         </Button>
       </div>
+    {/if}
+
+    {#if error !== null}
+      <p role="alert" class="mt-4 text-sm text-danger">{error}</p>
     {/if}
 
     <p class="mt-6 text-center text-sm text-muted">

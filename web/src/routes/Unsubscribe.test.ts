@@ -60,6 +60,51 @@ describe('Unsubscribe', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('lets the visitor retry when the server fails rather than blaming the link', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'boom' }));
+    render(Unsubscribe, { token: 'tok-123' });
+    await confirm();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Something went wrong. Please try again.'
+    );
+    expect(screen.queryByText("This unsubscribe link isn't valid.")).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unsubscribe' })).toBeInTheDocument();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { kind: 'task_assigned' }));
+    await confirm();
+
+    expect(
+      await screen.findByText("You'll no longer get email when someone assigns you a task.")
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the committed single unsubscribe when turning off all fails', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { kind: 'added_to_project' }));
+    render(Unsubscribe, { token: 'tok-123' });
+    await confirm();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'boom' }));
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Turn off all email notifications' })
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Something went wrong. Please try again.'
+    );
+    expect(screen.queryByText("This unsubscribe link isn't valid.")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("You'll no longer get email when someone adds you to a board.")
+    ).toBeInTheDocument();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(204));
+    await fireEvent.click(screen.getByRole('button', { name: 'Turn off all email notifications' }));
+
+    expect(
+      await screen.findByText("You'll no longer get any notification email from us.")
+    ).toBeInTheDocument();
+  });
+
   it('never calls the API without a token', async () => {
     render(Unsubscribe, { token: undefined });
 
