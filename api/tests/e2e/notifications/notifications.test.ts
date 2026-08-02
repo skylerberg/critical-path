@@ -759,7 +759,7 @@ describe('Notifications', () => {
       expect(sentEmails()).toEqual([]);
     });
 
-    it('still bounds the total across many senders, and says so once', async () => {
+    it('still bounds the total across many senders, and names each of them', async () => {
       await grantAccess([member.id]);
       const warnings = vi.spyOn(logger, 'warn').mockImplementation(() => {});
 
@@ -780,12 +780,19 @@ describe('Notifications', () => {
       await deliverAbout('and-another', [member.id], 'another-fresh-sender');
       expect(sentEmails()).toEqual([]);
 
-      const silenced = warnings.mock.calls.filter(
-        ([fields]) =>
-          fields.msg === 'Notification email dropped: this recipient is over their total budget'
-      );
-      expect(silenced).toHaveLength(1);
-      expect(silenced[0][0]).toMatchObject({ recipient_id: member.id });
+      // A farm reaches the ceiling with no pair warning at all, so this line is
+      // the only place the operator learns who is filling the mailbox.
+      const silenced = warnings.mock.calls
+        .map(([fields]) => fields)
+        .filter(
+          (fields) =>
+            fields.msg === 'Notification email dropped: this recipient is over their total budget'
+        );
+      expect(silenced.map((fields) => fields.actor_id)).toEqual([
+        'a-fresh-sender',
+        'another-fresh-sender',
+      ]);
+      expect(silenced.every((fields) => fields.recipient_id === member.id)).toBe(true);
     });
 
     it('lets one write mail everyone it names', async () => {

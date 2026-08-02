@@ -858,10 +858,22 @@ to one person fits inside 20; and a recipient hearing from ten colleagues in an
 hour is nowhere near 100.
 
 A refused message is dropped, not queued — there is no retry and no
-dead-letter. Nothing is consumed until every budget has agreed, so a message
-that is dropped leaves the slot the next one needs. Each refusal is logged at
-most once per key per hour: unconditional logging would turn a flood into log
-spam, but silent drops leave a silenced recipient invisible to the operator.
+dead-letter. The three budgets are therefore checked and charged as one atomic
+step, so a message that is dropped leaves the slot the next one needs, and two
+copies arriving together cannot both read a count neither has raised yet. When
+counters are shared across replicas that step is a single script, not a
+sequence of round trips: deciding from a value read one round trip earlier lets
+everything that arrives in between pass on the same stale count, which is the
+whole of the guarantee. A send that then fails gives its slots back, since no
+mail exists to collapse against.
+
+Each refusal is logged, but not once per refusal: unconditional logging would
+turn a flood into log spam, and silent drops leave a silenced recipient
+invisible. A sender that has spent their own share is named once an hour. A
+recipient over the ceiling is the case that matters, because a farm of a
+hundred accounts sending one message each reaches it with no per-sender warning
+at all — so that line names the sender it refused, once per sender, for up to
+ten distinct senders an hour.
 
 Three rules bound what is sent:
 
@@ -902,7 +914,11 @@ response a live one does, so it is not an account-existence oracle either. The
 write it skips does leave a timing difference, which is knowingly accepted:
 minting a token that names an account of your choosing requires the signing
 secret, so the difference separates live from dead only for a link the caller
-already holds, about an account they were already mailed.
+already holds, about an account they were already mailed. The write re-asserts
+the address it read rather than locking the row, so an address change
+committing between the two retires the link on the way past without any
+statement taking a lock that a concurrent insert naming that user would block
+on.
 
 - `POST /api/auth/unsubscribe` (`{ token }`) switches off the kind the token
   names and answers `200 { kind }` so the landing page can say what it did.

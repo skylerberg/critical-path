@@ -116,20 +116,16 @@ async function deleteStorageObjects(keys: string[]): Promise<void> {
 
 const INVALID_UNSUBSCRIBE_MESSAGE = 'This unsubscribe link is not valid';
 
-// A null id means the link no longer names a live mailbox — the account is gone
-// or has moved to a different address. The *response* is then identical to a
-// hit's, which is what keeps these endpoints silent about whether an account
+// A null account means the link no longer names a live mailbox — the account is
+// gone or has moved to a different address. The *response* is then identical to
+// a hit's, which is what keeps these endpoints silent about whether an account
 // exists; the write a miss skips is still visible in timing, but minting a
 // token that names an account needs the signing secret, so that separates live
 // from dead only for a link the caller already holds.
-//
-// Locked, because the caller writes what this reads and an address change
-// committing between the two would let a link the move was meant to retire
-// write anyway.
 async function unsubscribeTarget(
   c: Pick<AppContext, 'get'>,
   token: string
-): Promise<{ kind: NotificationKind; userId: string | null }> {
+): Promise<{ kind: NotificationKind; account: { id: string; email: string } | null }> {
   const verification = verifyUnsubscribeToken(token);
   if (verification.status === 'invalid') {
     throw new AppError(422, INVALID_UNSUBSCRIBE_MESSAGE);
@@ -140,27 +136,45 @@ async function unsubscribeTarget(
     .selectFrom('app_user')
     .select('email')
     .where('id', '=', verification.user_id)
-    .forUpdate()
     .executeTakeFirst();
   const bound = row !== undefined && emailAddressHash(row.email) === verification.email_hash;
 
-  return { kind: verification.kind, userId: bound ? verification.user_id : null };
+  return {
+    kind: verification.kind,
+    account: bound && row !== undefined ? { id: verification.user_id, email: row.email } : null,
+  };
 }
 
 // Only ever writes false. That is what bounds a non-expiring bearer token to
 // nothing: replay is idempotent and a leaked link cannot switch anything on.
+async function switchOffNotifications(
+  c: Pick<AppContext, 'get'>,
+  account: { id: string; email: string },
+  kinds: NotificationKind[]
+): Promise<void> {
+  const changes: Partial<Record<(typeof NOTIFY_COLUMN)[NotificationKind], boolean>> = {};
+  for (const kind of kinds) {
+    changes[NOTIFY_COLUMN[kind]] = false;
+  }
+
+  await c
+    .get('db')
+    .updateTable('app_user')
+    .set(changes)
+    .where('id', '=', account.id)
+    // The address is re-asserted rather than locked: a change committing since
+    // it was read would otherwise let a link that move retired write anyway.
+    .where('email', '=', account.email)
+    .execute();
+}
+
 async function applyUnsubscribe(
   c: Pick<AppContext, 'get'>,
   token: string
 ): Promise<NotificationKind> {
-  const { kind, userId } = await unsubscribeTarget(c, token);
-  if (userId !== null) {
-    await c
-      .get('db')
-      .updateTable('app_user')
-      .set({ [NOTIFY_COLUMN[kind]]: false })
-      .where('id', '=', userId)
-      .execute();
+  const { kind, account } = await unsubscribeTarget(c, token);
+  if (account !== null) {
+    await switchOffNotifications(c, account, [kind]);
   }
 
   return kind;
@@ -1129,14 +1143,9 @@ router.post(
   jsonValidator(emailTokenRequestSchema),
   async (c) => {
     const { token } = c.req.valid('json');
-    const { userId } = await unsubscribeTarget(c, token);
-    if (userId !== null) {
-      await c
-        .get('db')
-        .updateTable('app_user')
-        .set({ notify_task_assigned: false, notify_added_to_project: false })
-        .where('id', '=', userId)
-        .execute();
+    const { account } = await unsubscribeTarget(c, token);
+    if (account !== null) {
+      await switchOffNotifications(c, account, ['task_assigned', 'added_to_project']);
     }
 
     return c.body(null, 204);

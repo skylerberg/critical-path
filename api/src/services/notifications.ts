@@ -1,7 +1,7 @@
 import { APP_NAME } from '../config/constants';
 import { env } from '../config/env';
 import { db } from '../db/index';
-import { allowNotificationEmail } from '../middleware/rateLimit';
+import { withNotificationBudget } from '../middleware/rateLimit';
 import { logger } from '../utils/logger';
 import { projectAccessIdsAmong } from './authorization';
 import { getEmailSender } from './email/index';
@@ -115,11 +115,11 @@ export const notificationDelivery: {
     const sender = getEmailSender();
     const key = repeatKey(notification);
     const results = await Promise.allSettled(
-      recipients.map(async (recipient) => {
-        if (await allowNotificationEmail(recipient.id, notification.actor.id, key)) {
-          await sender.send(messageFor(notification, recipient));
-        }
-      })
+      recipients.map((recipient) =>
+        withNotificationBudget(recipient.id, notification.actor.id, key, () =>
+          sender.send(messageFor(notification, recipient))
+        )
+      )
     );
     for (const result of results) {
       if (result.status === 'rejected') {
