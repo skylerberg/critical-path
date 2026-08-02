@@ -116,6 +116,49 @@ describe('Email verification', () => {
       expect((await verifiedAtOf(user.id))?.getTime()).toBe(first?.getTime());
     });
 
+    // The interleave is forced with a held row lock rather than raced: the handler's
+    // read is a plain select and runs to completion, then its write blocks until the
+    // address has already moved underneath it.
+    it('never verifies an address the token was not issued for', async () => {
+      clearSentEmails();
+      const user = await ctx.createUser('verify-race');
+      const token = extractToken(sentEmails()[0].text);
+      const moved = uniqueEmail('verify-race-moved');
+
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const mover = db.transaction().execute(async (trx) => {
+        await trx
+          .selectFrom('app_user')
+          .select('id')
+          .where('id', '=', user.id)
+          .forUpdate()
+          .execute();
+        await held;
+        await trx
+          .updateTable('app_user')
+          .set({ email: moved, email_verified_at: null })
+          .where('id', '=', user.id)
+          .execute();
+      });
+
+      const redeeming = ctx.request().post('/api/auth/verify-email', { token });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      release();
+      await mover;
+      await redeeming;
+
+      const row = await db
+        .selectFrom('app_user')
+        .select(['email', 'email_verified_at'])
+        .where('id', '=', user.id)
+        .executeTakeFirstOrThrow();
+      expect(row.email).toBe(moved);
+      expect(row.email_verified_at).toBeNull();
+    });
+
     it('treats every outstanding token for the address as equivalent', async () => {
       clearSentEmails();
       const user = await ctx.createUser('verify-multi');
