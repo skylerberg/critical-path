@@ -265,6 +265,20 @@ export async function getPublicBoard(
   db: Kysely<DB>,
   projectId: string
 ): Promise<PublicBoard | null> {
+  // Nothing here is authenticated, so the flag is read on its own before any of
+  // the board is assembled. Building first and rejecting after let a stranger
+  // spend the whole payload query per request, and made a private project take
+  // measurably longer to refuse than one that does not exist.
+  const gate = await db
+    .selectFrom('project')
+    .select('is_public')
+    .where('id', '=', projectId)
+    .executeTakeFirst();
+  if (!gate) {
+    return null;
+  }
+  assertPublicProject(gate);
+
   const payload = await getBoardPayload(db, projectId);
   if (!payload) {
     return null;
