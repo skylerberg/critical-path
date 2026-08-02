@@ -102,10 +102,17 @@ export async function claimInvitations(
   }
 
   const projectIds = rows.map((row) => row.project_id);
+  // Every other writer of a member row takes the project row before it touches
+  // an invitation; claiming in the other order closes a deadlock cycle against
+  // one revoking invitations under that lock, and sorting keeps two claims over
+  // overlapping boards from closing one of their own. Holding these rows is
+  // also what makes the membership read below survive the insert.
   const projects = await db
     .selectFrom('project')
     .select(PROJECT_COLUMNS)
     .where('id', 'in', projectIds)
+    .orderBy('id')
+    .forUpdate()
     .execute();
   const projectById = new Map(projects.map((project) => [project.id, project]));
 
@@ -126,8 +133,8 @@ export async function claimInvitations(
   });
 
   // Consumed before it is honoured, and only rows this statement removed are:
-  // whichever transaction takes the row is then the only one that can grant
-  // from it, however the reads either side of it interleaved.
+  // a revoke already holding the row wins outright rather than being overtaken
+  // by a grant that read the row before it was withdrawn.
   const consumed =
     grantable.length === 0
       ? []
@@ -194,9 +201,6 @@ export async function claimInvitationsForNewAccount(
     .select(['id', 'project_id', 'role'])
     .where('email_lower', '=', email.toLowerCase())
     .where('expires_at', '>', new Date())
-    // Locked like the redemption path, so a revoke waits for the claim to
-    // finish instead of landing inside it.
-    .forUpdate()
     .execute();
   return claimInvitations(c, db, userId, rows);
 }
