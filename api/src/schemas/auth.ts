@@ -62,6 +62,9 @@ export const resetPasswordSchema = type({
   new_password: password,
 });
 
-export const verifyEmailSchema = type({
+// Shared by every route that redeems a link we mailed. One export rather than
+// one per route because identically shaped schemas collide in the OpenAPI name
+// registry.
+export const emailTokenRequestSchema = type({
   token: 'string',
 });

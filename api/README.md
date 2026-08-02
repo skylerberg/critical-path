@@ -207,11 +207,10 @@ because a 422 would make an autosaving editor retry forever with nothing to
 point at. The writer is never a recipient of their own mention, and one
 request resolves at most 25 people.
 
-**Nothing is delivered yet.** There is no notification service, so a resolved
-mention is handed to a single post-commit seam in `src/services/mentions.ts`
-that does nothing. Delivery (email, per-user opt-out, unsubscribe) attaches
-there when the notification work lands; until then mentions are a rendering
-and resolution feature only.
+**Nothing is delivered yet.** A resolved mention is handed to a post-commit
+seam that does nothing: notification email covers assignment and board
+membership only, and a mention is deliberately not one of its kinds. Until that
+changes, mentions are a rendering and resolution feature only.
 
 ### Task activity
 
@@ -733,8 +732,8 @@ live retries are never pruned. The log has a `limit` but no cursor, so only the
 
 ### Email
 
-Password-reset, email-verification and feedback emails go through the driver
-named by `EMAIL_DRIVER`:
+Password-reset, email-verification, notification and feedback emails all go
+through the driver named by `EMAIL_DRIVER`:
 
 - `console` (default) — logs the full email; the reset link is usable from the
   server log in development.
@@ -761,10 +760,10 @@ different mailbox. Existing accounts were not grandfathered — the column is
 nullable with no backfill, so everyone who signed up before this shipped reads
 as unverified until they confirm.
 
-Verification gates nothing today. Signing in, resetting a password and every
-other route behave identically either way, and **account-access mail always
-sends regardless**: the verification mail itself, password reset, and the
-feedback mail to the site owner are never withheld.
+Verification gates notification email and nothing else. Signing in, resetting a
+password and every other route behave identically either way, and
+**account-access mail always sends regardless**: the verification mail itself,
+password reset, and the feedback mail to the site owner are never withheld.
 
 A verification email is sent on signup and whenever `PATCH /api/auth/me` moves
 the account to a different mailbox (a change of letter case alone sends
@@ -803,6 +802,62 @@ change-password and the avatar routes. It is absent from the `User` shape that
 describes other people, and therefore from `GET /api/users`, project member
 lists and the `user_updated` realtime payload, which fans out to everyone who
 shares a project.
+
+### Notification email
+
+Two events, and only two, produce email: `task_assigned` and
+`added_to_project`. Both are direct-address — somebody put your name on
+something — which is why they need no digest, no batching and no per-project
+mute. Everything else (mentions, unblocks, activity summaries) is deliberately
+not built.
+
+Delivery is gated per recipient on two conditions, both evaluated in one query
+in the notification layer: the address must be verified, and the recipient must
+not have switched that kind off. The gate is **not** in the email sender, which
+is what keeps account-access mail — verification, password reset, feedback —
+sending unconditionally. Because the predicate runs per recipient row, one
+unverified or opted-out person on a board never suppresses mail to the others.
+
+Three rules bound what is sent:
+
+- **Never the actor.** Assigning yourself a task or adding yourself to a board
+  sends nothing. The rule lives in the notification layer, so every future kind
+  inherits it.
+- **Only additions.** Re-saving the same assignee set, changing a role,
+  removing a member and transferring ownership all send nothing.
+- **Copying is not writing.** Duplicating a card carries its assignees but
+  notifies nobody, and neither does copying a whole board.
+
+One write mails at most 100 people. Sends run as post-commit hooks, so a
+rolled-back mutation sends nothing and a failed send never affects the
+response; there is no retry and no dead-letter.
+
+Preferences are two booleans, both defaulting to true:
+
+- `GET /api/auth/me/notification-settings` and
+  `PUT /api/auth/me/notification-settings` (authenticated,
+  `{ task_assigned, added_to_project }`). They are deliberately not part of
+  `PATCH /api/auth/me`, which publishes to everyone sharing a project.
+
+Every notification email carries an unsubscribe link and the RFC 8058 headers
+`List-Unsubscribe` and `List-Unsubscribe-Post`; transactional mail carries
+neither. The link holds a stateless HMAC naming one account and one kind. It
+has **no expiry** — an unsubscribe link has to work in a year-old email — and
+what makes that safe is that the endpoints it authorizes can only switch a
+preference *off*. There is no request shape that switches one on, so replay is
+idempotent and a leaked link is inert. It is not a session credential: it is
+refused by every authenticating path.
+
+- `POST /api/auth/unsubscribe` (`{ token }`) switches off the kind the token
+  names and answers `200 { kind }` so the landing page can say what it did.
+- `POST /api/auth/unsubscribe/all` (`{ token }`) switches off every kind, `204`.
+- `POST /api/auth/unsubscribe/one-click?token=…` is the header target. A mail
+  client posts `List-Unsubscribe=One-Click` as form data, which is not JSON, so
+  the token comes from the query string and the body is never read. `204`.
+
+All three are unauthenticated and answer `422` for a tampered, unknown or
+missing token — the same answer whether or not the account exists, so none of
+them reveals that.
 
 ### User avatars
 
@@ -1176,8 +1231,13 @@ npm run openapi:dump && npm run --prefix cli generate-api
 
 ## Known limitations (v1)
 
-- Email verification exists but gates nothing, and there is no bounce or
-  complaint handling.
+- There is no bounce or complaint handling: a hard bounce is invisible to the
+  application, and nothing suppresses an address that stops accepting mail.
+  Verification is the only lever, and it is what notification email is gated
+  on.
+- Existing accounts were never grandfathered as verified and nothing in the app
+  tells them so except the account page, so they receive no notification email
+  until they confirm their address there.
 - Float `position` ordering with no automatic rebalancing.
 - Project roles are only `editor` and `viewer`. Every editor can rename,
   archive and publish the board and manage its member set — including demoting
