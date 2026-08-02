@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
+  import { invitations, isExpired, type Invitation } from '../lib/invitations.svelte';
   import { isProjectOwner, projects } from '../lib/projects.svelte';
   import { roleFor, type ProjectRole } from '../lib/roles';
   import { boardPath, router } from '../lib/router.svelte';
@@ -51,6 +52,31 @@
   $effect(() => {
     void users.refresh().catch(() => {});
   });
+
+  const scoped = $derived(invitations.currentProjectId === projectId);
+  const pending = $derived(scoped && invitations.loaded ? invitations.list : []);
+  const pendingError = $derived(scoped ? invitations.loadError : null);
+
+  // Invitations carry email addresses and are editor-only server-side; they also
+  // publish no realtime event, so this is a fetch on open rather than a subscription.
+  $effect(() => {
+    if (!canManage) {
+      return;
+    }
+    const id = projectId;
+    untrack(() => void invitations.load(id));
+  });
+
+  const expiryFormat = new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  function expiryHint(invitation: Invitation): string {
+    const on = expiryFormat.format(new Date(invitation.expires_at));
+    return isExpired(invitation) ? `Expired ${on} — resend to revive it` : `Expires ${on}`;
+  }
 
   function displayName(userId: string): string {
     const name = users.displayFor(userId).name;
@@ -193,6 +219,45 @@
           <MemberPicker {projectId} />
         {/if}
       </div>
+
+      {#if canManage && (pending.length > 0 || pendingError !== null)}
+        <div class="flex flex-col gap-2 border-t border-edge pt-4">
+          <h3 class="text-sm font-semibold">Invited</h3>
+          {#if pendingError !== null}
+            <p role="alert" class="text-sm text-danger">{pendingError}</p>
+          {/if}
+          <ul class="flex max-h-48 flex-col gap-1 overflow-y-auto">
+            {#each pending as invitation (invitation.id)}
+              {@const expired = isExpired(invitation)}
+              <li class="flex min-h-11 flex-wrap items-center gap-2">
+                <div class="flex min-w-0 flex-1 flex-col">
+                  <span class="truncate text-sm">{invitation.email}</span>
+                  <span class="truncate text-xs text-muted">{expiryHint(invitation)}</span>
+                </div>
+                <Badge variant={expired ? 'danger' : 'neutral'}>
+                  {expired ? 'Expired' : 'Pending'}
+                </Badge>
+                <button
+                  type="button"
+                  aria-label="Resend invitation to {invitation.email}"
+                  onclick={() => void invitations.resend(invitation.id)}
+                  class="flex min-h-11 cursor-pointer items-center justify-center rounded-md px-2 text-sm text-muted hover:bg-accent-soft"
+                >
+                  Resend
+                </button>
+                <button
+                  type="button"
+                  aria-label="Revoke invitation to {invitation.email}"
+                  onclick={() => void invitations.revoke(invitation.id)}
+                  class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-accent-soft hover:text-danger"
+                >
+                  ✕
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
 
       {#if canManage || project.is_public}
         <div class="flex flex-col gap-2 border-t border-edge pt-4">

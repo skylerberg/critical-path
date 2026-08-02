@@ -24,6 +24,7 @@ export function isPublicRoute(name: Route['name']): boolean {
 // authed visitor away. These open for both.
 const AUTH_OPTIONAL_ROUTES = new Set<Route['name']>([
   'public-board',
+  'invite',
   'unsubscribe',
   'verify-email',
 ]);

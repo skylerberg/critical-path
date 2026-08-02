@@ -14,7 +14,7 @@ export interface paths {
         put?: never;
         /**
          * Sign up
-         * @description Create a new user account and start a session. The client supplies the user id. A verification email is sent to the address; the account is usable immediately and `email_verified` starts false. That send is budgeted per source IP, and the budget only ever withholds the mail: past it the account is still created and the session still starts, and the account can ask for a fresh link at any time.
+         * @description Create a new user account and start a session. The client supplies the user id. A verification email is sent to the address; the account is usable immediately and `email_verified` starts false. That send is budgeted per source IP, and the budget only ever withholds the mail: past it the account is still created and the session still starts, and the account can ask for a fresh link at any time. Every unexpired invitation outstanding for the address, across every project, takes effect here and the account joins those boards at the invited role.
          */
         post: operations["postApiAuthSignup"];
         delete?: never;
@@ -485,7 +485,7 @@ export interface paths {
         get?: never;
         /**
          * Set project members
-         * @description Replace the full member set of a project, change member roles, or both. Editors may call; a viewer may only use it to remove themselves and gets 403 for anything else; non-accessors get 404. Omit user_ids to change roles only, which cannot add or remove anyone however stale the caller’s member list is. The creator has implicit access, is always an editor, and is never stored as a member: their id is silently stripped from both user_ids and roles if present. Every newly added id must reference an existing user and every roles entry must name someone in the resulting member set (422 with a plain error body otherwise). A retained member with no roles entry keeps their stored role. Removed members lose their task assignments in the project.
+         * @description Replace the full member set of a project, change member roles, or both. Editors may call; a viewer may only use it to remove themselves and gets 403 for anything else; non-accessors get 404. Omit user_ids to change roles only, which cannot add or remove anyone however stale the caller’s member list is. The creator has implicit access, is always an editor, and is never stored as a member: their id is silently stripped from both user_ids and roles if present. Every newly added id must reference an existing user and every roles entry must name someone in the resulting member set (422 with a plain error body otherwise). A retained member with no roles entry keeps their stored role. Removed members lose their task assignments in the project, and pending invitations sent by anyone this leaves without write access are revoked with it.
          */
         put: operations["putApiProjectsByIdMembers"];
         post?: never;
@@ -506,9 +506,69 @@ export interface paths {
         put?: never;
         /**
          * Add project member by email
-         * @description Add a user to a project by their exact email (case-insensitive), as an editor unless role says otherwise. Editors may call; a viewer gets 403 and non-accessors 404. An unknown email returns 404. Adding an existing member is an idempotent no-op that changes their role only when role is given, so re-inviting never silently promotes a viewer. Adding the creator, who has implicit access and is always an editor, stores nothing. The response carries the effective role after the call.
+         * @description Share a project with one exact, case-insensitive email address. When the address already has an account the user is added immediately and the response is status "member": adding an existing member is an idempotent no-op that changes their role only when role is given, so re-inviting never silently promotes a viewer, and adding the creator (implicit access, always an editor) stores nothing. When the address has no account a pending invitation is created instead and the response is status "invited"; the invitation is emailed a link and takes effect when the recipient signs up with that address or accepts the link, whichever comes first. role defaults to editor and is the effective role either way. The invitation token is never returned. Unlike other POSTs this one takes no client-supplied id: the invitation is keyed by project and address, which the client already supplies, and whether a row is created at all depends on server state the client cannot see, so there is nothing to render optimistically. A pending invitation for an address that has since gained an account is dropped as the member is added, since only signup claims one. 422 past 100 pending invitations on the project (expired ones count until they are revoked). Two hourly budgets answer 429: 100 addresses looked up per caller, which every call spends whether or not the address has an account, and 20 invitation emails per caller, which only a call that actually sends one spends — so adding people who already have accounts never runs the mail budget down, though once that budget is gone every call answers 429 until the hour is out, whatever the address, rather than letting the 429 itself say which addresses have accounts. A third limit allows three re-mails an hour of any one address. Editors may call; a viewer gets 403 and non-accessors 404.
          */
         post: operations["postApiProjectsByIdMembersByEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List pending project invitations
+         * @description List the invitations outstanding on a project — addresses invited to share it that have no account yet. Expired invitations stay listed with their expires_at so they can be resent or revoked rather than silently vanishing. Invitation tokens are never returned. Editors only: the list is a management surface made entirely of email addresses that only editors can create, so a viewer gets 403 and non-accessors 404.
+         */
+        get: operations["getApiProjectsByIdInvitations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/invitations/{invitationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a project invitation
+         * @description Withdraw a pending invitation. Every copy of its link stops working at once, including one already sitting in the recipient’s mailbox, because redemption always consults the row. 404 when the project has no such invitation. Editors only.
+         */
+        delete: operations["deleteApiProjectsByIdInvitationsByInvitationId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/invitations/{invitationId}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend a project invitation
+         * @description Email a pending invitation again and give it a fresh 14-day deadline, which is also how an expired invitation is revived. The link is unchanged, so the copy the recipient already has keeps working. 404 when the project has no such invitation, 429 past three resends an hour for one invitation or past the caller’s hourly budget of invitation emails. Editors only.
+         */
+        post: operations["postApiProjectsByIdInvitationsByInvitationIdResend"];
         delete?: never;
         options?: never;
         head?: never;
@@ -529,6 +589,26 @@ export interface paths {
          */
         put: operations["putApiProjectsByIdOwner"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept a project invitation
+         * @description Redeem an invitation link and join the board it names. The caller must be signed in but need not be signed in as the invited address — an invitation is a grant to whoever holds the link, so someone who signs up under a different address can still accept. Joining consumes the invitation: a second attempt with the same token answers 422, as does one that was revoked, expired, or whose board has been deleted. A caller who already has access joins nothing, so the link survives for whoever it was addressed to and the response reports the access they already had — an existing member is never demoted, and the board’s owner is always an editor. There is no project id in the path because the holder of a link does not know it.
+         */
+        post: operations["postApiInvitationsAccept"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1525,19 +1605,43 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
-        ProjectMemberUserResponse: {
+        AddMemberByEmailResponse: {
+            invitation: components["schemas"]["ProjectInvitation"] | null;
             /** @enum {unknown} */
             role: "editor" | "viewer";
-            user: components["schemas"]["User"];
+            /** @enum {unknown} */
+            status: "invited" | "member";
+            user: components["schemas"]["User"] | null;
+        };
+        ProjectInvitation: {
+            created_at: string;
+            email: string;
+            expires_at: string;
+            id: string;
+            invited_by: string;
+            project_id: string;
+            /** @enum {unknown} */
+            role: "editor" | "viewer";
         };
         AddProjectMemberByEmail: {
             email: string;
             /** @enum {unknown} */
             role?: "editor" | "viewer";
         };
+        ProjectInvitationsResponse: {
+            invitations: components["schemas"]["ProjectInvitation"][];
+        };
         SetProjectOwner: {
             /** Format: uuid */
             user_id: string;
+        };
+        AcceptedInvitation: {
+            project_id: string;
+            /** @enum {unknown} */
+            role: "editor" | "viewer";
+        };
+        AcceptInvitation: {
+            token: string;
         };
         Column: {
             created_at: string;
@@ -3538,13 +3642,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The added (or already present) member */
+            /** @description The added member, or the pending invitation that was created */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectMemberUserResponse"];
+                    "application/json": components["schemas"]["AddMemberByEmailResponse"];
                 };
             };
             /** @description Bad Request */
@@ -3583,13 +3687,230 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation error */
+            /** @description Validation error or domain-rule violation */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationError"];
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiProjectsByIdInvitations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project’s pending invitations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInvitationsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiProjectsByIdInvitationsByInvitationId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                invitationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiProjectsByIdInvitationsByInvitationIdResend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                invitationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation resent */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Internal Server Error */
@@ -3656,6 +3977,57 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiInvitationsAccept: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInvitation"];
+            };
+        };
+        responses: {
+            /** @description The board that was joined, and the role held on it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedInvitation"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

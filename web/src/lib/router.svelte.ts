@@ -14,6 +14,7 @@ export type Route =
   | { name: 'forgot-password' }
   | { name: 'reset-password'; params: { token?: string } }
   | { name: 'unsubscribe'; params: { token?: string } }
+  | { name: 'invite'; params: { token?: string } }
   | { name: 'verify-email'; params: { token?: string } }
   | {
       name: 'project';
@@ -101,6 +102,7 @@ export function matchRoute(pathname: string, search = ''): Route {
   if (path === '/forgot-password') return { name: 'forgot-password' };
   if (path === '/reset-password') return { name: 'reset-password', params: tokenParam(search) };
   if (path === '/unsubscribe') return { name: 'unsubscribe', params: tokenParam(search) };
+  if (path === '/invite') return { name: 'invite', params: tokenParam(search) };
   if (path === '/verify-email') return { name: 'verify-email', params: tokenParam(search) };
   let params = matchPattern('/projects/:id', path);
   if (params) return projectRoute(params.id!, 'board', search);
