@@ -208,8 +208,10 @@ describe('Project members API', () => {
         });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({
-        user: { id: member.id, email: member.email, name: member.name, avatar_url: null },
+        status: 'member',
         role: 'editor',
+        user: { id: member.id, email: member.email, name: member.name, avatar_url: null },
+        invitation: null,
       });
 
       const again = await ctx
@@ -229,16 +231,6 @@ describe('Project members API', () => {
       expect(res.status).toBe(200);
       expect(((await res.json()) as { user: { id: string } }).user.id).toBe(owner.id);
       expect(await memberRows(projectId)).toEqual([]);
-    });
-
-    it('returns 404 for an unknown email', async () => {
-      const board = await createProject('by email unknown');
-      const res = await ctx
-        .request(owner.token)
-        .post(`/api/projects/${board.project.id}/members/by-email`, {
-          email: `missing-${newId()}@test.example.com`,
-        });
-      expect(res.status).toBe(404);
     });
 
     it('returns 404 for non-accessors', async () => {

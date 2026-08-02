@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
+import { inProjectLockOrder } from './projectLock';
 
 export interface OwnedProject {
   id: string;
@@ -11,11 +12,12 @@ export interface OwnedProject {
 // can hand the caller someone else's board mid-request, and a member add on a
 // row in here has to wait rather than slip in behind the shared check.
 export async function lockOwnedProjects(db: Kysely<DB>, userId: string): Promise<OwnedProject[]> {
-  return await db
+  const rows = await db
     .selectFrom('project')
     .select((eb) => [
       'project.id',
       'project.name',
+      'project.created_at',
       eb
         .exists(
           eb
@@ -27,10 +29,13 @@ export async function lockOwnedProjects(db: Kysely<DB>, userId: string): Promise
         .as('shared'),
     ])
     .where('project.created_by', '=', userId)
-    .orderBy('project.created_at')
-    .orderBy('project.id')
-    .forUpdate()
+    .$call(inProjectLockOrder)
     .execute();
+  // Taken in one order and listed in another: these names are read by a person,
+  // and the order rows are locked in is not up to this query.
+  return rows
+    .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
+    .map(({ id, name, shared }) => ({ id, name, shared }));
 }
 
 // Deliberately narrower than "everything created_by the user": a board that
