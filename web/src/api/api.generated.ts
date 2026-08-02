@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/owner-decisions/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -320,7 +320,7 @@ export interface paths {
         };
         /**
          * Export project
-         * @description Download everything in a project. The default zip holds project.json (the manifest below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes of every attached image, so the archive survives losing the account. Archived cards are not exported, matching every other read of the board. Pass format=json for the manifest alone. The manifest is the documented, stable interchange format the importer reads back: format identifies it, version is bumped only on a breaking shape change, and ids are the original server ids — created_by, member_ids and assignee_ids resolve against users[], label_ids against labels[], column_id against columns[], and blocker_ids against tasks[]. Task descriptions are stored verbatim, so their embedded /api/images/<uuid> sources resolve by id against the flattened tasks[].images[]. Each image entry carries the archive-relative path of its file. Every project member may export; the export is free and never gated. A project whose images would exceed the 4 GiB zip ceiling answers 413 and must be exported with format=json, which carries no image bytes — fetch those from GET /api/images/{id}, one per tasks[].images[].id.
+         * @description Download everything in a project. The default zip holds project.json (the manifest below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes of every attached image, so the archive survives losing the account. Archived cards are exported too, after the live ones, each carrying the archived_at that marks it and the column_id it was archived from; a live card has archived_at null. Pass format=json for the manifest alone. The manifest is the documented, stable interchange format the importer reads back: format identifies it, version is bumped only on a breaking shape change, and ids are the original server ids — created_by, member_ids and assignee_ids resolve against users[], label_ids against labels[], column_id against columns[], and blocker_ids against tasks[]. Task descriptions are stored verbatim, so their embedded /api/images/<uuid> sources resolve by id against the flattened tasks[].images[]. Each image entry carries the archive-relative path of its file. Every project member may export; the export is free and never gated. A project whose images would exceed the 4 GiB zip ceiling answers 413 and must be exported with format=json, which carries no image bytes — fetch those from GET /api/images/{id}, one per tasks[].images[].id.
          */
         get: operations["getApiProjectsByIdExport"];
         put?: never;
@@ -832,7 +832,7 @@ export interface paths {
         };
         /**
          * Search tasks across projects
-         * @description Search task titles and description text across every non-archived project the caller can access; projects they cannot access simply do not appear. Archived cards are excluded. q is trimmed and must be 2 to 200 characters. Every word in q must match, and each word matches as a prefix of an indexed word, so typing more of a word narrows the results rather than emptying them; the exception is a partially typed inflection that has outgrown the indexed word, which drops out until it is finished (a card titled "Fix the login test" matches test and testing but not testi). Mentions match on the name they display. Ranked with title matches above description matches, capped at 50 results with truncated set when more matched.
+         * @description Search task titles and description text across every non-archived project the caller can access; projects they cannot access simply do not appear. Archived cards are excluded. q is trimmed and must be 1 to 200 characters. Every word in q must match, and each word matches as a prefix of an indexed word, so typing more of a word narrows the results rather than emptying them; the exception is a partially typed inflection that has outgrown the indexed word, which drops out until it is finished (a card titled "Fix the login test" matches test and testing but not testi). Mentions match on the name they display. Ranked with title matches above description matches, capped at 50 results with truncated set when more matched.
          */
         get: operations["getApiSearch"];
         put?: never;
@@ -1337,6 +1337,7 @@ export interface components {
             labels: components["schemas"]["BoardLabel"][];
             project: components["schemas"]["Project"];
             tasks: {
+                archived_at: components["schemas"]["UserAvatarurl"];
                 assignee_ids: string[];
                 blocker_ids: string[];
                 column_id: string;
@@ -1650,8 +1651,8 @@ export interface components {
             disabled_at: components["schemas"]["UserAvatarurl"];
             id: string;
             project_id: string;
-            secret: string;
             url: string;
+            secret?: string;
         };
         CreateWebhook: {
             /** Format: uuid */

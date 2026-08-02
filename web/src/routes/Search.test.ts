@@ -87,14 +87,14 @@ describe('Search page', () => {
     expect(router.path).toBe('/search?q=shi');
   });
 
-  it('asks for at least two characters instead of firing a doomed request', async () => {
+  it('searches on a single character', async () => {
     respondWith([]);
     renderAt('');
 
     await type('s');
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByRole('status')).toHaveTextContent('at least 2 characters');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(new URL(requestAt(0).url).searchParams.get('q')).toBe('s');
   });
 
   it('commits on Enter without waiting out the debounce', async () => {
