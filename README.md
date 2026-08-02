@@ -102,7 +102,8 @@ row: a viewer attempting a mutation, and the two owner-only operations
   with one exact, case-insensitive address and answers
   `{ status, role, user, invitation }`. An address that already has an account
   is added straight away (`status: "member"`, `user` populated,
-  `invitation: null`); one that does not gets a pending invitation instead
+  `invitation: null`, and any invitation still pending for that address on the
+  board is dropped); one that does not gets a pending invitation instead
   (`status: "invited"`, `user: null`) — see
   [Pending invitations](#pending-invitations). `role` defaults to `editor`;
   omitting it on a re-invite leaves an existing member's or invitation's role
@@ -142,7 +143,8 @@ Sharing a board with an address that has no account yet stores a
 grants nothing until it is claimed, it can be revoked by deleting it, and it
 cascades away with either its project or the account that sent it.
 
-An invitation is claimed in exactly two ways, and both consume it:
+An invitation is claimed in exactly two ways, and joining through either
+consumes it:
 
 - **signing up with the invited address.** Every unexpired invitation for that
   address, across every project, takes effect during signup at its invited
@@ -159,6 +161,14 @@ invitation for a board you already edit leaves you an editor — and it sends no
 "you were added to a board" mail, because the person just clicked the
 invitation.
 
+A claimer who already has access joins nothing, so the row is left alone rather
+than spent: an owner opening the copy that was mailed to them, or a member
+following a forwarded link, does not destroy the invitation the recipient is
+still holding. The response reports the access they already had. Because the
+row is consumed inside the same statement that grants from it, a revoke landing
+mid-claim always wins outright — the joiner is granted nothing rather than
+seated on an invitation that was already withdrawn.
+
 - `GET /api/projects/:id/invitations` lists what is outstanding, expired rows
   included with their `expires_at` so the UI can offer resend rather than let
   them vanish. **Editors only**: the list is a management surface made entirely
@@ -170,7 +180,16 @@ invitation.
 - `POST /api/projects/:id/invitations/:invitationId/resend` mails it again and
   gives it a fresh 14-day deadline, which is also how an expired invitation is
   revived. **The link does not change**, so the copy the recipient already has
-  keeps working.
+  keeps working. It also re-derives the stored hash, so rows left unredeemable
+  by a rotation of the signing secret are repaired by a resend rather than
+  needing revoke-and-reinvite.
+
+Sharing with an address that has since gained an account drops any invitation
+still pending for it, since only signup claims one: the row could never be
+consumed again, while its link stayed redeemable by anyone holding it. Pending
+invitations are also revoked when the account that sent them loses write access
+to the board, so a demoted or removed editor cannot re-admit themselves days
+later through a link they sent in advance.
 
 Tokens are never returned by any response; the raw token exists only in the
 email. It is derived by HMAC from the row id under `EMAIL_TOKEN_SECRET` rather
@@ -179,10 +198,15 @@ without persisting a usable secret. It authenticates nothing: it is not
 accepted as a bearer credential and creates no session.
 
 Limits: 100 pending invitations per project (expired ones count until revoked)
-answers 422; 20 invitation emails an hour per inviter and 3 resends an hour per
+answers 422; 20 share attempts an hour per inviter and 3 re-mails an hour per
 invitation answer 429. This is the only path that mails an address nobody has
 proved they control, so those limits are what bound both outbound mail and the
-rate at which an editor can probe which addresses have accounts.
+rate at which an editor can probe which addresses have accounts. Bounding the
+probe is why the hourly budget is spent before the address is looked up, on
+every call — a budget charged only when the address turns out to have no
+account would leave probing for the ones that do unmetered, and would make the
+429 itself the answer. The per-invitation budget covers re-inviting the same
+address as well as `/resend`, since both re-mail the identical link.
 
 An invitation is a 14-day grant to whoever controls that mailbox, which is the
 same trust model as adding a member by email. If the address is claimed by a
@@ -1137,7 +1161,7 @@ cpath task restore "Fix the bug" --project "My Project"
 cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Project"
 cpath project invite "My Project" --email them@example.com --role viewer  # editor by default
 cpath project invitations "My Project"  # pending invites: id, email, role, expiry
-cpath project resend-invite "My Project" --id 3f9a1c2b   # revoke-invite withdraws one
+cpath project resend-invite "My Project" --id 3f9a1c2b   # id as listed, a prefix, or the address
 cpath project set-role "My Project" them@example.com --role editor
 cpath project members "My Project"      # ROLE column reads owner / editor / viewer
 cpath config set default-project "My Project"   # makes --project optional
@@ -1246,8 +1270,8 @@ npm run openapi:dump && npm run --prefix cli generate-api
   for one that does not. Removing that would mean making every share an
   invitation that has to be accepted, which would end instant sharing with
   someone who already has an account. It is bounded to editors of a project and
-  to 20 unknown addresses an hour each; no unauthenticated route reveals
-  anything about an address.
+  to 20 addresses an hour each, whatever the answer; no unauthenticated route
+  reveals anything about an address.
 - Float `position` ordering with no automatic rebalancing.
 - Project roles are only `editor` and `viewer`. Every editor can rename,
   archive and publish the board and manage its member set — including demoting

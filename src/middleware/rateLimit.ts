@@ -170,29 +170,31 @@ export const INVITE_RESEND_MAX_ATTEMPTS = 3;
 
 // The only path that mails an address nobody has proved they control, so this
 // is what bounds both outbound mail and the rate at which a project editor can
-// probe which addresses already have accounts.
-export async function enforceInvitationRateLimit(
-  userId: string,
-  invitationId?: string
-): Promise<void> {
-  const now = Date.now();
-  const userAllowed = await consumeRateLimit(
+// probe which addresses already have accounts. Bounding the probe means every
+// share attempt spends it, not only the ones that end in an invitation.
+export async function enforceInvitationRateLimit(userId: string): Promise<void> {
+  const allowed = await consumeRateLimit(
     `invite-user:${userId}`,
-    now,
+    Date.now(),
     INVITE_USER_MAX_ATTEMPTS,
     INVITE_USER_WINDOW_MS
   );
-  // Tighter per-invitation budget on a resend: the inviter's hourly total does
-  // not stop one address being mailed over and over.
-  const inviteAllowed =
-    invitationId === undefined ||
-    (await consumeRateLimit(
-      `invite-resend:${invitationId}`,
-      now,
-      INVITE_RESEND_MAX_ATTEMPTS,
-      INVITE_RESEND_WINDOW_MS
-    ));
-  if (!userAllowed || !inviteAllowed) {
+  if (!allowed) {
+    throw new AppError(429, 'Too many invitations, please try again later');
+  }
+}
+
+// Tighter, and keyed on the invitation rather than the caller: the inviter's
+// hourly total does not stop one address being mailed the same link over and
+// over, by them or by a second editor.
+export async function enforceInvitationResendRateLimit(invitationId: string): Promise<void> {
+  const allowed = await consumeRateLimit(
+    `invite-resend:${invitationId}`,
+    Date.now(),
+    INVITE_RESEND_MAX_ATTEMPTS,
+    INVITE_RESEND_WINDOW_MS
+  );
+  if (!allowed) {
     throw new AppError(429, 'Too many invitations, please try again later');
   }
 }

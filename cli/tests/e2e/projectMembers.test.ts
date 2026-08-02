@@ -124,6 +124,28 @@ describe('project member commands', () => {
     expect(after.stdout).toContain('No pending invitations');
   });
 
+  it('resends and revokes using the id exactly as the table prints it', async () => {
+    const address = `cli-printed-${crypto.randomUUID()}@test.example.com`;
+    expect((await h.runCli(['project', 'invite', projectId, '--email', address])).exitCode).toBe(0);
+
+    const table = await h.runCli(['project', 'invitations', projectId]);
+    const printedId = table.stdout
+      .split('\n')
+      .find((line) => line.includes(address))!
+      .trim()
+      .split(/\s+/)[0];
+
+    const resent = await h.runCli(['project', 'resend-invite', projectId, '--id', printedId]);
+    expect(resent.exitCode).toBe(0);
+    expect(resent.stdout).toContain(address);
+
+    const revoked = await h.runCli(['project', 'revoke-invite', projectId, '--id', printedId]);
+    expect(revoked.exitCode).toBe(0);
+
+    const after = await h.runCli(['project', 'invitations', projectId, '--json']);
+    expect(after.json<{ email: string }[]>().map((entry) => entry.email)).not.toContain(address);
+  });
+
   it('set-members replaces the member list and strips the owner', async () => {
     const res = await h.runCli([
       'project',

@@ -5,7 +5,11 @@ import { env } from '../config/env';
 import type { DB, ProjectInvitation } from '../db/types';
 import { getEmailSender } from './email/index';
 import { normalizeProjectRole, type ProjectRole } from './authorization';
-import { PROJECT_COLUMNS, fetchMembers, publishProjectListItem } from './projectListItem';
+import {
+  PROJECT_COLUMNS,
+  publishProjectListItems,
+  type ProjectMemberEntry,
+} from './projectListItem';
 import { hashBearerToken } from './sessions';
 import type { AppContext } from '../types/index';
 import type { ProjectInvitationResponse } from '../schemas/projects';
@@ -97,23 +101,53 @@ export async function claimInvitations(
     return [];
   }
 
+  const projectIds = rows.map((row) => row.project_id);
   const projects = await db
     .selectFrom('project')
     .select(PROJECT_COLUMNS)
-    .where(
-      'id',
-      'in',
-      rows.map((row) => row.project_id)
-    )
+    .where('id', 'in', projectIds)
     .execute();
   const projectById = new Map(projects.map((project) => [project.id, project]));
 
-  const joined = rows.filter((row) => projectById.get(row.project_id)?.created_by !== userId);
-  if (joined.length > 0) {
+  const held = await db
+    .selectFrom('project_member')
+    .select(['project_id', 'role'])
+    .where('user_id', '=', userId)
+    .where('project_id', 'in', projectIds)
+    .execute();
+  const heldRole = new Map(held.map((row) => [row.project_id, normalizeProjectRole(row.role)]));
+
+  // Someone who already has access takes nothing from the link, so it stays
+  // alive for whoever it was addressed to; a project that vanished under the
+  // claim has nothing for a member row to reference.
+  const grantable = rows.filter((row) => {
+    const project = projectById.get(row.project_id);
+    return project !== undefined && project.created_by !== userId && !heldRole.has(row.project_id);
+  });
+
+  // Consumed before it is honoured, and only rows this statement removed are:
+  // whichever transaction takes the row is then the only one that can grant
+  // from it, however the reads either side of it interleaved.
+  const consumed =
+    grantable.length === 0
+      ? []
+      : await db
+          .deleteFrom('project_invitation')
+          .where(
+            'id',
+            'in',
+            grantable.map((row) => row.id)
+          )
+          .returning('id')
+          .execute();
+  const consumedIds = new Set(consumed.map((row) => row.id));
+  const granted = grantable.filter((row) => consumedIds.has(row.id));
+
+  if (granted.length > 0) {
     await db
       .insertInto('project_member')
       .values(
-        joined.map((row) => ({
+        granted.map((row) => ({
           project_id: row.project_id,
           user_id: userId,
           role: normalizeProjectRole(row.role),
@@ -123,29 +157,25 @@ export async function claimInvitations(
       .execute();
   }
 
-  await db
-    .deleteFrom('project_invitation')
-    .where(
-      'id',
-      'in',
-      rows.map((row) => row.id)
-    )
-    .execute();
+  await publishProjectListItems(
+    c,
+    db,
+    granted.flatMap((row) => projectById.get(row.project_id) ?? [])
+  );
 
+  const grantedRole = new Map(
+    granted.map((row) => [row.project_id, normalizeProjectRole(row.role)])
+  );
   const claimed: ClaimedInvitation[] = [];
   for (const row of rows) {
     const project = projectById.get(row.project_id);
     if (!project) continue;
-    const members = await fetchMembers(db, project.id);
-    await publishProjectListItem(c, db, project, members);
-    claimed.push({
-      project_id: project.id,
-      role:
-        project.created_by === userId
-          ? 'editor'
-          : (members.find((member) => member.user_id === userId)?.role ??
-            normalizeProjectRole(row.role)),
-    });
+    const role =
+      project.created_by === userId
+        ? 'editor'
+        : (heldRole.get(row.project_id) ?? grantedRole.get(row.project_id));
+    if (role === undefined) continue;
+    claimed.push({ project_id: project.id, role });
   }
   return claimed;
 }
@@ -164,6 +194,28 @@ export async function claimInvitationsForNewAccount(
     .select(['id', 'project_id', 'role'])
     .where('email_lower', '=', email.toLowerCase())
     .where('expires_at', '>', new Date())
+    // Locked like the redemption path, so a revoke waits for the claim to
+    // finish instead of landing inside it.
+    .forUpdate()
     .execute();
   return claimInvitations(c, db, userId, rows);
+}
+
+// Write access is what makes an invitation an editor-grant, so losing it has to
+// take the outstanding grants along rather than let them land days later.
+export async function revokeInvitationsFromNonEditors(
+  db: Kysely<DB>,
+  projectId: string,
+  createdBy: string,
+  members: ProjectMemberEntry[]
+): Promise<void> {
+  const editorIds = [
+    createdBy,
+    ...members.filter((member) => member.role === 'editor').map((member) => member.user_id),
+  ];
+  await db
+    .deleteFrom('project_invitation')
+    .where('project_id', '=', projectId)
+    .where('invited_by', 'not in', editorIds)
+    .execute();
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
-import { db } from '../../helpers/database';
+import { db, waitForLockWaiters } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects } from '../projects/helpers';
 import { clearSentEmails, sentEmails } from '../../../src/services/email/index';
@@ -13,6 +13,8 @@ import {
 import {
   INVITATION_TTL_MS,
   MAX_PENDING_INVITATIONS_PER_PROJECT,
+  claimInvitations,
+  invitationToken,
   invitationTokenHash,
 } from '../../../src/services/invitations';
 
@@ -176,7 +178,7 @@ describe('Pending project invitations', () => {
       expect(invitationMailTo(address).to).toBe(address);
     });
 
-    it('re-inviting the same address keeps one row, one link, and extends the deadline', async () => {
+    it('re-inviting the same address keeps one row and one link', async () => {
       const board = await createProject('inv reinvite');
       const address = uniqueEmail('inv-again');
 
@@ -191,10 +193,31 @@ describe('Pending project invitations', () => {
       const rows = await invitationRows(board.project.id);
       expect(rows).toHaveLength(1);
       expect(rows[0].token_hash).toBe(firstRow.token_hash);
-      expect(rows[0].expires_at.getTime()).toBeGreaterThanOrEqual(firstRow.expires_at.getTime());
       // The link already in the mailbox has to keep working, so a re-invite
       // must not rotate the token.
       expect(inviteTokenFrom(invitationMailTo(address).text)).toBe(firstToken);
+    });
+
+    it('re-inviting a lapsed address extends the deadline and makes its link work again', async () => {
+      const board = await createProject('inv reinvite expiry');
+      const address = uniqueEmail('inv-reinvite-expiry');
+
+      const first = await invite(board.project.id, address);
+      const token = inviteTokenFrom(invitationMailTo(address).text);
+      await expireInvitation(first.invitation!.id);
+      const lapsed = (await invitationRows(board.project.id))[0];
+      expect(
+        (await ctx.request(outsider.token).post('/api/invitations/accept', { token })).status
+      ).toBe(422);
+
+      await invite(board.project.id, address);
+
+      const rows = await invitationRows(board.project.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].expires_at.getTime()).toBeGreaterThan(lapsed.expires_at.getTime());
+      const accept = await ctx.request(outsider.token).post('/api/invitations/accept', { token });
+      expect(accept.status).toBe(200);
+      expect(await roleOf(board.project.id, outsider.id)).toBe('editor');
     });
 
     it('changes the invited role only when a role is supplied', async () => {
@@ -278,6 +301,22 @@ describe('Pending project invitations', () => {
       ]);
     });
 
+    it('skips an invitation whose project vanished under the claim instead of failing', async () => {
+      const board = await createProject('inv vanished');
+      const address = uniqueEmail('inv-vanished');
+      const body = await invite(board.project.id, address);
+      const claimer = await ctx.createUser('inv-vanished-claimer');
+
+      // The read that hands rows to the claim runs before the project is
+      // re-read, so a delete landing between them presents exactly this.
+      const claimed = await claimInvitations({ get: () => [] } as never, db, claimer.id, [
+        { id: body.invitation!.id, project_id: newId(), role: 'editor' },
+      ]);
+
+      expect(claimed).toEqual([]);
+      expect(await invitationRows(board.project.id)).toHaveLength(1);
+    });
+
     it('ignores an expired invitation and leaves the account with no access', async () => {
       const board = await createProject('inv signup expired');
       const address = uniqueEmail('inv-signup-expired');
@@ -305,6 +344,45 @@ describe('Pending project invitations', () => {
 
       const account = await signUp(address);
       expect(await roleOf(board.project.id, account.id)).toBeUndefined();
+    });
+
+    it('loses to a revoke that is already holding the row, granting nothing', async () => {
+      const board = await createProject('inv signup revoke race');
+      const address = uniqueEmail('inv-signup-race');
+      const body = await invite(board.project.id, address);
+
+      let deleted!: () => void;
+      const deleteIssued = new Promise<void>((resolve) => {
+        deleted = resolve;
+      });
+      let commit!: () => void;
+      const released = new Promise<void>((resolve) => {
+        commit = resolve;
+      });
+      // The revoke's delete is issued and left uncommitted, so it owns the row
+      // for as long as this transaction is open. Signup then has to meet it
+      // mid-claim rather than be raced against it.
+      const revoke = db.transaction().execute(async (trx) => {
+        await trx.deleteFrom('project_invitation').where('id', '=', body.invitation!.id).execute();
+        deleted();
+        await released;
+      });
+      await Promise.race([deleteIssued, revoke]);
+
+      const signup = signUp(address);
+      try {
+        await waitForLockWaiters(1);
+      } finally {
+        commit();
+      }
+      await revoke;
+      const account = await signup;
+
+      expect(await roleOf(board.project.id, account.id)).toBeUndefined();
+      expect(
+        (await ctx.request(account.token).get(`/api/projects/${board.project.id}`)).status
+      ).toBe(404);
+      expect(await invitationRows(board.project.id)).toEqual([]);
     });
 
     it('never claims an invitation on an address change, only at signup', async () => {
@@ -351,6 +429,25 @@ describe('Pending project invitations', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ project_id: board.project.id, role: 'editor' });
       expect(await roleOf(board.project.id, member.id)).toBe('editor');
+      expect(await invitationRows(board.project.id)).toHaveLength(1);
+    });
+
+    it('leaves the link alive when the board’s owner redeems it, and stores them nothing', async () => {
+      const board = await createProject('inv accept owner');
+      const address = uniqueEmail('inv-accept-owner');
+      await invite(board.project.id, address, 'viewer');
+      const token = inviteTokenFrom(invitationMailTo(address).text);
+
+      const res = await ctx.request(owner.token).post('/api/invitations/accept', { token });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ project_id: board.project.id, role: 'editor' });
+      expect(await roleOf(board.project.id, owner.id)).toBeUndefined();
+      expect(await invitationRows(board.project.id)).toHaveLength(1);
+
+      // The invitee is the point: the owner checking the link must not spend it.
+      const invitee = await signUp(address);
+      expect(await roleOf(board.project.id, invitee.id)).toBe('viewer');
+      expect(await invitationRows(board.project.id)).toEqual([]);
     });
 
     it('answers 422 for an expired invitation and grants nothing', async () => {
@@ -452,6 +549,82 @@ describe('Pending project invitations', () => {
 
       const accept = await ctx.request(outsider.token).post('/api/invitations/accept', { token });
       expect(accept.status).toBe(200);
+    });
+
+    it('a resend reissues a link that a rotated signing secret orphaned', async () => {
+      const board = await createProject('inv rotate');
+      const address = uniqueEmail('inv-rotate');
+      const body = await invite(board.project.id, address);
+
+      process.env.EMAIL_TOKEN_SECRET = 'rotated-invitation-signing-secret';
+      try {
+        const orphaned = await ctx
+          .request(outsider.token)
+          .post('/api/invitations/accept', { token: invitationToken(body.invitation!.id) });
+        expect(orphaned.status).toBe(422);
+
+        clearSentEmails();
+        expect(
+          (
+            await ctx
+              .request(owner.token)
+              .post(`/api/projects/${board.project.id}/invitations/${body.invitation!.id}/resend`)
+          ).status
+        ).toBe(204);
+
+        const token = inviteTokenFrom(invitationMailTo(address).text);
+        expect(
+          (await ctx.request(outsider.token).post('/api/invitations/accept', { token })).status
+        ).toBe(200);
+      } finally {
+        delete process.env.EMAIL_TOKEN_SECRET;
+      }
+    });
+
+    it('drops a pending invitation once its address turns out to have an account', async () => {
+      const board = await createProject('inv supersede');
+      const address = uniqueEmail('inv-supersede');
+      await invite(board.project.id, address);
+      const token = inviteTokenFrom(invitationMailTo(address).text);
+
+      const mover = await ctx.createUser('inv-supersede-mover');
+      expect(
+        (await ctx.request(mover.token).patch('/api/auth/me', { email: address })).status
+      ).toBe(200);
+
+      const again = await invite(board.project.id, address);
+      expect(again.status).toBe('member');
+      expect(await invitationRows(board.project.id)).toEqual([]);
+      expect(
+        (await ctx.request(outsider.token).post('/api/invitations/accept', { token })).status
+      ).toBe(422);
+    });
+
+    it('revokes the invitations of an editor who is demoted, keeping the rest', async () => {
+      const board = await createProject('inv demote');
+      await invite(board.project.id, member.email, 'editor');
+
+      const theirs = uniqueEmail('inv-demote-theirs');
+      const fromMember = await invite(board.project.id, theirs, undefined, member);
+      const token = inviteTokenFrom(invitationMailTo(theirs).text);
+      const ours = uniqueEmail('inv-demote-ours');
+      await invite(board.project.id, ours);
+
+      expect(
+        (
+          await ctx.request(owner.token).put(`/api/projects/${board.project.id}/members`, {
+            user_ids: [member.id],
+            roles: [{ user_id: member.id, role: 'viewer' }],
+          })
+        ).status
+      ).toBe(204);
+
+      const rows = await invitationRows(board.project.id);
+      expect(rows.map((row) => row.email)).toEqual([ours]);
+      expect(rows.map((row) => row.id)).not.toContain(fromMember.invitation!.id);
+      expect(
+        (await ctx.request(outsider.token).post('/api/invitations/accept', { token })).status
+      ).toBe(422);
     });
 
     it('answers 404 for an invitation belonging to another project', async () => {
@@ -607,6 +780,42 @@ describe('Pending project invitations', () => {
       expect(throttled.status).toBe(429);
       expect(sentEmails()).toHaveLength(INVITE_USER_MAX_ATTEMPTS);
       expect(await invitationRows(board.project.id)).toHaveLength(INVITE_USER_MAX_ATTEMPTS);
+    });
+
+    it('spends the hourly budget on addresses that have accounts too, so 429 answers nothing', async () => {
+      const board = await createProject('inv oracle');
+      const path = `/api/projects/${board.project.id}/members/by-email`;
+
+      for (let i = 0; i < INVITE_USER_MAX_ATTEMPTS; i++) {
+        expect((await ctx.request(owner.token).post(path, { email: member.email })).status).toBe(
+          200
+        );
+      }
+
+      const known = await ctx.request(owner.token).post(path, { email: viewer.email });
+      const unknown = await ctx
+        .request(owner.token)
+        .post(path, { email: uniqueEmail('inv-probe') });
+      expect(known.status).toBe(429);
+      expect(unknown.status).toBe(429);
+      expect(await known.json()).toEqual(await unknown.json());
+      expect(await roleOf(board.project.id, viewer.id)).toBeUndefined();
+      expect(sentEmails()).toEqual([]);
+    });
+
+    it('answers 429 past the per-invitation budget when by-email re-mails the same link', async () => {
+      const board = await createProject('inv reinvite budget');
+      const address = uniqueEmail('inv-reinvite-budget');
+      const path = `/api/projects/${board.project.id}/members/by-email`;
+
+      // One create, then the whole per-invitation budget spent on re-mails.
+      for (let i = 0; i <= INVITE_RESEND_MAX_ATTEMPTS; i++) {
+        expect((await ctx.request(owner.token).post(path, { email: address })).status).toBe(200);
+      }
+      expect((await ctx.request(owner.token).post(path, { email: address })).status).toBe(429);
+      expect(sentEmails().filter((message) => message.to === address)).toHaveLength(
+        INVITE_RESEND_MAX_ATTEMPTS + 1
+      );
     });
 
     it('answers 429 past the per-invitation resend budget', async () => {
