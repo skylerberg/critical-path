@@ -1,5 +1,6 @@
 import { db } from '../../db/index';
 import { logger } from '../../utils/logger';
+import { startWorker } from '../worker';
 import {
   CLAIM_BATCH,
   MAX_CONCURRENT_SENDS,
@@ -19,9 +20,6 @@ export interface RunDueDeliveriesOptions {
 
 const TICK_MS = 5000;
 const PRUNE_EVERY_TICKS = 120;
-// A tick that never finishes would hold the no-overlap latch and silently stop
-// this replica for good. Overrunning the budget only overlaps ticks, which the
-// SKIP LOCKED lease already tolerates across replicas.
 const TICK_BUDGET_MS = 120_000;
 
 export async function runDueDeliveries(options: RunDueDeliveriesOptions = {}): Promise<number> {
@@ -104,51 +102,19 @@ async function deliverOne(
   }
 }
 
-function logTickFailure(err: unknown): void {
-  logger.error({
-    msg: 'Webhook worker tick failed',
-    error: err instanceof Error ? err.message : String(err),
-  });
-}
-
 export function startWebhookWorker(): { close: () => void } {
-  let running = false;
   let ticks = 0;
 
-  const timer = setInterval(() => {
-    if (running) return;
-    running = true;
-    ticks += 1;
-    const shouldPrune = ticks % PRUNE_EVERY_TICKS === 0;
-    void (async () => {
-      const tick = (async () => {
-        await runDueDeliveries();
-        if (shouldPrune) {
-          await pruneDeliveries();
-        }
-      })().catch(logTickFailure);
-      let budget: NodeJS.Timeout | undefined;
-      try {
-        await Promise.race([
-          tick,
-          new Promise<never>((_, reject) => {
-            budget = setTimeout(
-              () => reject(new Error(`Tick exceeded ${String(TICK_BUDGET_MS)}ms`)),
-              TICK_BUDGET_MS
-            );
-          }),
-        ]);
-      } catch (err) {
-        logTickFailure(err);
-      } finally {
-        clearTimeout(budget);
-        running = false;
+  return startWorker({
+    name: 'Webhook',
+    tickMs: TICK_MS,
+    budgetMs: TICK_BUDGET_MS,
+    tick: async () => {
+      ticks += 1;
+      await runDueDeliveries();
+      if (ticks % PRUNE_EVERY_TICKS === 0) {
+        await pruneDeliveries();
       }
-    })();
-  }, TICK_MS);
-  timer.unref();
-
-  return {
-    close: () => clearInterval(timer),
-  };
+    },
+  });
 }
