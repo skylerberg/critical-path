@@ -1,16 +1,15 @@
 <script lang="ts">
   import type { Editor } from '@tiptap/core';
+  import { SvelteSet } from 'svelte/reactivity';
   import { board, type CommentBody, type TaskComment } from '../lib/board.svelte';
   import { formatFullDate, isCalendarDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { session } from '../lib/session.svelte';
-  import {
-    descriptionText,
-    taskActivity,
-    type TaskActivityEntry,
-  } from '../lib/taskActivity.svelte';
+  import { taskActivity, type TaskActivityEntry } from '../lib/taskActivity.svelte';
+  import { docToMarkdown, isEmptyDoc } from '../lib/tiptap';
   import { truncateTitle } from '../lib/titles';
   import { users, type User } from '../lib/users.svelte';
+  import ActivityPreviousValue from './ActivityPreviousValue.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
   import Avatar from './ui/Avatar.svelte';
   import Button from './ui/Button.svelte';
@@ -29,6 +28,12 @@
   type StreamItem =
     | { id: string; at: string; comment: TaskComment; entry?: undefined }
     | { id: string; at: string; entry: TaskActivityEntry; comment?: undefined };
+
+  type PreviousDoc = NonNullable<NonNullable<TaskActivityEntry['old_value']>['doc']>;
+
+  type PreviousValue =
+    | { kind: 'doc'; doc: PreviousDoc; summary: string; copyLabel: string }
+    | { kind: 'text'; text: string; summary: string; copyLabel: string };
 
   const comments = $derived(board.taskComments[taskId]);
   const mentionUsers = $derived(currentProjectMentionCandidates());
@@ -62,6 +67,7 @@
   let editingId = $state<string | null>(null);
   let editDoc = $state<CommentBody | null>(null);
   let confirmingDeleteId = $state<string | null>(null);
+  const expanded = new SvelteSet<string>();
 
   // Test seams: there is no way to type into a ProseMirror contenteditable under jsdom.
   export function getComposerEditor(): Editor | null {
@@ -78,6 +84,7 @@
     editDoc = null;
     composerDoc = null;
     confirmingDeleteId = null;
+    expanded.clear();
   });
 
   const dateFormat = new Intl.DateTimeFormat(undefined, {
@@ -138,6 +145,38 @@
   // look up, and a nameless placeholder renders as a blank byline.
   function nameOf(user: User): string {
     return user.name === '' ? 'Unknown user' : user.name;
+  }
+
+  function toggleExpanded(id: string): void {
+    if (expanded.has(id)) {
+      expanded.delete(id);
+    } else {
+      expanded.add(id);
+    }
+  }
+
+  // A rename whose old title the line above already shows whole would disclose
+  // nothing, so only one the display limit cut earns the affordance.
+  function previousValue(entry: TaskActivityEntry): PreviousValue | null {
+    const from = entry.old_value;
+    if (entry.kind === 'description_changed') {
+      const doc = from?.doc;
+      return doc == null || isEmptyDoc(doc)
+        ? null
+        : {
+            kind: 'doc',
+            doc,
+            summary: 'Show the previous description',
+            copyLabel: 'Copy as Markdown',
+          };
+    }
+    if (entry.kind === 'title_changed') {
+      const text = from?.text ?? '';
+      return truncateTitle(text) === text
+        ? null
+        : { kind: 'text', text, summary: 'Show the previous title in full', copyLabel: 'Copy' };
+    }
+    return null;
   }
 </script>
 
@@ -216,6 +255,7 @@
         {@const actorName = nameOf(actor)}
         {@const from = entry.old_value}
         {@const to = entry.new_value}
+        {@const previous = previousValue(entry)}
         <li class="flex gap-2">
           <Avatar name={actorName} src={actor.avatar_url} size="sm" />
           <div class="flex min-w-0 flex-1 flex-col gap-1">
@@ -267,13 +307,21 @@
                 restored this task
               {/if}
             </p>
-            {#if entry.kind === 'description_changed' && descriptionText(from?.doc) !== ''}
-              <details class="text-sm">
-                <summary class="min-h-11 cursor-pointer content-center text-muted">
-                  Show the previous description
-                </summary>
-                <p class="break-words whitespace-pre-wrap">{descriptionText(from?.doc)}</p>
-              </details>
+            {#if previous !== null}
+              <ActivityPreviousValue
+                summary={previous.summary}
+                copyLabel={previous.copyLabel}
+                copyText={() =>
+                  previous.kind === 'doc' ? docToMarkdown(previous.doc) : previous.text}
+                open={expanded.has(entry.id)}
+                ontoggle={() => toggleExpanded(entry.id)}
+              >
+                {#if previous.kind === 'doc'}
+                  <RichTextEditor content={previous.doc} readonly bare />
+                {:else}
+                  <p class="break-words whitespace-pre-wrap">{previous.text}</p>
+                {/if}
+              </ActivityPreviousValue>
             {/if}
           </div>
         </li>

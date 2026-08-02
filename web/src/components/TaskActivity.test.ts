@@ -1,5 +1,5 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import TaskActivity from './TaskActivity.svelte';
@@ -79,6 +79,31 @@ function entry(
   };
 }
 
+const previousDoc = {
+  type: 'doc' as const,
+  content: [
+    { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'what it said' }] },
+    {
+      type: 'bulletList',
+      content: [
+        {
+          type: 'listItem',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a point' }] }],
+        },
+      ],
+    },
+  ],
+};
+
+// Spreading navigator to stub it would drop the prototype getters the editor
+// reads, so only the one property moves.
+function stubClipboard(writeText: (text: string) => Promise<void>): void {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText },
+    configurable: true,
+  });
+}
+
 const dateFormat = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
   timeStyle: 'short',
@@ -117,6 +142,7 @@ function mockCommentApi(): void {
 }
 
 beforeEach(() => {
+  Reflect.deleteProperty(navigator, 'clipboard');
   fetchMock.mockReset();
   mockCommentApi();
   board.reset();
@@ -508,30 +534,199 @@ describe('TaskActivity history', () => {
     expect(items[1]!.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
   });
 
-  it('discloses the previous description only when there was one', async () => {
+  it('discloses the previous description only when there was one, and renders it formatted', async () => {
     taskActivity.entries = [
-      entry('a1', 'description_changed', {
-        old_value: {
-          doc: {
-            type: 'doc',
-            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'what it said' }] }],
-          },
-        },
-        new_value: { doc: null },
-      }),
+      entry('a1', 'description_changed', { old_value: { doc: previousDoc } }),
       entry('a2', 'description_changed', {
         old_value: { doc: null },
         new_value: { doc: { type: 'doc' } },
       }),
+      entry('a3', 'description_changed', {
+        old_value: { doc: { type: 'doc', content: [{ type: 'paragraph' }] } },
+      }),
     ];
 
-    render(TaskActivity, { taskId: 't1' });
+    const { container } = render(TaskActivity, { taskId: 't1' });
 
     const disclosures = screen.getAllByText('Show the previous description');
     expect(disclosures).toHaveLength(1);
     expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('edited the description');
+
     await fireEvent.click(disclosures[0]!);
-    expect(screen.getByText('what it said')).toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(container.querySelector('.rte-bare h2')).toHaveTextContent('what it said')
+    );
+    expect(container.querySelector('.rte-bare li')).toHaveTextContent('a point');
+  });
+
+  // The flattener this replaced read an image as no text at all, so a description
+  // that was one screenshot had nothing to show. The editor's image node is
+  // block-level, so that description is a bare image beside the paragraphs.
+  it('discloses a previous description that carries no text of its own', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    taskActivity.entries = [
+      entry('a1', 'description_changed', {
+        old_value: {
+          doc: { type: 'doc', content: [{ type: 'image', attrs: { src: '/api/images/a' } }] },
+        },
+      }),
+    ];
+
+    const { container } = render(TaskActivity, { taskId: 't1' });
+    await fireEvent.click(screen.getByText('Show the previous description'));
+
+    await waitFor(() =>
+      expect(container.querySelector('img')).toHaveAttribute('src', '/api/images/a')
+    );
+    await fireEvent.click(await screen.findByRole('button', { name: 'Copy as Markdown' }));
+    expect(writeText).toHaveBeenCalledWith('![](/api/images/a)');
+  });
+
+  // Every entry's body would otherwise be a live ProseMirror instance from the
+  // moment the card opens, because a shut <details> still renders its children.
+  it('mounts the editor for a previous description only once it is expanded', async () => {
+    taskActivity.entries = [
+      entry('a1', 'description_changed', { old_value: { doc: previousDoc } }),
+    ];
+
+    const { container } = render(TaskActivity, { taskId: 't1' });
+    await tick();
+    expect(container.querySelectorAll('.rte')).toHaveLength(1);
+    expect(container.querySelectorAll('.rte-bare')).toHaveLength(0);
+
+    await fireEvent.click(screen.getByText('Show the previous description'));
+    await waitFor(() => expect(container.querySelectorAll('.rte-bare')).toHaveLength(1));
+
+    await fireEvent.click(screen.getByText('Show the previous description'));
+    await waitFor(() => expect(container.querySelectorAll('.rte-bare')).toHaveLength(0));
+  });
+
+  it('turns the disclosure from state rather than from the browser default', async () => {
+    taskActivity.entries = [
+      entry('a1', 'description_changed', { old_value: { doc: previousDoc } }),
+    ];
+
+    const { container } = render(TaskActivity, { taskId: 't1' });
+    const details = container.querySelector('details')!;
+    expect(details.open).toBe(false);
+
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    screen.getByText('Show the previous description').dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(true);
+    await waitFor(() => expect(details.open).toBe(true));
+  });
+
+  it('copies the previous description as markdown and confirms it without a toast', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    taskActivity.entries = [
+      entry('a1', 'description_changed', { old_value: { doc: previousDoc } }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+    await fireEvent.click(screen.getByText('Show the previous description'));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Copy as Markdown' }));
+
+    expect(writeText).toHaveBeenCalledWith('## what it said\n\n- a point');
+    expect(await screen.findByRole('status')).toHaveTextContent('Copied');
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  // A toast raised from inside the task overlay renders under its backdrop.
+  it('reports a refused clipboard inline', async () => {
+    stubClipboard(vi.fn().mockRejectedValue(new Error('denied')));
+    taskActivity.entries = [
+      entry('a1', 'description_changed', { old_value: { doc: previousDoc } }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+    await fireEvent.click(screen.getByText('Show the previous description'));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Copy as Markdown' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Could not copy to the clipboard')
+    );
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('discloses a previous title only when the line above cut it, and copies it whole', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    stubClipboard(writeText);
+    const long = `${'the road goes ever on '.repeat(30)}end`;
+    taskActivity.entries = [
+      entry('a1', 'title_changed', { old_value: { text: long }, new_value: { text: 'Short' } }),
+      entry('a2', 'title_changed', { old_value: { text: 'Also short' }, new_value: { text: 'S' } }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const disclosures = screen.getAllByText('Show the previous title in full');
+    expect(disclosures).toHaveLength(1);
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('…');
+
+    await fireEvent.click(disclosures[0]!);
+    expect(await screen.findByText(long)).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(writeText).toHaveBeenCalledWith(long);
+  });
+
+  it('forgets a copy once the disclosure has been closed again', async () => {
+    stubClipboard(vi.fn().mockResolvedValue(undefined));
+    taskActivity.entries = [
+      entry('a1', 'description_changed', { old_value: { doc: previousDoc } }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+    await fireEvent.click(screen.getByText('Show the previous description'));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Copy as Markdown' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Copied');
+
+    await fireEvent.click(screen.getByText('Show the previous description'));
+    await fireEvent.click(screen.getByText('Show the previous description'));
+
+    expect((await screen.findByRole('status')).textContent?.trim()).toBe('');
+  });
+
+  // The overlay around this list is itself the scroll container, so an unbounded
+  // body would push the rest of the history off screen.
+  it('bounds the expanded body and keeps its scrolling to itself', async () => {
+    taskActivity.entries = [
+      entry('a1', 'description_changed', { old_value: { doc: previousDoc } }),
+    ];
+
+    const { container } = render(TaskActivity, { taskId: 't1' });
+    await fireEvent.click(screen.getByText('Show the previous description'));
+
+    await waitFor(() => expect(container.querySelector('.rte-bare')).not.toBeNull());
+    const box = container.querySelector('.rte-bare')!.parentElement!;
+    expect(box.classList).toContain('overflow-y-auto');
+    expect(box.classList).toContain('overscroll-contain');
+    expect([...box.classList].some((name) => name.startsWith('max-h-'))).toBe(true);
+  });
+
+  it('offers no expansion for a change the line already shows whole', () => {
+    taskActivity.entries = [
+      entry('a1', 'column_changed', {
+        old_value: { id: 'c1', name: 'Backlog' },
+        new_value: { id: 'c2', name: 'Doing' },
+      }),
+      entry('a2', 'label_removed', { old_value: { id: 'l1', name: 'bug' } }),
+      entry('a3', 'assignee_removed', { old_value: { id: 'u1', name: 'Ada Lovelace' } }),
+      entry('a4', 'blocker_removed', { old_value: { id: 't9', name: 'Ship the API' } }),
+      entry('a5', 'due_date_changed', { old_value: { text: '2026-08-03' } }),
+    ];
+
+    const { container } = render(TaskActivity, { taskId: 't1' });
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent(
+      'moved this from Backlog to Doing'
+    );
+    expect(container.querySelectorAll('details')).toHaveLength(0);
   });
 
   it('reports a failed log load inline rather than as a toast, without calling it empty', () => {
