@@ -1,5 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'vitest';
+import type { Kysely } from 'kysely';
 import { TestContext, TestUser } from '../../setup/testContext';
+import type { DB } from '../../../src/db/types';
 import { db, waitForLockWaiters } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects, insertTask } from '../projects/helpers';
@@ -54,6 +56,29 @@ async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> 
     unsubscribe();
   }
   return seen;
+}
+
+// Runs the statements and then sits on them, so the request under test has to
+// meet a write it cannot see rather than race one.
+function heldTransaction(work: (trx: Kysely<DB>) => Promise<unknown>): {
+  issued: Promise<unknown>;
+  commit: () => void;
+  done: Promise<void>;
+} {
+  let issue!: () => void;
+  const issued = new Promise<void>((resolve) => {
+    issue = resolve;
+  });
+  let commit!: () => void;
+  const released = new Promise<void>((resolve) => {
+    commit = resolve;
+  });
+  const done = db.transaction().execute(async (trx) => {
+    await work(trx);
+    issue();
+    await released;
+  });
+  return { issued: Promise.race([issued, done]), commit, done };
 }
 
 function invitationMailTo(address: string) {
@@ -425,31 +450,18 @@ describe('Pending project invitations', () => {
       const address = uniqueEmail('inv-signup-race');
       const body = await invite(board.project.id, address);
 
-      let deleted!: () => void;
-      const deleteIssued = new Promise<void>((resolve) => {
-        deleted = resolve;
-      });
-      let commit!: () => void;
-      const released = new Promise<void>((resolve) => {
-        commit = resolve;
-      });
-      // The revoke's delete is issued and left uncommitted, so it owns the row
-      // for as long as this transaction is open. Signup then has to meet it
-      // mid-claim rather than be raced against it.
-      const revoke = db.transaction().execute(async (trx) => {
-        await trx.deleteFrom('project_invitation').where('id', '=', body.invitation!.id).execute();
-        deleted();
-        await released;
-      });
-      await Promise.race([deleteIssued, revoke]);
+      const revoke = heldTransaction((trx) =>
+        trx.deleteFrom('project_invitation').where('id', '=', body.invitation!.id).execute()
+      );
+      await revoke.issued;
 
       const signup = signUp(address);
       try {
         await waitForLockWaiters(1);
       } finally {
-        commit();
+        revoke.commit();
       }
-      await revoke;
+      await revoke.done;
       const account = await signup;
 
       expect(await roleOf(board.project.id, account.id)).toBeUndefined();
@@ -585,33 +597,23 @@ describe('Pending project invitations', () => {
       await invite(board.project.id, address, 'editor');
       const token = inviteTokenFrom(invitationMailTo(address).text);
 
-      let inserted!: () => void;
-      const insertIssued = new Promise<void>((resolve) => {
-        inserted = resolve;
-      });
-      let commit!: () => void;
-      const released = new Promise<void>((resolve) => {
-        commit = resolve;
-      });
-      // Seats the redeemer as a viewer and holds it uncommitted, so the claim
-      // cannot see it in a read yet still meets it at the insert.
-      const seating = db.transaction().execute(async (trx) => {
-        await trx
+      // Seats the redeemer as a viewer, which the claim cannot see in a read yet
+      // still meets: the insert's foreign key takes the board row it is holding.
+      const seating = heldTransaction((trx) =>
+        trx
           .insertInto('project_member')
           .values({ project_id: board.project.id, user_id: outsider.id, role: 'viewer' })
-          .execute();
-        inserted();
-        await released;
-      });
-      await Promise.race([insertIssued, seating]);
+          .execute()
+      );
+      await seating.issued;
 
       const accept = ctx.request(outsider.token).post('/api/invitations/accept', { token });
       try {
         await waitForLockWaiters(1);
       } finally {
-        commit();
+        seating.commit();
       }
-      await seating;
+      await seating.done;
 
       const res = await accept;
       expect(res.status).toBe(200);
@@ -619,6 +621,73 @@ describe('Pending project invitations', () => {
       expect(await roleOf(board.project.id, outsider.id)).toBe('viewer');
       // The editor grant never landed, so the link is still the invitee's.
       expect(await invitationRows(board.project.id)).toHaveLength(1);
+    });
+
+    // A role update and a removal take no lock on the board, so holding the
+    // board is not what makes these two honest; the share lock on the
+    // membership rows is.
+    it('reports the demoted role when a demotion the board lock cannot stop lands mid-claim', async () => {
+      const board = await createProject('inv accept vs unlocked demote');
+      const address = uniqueEmail('inv-accept-unlocked-demote');
+      await invite(board.project.id, address, 'editor');
+      const token = inviteTokenFrom(invitationMailTo(address).text);
+      await invite(board.project.id, outsider.email, 'editor');
+
+      const demotion = heldTransaction((trx) =>
+        trx
+          .updateTable('project_member')
+          .set({ role: 'viewer' })
+          .where('project_id', '=', board.project.id)
+          .where('user_id', '=', outsider.id)
+          .execute()
+      );
+      await demotion.issued;
+
+      const accept = ctx.request(outsider.token).post('/api/invitations/accept', { token });
+      try {
+        await waitForLockWaiters(1);
+      } finally {
+        demotion.commit();
+      }
+      await demotion.done;
+
+      const res = await accept;
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ project_id: board.project.id, role: 'viewer' });
+      expect(await roleOf(board.project.id, outsider.id)).toBe('viewer');
+      // Still a member, so the link stays the invitee's.
+      expect(await invitationRows(board.project.id)).toHaveLength(1);
+    });
+
+    it('grants from the invitation when a removal the board lock cannot stop lands mid-claim', async () => {
+      const board = await createProject('inv accept vs unlocked removal');
+      const address = uniqueEmail('inv-accept-unlocked-removal');
+      await invite(board.project.id, address, 'editor');
+      const token = inviteTokenFrom(invitationMailTo(address).text);
+      await invite(board.project.id, outsider.email, 'viewer');
+
+      const removal = heldTransaction((trx) =>
+        trx
+          .deleteFrom('project_member')
+          .where('project_id', '=', board.project.id)
+          .where('user_id', '=', outsider.id)
+          .execute()
+      );
+      await removal.issued;
+
+      const accept = ctx.request(outsider.token).post('/api/invitations/accept', { token });
+      try {
+        await waitForLockWaiters(1);
+      } finally {
+        removal.commit();
+      }
+      await removal.done;
+
+      const res = await accept;
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ project_id: board.project.id, role: 'editor' });
+      expect(await roleOf(board.project.id, outsider.id)).toBe('editor');
+      expect(await invitationRows(board.project.id)).toEqual([]);
     });
 
     it('answers 422 for an expired invitation and grants nothing', async () => {
@@ -827,6 +896,58 @@ describe('Pending project invitations', () => {
       ).toBe(422);
     });
 
+    it('waits for the board row before revoking, so a re-invite cannot outrun it', async () => {
+      const board = await createProject('inv revoke lock');
+      const address = uniqueEmail('inv-revoke-lock');
+      const body = await invite(board.project.id, address);
+
+      const holder = heldTransaction((trx) =>
+        trx
+          .selectFrom('project')
+          .select('id')
+          .where('id', '=', board.project.id)
+          .forUpdate()
+          .execute()
+      );
+      await holder.issued;
+
+      const revoke = ctx
+        .request(owner.token)
+        .delete(`/api/projects/${board.project.id}/invitations/${body.invitation!.id}`);
+      try {
+        await waitForLockWaiters(1);
+      } finally {
+        holder.commit();
+      }
+      await holder.done;
+
+      expect((await revoke).status).toBe(204);
+      expect(await invitationRows(board.project.id)).toEqual([]);
+    });
+
+    it('mints a new link when a revoked address is invited again', async () => {
+      const board = await createProject('inv revoke reinvite');
+      const address = uniqueEmail('inv-revoke-reinvite');
+      const first = await invite(board.project.id, address);
+      const revoked = inviteTokenFrom(invitationMailTo(address).text);
+      expect(
+        (
+          await ctx
+            .request(owner.token)
+            .delete(`/api/projects/${board.project.id}/invitations/${first.invitation!.id}`)
+        ).status
+      ).toBe(204);
+
+      clearSentEmails();
+      const again = await invite(board.project.id, address);
+      expect(again.invitation!.id).not.toBe(first.invitation!.id);
+      expect(inviteTokenFrom(invitationMailTo(address).text)).not.toBe(revoked);
+      expect(
+        (await ctx.request(outsider.token).post('/api/invitations/accept', { token: revoked }))
+          .status
+      ).toBe(422);
+    });
+
     it('answers 404 for an invitation belonging to another project', async () => {
       const mine = await createProject('inv scope mine');
       const other = await createProject('inv scope other');
@@ -982,10 +1103,43 @@ describe('Pending project invitations', () => {
       expect(await invitationRows(board.project.id)).toHaveLength(INVITE_SEND_MAX_ATTEMPTS);
     });
 
+    it('answers 429 for an address with an account once the mail budget is gone', async () => {
+      const board = await createProject('inv budget oracle');
+      const path = `/api/projects/${board.project.id}/members/by-email`;
+
+      for (let i = 0; i < INVITE_SEND_MAX_ATTEMPTS; i++) {
+        expect(
+          (await ctx.request(owner.token).post(path, { email: uniqueEmail(`inv-band-${i}`) }))
+            .status
+        ).toBe(200);
+      }
+
+      // Lookup units are left, so this is the band where a budget that turned
+      // away only the addresses with no account would be answering the question.
+      const known = await ctx.request(owner.token).post(path, { email: member.email });
+      const unknown = await ctx.request(owner.token).post(path, {
+        email: uniqueEmail('inv-band-probe'),
+      });
+      expect(known.status).toBe(429);
+      expect(unknown.status).toBe(429);
+      expect(await known.json()).toEqual(await unknown.json());
+      expect(await roleOf(board.project.id, member.id)).toBeUndefined();
+      expect(sentEmails()).toHaveLength(INVITE_SEND_MAX_ATTEMPTS);
+    });
+
     it('lets an editor add far more existing accounts than the mail budget allows', async () => {
       const board = await createProject('inv onboarding');
       const path = `/api/projects/${board.project.id}/members/by-email`;
       const accounts = [member, viewer, outsider];
+
+      // All but one mail unit spent first, so an add that quietly took one
+      // would run the budget out and be refused rather than pass unnoticed.
+      for (let i = 0; i < INVITE_SEND_MAX_ATTEMPTS - 1; i++) {
+        expect(
+          (await ctx.request(owner.token).post(path, { email: uniqueEmail(`inv-onboarding-${i}`) }))
+            .status
+        ).toBe(200);
+      }
 
       for (let i = 0; i <= INVITE_SEND_MAX_ATTEMPTS; i++) {
         const res = await ctx
@@ -995,10 +1149,10 @@ describe('Pending project invitations', () => {
         expect(((await res.json()) as ByEmailBody).status).toBe('member');
       }
 
-      expect(sentEmails()).toEqual([]);
       const address = uniqueEmail('inv-onboarding-new');
       expect((await ctx.request(owner.token).post(path, { email: address })).status).toBe(200);
       expect(invitationMailTo(address).to).toBe(address);
+      expect(sentEmails()).toHaveLength(INVITE_SEND_MAX_ATTEMPTS);
     });
 
     it('charges every address looked up, so 429 answers nothing about one', async () => {
@@ -1049,6 +1203,33 @@ describe('Pending project invitations', () => {
       }
       expect((await ctx.request(owner.token).post(path)).status).toBe(429);
       expect(sentEmails()).toHaveLength(INVITE_RESEND_MAX_ATTEMPTS);
+    });
+
+    it('spends no mail unit on a resend that is refused', async () => {
+      const board = await createProject('inv refused resend');
+      const address = uniqueEmail('inv-refused-resend');
+      const body = await invite(board.project.id, address);
+      const path = `/api/projects/${board.project.id}/invitations/${body.invitation!.id}/resend`;
+
+      for (let i = 0; i < INVITE_RESEND_MAX_ATTEMPTS; i++) {
+        expect((await ctx.request(owner.token).post(path)).status).toBe(204);
+      }
+      // More refusals than the whole mail budget: charging for them would leave
+      // the caller unable to invite anyone else for the rest of the hour.
+      for (let i = 0; i < INVITE_SEND_MAX_ATTEMPTS; i++) {
+        expect((await ctx.request(owner.token).post(path)).status).toBe(429);
+      }
+      expect(sentEmails()).toHaveLength(INVITE_RESEND_MAX_ATTEMPTS + 1);
+
+      const other = uniqueEmail('inv-refused-resend-other');
+      expect(
+        (
+          await ctx
+            .request(owner.token)
+            .post(`/api/projects/${board.project.id}/members/by-email`, { email: other })
+        ).status
+      ).toBe(200);
+      expect(invitationMailTo(other).to).toBe(other);
     });
   });
 

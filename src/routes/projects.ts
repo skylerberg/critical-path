@@ -5,6 +5,7 @@ import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import {
+  assertInvitationSendBudget,
   enforceInvitationLookupRateLimit,
   enforceInvitationResendRateLimit,
   enforceInvitationSendRateLimit,
@@ -28,6 +29,7 @@ import { getArchivedTasks, getBoardPayload } from '../services/boardPayload';
 import { exportFilename, projectExportArchive } from '../services/export/archive';
 import { buildProjectExport } from '../services/export/payload';
 import { copyProject } from '../services/projectCopy';
+import { lockProject } from '../services/projectLock';
 import {
   INVITATION_COLUMNS,
   MAX_PENDING_INVITATIONS_PER_PROJECT,
@@ -86,22 +88,6 @@ const DEFAULT_COLUMNS = [
   { name: 'In Progress', is_done: false },
   { name: 'Done', is_done: true },
 ];
-
-// Every project_member write decides what to write from created_by, so that
-// read has to hold the project row: without the lock an ownership transfer can
-// commit mid-request and leave the new creator holding a member row.
-async function lockProject(db: Kysely<DB>, projectId: string): Promise<ProjectRow> {
-  const row = await db
-    .selectFrom('project')
-    .select(PROJECT_COLUMNS)
-    .where('id', '=', projectId)
-    .forUpdate()
-    .executeTakeFirst();
-  if (!row) {
-    throw new AppError(404, 'Project not found');
-  }
-  return row;
-}
 
 async function removeMembers(
   c: Parameters<typeof publishAfterCommit>[0],
@@ -853,8 +839,10 @@ router.post(
       'claims one. 422 past 100 pending invitations on the project (expired ones count ' +
       'until they are revoked). Two hourly budgets answer 429: 100 addresses looked up per ' +
       'caller, which every call spends whether or not the address has an account, and 20 ' +
-      'invitation emails per caller, spent only when one is actually sent — so adding people ' +
-      'who already have accounts is never what runs the mail budget down. A third limit ' +
+      'invitation emails per caller, which only a call that actually sends one spends — so ' +
+      'adding people who already have accounts never runs the mail budget down, though once ' +
+      'that budget is gone every call answers 429 until the hour is out, whatever the address, ' +
+      'rather than letting the 429 itself say which addresses have accounts. A third limit ' +
       'allows three re-mails an hour of any one address. Editors may call; a viewer gets 403 ' +
       'and non-accessors 404.',
     security: [{ bearerAuth: [] }],
@@ -892,10 +880,12 @@ router.post(
     const project = await lockProject(db, id);
     await assertCanWriteProject(db, user.id, project);
 
-    // Spent before the address is looked up, so that a reply distinguishing an
-    // address with an account from one without always costs the caller
-    // something, whichever of the two it turns out to be.
+    // Both budgets are settled before the address is looked up — one spent
+    // whatever the answer, the other refusing the call whatever the answer — so
+    // that neither the reply nor the 429 tells an address with an account from
+    // one without.
     await enforceInvitationLookupRateLimit(user.id);
+    await assertInvitationSendBudget(user.id);
 
     const emailLower = email.toLowerCase();
     const target = await db
@@ -1080,6 +1070,7 @@ router.delete(
     const db = c.get('db');
 
     await assertProjectWrite(db, c.get('user').id, id);
+    await lockProject(db, id);
 
     const deleted = await db
       .deleteFrom('project_invitation')
@@ -1137,8 +1128,8 @@ router.post(
       throw new AppError(404, 'Invitation not found');
     }
 
-    await enforceInvitationSendRateLimit(user.id);
     await enforceInvitationResendRateLimit(invitationId);
+    await enforceInvitationSendRateLimit(user.id);
 
     await db
       .updateTable('project_invitation')
