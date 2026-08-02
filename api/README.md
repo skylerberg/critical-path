@@ -478,9 +478,11 @@ flickers, and it is inherent to combining prefix matching with stemming: a
 partially typed inflection that has grown longer than the indexed word matches
 neither arm until it is complete. A card titled "Fix the login test" matches
 `test`, and again at `testing` through the stemmed arm, but not `testi` or
-`testin` in between. `q` is trimmed and must be 2 to 200 characters: a single
-character prefix-matches most of a board. A query with no word characters at
-all (`&&&`) is a normal 200 with no results.
+`testin` in between. `q` is trimmed and must be 1 to 200 characters. A single
+character is a legitimate first keystroke, but it is a prefix like any other, so
+it matches every card with a word starting with that letter — expect the 50-cap
+and `truncated` on any real board. A query with no word characters at all
+(`&&&`) is a normal 200 with no results.
 
 Matching runs off `task.search_vector`, a stored generated column, so a result is
 current the instant a task is created or edited — there is no indexer to fall
@@ -843,7 +845,8 @@ The default response is `application/zip`, streamed, with
 ```
 project.json          the manifest below
 tasks.csv             one row per task, for spreadsheets
-images/<image-id>.png the real bytes of every attached image
+images/<image-id>.png the real bytes of every attached image, archived
+                      cards included
 ```
 
 Images ship as files, not URLs, so the archive keeps working after the account
@@ -857,7 +860,7 @@ back:
 ```jsonc
 {
   "format": "critical-path-project-export",
-  "version": 1,
+  "version": 2,
   "exported_at": "2026-07-26T12:00:00.000Z",
   "project": { "id", "name", "description", "archived_at", "created_at",
                "created_by", "member_ids", "is_public" },
@@ -868,6 +871,7 @@ back:
     "id", "column_id", "title",
     "description": "<tiptap doc or null>",
     "position", "due_date", "created_at", "updated_at",
+    "archived_at": "<ISO timestamp if the card is archived, else null>",
     "cover_image_url": "<'/api/images/:id' for the cover image, or null>",
     "label_ids": [], "assignee_ids": [], "blocker_ids": [],
     "images": [ { "id", "path", "filename", "content_type", "size_bytes",
@@ -876,14 +880,22 @@ back:
 }
 ```
 
-- `version` is bumped only on a breaking shape change.
+- `version` is bumped only on a breaking shape change. It went to `2` when
+  archived cards joined `tasks[]`: a reader of a `1` export could take every row
+  as live, which is no longer true.
+- Archived cards are exported. Each carries the `archived_at` that marks it and
+  the `column_id` it was archived from, so an importer can restore it archived,
+  drop it, or ask. A live card has `archived_at: null`. `blocker_ids` still
+  omits blockers that are themselves archived, matching every other read.
 - Ids are the original server ids. `created_by`, `member_ids` and
   `assignee_ids` resolve against `users[]`, `label_ids` against `labels[]`,
   `column_id` against `columns[]`, and `blocker_ids` against `tasks[]`. A
   `blocker_ids` entry that resolves to nothing is a corrupt cross-project row
   and should be dropped, exactly as project copy drops it.
-- Ordering is the board's: columns and tasks by position, labels and users by
-  name.
+- Ordering is the board's: columns and live tasks by position, labels and users
+  by name. Archived cards come after every live one, newest archive first — they
+  kept the position they were archived at, which a live card may since have
+  taken.
 - `description` is stored verbatim, so its embedded `/api/images/<uuid>`
   sources resolve by image id against the flattened `tasks[].images[]` — build
   the id map across the whole export, not per task, and tolerate a source that
@@ -904,12 +916,13 @@ back:
 then
 
 ```
-id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,description
+id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,description
 ```
 
-one row per task in board order, RFC 4180 quoting, CRLF line endings. Labels,
-assignees (as emails) and blockers (as titles) are joined with `"; "`, and the
-description is flattened to plain text, mentions included as `@label`. Values
+one row per task in the manifest's order, RFC 4180 quoting, CRLF line endings.
+Labels, assignees (as emails) and blockers (as titles) are joined with `"; "`,
+`archived_at` is empty for a live card, and the description is flattened to
+plain text, mentions included as `@label`. Values
 are written exactly as the user typed them — a title starting with `=` is not
 prefixed or escaped, so treat a `tasks.csv` opened in a spreadsheet the same way
 you would treat any other untrusted CSV. Use `project.json` when you need

@@ -189,6 +189,30 @@ describe('Webhooks API', () => {
       const res = await ctx.request(outsider.token).get(`/api/webhooks?project_id=${projectId}`);
       expect(res.status).toBe(404);
     });
+
+    // Holding the secret is enough to forge a delivery, so a read-only member
+    // sees that a webhook exists without being handed that capability.
+    it('withholds the secret from a viewer but not from an editor', async () => {
+      const projectId = await createProject('wh-list-viewer');
+      const created = await createWebhook(projectId);
+      const viewer = await ctx.createUser('wh-viewer');
+      await ctx
+        .request(user.token)
+        .put(`/api/projects/${projectId}/members`, { user_ids: [viewer.id] });
+      await ctx.request(user.token).put(`/api/projects/${projectId}/members`, {
+        roles: [{ user_id: viewer.id, role: 'viewer' }],
+      });
+
+      const asViewer = await ctx.request(viewer.token).get(`/api/webhooks?project_id=${projectId}`);
+      expect(asViewer.status).toBe(200);
+      const viewerBody = (await asViewer.json()) as { webhooks: WebhookBody[] };
+      expect(viewerBody.webhooks.map((w) => w.id)).toEqual([created.id]);
+      expect(viewerBody.webhooks[0].secret).toBeUndefined();
+
+      const asEditor = await ctx.request(user.token).get(`/api/webhooks?project_id=${projectId}`);
+      const editorBody = (await asEditor.json()) as { webhooks: WebhookBody[] };
+      expect(editorBody.webhooks[0].secret).toBe(created.secret);
+    });
   });
 
   describe('PATCH /api/webhooks/:id', () => {

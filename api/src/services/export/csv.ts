@@ -19,6 +19,7 @@ const TASKS_CSV_HEADER = [
   'image_count',
   'created_at',
   'updated_at',
+  'archived_at',
   'description',
 ];
 
@@ -111,6 +112,7 @@ export function tasksCsv(exportPayload: ProjectExport): string {
       String(task.images.length),
       task.created_at,
       task.updated_at,
+      task.archived_at ?? '',
       tiptapToPlainText(task.description),
     ]);
   }
