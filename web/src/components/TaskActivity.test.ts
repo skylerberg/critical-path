@@ -445,6 +445,24 @@ describe('TaskActivity history', () => {
     expect(items[0]).toHaveTextContent(dateFormat.format(new Date('2026-01-01T12:00:00.000Z')));
   });
 
+  it('renders a kind it does not know as a plain update, not a blank line', () => {
+    const futureKind: string = 'kind_from_a_later_release';
+    taskActivity.entries = [
+      entry('a1', futureKind as TaskActivityEntry['kind']),
+      entry('a2', 'archived', { created_at: '2026-01-01T13:00:00.000Z' }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const items = screen.getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('Bob Barker');
+    expect(items[0]).toHaveTextContent('updated this task');
+    expect(items[0]).toHaveTextContent(dateFormat.format(new Date('2026-01-01T12:00:00.000Z')));
+    expect(items[1]).toHaveTextContent('archived this task');
+    expect(items[1]).not.toHaveTextContent('updated this task');
+  });
+
   it('interleaves entries with comments in time order', () => {
     board.taskComments = { t1: [ownComment, theirComment] };
     taskActivity.entries = [
