@@ -413,6 +413,23 @@ describe('GET /api/public/projects/:id/board', () => {
     expect(payload.users.map((user) => user.id)).not.toContain(idleMember.id);
   });
 
+  // A published board is a single board with nothing to be told apart from, so
+  // the accent stays behind the login even though it is not private.
+  it('withholds the accent colour from an anonymous reader', async () => {
+    const board = await createProject('Coloured and published');
+    const projectId = board.project.id;
+    expect(
+      (await ctx.request(owner.token).patch(`/api/projects/${projectId}`, { color: 'fuchsia' }))
+        .status
+    ).toBe(200);
+    expect((await publish(projectId, true)).status).toBe(200);
+
+    const res = await ctx.request().get(`/api/public/projects/${projectId}/board`);
+    const payload = (await res.json()) as PublicBoardBody;
+    expect(payload.project).not.toHaveProperty('color');
+    expect(JSON.stringify(payload)).not.toContain('fuchsia');
+  });
+
   it('never serves a task’s activity log to an anonymous reader', async () => {
     const board = await createProject('History stays private');
     const projectId = board.project.id;

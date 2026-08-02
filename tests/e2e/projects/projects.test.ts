@@ -179,6 +179,43 @@ describe('projects CRUD', () => {
       expect((await unarchiveRes.json()).archived_at).toBeNull();
     });
 
+    it('sets an accent colour, clears it with null, and carries it to the list and the board', async () => {
+      const id = newId();
+      const created = await createProject({ id, name: 'Coloured' });
+      expect(((await created.json()) as BoardPayloadBody).project.color).toBeNull();
+
+      const setRes = await ctx.request(user.token).patch(`/api/projects/${id}`, { color: 'amber' });
+      expect(setRes.status).toBe(200);
+      expect((await setRes.json()).color).toBe('amber');
+
+      const listed = (await (await ctx.request(user.token).get('/api/projects')).json()).projects;
+      expect(listed.find((p: { id: string }) => p.id === id).color).toBe('amber');
+
+      const boardRes = await ctx.request(user.token).get(`/api/projects/${id}`);
+      expect(((await boardRes.json()) as BoardPayloadBody).project.color).toBe('amber');
+
+      const clearRes = await ctx.request(user.token).patch(`/api/projects/${id}`, { color: null });
+      expect(clearRes.status).toBe(200);
+      expect((await clearRes.json()).color).toBeNull();
+
+      const recleared = (await (await ctx.request(user.token).get('/api/projects')).json())
+        .projects;
+      expect(recleared.find((p: { id: string }) => p.id === id).color).toBeNull();
+    });
+
+    it('refuses a colour outside the palette and leaves the stored one alone', async () => {
+      const id = newId();
+      await createProject({ id, name: 'Palette guard' });
+      await ctx.request(user.token).patch(`/api/projects/${id}`, { color: 'sky' });
+
+      const res = await ctx.request(user.token).patch(`/api/projects/${id}`, { color: '#ff0000' });
+      expect(res.status).toBe(422);
+      expect((await res.json()).error).toBe('Validation failed');
+
+      const boardRes = await ctx.request(user.token).get(`/api/projects/${id}`);
+      expect(((await boardRes.json()) as BoardPayloadBody).project.color).toBe('sky');
+    });
+
     it('returns 422 for a malformed archived_at', async () => {
       const id = newId();
       await createProject({ id, name: 'Bad patch' });

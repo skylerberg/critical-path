@@ -96,6 +96,50 @@ describe('project commands', () => {
     expect(none.exitCode).toBe(2);
   });
 
+  it('update sets and clears the accent colour and refuses one outside the palette', async () => {
+    await createProject('Colour Me');
+
+    const set = await h.runCli(['project', 'update', 'Colour Me', '--color', 'violet', '--json']);
+    expect(set.exitCode).toBe(0);
+    expect(set.json<Project>().color).toBe('violet');
+
+    const shown = await h.runCli(['project', 'show', 'Colour Me']);
+    expect(shown.stdout).toContain('Color: violet');
+
+    const bad = await h.runCli(['project', 'update', 'Colour Me', '--color', 'chartreuse']);
+    expect(bad.exitCode).toBe(2);
+
+    const cleared = await h.runCli(['project', 'update', 'Colour Me', '--color', 'none', '--json']);
+    expect(cleared.exitCode).toBe(0);
+    expect(cleared.json<Project>().color).toBeNull();
+  });
+
+  it('update treats the global --no-color as output styling, not as an accent', async () => {
+    await createProject('Plain Board');
+    const coloured = await h.runCli([
+      'project',
+      'update',
+      'Plain Board',
+      '--color',
+      'sky',
+      '--json',
+    ]);
+    expect(coloured.exitCode).toBe(0);
+
+    const renamed = await h.runCli([
+      'project',
+      'update',
+      'Plain Board',
+      '--name',
+      'Plain Renamed',
+      '--no-color',
+      '--json',
+    ]);
+    expect(renamed.exitCode).toBe(0);
+    expect(renamed.json<Project>().name).toBe('Plain Renamed');
+    expect(renamed.json<Project>().color).toBe('sky');
+  });
+
   it('archive hides a project from the default list and --archived shows it', async () => {
     const board = await createProject('Archive Me');
     const archive = await h.runCli(['project', 'archive', 'Archive Me', '--json']);

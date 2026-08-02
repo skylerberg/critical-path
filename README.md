@@ -1260,7 +1260,7 @@ back:
   "version": 3,
   "exported_at": "2026-07-26T12:00:00.000Z",
   "project": { "id", "name", "description", "archived_at", "created_at",
-               "created_by", "member_ids", "is_public" },
+               "created_by", "member_ids", "is_public", "color" },
   "users":   [ { "id", "name" } ],
   "columns": [ { "id", "name", "position", "is_done" } ],
   "labels":  [ { "id", "name", "color" } ],
