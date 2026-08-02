@@ -4,6 +4,7 @@ import { createEvent, fireEvent, render, screen, waitFor } from '@testing-librar
 import QuickAddTask from './QuickAddTask.svelte';
 import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
+import { TASK_TITLE_MAX_LENGTH } from '../lib/titles';
 import { motion } from '../lib/motion.svelte';
 import { toasts } from '../lib/toasts.svelte';
 
@@ -79,6 +80,7 @@ describe('QuickAddTask', () => {
     const input = screen.getByLabelText('Task title');
     expect(input).toHaveFocus();
     expect(input).toHaveAttribute('autocapitalize', 'sentences');
+    expect(input).toHaveAttribute('maxlength', String(TASK_TITLE_MAX_LENGTH));
   });
 
   it('submits on Enter, inserts optimistically, clears, and stays open', async () => {

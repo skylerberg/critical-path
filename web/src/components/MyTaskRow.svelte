@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MyTask } from '../lib/myTasks.svelte';
+  import { truncateTitle } from '../lib/titles';
   import { displayName, users, type User } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
   import Badge from './ui/Badge.svelte';
@@ -29,8 +30,9 @@
 
   // The ::after covers the whole row, so the anchor is the only element a pointer can
   // hit: names the row shows only as avatars ride on this title or stay unreachable.
+  const shownTitle = $derived(truncateTitle(task.title));
   const anchorTitle = $derived(
-    peopleLines.length === 0 ? undefined : [task.title, ...peopleLines].join('\n')
+    peopleLines.length === 0 ? undefined : [shownTitle, ...peopleLines].join('\n')
   );
 </script>
 
@@ -41,7 +43,7 @@
     <a
       href="/projects/{task.project_id}/tasks/{task.id}?from=my-tasks"
       title={anchorTitle}
-      class="after:absolute after:inset-0 focus-visible:outline-none">{task.title}</a
+      class="after:absolute after:inset-0 focus-visible:outline-none">{shownTitle}</a
     >
   </p>
   <span class="truncate text-xs text-muted">{task.project_name}</span>

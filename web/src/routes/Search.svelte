@@ -4,6 +4,7 @@
   import { SEARCH_MAX_QUERY_LENGTH, searchPath } from '../lib/search-query';
   import { search } from '../lib/search.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
+  import { truncateTitle } from '../lib/titles';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
@@ -181,7 +182,7 @@
                   href="/projects/{result.project_id}/tasks/{result.task_id}"
                   class="flex min-h-11 flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-accent-soft"
                 >
-                  <span class="text-ink">{result.title}</span>
+                  <span class="text-ink">{truncateTitle(result.title)}</span>
                   <span class="text-xs text-muted">{result.column_name}</span>
                 </a>
               </li>

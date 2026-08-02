@@ -11,6 +11,7 @@ import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
+import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { users } from '../lib/users.svelte';
 import type { BoardTask } from '../lib/board-types';
 
@@ -277,6 +278,45 @@ describe('TaskDetail', () => {
     await waitFor(() => expect(board.taskComments.t1).toEqual([comment]));
     expect(board.taskImages.t1).toEqual([image]);
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
+  });
+
+  // The overlay is the surface a long title is opened to read, so it is the one
+  // place clipping would be a defect rather than the rule.
+  describe('long titles', () => {
+    const long = 'L'.repeat(TASK_TITLE_MAX_LENGTH);
+
+    beforeEach(() => {
+      board.tasks = [
+        task('t1', 'c1', long, { blocker_ids: ['t2'] }),
+        task('t2', 'c1', long.replace(/^L/, 'B')),
+      ];
+    });
+
+    it('renders the whole stored title in the editor and caps its length at the stored bound', () => {
+      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+
+      const input = screen.getByLabelText('Task title');
+      expect(input).toHaveValue(long);
+      expect(input).toHaveAttribute('maxlength', String(TASK_TITLE_MAX_LENGTH));
+    });
+
+    it('renders the whole stored title as text on a read-only board', () => {
+      renderDetail({ taskId: 't1', closePath: '/public/projects/p1', readonly: true });
+
+      expect(screen.getByRole('heading', { name: long })).toBeInTheDocument();
+    });
+
+    it('clips the blockers it merely references, and its own dialog name', () => {
+      renderDetail({ taskId: 't1', closePath: '/projects/p1' });
+
+      const blocker = board.tasks[1].title;
+      expect(screen.getByText(truncateTitle(blocker))).toBeInTheDocument();
+      expect(screen.queryByText(blocker)).toBeNull();
+      expect(
+        screen.getByRole('button', { name: `Remove blocking task ${truncateTitle(blocker)}` })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toHaveAccessibleName(truncateTitle(long));
+    });
   });
 
   describe('cover image', () => {

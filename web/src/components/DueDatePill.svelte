@@ -2,6 +2,7 @@
   import { board } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
   import { dueStatus, formatDue, formatFullDate, isCalendarDate, todayISO } from '../lib/dates';
+  import { truncateTitle } from '../lib/titles';
 
   interface Props {
     task: BoardTask;
@@ -60,7 +61,7 @@
     <button
       type="button"
       title="Due {formatFullDate(due)}"
-      aria-label={`Mark “${task.title}” done (due ${label})`}
+      aria-label={`Mark “${truncateTitle(task.title)}” done (due ${label})`}
       onclick={() => board.markTaskDone(task.id)}
       class="{chip} relative cursor-pointer after:absolute after:-inset-x-1.5 after:-top-2 after:-bottom-3 after:content-['']"
     >

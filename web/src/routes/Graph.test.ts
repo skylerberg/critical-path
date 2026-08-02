@@ -7,6 +7,7 @@ import { board } from '../lib/board.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { NODE_HEIGHT, NODE_WIDTH, computeGraph, panToNode, type ViewBox } from '../lib/graph';
 import { session } from '../lib/session.svelte';
+import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 
@@ -165,6 +166,28 @@ describe('Graph', () => {
     expect(anchor).not.toBeNull();
     expect(anchor).toHaveAttribute('href', `/projects/${projectId}/graph/tasks/a`);
     expect(screen.getByRole('link', { name: 'Open task Task a' })).toBe(anchor);
+  });
+
+  it('clips a long title in the node label and in every handle name', async () => {
+    const projectId = 'p-graph-long-title';
+    const long = 'G'.repeat(TASK_TITLE_MAX_LENGTH);
+    const tasks = [{ ...task('a', 'todo'), title: long }];
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload(projectId, tasks)));
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    });
+    const shown = truncateTitle(long);
+    expect(container.querySelector('[data-node-id="a"] a span')).toHaveTextContent(shown);
+    expect(screen.getByRole('link', { name: `Open task ${shown}` })).not.toBeNull();
+    expect(
+      screen.getByRole('button', { name: `Drag to add a task that ${shown} blocks` })
+    ).not.toBeNull();
+    expect(
+      screen.getByRole('button', { name: `Drag to add a task that blocks ${shown}` })
+    ).not.toBeNull();
   });
 
   it('keeps a long press on a node from raising the link menu mid-pan', async () => {

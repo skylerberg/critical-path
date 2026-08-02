@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
+  import { truncateTitle } from '../lib/titles';
   import Button from './ui/Button.svelte';
   import Modal from './ui/Modal.svelte';
   import Spinner from './ui/Spinner.svelte';
@@ -70,7 +71,7 @@
         {@const when = `Archived ${dateFormat.format(new Date(task.archived_at))}`}
         <li class="flex min-h-11 items-center gap-2">
           <span class="flex min-w-0 flex-1 flex-col">
-            <span class="truncate text-sm font-medium">{task.title}</span>
+            <span class="truncate text-sm font-medium">{truncateTitle(task.title)}</span>
             <span class="truncate text-xs text-muted"
               >{columnName === undefined ? when : `${columnName} · ${when}`}</span
             >
@@ -78,7 +79,7 @@
           {#if board.canEdit}
             <button
               type="button"
-              aria-label="Restore card {task.title}"
+              aria-label="Restore card {truncateTitle(task.title)}"
               onclick={() => void board.restoreTask(task.id)}
               class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-ink"
             >

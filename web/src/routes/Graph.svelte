@@ -7,6 +7,7 @@
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { link } from '../lib/router.svelte';
   import { toasts } from '../lib/toasts.svelte';
+  import { truncateTitle } from '../lib/titles';
   import {
     NODE_HEIGHT,
     NODE_WIDTH,
@@ -766,11 +767,11 @@
               use:suppressTouchContextMenu
               href="/projects/{projectId}/graph/tasks/{n.id}{board.filterSearch}"
               draggable="false"
-              aria-label="Open task {n.title}"
+              aria-label="Open task {truncateTitle(n.title)}"
               class="flex h-full w-full touch-callout-none cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3"
             >
               <span class="truncate text-[13px] font-medium {n.isDone ? 'text-muted' : 'text-ink'}">
-                {n.title}
+                {truncateTitle(n.title)}
               </span>
               <span
                 class="max-w-full self-start truncate rounded-full border border-edge bg-canvas px-2 py-0.5 text-[10px] text-muted"
@@ -789,7 +790,7 @@
               fill="transparent"
               role="button"
               tabindex="0"
-              aria-label="Drag to add a task that {n.title} blocks"
+              aria-label="Drag to add a task that {truncateTitle(n.title)} blocks"
               class="cursor-crosshair {coarsePointer
                 ? ''
                 : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
@@ -814,7 +815,7 @@
               fill="transparent"
               role="button"
               tabindex="0"
-              aria-label="Drag to add a task that blocks {n.title}"
+              aria-label="Drag to add a task that blocks {truncateTitle(n.title)}"
               class="cursor-crosshair {coarsePointer
                 ? ''
                 : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"

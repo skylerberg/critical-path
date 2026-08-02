@@ -4,6 +4,7 @@
   import { board } from '../lib/board.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { motion } from '../lib/motion.svelte';
+  import { TASK_TITLE_MAX_LENGTH } from '../lib/titles';
   import { toasts } from '../lib/toasts.svelte';
   import Button from './ui/Button.svelte';
 
@@ -91,6 +92,7 @@
         oninput={(event) => drafts.set(key, event.currentTarget.value)}
         onpaste={paste}
         use:focusIf={{ active: openedHere, onfocused: () => (openedHere = false) }}
+        maxlength={TASK_TITLE_MAX_LENGTH}
         aria-label="Task title"
         placeholder="Task title"
         autocapitalize="sentences"

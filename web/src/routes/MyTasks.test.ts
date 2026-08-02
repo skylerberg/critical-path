@@ -5,6 +5,7 @@ import MyTasks from './MyTasks.svelte';
 import { myTasks, type MyTask, type MyTaskPersonGroup } from '../lib/myTasks.svelte';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
+import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { users } from '../lib/users.svelte';
 
 const me = { id: 'u-me', email: 'me@example.com', name: 'Me', avatar_url: null };
@@ -72,6 +73,16 @@ describe('MyTasks', () => {
     expect(screen.getByText('In Progress')).toBeInTheDocument();
     // Nobody else is on this task, so the row has no hidden name to hang a tooltip on.
     expect(anchor).not.toHaveAttribute('title');
+  });
+
+  it('clips a long row title', async () => {
+    const long = 'M'.repeat(TASK_TITLE_MAX_LENGTH);
+    mockResponse({ tasks: [task('t-1', 'ready', { title: long })] });
+
+    render(MyTasks);
+
+    expect(await screen.findByRole('link', { name: truncateTitle(long) })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: long })).toBeNull();
   });
 
   it('keeps the waiting chip on a blocked task and hides the caller from the avatars', async () => {

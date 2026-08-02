@@ -4,6 +4,7 @@
   import { cardMenu } from '../lib/card-menu.svelte';
   import { boardPath, link } from '../lib/router.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
+  import { truncateTitle } from '../lib/titles';
   import { toasts } from '../lib/toasts.svelte';
 
   interface Props {
@@ -245,7 +246,7 @@
     bind:this={menuEl}
     role="menu"
     tabindex="-1"
-    aria-label="Actions for {task.title}"
+    aria-label="Actions for {truncateTitle(task.title)}"
     {onkeydown}
     style="left: {placed.x}px; top: {placed.y}px"
     class="fixed z-40 max-h-[80vh] w-64 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"

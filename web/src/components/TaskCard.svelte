@@ -7,6 +7,7 @@
   import { boardPath, link } from '../lib/router.svelte';
   import { selection } from '../lib/selection.svelte';
   import { isCalendarDate } from '../lib/dates';
+  import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
   import { users } from '../lib/users.svelte';
   import DueDatePill from './DueDatePill.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -39,6 +40,7 @@
   const commentCount = $derived(task.comment_count ?? 0);
   const selected = $derived(selection.selectedTaskId === task.id);
   const renaming = $derived(cardMenu.renamingTaskId === task.id);
+  const shownTitle = $derived(truncateTitle(task.title));
 
   let cardEl = $state<HTMLDivElement>();
   let draft = $state('');
@@ -130,7 +132,7 @@
       use:link
       href={`${boardPath(projectId, board.readonly)}/tasks/${task.id}${board.filterSearch}`}
       draggable="false"
-      aria-label={task.title}
+      aria-label={shownTitle}
       class="absolute inset-0 rounded-md"
     ></a>
   {/if}
@@ -163,6 +165,7 @@
       bind:value={draft}
       use:focusAndSelect
       rows="2"
+      maxlength={TASK_TITLE_MAX_LENGTH}
       aria-label="Task title"
       autocapitalize="sentences"
       onblur={commitRename}
@@ -182,7 +185,7 @@
       class="relative z-10 block w-full resize-none rounded-md border border-accent bg-canvas p-1 text-sm font-medium outline-none"
     ></textarea>
   {:else}
-    <p class="text-sm font-medium break-words">{task.title}</p>
+    <p class="text-sm font-medium break-words">{shownTitle}</p>
   {/if}
   {#if dated || blockedCount > 0 || task.image_count > 0 || commentCount > 0 || assignees.length > 0}
     <!-- Raised above the overlay link so the badges keep their hover tooltips and

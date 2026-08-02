@@ -8,6 +8,7 @@
   import { router } from '../lib/router.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { taskActivity } from '../lib/taskActivity.svelte';
+  import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
   import AssigneePicker from './AssigneePicker.svelte';
   import DependencyPicker from './DependencyPicker.svelte';
   import DueDatePicker from './DueDatePicker.svelte';
@@ -262,7 +263,7 @@
 
 <dialog
   bind:this={dialog}
-  aria-label={task?.title ?? 'Task not found'}
+  aria-label={task === undefined ? 'Task not found' : truncateTitle(task.title)}
   class="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto bg-surface p-0 text-ink backdrop:bg-black/50 lg:m-auto lg:h-auto lg:max-h-[90dvh] lg:w-full lg:max-w-2xl lg:rounded-lg lg:border lg:border-edge lg:shadow-xl"
   oncancel={(event) => {
     event.preventDefault();
@@ -290,6 +291,7 @@
         {:else}
           <input
             value={titleDraft ?? task.title}
+            maxlength={TASK_TITLE_MAX_LENGTH}
             aria-label="Task title"
             autocapitalize="sentences"
             oninput={(event) => (titleDraft = event.currentTarget.value)}
@@ -399,12 +401,12 @@
                       ? 'text-muted line-through'
                       : ''}"
                   >
-                    {blocker.title}
+                    {truncateTitle(blocker.title)}
                   </span>
                   {#if !readonly}
                     <button
                       type="button"
-                      aria-label="Remove blocking task {blocker.title}"
+                      aria-label="Remove blocking task {truncateTitle(blocker.title)}"
                       onclick={() => void board.removeBlocker(taskId, blocker.id)}
                       class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
                     >
@@ -433,12 +435,12 @@
                       ? 'text-muted line-through'
                       : ''}"
                   >
-                    {dependent.title}
+                    {truncateTitle(dependent.title)}
                   </span>
                   {#if !readonly}
                     <button
                       type="button"
-                      aria-label="Remove blocked task {dependent.title}"
+                      aria-label="Remove blocked task {truncateTitle(dependent.title)}"
                       onclick={() => void board.removeBlocker(dependent.id, taskId)}
                       class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
                     >

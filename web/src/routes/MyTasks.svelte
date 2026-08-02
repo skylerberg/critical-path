@@ -3,6 +3,7 @@
   import { myTasks, type MyTaskPersonGroup } from '../lib/myTasks.svelte';
   import { link } from '../lib/router.svelte';
   import { session } from '../lib/session.svelte';
+  import { truncateTitle } from '../lib/titles';
   import { displayName, users } from '../lib/users.svelte';
   import MyTaskRow from '../components/MyTaskRow.svelte';
   import Avatar from '../components/ui/Avatar.svelte';
@@ -47,7 +48,7 @@
             href="/projects/{task.project_id}/tasks/{task.id}?from=my-tasks"
             class="flex min-h-11 items-center rounded-md px-2 text-sm text-muted hover:bg-accent-soft hover:text-ink"
           >
-            {task.title}
+            {truncateTitle(task.title)}
           </a>
         </li>
       {/each}

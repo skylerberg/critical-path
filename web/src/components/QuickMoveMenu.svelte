@@ -3,6 +3,7 @@
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
   import { positionForIndex } from '../lib/positions';
+  import { truncateTitle } from '../lib/titles';
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';
   import Modal from './ui/Modal.svelte';
@@ -48,9 +49,10 @@
     if (task === undefined) {
       return 'Move';
     }
+    const shown = truncateTitle(task.title);
     return targetColumn === undefined
-      ? `Move — ${task.title}`
-      : `Move to ${targetColumn.name} — ${task.title}`;
+      ? `Move — ${shown}`
+      : `Move to ${targetColumn.name} — ${shown}`;
   });
 
   const rows = $derived.by<Row[]>(() => {
@@ -75,19 +77,19 @@
     const places: Row[] = [
       {
         key: 'top',
-        label: first === undefined ? 'Top' : `Top (before "${first.title}")`,
+        label: first === undefined ? 'Top' : `Top (before "${truncateTitle(first.title)}")`,
         kind: 'place',
         target: { kind: 'top' },
       },
       ...others.slice(1).map<Row>((t) => ({
         key: `before:${t.id}`,
-        label: `Before "${t.title}"`,
+        label: `Before "${truncateTitle(t.title)}"`,
         kind: 'place',
         target: { kind: 'before', anchorId: t.id },
       })),
       {
         key: 'bottom',
-        label: last === undefined ? 'Bottom' : `Bottom (after "${last.title}")`,
+        label: last === undefined ? 'Bottom' : `Bottom (after "${truncateTitle(last.title)}")`,
         kind: 'place',
         target: { kind: 'bottom' },
       },
@@ -145,7 +147,7 @@
     // Close before announcing: this modal keeps the shell's live region inert.
     onclose();
     void announcer.announce(
-      `Moved "${moving.title}" to ${column.name}, position ${index + 1} of ${rest.length + 1}`
+      `Moved "${truncateTitle(moving.title)}" to ${column.name}, position ${index + 1} of ${rest.length + 1}`
     );
   }
 
