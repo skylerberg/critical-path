@@ -10,7 +10,7 @@ import { sniffImageContentType } from '../services/imageSniff';
 import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
 import {
-  userSchema,
+  meSchema,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   payloadTooLargeErrorResponse,
@@ -56,7 +56,7 @@ router.post(
         description: 'Updated user',
         content: {
           'application/json': {
-            schema: resolver(userSchema),
+            schema: resolver(meSchema),
           },
         },
       },
@@ -138,14 +138,16 @@ router.post(
       c.get('postCommitHooks').push(() => storage.delete(oldKey));
     }
 
-    const updated = {
+    // Built separately from the response: the event goes to every project
+    // sharer, so it carries only the fields they may already read.
+    const publicUser = {
       id: user.id,
       email: user.email,
       name: user.name,
       avatar_url: avatarUrl(storageKey),
     };
-    publishAfterCommit(c, USER_UPDATED, null, updated);
-    return c.json(updated, 200);
+    publishAfterCommit(c, USER_UPDATED, null, publicUser);
+    return c.json({ ...publicUser, email_verified: user.email_verified }, 200);
   }
 );
 
@@ -164,7 +166,7 @@ router.delete(
         description: 'Updated user',
         content: {
           'application/json': {
-            schema: resolver(userSchema),
+            schema: resolver(meSchema),
           },
         },
       },
@@ -200,7 +202,16 @@ router.delete(
       });
     }
 
-    return c.json({ id: user.id, email: user.email, name: user.name, avatar_url: null }, 200);
+    return c.json(
+      {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatar_url: null,
+        email_verified: user.email_verified,
+      },
+      200
+    );
   }
 );
 

@@ -733,8 +733,8 @@ live retries are never pruned. The log has a `limit` but no cursor, so only the
 
 ### Email
 
-Password-reset and feedback emails go through the driver named by
-`EMAIL_DRIVER`:
+Password-reset, email-verification and feedback emails go through the driver
+named by `EMAIL_DRIVER`:
 
 - `console` (default) — logs the full email; the reset link is usable from the
   server log in development.
@@ -752,6 +752,57 @@ way.
 `PASSWORD_RESET_SECRET` signs reset tokens and is required in production
 (development falls back to a fixed dev-only secret). `RESET_URL_BASE` sets the
 link target (default `http://localhost:5173/reset-password`).
+
+### Email verification
+
+Every account carries `email_verified`. It starts false, turns true when the
+address is confirmed, and returns to false whenever the account moves to a
+different mailbox. Existing accounts were not grandfathered — the column is
+nullable with no backfill, so everyone who signed up before this shipped reads
+as unverified until they confirm.
+
+Verification gates nothing today. Signing in, resetting a password and every
+other route behave identically either way, and **account-access mail always
+sends regardless**: the verification mail itself, password reset, and the
+feedback mail to the site owner are never withheld.
+
+A verification email is sent on signup and whenever `PATCH /api/auth/me` moves
+the account to a different mailbox (a change of letter case alone sends
+nothing and keeps the existing verification). The mail links to
+`${APP_URL_BASE}/verify-email?token=…`; `APP_URL_BASE` is the web app's origin
+and defaults to `http://localhost:5173`.
+
+- `POST /api/auth/verify-email` takes `{ "token": "…" }` and answers `204`.
+  It is unauthenticated and deliberately inert: the token creates no session,
+  returns no user record and reveals nothing about the account, so a leaked
+  link only lets its holder mark verified the very address the leak came from.
+  `422 "Verification link has expired"` past the 24-hour TTL, and
+  `422 "Invalid verification link"` for a tampered token, an unknown account,
+  and an address the account has since moved away from — one message for all
+  three, so the endpoint is not an oracle for whether an address has an
+  account.
+- `POST /api/auth/verify-email/resend` (authenticated, no body) mails a fresh
+  link and answers `204`, or `204` without sending when the address is already
+  verified. `429` past three sends an hour per account (ten an hour per IP);
+  the same budget covers the send triggered by an address change, and an
+  exhausted budget makes that `PATCH` answer `429` and change nothing.
+
+Verification is idempotent. Redeeming a token twice succeeds and leaves the
+recorded time untouched, a resend does not invalidate earlier links, and every
+outstanding link for the same address is equivalent. Tokens are stateless
+HMACs — nothing is stored and nothing needs revoking — signed with
+`EMAIL_TOKEN_SECRET`, which falls back to `PASSWORD_RESET_SECRET` when unset,
+so rotating the reset secret also invalidates outstanding verification links.
+A token carries a hash of the address rather than the address itself, which is
+both what binds it (redemption recomputes the hash from the stored address) and
+what keeps addresses out of load-balancer logs and browser history.
+
+`email_verified` is returned **only to the caller about themselves** — the
+`Me` shape, used by signup, login, `GET`/`PATCH /api/auth/me`,
+change-password and the avatar routes. It is absent from the `User` shape that
+describes other people, and therefore from `GET /api/users`, project member
+lists and the `user_updated` realtime payload, which fans out to everyone who
+shares a project.
 
 ### User avatars
 
@@ -1125,7 +1176,8 @@ npm run openapi:dump && npm run --prefix cli generate-api
 
 ## Known limitations (v1)
 
-- No email verification.
+- Email verification exists but gates nothing, and there is no bounce or
+  complaint handling.
 - Float `position` ordering with no automatic rebalancing.
 - Project roles are only `editor` and `viewer`. Every editor can rename,
   archive and publish the board and manage its member set — including demoting

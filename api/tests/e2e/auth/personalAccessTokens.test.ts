@@ -95,6 +95,7 @@ describe('Personal access tokens', () => {
         email: user.email,
         name: user.name,
         avatar_url: null,
+        email_verified: false,
       });
     });
 
