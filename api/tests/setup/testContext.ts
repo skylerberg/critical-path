@@ -1,5 +1,6 @@
 import { app } from '../../src/index';
 import { db } from '../../src/db/index';
+import { SIGNUP_IP_MAX_ATTEMPTS } from '../../src/middleware/rateLimit';
 
 export interface TestUser {
   id: string;
@@ -25,7 +26,14 @@ export class TestContext {
       name,
     });
     if (res.status !== 201) {
-      throw new Error(`Test signup failed: ${res.status} ${await res.text()}`);
+      throw new Error(
+        `Test signup failed: ${res.status} ${await res.text()}` +
+          (res.status === 429
+            ? `. Every test request presents the same source IP, so account creation across ` +
+              `the whole file shares one budget of ${SIGNUP_IP_MAX_ATTEMPTS}; a file that ` +
+              `needs more accounts than that has to call resetRateLimiter() between tests.`
+            : '')
+      );
     }
     const body = (await res.json()) as { token: string };
 
@@ -44,15 +52,16 @@ export class TestContext {
     this.users = [];
   }
 
-  request(token?: string, userAgent?: string): TestApiClient {
-    return new TestApiClient(token, userAgent);
+  request(token?: string, userAgent?: string, forwardedFor?: string): TestApiClient {
+    return new TestApiClient(token, userAgent, forwardedFor);
   }
 }
 
 export class TestApiClient {
   constructor(
     private token?: string,
-    private userAgent?: string
+    private userAgent?: string,
+    private forwardedFor?: string
   ) {}
 
   private headers(extra: Record<string, string> = {}): Record<string, string> {
@@ -63,6 +72,9 @@ export class TestApiClient {
     }
     if (this.userAgent !== undefined) {
       headers['User-Agent'] = this.userAgent;
+    }
+    if (this.forwardedFor !== undefined) {
+      headers['X-Forwarded-For'] = this.forwardedFor;
     }
 
     return headers;
