@@ -1,46 +1,11 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
-import { mentionLabel } from './mentions';
 
 export type TaskActivityEntry = components['schemas']['TaskActivity'];
-type TiptapDoc = components['schemas']['TiptapDoc'];
 
 // A burst of edits (the description autosave and its own realtime echo) would
 // otherwise download the whole log several times a second.
 const REFRESH_INTERVAL_MS = 1000;
-
-function nodeText(node: unknown): string {
-  if (typeof node !== 'object' || node === null) {
-    return '';
-  }
-  const { type, attrs, text, content } = node as {
-    type?: unknown;
-    attrs?: unknown;
-    text?: unknown;
-    content?: unknown;
-  };
-  // A mention carries neither text nor children, so the walk below drops it.
-  if (type === 'mention') {
-    const record = typeof attrs === 'object' && attrs !== null ? attrs : {};
-    return `@${mentionLabel(record as Record<string, unknown>)}`;
-  }
-  if (typeof text === 'string') {
-    return text;
-  }
-  return Array.isArray(content) ? content.map(nodeText).join('') : '';
-}
-
-/** Flattens a stored description to plain text; there is no read-only renderer for it. */
-export function descriptionText(doc: TiptapDoc | null | undefined): string {
-  if (doc == null) {
-    return '';
-  }
-  const blocks = Array.isArray(doc.content) ? doc.content : [];
-  return blocks
-    .map(nodeText)
-    .filter((text) => text !== '')
-    .join(' ');
-}
 
 class TaskActivityStore {
   entries = $state<TaskActivityEntry[]>([]);
