@@ -98,13 +98,19 @@ row: a viewer attempting a mutation, and the two owner-only operations
   body is ignored. Any other viewer request is 403, and the role gate runs
   before the user-existence check so the endpoint cannot be used as a
   user-existence oracle.
-- `POST /api/projects/:id/members/by-email` (`{ email, role? }`) adds one user
-  by exact, case-insensitive email and returns `{ user, role }` (the user with
-  `avatar_url`, and the effective role after the call). `role` defaults to
-  `editor`; omitting it on a re-invite leaves an existing member's role alone,
-  so re-inviting never silently promotes a viewer. Unknown emails return 404;
-  adding the creator is a no-op that stores nothing and reports `editor`.
-  **Editors only** — a viewer gets 403, non-accessors 404.
+- `POST /api/projects/:id/members/by-email` (`{ email, role? }`) shares a board
+  with one exact, case-insensitive address and answers
+  `{ status, role, user, invitation }`. An address that already has an account
+  is added straight away (`status: "member"`, `user` populated,
+  `invitation: null`); one that does not gets a pending invitation instead
+  (`status: "invited"`, `user: null`) — see
+  [Pending invitations](#pending-invitations). `role` defaults to `editor`;
+  omitting it on a re-invite leaves an existing member's or invitation's role
+  alone, so re-inviting never silently promotes a viewer. Adding the creator is
+  a no-op that stores nothing and reports `editor`. **Editors only** — a viewer
+  gets 403, non-accessors 404, and the role gate runs before the address is
+  looked up, so neither can use the route to learn whether an address has an
+  account.
 - `PUT /api/projects/:id/owner` (`{ user_id }`) transfers ownership and
   returns the updated project. Only the current creator may call it (other
   members get 403, non-accessors 404). `user_id` must already be a member (422
@@ -128,6 +134,61 @@ Copied projects start personal: members are never copied from the source.
 project with them (as creator or member on either side); `GET
 /api/users?project_id=` returns the users who can access that project plus
 users still assigned to its tasks or still holding a comment on them.
+
+### Pending invitations
+
+Sharing a board with an address that has no account yet stores a
+`project_invitation` row and emails a link. The row is the whole lifecycle: it
+grants nothing until it is claimed, it can be revoked by deleting it, and it
+cascades away with either its project or the account that sent it.
+
+An invitation is claimed in exactly two ways, and both consume it:
+
+- **signing up with the invited address.** Every unexpired invitation for that
+  address, across every project, takes effect during signup at its invited
+  role.
+- **`POST /api/invitations/accept`** (`{ token }`, authenticated) with the token
+  from the link. The caller need not be signed in as the invited address — an
+  invitation is a grant to whoever holds the link, so someone who signs up
+  under a different address can still accept.
+
+It is deliberately **not** claimed by an existing account changing its address
+to an invited one: otherwise an invitation would be a standing grant that fires
+months later on an address edit. Claiming never demotes — accepting a `viewer`
+invitation for a board you already edit leaves you an editor — and it sends no
+"you were added to a board" mail, because the person just clicked the
+invitation.
+
+- `GET /api/projects/:id/invitations` lists what is outstanding, expired rows
+  included with their `expires_at` so the UI can offer resend rather than let
+  them vanish. **Editors only**: the list is a management surface made entirely
+  of email addresses that only editors can create, so a viewer gets 403. This
+  is the one project-scoped read gated on write rather than access.
+- `DELETE /api/projects/:id/invitations/:invitationId` revokes one. Every copy
+  of its link dies at once, including one already in the recipient's mailbox,
+  because redemption always consults the row.
+- `POST /api/projects/:id/invitations/:invitationId/resend` mails it again and
+  gives it a fresh 14-day deadline, which is also how an expired invitation is
+  revived. **The link does not change**, so the copy the recipient already has
+  keeps working.
+
+Tokens are never returned by any response; the raw token exists only in the
+email. It is derived by HMAC from the row id under `EMAIL_TOKEN_SECRET` rather
+than stored, which is what lets a resend reproduce a link that was already sent
+without persisting a usable secret. It authenticates nothing: it is not
+accepted as a bearer credential and creates no session.
+
+Limits: 100 pending invitations per project (expired ones count until revoked)
+answers 422; 20 invitation emails an hour per inviter and 3 resends an hour per
+invitation answer 429. This is the only path that mails an address nobody has
+proved they control, so those limits are what bound both outbound mail and the
+rate at which an editor can probe which addresses have accounts.
+
+An invitation is a 14-day grant to whoever controls that mailbox, which is the
+same trust model as adding a member by email. If the address is claimed by a
+different person before it is used, that person can join the board — bounded to
+one project at a known role, and bounded in time by the deadline and by
+revocation.
 
 ### Personal access tokens
 
@@ -733,8 +794,8 @@ live retries are never pruned. The log has a `limit` but no cursor, so only the
 
 ### Email
 
-Password-reset, email-verification and feedback emails go through the driver
-named by `EMAIL_DRIVER`:
+Password-reset, email-verification, board-invitation and feedback emails go
+through the driver named by `EMAIL_DRIVER`:
 
 - `console` (default) — logs the full email; the reset link is usable from the
   server log in development.
@@ -1075,6 +1136,8 @@ cpath task archived --project "My Project" --search bug
 cpath task restore "Fix the bug" --project "My Project"
 cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Project"
 cpath project invite "My Project" --email them@example.com --role viewer  # editor by default
+cpath project invitations "My Project"  # pending invites: id, email, role, expiry
+cpath project resend-invite "My Project" --id 3f9a1c2b   # revoke-invite withdraws one
 cpath project set-role "My Project" them@example.com --role editor
 cpath project members "My Project"      # ROLE column reads owner / editor / viewer
 cpath config set default-project "My Project"   # makes --project optional
@@ -1178,6 +1241,13 @@ npm run openapi:dump && npm run --prefix cli generate-api
 
 - Email verification exists but gates nothing, and there is no bounce or
   complaint handling.
+- `POST /api/projects/:id/members/by-email` tells an editor whether an address
+  already has an account: `status` is `member` for one that does and `invited`
+  for one that does not. Removing that would mean making every share an
+  invitation that has to be accepted, which would end instant sharing with
+  someone who already has an account. It is bounded to editors of a project and
+  to 20 unknown addresses an hour each; no unauthenticated route reveals
+  anything about an address.
 - Float `position` ordering with no automatic rebalancing.
 - Project roles are only `editor` and `viewer`. Every editor can rename,
   archive and publish the board and manage its member set — including demoting

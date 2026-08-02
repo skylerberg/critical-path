@@ -163,6 +163,40 @@ export async function enforceVerificationRateLimit(c: Context, userId: string): 
   }
 }
 
+export const INVITE_USER_WINDOW_MS = 60 * 60_000;
+export const INVITE_USER_MAX_ATTEMPTS = 20;
+export const INVITE_RESEND_WINDOW_MS = 60 * 60_000;
+export const INVITE_RESEND_MAX_ATTEMPTS = 3;
+
+// The only path that mails an address nobody has proved they control, so this
+// is what bounds both outbound mail and the rate at which a project editor can
+// probe which addresses already have accounts.
+export async function enforceInvitationRateLimit(
+  userId: string,
+  invitationId?: string
+): Promise<void> {
+  const now = Date.now();
+  const userAllowed = await consumeRateLimit(
+    `invite-user:${userId}`,
+    now,
+    INVITE_USER_MAX_ATTEMPTS,
+    INVITE_USER_WINDOW_MS
+  );
+  // Tighter per-invitation budget on a resend: the inviter's hourly total does
+  // not stop one address being mailed over and over.
+  const inviteAllowed =
+    invitationId === undefined ||
+    (await consumeRateLimit(
+      `invite-resend:${invitationId}`,
+      now,
+      INVITE_RESEND_MAX_ATTEMPTS,
+      INVITE_RESEND_WINDOW_MS
+    ));
+  if (!userAllowed || !inviteAllowed) {
+    throw new AppError(429, 'Too many invitations, please try again later');
+  }
+}
+
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
   const normalizedEmail = email.toLowerCase();
   const ipAllowed = await consumeRateLimit(`ip:${clientIp(c)}:${normalizedEmail}`);
