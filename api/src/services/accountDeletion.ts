@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
+import { attachmentStorageKeys } from './attachments/index';
 import { inProjectLockOrder } from './projectLock';
 
 export interface OwnedProject {
@@ -61,9 +62,10 @@ export async function deleteUnsharedProjects(db: Kysely<DB>, projectIds: string[
     .execute();
 }
 
-// Images uploaded into projects the user did not create are excluded: task_image
-// has no uploader column, the row outlives the account with its project, and
-// deleting the object would blank a picture on someone else's live card.
+// Images and attachments in projects the user did not create are excluded:
+// neither table has an uploader column, the row outlives the account with its
+// project, and deleting the object would blank a picture, or break a download,
+// on someone else's live card.
 export async function storageKeysOwnedBy(
   db: Kysely<DB>,
   userId: string,
@@ -76,7 +78,10 @@ export async function storageKeysOwnedBy(
     .select('task_image.storage_key')
     .where('project.created_by', '=', userId)
     .execute();
-  const keys = rows.map((row) => row.storage_key);
+  const keys = [
+    ...rows.map((row) => row.storage_key),
+    ...(await attachmentStorageKeys(db, { projectsCreatedBy: userId })),
+  ];
   return avatarStorageKey === null ? keys : [avatarStorageKey, ...keys];
 }
 

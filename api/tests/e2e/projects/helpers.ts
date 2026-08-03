@@ -24,6 +24,7 @@ export interface BoardTaskPayload {
   comment_count: number;
   checklist_item_count: number;
   checklist_done_count: number;
+  attachment_count: number;
 }
 
 export interface BoardPayloadBody {
