@@ -42,6 +42,7 @@ const BOARD_TASK_KEYS = [
   'image_count',
   'cover_image_url',
   'comment_count',
+  'attachment_count',
   'checklist_item_count',
   'checklist_done_count',
 ];
