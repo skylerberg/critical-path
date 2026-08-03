@@ -145,6 +145,7 @@ describe('Realtime end to end', () => {
       // Later cases assert on this project's task counts, so nothing created
       // here may outlive the test, failure included.
       for (const id of ids) {
+        await ctx.request(userA.token).post(`/api/tasks/${id}/archive`);
         await ctx.request(userA.token).delete(`/api/tasks/${id}`);
       }
     }
@@ -344,6 +345,7 @@ describe('Realtime end to end', () => {
     // these tests create may outlive them.
     afterAll(async () => {
       for (const id of bulkTasks) {
+        await ctx.request(userA.token).post(`/api/tasks/${id}/archive`);
         await ctx.request(userA.token).delete(`/api/tasks/${id}`);
       }
       for (const id of bulkColumns) {
@@ -616,6 +618,7 @@ describe('Realtime end to end', () => {
   });
 
   it('delivers task_deleted', async () => {
+    expect((await ctx.request(userA.token).post(`/api/tasks/${task2Id}/archive`)).status).toBe(200);
     const res = await ctx.request(userA.token).delete(`/api/tasks/${task2Id}`);
     expect(res.status).toBe(204);
     const event = await clientA.waitForEvent(
@@ -648,6 +651,7 @@ describe('Realtime end to end', () => {
       await run(ids);
     } finally {
       for (const id of ids) {
+        await ctx.request(userA.token).post(`/api/tasks/${id}/archive`);
         await ctx.request(userA.token).delete(`/api/tasks/${id}`);
       }
     }

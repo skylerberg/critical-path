@@ -319,7 +319,19 @@ describe('task commands', () => {
     expect(moved.position).toBe(2000);
   });
 
-  it('delete with --force removes the task', async () => {
+  it('refuses to delete a task that is still on the board', async () => {
+    const res = await h.runCli(['task', 'delete', 'Delta task', '--project', projectId, '--force']);
+    expect(res.exitCode).toBe(6);
+    expect(res.stderr).toContain('still on the board');
+    expect(res.stderr).toContain('cpath task archive');
+
+    const alive = await h.runCli(['task', 'show', delta.id, '--json']);
+    expect(alive.exitCode).toBe(0);
+  });
+
+  it('delete with --force removes an archived task', async () => {
+    expect((await h.runCli(['task', 'archive', delta.id])).exitCode).toBe(0);
+
     const res = await h.runCli([
       'task',
       'delete',
@@ -629,6 +641,7 @@ describe('task commands', () => {
       expect(url.exitCode).toBe(0);
       expect(url.json<{ url: string }>().url).toContain(`/t/${alias}/`);
     } finally {
+      await h.runCli(['task', 'archive', decoyId]);
       await h.runCli(['task', 'delete', decoyId, '--force']);
     }
   });
@@ -822,6 +835,7 @@ describe('task commands', () => {
     const show = await h.runCli(['task', 'show', task.id]);
     expect(show.stdout).toContain(title);
 
+    await h.runCli(['task', 'archive', task.id]);
     await h.runCli(['task', 'delete', task.id, '--force']);
   });
 

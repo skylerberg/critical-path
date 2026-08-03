@@ -48,6 +48,7 @@ import projectsRouter from './routes/projects';
 import invitationsRouter from './routes/invitations';
 import columnsRouter from './routes/columns';
 import tasksRouter from './routes/tasks';
+import taskBulkRouter from './routes/taskBulk';
 import myTasksRouter from './routes/myTasks';
 import searchRouter from './routes/search';
 import imageUploadRouter from './routes/imageUpload';
@@ -183,6 +184,8 @@ app.route('/api/columns', columnsRouter);
 app.route('/api/tasks', tasksRouter);
 // Second router on the same prefix: POST /:id/images needs its own bodyLimit.
 app.route('/api/tasks', imageUploadRouter);
+// Third: every path it adds is single-segment, so mount order cannot shadow it.
+app.route('/api/tasks', taskBulkRouter);
 app.route('/api/my-tasks', myTasksRouter);
 app.route('/api/search', searchRouter);
 app.route('/api/labels', labelsRouter);
