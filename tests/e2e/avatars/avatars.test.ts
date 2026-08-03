@@ -72,6 +72,7 @@ describe('Avatars', () => {
       expect(get.headers.get('Cache-Control')).toBe('private, max-age=31536000, immutable');
 
       const bytes = Buffer.from(await get.arrayBuffer());
+      expect(get.headers.get('Content-Length')).toBe(String(bytes.length));
       expect(bytes.subarray(0, 4).toString('latin1')).toBe('RIFF');
       expect(bytes.subarray(8, 12).toString('latin1')).toBe('WEBP');
     });
