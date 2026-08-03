@@ -1,5 +1,5 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { taskSeries, type TaskSeries } from './taskSeries.svelte';
 import { toasts } from './toasts.svelte';
 
@@ -204,5 +204,103 @@ describe('task series store', () => {
     expect(taskSeries.list[0].missed_occurrence_count).toBe(0);
     expect(taskSeries.list[0].last_missed_date).toBeNull();
     expect(JSON.parse(String(await requestAt(1).text()))).toEqual({ clear_missed: true });
+  });
+});
+
+describe('task series realtime events', () => {
+  function event(type: string, data: unknown, projectId: string | null = 'p-1') {
+    return { type, project_id: projectId, data };
+  }
+
+  it('appends a series someone else created', async () => {
+    await loadWith([series()]);
+
+    taskSeries.applyRealtime(event('series_created', series({ id: 's-2', title: 'Theirs' })));
+
+    expect(taskSeries.list.map((row) => row.id)).toEqual(['s-1', 's-2']);
+  });
+
+  it('does not double a row when our own create echoes back', async () => {
+    await loadWith([]);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, { ...series({ id: 'mine' }), dropped_image_count: 0 })
+    );
+    await taskSeries.create({
+      id: 'mine',
+      project_id: 'p-1',
+      column_id: 'c-1',
+      title: 'Weekly review',
+      start_date: '2026-02-02',
+      timezone: 'Europe/Berlin',
+      preset: 'weekly',
+    });
+
+    taskSeries.applyRealtime(event('series_created', series({ id: 'mine', title: 'Renamed' })));
+
+    expect(taskSeries.list.map((row) => row.id)).toEqual(['mine']);
+    expect(taskSeries.list[0].title).toBe('Renamed');
+  });
+
+  it('applies an edit, a pause and an advanced schedule in place', async () => {
+    await loadWith([series(), series({ id: 's-2' })]);
+
+    taskSeries.applyRealtime(event('series_updated', series({ title: 'Renamed elsewhere' })));
+    expect(taskSeries.list[0].title).toBe('Renamed elsewhere');
+
+    taskSeries.applyRealtime(event('series_updated', series({ status: 'paused' })));
+    expect(taskSeries.list[0].status).toBe('paused');
+
+    taskSeries.applyRealtime(
+      event(
+        'series_updated',
+        series({ next_occurrence_date: '2026-02-16', open_occurrence_count: 2 })
+      )
+    );
+    expect(taskSeries.list[0].next_occurrence_date).toBe('2026-02-16');
+    expect(taskSeries.list[0].open_occurrence_count).toBe(2);
+    expect(taskSeries.list.map((row) => row.id)).toEqual(['s-1', 's-2']);
+  });
+
+  it('never resurrects a row an update arrives for after it is gone', async () => {
+    await loadWith([series()]);
+
+    taskSeries.applyRealtime(event('series_deleted', { id: 's-1' }));
+    expect(taskSeries.list).toEqual([]);
+
+    taskSeries.applyRealtime(event('series_updated', series({ title: 'Ghost' })));
+    expect(taskSeries.list).toEqual([]);
+  });
+
+  it('ignores events for another project and events that arrive before the list', async () => {
+    await loadWith([series()]);
+
+    taskSeries.applyRealtime(event('series_created', series({ id: 'elsewhere' }), 'p-9'));
+    taskSeries.applyRealtime(event('series_deleted', { id: 's-1' }, null));
+    expect(taskSeries.list.map((row) => row.id)).toEqual(['s-1']);
+
+    taskSeries.reset();
+    taskSeries.applyRealtime(event('series_created', series({ id: 'early' })));
+    expect(taskSeries.list).toEqual([]);
+  });
+
+  it('ignores an unrelated event type', async () => {
+    await loadWith([series()]);
+
+    taskSeries.applyRealtime(event('task_created', { id: 't-1' }));
+
+    expect(taskSeries.list.map((row) => row.id)).toEqual(['s-1']);
+  });
+
+  it('re-reads the list on resync, and does nothing without a project', async () => {
+    await loadWith([series()]);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { series: [series({ id: 'refetched' })] }));
+    taskSeries.resync();
+    await vi.waitFor(() => expect(taskSeries.list.map((row) => row.id)).toEqual(['refetched']));
+
+    taskSeries.reset();
+    fetchMock.mockClear();
+    taskSeries.resync();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
