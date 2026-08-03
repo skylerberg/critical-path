@@ -51,6 +51,7 @@ import searchRouter from './routes/search';
 import imageUploadRouter from './routes/imageUpload';
 import labelsRouter from './routes/labels';
 import commentsRouter from './routes/comments';
+import checklistItemsRouter from './routes/checklistItems';
 import imagesRouter from './routes/images';
 import feedbackRouter from './routes/feedback';
 import publicBoardsRouter from './routes/publicBoards';
@@ -133,6 +134,7 @@ const openAPIOptions = {
       { name: 'Search', description: 'Cross-project task search' },
       { name: 'Labels', description: 'Per-project labels' },
       { name: 'Comments', description: 'Task comment threads' },
+      { name: 'Checklists', description: 'Card checklist items' },
       { name: 'Images', description: 'Task image upload and retrieval' },
       { name: 'Avatars', description: 'User profile image upload and retrieval' },
       { name: 'Feedback', description: 'User-submitted product feedback' },
@@ -174,6 +176,7 @@ app.route('/api/my-tasks', myTasksRouter);
 app.route('/api/search', searchRouter);
 app.route('/api/labels', labelsRouter);
 app.route('/api/comments', commentsRouter);
+app.route('/api/checklist-items', checklistItemsRouter);
 app.route('/api/images', imagesRouter);
 app.route('/api/avatars', avatarsRouter);
 app.route('/api/feedback', feedbackRouter);

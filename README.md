@@ -382,6 +382,44 @@ conversation exists without fetching it. Comments cascade away with their task
 and with their author's account, and are not copied when a project is
 duplicated via `POST /api/projects` with `source_project_id`.
 
+### Card checklists
+
+Each task carries one flat, ordered checklist. `POST /api/checklist-items`
+(`{ id, task_id, text, position, checked? }`) adds an item,
+`PATCH /api/checklist-items/:id` (`{ text?, checked?, position? }`) ticks,
+renames or repositions one, `DELETE /api/checklist-items/:id` removes it, and
+`POST /api/checklist-items/:id/promote` (`{ id, position }`) turns one into a
+card. There is no cap on how many items a task may carry, and no per-item
+assignee, due date, label or dependency edge — the restraint is the feature; an
+item that needs any of those is a card, which is what promote is for.
+
+Unlike comments, all four assert **write** access: a checklist is card content,
+not discussion, so a viewer gets 403 and a caller with no access gets 404.
+
+Item text shares the task title's 1–2000 character limit, because promoting an
+item writes its text straight into a title. Positions are floats, the same
+scheme columns and tasks use, and ties break on id.
+
+Nothing stores a count. Every board task carries `checklist_item_count` and
+`checklist_done_count` as correlated subqueries computed at read time, so they
+cannot drift, and `GET /api/tasks/:id` embeds the items themselves as
+`checklist_items` in list order — archived cards included, which is the only
+way to read an archived card's checklist.
+
+**No checklist write touches the parent task's `updated_at`.** Bumping it would
+invalidate the `expected_updated_at` precondition every open editor is holding,
+so ticking a box while a teammate writes a description must not make their next
+save conflict.
+
+Promote is delete-then-insert, and that ordering is load-bearing: a second
+concurrent promote blocks on the deleted row's lock, re-reads after commit,
+matches nothing and answers 404 having created no card. It publishes both a
+`task_created` and a `checklist_item_deleted`.
+
+Items cascade away with their task. They **are** copied by a card duplicate, a
+column duplicate and a project copy, text and ticked state verbatim under fresh
+ids — a copy is a copy. They are published on public boards.
+
 ### Mentions
 
 `mention` is a node in the restricted Tiptap allow-list, so a task description
@@ -417,11 +455,18 @@ entry is `{ id, kind, actor_user_id, old_value, new_value, created_at }`, and
 the kinds are `created`, `title_changed`, `description_changed`,
 `column_changed`, `due_date_changed`, `label_added`, `label_removed`,
 `assignee_added`, `assignee_removed`, `blocker_added`, `blocker_removed`,
-`archived` and `restored`. `old_value` / `new_value` carry `{ text }` for a
-title or a due date, `{ doc }` for a description, and `{ id, name }` for a
-column, label, user or blocker; both are null for archive and restore, and a
-due date is null on the side where the card had none — old on the first set,
-new on a clear.
+`archived`, `restored`, `checklist_item_added`, `checklist_item_checked`,
+`checklist_item_unchecked`, `checklist_item_renamed`, `checklist_item_removed`
+and `checklist_item_promoted`. `old_value` / `new_value` carry `{ text }` for a
+title, a due date or a checklist item, `{ doc }` for a description, and
+`{ id, name }` for a column, label, user or blocker; both are null for archive
+and restore, and a due date is null on the side where the card had none — old
+on the first set, new on a clear. `checklist_item_promoted` carries the item's
+text as `old_value` and the new card as `{ id, name }`.
+
+Reordering a checklist writes no entry: a keyboard drag finalizes once per
+arrow press, and logging positions would bury the card's history under one
+run of a drag.
 
 Entries are written inside the transaction of the mutation they record, so
 they roll back with it, and only when something actually changed — re-sending
@@ -526,11 +571,12 @@ column it is already in, and `POST /api/columns/:id/duplicate`
 (`{ id, position }`) copies a column plus every live card in it into the same
 project. Both take a client-supplied id, so a retry cannot double-create, and
 both answer 409 on an id already in use. There is no dialog of what to carry
-over: a copy takes the title, description, due date, labels, assignees and
-images, each image copied to its own stored object so deleting one leaves the
-other intact, and the description's `/api/images/:id` srcs rewritten to point
-at the copies. A copied image keeps its cover flag, so a card with a cover
-duplicates into a card with the same cover. A column copy keeps each card's
+over: a copy takes the title, description, due date, labels, assignees,
+checklist items (text and ticked state alike) and images, each image copied to
+its own stored object so deleting one leaves the other intact, and the
+description's `/api/images/:id` srcs rewritten to point at the copies. A copied
+image keeps its cover flag, so a card with a cover duplicates into a card with
+the same cover. A column copy keeps each card's
 position, so the cards land in the same relative order, and keeps the source's
 name and done flag.
 
@@ -647,9 +693,11 @@ without a token and 404 for non-members. The response is shaped field by field
 from the ordinary board payload, so anything added to that payload later stays
 private until it is published deliberately. Public boards carry card titles,
 descriptions (with their `/api/images/:id` nodes), positions, due dates,
-labels, blockers, image counts, cover images, and the name and avatar of
-assigned users; member ids, the creator, and timestamps are not on the wire,
-and users who are not assigned to anything are not listed at all.
+labels, blockers, image counts, cover images, checklist items with their counts,
+and the name and avatar of assigned users; member ids, the creator, and
+timestamps are not on the wire, and users who are not assigned to anything are
+not listed at all. Checklist items are scoped to the published tasks, so an
+archived card's items stay off a public board along with the card.
 
 Responses are `no-store` and carry `X-Robots-Tag: noindex, nofollow`. The
 board itself is unlisted: nothing enumerates published projects. Anonymous
@@ -743,6 +791,8 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `comment_created`                     | comment row plus `{ comment_count }`                                                               |
 | `comment_updated`                     | comment row                                                                                        |
 | `comment_deleted`                     | `{ id, task_id, comment_count }`                                                                   |
+| `checklist_item_created` / `checklist_item_updated` | checklist item row plus both counts                                          |
+| `checklist_item_deleted`              | `{ id, task_id, checklist_item_count, checklist_done_count }`                                      |
 | `project_created` / `project_updated` | projects-list item (with `member_ids`, `members` and task counts, without the per-user `position`) |
 | `project_deleted`                     | `{ id }`                                                                                           |
 | `project_position_updated`            | `{ id, position }`                                                                                 |
@@ -880,9 +930,11 @@ delivery cannot be replayed under a fresh one.
 `task_archived`, `task_restored`, `task_relations_set`, `column_created`,
 `column_updated`, `column_deleted`, `label_created`, `label_updated`,
 `label_deleted`, `image_created`, `image_deleted`, `comment_created`,
-`comment_updated`, `comment_deleted` and `project_updated` — which is also the
-event for publishing or unpublishing a board's public link. Task activity writes
-no event of its own, so it arrives as the mutation that caused it.
+`comment_updated`, `comment_deleted`, `checklist_item_created`,
+`checklist_item_updated`, `checklist_item_deleted` and `project_updated` —
+which is also the event for publishing or unpublishing a board's public link.
+Task activity writes no event of its own, so it arrives as the mutation that
+caused it.
 
 **Never delivered.** `user_updated` and `sessions_revoked` are not project data
 and carry an email address. `project_position_updated` is per-user. No
@@ -1459,7 +1511,8 @@ back:
     "cover_image_url": "<'/api/images/:id' for the cover image, or null>",
     "label_ids": [], "assignee_ids": [], "blocker_ids": [],
     "images": [ { "id", "path", "filename", "content_type", "size_bytes",
-                  "created_at" } ]
+                  "created_at" } ],
+    "checklist_items": [ { "id", "text", "checked", "position" } ]
   } ]
 }
 ```
@@ -1467,7 +1520,9 @@ back:
 - `version` is bumped only on a breaking shape change. It went to `2` when
   archived cards joined `tasks[]`: a reader of a `1` export could take every row
   as live, which is no longer true. It went to `3` when `users[].email` was
-  dropped: no user record carries an address any more.
+  dropped: no user record carries an address any more. `checklist_items` was
+  added without a bump: a reader of a `3` export keeps parsing, since an absent
+  key and an empty checklist mean the same thing.
 - Archived cards are exported. Each carries the `archived_at` that marks it and
   the `column_id` it was archived from, so an importer can restore it archived,
   drop it, or ask. A live card has `archived_at: null`. `blocker_ids` still
@@ -1503,13 +1558,14 @@ back:
 then
 
 ```
-id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,description
+id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,checklist,description
 ```
 
 one row per task in the manifest's order, RFC 4180 quoting, CRLF line endings.
 Labels, assignees (as names) and blockers (as titles) are joined with `"; "`,
-`archived_at` is empty for a live card, and the description is flattened to
-plain text, mentions included as `@label`. Values
+`archived_at` is empty for a live card, `checklist` renders each item as
+`[x] done` or `[ ] not done` joined the same way, and the description is
+flattened to plain text, mentions included as `@label`. Values
 are written exactly as the user typed them — a title starting with `=` is not
 prefixed or escaped, so treat a `tasks.csv` opened in a spreadsheet the same way
 you would treat any other untrusted CSV. Use `project.json` when you need
@@ -1644,6 +1700,10 @@ cpath column move-tasks "Done" --to "Backlog" --project "My Project"
 cpath column archive-tasks "Done" --project "My Project"
 cpath task archived --project "My Project" --search bug
 cpath task restore "Fix the bug" --project "My Project"
+cpath task checklist add "Fix the bug" "Write the regression test" --project "My Project"
+cpath task checklist add "Fix the bug" - --project "My Project" < steps.md  # bullets and [x] honored
+cpath task checklist check "Fix the bug" "regression" --project "My Project"
+cpath task checklist promote "Fix the bug" "regression" --project "My Project"
 cpath comment add "Fix the bug" "Reproduced on **staging**" --project "My Project"
 cpath project invite "My Project" --email them@example.com --role viewer  # editor by default
 cpath project invitations "My Project"  # pending invites: id, email, role, expiry
@@ -1684,6 +1744,17 @@ one as `@label`, and writing that text back with `task update --description` or
 `comment edit` stores plain text, dropping the link to the person for everyone.
 `--description-json` is the lossless path; comment bodies have no equivalent,
 so edit one from the web app if it contains a mention.
+
+`cpath task checklist` has `list`, `add`, `check`, `uncheck`, `rename`, `move`,
+`remove` and `promote`. An `<item>` reference resolves through the same four
+tiers as every other reference, against that card's own items — id, exact text,
+id prefix, unique text substring. `add` and `move` take `--top`, `--bottom`,
+`--before` and `--after` like the task commands, defaulting to the bottom.
+`add <task> -` reads one item per line from stdin and consumes Markdown list
+markers and `[ ]` / `[x]` tickboxes as syntax, so a checklist pasted out of a
+design doc arrives with its ticked state intact — each line is its own request,
+so a failure part-way leaves the items before it in place. `promote` places the
+new card directly below its parent and prints the card, not the item.
 
 `cpath task url <task>` prints the card's canonical web URL — the bare URL on
 stdout so it pipes into `git commit -m`, or `{ "url": ... }` under `--json`. The

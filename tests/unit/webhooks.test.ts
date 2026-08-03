@@ -257,11 +257,14 @@ describe('webhook event catalogue', () => {
       'comment_created',
       'comment_updated',
       'comment_deleted',
+      'checklist_item_created',
+      'checklist_item_updated',
+      'checklist_item_deleted',
       'project_updated',
     ]) {
       expect(isWebhookEvent(type)).toBe(true);
     }
-    expect(WEBHOOK_EVENT_TYPES.size).toBe(18);
+    expect(WEBHOOK_EVENT_TYPES.size).toBe(21);
   });
 
   it('excludes events that cannot or must not be delivered', () => {

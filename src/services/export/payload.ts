@@ -37,7 +37,7 @@ export async function buildProjectExport(
 ): Promise<{ exportPayload: ProjectExport; images: ExportImageRow[] }> {
   const projectId = payload.project.id;
 
-  const [users, archivedTasks, images] = await Promise.all([
+  const [users, archivedTasks, images, checklistItems] = await Promise.all([
     usersWithProjectAccess(db, projectId),
     getArchivedTasks(db, projectId),
     db
@@ -56,6 +56,22 @@ export async function buildProjectExport(
       .orderBy('task_image.created_at')
       .orderBy('task_image.id')
       .execute(),
+    // No archived_at filter: the manifest lists archived cards too, and filtering
+    // would silently drop their items.
+    db
+      .selectFrom('checklist_item')
+      .innerJoin('task', 'task.id', 'checklist_item.task_id')
+      .select([
+        'checklist_item.id',
+        'checklist_item.task_id',
+        'checklist_item.text',
+        'checklist_item.checked',
+        'checklist_item.position',
+      ])
+      .where('task.project_id', '=', projectId)
+      .orderBy('checklist_item.position')
+      .orderBy('checklist_item.id')
+      .execute(),
   ]);
 
   const imagesByTask = new Map<string, ProjectExport['tasks'][number]['images']>();
@@ -72,6 +88,18 @@ export async function buildProjectExport(
     imagesByTask.set(image.task_id, manifestEntries);
   }
 
+  const checklistByTask = new Map<string, ProjectExport['tasks'][number]['checklist_items']>();
+  for (const item of checklistItems) {
+    const items = checklistByTask.get(item.task_id) ?? [];
+    items.push({
+      id: item.id,
+      text: item.text,
+      checked: item.checked,
+      position: item.position,
+    });
+    checklistByTask.set(item.task_id, items);
+  }
+
   const exportTask = (
     { image_count: _imageCount, ...task }: BoardTask,
     archived_at: string | null
@@ -79,6 +107,7 @@ export async function buildProjectExport(
     ...task,
     archived_at,
     images: imagesByTask.get(task.id) ?? [],
+    checklist_items: checklistByTask.get(task.id) ?? [],
   });
 
   const exportPayload: ProjectExport = {

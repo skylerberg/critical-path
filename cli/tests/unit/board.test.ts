@@ -26,6 +26,8 @@ function task(
     image_count: 0,
     cover_image_url: null,
     comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
   };
 }
 

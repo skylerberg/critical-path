@@ -58,6 +58,17 @@ function boardTasksQuery(db: Kysely<DB>) {
       .select((cb) => cb.fn.countAll<string>().as('comment_count'))
       .whereRef('task_comment.task_id', '=', 'task.id')
       .as('comment_count'),
+    eb
+      .selectFrom('checklist_item')
+      .select((kb) => kb.fn.countAll<string>().as('checklist_item_count'))
+      .whereRef('checklist_item.task_id', '=', 'task.id')
+      .as('checklist_item_count'),
+    eb
+      .selectFrom('checklist_item')
+      .select((kb) => kb.fn.countAll<string>().as('checklist_done_count'))
+      .whereRef('checklist_item.task_id', '=', 'task.id')
+      .where('checklist_item.checked', '=', true)
+      .as('checklist_done_count'),
   ]);
 }
 
@@ -84,6 +95,8 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
     image_count: Number(task.image_count),
     cover_image_url: task.cover_image_id == null ? null : `/api/images/${task.cover_image_id}`,
     comment_count: Number(task.comment_count),
+    checklist_item_count: Number(task.checklist_item_count),
+    checklist_done_count: Number(task.checklist_done_count),
   };
 }
 
@@ -254,12 +267,43 @@ async function fetchCommentsForTasks(
     .execute();
 }
 
+interface PublicChecklistItemRow {
+  id: string;
+  task_id: string;
+  text: string;
+  checked: boolean;
+  position: number;
+}
+
+async function fetchChecklistItemsForTasks(
+  db: Kysely<DB>,
+  taskIds: readonly string[]
+): Promise<PublicChecklistItemRow[]> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+  return db
+    .selectFrom('checklist_item')
+    .select([
+      'checklist_item.id',
+      'checklist_item.task_id',
+      'checklist_item.text',
+      'checklist_item.checked',
+      'checklist_item.position',
+    ])
+    .where('checklist_item.task_id', 'in', [...taskIds])
+    .orderBy('checklist_item.position')
+    .orderBy('checklist_item.id')
+    .execute();
+}
+
 // Never spread: listing every field by hand is what keeps a newly added board
 // field private until someone deliberately publishes it here.
 export function toPublicBoard(
   payload: BoardPayload,
   users: PublicBoardUser[],
-  comments: PublicCommentRow[]
+  comments: PublicCommentRow[],
+  checklistItems: PublicChecklistItemRow[]
 ): PublicBoard {
   return {
     project: {
@@ -286,6 +330,8 @@ export function toPublicBoard(
       image_count: task.image_count,
       cover_image_url: task.cover_image_url,
       comment_count: task.comment_count,
+      checklist_item_count: task.checklist_item_count,
+      checklist_done_count: task.checklist_done_count,
     })),
     labels: payload.labels.map((label) => ({
       id: label.id,
@@ -304,6 +350,13 @@ export function toPublicBoard(
       body: comment.body as TiptapDoc,
       created_at: comment.created_at.toISOString(),
       updated_at: comment.updated_at.toISOString(),
+    })),
+    checklist_items: checklistItems.map((item) => ({
+      id: item.id,
+      task_id: item.task_id,
+      text: item.text,
+      checked: item.checked,
+      position: item.position,
     })),
   };
 }
@@ -332,12 +385,11 @@ export async function getPublicBoard(
   }
   assertPublicProject(payload.project);
 
-  // Scoping to the published tasks is what keeps an archived task's comments
-  // out, since those tasks are not in the payload.
-  const comments = await fetchCommentsForTasks(
-    db,
-    payload.tasks.map((task) => task.id)
-  );
+  // Scoping to the published tasks is what keeps an archived task's comments and
+  // checklist out, since those tasks are not in the payload.
+  const publishedTaskIds = payload.tasks.map((task) => task.id);
+  const comments = await fetchCommentsForTasks(db, publishedTaskIds);
+  const checklistItems = await fetchChecklistItemsForTasks(db, publishedTaskIds);
 
   // A member who is neither assigned nor quoted stays unnamed.
   const namedIds = new Set([
@@ -351,5 +403,5 @@ export async function getPublicBoard(
           .filter((user) => namedIds.has(user.id))
           .map(({ id, name, avatar_url }) => ({ id, name, avatar_url }));
 
-  return toPublicBoard(payload, users, comments);
+  return toPublicBoard(payload, users, comments, checklistItems);
 }

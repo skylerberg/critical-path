@@ -38,6 +38,8 @@ interface PublicBoardBody {
     image_count: number;
     cover_image_url: string | null;
     comment_count: number;
+    checklist_item_count: number;
+    checklist_done_count: number;
   }>;
   labels: Array<{ id: string; name: string; color: string }>;
   users: Array<{ id: string; name: string; avatar_url: string | null }>;
@@ -48,6 +50,13 @@ interface PublicBoardBody {
     body: unknown;
     created_at: string;
     updated_at: string;
+  }>;
+  checklist_items: Array<{
+    id: string;
+    task_id: string;
+    text: string;
+    checked: boolean;
+    position: number;
   }>;
 }
 
@@ -329,6 +338,8 @@ describe('GET /api/public/projects/:id/board', () => {
         image_count: task.image_count,
         cover_image_url: task.cover_image_url,
         comment_count: task.comment_count,
+        checklist_item_count: task.checklist_item_count,
+        checklist_done_count: task.checklist_done_count,
       }))
     );
 
@@ -367,6 +378,7 @@ describe('GET /api/public/projects/:id/board', () => {
     const payload = (await res.json()) as PublicBoardBody;
 
     expect(Object.keys(payload).sort()).toEqual([
+      'checklist_items',
       'columns',
       'comments',
       'labels',
@@ -379,6 +391,8 @@ describe('GET /api/public/projects/:id/board', () => {
       expect(Object.keys(task).sort()).toEqual([
         'assignee_ids',
         'blocker_ids',
+        'checklist_done_count',
+        'checklist_item_count',
         'column_id',
         'comment_count',
         'cover_image_url',
@@ -390,6 +404,9 @@ describe('GET /api/public/projects/:id/board', () => {
         'position',
         'title',
       ]);
+    }
+    for (const item of payload.checklist_items) {
+      expect(Object.keys(item).sort()).toEqual(['checked', 'id', 'position', 'task_id', 'text']);
     }
     for (const comment of payload.comments) {
       expect(Object.keys(comment).sort()).toEqual([
