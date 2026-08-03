@@ -58,6 +58,7 @@ import {
   preconditionConflictErrorResponse,
   dependencyCycleErrorResponse,
   validationErrorResponse,
+  unprocessableErrorResponse,
   validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
   type TiptapDoc,
@@ -731,10 +732,12 @@ router.delete(
   '/:id',
   describeRoute({
     tags: ['Tasks'],
-    summary: 'Delete a task',
+    summary: 'Delete an archived task',
     description:
-      'Delete a task. Dependencies, labels, assignees, and images cascade; stored image ' +
-      'objects are removed after commit.',
+      'Permanently delete a task that has already been archived. A task still on the board is ' +
+      'refused with 422: archiving is the reversible step and deletion is only reachable from ' +
+      'the archive, so nothing can be destroyed in one action. Dependencies, labels, assignees, ' +
+      'and images cascade; stored image objects are removed after commit.',
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
@@ -744,6 +747,7 @@ router.delete(
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
+      ...unprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -755,6 +759,21 @@ router.delete(
     const actorId = c.get('user').id;
 
     const project = await assertTaskWrite(db, actorId, id);
+
+    // Locked, so a concurrent restore cannot put the task back on the board
+    // between this check and the delete below.
+    const target = await db
+      .selectFrom('task')
+      .select('task.archived_at')
+      .where('task.id', '=', id)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!target) {
+      throw new AppError(404, 'Task not found');
+    }
+    if (target.archived_at === null) {
+      throw new AppError(422, 'Only an archived task can be deleted; archive it first');
+    }
 
     const images = await db
       .selectFrom('task_image')

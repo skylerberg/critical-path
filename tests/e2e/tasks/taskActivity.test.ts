@@ -363,6 +363,7 @@ describe('Task activity', () => {
       await ctx
         .request(user.token)
         .post(`/api/tasks/${taskId}/blockers`, { blocker_task_id: blockerId });
+      await ctx.request(user.token).post(`/api/tasks/${blockerId}/archive`);
       expect((await ctx.request(user.token).delete(`/api/tasks/${blockerId}`)).status).toBe(204);
 
       const entries = await activity(taskId);
@@ -432,6 +433,7 @@ describe('Task activity', () => {
       const taskId = await createTask('doomed');
       expect(await activityRowCount(taskId)).toBe(1);
 
+      await ctx.request(user.token).post(`/api/tasks/${taskId}/archive`);
       expect((await ctx.request(user.token).delete(`/api/tasks/${taskId}`)).status).toBe(204);
 
       expect(await activityRowCount(taskId)).toBe(0);

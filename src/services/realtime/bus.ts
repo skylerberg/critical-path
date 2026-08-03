@@ -61,6 +61,7 @@ const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
   'task_deleted',
   'task_archived',
   'column_tasks_archived',
+  'bulk_tasks_archived',
 ]);
 
 const subscribers = new Set<BusSubscriber>();
