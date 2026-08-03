@@ -236,9 +236,11 @@ router.post(
     description:
       'Create a project with the default Backlog / To Do / In Progress / Done columns, or ' +
       'deep-copy an existing project by passing source_project_id (copies columns, labels, ' +
-      'tasks, task labels, dependencies, and images — not comments, assignees, members, ' +
-      'archived cards, the accent colour, or the archived state of the project itself; copies ' +
-      'start personal). ' +
+      'tasks, task labels, dependencies, images, and recurring series with their templates — ' +
+      'not comments, assignees, members, archived cards, the accent colour, or the archived ' +
+      'state of the project itself; copies start personal). A copied series keeps the ' +
+      'source’s status and schedules its next occurrence from today, so it behaves like the ' +
+      'original without firing an occurrence the source already missed. ' +
       'Returns 422 when source_project_id does not ' +
       'reference an existing project and 404 when it references a project the caller cannot access.',
     security: [{ bearerAuth: [] }],
