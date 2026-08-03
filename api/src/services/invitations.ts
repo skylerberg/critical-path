@@ -11,6 +11,7 @@ import {
   publishProjectListItems,
   type ProjectMemberEntry,
 } from './projectListItem';
+import { INVITATIONS_CHANGED, publishAfterCommit } from './realtime/index';
 import { hashBearerToken } from './sessions';
 import type { AppContext } from '../types/index';
 import type { ProjectInvitationResponse } from '../schemas/projects';
@@ -61,6 +62,22 @@ export function toInvitationResponse(
     created_at: row.created_at.toISOString(),
     expires_at: row.expires_at.toISOString(),
   };
+}
+
+// The only publisher of this event, so no caller can decide what rides in it.
+// It says which project's pending invitations changed and nothing more: an
+// address is the last thing that should ride a fan-out, and the readers allowed
+// to know one can refetch the list they are already allowed to read.
+// Broadcast because the panel that shows the list also opens from the project
+// list, where an editor is sitting in no board's room.
+export function publishInvitationsChanged(c: Pick<AppContext, 'get'>, projectId: string): void {
+  publishAfterCommit(
+    c,
+    INVITATIONS_CHANGED,
+    projectId,
+    { project_id: projectId },
+    { editorsOnly: true, broadcast: true }
+  );
 }
 
 export function enqueueInvitationEmail(
@@ -172,6 +189,9 @@ export async function claimInvitations(
     db,
     granted.flatMap((row) => projectById.get(row.project_id) ?? [])
   );
+  for (const projectId of new Set(granted.map((row) => row.project_id))) {
+    publishInvitationsChanged(c, projectId);
+  }
 
   const grantedRole = new Map(
     granted.map((row) => [row.project_id, normalizeProjectRole(row.role)])
@@ -211,6 +231,7 @@ export async function claimInvitationsForNewAccount(
 // Write access is what makes an invitation an editor-grant, so losing it has to
 // take the outstanding grants along rather than let them land days later.
 export async function revokeInvitationsFromNonEditors(
+  c: Pick<AppContext, 'get'>,
   db: Kysely<DB>,
   projectId: string,
   createdBy: string,
@@ -220,9 +241,12 @@ export async function revokeInvitationsFromNonEditors(
     createdBy,
     ...members.filter((member) => member.role === 'editor').map((member) => member.user_id),
   ];
-  await db
+  const deleted = await db
     .deleteFrom('project_invitation')
     .where('project_id', '=', projectId)
     .where('invited_by', 'not in', editorIds)
-    .execute();
+    .executeTakeFirst();
+  if (deleted.numDeletedRows > 0n) {
+    publishInvitationsChanged(c, projectId);
+  }
 }

@@ -18,6 +18,9 @@ export interface PublishOptions {
   // Candidate every authed socket (access-checked) instead of only the
   // project's subscribers — for project list events.
   broadcast?: boolean;
+  // For events whose subject only editors may read. The delivery layer applies
+  // it, so no publisher can widen it and none has to be trusted to scope it.
+  editorsOnly?: boolean;
 }
 
 export interface BusEntry extends RealtimeEnvelope, PublishOptions {}
@@ -27,6 +30,7 @@ export type BusSubscriber = (entry: BusEntry) => void;
 export const SESSIONS_REVOKED = 'sessions_revoked';
 export const USER_UPDATED = 'user_updated';
 export const PROJECT_CHANGED = 'project_changed';
+export const INVITATIONS_CHANGED = 'invitations_changed';
 
 // Types that leave behind no activity or comment row, so a board read would not
 // report them as changed either. An unclassified new type therefore raises a dot
@@ -39,6 +43,10 @@ const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
   'project_position_updated',
   'project_seen',
   PROJECT_CHANGED,
+  // Not board content, and the dot would be one every viewer sees for a change
+  // none of them may read. Membership is also what keeps signup working: the
+  // dot below reads the calling user, and a claim during signup has none.
+  INVITATIONS_CHANGED,
   'column_created',
   'column_updated',
   'column_tasks_reordered',
