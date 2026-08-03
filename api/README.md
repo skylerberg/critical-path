@@ -524,12 +524,29 @@ so cascading would let a member who leaves take a project's schedules with
 them. A series whose creator is gone still materialises, and the card's
 creation entry is attributed to the project's owner instead.
 
-**Series CRUD emits no realtime event**, the same exception outbound webhooks
-take: a series is board configuration, not board data, no client caches it
-across sessions, and the panel loads the list when it opens. Materialisation,
-which *is* a board mutation, publishes a real `task_created` plus the
-`project_changed` dot, with the series creator as the actor so the live dot and
-the dot a board read computes from the activity log agree.
+**Every series mutation emits a realtime event**, like every other mutation:
+`series_created`, `series_updated` (edit, pause, resume, dismissed misses, and
+the rule running out) and `series_deleted`, to the project's subscribers under
+the usual per-event access re-check — viewers included, since viewers may read
+the list. None of the three raises the `project_changed` dot: a schedule writes
+no activity row, so a board read would report nothing changed and the dot could
+never be cleared by looking at the board.
+
+Two of them are not the CRUD routes. **Materialisation publishes
+`series_updated` too**, because the same commit advances
+`next_occurrence_date`, may raise `missed_occurrence_count`, may end the series
+outright, and changes `open_occurrence_count` — an open panel showing the
+occurrence it just consumed as still upcoming is wrong, not merely stale. So
+does the per-series failure absorber, which is what surfaces `last_error` and
+the pause at five without a reload. Materialisation additionally publishes a
+real `task_created` for the card plus the `project_changed` dot, with the
+series creator as the actor so the live dot and the dot a board read computes
+from the activity log agree.
+
+**Deleting a column publishes `series_updated`** for every series that pointed
+at it, since the `SET NULL` above is what turns a live schedule into one asking
+for a new destination. Outbound webhooks still carry none of the three: a
+series is not board data, and the catalogue is a public surface.
 
 **Copying a project copies its series**, template and all, with every
 project-scoped id remapped to the copy's own columns and labels and every
@@ -1143,6 +1160,8 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `comment_deleted`                     | `{ id, task_id, comment_count }`                                                                   |
 | `checklist_item_created` / `checklist_item_updated` | checklist item row plus both counts                                          |
 | `checklist_item_deleted`              | `{ id, task_id, checklist_item_count, checklist_done_count }`                                      |
+| `series_created` / `series_updated`   | recurring series shape                                                                             |
+| `series_deleted`                      | `{ id }`                                                                                           |
 | `project_created` / `project_updated` | projects-list item (with `member_ids`, `members` and task counts, without the per-user `position`) |
 | `project_deleted`                     | `{ id }`                                                                                           |
 | `project_position_updated`            | `{ id, position }`                                                                                 |
@@ -1336,7 +1355,9 @@ caused it.
 **Never delivered.** `user_updated` and `sessions_revoked` are not project data
 and carry an email address. `project_position_updated` and `project_seen` are
 per-user, and `project_changed` only restates a change that already went out
-under its own type. No
+under its own type. The three `series_*` types describe board configuration
+rather than board data, and the card an occurrence produces arrives as an
+ordinary `task_created`. No
 registration can exist for a project at `project_created` time, and by
 `project_deleted` the registration is already gone by cascade — that type is
 also reused to evict removed members from a project that still exists, where it
