@@ -8,6 +8,8 @@ import { cardMenu } from '../lib/card-menu.svelte';
 import { todayISO } from '../lib/dates';
 import { router } from '../lib/router.svelte';
 import { SHADOW_PLACEHOLDER_ITEM_ID } from 'svelte-dnd-action';
+import { selection } from '../lib/selection.svelte';
+import { session } from '../lib/session.svelte';
 import { publicTaskHref, taskHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, TITLE_DISPLAY_LIMIT, truncateTitle } from '../lib/titles';
@@ -730,5 +732,187 @@ describe('TaskCard changed since you last looked', () => {
     // Hover owns the border and selection owns the ring, so the highlight has to
     // differ from a plain card by the background token and nothing else.
     expect(card().className.replace('bg-accent-soft', 'bg-canvas')).toBe(plain);
+  });
+});
+
+describe('TaskCard selection', () => {
+  const ME = 'u-me';
+  const SECOND_ID = testUuid('t2');
+  const second: BoardTask = { ...task, id: SECOND_ID, title: 'Second card', position: 2000 };
+
+  function makeEditable(createdBy: string | null = ME): void {
+    session.user = {
+      id: ME,
+      name: 'Ada',
+      email: 'ada@example.com',
+      avatar_url: null,
+      email_verified: false,
+    };
+    board.project = {
+      id: PROJECT_ID,
+      name: 'Game',
+      description: '',
+      archived_at: null,
+      created_by: createdBy,
+      member_ids: [],
+      members: [],
+      is_public: false,
+      color: null,
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+    board.tasks = [task, second];
+  }
+
+  function tokens(element: HTMLElement): Set<string> {
+    return new Set(element.className.split(/\s+/).filter(Boolean));
+  }
+
+  beforeEach(() => {
+    selection.clear();
+    makeEditable();
+  });
+
+  afterEach(() => {
+    selection.clear();
+    session.user = null;
+  });
+
+  it('marks a picked card with an inset outline, a check and nothing else', () => {
+    const plainRender = render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+    const plain = tokens(card());
+    expect(screen.queryByText('Selected')).toBeNull();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    plainRender.unmount();
+
+    selection.toggle(TASK_ID);
+    // The cursor moves elsewhere, so the delta below is the set's channel alone.
+    selection.set(SECOND_ID);
+    render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+
+    const picked = tokens(card());
+    expect([...picked].filter((c) => !plain.has(c))).toEqual([
+      'outline-2',
+      '-outline-offset-2',
+      'outline-accent-strong',
+    ]);
+    expect([...plain].filter((c) => !picked.has(c))).toEqual([]);
+    expect(screen.getByText('Selected')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('shows the cursor ring and the picked outline at once, leaving dimming alone', () => {
+    selection.toggle(TASK_ID);
+    render(TaskCard, { props: { task, projectId: PROJECT_ID, dimmed: true, changed: true } });
+
+    const classes = tokens(card());
+    expect(classes).toContain('ring-2');
+    expect(classes).toContain('border-accent');
+    expect(classes).toContain('outline-accent-strong');
+    expect(classes).toContain('opacity-30');
+    expect(classes).toContain('bg-accent-soft');
+  });
+
+  it('draws an unchecked box on the cards a selection does not hold', () => {
+    selection.toggle(TASK_ID);
+    render(TaskCard, { props: { task: second, projectId: PROJECT_ID } });
+
+    expect(screen.getByRole('checkbox')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByText('Selected')).toBeNull();
+  });
+
+  it('toggles from the checkbox without navigating', async () => {
+    selection.toggle(SECOND_ID);
+    const navigate = vi.spyOn(router, 'navigate');
+    render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+
+    await fireEvent.click(screen.getByRole('checkbox'));
+
+    expect(selection.selectedIds).toEqual([TASK_ID, SECOND_ID]);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('toggles once when the checkbox itself is cmd-clicked', async () => {
+    selection.toggle(SECOND_ID);
+    render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true });
+    screen.getByRole('checkbox').dispatchEvent(event);
+
+    expect(selection.selectedIds).toEqual([TASK_ID, SECOND_ID]);
+  });
+
+  it('toggles on cmd-click and claims the gesture back from the browser', async () => {
+    render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true });
+    card().dispatchEvent(event);
+
+    expect(selection.selectedIds).toEqual([TASK_ID]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('extends on shift-click', async () => {
+    selection.toggle(TASK_ID);
+    render(TaskCard, { props: { task: second, projectId: PROJECT_ID } });
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true });
+    card().dispatchEvent(event);
+
+    expect(selection.selectedIds).toEqual([TASK_ID, SECOND_ID]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('leaves a plain click to the overlay link', () => {
+    render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    card().dispatchEvent(event);
+
+    expect(selection.selectedIds).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does not toggle on the click that trails the card menu', () => {
+    cardMenu.open(TASK_ID, 0, 0);
+    render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true });
+    card().dispatchEvent(event);
+
+    expect(selection.selectedIds).toEqual([]);
+  });
+
+  it('moves the cursor on hover and never the set', async () => {
+    selection.toggle(SECOND_ID);
+    render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+
+    await fireEvent.pointerEnter(card());
+
+    expect(selection.cursorTaskId).toBe(TASK_ID);
+    expect(selection.selectedIds).toEqual([SECOND_ID]);
+  });
+
+  // A set built before a demotion outlives it, so the guards have to hold with a
+  // non-empty selection on a board the user can no longer write to.
+  it('draws no checkbox and refuses to toggle for a viewer', () => {
+    selection.toggle(TASK_ID);
+    makeEditable('u-owner');
+    render(TaskCard, { props: { task: second, projectId: PROJECT_ID } });
+
+    expect(screen.queryByRole('checkbox')).toBeNull();
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true });
+    card().dispatchEvent(event);
+
+    expect(selection.selectedIds).toEqual([TASK_ID]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('draws no checkbox on a readonly card', () => {
+    selection.toggle(TASK_ID);
+    render(TaskCard, { props: { task, projectId: PROJECT_ID, readonly: true } });
+
+    expect(screen.queryByRole('checkbox')).toBeNull();
   });
 });

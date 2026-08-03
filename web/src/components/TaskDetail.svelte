@@ -54,7 +54,6 @@
 
   let dialog = $state<HTMLDialogElement>();
   let uploadInput = $state<HTMLInputElement>();
-  let confirmingDelete = $state(false);
   let removing = $state(false);
   let duplicating = $state(false);
   let closed = $state(false);
@@ -80,7 +79,6 @@
     const authed = !anonymous;
     untrack(() => {
       titleDraft = null;
-      confirmingDelete = false;
       removing = false;
       duplicating = false;
       closed = false;
@@ -220,19 +218,6 @@
     );
   }
 
-  async function handleDelete(): Promise<void> {
-    if (!confirmingDelete) {
-      confirmingDelete = true;
-      return;
-    }
-    // Await the DELETE before closing: navigating away first aborts the in-flight
-    // request, and the failure path's refetch then races the server commit and
-    // resurrects the task.
-    removing = true;
-    await board.deleteTask(taskId);
-    close();
-  }
-
   // Queued behind the title and description writes, so the server copies the text the
   // user just typed rather than whatever an in-flight PATCH is about to replace.
   // navigate, not redirect, so Back returns to the original card.
@@ -251,7 +236,8 @@
     }
   }
 
-  // No confirm step: archiving is reversible, unlike delete.
+  // No confirm step: archiving is reversible, and it is the only way off the
+  // board — deleting a card is reached from the archive, behind its own confirm.
   async function handleArchive(): Promise<void> {
     removing = true;
     await board.archiveTask(taskId);
@@ -574,9 +560,6 @@
                 onclick={() => void handleDuplicate()}>Duplicate</Button
               >
               <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
-              <Button variant="danger" onclick={() => void handleDelete()}>
-                {confirmingDelete ? 'Confirm delete' : 'Delete task'}
-              </Button>
             </div>
           {/if}
         </div>

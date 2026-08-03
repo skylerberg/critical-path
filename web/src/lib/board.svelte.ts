@@ -32,6 +32,9 @@ export type TaskAttachment = components['schemas']['Attachment'];
 export type TaskComment = components['schemas']['Comment'];
 export type CommentBody = TaskComment['body'];
 
+type BulkRelations = components['schemas']['BulkTaskRelations'];
+type BulkRelationsResponse = components['schemas']['BulkTaskRelationsResponse'];
+
 interface ChecklistCounts {
   checklist_item_count: number;
   checklist_done_count: number;
@@ -1051,6 +1054,188 @@ class BoardStore {
     }
   }
 
+  // The caller passes ids in board order and the server appends in that order,
+  // so the optimistic stamp and the commit agree and nothing visibly reshuffles.
+  async bulkMoveTasks(taskIds: readonly string[], columnId: string): Promise<void> {
+    const projectId = this.currentProjectId;
+    if (projectId === null || taskIds.length === 0) {
+      return;
+    }
+    const positions = this.tasksInColumn(columnId).map((task) => task.position);
+    const base = positions.length > 0 ? Math.max(...positions) : 0;
+    const optimistic = new Map(taskIds.map((id, index) => [id, base + (index + 1) * 1000]));
+    this.tasks = this.tasks.map((task) => {
+      const position = optimistic.get(task.id);
+      return position === undefined ? task : { ...task, column_id: columnId, position };
+    });
+    try {
+      const data = assertOk(
+        await api.POST('/api/tasks/bulk-move', {
+          body: { project_id: projectId, task_ids: [...taskIds], column_id: columnId },
+        })
+      );
+      const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
+      this.tasks = this.tasks.map((task) => {
+        const moved = byId.get(task.id);
+        return moved === undefined
+          ? task
+          : { ...task, column_id: moved.column_id, position: moved.position };
+      });
+      if (
+        this.#bulkSkipped('Moved', taskIds, data.skipped_task_ids) ||
+        this.#bulkDisagrees(taskIds, byId)
+      ) {
+        await this.resync();
+      }
+    } catch (error) {
+      await this.#mutationFailed(error);
+    } finally {
+      for (const id of taskIds) {
+        taskActivity.invalidate(id);
+      }
+    }
+  }
+
+  async bulkArchiveTasks(taskIds: readonly string[]): Promise<void> {
+    const projectId = this.currentProjectId;
+    if (projectId === null || taskIds.length === 0) {
+      return;
+    }
+    const wanted = new Set(taskIds);
+    // Captured before the drop: nothing else holds the rows afterwards.
+    const archiving = this.tasks.filter((task) => wanted.has(task.id));
+    this.#dropTasks(taskIds);
+    this.#discardArchivedLoad();
+    const now = new Date().toISOString();
+    this.archivedTasks = [
+      ...archiving.map((task) => ({ ...task, archived_at: now })),
+      ...this.archivedTasks,
+    ];
+    try {
+      const data = assertOk(
+        await api.POST('/api/tasks/bulk-archive', {
+          body: { project_id: projectId, task_ids: [...taskIds] },
+        })
+      );
+      const byId = new Map(data.tasks.map((task) => [task.id, task]));
+      this.archivedTasks = this.archivedTasks.map((task) => byId.get(task.id) ?? task);
+      if (
+        this.#bulkSkipped('Archived', taskIds, data.skipped_task_ids) ||
+        this.#bulkDisagrees(taskIds, byId)
+      ) {
+        await this.resync();
+      }
+    } catch (error) {
+      this.archivedTasks = this.archivedTasks.filter((task) => !wanted.has(task.id));
+      await this.#mutationFailed(error);
+    } finally {
+      for (const id of taskIds) {
+        taskActivity.invalidate(id);
+      }
+    }
+  }
+
+  async bulkSetLabel(taskIds: readonly string[], labelId: string, on: boolean): Promise<void> {
+    await this.#bulkSetRelation(taskIds, 'label_ids', labelId, on, async (project_id, task_ids) =>
+      assertOk(
+        await api.POST('/api/tasks/bulk-labels', {
+          body: {
+            project_id,
+            task_ids,
+            ...(on ? { add_label_ids: [labelId] } : { remove_label_ids: [labelId] }),
+          },
+        })
+      )
+    );
+  }
+
+  async bulkSetAssignee(taskIds: readonly string[], userId: string, on: boolean): Promise<void> {
+    await this.#bulkSetRelation(taskIds, 'assignee_ids', userId, on, async (project_id, task_ids) =>
+      assertOk(
+        await api.POST('/api/tasks/bulk-assignees', {
+          body: {
+            project_id,
+            task_ids,
+            ...(on ? { add_user_ids: [userId] } : { remove_user_ids: [userId] }),
+          },
+        })
+      )
+    );
+  }
+
+  async #bulkSetRelation(
+    taskIds: readonly string[],
+    field: 'label_ids' | 'assignee_ids',
+    valueId: string,
+    on: boolean,
+    send: (projectId: string, taskIds: string[]) => Promise<BulkRelationsResponse>
+  ): Promise<void> {
+    const projectId = this.currentProjectId;
+    if (projectId === null || taskIds.length === 0) {
+      return;
+    }
+    const wanted = new Set(taskIds);
+    const next = (held: string[]): string[] =>
+      on
+        ? held.includes(valueId)
+          ? held
+          : [...held, valueId]
+        : held.filter((id) => id !== valueId);
+    this.tasks = this.tasks.map((task) =>
+      !wanted.has(task.id)
+        ? task
+        : field === 'label_ids'
+          ? { ...task, label_ids: next(task.label_ids) }
+          : { ...task, assignee_ids: next(task.assignee_ids) }
+    );
+    try {
+      const data = await send(projectId, [...taskIds]);
+      const byId = new Map(data.tasks.map((task) => [task.task_id, task]));
+      this.tasks = this.tasks.map((task) => {
+        const relations = byId.get(task.id);
+        return relations === undefined
+          ? task
+          : {
+              ...task,
+              label_ids: relations.label_ids,
+              assignee_ids: relations.assignee_ids,
+              blocker_ids: relations.blocker_ids,
+            };
+      });
+      // Only the cards that actually changed come back, so a short list is
+      // expected here; an id we never sent is not.
+      if (
+        this.#bulkSkipped('Updated', taskIds, data.skipped_task_ids) ||
+        data.tasks.some((task) => !wanted.has(task.task_id))
+      ) {
+        await this.resync();
+      }
+    } catch (error) {
+      await this.#mutationFailed(error);
+    } finally {
+      for (const id of taskIds) {
+        taskActivity.invalidate(id);
+      }
+    }
+  }
+
+  #bulkSkipped(verb: string, requested: readonly string[], skipped: readonly string[]): boolean {
+    if (skipped.length === 0) {
+      return false;
+    }
+    toasts.info(
+      `${verb} ${String(requested.length - skipped.length)} of ${String(requested.length)} cards. ` +
+        `${String(skipped.length)} changed before the action ran.`
+    );
+    return true;
+  }
+
+  // Sets, not counts: an id we did not send can mask one the server skipped, and
+  // the reconcile leaves an unlisted card holding its optimistic state.
+  #bulkDisagrees(requested: readonly string[], applied: ReadonlyMap<string, unknown>): boolean {
+    return applied.size !== requested.length || requested.some((id) => !applied.has(id));
+  }
+
   async createLabel(name: string, color: string): Promise<void> {
     const projectId = this.currentProjectId;
     if (projectId === null) {
@@ -1969,7 +2154,8 @@ class BoardStore {
         }
         break;
       }
-      case 'column_tasks_moved': {
+      case 'column_tasks_moved':
+      case 'bulk_tasks_moved': {
         const d = event.data as {
           moved_tasks: { id: string; column_id: string; position: number }[];
         };
@@ -1993,8 +2179,9 @@ class BoardStore {
         });
         break;
       }
-      case 'column_tasks_archived': {
-        const d = event.data as { column_id: string; tasks: ArchivedTask[] };
+      case 'column_tasks_archived':
+      case 'bulk_tasks_archived': {
+        const d = event.data as { tasks: ArchivedTask[] };
         this.#dropTasks(d.tasks.map((t) => t.id));
         const incoming = new Map(d.tasks.map((t) => [t.id, t]));
         const heldIds = new Set(this.archivedTasks.map((t) => t.id));
@@ -2004,6 +2191,25 @@ class BoardStore {
         ];
         for (const task of d.tasks) {
           taskActivity.invalidate(task.id);
+        }
+        break;
+      }
+      case 'bulk_tasks_relations_set': {
+        const d = event.data as { tasks: BulkRelations[] };
+        const incoming = new Map(d.tasks.map((t) => [t.task_id, t]));
+        this.tasks = this.tasks.map((t) => {
+          const relations = incoming.get(t.id);
+          return relations === undefined
+            ? t
+            : {
+                ...t,
+                label_ids: relations.label_ids,
+                assignee_ids: relations.assignee_ids,
+                blocker_ids: relations.blocker_ids,
+              };
+        });
+        for (const task of d.tasks) {
+          taskActivity.invalidate(task.task_id);
         }
         break;
       }

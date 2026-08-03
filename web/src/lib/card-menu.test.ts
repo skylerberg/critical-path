@@ -4,6 +4,7 @@ import { board } from './board.svelte';
 import type { BoardTask } from './board-types';
 import { cardMenu } from './card-menu.svelte';
 import { selection } from './selection.svelte';
+import { session } from './session.svelte';
 
 const LONG_PRESS_MS = 500;
 
@@ -258,6 +259,54 @@ describe('open and close', () => {
   it('selects the card the menu was opened on', () => {
     cardMenu.open('t1', 0, 0);
 
-    expect(selection.selectedTaskId).toBe('t1');
+    expect(selection.cursorTaskId).toBe('t1');
+  });
+
+  describe('with a selection standing', () => {
+    beforeEach(() => {
+      session.user = {
+        id: 'u-me',
+        name: 'Ada',
+        email: 'ada@example.com',
+        avatar_url: null,
+        email_verified: false,
+      };
+      board.project = {
+        id: 'p1',
+        name: 'Game',
+        description: '',
+        archived_at: null,
+        created_by: 'u-me',
+        member_ids: [],
+        members: [],
+        is_public: false,
+        color: null,
+        created_at: '2026-01-01T00:00:00Z',
+      };
+      board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+      board.tasks = [task('t1'), { ...task('t2'), position: 2000 }];
+    });
+
+    afterEach(() => {
+      session.user = null;
+    });
+
+    it('keeps a set the right-click lands inside', () => {
+      selection.toggle('t1');
+      selection.toggle('t2');
+
+      cardMenu.open('t2', 0, 0);
+
+      expect(selection.selectedIds).toEqual(['t1', 't2']);
+    });
+
+    it('collapses a set the right-click lands outside', () => {
+      selection.toggle('t1');
+
+      cardMenu.open('t2', 0, 0);
+
+      expect(selection.selectedIds).toEqual([]);
+      expect(selection.cursorTaskId).toBe('t2');
+    });
   });
 });

@@ -92,13 +92,13 @@ describe('shortcut focus guards', () => {
     const event = new KeyboardEvent('keydown', { key: 'j', cancelable: true });
     event.preventDefault();
     shortcuts.handleKeydown(event);
-    expect(selection.selectedTaskId).toBeNull();
+    expect(selection.cursorTaskId).toBeNull();
   });
 
   it('ignores keys while a drag is active', () => {
     board.dragging = true;
     press('j');
-    expect(selection.selectedTaskId).toBeNull();
+    expect(selection.cursorTaskId).toBeNull();
 
     selection.set(TASK_1);
     const moved = press('m');
@@ -112,7 +112,7 @@ describe('shortcut focus guards', () => {
     input.focus();
     selection.set(TASK_1);
     press('j');
-    expect(selection.selectedTaskId).toBe(TASK_1);
+    expect(selection.cursorTaskId).toBe(TASK_1);
     const event = press('f');
     expect(shortcuts.filterFocusRequested).toBe(false);
     expect(event.defaultPrevented).toBe(false);
@@ -169,12 +169,12 @@ describe('shortcut focus guards', () => {
 describe('board shortcuts', () => {
   it('navigates the selection with j/k and preventDefaults', () => {
     const event = press('j');
-    expect(selection.selectedTaskId).toBe(TASK_1);
+    expect(selection.cursorTaskId).toBe(TASK_1);
     expect(event.defaultPrevented).toBe(true);
     press('j');
-    expect(selection.selectedTaskId).toBe(TASK_2);
+    expect(selection.cursorTaskId).toBe(TASK_2);
     press('k');
-    expect(selection.selectedTaskId).toBe(TASK_1);
+    expect(selection.cursorTaskId).toBe(TASK_1);
   });
 
   it('opens the selected task with Enter', () => {
@@ -268,7 +268,7 @@ describe('board shortcuts', () => {
     press('m');
     expect(shortcuts.anyMenuOpen).toBe(true);
     press('j');
-    expect(selection.selectedTaskId).toBe(TASK_1);
+    expect(selection.cursorTaskId).toBe(TASK_1);
     const closed = press('Escape');
     expect(shortcuts.moveMenu).toBeNull();
     expect(closed.defaultPrevented).toBe(true);
@@ -286,7 +286,7 @@ describe('board shortcuts', () => {
     selection.set(TASK_1);
     press('b');
     press('j');
-    expect(selection.selectedTaskId).toBe(TASK_1);
+    expect(selection.cursorTaskId).toBe(TASK_1);
     const closed = press('Escape');
     expect(shortcuts.dependencyMenu).toBeNull();
     expect(closed.defaultPrevented).toBe(true);
@@ -325,7 +325,7 @@ describe('board shortcuts', () => {
 
     expect(duplicateTask).toHaveBeenCalledWith(TASK_1);
     expect(event.defaultPrevented).toBe(true);
-    expect(selection.selectedTaskId).toBe(TASK_1);
+    expect(selection.cursorTaskId).toBe(TASK_1);
   });
 
   it('ignores autorepeat on Shift+D so a held key mints one copy', () => {
@@ -381,7 +381,7 @@ describe('board shortcuts', () => {
   it('clears the selection on Escape, then does nothing', () => {
     selection.set(TASK_1);
     const cleared = press('Escape');
-    expect(selection.selectedTaskId).toBeNull();
+    expect(selection.cursorTaskId).toBeNull();
     expect(cleared.defaultPrevented).toBe(true);
     const noop = press('Escape');
     expect(noop.defaultPrevented).toBe(false);
@@ -530,6 +530,134 @@ describe('board shortcuts', () => {
     expect(shortcuts.anyMenuOpen).toBe(true);
     press('q');
     expect(board.filterAssigneeIds).toEqual([]);
+  });
+});
+
+describe('multi-select shortcuts', () => {
+  beforeEach(() => {
+    board.tasks = [
+      task(TASK_1, 'c1', 1000, 'A'),
+      task(TASK_2, 'c1', 2000, 'B'),
+      task(testUuid('t3'), 'c1', 3000, 'C'),
+    ];
+  });
+
+  it('toggles the cursor card in and out of the set with s', () => {
+    selection.set(TASK_1);
+
+    expect(press('s').defaultPrevented).toBe(true);
+    expect(selection.selectedIds).toEqual([TASK_1]);
+
+    press('s');
+    expect(selection.selectedIds).toEqual([]);
+  });
+
+  it('leaves s unclaimed with a modifier, with no cursor, and on the graph', () => {
+    expect(press('s').defaultPrevented).toBe(false);
+
+    selection.set(TASK_1);
+    expect(press('s', { metaKey: true }).defaultPrevented).toBe(false);
+    expect(press('s', { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(press('s', { altKey: true }).defaultPrevented).toBe(false);
+    expect(selection.selectedIds).toEqual([]);
+
+    router.navigate(GRAPH_PATH, { replace: true });
+    expect(press('s').defaultPrevented).toBe(false);
+    expect(selection.selectedIds).toEqual([]);
+  });
+
+  it('extends with Shift+Arrow and with Shift+J, and shrinks with Shift+K', () => {
+    selection.set(TASK_1);
+
+    press('ArrowDown', { shiftKey: true });
+    expect(selection.selectedIds).toEqual([TASK_1, TASK_2]);
+
+    press('J', { shiftKey: true });
+    expect(selection.selectedIds).toEqual([TASK_1, TASK_2, testUuid('t3')]);
+
+    press('K', { shiftKey: true });
+    expect(selection.selectedIds).toEqual([TASK_1, TASK_2]);
+  });
+
+  it('moves the cursor with a plain j and leaves the set alone', () => {
+    selection.set(TASK_1);
+    press('s');
+
+    press('j');
+
+    expect(selection.cursorTaskId).toBe(TASK_2);
+    expect(selection.selectedIds).toEqual([TASK_1]);
+  });
+
+  it('opens the bulk menu from l, a and m once more than one card is targeted', () => {
+    selection.set(TASK_1);
+    press('s');
+    press('ArrowDown', { shiftKey: true });
+
+    press('l');
+    expect(shortcuts.bulkMenu).toBe('labels');
+    expect(shortcuts.labelMenu).toBeNull();
+    shortcuts.closeMenus();
+
+    press('a');
+    expect(shortcuts.bulkMenu).toBe('assignees');
+    expect(shortcuts.assigneeMenu).toBeNull();
+    shortcuts.closeMenus();
+
+    press('m');
+    expect(shortcuts.bulkMenu).toBe('move');
+    expect(shortcuts.moveMenu).toBeNull();
+  });
+
+  it('keeps l, a and m single-card when the cursor is on its own', () => {
+    selection.set(TASK_1);
+
+    press('l');
+    expect(shortcuts.labelMenu).toBe(TASK_1);
+    expect(shortcuts.bulkMenu).toBeNull();
+    shortcuts.closeMenus();
+
+    press('m');
+    expect(shortcuts.moveMenu).toBe(TASK_1);
+    expect(shortcuts.bulkMenu).toBeNull();
+  });
+
+  it('keeps b, Shift+D and n on the cursor even with a set', () => {
+    selection.set(TASK_1);
+    press('s');
+    press('ArrowDown', { shiftKey: true });
+
+    press('b');
+    expect(shortcuts.dependencyMenu).toEqual({ taskId: TASK_2, direction: 'blocker' });
+    shortcuts.closeMenus();
+
+    press('n');
+    expect(shortcuts.quickAddColumn).toBe('c1');
+  });
+
+  it('counts bulkMenu as an open menu and closes it with the rest', () => {
+    shortcuts.bulkMenu = 'archive';
+
+    expect(shortcuts.anyMenuOpen).toBe(true);
+    const swallowed = press('l');
+    expect(swallowed.defaultPrevented).toBe(false);
+
+    const escaped = press('Escape');
+    expect(escaped.defaultPrevented).toBe(true);
+    expect(shortcuts.bulkMenu).toBeNull();
+  });
+
+  it('clears set and cursor together on Escape, then does nothing', () => {
+    selection.set(TASK_1);
+    press('s');
+    press('ArrowDown', { shiftKey: true });
+
+    const cleared = press('Escape');
+
+    expect(cleared.defaultPrevented).toBe(true);
+    expect(selection.selectedIds).toEqual([]);
+    expect(selection.cursorTaskId).toBeNull();
+    expect(press('Escape').defaultPrevented).toBe(false);
   });
 });
 
@@ -740,7 +868,7 @@ describe('overlay context', () => {
 
   it('does not run board selection shortcuts', () => {
     press('j');
-    expect(selection.selectedTaskId).toBeNull();
+    expect(selection.cursorTaskId).toBeNull();
   });
 
   it('does not request filter focus with f', () => {
@@ -784,7 +912,7 @@ describe('graph view', () => {
 
   it('does not run selection nav (the graph has no card list)', () => {
     const event = press('j');
-    expect(selection.selectedTaskId).toBeNull();
+    expect(selection.cursorTaskId).toBeNull();
     expect(event.defaultPrevented).toBe(false);
   });
 
@@ -940,7 +1068,7 @@ describe('command palette', () => {
     selection.set(TASK_2);
     press('k');
     expect(shortcuts.paletteOpen).toBe(false);
-    expect(selection.selectedTaskId).toBe(TASK_1);
+    expect(selection.cursorTaskId).toBe(TASK_1);
   });
 
   // Cmd+K used to fall through to the selection arm, which does not inspect modifiers.
@@ -951,7 +1079,7 @@ describe('command palette', () => {
     press('k', { metaKey: true });
 
     expect(move).not.toHaveBeenCalled();
-    expect(selection.selectedTaskId).toBe(TASK_2);
+    expect(selection.cursorTaskId).toBe(TASK_2);
   });
 
   it('opens from inside a focused text field', () => {
@@ -1015,7 +1143,7 @@ describe('command palette', () => {
     expect(shortcuts.anyMenuOpen).toBe(true);
 
     press('j');
-    expect(selection.selectedTaskId).toBe(TASK_1);
+    expect(selection.cursorTaskId).toBe(TASK_1);
 
     const closed = press('Escape');
     expect(shortcuts.paletteOpen).toBe(false);
@@ -1054,10 +1182,11 @@ describe('shortcuts on a read-only board', () => {
   });
 
   it('leaves every mutating key unclaimed', () => {
-    for (const key of ['n', 'd', 'l', 'a', 'b', 'm']) {
+    for (const key of ['n', 'd', 'l', 'a', 'b', 'm', 's']) {
       const event = press(key);
       expect(event.defaultPrevented).toBe(false);
     }
+    expect(selection.selectedIds).toEqual([]);
 
     expect(shortcuts.quickAddColumn).toBeNull();
     expect(shortcuts.labelMenu).toBeNull();
@@ -1065,6 +1194,13 @@ describe('shortcuts on a read-only board', () => {
     expect(shortcuts.dependencyMenu).toBeNull();
     expect(shortcuts.moveMenu).toBeNull();
     expect(board.tasks.find((t) => t.id === TASK_1)?.column_id).toBe('c1');
+  });
+
+  it('moves the cursor on Shift+Arrow without building a set', () => {
+    expect(press('ArrowDown', { shiftKey: true }).defaultPrevented).toBe(true);
+
+    expect(selection.cursorTaskId).toBe(TASK_2);
+    expect(selection.selectedIds).toEqual([]);
   });
 
   it('does not duplicate on Shift+D', () => {

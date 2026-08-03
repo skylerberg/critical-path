@@ -48,7 +48,7 @@ describe('ShortcutHelp', () => {
   it('documents m as the move command', () => {
     render(ShortcutHelp, { onclose: vi.fn() });
 
-    const row = screen.getByText('Move the selected task to a column and position').closest('li')!;
+    const row = screen.getByText('Move the selection to a column').closest('li')!;
 
     expect(within(row).getByText('m')).toBeVisible();
   });
@@ -95,11 +95,13 @@ describe('ShortcutHelp', () => {
 
     for (const label of [
       'New task in selected column',
-      'Label the selected task',
-      'Assign the selected task',
+      'Label the selection',
+      'Assign the selection',
       'Move selected task to done',
       'Duplicate the selected task',
-      'Move the selected task to a column and position',
+      'Move the selection to a column',
+      'Extend the selection',
+      'Add or remove the card from the selection',
     ]) {
       expect(screen.queryByText(label)).toBeNull();
     }

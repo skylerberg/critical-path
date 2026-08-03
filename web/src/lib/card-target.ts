@@ -7,7 +7,7 @@ export function cardTarget(): string | null {
   if (route.name !== 'project') {
     return null;
   }
-  return route.params.taskId ?? (route.params.view === 'board' ? selection.selectedTaskId : null);
+  return route.params.taskId ?? (route.params.view === 'board' ? selection.cursorTaskId : null);
 }
 
 // Every menu and mutation this reaches writes to the board, so for a viewer it has

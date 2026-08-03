@@ -6,6 +6,8 @@ import { board } from '../lib/board.svelte';
 import type { BoardTask } from '../lib/board-types';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { router } from '../lib/router.svelte';
+import { selection } from '../lib/selection.svelte';
+import { session } from '../lib/session.svelte';
 import { publicTaskHref, projectHref, taskHref } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { testUuid } from '../lib/test-ids';
@@ -103,11 +105,14 @@ beforeEach(() => {
     { id: 'c2', name: 'Done', position: 2000, is_done: true },
   ];
   board.tasks = [task('c1')];
+  selection.clear();
   router.navigate(BOARD_PATH, { replace: true });
 });
 
 afterEach(() => {
   cardMenu.reset();
+  selection.clear();
+  session.user = null;
   vi.restoreAllMocks();
 });
 
@@ -117,6 +122,7 @@ describe('CardMenu', () => {
 
     expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for Design cards');
     expect(itemLabels()).toEqual([
+      'Select',
       'Edit title',
       'Labels…',
       'Assignees…',
@@ -490,5 +496,85 @@ describe('CardMenu', () => {
 
       expect(cardMenu.taskId).toBeNull();
     });
+  });
+});
+
+describe('CardMenu on a selection', () => {
+  const SECOND_ID = testUuid('t2');
+
+  function second(): BoardTask {
+    return { ...task('c1'), id: SECOND_ID, title: 'Second card', position: 2000 };
+  }
+
+  function selectBoth(): void {
+    session.user = { ...me, email_verified: false };
+    board.tasks = [task('c1'), second()];
+    selection.toggle(TASK_ID);
+    selection.toggle(SECOND_ID);
+  }
+
+  it('offers the four bulk rows, plural, and hides the single-card and link rows', () => {
+    selectBoth();
+
+    open();
+
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Actions for 2 selected cards');
+    expect(itemLabels()).toEqual(['Labels…', 'Assignees…', 'Move 2 cards to…', 'Archive 2 cards']);
+    expect(screen.queryByRole('separator')).toBeNull();
+  });
+
+  it('offers no delete row: a selection can only be archived', () => {
+    selectBoth();
+
+    open();
+
+    expect(screen.queryByRole('menuitem', { name: /Delete/ })).toBeNull();
+  });
+
+  it('routes each bulk row to its own overlay rather than acting outright', async () => {
+    selectBoth();
+    open();
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Archive 2 cards' }));
+
+    expect(shortcuts.bulkMenu).toBe('archive');
+    expect(board.tasks).toHaveLength(2);
+  });
+
+  it('advertises no key on the archive row, which the keyboard does not reach', () => {
+    selectBoth();
+
+    open();
+
+    expect(keysShown('Archive 2 cards')).toEqual([]);
+    expect(hintFor('Archive 2 cards')).toBeNull();
+    expect(hintFor('Labels…')).toBe('l');
+  });
+
+  it('shows Deselect instead of Select for a card already in the set', () => {
+    session.user = { ...me, email_verified: false };
+    selection.toggle(TASK_ID);
+
+    open();
+
+    expect(screen.getByRole('menuitem', { name: 'Deselect' })).toBeInTheDocument();
+  });
+
+  it('toggles the card from the Select row', async () => {
+    session.user = { ...me, email_verified: false };
+    open();
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Select' }));
+
+    expect(selection.selectedIds).toEqual([TASK_ID]);
+  });
+
+  it('shows a viewer the link rows, never bulk ones, with a set left over', () => {
+    selectBoth();
+    board.project = { ...board.project!, created_by: 'u-owner' };
+
+    open(false);
+
+    expect(itemLabels()).toEqual(['Open', 'Open in new tab', 'Copy link']);
   });
 });

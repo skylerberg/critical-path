@@ -38,6 +38,12 @@
         { keys: ['k', '↑'], label: 'Select task above' },
         { keys: ['←'], label: 'Select task in previous column' },
         { keys: ['→'], label: 'Select task in next column' },
+        { keys: ['Shift+↑', 'Shift+↓'], label: 'Extend the selection', edits: true },
+        {
+          keys: CARD_ACTION_KEYS.select,
+          label: 'Add or remove the card from the selection',
+          edits: true,
+        },
         { keys: ['Esc'], label: 'Close menu, else clear selection' },
       ],
     },
@@ -48,8 +54,8 @@
         { keys: CARD_ACTION_KEYS.openDetail, label: 'Open selected task detail' },
         { keys: ['Shift+F10'], label: 'Open the menu for the focused card' },
         { keys: ['n'], label: 'New task in selected column', edits: true },
-        { keys: CARD_ACTION_KEYS.labels, label: 'Label the selected task', edits: true },
-        { keys: CARD_ACTION_KEYS.assignees, label: 'Assign the selected task', edits: true },
+        { keys: CARD_ACTION_KEYS.labels, label: 'Label the selection', edits: true },
+        { keys: CARD_ACTION_KEYS.assignees, label: 'Assign the selection', edits: true },
         {
           keys: CARD_ACTION_KEYS.blockers,
           label: 'Add a task that blocks the selection',
@@ -64,7 +70,7 @@
         { keys: CARD_ACTION_KEYS.duplicate, label: 'Duplicate the selected task', edits: true },
         {
           keys: CARD_ACTION_KEYS.move,
-          label: 'Move the selected task to a column and position',
+          label: 'Move the selection to a column',
           edits: true,
         },
       ],
