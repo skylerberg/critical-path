@@ -69,6 +69,11 @@ function boardTasksQuery(db: Kysely<DB>) {
       .whereRef('checklist_item.task_id', '=', 'task.id')
       .where('checklist_item.checked', '=', true)
       .as('checklist_done_count'),
+    eb
+      .selectFrom('task_attachment')
+      .select((ab) => ab.fn.countAll<string>().as('attachment_count'))
+      .whereRef('task_attachment.task_id', '=', 'task.id')
+      .as('attachment_count'),
   ]);
 }
 
@@ -97,6 +102,7 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
     comment_count: Number(task.comment_count),
     checklist_item_count: Number(task.checklist_item_count),
     checklist_done_count: Number(task.checklist_done_count),
+    attachment_count: Number(task.attachment_count),
   };
 }
 

@@ -128,4 +128,15 @@ export class TestApiClient {
       body: formData,
     });
   }
+
+  // A ReadableStream body carries no content-length, which is how a chunked
+  // upload — the one a cap cannot be pre-checked against — is reproduced.
+  async postBytes(path: string, body: Buffer | ReadableStream<Uint8Array>): Promise<Response> {
+    return app.request(path, {
+      method: 'POST',
+      headers: this.headers({ 'Content-Type': 'application/octet-stream' }),
+      body: body instanceof Buffer ? new Uint8Array(body) : body,
+      duplex: 'half',
+    } as RequestInit);
+  }
 }

@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
+import { copyTaskAttachments, type ObjectCopy } from './attachments/copy';
 import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -234,30 +235,41 @@ export async function copyTasks(
         }))
       )
       .execute();
+  }
 
-    // Stored objects live outside the transaction, so a partial copy has to be
-    // reclaimed by hand or the rollback strands it with no row pointing at it.
-    const attemptedKeys: string[] = [];
-    try {
-      for (const image of images) {
-        const destKey = newStorageKeys.get(image.id) as string;
-        attemptedKeys.push(destKey);
-        await storage.copy(image.storage_key, destKey);
-      }
-    } catch (err) {
-      await Promise.all(
-        attemptedKeys.map((key) =>
-          storage.delete(key).catch((cleanupErr: unknown) => {
-            logger.error({
-              msg: 'Failed to reclaim a copied image object after a failed copy',
-              storageKey: key,
-              error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
-            });
-          })
-        )
-      );
-      throw err;
+  const objectCopies: ObjectCopy[] = [
+    ...images.map((image) => ({
+      source: image.storage_key,
+      dest: newStorageKeys.get(image.id) as string,
+    })),
+    ...(await copyTaskAttachments(db, {
+      sourceTaskIds: input.sourceTaskIds,
+      taskIdMap,
+      insertChunk: CHECKLIST_INSERT_CHUNK,
+    })),
+  ];
+
+  // Stored objects live outside the transaction, so a partial copy has to be
+  // reclaimed by hand or the rollback strands it with no row pointing at it.
+  const attemptedKeys: string[] = [];
+  try {
+    for (const copy of objectCopies) {
+      attemptedKeys.push(copy.dest);
+      await storage.copy(copy.source, copy.dest);
     }
+  } catch (err) {
+    await Promise.all(
+      attemptedKeys.map((key) =>
+        storage.delete(key).catch((cleanupErr: unknown) => {
+          logger.error({
+            msg: 'Failed to reclaim a copied storage object after a failed copy',
+            storageKey: key,
+            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          });
+        })
+      )
+    );
+    throw err;
   }
 
   return taskIdMap;

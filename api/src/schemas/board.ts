@@ -37,6 +37,7 @@ export const boardTaskSchema = type({
   comment_count: 'number',
   checklist_item_count: 'number',
   checklist_done_count: 'number',
+  attachment_count: 'number',
 });
 
 export type BoardTask = typeof boardTaskSchema.infer;

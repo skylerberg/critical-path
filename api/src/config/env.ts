@@ -49,6 +49,14 @@ export const env = {
     return parseIntOrDefault(process.env.TRUST_PROXY_HOPS, 1);
   },
 
+  get attachmentMaxBytes(): number {
+    return parseIntOrDefault(process.env.ATTACHMENT_MAX_BYTES, 50 * 1024 * 1024);
+  },
+
+  get projectStorageQuotaBytes(): number {
+    return parseIntOrDefault(process.env.PROJECT_STORAGE_QUOTA_BYTES, 1024 * 1024 * 1024);
+  },
+
   get passwordResetSecret(): string {
     const secret = process.env.PASSWORD_RESET_SECRET;
     if (secret) return secret;
