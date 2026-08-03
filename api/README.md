@@ -242,6 +242,10 @@ Pending invitations are also revoked when the account that sent them loses write
 access to the board, so a demoted or removed editor cannot re-admit themselves
 days later through a link they sent in advance.
 
+Every one of those writes publishes `invitations_changed`, the one event
+restricted to editors, so a second editor's share panel refetches instead of
+going stale. It carries no address — see [Realtime](#realtime).
+
 Tokens are never returned by any response; the raw token exists only in the
 email. It is derived by HMAC from the row id under `EMAIL_TOKEN_SECRET` rather
 than stored, which is what lets a resend reproduce a link that was already sent
@@ -832,6 +836,7 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `project_position_updated`            | `{ id, position }`                                                                                 |
 | `project_seen`                        | `{ id }`                                                                                           |
 | `project_changed`                     | `{ id, actor_user_id }`                                                                            |
+| `invitations_changed`                 | `{ project_id }`                                                                                   |
 | `user_updated`                        | public user `{ id, name, avatar_url }`                                                             |
 | `sessions_revoked`                    | `{ user_id }`, optionally plus `personal_access_token_id`, `session_id` or `except_session_id`      |
 
@@ -880,6 +885,26 @@ per-reader may ever ride in it, `has_unseen_changes` least of all: one
 recipient's answer would be wrong for every other member of the same board.
 The same rule is why the `project_updated` broadcast carries the projects-list
 item without `position`, `last_seen_at` or `has_unseen_changes`.
+`invitations_changed` is the one **editor-scoped** event: its subject is the
+board's pending invitations, which are made of email addresses and which only
+editors may read, so the delivery re-check is narrowed from "can access this
+project" to "can write it" — creator plus `project_member` rows whose role is
+exactly `editor`, normalized fail-closed like everywhere else. A viewer, a
+signed-in non-member sitting in a public board's room, and an unrelated socket
+all receive nothing. The narrowing lives in the delivery layer, not in the
+publishers: it is checked before the exact-recipient and broadcast shortcuts,
+so an entry carrying a recipient list can only ever narrow the set further, and
+an editor-scoped entry with no project reaches nobody. The payload deliberately
+carries no address, not even the changed invitation's id — it says which board's
+list moved, and a client that may know the addresses refetches
+`GET /api/projects/:id/invitations`, which is editor-gated already. An event
+that never puts an address on the wire cannot leak one however delivery is
+later changed. It is not a webhook event, and it raises no unseen-changes dot:
+`project_changed` would broadcast to every viewer that something they may not
+read had happened. It is published by inviting an address, revoking, resending,
+by the invitation dropped when an invited address turns out to have an account,
+by the revocation that follows losing write access, and by a claim consuming
+one.
 `sessions_revoked` is never delivered to a client: the transport intercepts it
 and closes sockets instead. A payload of `{ user_id }` closes that user's
 session sockets only; one that also carries `personal_access_token_id` closes
