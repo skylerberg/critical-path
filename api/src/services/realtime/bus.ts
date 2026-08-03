@@ -26,6 +26,34 @@ export type BusSubscriber = (entry: BusEntry) => void;
 
 export const SESSIONS_REVOKED = 'sessions_revoked';
 export const USER_UPDATED = 'user_updated';
+export const PROJECT_CHANGED = 'project_changed';
+
+// Types that leave behind no activity or comment row, so a board read would not
+// report them as changed either. An unclassified new type therefore raises a dot
+// the next board open clears, which is the safe way round: a dot too many costs
+// one glance, a dot missing costs the feature.
+const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
+  'project_created',
+  'project_updated',
+  'project_deleted',
+  'project_position_updated',
+  'project_seen',
+  PROJECT_CHANGED,
+  'column_created',
+  'column_updated',
+  'column_tasks_reordered',
+  'label_created',
+  'label_updated',
+  'image_created',
+  'image_deleted',
+  'comment_updated',
+  'comment_deleted',
+  // Both take their card off the board, and its activity goes with it, so a
+  // reader would find nothing to notice.
+  'task_deleted',
+  'task_archived',
+  'column_tasks_archived',
+]);
 
 const subscribers = new Set<BusSubscriber>();
 
@@ -87,7 +115,32 @@ export function publishAfterCommit(
     publish({ type, project_id: projectId, data, ...opts });
   });
 
-  if (projectId === null || !isWebhookEvent(type)) {
+  if (projectId === null) {
+    return;
+  }
+
+  if (!UNCHANGED_TYPES.has(type)) {
+    const changed = c.get('changedProjectIds');
+    if (!changed.has(projectId)) {
+      changed.add(projectId);
+      // The actor rides along instead of the server withholding the event from
+      // them: their own other devices still have to update the board they are
+      // looking at, and only the dot has to ignore it.
+      const actorUserId = c.get('user').id;
+      hooks.push(async () => {
+        publish({
+          type: PROJECT_CHANGED,
+          project_id: projectId,
+          data: { id: projectId, actor_user_id: actorUserId },
+          // A member sitting on the project list subscribes to no room, and this
+          // exists for exactly them.
+          broadcast: true,
+        });
+      });
+    }
+  }
+
+  if (!isWebhookEvent(type)) {
     return;
   }
   // A post-commit hook rather than a bus subscriber: with Redis every replica

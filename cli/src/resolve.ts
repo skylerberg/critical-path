@@ -7,7 +7,7 @@ import type { components } from './api/api.generated';
 
 export type ProjectListItem = components['schemas']['ProjectListItem'];
 export type User = components['schemas']['User'];
-export type BoardPayload = components['schemas']['BoardPayload'];
+export type BoardPayload = components['schemas']['BoardResponse'];
 export type BoardColumn = components['schemas']['BoardColumn'];
 export type BoardTask = components['schemas']['BoardTask'];
 export type BoardLabel = components['schemas']['BoardLabel'];
