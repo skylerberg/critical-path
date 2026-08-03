@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { board } from './board.svelte';
+import { invitations } from './invitations.svelte';
 import type { BoardPayload } from './board-types';
 import { projects, type Project } from './projects.svelte';
 import { realtime } from './realtime.svelte';
@@ -1137,5 +1138,39 @@ describe('project_changed raises the unseen dot', () => {
     changed(socket, 'p2', 'u-them');
 
     expect(dotted()).toEqual(['p2']);
+  });
+});
+
+describe('invitations_changed dispatch', () => {
+  beforeEach(() => {
+    invitations.reset();
+  });
+
+  it('refetches the pending list the share panel is showing', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { invitations: [] }));
+    await invitations.load('p1');
+    const socket = await connectAndAuth('p1');
+
+    socket.receive({ type: 'invitations_changed', project_id: 'p1', data: { project_id: 'p1' } });
+
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input]) => new URL((input as Request).url).pathname === '/api/projects/p1/invitations'
+        )
+      ).toHaveLength(2)
+    );
+  });
+
+  it('ignores one for a board whose panel is not open', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { invitations: [] }));
+    await invitations.load('p1');
+    const socket = await connectAndAuth('p1');
+    const before = fetchMock.mock.calls.length;
+
+    socket.receive({ type: 'invitations_changed', project_id: 'p2', data: { project_id: 'p2' } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock.mock.calls).toHaveLength(before);
   });
 });

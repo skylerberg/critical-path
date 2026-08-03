@@ -59,8 +59,9 @@
   const pending = $derived(scoped && invitations.loaded ? invitations.list : []);
   const pendingError = $derived(scoped ? invitations.loadError : null);
 
-  // Invitations carry email addresses and are editor-only server-side; they also
-  // publish no realtime event, so this is a fetch on open rather than a subscription.
+  // Invitations carry email addresses and are editor-only server-side, so a
+  // viewer must not even ask. Another editor's change arrives as an event that
+  // names no address and prompts a refetch through the same gate.
   $effect(() => {
     if (!canManage) {
       return;

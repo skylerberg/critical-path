@@ -1,5 +1,5 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invitations, isExpired, type Invitation } from './invitations.svelte';
 import { toasts } from './toasts.svelte';
 
@@ -16,6 +16,12 @@ function invitation(overrides: Partial<Invitation> = {}): Invitation {
     expires_at: new Date(Date.now() + 14 * DAY_MS).toISOString(),
     ...overrides,
   };
+}
+
+// A refetch is fired, not awaited, so silence can only be asserted after the
+// request it would have made has had a turn to leave.
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function loadWith(rows: Invitation[], projectId = 'p-1'): Promise<void> {
@@ -106,6 +112,31 @@ describe('invitations store', () => {
     invitations.adopt(invitation({ id: 'inv-2', project_id: 'p-other' }));
 
     expect(invitations.list.map((row) => row.id)).toEqual(['inv-1']);
+  });
+
+  it('refetches the list when another editor changes it', async () => {
+    await loadWith([invitation()]);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { invitations: [invitation({ id: 'inv-2', email: 'next@example.com' })] })
+    );
+
+    invitations.applyRealtime({ type: 'invitations_changed', project_id: 'p-1', data: null });
+    await vi.waitFor(() => expect(invitations.list.map((row) => row.id)).toEqual(['inv-2']));
+
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p-1/invitations');
+  });
+
+  it('ignores an event for a project it is not showing', async () => {
+    await loadWith([invitation()]);
+
+    invitations.applyRealtime({ type: 'invitations_changed', project_id: 'p-other', data: null });
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    invitations.reset();
+    invitations.applyRealtime({ type: 'invitations_changed', project_id: 'p-1', data: null });
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('moves the deadline before the resend is acknowledged', async () => {

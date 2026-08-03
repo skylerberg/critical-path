@@ -1,5 +1,6 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
+import type { RealtimeEvent } from './realtime-types';
 import { toasts } from './toasts.svelte';
 
 export type Invitation = components['schemas']['ProjectInvitation'];
@@ -45,6 +46,16 @@ class InvitationsStore {
   reset(): void {
     this.#clear();
     this.currentProjectId = null;
+  }
+
+  // The event says only which board's list moved — the addresses are never on
+  // the wire — so refetching the editor-gated list is the whole of applying it.
+  applyRealtime(event: RealtimeEvent): void {
+    const projectId = this.currentProjectId;
+    if (projectId === null || event.project_id !== projectId) {
+      return;
+    }
+    void this.load(projectId);
   }
 
   // Re-inviting an address returns the row it already had, so this replaces as
