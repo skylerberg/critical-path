@@ -24,6 +24,7 @@ import {
   READ_ONLY_MESSAGE,
   type ProjectRole,
 } from '../services/authorization';
+import { attachmentStorageKeys } from '../services/attachments/index';
 import { avatarUrl } from '../services/avatars';
 import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
 import { getArchivedTasks, getBoardPayload } from '../services/boardPayload';
@@ -236,9 +237,11 @@ router.post(
     description:
       'Create a project with the default Backlog / To Do / In Progress / Done columns, or ' +
       'deep-copy an existing project by passing source_project_id (copies columns, labels, ' +
-      'tasks, task labels, dependencies, and images — not comments, assignees, members, ' +
-      'archived cards, the accent colour, or the archived state of the project itself; copies ' +
-      'start personal). ' +
+      'tasks, task labels, dependencies, images, and recurring series with their templates — ' +
+      'not comments, assignees, members, archived cards, the accent colour, or the archived ' +
+      'state of the project itself; copies start personal). A copied series keeps the ' +
+      'source’s status and schedules its next occurrence from today, so it behaves like the ' +
+      'original without firing an occurrence the source already missed. ' +
       'Returns 422 when source_project_id does not ' +
       'reference an existing project and 404 when it references a project the caller cannot access.',
     security: [{ bearerAuth: [] }],
@@ -492,13 +495,13 @@ router.get(
     if (!snapshot) {
       throw new AppError(404, 'Project not found');
     }
-    const { exportPayload, images } = snapshot;
+    const { exportPayload, images, attachments } = snapshot;
 
     if (format === 'json') {
       return c.json(exportPayload, 200);
     }
 
-    const archive = projectExportArchive(exportPayload, images, now);
+    const archive = projectExportArchive(exportPayload, images, attachments, now);
     c.header('Content-Type', 'application/zip');
     c.header(
       'Content-Disposition',
@@ -628,14 +631,15 @@ router.delete(
       .select('task_image.storage_key')
       .where('task.project_id', '=', id)
       .execute();
+    const attachmentKeys = await attachmentStorageKeys(db, { projectId: id });
 
     const result = await db.deleteFrom('project').where('id', '=', id).executeTakeFirst();
     if (result.numDeletedRows === 0n) {
       throw new AppError(404, 'Project not found');
     }
 
-    if (imageRows.length > 0) {
-      const keys = imageRows.map((row) => row.storage_key);
+    const keys = [...imageRows.map((row) => row.storage_key), ...attachmentKeys];
+    if (keys.length > 0) {
       c.get('postCommitHooks').push(async () => {
         await Promise.all(keys.map((key) => storage.delete(key)));
       });

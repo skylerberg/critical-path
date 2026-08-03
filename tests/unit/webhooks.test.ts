@@ -260,11 +260,14 @@ describe('webhook event catalogue', () => {
       'checklist_item_created',
       'checklist_item_updated',
       'checklist_item_deleted',
+      'attachment_created',
+      'attachment_updated',
+      'attachment_deleted',
       'project_updated',
     ]) {
       expect(isWebhookEvent(type)).toBe(true);
     }
-    expect(WEBHOOK_EVENT_TYPES.size).toBe(21);
+    expect(WEBHOOK_EVENT_TYPES.size).toBe(24);
   });
 
   it('excludes events that cannot or must not be delivered', () => {

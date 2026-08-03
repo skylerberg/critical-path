@@ -12,6 +12,7 @@ import { boardTaskSchema } from './board';
 import { imageResponseSchema } from './images';
 import { commentSchema } from './comments';
 import { checklistItemSchema } from './checklists';
+import { attachmentSchema } from './attachments';
 
 export const TASK_TITLE_MIN_LENGTH = 1;
 export const TASK_TITLE_MAX_LENGTH = 2000;
@@ -58,9 +59,11 @@ export const patchTaskSchema = type({
 export const taskDetailResponseSchema = boardTaskSchema.merge({
   project_id: 'string',
   archived_at: 'string | null',
+  series_summary: 'string | null',
   images: imageResponseSchema.array(),
   comments: commentSchema.array(),
   checklist_items: checklistItemSchema.array(),
+  attachments: attachmentSchema.array(),
 });
 
 export type TaskDetailResponse = typeof taskDetailResponseSchema.infer;

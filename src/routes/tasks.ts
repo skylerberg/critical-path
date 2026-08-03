@@ -14,6 +14,7 @@ import {
   projectAccessIdsAmong,
   type ProjectAccessFields,
 } from '../services/authorization';
+import { attachmentStorageKeys, fetchTaskAttachments } from '../services/attachments/index';
 import { assertColumnInProject } from '../services/boardColumns';
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
 import { dueDateText } from '../services/dueDate';
@@ -34,6 +35,7 @@ import {
   recordTaskActivity,
 } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
+import { seriesSummaryForTask } from '../services/taskSeries/read';
 import {
   idSchema,
   createTaskSchema,
@@ -391,7 +393,9 @@ router.get(
       'Get a task in board-payload shape plus its project id, archived_at (null unless the ' +
       'task is archived), images, its full comment stream oldest first, and its checklist in ' +
       'list order. Archived tasks are readable here even though they are absent from every ' +
-      'board payload.',
+      'board payload. `series_summary` names the recurrence in English for a card a ' +
+      'recurring series created, and is null for every other card — including one whose ' +
+      'series has since been deleted.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -486,14 +490,18 @@ router.get(
       updated_at: item.updated_at.toISOString(),
     }));
 
+    const attachments = await fetchTaskAttachments(db, id);
+
     return c.json(
       {
         ...result.task,
         project_id: result.project_id,
         archived_at: result.archived_at,
+        series_summary: await seriesSummaryForTask(db, id),
         images,
         comments,
         checklist_items,
+        attachments,
       },
       200
     );
@@ -780,6 +788,7 @@ router.delete(
       .select('task_image.storage_key')
       .where('task_image.task_id', '=', id)
       .execute();
+    const attachmentKeys = await attachmentStorageKeys(db, { taskIds: [id] });
 
     // Read before the delete, which takes the edges with it by cascade.
     const dependents = await db
@@ -809,8 +818,8 @@ router.delete(
       }))
     );
 
-    if (images.length > 0) {
-      const keys = images.map((image) => image.storage_key);
+    const keys = [...images.map((image) => image.storage_key), ...attachmentKeys];
+    if (keys.length > 0) {
       c.get('postCommitHooks').push(async () => {
         await Promise.all(keys.map((key) => storage.delete(key)));
       });
