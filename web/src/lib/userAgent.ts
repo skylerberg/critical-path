@@ -28,6 +28,10 @@ function firstMatch(pairs: [RegExp, string][], value: string): string | null {
   return pairs.find(([pattern]) => pattern.test(value))?.[1] ?? null;
 }
 
+export function isApplePlatform(userAgent: string | null | undefined): boolean {
+  return /\biPhone\b|\biPad\b|\bMac OS X\b|\bMacintosh\b/.test(userAgent ?? '');
+}
+
 export function describeDevice(userAgent: string | null | undefined): string {
   const value = userAgent?.trim() ?? '';
   if (value === '') {

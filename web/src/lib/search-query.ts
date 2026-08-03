@@ -12,6 +12,9 @@ export interface SearchGroup {
 export const SEARCH_MIN_QUERY_LENGTH = 1;
 export const SEARCH_MAX_QUERY_LENGTH = 200;
 
+// Shared, so two as-you-type surfaces cannot drift to different request rates.
+export const SEARCH_DEBOUNCE_MS = 250;
+
 export function parseSearchQuery(search: string): string {
   return new URLSearchParams(search).get('q')?.trim() ?? '';
 }

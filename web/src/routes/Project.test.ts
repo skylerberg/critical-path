@@ -457,6 +457,29 @@ describe('Project', () => {
     expect(within(menu).getByLabelText('Search tasks this one blocks')).toHaveFocus();
   });
 
+  it('opens the move menu on the column a seeded caller named, and drops the seed after', async () => {
+    const projectId = testUuid('p-shell-move-seed');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'board' } });
+
+    await screen.findByText('Design cards');
+    vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    shortcuts.menuPrefill = 'Done';
+    shortcuts.moveMenu = T1;
+
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Move — Design cards' });
+    const menu = heading.closest('dialog')!;
+    expect(within(menu).getByLabelText<HTMLInputElement>('Search columns').value).toBe('Done');
+
+    await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
+
+    await waitFor(() => {
+      expect(shortcuts.moveMenu).toBeNull();
+    });
+    expect(shortcuts.menuPrefill).toBe('');
+  });
+
   it('moves the board selection through the m menu and announces where it landed', async () => {
     const projectId = testUuid('p-shell-board-move');
     mockProjectApi(projectId, [

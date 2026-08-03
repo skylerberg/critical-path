@@ -4,12 +4,13 @@
 
   interface Props {
     taskId: string;
+    prefill?: string;
     onclose: () => void;
   }
 
-  let { taskId, onclose }: Props = $props();
+  let { taskId, prefill = '', onclose }: Props = $props();
 </script>
 
 <Modal open title="Labels" {onclose}>
-  <LabelSearchMenu {taskId} autofocus />
+  <LabelSearchMenu {taskId} {prefill} autofocus />
 </Modal>

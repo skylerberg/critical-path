@@ -145,7 +145,16 @@
     />
   {/if}
   {#if shortcuts.labelMenu !== null}
-    <QuickLabelMenu taskId={shortcuts.labelMenu} onclose={() => (shortcuts.labelMenu = null)} />
+    <!-- The seed is dropped here as well as in closeMenus(): a menu dismissed on its
+         own never reaches that, and it must not carry into the next menu opened. -->
+    <QuickLabelMenu
+      taskId={shortcuts.labelMenu}
+      prefill={shortcuts.menuPrefill}
+      onclose={() => {
+        shortcuts.labelMenu = null;
+        shortcuts.menuPrefill = '';
+      }}
+    />
   {/if}
   {#if shortcuts.assigneeMenu !== null}
     <QuickAssigneeMenu
@@ -161,7 +170,14 @@
     />
   {/if}
   {#if shortcuts.moveMenu !== null}
-    <QuickMoveMenu taskId={shortcuts.moveMenu} onclose={() => (shortcuts.moveMenu = null)} />
+    <QuickMoveMenu
+      taskId={shortcuts.moveMenu}
+      prefill={shortcuts.menuPrefill}
+      onclose={() => {
+        shortcuts.moveMenu = null;
+        shortcuts.menuPrefill = '';
+      }}
+    />
   {/if}
 {/if}
 
