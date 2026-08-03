@@ -14,6 +14,7 @@ import {
   projectAccessIdsAmong,
   type ProjectAccessFields,
 } from '../services/authorization';
+import { attachmentStorageKeys, fetchTaskAttachments } from '../services/attachments/index';
 import { assertColumnInProject } from '../services/boardColumns';
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
 import { dueDateText } from '../services/dueDate';
@@ -485,6 +486,8 @@ router.get(
       updated_at: item.updated_at.toISOString(),
     }));
 
+    const attachments = await fetchTaskAttachments(db, id);
+
     return c.json(
       {
         ...result.task,
@@ -493,6 +496,7 @@ router.get(
         images,
         comments,
         checklist_items,
+        attachments,
       },
       200
     );
@@ -761,6 +765,7 @@ router.delete(
       .select('task_image.storage_key')
       .where('task_image.task_id', '=', id)
       .execute();
+    const attachmentKeys = await attachmentStorageKeys(db, { taskIds: [id] });
 
     // Read before the delete, which takes the edges with it by cascade.
     const dependents = await db
@@ -790,8 +795,8 @@ router.delete(
       }))
     );
 
-    if (images.length > 0) {
-      const keys = images.map((image) => image.storage_key);
+    const keys = [...images.map((image) => image.storage_key), ...attachmentKeys];
+    if (keys.length > 0) {
       c.get('postCommitHooks').push(async () => {
         await Promise.all(keys.map((key) => storage.delete(key)));
       });

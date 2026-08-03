@@ -30,14 +30,35 @@ export function imageArchivePath(id: string, contentType: string): string {
   return `images/${id}.${IMAGE_EXTENSIONS[contentType] ?? 'bin'}`;
 }
 
+export interface ExportAttachmentRow {
+  id: string;
+  task_id: string;
+  storage_key: string;
+  filename: string;
+  size_bytes: number;
+}
+
+// Same rule and same reason as imageArchivePath: only the extension comes from
+// the filename, and only after it survives a shape check.
+export function attachmentArchivePath(id: string, filename: string): string {
+  const segments = filename.split('.');
+  const candidate = segments.length > 1 ? segments[segments.length - 1].toLowerCase() : '';
+  const extension = /^[a-z0-9]{1,8}$/.test(candidate) ? candidate : 'bin';
+  return `attachments/${id}.${extension}`;
+}
+
 export async function buildProjectExport(
   db: Kysely<DB>,
   payload: BoardPayload,
   now: Date
-): Promise<{ exportPayload: ProjectExport; images: ExportImageRow[] }> {
+): Promise<{
+  exportPayload: ProjectExport;
+  images: ExportImageRow[];
+  attachments: ExportAttachmentRow[];
+}> {
   const projectId = payload.project.id;
 
-  const [users, archivedTasks, images, checklistItems] = await Promise.all([
+  const [users, archivedTasks, images, checklistItems, attachmentRows] = await Promise.all([
     usersWithProjectAccess(db, projectId),
     getArchivedTasks(db, projectId),
     db
@@ -72,6 +93,27 @@ export async function buildProjectExport(
       .orderBy('checklist_item.position')
       .orderBy('checklist_item.id')
       .execute(),
+    db
+      .selectFrom('task_attachment')
+      .innerJoin('task', 'task.id', 'task_attachment.task_id')
+      .select([
+        'task_attachment.id',
+        'task_attachment.task_id',
+        'task_attachment.kind',
+        'task_attachment.title',
+        'task_attachment.description',
+        'task_attachment.filename',
+        'task_attachment.content_type',
+        'task_attachment.size_bytes',
+        'task_attachment.storage_key',
+        'task_attachment.url',
+        'task_attachment.unfurl_state',
+        'task_attachment.created_at',
+      ])
+      .where('task.project_id', '=', projectId)
+      .orderBy('task_attachment.created_at')
+      .orderBy('task_attachment.id')
+      .execute(),
   ]);
 
   const imagesByTask = new Map<string, ProjectExport['tasks'][number]['images']>();
@@ -100,6 +142,40 @@ export async function buildProjectExport(
     checklistByTask.set(item.task_id, items);
   }
 
+  const attachments: ExportAttachmentRow[] = [];
+  const attachmentsByTask = new Map<string, ProjectExport['tasks'][number]['attachments']>();
+  for (const row of attachmentRows) {
+    const isFile = row.kind === 'file' && row.storage_key !== null && row.filename !== null;
+    const path = isFile ? attachmentArchivePath(row.id, row.filename as string) : null;
+    if (isFile) {
+      attachments.push({
+        id: row.id,
+        task_id: row.task_id,
+        storage_key: row.storage_key as string,
+        filename: row.filename as string,
+        size_bytes: row.size_bytes ?? 0,
+      });
+    }
+    const entries = attachmentsByTask.get(row.task_id) ?? [];
+    entries.push({
+      id: row.id,
+      kind: row.kind === 'link' ? 'link' : 'file',
+      path,
+      title: row.title,
+      description: row.description,
+      filename: row.filename,
+      content_type: row.content_type,
+      size_bytes: row.size_bytes,
+      url: row.url,
+      unfurl_state:
+        row.unfurl_state === 'pending' || row.unfurl_state === 'ok' || row.unfurl_state === 'failed'
+          ? row.unfurl_state
+          : null,
+      created_at: row.created_at.toISOString(),
+    });
+    attachmentsByTask.set(row.task_id, entries);
+  }
+
   const exportTask = (
     { image_count: _imageCount, ...task }: BoardTask,
     archived_at: string | null
@@ -108,6 +184,7 @@ export async function buildProjectExport(
     archived_at,
     images: imagesByTask.get(task.id) ?? [],
     checklist_items: checklistByTask.get(task.id) ?? [],
+    attachments: attachmentsByTask.get(task.id) ?? [],
   });
 
   const exportPayload: ProjectExport = {
@@ -126,5 +203,5 @@ export async function buildProjectExport(
     ],
   };
 
-  return { exportPayload, images };
+  return { exportPayload, images, attachments };
 }

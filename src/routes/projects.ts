@@ -24,6 +24,7 @@ import {
   READ_ONLY_MESSAGE,
   type ProjectRole,
 } from '../services/authorization';
+import { attachmentStorageKeys } from '../services/attachments/index';
 import { avatarUrl } from '../services/avatars';
 import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
 import { getArchivedTasks, getBoardPayload } from '../services/boardPayload';
@@ -492,13 +493,13 @@ router.get(
     if (!snapshot) {
       throw new AppError(404, 'Project not found');
     }
-    const { exportPayload, images } = snapshot;
+    const { exportPayload, images, attachments } = snapshot;
 
     if (format === 'json') {
       return c.json(exportPayload, 200);
     }
 
-    const archive = projectExportArchive(exportPayload, images, now);
+    const archive = projectExportArchive(exportPayload, images, attachments, now);
     c.header('Content-Type', 'application/zip');
     c.header(
       'Content-Disposition',
@@ -628,14 +629,15 @@ router.delete(
       .select('task_image.storage_key')
       .where('task.project_id', '=', id)
       .execute();
+    const attachmentKeys = await attachmentStorageKeys(db, { projectId: id });
 
     const result = await db.deleteFrom('project').where('id', '=', id).executeTakeFirst();
     if (result.numDeletedRows === 0n) {
       throw new AppError(404, 'Project not found');
     }
 
-    if (imageRows.length > 0) {
-      const keys = imageRows.map((row) => row.storage_key);
+    const keys = [...imageRows.map((row) => row.storage_key), ...attachmentKeys];
+    if (keys.length > 0) {
       c.get('postCommitHooks').push(async () => {
         await Promise.all(keys.map((key) => storage.delete(key)));
       });

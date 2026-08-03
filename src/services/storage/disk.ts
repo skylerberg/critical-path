@@ -1,5 +1,7 @@
-import { promises as fs } from 'fs';
+import { createWriteStream, promises as fs } from 'fs';
 import path from 'path';
+import type { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { isValidUuid } from '../../types/uuid';
 import type { StorageProvider } from './types';
 
@@ -19,6 +21,12 @@ export class DiskStorageProvider implements StorageProvider {
     const filePath = this.resolveKey(key);
     await fs.mkdir(this.root, { recursive: true });
     await fs.writeFile(filePath, data);
+  }
+
+  async putStream(key: string, data: Readable, _contentType: string): Promise<void> {
+    const filePath = this.resolveKey(key);
+    await fs.mkdir(this.root, { recursive: true });
+    await pipeline(data, createWriteStream(filePath));
   }
 
   async get(key: string): Promise<Buffer | null> {

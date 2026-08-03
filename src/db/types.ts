@@ -189,6 +189,24 @@ export interface TaskAssignee {
   user_id: string;
 }
 
+export interface TaskAttachment {
+  content_type: string | null;
+  created_at: Generated<Timestamp>;
+  description: string | null;
+  favicon_storage_key: string | null;
+  filename: string | null;
+  id: string;
+  kind: string;
+  preview_storage_key: string | null;
+  size_bytes: number | null;
+  storage_key: string | null;
+  task_id: string;
+  title: string | null;
+  unfurl_state: string | null;
+  updated_at: Generated<Timestamp>;
+  url: string | null;
+}
+
 export interface TaskComment {
   body: Json;
   created_at: Generated<Timestamp>;
@@ -253,6 +271,7 @@ export interface DB {
   task: Task;
   task_activity: TaskActivity;
   task_assignee: TaskAssignee;
+  task_attachment: TaskAttachment;
   task_comment: TaskComment;
   task_dependency: TaskDependency;
   task_image: TaskImage;
