@@ -11,6 +11,7 @@ import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertTaskWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { storage } from '../services/storage/index';
+import { storedObjectResponse } from '../services/storage/response';
 import { enqueueJob } from '../services/jobs/index';
 import { logger } from '../utils/logger';
 import {
@@ -447,8 +448,8 @@ router.get(
       throw new AppError(404, ATTACHMENT_NOT_FOUND);
     }
 
-    const data = await storage.get(row.storage_key);
-    if (!data) {
+    const object = await storage.getStream(row.storage_key);
+    if (!object) {
       logger.error({
         msg: 'Attachment row exists but storage object is missing',
         attachmentId: id,
@@ -458,7 +459,7 @@ router.get(
     }
 
     setDownloadHeaders(c, DEFAULT_CONTENT_TYPE, contentDispositionAttachment(row.filename));
-    return c.body(new Uint8Array(data), 200);
+    return storedObjectResponse(c, object);
   }
 );
 
@@ -501,8 +502,8 @@ function imageServingRoute(
         throw new AppError(404, ATTACHMENT_NOT_FOUND);
       }
 
-      const data = await storage.get(key);
-      if (!data) {
+      const object = await storage.getStream(key);
+      if (!object) {
         logger.error({
           msg: 'Attachment image key is set but the storage object is missing',
           attachmentId: id,
@@ -512,7 +513,7 @@ function imageServingRoute(
       }
 
       setDownloadHeaders(c, 'image/webp');
-      return c.body(new Uint8Array(data), 200);
+      return storedObjectResponse(c, object);
     }
   );
 }

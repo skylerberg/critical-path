@@ -80,7 +80,67 @@ describe('DiskStorageProvider', () => {
       'Invalid storage key'
     );
     await expect(provider.get('../../etc/passwd')).rejects.toThrow('Invalid storage key');
+    await expect(provider.getStream('../../etc/passwd')).rejects.toThrow('Invalid storage key');
     await expect(provider.delete('..')).rejects.toThrow('Invalid storage key');
     await expect(provider.copy('../a', crypto.randomUUID())).rejects.toThrow('Invalid storage key');
+  });
+
+  describe('getStream', () => {
+    async function collect(stream: Readable): Promise<Buffer> {
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(chunk as Buffer);
+      }
+      return Buffer.concat(chunks);
+    }
+
+    it('reports the stored size and streams the bytes', async () => {
+      const key = crypto.randomUUID();
+      const bytes = Buffer.alloc(3 * 1024 * 1024, 0x41);
+      await provider.put(key, bytes, 'application/octet-stream');
+
+      const object = await provider.getStream(key);
+
+      expect(object).not.toBeNull();
+      expect(object!.size).toBe(bytes.length);
+      expect((await collect(object!.stream)).equals(bytes)).toBe(true);
+    });
+
+    it('reports zero for an empty object', async () => {
+      const key = crypto.randomUUID();
+      await provider.put(key, Buffer.alloc(0), 'application/octet-stream');
+
+      const object = await provider.getStream(key);
+
+      expect(object!.size).toBe(0);
+      expect((await collect(object!.stream)).length).toBe(0);
+    });
+
+    it('resolves null for a missing key rather than failing mid-stream', async () => {
+      expect(await provider.getStream(crypto.randomUUID())).toBeNull();
+    });
+
+    it('serves the measured bytes even if the object is deleted mid-response', async () => {
+      const key = crypto.randomUUID();
+      await provider.put(key, Buffer.from('still here'), 'application/octet-stream');
+
+      const object = await provider.getStream(key);
+      await provider.delete(key);
+
+      expect(object!.size).toBe(10);
+      expect((await collect(object!.stream)).toString()).toBe('still here');
+    });
+
+    it('propagates a failure that is not a missing object', async () => {
+      const key = crypto.randomUUID();
+      await provider.put(key, Buffer.from('x'), 'application/octet-stream');
+      await fs.chmod(path.join(root, key), 0o000);
+
+      try {
+        await expect(provider.getStream(key)).rejects.toThrow();
+      } finally {
+        await fs.chmod(path.join(root, key), 0o600);
+      }
+    });
   });
 });
