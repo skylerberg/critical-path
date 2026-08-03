@@ -11,7 +11,7 @@ import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
 
 export type Project = components['schemas']['ProjectListItem'];
-type BoardPayload = components['schemas']['BoardPayload'];
+type BoardPayload = components['schemas']['BoardResponse'];
 type CreateProject = components['schemas']['CreateProject'];
 type PatchProject = components['schemas']['PatchProject'];
 
@@ -60,12 +60,20 @@ class ProjectsStore {
   active = $derived(this.#sorted.filter((p) => p.archived_at === null));
   archived = $derived(this.#sorted.filter((p) => p.archived_at !== null));
 
+  #stampedSinceLoad = new Set<string>();
+
   async load(): Promise<void> {
     this.loading = true;
     this.loadError = null;
+    this.#stampedSinceLoad.clear();
     try {
       const data = assertOk(await api.GET('/api/projects'));
-      this.projects = data.projects;
+      // A stamp that landed while this read was in flight is not in its answer,
+      // which is what a deep link straight to a board does: adopting the list
+      // wholesale would light the dot back up on the board being read.
+      this.projects = data.projects.map((p) =>
+        this.#stampedSinceLoad.has(p.id) ? { ...p, has_unseen_changes: false } : p
+      );
       this.loaded = true;
     } catch (error) {
       this.loadError = error instanceof ApiError ? error.message : 'Failed to load projects';
@@ -79,6 +87,7 @@ class ProjectsStore {
     this.loaded = false;
     this.loading = false;
     this.loadError = null;
+    this.#stampedSinceLoad.clear();
   }
 
   async create(name: string): Promise<string | null> {
@@ -296,7 +305,34 @@ class ProjectsStore {
     await Promise.all(updates.map(({ id, position }) => this.setPosition(id, position)));
   }
 
+  // No toast and no resync on failure, unlike every other write here: nobody
+  // asked for this one, and an API pod that predates the marker 404s on every
+  // board opened during a rolling deploy. The next load re-derives the truth.
+  async markSeen(id: string): Promise<void> {
+    this.#clearUnseen(id);
+    try {
+      assertOk(await api.PUT('/api/projects/{id}/seen', { params: { path: { id } } }));
+    } catch {
+      // Intentionally silent.
+    }
+  }
+
+  // Strict clamp, matching the server: with no marker nothing counts as unseen,
+  // so a member who has never opened a board gets no dot from a live event
+  // either — one rule, so the dot and the in-board highlights cannot disagree.
+  // An archived board is one the user has put away and never asks to be looked at.
+  markChanged(id: string): void {
+    this.#update(id, (p) =>
+      p.last_seen_at == null || p.archived_at !== null ? p : { ...p, has_unseen_changes: true }
+    );
+  }
+
   applyRealtime(event: RealtimeEvent): void {
+    if (event.type === 'project_seen') {
+      const { id } = event.data as { id: string };
+      this.#clearUnseen(id);
+      return;
+    }
     if (event.type === 'project_deleted') {
       const { id } = event.data as { id: string };
       this.projects = this.projects.filter((p) => p.id !== id);
@@ -324,6 +360,8 @@ class ProjectsStore {
         open_task_count: 0,
         done_task_count: 0,
         position: null,
+        last_seen_at: null,
+        has_unseen_changes: false,
       };
       const merged = { ...base, ...incoming };
       this.projects = existing
@@ -347,6 +385,8 @@ class ProjectsStore {
       open_task_count: 0,
       done_task_count: 0,
       position: null,
+      last_seen_at: null,
+      has_unseen_changes: false,
     };
     this.projects = [...this.projects, optimistic];
     try {
@@ -385,12 +425,23 @@ class ProjectsStore {
       open_task_count: payload.tasks.length - doneCount,
       done_task_count: doneCount,
       position: existing?.position ?? null,
+      last_seen_at: existing?.last_seen_at ?? null,
+      has_unseen_changes: false,
     };
     if (existing !== undefined) {
       this.#update(project.id, () => project);
     } else {
       this.projects = [...this.projects, project];
     }
+  }
+
+  #clearUnseen(id: string): void {
+    this.#stampedSinceLoad.add(id);
+    this.#update(id, (p) => ({
+      ...p,
+      has_unseen_changes: false,
+      last_seen_at: new Date().toISOString(),
+    }));
   }
 
   #update(id: string, patch: (project: Project) => Project): void {

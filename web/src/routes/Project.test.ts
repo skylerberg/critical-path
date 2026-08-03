@@ -102,6 +102,7 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
     ],
     tasks,
     labels: [],
+    changed_task_ids: [],
   };
 }
 
@@ -1065,5 +1066,34 @@ describe('Project shell for a viewer', () => {
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     // The identity-backed half of the overlay survives the demotion.
     expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
+  });
+});
+
+describe('Project entry captures what changed', () => {
+  function mockBoardWithChanged(projectId: string, tasks: BoardTask[], changed: string[]): void {
+    fetchMock.mockImplementation(async (input) => {
+      const request = input as Request;
+      const url = new URL(request.url);
+      if (url.pathname.endsWith('/activity')) {
+        return jsonResponse(200, { activity: [] });
+      }
+      if (request.method === 'PUT') {
+        return jsonResponse(204);
+      }
+      return jsonResponse(200, { ...payload(projectId, tasks), changed_task_ids: changed });
+    });
+  }
+
+  it('highlights only the cards the payload names, and stamps the marker', async () => {
+    const projectId = testUuid('p-seen-entry');
+    const tasks = [task(T1, 'todo', 'Moved by a teammate'), task(T2, 'todo', 'Untouched', 2000)];
+    mockBoardWithChanged(projectId, tasks, [T1]);
+
+    render(Project, { props: { projectId, view: 'board' } });
+
+    expect(await screen.findByText('Moved by a teammate')).toBeInTheDocument();
+    expect(screen.getByText('Untouched')).toBeInTheDocument();
+    expect(screen.getAllByText('Changed since you last looked')).toHaveLength(1);
+    await waitFor(() => expect(requestedPaths()).toContain(`/api/projects/${projectId}/seen`));
   });
 });

@@ -74,6 +74,7 @@ function payload(tasks: BoardTask[]): BoardPayload & { users: [] } {
     ],
     tasks,
     labels: [],
+    changed_task_ids: [],
   };
 }
 

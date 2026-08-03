@@ -36,6 +36,14 @@
   const currentProjectId = $derived(projectId);
   const routeKey = $derived(`${projectId}/${view}/${taskId ?? ''}`);
 
+  // Keyed on the project alone, not routeKey: opening a card overlay re-runs the
+  // load below, and re-arming there would swap the highlights the user came to
+  // see for the empty set the stamp has since made true.
+  $effect(() => {
+    void currentProjectId;
+    untrack(() => board.armSeen());
+  });
+
   $effect(() => {
     void routeKey;
     untrack(() => {

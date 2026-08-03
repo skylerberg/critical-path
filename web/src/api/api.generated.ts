@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/what-changed/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -432,7 +432,7 @@ export interface paths {
         };
         /**
          * List projects
-         * @description List projects the caller can access (created by them or shared with them as a member) with member ids, member roles, open and done task counts, and the caller's personal sort position (null when never set). Archived tasks count toward neither total. Ordered by position (nulls last), then created_at, then id.
+         * @description List projects the caller can access (created by them or shared with them as a member) with member ids, member roles, open and done task counts, and the caller's personal sort position (null when never set). Archived tasks count toward neither total. Ordered by position (nulls last), then created_at, then id. last_seen_at is when the caller last opened the board (null until they have), and has_unseen_changes says whether a live card in an unarchived project has been commented on or logged activity by somebody else since then — so a board the caller has never opened reports false, not everything.
          */
         get: operations["getApiProjects"];
         put?: never;
@@ -456,7 +456,7 @@ export interface paths {
         };
         /**
          * Get board payload
-         * @description Get a project with its columns, tasks (including label, assignee, and blocker ids plus image counts), and labels in one payload. Archived tasks are excluded, as are archived tasks appearing as blockers of the tasks that are included.
+         * @description Get a project with its columns, tasks (including label, assignee, and blocker ids plus image counts), and labels in one payload. Archived tasks are excluded, as are archived tasks appearing as blockers of the tasks that are included. changed_task_ids names the tasks in this payload that somebody else commented on or logged activity for since the caller last stamped the board with PUT /:id/seen, and is empty for a caller who never has. Reading the board does not stamp it.
          */
         get: operations["getApiProjectsById"];
         put?: never;
@@ -528,6 +528,26 @@ export interface paths {
          * @description Set the caller's personal sort position for a project. Positions are per user and order the project list for the caller only; other members are unaffected.
          */
         put: operations["putApiProjectsByIdPosition"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mark project seen
+         * @description Move the caller's marker for a project to now, so nothing already in it counts as an unseen change any more. Per user and invisible to everyone else; any member may call, viewers included, and non-accessors get 404. Archiving does not stop it. Only this endpoint stamps — reading the board, the export or a webhook never does, so a script cannot clear somebody else’s dot.
+         */
+        put: operations["putApiProjectsByIdSeen"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1619,8 +1639,10 @@ export interface components {
             created_by: components["schemas"]["UserAvatarurl"];
             description: string;
             done_task_count: number;
+            has_unseen_changes: boolean;
             id: string;
             is_public: boolean;
+            last_seen_at: components["schemas"]["UserAvatarurl"];
             member_ids: string[];
             members: components["schemas"]["ProjectMember"][];
             name: string;
@@ -1633,7 +1655,8 @@ export interface components {
             role: "editor" | "viewer";
             user_id: string;
         };
-        BoardPayload: {
+        BoardResponse: {
+            changed_task_ids: string[];
             columns: components["schemas"]["BoardColumn"][];
             labels: components["schemas"]["BoardLabel"][];
             project: components["schemas"]["Project"];
@@ -3448,7 +3471,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BoardPayload"];
+                    "application/json": components["schemas"]["BoardResponse"];
                 };
             };
             /** @description Authentication required or failed */
@@ -3515,7 +3538,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BoardPayload"];
+                    "application/json": components["schemas"]["BoardResponse"];
                 };
             };
             /** @description Bad Request */
@@ -3885,6 +3908,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putApiProjectsByIdSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Marker moved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Internal Server Error */

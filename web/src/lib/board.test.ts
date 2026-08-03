@@ -103,6 +103,7 @@ function payload(): BoardPayload {
     ],
     tasks: [task('t2', 'c1', 2000, 'B'), task('t1', 'c1', 1000, 'A'), task('t3', 'c2', 1000, 'C')],
     labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
+    changed_task_ids: [],
   };
 }
 
@@ -3359,5 +3360,111 @@ describe('board store canEdit', () => {
     expect(board.canEdit).toBe(false);
     // Resynced rather than rolled back: the card is where the server says it is.
     expect(board.tasks.find((t) => t.id === 't1')?.column_id).toBe('c1');
+  });
+});
+
+describe('what changed since you last looked', () => {
+  function stampedPaths(): string[] {
+    return fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => request.method === 'PUT')
+      .map((request) => new URL(request.url).pathname);
+  }
+
+  function boardServing(changedTaskIds: string[] | undefined): void {
+    mockRoutes((request, url) => {
+      if (request.method !== 'GET' || url.pathname !== '/api/projects/p1') {
+        return undefined;
+      }
+      const body: Record<string, unknown> = { ...payload() };
+      if (changedTaskIds === undefined) {
+        delete body.changed_task_ids;
+      } else {
+        body.changed_task_ids = changedTaskIds;
+      }
+      return jsonResponse(200, body);
+    });
+  }
+
+  it('captures the changed cards once on entry and keeps them across later reads', async () => {
+    boardServing(['t1', 't3']);
+
+    board.armSeen();
+    await board.load('p1');
+
+    expect([...board.changedTaskIds].sort()).toEqual(['t1', 't3']);
+    expect(stampedPaths()).toEqual(['/api/projects/p1/seen']);
+
+    // What opening a card overlay does: the same board, revalidated — and by now
+    // the stamp has made the server's honest answer empty.
+    boardServing([]);
+    await board.refetch();
+
+    expect([...board.changedTaskIds].sort()).toEqual(['t1', 't3']);
+    expect(stampedPaths()).toEqual(['/api/projects/p1/seen']);
+  });
+
+  it('captures again on the next entry', async () => {
+    boardServing(['t1']);
+    board.armSeen();
+    await board.load('p1');
+
+    board.reset();
+    boardServing(['t2']);
+    board.armSeen();
+    await board.load('p1');
+
+    expect([...board.changedTaskIds]).toEqual(['t2']);
+    expect(stampedPaths()).toEqual(['/api/projects/p1/seen', '/api/projects/p1/seen']);
+  });
+
+  it('shows no highlights and raises nothing when the API does not name the changed cards', async () => {
+    boardServing(undefined);
+
+    board.armSeen();
+    await board.load('p1');
+
+    expect(board.tasks.map((t) => t.id).sort()).toEqual(['t1', 't2', 't3']);
+    expect([...board.changedTaskIds]).toEqual([]);
+    expect(board.error).toBeNull();
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('captures nothing and stamps nothing on an anonymous public board', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      return url.pathname === '/api/public/projects/p1/board'
+        ? jsonResponse(200, {
+            project: { id: 'p1', name: 'Public Game', description: '' },
+            columns: [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }],
+            tasks: [
+              {
+                id: 't1',
+                column_id: 'c1',
+                title: 'A',
+                description: null,
+                position: 1000,
+                label_ids: [],
+                assignee_ids: [],
+                blocker_ids: [],
+                image_count: 0,
+                cover_image_url: null,
+                comment_count: 0,
+              },
+            ],
+            labels: [],
+            users: [],
+            comments: [],
+            changed_task_ids: ['t1'],
+          })
+        : jsonResponse(404, { error: 'This board is not public' });
+    });
+
+    board.armSeen();
+    await board.load('p1', undefined, { readonly: true });
+
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+    expect([...board.changedTaskIds]).toEqual([]);
+    expect(stampedPaths()).toEqual([]);
   });
 });

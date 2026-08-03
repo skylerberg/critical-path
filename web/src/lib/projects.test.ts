@@ -22,13 +22,18 @@ function project(overrides: Partial<Project> = {}): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
     ...overrides,
   };
 }
 
 function projectRow(
   item: Project
-): Omit<Project, 'open_task_count' | 'done_task_count' | 'position'> {
+): Omit<
+  Project,
+  'open_task_count' | 'done_task_count' | 'position' | 'last_seen_at' | 'has_unseen_changes'
+> {
   return {
     id: item.id,
     name: item.name,
@@ -945,5 +950,80 @@ describe('project roles', () => {
     });
 
     expect(projects.projects.find((p) => p.id === 'p-realtime')!.members).toEqual([]);
+  });
+});
+
+describe('what changed since you last looked', () => {
+  const SEEN = '2026-05-01T00:00:00.000Z';
+
+  function dotted(): string[] {
+    return projects.projects.filter((p) => p.has_unseen_changes).map((p) => p.id);
+  }
+
+  it('stamps the marker, clears the dot, and holds it against a list read already in flight', async () => {
+    const unseen = project({ has_unseen_changes: true, last_seen_at: SEEN });
+    await loadWith([unseen]);
+    expect(dotted()).toEqual(['p-1']);
+
+    // The answer this read carries was computed before the stamp below, which is
+    // exactly what a deep link straight to a board does.
+    let releaseList!: () => void;
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Promise<Response>((resolve) => {
+          releaseList = () => resolve(jsonResponse(200, { projects: [unseen] }));
+        })
+    );
+    fetchMock.mockImplementationOnce(async () => jsonResponse(204));
+
+    const listing = projects.load();
+    await projects.markSeen('p-1');
+    expect(dotted()).toEqual([]);
+
+    releaseList();
+    await listing;
+
+    expect(dotted()).toEqual([]);
+    expect(requestAt(2).method).toBe('PUT');
+    expect(new URL(requestAt(2).url).pathname).toBe('/api/projects/p-1/seen');
+  });
+
+  it('leaves the dot cleared and says nothing when the marker cannot be stamped', async () => {
+    await loadWith([project({ has_unseen_changes: true, last_seen_at: SEEN })]);
+    fetchMock.mockImplementation(async () => jsonResponse(404, { error: 'Not Found' }));
+
+    await expect(projects.markSeen('p-1')).resolves.toBeUndefined();
+
+    expect(dotted()).toEqual([]);
+    expect(toasts.toasts).toEqual([]);
+    // A resync here would undo the optimistic clear on every board opened during
+    // a rolling deploy.
+    expect(fetchMock.mock.calls).toHaveLength(2);
+  });
+
+  it('clears the dot on this device when another device of the same user stamps', async () => {
+    await loadWith([
+      project({ has_unseen_changes: true, last_seen_at: SEEN }),
+      project({ id: 'p-2', name: 'Beta', has_unseen_changes: true, last_seen_at: SEEN }),
+    ]);
+
+    projects.applyRealtime({ type: 'project_seen', project_id: 'p-1', data: { id: 'p-1' } });
+
+    expect(dotted()).toEqual(['p-2']);
+    expect(projects.projects[0]!.last_seen_at).not.toBe(SEEN);
+  });
+
+  it('lights the dot only for a live board the caller has opened before', async () => {
+    await loadWith([
+      project({ id: 'p-opened', last_seen_at: SEEN }),
+      project({ id: 'p-never', last_seen_at: null }),
+      project({ id: 'p-archived', last_seen_at: SEEN, archived_at: '2026-02-01T00:00:00.000Z' }),
+    ]);
+
+    for (const id of ['p-opened', 'p-never', 'p-archived']) {
+      projects.markChanged(id);
+    }
+
+    expect(dotted()).toEqual(['p-opened']);
   });
 });
