@@ -38,6 +38,7 @@ import {
   enqueueInvitationEmail,
   invitationExpiry,
   invitationTokenHash,
+  publishInvitationsChanged,
   revokeInvitationsFromNonEditors,
   toInvitationResponse,
 } from '../services/invitations';
@@ -805,7 +806,7 @@ router.put(
       await removeMembers(c, db, project, user.id, [user.id]);
       publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: [user.id] });
       const remaining = await fetchMembers(db, id);
-      await revokeInvitationsFromNonEditors(db, id, project.created_by, remaining);
+      await revokeInvitationsFromNonEditors(c, db, id, project.created_by, remaining);
       await publishProjectListItem(c, db, project, remaining);
       return c.body(null, 204);
     }
@@ -897,7 +898,7 @@ router.put(
       publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: removed });
     }
     const remaining = await fetchMembers(db, id);
-    await revokeInvitationsFromNonEditors(db, id, project.created_by, remaining);
+    await revokeInvitationsFromNonEditors(c, db, id, project.created_by, remaining);
     // A demotion keeps access, so the broadcast plus the per-event access
     // re-check is what re-renders an open client.
     await publishProjectListItem(c, db, project, remaining);
@@ -988,11 +989,14 @@ router.post(
       // The address can only have gained its account after the invitation was
       // sent, and signup is the sole claimer, so nothing will ever consume this
       // row — while its link stays redeemable by anyone holding it.
-      await db
+      const dropped = await db
         .deleteFrom('project_invitation')
         .where('project_id', '=', id)
         .where('email_lower', '=', emailLower)
-        .execute();
+        .executeTakeFirst();
+      if (dropped.numDeletedRows > 0n) {
+        publishInvitationsChanged(c, id);
+      }
 
       let effectiveRole: ProjectRole = 'editor';
       if (target.id !== project.created_by) {
@@ -1086,6 +1090,7 @@ router.post(
 
     const invitation = toInvitationResponse(row);
     enqueueInvitationEmail(c, invitation, project.name, user.name);
+    publishInvitationsChanged(c, id);
 
     return c.json(
       { status: 'invited' as const, role: invitation.role, user: null, invitation },
@@ -1180,6 +1185,7 @@ router.delete(
     if (deleted.numDeletedRows === 0n) {
       throw new AppError(404, 'Invitation not found');
     }
+    publishInvitationsChanged(c, id);
 
     return c.body(null, 204);
   }
@@ -1244,6 +1250,7 @@ router.post(
       .execute();
 
     enqueueInvitationEmail(c, existing, project.name, user.name);
+    publishInvitationsChanged(c, id);
 
     return c.body(null, 204);
   }

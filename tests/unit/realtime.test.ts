@@ -6,6 +6,7 @@ import {
   subscribeBus,
   resetBus,
   publishAfterCommit,
+  INVITATIONS_CHANGED,
   USER_UPDATED,
   type BusEntry,
 } from '../../src/services/realtime/bus';
@@ -204,6 +205,7 @@ describe('realtime delivery', () => {
 
   let creator: string;
   let member: string;
+  let viewer: string;
   let outsider: string;
   let personalProjectId: string;
   let sharedProjectId: string;
@@ -211,6 +213,7 @@ describe('realtime delivery', () => {
   beforeAll(async () => {
     creator = await createUser('rt creator');
     member = await createUser('rt member');
+    viewer = await createUser('rt viewer');
     outsider = await createUser('rt outsider');
 
     personalProjectId = newId();
@@ -224,7 +227,10 @@ describe('realtime delivery', () => {
       .execute();
     await db
       .insertInto('project_member')
-      .values({ project_id: sharedProjectId, user_id: member })
+      .values([
+        { project_id: sharedProjectId, user_id: member },
+        { project_id: sharedProjectId, user_id: viewer, role: 'viewer' },
+      ])
       .execute();
   });
 
@@ -311,6 +317,73 @@ describe('realtime delivery', () => {
 
     expect(memberSocket.sent).toHaveLength(1);
     expect(outsiderSocket.sent).toEqual([]);
+  });
+
+  it('delivers editorsOnly events to the creator and editor members, never a viewer', async () => {
+    const creatorSocket = connect(creator, sharedProjectId);
+    const editorSocket = connect(member, sharedProjectId);
+    const viewerSocket = connect(viewer, sharedProjectId);
+    const outsiderSocket = connect(outsider, sharedProjectId);
+
+    await deliver({
+      type: INVITATIONS_CHANGED,
+      project_id: sharedProjectId,
+      data: { project_id: sharedProjectId },
+      editorsOnly: true,
+    });
+
+    expect(creatorSocket.sent).toHaveLength(1);
+    expect(editorSocket.sent).toHaveLength(1);
+    expect(viewerSocket.sent).toEqual([]);
+    expect(outsiderSocket.sent).toEqual([]);
+  });
+
+  it('withholds a broadcast editorsOnly event from a viewer subscribed to nothing', async () => {
+    const editorSocket = connect(member);
+    const viewerSocket = connect(viewer);
+
+    await deliver({
+      type: INVITATIONS_CHANGED,
+      project_id: sharedProjectId,
+      data: { project_id: sharedProjectId },
+      editorsOnly: true,
+      broadcast: true,
+    });
+
+    expect(editorSocket.sent).toHaveLength(1);
+    expect(viewerSocket.sent).toEqual([]);
+  });
+
+  it('lets a recipient list narrow an editorsOnly event but never widen it', async () => {
+    const creatorSocket = connect(creator, sharedProjectId);
+    const editorSocket = connect(member, sharedProjectId);
+    const viewerSocket = connect(viewer, sharedProjectId);
+
+    await deliver({
+      type: INVITATIONS_CHANGED,
+      project_id: sharedProjectId,
+      data: { project_id: sharedProjectId },
+      editorsOnly: true,
+      recipientUserIds: [member, viewer],
+    });
+
+    expect(editorSocket.sent).toHaveLength(1);
+    expect(viewerSocket.sent).toEqual([]);
+    expect(creatorSocket.sent).toEqual([]);
+  });
+
+  it('delivers an editorsOnly event with no project to nobody', async () => {
+    const creatorSocket = connect(creator);
+
+    await deliver({
+      type: INVITATIONS_CHANGED,
+      project_id: null,
+      data: { project_id: sharedProjectId },
+      editorsOnly: true,
+      recipientUserIds: [creator],
+    });
+
+    expect(creatorSocket.sent).toEqual([]);
   });
 
   it('delivers user_updated to project sharers and every socket of the changed user', async () => {
