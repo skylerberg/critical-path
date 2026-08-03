@@ -75,6 +75,7 @@ describe('Attachment lifecycle', () => {
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
     const { keys } = await attachEverything(user.token, taskId);
 
+    expect((await ctx.request(user.token).post(`/api/tasks/${taskId}/archive`)).status).toBe(200);
     expect((await ctx.request(user.token).delete(`/api/tasks/${taskId}`)).status).toBe(204);
     await settle();
 
