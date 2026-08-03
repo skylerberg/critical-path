@@ -34,6 +34,8 @@ function task(columnId: string): BoardTask {
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
   };
 }
 

@@ -38,6 +38,8 @@ function archived(id: string, title: string, columnId = 'c1'): ArchivedTask {
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
     archived_at: ARCHIVED_AT,
   };
 }

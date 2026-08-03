@@ -305,6 +305,22 @@
                 archived this task
               {:else if entry.kind === 'restored'}
                 restored this task
+              {:else if entry.kind === 'checklist_item_added'}
+                added <span class="text-ink">“{truncateTitle(to?.text ?? '')}”</span> to the checklist
+              {:else if entry.kind === 'checklist_item_checked'}
+                ticked <span class="text-ink">“{truncateTitle(to?.text ?? '')}”</span>
+              {:else if entry.kind === 'checklist_item_unchecked'}
+                unticked <span class="text-ink">“{truncateTitle(to?.text ?? '')}”</span>
+              {:else if entry.kind === 'checklist_item_renamed'}
+                renamed the checklist item
+                <span class="text-ink">“{truncateTitle(from?.text ?? '')}”</span>
+                to <span class="text-ink">“{truncateTitle(to?.text ?? '')}”</span>
+              {:else if entry.kind === 'checklist_item_removed'}
+                removed <span class="text-ink">“{truncateTitle(from?.text ?? '')}”</span> from the checklist
+              {:else if entry.kind === 'checklist_item_promoted'}
+                turned <span class="text-ink">“{truncateTitle(from?.text ?? '')}”</span> into the
+                card
+                <span class="text-ink">{truncateTitle(to?.name ?? '')}</span>
               {:else}
                 <!-- Unreachable per the generated union, but a client left on the previous
                      bundle by a rolling deploy is handed kinds that union does not list. -->

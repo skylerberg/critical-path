@@ -73,6 +73,8 @@ function task(id: string, columnId = 'c1', position = 1000) {
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
   };
 }
 
@@ -527,6 +529,33 @@ describe('drag-aware queue', () => {
     board.dragging = false;
     flushSync();
     expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('holds a checklist event behind a card-overlay drag, which the board flag never sees', async () => {
+    board.tasks = [task('t1')];
+    board.taskChecklists = { t1: [] };
+    const socket = await connectAndAuth('p1');
+    const item = {
+      id: 'ci1',
+      task_id: 't1',
+      text: 'theirs',
+      checked: false,
+      position: 1000,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      checklist_item_count: 1,
+      checklist_done_count: 0,
+    };
+
+    board.detailDragging = true;
+    socket.receive({ type: 'checklist_item_created', project_id: 'p1', data: item });
+    expect(board.taskChecklists.t1).toEqual([]);
+    expect(board.tasks[0]!.checklist_item_count).toBe(0);
+
+    board.detailDragging = false;
+    flushSync();
+    expect(board.taskChecklists.t1!.map((i) => i.id)).toEqual(['ci1']);
+    expect(board.tasks[0]!.checklist_item_count).toBe(1);
   });
 
   it('treats task_archived as a board event: project-filtered, queued, then applied', async () => {

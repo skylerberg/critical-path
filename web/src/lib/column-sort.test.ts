@@ -19,6 +19,8 @@ function makeTask(partial: Partial<BoardTask> & Pick<BoardTask, 'id'>): BoardTas
     cover_image_url: partial.cover_image_url ?? null,
     due_date: partial.due_date ?? null,
     comment_count: partial.comment_count ?? 0,
+    checklist_item_count: partial.checklist_item_count ?? 0,
+    checklist_done_count: partial.checklist_done_count ?? 0,
   };
 }
 

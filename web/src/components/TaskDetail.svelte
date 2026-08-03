@@ -15,6 +15,7 @@
   import LabelPicker from './LabelPicker.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
   import TaskActivity from './TaskActivity.svelte';
+  import TaskChecklist from './TaskChecklist.svelte';
   import Announcer from './ui/Announcer.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
@@ -358,6 +359,13 @@
               />
             {/if}
           {/key}
+        </section>
+      {/if}
+
+      {#if !readonly || (task.checklist_item_count ?? 0) > 0}
+        <section class="flex flex-col gap-2">
+          <h3 class="text-sm font-semibold text-muted">Checklist</h3>
+          <TaskChecklist {taskId} {readonly} {taskPath} />
         </section>
       {/if}
 

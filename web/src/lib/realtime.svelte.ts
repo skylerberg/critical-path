@@ -35,6 +35,9 @@ const BOARD_EVENTS = new Set([
   'comment_created',
   'comment_updated',
   'comment_deleted',
+  'checklist_item_created',
+  'checklist_item_updated',
+  'checklist_item_deleted',
 ]);
 const PROJECT_EVENTS = new Set([
   'project_created',
@@ -76,7 +79,7 @@ class RealtimeClient {
         untrack(() => this.#syncSubscription(projectId));
       });
       $effect(() => {
-        const dragging = board.dragging;
+        const dragging = board.dragBusy;
         if (!dragging) {
           untrack(() => this.#flushQueue());
         }
@@ -179,7 +182,7 @@ class RealtimeClient {
     if (this.#hasSyncedOnce) {
       void projects.load();
       if (board.currentProjectId !== null) {
-        if (board.dragging) {
+        if (board.dragBusy) {
           this.#needsBoardRefetch = true;
         } else {
           void board.resync();
@@ -264,7 +267,7 @@ class RealtimeClient {
       if (event.project_id !== board.currentProjectId) {
         return;
       }
-      if (board.dragging) {
+      if (board.dragBusy) {
         this.#queue.push(event);
         return;
       }
@@ -291,7 +294,7 @@ class RealtimeClient {
   }
 
   #flushQueue(): void {
-    if (board.dragging) {
+    if (board.dragBusy) {
       return;
     }
     const queued = this.#queue;

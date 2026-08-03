@@ -1,5 +1,6 @@
 import type { components, paths } from '../api/api.generated';
 export type CycleTask = components['schemas']['CycleTask'];
+export type ChecklistItem = components['schemas']['ChecklistItem'];
 export type BoardPayload =
   paths['/api/projects/{id}']['get']['responses']['200']['content']['application/json'];
 export type BoardProject = BoardPayload['project'];
