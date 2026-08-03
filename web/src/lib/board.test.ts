@@ -43,6 +43,23 @@ function serverComment(text: string, id = 'srv') {
   };
 }
 
+function serverChecklistItem(
+  text = 'resynced item',
+  id = 'ci-srv',
+  position = 1000,
+  checked = false
+) {
+  return {
+    id,
+    task_id: 't1',
+    text,
+    checked,
+    position,
+    created_at: SERVER_CREATED_AT,
+    updated_at: SERVER_CREATED_AT,
+  };
+}
+
 function task(id: string, columnId: string, position: number, title: string) {
   return {
     id,
@@ -60,6 +77,8 @@ function task(id: string, columnId: string, position: number, title: string) {
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
   };
 }
 
@@ -204,10 +223,45 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
       return jsonResponse(200, {
         ...task('t1', 'c1', 1000, 'A'),
         comment_count: 1,
+        checklist_item_count: 1,
+        checklist_done_count: 0,
         project_id: 'p1',
         images: [],
         comments: [serverComment('resynced')],
+        checklist_items: [serverChecklistItem()],
       });
+    }
+    if (request.method === 'POST' && url.pathname === '/api/checklist-items') {
+      const body = (await request.clone().json()) as {
+        id: string;
+        task_id: string;
+        text: string;
+        position: number;
+      };
+      return jsonResponse(201, {
+        ...body,
+        checked: false,
+        created_at: SERVER_CREATED_AT,
+        updated_at: SERVER_CREATED_AT,
+      });
+    }
+    const promotedItem = /^\/api\/checklist-items\/([^/]+)\/promote$/.exec(url.pathname);
+    if (request.method === 'POST' && promotedItem !== null) {
+      const body = (await request.clone().json()) as { id: string; position: number };
+      return jsonResponse(201, {
+        ...task(body.id, 'c1', body.position, 'promoted'),
+        created_at: SERVER_CREATED_AT,
+        updated_at: SERVER_UPDATED_AT,
+      });
+    }
+    const patchedItem = /^\/api\/checklist-items\/([^/]+)$/.exec(url.pathname);
+    if (request.method === 'PATCH' && patchedItem !== null) {
+      const id = patchedItem[1]!;
+      const body = (await request.clone().json()) as Record<string, unknown>;
+      const existing =
+        (board.taskChecklists.t1 ?? []).find((item) => item.id === id) ??
+        serverChecklistItem('unknown', id);
+      return jsonResponse(200, { ...existing, ...body, updated_at: SERVER_UPDATED_AT });
     }
     if (request.method === 'POST' && url.pathname === '/api/comments') {
       const body = (await request.clone().json()) as { id: string; task_id: string; body: unknown };
@@ -418,6 +472,8 @@ describe('board store readonly mode', () => {
         image_count: 2,
         cover_image_url: '/api/images/img1',
         comment_count: 2,
+        checklist_item_count: 2,
+        checklist_done_count: 1,
       },
       {
         id: 't2',
@@ -431,6 +487,8 @@ describe('board store readonly mode', () => {
         image_count: 0,
         cover_image_url: null,
         comment_count: 0,
+        checklist_item_count: 0,
+        checklist_done_count: 0,
       },
     ],
     labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
@@ -455,6 +513,10 @@ describe('board store readonly mode', () => {
         created_at: '2026-01-02T00:00:00.000Z',
         updated_at: '2026-01-02T00:00:00.000Z',
       },
+    ],
+    checklist_items: [
+      { id: 'ci2', task_id: 't1', text: 'second', checked: false, position: 2000 },
+      { id: 'ci1', task_id: 't1', text: 'first', checked: true, position: 1000 },
     ],
   };
 
@@ -617,6 +679,36 @@ describe('board store readonly mode', () => {
 
     expect(board.error).toBeNull();
     expect(board.taskComments['t1']).toEqual([]);
+  });
+
+  it('seeds every published task a checklist, sorted, and carries the counts to the card face', async () => {
+    mockPublic();
+
+    await board.load('p1', undefined, { readonly: true });
+
+    expect(board.taskChecklists['t1']!.map((item) => item.text)).toEqual(['first', 'second']);
+    expect(board.taskChecklists['t2']).toEqual([]);
+    const [first] = board.tasks.filter((t) => t.id === 't1');
+    expect([first!.checklist_item_count, first!.checklist_done_count]).toEqual([2, 1]);
+  });
+
+  it('serves a board from a pod that predates public checklists without NaN counts', async () => {
+    const legacy: Record<string, unknown> = { ...publicPayload };
+    delete legacy.checklist_items;
+    legacy.tasks = publicPayload.tasks.map((task) => {
+      const copy: Record<string, unknown> = { ...task };
+      delete copy.checklist_item_count;
+      delete copy.checklist_done_count;
+      return copy;
+    });
+    fetchMock.mockImplementation(async () => jsonResponse(200, legacy));
+
+    await board.load('p1', undefined, { readonly: true });
+
+    expect(board.error).toBeNull();
+    expect(board.taskChecklists['t1']).toEqual([]);
+    expect(board.tasks.map((t) => t.checklist_item_count)).toEqual([0, 0]);
+    expect(board.tasks.map((t) => t.checklist_done_count)).toEqual([0, 0]);
   });
 });
 
@@ -2703,6 +2795,255 @@ describe('board store comments', () => {
     board.reset();
 
     expect(board.taskComments).toEqual({});
+  });
+});
+
+describe('board store checklists', () => {
+  function counts(taskId = 't1'): [number, number] {
+    const found = board.tasks.find((t) => t.id === taskId)!;
+    return [found.checklist_item_count, found.checklist_done_count];
+  }
+
+  beforeEach(async () => {
+    await board.load('p1');
+    board.taskChecklists = { t1: [] };
+    fetchMock.mockClear();
+  });
+
+  it('addChecklistItem appends optimistically and bumps the total before the response resolves', async () => {
+    const pending = board.addChecklistItem('t1', 'write the test');
+
+    expect(board.taskChecklists.t1!.map((i) => i.text)).toEqual(['write the test']);
+    expect(counts()).toEqual([1, 0]);
+
+    await pending;
+
+    expect(board.taskChecklists.t1!.map((i) => i.created_at)).toEqual([SERVER_CREATED_AT]);
+    const request = requestAt(0);
+    expect(new URL(request.url).pathname).toBe('/api/checklist-items');
+    expect((await request.json()).position).toBe(1000);
+  });
+
+  it('addChecklistItem re-inserts the server row when a detail fetch replaces the list mid-flight', async () => {
+    const pending = board.addChecklistItem('t1', 'mine');
+    board.taskChecklists = { t1: [serverChecklistItem('landed first', 'ci0', 500)] };
+
+    await pending;
+
+    expect(board.taskChecklists.t1!.map((i) => i.text)).toEqual(['landed first', 'mine']);
+  });
+
+  it('addChecklistItem leaves an uncached list uncached and loads it once posted', async () => {
+    board.taskChecklists = {};
+
+    await board.addChecklistItem('t1', 'mine');
+
+    expect(board.taskChecklists.t1).toEqual([serverChecklistItem()]);
+    expect(counts()).toEqual([1, 0]);
+  });
+
+  it('addChecklistItem failure toasts and re-fetches the detail payload', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/checklist-items'
+        ? jsonResponse(404, { error: 'Task not found' })
+        : undefined
+    );
+
+    await board.addChecklistItem('t1', 'doomed');
+
+    expect(toasts.toasts.map((t) => t.message)).toContain('Task not found');
+    expect(board.taskChecklists.t1).toEqual([serverChecklistItem()]);
+  });
+
+  it('setChecklistItemChecked moves the done count once, and a repeat tick does not double it', async () => {
+    board.taskChecklists = { t1: [serverChecklistItem('tick me', 'ci1')] };
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1' ? { ...t, checklist_item_count: 1, checklist_done_count: 0 } : t
+    );
+
+    await board.setChecklistItemChecked('t1', 'ci1', true);
+    expect(counts()).toEqual([1, 1]);
+    expect(board.taskChecklists.t1![0]!.checked).toBe(true);
+
+    await board.setChecklistItemChecked('t1', 'ci1', true);
+    expect(counts()).toEqual([1, 1]);
+  });
+
+  it('renameChecklistItem patches only the text and adopts the server row', async () => {
+    board.taskChecklists = { t1: [serverChecklistItem('before', 'ci1')] };
+
+    await board.renameChecklistItem('t1', 'ci1', 'after');
+
+    expect(board.taskChecklists.t1![0]!.text).toBe('after');
+    expect(board.taskChecklists.t1![0]!.updated_at).toBe(SERVER_UPDATED_AT);
+    expect(await requestAt(0).json()).toEqual({ text: 'after' });
+  });
+
+  it('moveChecklistItem reorders locally and, alone among the writes, refetches no activity log', async () => {
+    vi.useFakeTimers();
+    try {
+      board.taskChecklists = {
+        t1: [serverChecklistItem('a', 'ci1', 1000), serverChecklistItem('b', 'ci2', 2000)],
+      };
+      await taskActivity.load('t1');
+      vi.advanceTimersByTime(1000);
+      fetchMock.mockClear();
+
+      await board.moveChecklistItem('t1', 'ci1', 3000);
+      await vi.runAllTimersAsync();
+
+      expect(board.taskChecklists.t1!.map((i) => i.text)).toEqual(['b', 'a']);
+      expect(
+        fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname)
+      ).toEqual(['/api/checklist-items/ci1']);
+
+      await board.setChecklistItemChecked('t1', 'ci1', true);
+      await vi.runAllTimersAsync();
+
+      expect(
+        fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname)
+      ).toContain('/api/tasks/t1/activity');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('deleteChecklistItem drops the row and both counts, never below zero', async () => {
+    board.taskChecklists = { t1: [serverChecklistItem('bye', 'ci1', 1000, true)] };
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1' ? { ...t, checklist_item_count: 1, checklist_done_count: 1 } : t
+    );
+
+    await board.deleteChecklistItem('t1', 'ci1');
+
+    expect(board.taskChecklists.t1).toEqual([]);
+    expect(counts()).toEqual([0, 0]);
+
+    await board.deleteChecklistItem('t1', 'gone');
+    expect(counts()).toEqual([0, 0]);
+  });
+
+  it('promoteChecklistItem removes the item, drops the counts and inserts the card exactly once', async () => {
+    board.taskChecklists = { t1: [serverChecklistItem('becomes a card', 'ci1', 1000, true)] };
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1' ? { ...t, checklist_item_count: 1, checklist_done_count: 1 } : t
+    );
+
+    const id = await board.promoteChecklistItem('t1', 'ci1');
+
+    expect(id).not.toBeNull();
+    expect(board.tasks.filter((t) => t.id === id)).toHaveLength(1);
+    expect(board.taskChecklists.t1).toEqual([]);
+    expect(counts()).toEqual([0, 0]);
+
+    // The server's own echo lands afterwards and must not double the card.
+    board.applyRealtime({
+      type: 'task_created',
+      project_id: 'p1',
+      data: task(id!, 'c1', 1500, 'promoted'),
+    });
+    expect(board.tasks.filter((t) => t.id === id)).toHaveLength(1);
+  });
+
+  it('promoteChecklistItem returns null and calls nothing when the parent is gone', async () => {
+    expect(await board.promoteChecklistItem('missing', 'ci1')).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('applyRealtime adopts the event counts, skips a duplicate id and never seeds an uncached list', () => {
+    board.applyRealtime({
+      type: 'checklist_item_created',
+      project_id: 'p1',
+      data: {
+        ...serverChecklistItem('theirs', 'ci9'),
+        ...{ checklist_item_count: 4, checklist_done_count: 2 },
+      },
+    });
+    expect(counts()).toEqual([4, 2]);
+    expect(board.taskChecklists.t1!.map((i) => i.id)).toEqual(['ci9']);
+
+    board.applyRealtime({
+      type: 'checklist_item_created',
+      project_id: 'p1',
+      data: {
+        ...serverChecklistItem('theirs', 'ci9'),
+        ...{ checklist_item_count: 4, checklist_done_count: 2 },
+      },
+    });
+    expect(board.taskChecklists.t1).toHaveLength(1);
+
+    board.taskChecklists = {};
+    board.applyRealtime({
+      type: 'checklist_item_created',
+      project_id: 'p1',
+      data: {
+        ...serverChecklistItem('theirs', 'ci9'),
+        ...{ checklist_item_count: 4, checklist_done_count: 2 },
+      },
+    });
+    expect(board.taskChecklists.t1).toBeUndefined();
+  });
+
+  it('applyRealtime updates a row in place and re-sorts, and deletes by id', () => {
+    board.taskChecklists = {
+      t1: [serverChecklistItem('a', 'ci1', 1000), serverChecklistItem('b', 'ci2', 2000)],
+    };
+
+    board.applyRealtime({
+      type: 'checklist_item_updated',
+      project_id: 'p1',
+      data: {
+        ...serverChecklistItem('a', 'ci1', 3000, true),
+        checklist_item_count: 2,
+        checklist_done_count: 1,
+      },
+    });
+    expect(board.taskChecklists.t1!.map((i) => i.id)).toEqual(['ci2', 'ci1']);
+    expect(counts()).toEqual([2, 1]);
+
+    board.applyRealtime({
+      type: 'checklist_item_deleted',
+      project_id: 'p1',
+      data: { id: 'ci1', task_id: 't1', checklist_item_count: 1, checklist_done_count: 0 },
+    });
+    expect(board.taskChecklists.t1!.map((i) => i.id)).toEqual(['ci2']);
+    expect(counts()).toEqual([1, 0]);
+  });
+
+  it('produces no NaN when a task arrives from a pod that predates the counts', async () => {
+    const legacy = legacyTask(task('t1', 'c1', 1000, 'A'));
+    delete legacy.checklist_item_count;
+    delete legacy.checklist_done_count;
+    board.applyRealtime({ type: 'task_created', project_id: 'p1', data: legacy });
+
+    await board.addChecklistItem('t1', 'first');
+
+    expect(counts().every(Number.isFinite)).toBe(true);
+  });
+
+  it('duplicateTask carries the source counts through the optimistic copy, since the server copies the items', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1' ? { ...t, checklist_item_count: 3, checklist_done_count: 1 } : t
+    );
+    const before = new Set(board.tasks.map((t) => t.id));
+
+    const pending = board.duplicateTask('t1');
+    const copy = board.tasks.find((t) => !before.has(t.id))!;
+
+    expect([copy.checklist_item_count, copy.checklist_done_count]).toEqual([3, 1]);
+    await pending;
+  });
+
+  it('loadTaskDetail fills the checklist and heals both counts', async () => {
+    board.taskChecklists = {};
+    board.tasks = board.tasks.map((t) =>
+      t.id === 't1' ? { ...t, checklist_item_count: 9, checklist_done_count: 9 } : t
+    );
+
+    await board.loadTaskDetail('t1');
+
+    expect(board.taskChecklists.t1).toEqual([serverChecklistItem()]);
+    expect(counts()).toEqual([1, 0]);
   });
 });
 

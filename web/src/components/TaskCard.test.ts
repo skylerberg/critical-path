@@ -32,6 +32,8 @@ const task: BoardTask = {
   cover_image_url: null,
   due_date: null,
   comment_count: 0,
+  checklist_item_count: 0,
+  checklist_done_count: 0,
 };
 
 beforeEach(() => {
@@ -122,6 +124,54 @@ describe('TaskCard', () => {
     });
 
     expect(screen.getByTitle('2 comments')).toHaveTextContent('2');
+  });
+
+  it('renders the checklist progress and turns it green only once every item is done', () => {
+    const { rerender } = render(TaskCard, {
+      task: { ...task, checklist_item_count: 5, checklist_done_count: 2 },
+      projectId: PROJECT_ID,
+    });
+
+    const partial = screen.getByTitle('2 of 5 checklist items done');
+    expect(partial).toHaveTextContent('2/5');
+    expect(partial.className).toContain('text-muted');
+
+    void rerender({
+      task: { ...task, checklist_item_count: 5, checklist_done_count: 5 },
+      projectId: PROJECT_ID,
+    });
+
+    expect(screen.getByTitle('5 of 5 checklist items done').className).toContain('text-success');
+  });
+
+  it('renders no checklist badge for an empty checklist, nor for a payload that predates the counts', () => {
+    const { rerender } = render(TaskCard, { task, projectId: PROJECT_ID });
+    expect(screen.queryByTitle(/checklist/)).not.toBeInTheDocument();
+
+    const legacy: Partial<BoardTask> = { ...task };
+    delete legacy.checklist_item_count;
+    delete legacy.checklist_done_count;
+    void rerender({ task: legacy as BoardTask, projectId: PROJECT_ID });
+
+    expect(screen.queryByTitle(/checklist/)).not.toBeInTheDocument();
+    expect(screen.getByText('Design cards')).toBeInTheDocument();
+  });
+
+  it('shows the badge row when the checklist is the only badge', () => {
+    render(TaskCard, {
+      task: {
+        ...task,
+        label_ids: [],
+        assignee_ids: [],
+        blocker_ids: [],
+        image_count: 0,
+        checklist_item_count: 1,
+        checklist_done_count: 0,
+      },
+      projectId: PROJECT_ID,
+    });
+
+    expect(screen.getByTitle('0 of 1 checklist item done')).toHaveTextContent('0/1');
   });
 
   it('renders no comment badge when the payload predates comment_count', () => {
@@ -589,7 +639,12 @@ describe('TaskCard', () => {
   // throw kills the render mid-drag: cards stop making room, the dragged one is
   // never repainted, and the drop never reaches the store.
   describe('drag placeholder', () => {
-    const placeholder: BoardTask = { ...task, id: SHADOW_PLACEHOLDER_ITEM_ID };
+    const placeholder: BoardTask = {
+      ...task,
+      id: SHADOW_PLACEHOLDER_ITEM_ID,
+      checklist_item_count: 5,
+      checklist_done_count: 2,
+    };
 
     it('draws the placeholder at full size instead of throwing on its id', () => {
       expect(() => render(TaskCard, { task: placeholder, projectId: PROJECT_ID })).not.toThrow();
@@ -597,6 +652,16 @@ describe('TaskCard', () => {
       expect(screen.getByText('Design cards')).toBeInTheDocument();
       expect(screen.getByTitle('3 images')).toBeInTheDocument();
       expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+
+    // The placeholder is a full clone of the lifted card, so it keeps that card's
+    // counts and the gap reads as the card in flight — as it already does for the
+    // image and comment badges. The badge derives no URL and indexes no lookup, so
+    // the sentinel id never reaches anything that could throw on it.
+    it('keeps the lifted card’s checklist progress in the gap it leaves', () => {
+      render(TaskCard, { task: placeholder, projectId: PROJECT_ID });
+
+      expect(screen.getByTitle('2 of 5 checklist items done')).toHaveTextContent('2/5');
     });
 
     it('draws it on a read-only board too, where the link is built differently', () => {

@@ -41,6 +41,8 @@
   // Coalesced despite the type: a board served by an API pod that predates comments
   // omits the field entirely.
   const commentCount = $derived(task.comment_count ?? 0);
+  const checklistTotal = $derived(task.checklist_item_count ?? 0);
+  const checklistDone = $derived(task.checklist_done_count ?? 0);
   const selected = $derived(selection.selectedTaskId === task.id);
   const renaming = $derived(cardMenu.renamingTaskId === task.id);
   const shownTitle = $derived(truncateTitle(task.title));
@@ -199,7 +201,7 @@
   {:else}
     <p class="text-sm font-medium break-words">{shownTitle}</p>
   {/if}
-  {#if dated || blockedCount > 0 || task.image_count > 0 || commentCount > 0 || assignees.length > 0}
+  {#if dated || blockedCount > 0 || task.image_count > 0 || commentCount > 0 || checklistTotal > 0 || assignees.length > 0}
     <!-- Raised above the overlay link so the badges keep their hover tooltips and
          the pill stays clickable; with no offsets it moves nothing. The row itself
          stays transparent to the pointer and each child opts back in, so the blank
@@ -268,6 +270,32 @@
             />
           </svg>
           {commentCount}
+        </span>
+      {/if}
+      {#if checklistTotal > 0}
+        <span
+          class="pointer-events-auto inline-flex items-center gap-1 text-xs {checklistDone ===
+          checklistTotal
+            ? 'text-success'
+            : 'text-muted'}"
+          title="{checklistDone} of {checklistTotal} checklist item{checklistTotal === 1
+            ? ''
+            : 's'} done"
+        >
+          <svg
+            class="size-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="m7.5 12 3 3 6-6" />
+          </svg>
+          {checklistDone}/{checklistTotal}
         </span>
       {/if}
       {#if assignees.length > 0}

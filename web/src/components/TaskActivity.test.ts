@@ -28,6 +28,8 @@ function task(commentCount: number): BoardTask {
     cover_image_url: null,
     due_date: null,
     comment_count: commentCount,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
   };
 }
 
@@ -446,6 +448,36 @@ describe('TaskActivity history', () => {
     expect(items[7]).toHaveTextContent('archived this task');
     expect(items[8]).toHaveTextContent('restored this task');
     expect(items[0]).toHaveTextContent(dateFormat.format(new Date('2026-01-01T12:00:00.000Z')));
+  });
+
+  it('renders all six checklist kinds without falling through to the unknown-kind arm', () => {
+    taskActivity.entries = [
+      entry('a1', 'checklist_item_added', { new_value: { text: 'write it' } }),
+      entry('a2', 'checklist_item_checked', { new_value: { text: 'write it' } }),
+      entry('a3', 'checklist_item_unchecked', { new_value: { text: 'write it' } }),
+      entry('a4', 'checklist_item_renamed', {
+        old_value: { text: 'write it' },
+        new_value: { text: 'write the test' },
+      }),
+      entry('a5', 'checklist_item_removed', { old_value: { text: 'write the test' } }),
+      entry('a6', 'checklist_item_promoted', {
+        old_value: { text: 'too big' },
+        new_value: { id: 't9', name: 'Too big' },
+      }),
+    ];
+
+    render(TaskActivity, { taskId: 't1' });
+
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('added “write it” to the checklist');
+    expect(items[1]).toHaveTextContent('ticked “write it”');
+    expect(items[2]).toHaveTextContent('unticked “write it”');
+    expect(items[3]).toHaveTextContent('renamed the checklist item “write it” to “write the test”');
+    expect(items[4]).toHaveTextContent('removed “write the test” from the checklist');
+    expect(items[5]).toHaveTextContent('turned “too big” into the card Too big');
+    for (const item of items) {
+      expect(item).not.toHaveTextContent('updated this task');
+    }
   });
 
   it('renders a kind it does not know as a plain update, not a blank line', () => {

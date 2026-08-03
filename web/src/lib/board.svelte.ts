@@ -8,6 +8,7 @@ import type {
   BoardLabel,
   BoardProject,
   BoardTask,
+  ChecklistItem,
   CycleTask,
   PublicBoardPayload,
 } from './board-types';
@@ -28,6 +29,11 @@ import { users, type User } from './users.svelte';
 export type TaskImage = components['schemas']['ImageResponse'];
 export type TaskComment = components['schemas']['Comment'];
 export type CommentBody = TaskComment['body'];
+
+interface ChecklistCounts {
+  checklist_item_count: number;
+  checklist_done_count: number;
+}
 
 export type TaskUpdateOutcome =
   | { status: 'ok'; updated_at: string }
@@ -84,6 +90,8 @@ function optimisticTask(id: string, columnId: string, title: string, position: n
     image_count: 0,
     cover_image_url: null,
     comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
   };
 }
 
@@ -138,6 +146,10 @@ function chronological(a: TaskComment, b: TaskComment): number {
   return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
 }
 
+function byPosition(a: ChecklistItem, b: ChecklistItem): number {
+  return a.position - b.position || a.id.localeCompare(b.id);
+}
+
 class BoardStore {
   project = $state<BoardProject | null>(null);
   columns = $state<BoardColumn[]>([]);
@@ -151,6 +163,9 @@ class BoardStore {
   canEdit = $derived(this.project !== null && canEditProject(this.project, session.user?.id));
   // Read-only signal for the shortcut layer; nothing in this store reacts to it.
   dragging = $state(false);
+  // The card overlay's checklist drags from its own zone, outside the board's.
+  detailDragging = $state(false);
+  dragBusy = $derived(this.dragging || this.detailDragging);
   filterLabelIds = $state<string[]>([]);
   filterAssigneeIds = $state<string[]>([]);
   filterQuery = $state('');
@@ -220,7 +235,7 @@ class BoardStore {
     }
     const token = ++this.#fetchToken;
     try {
-      const { data, projectUsers, comments } = this.readonly
+      const { data, projectUsers, comments, checklists } = this.readonly
         ? await this.#fetchPublic(projectId)
         : {
             data: assertOk(
@@ -228,6 +243,7 @@ class BoardStore {
             ),
             projectUsers: null,
             comments: null,
+            checklists: null,
           };
       if (token !== this.#fetchToken) {
         return;
@@ -239,6 +255,9 @@ class BoardStore {
       }
       if (comments !== null) {
         this.taskComments = comments;
+      }
+      if (checklists !== null) {
+        this.taskChecklists = checklists;
       }
       this.project = data.project;
       projects.adoptMembership(data.project);
@@ -332,6 +351,7 @@ class BoardStore {
     };
     projectUsers: User[];
     comments: Record<string, TaskComment[]>;
+    checklists: Record<string, ChecklistItem[]>;
   }> {
     const data: PublicBoardPayload = assertOk(
       await api.GET('/api/public/projects/{id}/board', { params: { path: { id: projectId } } })
@@ -345,6 +365,16 @@ class BoardStore {
     // the field entirely.
     for (const comment of data.comments ?? []) {
       comments[comment.task_id]?.push(comment);
+    }
+    const checklists: Record<string, ChecklistItem[]> = Object.fromEntries(
+      data.tasks.map((task) => [task.id, [] as ChecklistItem[]])
+    );
+    for (const item of data.checklist_items ?? []) {
+      // The public shape withholds the timestamps, and nothing read-only shows them.
+      checklists[item.task_id]?.push({ ...item, created_at: '', updated_at: '' });
+    }
+    for (const items of Object.values(checklists)) {
+      items.sort(byPosition);
     }
     return {
       data: {
@@ -364,12 +394,17 @@ class BoardStore {
           created_at: '',
           updated_at: '',
           column_since: '',
+          // Coalesced despite the type, as the comments above are: an API pod that
+          // predates checklists omits both counts and svelte-check cannot see it.
+          checklist_item_count: task.checklist_item_count ?? 0,
+          checklist_done_count: task.checklist_done_count ?? 0,
         })),
         labels: data.labels,
         changed_task_ids: [],
       },
       projectUsers: data.users,
       comments,
+      checklists,
     };
   }
 
@@ -391,10 +426,12 @@ class BoardStore {
     // return visit to a board with no highlights at all.
     this.taskImages = {};
     this.taskComments = {};
+    this.taskChecklists = {};
     this.loading = false;
     this.error = null;
     this.errorStatus = null;
     this.dragging = false;
+    this.detailDragging = false;
     this.currentProjectId = null;
     this.readonly = false;
     this.filterLabelIds = [];
@@ -1318,12 +1355,14 @@ class BoardStore {
 
   taskImages = $state<Record<string, TaskImage[]>>({});
   taskComments = $state<Record<string, TaskComment[]>>({});
+  taskChecklists = $state<Record<string, ChecklistItem[]>>({});
 
   async loadTaskDetail(taskId: string): Promise<void> {
     try {
       const data = assertOk(await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } }));
       this.taskImages = { ...this.taskImages, [taskId]: data.images };
       this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
+      this.taskChecklists = { ...this.taskChecklists, [taskId]: data.checklist_items ?? [] };
       // Heals a card face whose realtime event was missed; short of a full board
       // refetch this is the only authoritative read of the counts and the cover.
       this.tasks = this.tasks.map((task) =>
@@ -1332,6 +1371,8 @@ class BoardStore {
               ...task,
               image_count: data.image_count,
               comment_count: data.comment_count ?? 0,
+              checklist_item_count: data.checklist_item_count ?? 0,
+              checklist_done_count: data.checklist_done_count ?? 0,
               cover_image_url: data.cover_image_url ?? null,
             }
           : task
@@ -1478,6 +1519,184 @@ class BoardStore {
     } catch (error) {
       await this.#mutationFailed(error);
       await this.loadTaskDetail(taskId);
+    }
+  }
+
+  #setChecklistCounts(
+    taskId: string,
+    next: (counts: { total: number; done: number }) => { total: number; done: number }
+  ): void {
+    this.tasks = this.tasks.map((task) => {
+      if (task.id !== taskId) {
+        return task;
+      }
+      const { total, done } = next({
+        total: task.checklist_item_count ?? 0,
+        done: task.checklist_done_count ?? 0,
+      });
+      return {
+        ...task,
+        checklist_item_count: Math.max(0, total),
+        checklist_done_count: Math.max(0, done),
+      };
+    });
+  }
+
+  // A no-op when the list is not cached, for the same reason #replaceComments is.
+  #replaceChecklist(taskId: string, next: (items: ChecklistItem[]) => ChecklistItem[]): void {
+    const cached = this.taskChecklists[taskId];
+    if (cached === undefined) {
+      return;
+    }
+    this.taskChecklists = { ...this.taskChecklists, [taskId]: next(cached) };
+  }
+
+  async addChecklistItem(taskId: string, text: string): Promise<void> {
+    const id = newId();
+    const now = new Date().toISOString();
+    const position = append((this.taskChecklists[taskId] ?? []).map((item) => item.position));
+    const optimistic: ChecklistItem = {
+      id,
+      task_id: taskId,
+      text,
+      checked: false,
+      position,
+      created_at: now,
+      updated_at: now,
+    };
+    this.#replaceChecklist(taskId, (items) => [...items, optimistic]);
+    this.#setChecklistCounts(taskId, ({ total, done }) => ({ total: total + 1, done }));
+    try {
+      const created = assertOk(
+        await api.POST('/api/checklist-items', { body: { id, task_id: taskId, text, position } })
+      );
+      // A detail fetch landing mid-flight replaces the whole list, so the optimistic
+      // row may be gone and the server row has to be re-inserted.
+      if (this.taskChecklists[taskId] === undefined) {
+        await this.loadTaskDetail(taskId);
+        return;
+      }
+      this.#replaceChecklist(taskId, (items) =>
+        items.some((item) => item.id === id)
+          ? items.map((item) => (item.id === id ? created : item))
+          : [...items, created].sort(byPosition)
+      );
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
+    } finally {
+      taskActivity.invalidate(taskId);
+    }
+  }
+
+  async setChecklistItemChecked(taskId: string, itemId: string, checked: boolean): Promise<void> {
+    const before = (this.taskChecklists[taskId] ?? []).find((item) => item.id === itemId);
+    const now = new Date().toISOString();
+    this.#replaceChecklist(taskId, (items) =>
+      items.map((item) => (item.id === itemId ? { ...item, checked, updated_at: now } : item))
+    );
+    if (before !== undefined && before.checked !== checked) {
+      this.#setChecklistCounts(taskId, ({ total, done }) => ({
+        total,
+        done: checked ? done + 1 : done - 1,
+      }));
+    }
+    await this.#patchChecklistItem(taskId, itemId, { checked }, true);
+  }
+
+  async renameChecklistItem(taskId: string, itemId: string, text: string): Promise<void> {
+    const now = new Date().toISOString();
+    this.#replaceChecklist(taskId, (items) =>
+      items.map((item) => (item.id === itemId ? { ...item, text, updated_at: now } : item))
+    );
+    await this.#patchChecklistItem(taskId, itemId, { text }, true);
+  }
+
+  // The only checklist write the server records no activity for, so the only one
+  // that must not refetch the log.
+  async moveChecklistItem(taskId: string, itemId: string, position: number): Promise<void> {
+    this.#replaceChecklist(taskId, (items) =>
+      items.map((item) => (item.id === itemId ? { ...item, position } : item)).sort(byPosition)
+    );
+    await this.#patchChecklistItem(taskId, itemId, { position }, false);
+  }
+
+  async #patchChecklistItem(
+    taskId: string,
+    itemId: string,
+    body: { text?: string; checked?: boolean; position?: number },
+    logged: boolean
+  ): Promise<void> {
+    try {
+      const updated = assertOk(
+        await api.PATCH('/api/checklist-items/{id}', { params: { path: { id: itemId } }, body })
+      );
+      this.#replaceChecklist(taskId, (items) =>
+        items.map((item) => (item.id === itemId ? updated : item)).sort(byPosition)
+      );
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
+    } finally {
+      if (logged) {
+        taskActivity.invalidate(taskId);
+      }
+    }
+  }
+
+  async deleteChecklistItem(taskId: string, itemId: string): Promise<void> {
+    const removed = (this.taskChecklists[taskId] ?? []).find((item) => item.id === itemId);
+    this.#replaceChecklist(taskId, (items) => items.filter((item) => item.id !== itemId));
+    this.#setChecklistCounts(taskId, ({ total, done }) => ({
+      total: total - 1,
+      done: removed?.checked === true ? done - 1 : done,
+    }));
+    try {
+      assertOk(await api.DELETE('/api/checklist-items/{id}', { params: { path: { id: itemId } } }));
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
+    } finally {
+      taskActivity.invalidate(taskId);
+    }
+  }
+
+  // Inserts the new card rather than waiting for its realtime echo: the caller
+  // navigates to it, and a card absent from `tasks` has no title to build a slug from.
+  async promoteChecklistItem(taskId: string, itemId: string): Promise<string | null> {
+    const parent = this.tasks.find((task) => task.id === taskId);
+    const item = (this.taskChecklists[taskId] ?? []).find((entry) => entry.id === itemId);
+    if (parent === undefined || item === undefined) {
+      return null;
+    }
+    const siblings = this.tasksInColumn(parent.column_id);
+    const position = positionForIndex(
+      siblings.map((task) => task.position),
+      siblings.findIndex((task) => task.id === taskId) + 1
+    );
+    const id = newId();
+    this.#replaceChecklist(taskId, (items) => items.filter((entry) => entry.id !== itemId));
+    this.#setChecklistCounts(taskId, ({ total, done }) => ({
+      total: total - 1,
+      done: item.checked ? done - 1 : done,
+    }));
+    try {
+      const created = assertOk(
+        await api.POST('/api/checklist-items/{id}/promote', {
+          params: { path: { id: itemId } },
+          body: { id, position },
+        })
+      );
+      this.tasks = this.tasks.some((task) => task.id === id)
+        ? this.tasks.map((task) => (task.id === id ? created : task))
+        : [...this.tasks, created];
+      return id;
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
+      return null;
+    } finally {
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -1717,6 +1936,43 @@ class BoardStore {
         const d = event.data as { id: string; task_id: string; comment_count: number };
         this.#setCommentCount(d.task_id, () => d.comment_count);
         this.#replaceComments(d.task_id, (comments) => comments.filter((c) => c.id !== d.id));
+        break;
+      }
+      case 'checklist_item_created':
+      case 'checklist_item_updated': {
+        const d = event.data as ChecklistItem & ChecklistCounts;
+        this.#setChecklistCounts(d.task_id, () => ({
+          total: d.checklist_item_count,
+          done: d.checklist_done_count,
+        }));
+        const item: ChecklistItem = {
+          id: d.id,
+          task_id: d.task_id,
+          text: d.text,
+          checked: d.checked,
+          position: d.position,
+          created_at: d.created_at,
+          updated_at: d.updated_at,
+        };
+        this.#replaceChecklist(d.task_id, (items) =>
+          (items.some((i) => i.id === item.id)
+            ? items.map((i) => (i.id === item.id ? item : i))
+            : [...items, item]
+          ).sort(byPosition)
+        );
+        // A reposition writes no activity entry, but the event cannot say which kind
+        // of patch it was; the store's refresh collapses a burst into one fetch.
+        taskActivity.invalidate(d.task_id);
+        break;
+      }
+      case 'checklist_item_deleted': {
+        const d = event.data as { id: string; task_id: string } & ChecklistCounts;
+        this.#setChecklistCounts(d.task_id, () => ({
+          total: d.checklist_item_count,
+          done: d.checklist_done_count,
+        }));
+        this.#replaceChecklist(d.task_id, (items) => items.filter((i) => i.id !== d.id));
+        taskActivity.invalidate(d.task_id);
         break;
       }
       // The name carries the board's URL slug, so a teammate's rename has to reach

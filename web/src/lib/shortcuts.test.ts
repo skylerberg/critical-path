@@ -41,6 +41,8 @@ function task(id: string, columnId: string, position: number, title = id): Board
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
   };
 }
 

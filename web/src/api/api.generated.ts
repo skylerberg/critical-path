@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/what-changed/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/checklists/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -888,7 +888,7 @@ export interface paths {
         };
         /**
          * Get task detail
-         * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), images, and its full comment stream oldest first. Archived tasks are readable here even though they are absent from every board payload.
+         * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), images, its full comment stream oldest first, and its checklist in list order. Archived tasks are readable here even though they are absent from every board payload.
          */
         get: operations["getApiTasksById"];
         put?: never;
@@ -1213,6 +1213,70 @@ export interface paths {
          * @description Replace the body of your own comment. A comment written by anyone else answers 404, the same as one that does not exist.
          */
         patch: operations["patchApiCommentsById"];
+        trace?: never;
+    };
+    "/api/checklist-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a checklist item
+         * @description Append an item to a task’s checklist. The client supplies the item id and its position; a duplicate id returns 409. An unknown or inaccessible task returns 404 and a viewer returns 403. Items may be added to an archived task, the same as comments. The optional checked flag lets an already-ticked item be imported in one call.
+         */
+        post: operations["postApiChecklistItems"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/checklist-items/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a checklist item
+         * @description Remove one item from a task’s checklist. Deleting it twice returns 404.
+         */
+        delete: operations["deleteApiChecklistItemsById"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a checklist item
+         * @description Tick, untick, rename or reposition one item. Every field is optional and an empty body changes nothing. Renaming and ticking advance the item’s updated_at; a reposition leaves it alone and, unlike the other three, records no activity entry — a keyboard drag finalizes once per arrow press and would otherwise write one entry per press. The parent task’s updated_at is never touched by any checklist write, so a checklist edit cannot invalidate an open editor’s optimistic-concurrency precondition.
+         */
+        patch: operations["patchApiChecklistItemsById"];
+        trace?: never;
+    };
+    "/api/checklist-items/{id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Convert a checklist item into a card
+         * @description Turn one item into a bare task in the parent’s column: its text becomes the title and nothing else is carried over — no labels, assignees, due date or dependency edge. The item is removed. The client supplies the new task id and its position; a duplicate id returns 409 and the item survives. Promoting the same item twice returns 404 the second time and creates exactly one card.
+         */
+        post: operations["postApiChecklistItemsByIdPromote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/images/{id}": {
@@ -1625,6 +1689,8 @@ export interface components {
         BoardTask: {
             assignee_ids: string[];
             blocker_ids: string[];
+            checklist_done_count: number;
+            checklist_item_count: number;
             column_id: string;
             column_since: string;
             comment_count: number;
@@ -1668,6 +1734,8 @@ export interface components {
             archived_at: string;
             assignee_ids: string[];
             blocker_ids: string[];
+            checklist_done_count: number;
+            checklist_item_count: number;
             column_id: string;
             column_since: string;
             comment_count: number;
@@ -1694,6 +1762,14 @@ export interface components {
                 archived_at: components["schemas"]["UserAvatarurl"];
                 assignee_ids: string[];
                 blocker_ids: string[];
+                checklist_done_count: number;
+                checklist_item_count: number;
+                checklist_items: {
+                    checked: boolean;
+                    id: string;
+                    position: number;
+                    text: string;
+                }[];
                 column_id: string;
                 column_since: string;
                 comment_count: number;
@@ -1858,6 +1934,9 @@ export interface components {
             archived_at: components["schemas"]["UserAvatarurl"];
             assignee_ids: string[];
             blocker_ids: string[];
+            checklist_done_count: number;
+            checklist_item_count: number;
+            checklist_items: components["schemas"]["ChecklistItem"][];
             column_id: string;
             column_since: string;
             comment_count: number;
@@ -1874,6 +1953,16 @@ export interface components {
             position: number;
             project_id: string;
             title: string;
+            updated_at: string;
+        };
+        ChecklistItem: {
+            checked: boolean;
+            created_at: string;
+            id: string;
+            /** @description a finite number */
+            position: number;
+            task_id: string;
+            text: string;
             updated_at: string;
         };
         Comment: {
@@ -1910,7 +1999,7 @@ export interface components {
             created_at: string;
             id: string;
             /** @enum {unknown} */
-            kind: "archived" | "assignee_added" | "assignee_removed" | "blocker_added" | "blocker_removed" | "column_changed" | "created" | "description_changed" | "due_date_changed" | "label_added" | "label_removed" | "restored" | "title_changed";
+            kind: "archived" | "assignee_added" | "assignee_removed" | "blocker_added" | "blocker_removed" | "checklist_item_added" | "checklist_item_checked" | "checklist_item_promoted" | "checklist_item_removed" | "checklist_item_renamed" | "checklist_item_unchecked" | "column_changed" | "created" | "description_changed" | "due_date_changed" | "label_added" | "label_removed" | "restored" | "title_changed";
             new_value: components["schemas"]["NullableActivityValue"];
             old_value: components["schemas"]["NullableActivityValue"];
         };
@@ -2009,6 +2098,22 @@ export interface components {
         PatchComment: {
             body: components["schemas"]["TiptapDoc"];
         };
+        CreateChecklistItem: {
+            /** Format: uuid */
+            id: string;
+            /** @description a finite number */
+            position: number;
+            /** Format: uuid */
+            task_id: string;
+            text: string;
+            checked?: boolean;
+        };
+        PatchChecklistItem: {
+            checked?: boolean;
+            /** @description a finite number */
+            position?: number;
+            text?: string;
+        };
         FeedbackResponse: {
             created_at: string;
             id: string;
@@ -2060,12 +2165,21 @@ export interface components {
             webhook_id: string;
         };
         PublicBoard: {
+            checklist_items: components["schemas"]["PublicBoardChecklistItem"][];
             columns: components["schemas"]["BoardColumn"][];
             comments: components["schemas"]["Comment"][];
             labels: components["schemas"]["BoardLabel"][];
             project: components["schemas"]["PublicBoardProject"];
             tasks: components["schemas"]["PublicBoardTask"][];
             users: components["schemas"]["User"][];
+        };
+        PublicBoardChecklistItem: {
+            checked: boolean;
+            id: string;
+            /** @description a finite number */
+            position: number;
+            task_id: string;
+            text: string;
         };
         PublicBoardProject: {
             description: string;
@@ -2075,6 +2189,8 @@ export interface components {
         PublicBoardTask: {
             assignee_ids: string[];
             blocker_ids: string[];
+            checklist_done_count: number;
+            checklist_item_count: number;
             column_id: string;
             comment_count: number;
             cover_image_url: components["schemas"]["UserAvatarurl"];
@@ -6574,6 +6690,318 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiChecklistItems: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateChecklistItem"];
+            };
+        };
+        responses: {
+            /** @description Checklist item created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChecklistItem"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiChecklistItemsById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Checklist item deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    patchApiChecklistItemsById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchChecklistItem"];
+            };
+        };
+        responses: {
+            /** @description Updated checklist item */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChecklistItem"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiChecklistItemsByIdPromote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Duplicate"];
+            };
+        };
+        responses: {
+            /** @description The new task, in board-payload shape */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardTask"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

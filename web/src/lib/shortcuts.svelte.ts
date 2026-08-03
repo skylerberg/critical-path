@@ -75,7 +75,7 @@ class ShortcutController {
   handleKeydown = (event: KeyboardEvent): void => {
     // svelte-dnd-action preventDefaults its own keyboard handlers; a live drag or a
     // focused text field must own the keystroke instead of the shortcut layer.
-    if (event.defaultPrevented || board.dragging || isEditableTarget()) {
+    if (event.defaultPrevented || board.dragBusy || isEditableTarget()) {
       return;
     }
 
