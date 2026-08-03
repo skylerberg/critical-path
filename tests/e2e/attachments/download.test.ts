@@ -57,6 +57,7 @@ describe('GET /api/attachments/:id/download', () => {
       expect(disposition).toContain("filename*=UTF-8''");
       expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
       expect(res.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox");
+      expect(res.headers.get('Content-Length')).toBe(String(bytes.length));
       expect(Buffer.from(await res.arrayBuffer()).equals(bytes)).toBe(true);
     }
   );
@@ -83,9 +84,9 @@ describe('GET /api/attachments/:id/download', () => {
     expect((await ctx.request(stranger.token).get(`/api/attachments/${id}/download`)).status).toBe(
       404
     );
-    expect((await ctx.request(viewer.token).get(`/api/attachments/${id}/download`)).status).toBe(
-      200
-    );
+    const served = await ctx.request(viewer.token).get(`/api/attachments/${id}/download`);
+    expect(served.status).toBe(200);
+    expect(Buffer.from(await served.arrayBuffer()).equals(PDF)).toBe(true);
   });
 
   // The whole reason this route is authenticated rather than a capability URL.
@@ -99,9 +100,9 @@ describe('GET /api/attachments/:id/download', () => {
       .execute();
     const id = await upload(owner.token, taskId, PDF, 'contract.pdf', 'application/pdf');
 
-    expect((await ctx.request(member.token).get(`/api/attachments/${id}/download`)).status).toBe(
-      200
-    );
+    const served = await ctx.request(member.token).get(`/api/attachments/${id}/download`);
+    expect(served.status).toBe(200);
+    expect(Buffer.from(await served.arrayBuffer()).equals(PDF)).toBe(true);
 
     await db
       .deleteFrom('project_member')
@@ -188,5 +189,6 @@ describe('GET /api/attachments/:id/download', () => {
     expect(decodeURIComponent(/filename\*=UTF-8''(.*)$/.exec(disposition)?.[1] ?? '')).toBe(
       'répertoire final.pdf'
     );
+    expect(Buffer.from(await res.arrayBuffer()).equals(PDF)).toBe(true);
   });
 });
