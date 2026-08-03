@@ -20,6 +20,7 @@ export const transactionMiddleware = createMiddleware<{ Variables: Variables }>(
   const hooks: Array<() => Promise<void>> = [];
   c.set('postCommitHooks', hooks);
   c.set('webhookEvents', []);
+  c.set('changedProjectIds', new Set());
 
   const skip = c.req.matchedRoutes.some((r) => r.handler === skipAutoTransaction);
 

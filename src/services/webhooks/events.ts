@@ -6,8 +6,10 @@ export interface WebhookEvent {
 
 // The project-scoped, deliverable subset of the realtime catalogue. Types are
 // excluded when they carry no project (user_updated, sessions_revoked), target
-// an exact recipient list (project_position_updated), or describe a row that
-// cannot have a registration at send time (project_created, project_deleted).
+// an exact recipient list (project_position_updated, project_seen), describe a
+// row that cannot have a registration at send time (project_created,
+// project_deleted), or restate a change that already went out under its own type
+// (project_changed).
 export const WEBHOOK_EVENT_TYPES: ReadonlySet<string> = new Set([
   'task_created',
   'task_updated',

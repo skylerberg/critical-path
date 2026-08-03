@@ -4,7 +4,7 @@ import { createCliHarness, type CliHarness } from './helpers';
 import { configPath, saveConfig } from '../../src/config';
 import type { components } from '../../src/api/api.generated';
 
-type BoardPayload = components['schemas']['BoardPayload'];
+type BoardPayload = components['schemas']['BoardResponse'];
 
 describe('config commands', () => {
   const tc = new TestContext();
