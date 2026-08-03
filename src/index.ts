@@ -35,6 +35,7 @@ import { db } from './db/index';
 import { attachRealtime, initRedisBus, closeRedisBus } from './services/realtime/index';
 import { closeRedis } from './services/redis';
 import { startJobWorker } from './services/jobs/index';
+import { registerTaskSeriesJob } from './services/taskSeries/index';
 import { startWebhookWorker } from './services/webhooks/index';
 import { logger } from './utils/logger';
 
@@ -56,6 +57,7 @@ import imagesRouter from './routes/images';
 import feedbackRouter from './routes/feedback';
 import publicBoardsRouter from './routes/publicBoards';
 import webhooksRouter from './routes/webhooks';
+import taskSeriesRouter from './routes/taskSeries';
 
 export const app = new Hono<{ Variables: Variables }>();
 
@@ -139,6 +141,7 @@ const openAPIOptions = {
       { name: 'Avatars', description: 'User profile image upload and retrieval' },
       { name: 'Feedback', description: 'User-submitted product feedback' },
       { name: 'Webhooks', description: 'Per-project outbound HTTP callbacks' },
+      { name: 'Recurring', description: 'Recurring task series' },
       { name: 'Public', description: 'Unauthenticated read-only board access' },
     ],
   },
@@ -181,6 +184,7 @@ app.route('/api/images', imagesRouter);
 app.route('/api/avatars', avatarsRouter);
 app.route('/api/feedback', feedbackRouter);
 app.route('/api/webhooks', webhooksRouter);
+app.route('/api/task-series', taskSeriesRouter);
 app.route('/api/public', publicBoardsRouter);
 
 app.notFound((c) => {
@@ -219,6 +223,7 @@ if (isEntrypoint) {
 
   const realtime = attachRealtime(server);
   const webhookWorker = startWebhookWorker();
+  registerTaskSeriesJob();
   const jobWorker = startJobWorker();
 
   initRedisBus().catch((err: unknown) => {
