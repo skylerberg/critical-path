@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
+import { sql } from 'kysely';
 import type { Kysely, Updateable } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { authMiddleware } from '../middleware/auth';
@@ -48,6 +49,7 @@ import {
   toProjectResponse,
   type ProjectRow,
 } from '../services/projectListItem';
+import { changedTaskIds, hasUnseenChanges } from '../services/projectSeen';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordAssigneeChanges } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
@@ -57,7 +59,7 @@ import {
   idSchema,
   projectSchema,
   projectsListResponseSchema,
-  boardPayloadSchema,
+  boardResponseSchema,
   archivedTasksResponseSchema,
   createProjectSchema,
   patchProjectSchema,
@@ -102,6 +104,11 @@ async function removeMembers(
     .where('project_id', '=', project.id)
     .where('user_id', 'in', removed)
     .execute();
+  await db
+    .deleteFrom('project_user_seen')
+    .where('project_id', '=', project.id)
+    .where('user_id', 'in', removed)
+    .execute();
   const stripped = await stripAssigneesForRemovedMembers(db, project.id, removed);
   await recordAssigneeChanges(
     db,
@@ -127,7 +134,10 @@ router.get(
       'List projects the caller can access (created by them or shared with them as a member) ' +
       "with member ids, member roles, open and done task counts, and the caller's personal sort position " +
       '(null when never set). Archived tasks count toward neither total. Ordered by position ' +
-      '(nulls last), then created_at, then id.',
+      '(nulls last), then created_at, then id. last_seen_at is when the caller last opened the ' +
+      'board (null until they have), and has_unseen_changes says whether a live card in an ' +
+      'unarchived project has been commented on or logged activity by somebody else since ' +
+      'then — so a board the caller has never opened reports false, not everything.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -155,6 +165,11 @@ router.get(
           .onRef('project_user_position.project_id', '=', 'project.id')
           .on('project_user_position.user_id', '=', user.id)
       )
+      .leftJoin('project_user_seen', (join) =>
+        join
+          .onRef('project_user_seen.project_id', '=', 'project.id')
+          .on('project_user_seen.user_id', '=', user.id)
+      )
       .select((eb) => [
         'project.id',
         'project.name',
@@ -165,6 +180,8 @@ router.get(
         'project.is_public',
         'project.color',
         'project_user_position.position',
+        'project_user_seen.last_seen_at',
+        hasUnseenChanges(user.id).as('has_unseen_changes'),
         jsonArrayFrom(
           eb
             .selectFrom('project_member')
@@ -188,7 +205,7 @@ router.get(
           .as('done_task_count'),
       ])
       .where(accessibleProjectsFilter(user.id))
-      .groupBy(['project.id', 'project_user_position.position'])
+      .groupBy(['project.id', 'project_user_position.position', 'project_user_seen.last_seen_at'])
       .orderBy('project_user_position.position', (ob) => ob.asc().nullsLast())
       .orderBy('project.created_at')
       .orderBy('project.id')
@@ -201,6 +218,8 @@ router.get(
           open_task_count: Number(row.open_task_count),
           done_task_count: Number(row.done_task_count),
           position: row.position,
+          last_seen_at: row.last_seen_at?.toISOString() ?? null,
+          has_unseen_changes: row.has_unseen_changes,
         })),
       },
       200
@@ -227,7 +246,7 @@ router.post(
         description: 'Created project as a full board payload',
         content: {
           'application/json': {
-            schema: resolver(boardPayloadSchema),
+            schema: resolver(boardResponseSchema),
           },
         },
       },
@@ -313,7 +332,10 @@ router.post(
       },
       { broadcast: true }
     );
-    return c.json(payload, 201);
+    return c.json(
+      { ...payload, changed_task_ids: await changedTaskIds(db, body.id, user.id) },
+      201
+    );
   }
 );
 
@@ -325,14 +347,17 @@ router.get(
     description:
       'Get a project with its columns, tasks (including label, assignee, and blocker ids ' +
       'plus image counts), and labels in one payload. Archived tasks are excluded, as are ' +
-      'archived tasks appearing as blockers of the tasks that are included.',
+      'archived tasks appearing as blockers of the tasks that are included. ' +
+      'changed_task_ids names the tasks in this payload that somebody else commented on or ' +
+      'logged activity for since the caller last stamped the board with PUT /:id/seen, and is ' +
+      'empty for a caller who never has. Reading the board does not stamp it.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
         description: 'Board payload',
         content: {
           'application/json': {
-            schema: resolver(boardPayloadSchema),
+            schema: resolver(boardResponseSchema),
           },
         },
       },
@@ -353,7 +378,7 @@ router.get(
     if (!payload || !(await canAccessProject(db, user.id, payload.project))) {
       throw new AppError(404, 'Project not found');
     }
-    return c.json(payload, 200);
+    return c.json({ ...payload, changed_task_ids: await changedTaskIds(db, id, user.id) }, 200);
   }
 );
 
@@ -666,6 +691,56 @@ router.put(
       { id, position },
       { recipientUserIds: [user.id] }
     );
+    return c.body(null, 204);
+  }
+);
+
+router.put(
+  '/:id/seen',
+  describeRoute({
+    tags: ['Projects'],
+    summary: 'Mark project seen',
+    description:
+      "Move the caller's marker for a project to now, so nothing already in it counts as an " +
+      'unseen change any more. Per user and invisible to everyone else; any member may call, ' +
+      'viewers included, and non-accessors get 404. Archiving does not stop it. Only this ' +
+      'endpoint stamps — reading the board, the export or a webhook never does, so a script ' +
+      'cannot clear somebody else’s dot.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      204: {
+        description: 'Marker moved',
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  authMiddleware,
+  paramValidator(idSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    await assertProjectAccess(db, user.id, id);
+
+    // Deliberately takes no project lock, so a board open never queues behind an
+    // unrelated member edit. It cannot deadlock with the removal that deletes these
+    // rows while holding the project row: the row written here is invisible to that
+    // delete until it commits, so the delete never waits on it.
+    await db
+      .insertInto('project_user_seen')
+      .values({ user_id: user.id, project_id: id })
+      .onConflict((oc) =>
+        oc.columns(['user_id', 'project_id']).doUpdateSet({ last_seen_at: sql`now()` })
+      )
+      .execute();
+
+    // Per-user data: exact recipients clear the dot on the caller's other devices
+    // without touching anyone else's.
+    publishAfterCommit(c, 'project_seen', id, { id }, { recipientUserIds: [user.id] });
     return c.body(null, 204);
   }
 );

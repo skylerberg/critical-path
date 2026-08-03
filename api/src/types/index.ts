@@ -14,6 +14,7 @@ export type Variables = {
   db: Kysely<DB>;
   postCommitHooks: Array<() => Promise<void>>;
   webhookEvents: WebhookEvent[];
+  changedProjectIds: Set<string>;
 };
 
 export type AppContext = Context<{ Variables: Required<Variables> }>;
