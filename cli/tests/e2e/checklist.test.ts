@@ -3,7 +3,7 @@ import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import type { components } from '../../src/api/api.generated';
 
-type BoardPayload = components['schemas']['BoardPayload'];
+type BoardResponse = components['schemas']['BoardResponse'];
 type BoardTask = components['schemas']['BoardTask'];
 type ChecklistItem = components['schemas']['ChecklistItem'];
 
@@ -41,7 +41,7 @@ describe('task checklist commands', () => {
     });
     const create = await h.runCli(['project', 'create', 'CLI Checklists', '--json']);
     expect(create.exitCode).toBe(0);
-    projectId = create.json<BoardPayload>().project.id;
+    projectId = create.json<BoardResponse>().project.id;
   });
 
   afterAll(async () => {
@@ -334,7 +334,7 @@ describe('task checklist commands', () => {
     const board = await h.runCli(['board', projectId, '--json']);
     expect(board.exitCode).toBe(0);
     const tasks = board
-      .json<BoardPayload>()
+      .json<BoardResponse>()
       .tasks.filter((task) => task.column_id === created.column_id)
       .sort((a, b) => a.position - b.position)
       .map((task) => task.title);
