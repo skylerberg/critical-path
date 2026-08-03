@@ -20,6 +20,8 @@
   // stops getting the mail either way, which is all this may claim.
   const KIND_COPY: Record<Kind, string> = {
     task_assigned: 'This address will no longer get email when someone assigns you a task.',
+    bulk_task_assigned:
+      'This address will no longer get email when someone assigns you several cards at once.',
     added_to_project: 'This address will no longer get email when someone adds you to a board.',
   };
 

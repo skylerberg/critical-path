@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/multi-select/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/assign-digest/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -304,7 +304,7 @@ export interface paths {
         };
         /**
          * Read notification settings
-         * @description Return which notification emails the authenticated user has switched on. Both default to true. They are read here rather than on the user record because that record is published to everyone sharing a project and a preference is private.
+         * @description Return which notification emails the authenticated user has switched on. All default to true. They are read here rather than on the user record because that record is published to everyone sharing a project and a preference is private.
          */
         get: operations["getApiAuthMeNotificationSettings"];
         /**
@@ -1158,7 +1158,7 @@ export interface paths {
         put?: never;
         /**
          * Add or remove assignees across a selection of tasks
-         * @description Apply an assignee delta to any number of a project’s tasks in a single transaction. Like the label delta this is add/remove, never a replace. At least one of add_user_ids and remove_user_ids must be non-empty and the two must not overlap; both are 422. Ids in add_user_ids must be users with access to the project (422 otherwise); ids in remove_user_ids are not validated. A bulk assignment notifies nobody: the repeat suppression that keeps assignment mail sane is keyed per task, so one click across a selection would send one email per card per added user. A copy notifies nobody either. A card the call applied to but did not change appears in neither list and writes no activity. Emits one bulk_tasks_relations_set event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
+         * @description Apply an assignee delta to any number of a project’s tasks in a single transaction. Like the label delta this is add/remove, never a replace. At least one of add_user_ids and remove_user_ids must be non-empty and the two must not overlap; both are 422. Ids in add_user_ids must be users with access to the project (422 otherwise); ids in remove_user_ids are not validated. A bulk assignment sends no per-card email: each added user instead gets one digest naming how many cards they were handed, once their assigner has stopped for a couple of minutes, gated on their own bulk_task_assigned preference. Assigning yourself notifies nobody, and a copy notifies nobody either. A card the call applied to but did not change appears in neither list and writes no activity. Emits one bulk_tasks_relations_set event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
          */
         post: operations["postApiTasksBulkAssignees"];
         delete?: never;
@@ -1867,11 +1867,12 @@ export interface components {
         };
         NotificationSettings: {
             added_to_project: boolean;
+            bulk_task_assigned: boolean;
             task_assigned: boolean;
         };
         UnsubscribeResponse: {
             /** @enum {unknown} */
-            kind: "added_to_project" | "task_assigned";
+            kind: "added_to_project" | "bulk_task_assigned" | "task_assigned";
         };
         UsersResponse: {
             users: components["schemas"]["User"][];
