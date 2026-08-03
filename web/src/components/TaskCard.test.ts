@@ -34,6 +34,7 @@ const task: BoardTask = {
   comment_count: 0,
   checklist_item_count: 0,
   checklist_done_count: 0,
+  attachment_count: 0,
 };
 
 beforeEach(() => {
@@ -172,6 +173,46 @@ describe('TaskCard', () => {
     });
 
     expect(screen.getByTitle('0 of 1 checklist item done')).toHaveTextContent('0/1');
+  });
+
+  it('shows the attachment badge, pluralized, only when there are attachments', () => {
+    const { unmount } = render(TaskCard, {
+      task: { ...task, attachment_count: 3 },
+      projectId: PROJECT_ID,
+    });
+    expect(screen.getByTitle('3 attachments')).toHaveTextContent('3');
+    unmount();
+
+    render(TaskCard, { task: { ...task, attachment_count: 1 }, projectId: PROJECT_ID });
+    expect(screen.getByTitle('1 attachment')).toHaveTextContent('1');
+  });
+
+  it('shows the badge row when the attachment count is the only badge', () => {
+    render(TaskCard, {
+      task: {
+        ...task,
+        label_ids: [],
+        assignee_ids: [],
+        blocker_ids: [],
+        image_count: 0,
+        attachment_count: 2,
+      },
+      projectId: PROJECT_ID,
+    });
+
+    expect(screen.getByTitle('2 attachments')).toHaveTextContent('2');
+  });
+
+  it('renders no attachment badge for none, nor for a payload that predates the count', () => {
+    const { rerender } = render(TaskCard, { task, projectId: PROJECT_ID });
+    expect(screen.queryByTitle(/attachment/)).not.toBeInTheDocument();
+
+    const legacy: Partial<BoardTask> = { ...task };
+    delete legacy.attachment_count;
+    void rerender({ task: legacy as BoardTask, projectId: PROJECT_ID });
+
+    expect(screen.queryByTitle(/attachment/)).not.toBeInTheDocument();
+    expect(screen.getByText('Design cards')).toBeInTheDocument();
   });
 
   it('renders no comment badge when the payload predates comment_count', () => {

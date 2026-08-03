@@ -23,6 +23,7 @@ const task: BoardTask = {
   comment_count: 0,
   checklist_item_count: 0,
   checklist_done_count: 0,
+  attachment_count: 0,
 };
 
 beforeEach(() => {
@@ -49,6 +50,17 @@ describe('LabelSearchMenu', () => {
 
     expect(screen.getByRole('button', { name: 'rules' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'art' })).not.toBeInTheDocument();
+  });
+
+  it('opens narrowed to the label a caller named, without applying it', () => {
+    const setTaskLabels = vi.spyOn(board, 'setTaskLabels');
+    render(LabelSearchMenu, { taskId: 't1', prefill: 'rules' });
+
+    expect(screen.getByLabelText<HTMLInputElement>('Filter labels').value).toBe('rules');
+    expect(screen.getByRole('button', { name: 'rules' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'art' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Create/ })).not.toBeInTheDocument();
+    expect(setTaskLabels).not.toHaveBeenCalled();
   });
 
   it('offers a Create row that creates and applies a new label optimistically', async () => {

@@ -13,6 +13,7 @@ import type {
   PublicBoardPayload,
 } from './board-types';
 import { type ColumnSort, sortTasks } from './column-sort';
+import { saveBlob } from './export';
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
@@ -27,6 +28,7 @@ import { toasts } from './toasts.svelte';
 import { users, type User } from './users.svelte';
 
 export type TaskImage = components['schemas']['ImageResponse'];
+export type TaskAttachment = components['schemas']['Attachment'];
 export type TaskComment = components['schemas']['Comment'];
 export type CommentBody = TaskComment['body'];
 
@@ -92,6 +94,7 @@ function optimisticTask(id: string, columnId: string, title: string, position: n
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
   };
 }
 
@@ -398,6 +401,9 @@ class BoardStore {
           // predates checklists omits both counts and svelte-check cannot see it.
           checklist_item_count: task.checklist_item_count ?? 0,
           checklist_done_count: task.checklist_done_count ?? 0,
+          // Public boards deliberately withhold it, and a paperclip on a card
+          // whose files nobody can reach would only advertise what is missing.
+          attachment_count: 0,
         })),
         labels: data.labels,
         changed_task_ids: [],
@@ -428,6 +434,7 @@ class BoardStore {
     this.taskComments = {};
     this.taskChecklists = {};
     this.taskSeriesSummaries = {};
+    this.taskAttachments = {};
     this.loading = false;
     this.error = null;
     this.errorStatus = null;
@@ -538,13 +545,14 @@ class BoardStore {
     const id = newId();
     const now = new Date().toISOString();
     // Labels, assignees and image_count come along because the server copies them.
-    // Edges and comments it does not copy, so they start empty on the copy.
+    // Edges, comments and attachments it does not copy, so they start empty.
     const optimistic: BoardTask = {
       ...source,
       id,
       position,
       blocker_ids: [],
       comment_count: 0,
+      attachment_count: 0,
       created_at: now,
       updated_at: now,
       column_since: now,
@@ -1358,6 +1366,7 @@ class BoardStore {
   taskComments = $state<Record<string, TaskComment[]>>({});
   taskChecklists = $state<Record<string, ChecklistItem[]>>({});
   taskSeriesSummaries = $state<Record<string, string | null>>({});
+  taskAttachments = $state<Record<string, TaskAttachment[]>>({});
 
   async loadTaskDetail(taskId: string): Promise<void> {
     try {
@@ -1369,6 +1378,7 @@ class BoardStore {
         ...this.taskSeriesSummaries,
         [taskId]: data.series_summary ?? null,
       };
+      this.taskAttachments = { ...this.taskAttachments, [taskId]: data.attachments ?? [] };
       // Heals a card face whose realtime event was missed; short of a full board
       // refetch this is the only authoritative read of the counts and the cover.
       this.tasks = this.tasks.map((task) =>
@@ -1379,6 +1389,7 @@ class BoardStore {
               comment_count: data.comment_count ?? 0,
               checklist_item_count: data.checklist_item_count ?? 0,
               checklist_done_count: data.checklist_done_count ?? 0,
+              attachment_count: (data.attachments ?? []).length,
               cover_image_url: data.cover_image_url ?? null,
             }
           : task
@@ -1436,6 +1447,145 @@ class BoardStore {
       await this.#mutationFailed(error);
       await this.loadTaskDetail(taskId);
     }
+  }
+
+  // A no-op when the list is not cached, for the same reason the comment stream
+  // is: the detail view fetches it on open, and seeding a partial list here
+  // would leave that view showing only fragments.
+  #replaceAttachments(
+    taskId: string,
+    next: (attachments: TaskAttachment[]) => TaskAttachment[]
+  ): void {
+    const cached = this.taskAttachments[taskId];
+    if (cached === undefined) {
+      return;
+    }
+    this.taskAttachments = { ...this.taskAttachments, [taskId]: next(cached) };
+  }
+
+  async uploadTaskAttachment(taskId: string, file: File): Promise<TaskAttachment | null> {
+    try {
+      const attachment = assertOk(
+        await api.POST('/api/attachments/files', {
+          params: {
+            query: {
+              task_id: taskId,
+              filename: file.name || 'attachment',
+              content_type: file.type || 'application/octet-stream',
+            },
+          },
+          // The file is the body, so it is handed to fetch untouched: serialising
+          // it would read the whole thing into memory on both ends of the wire.
+          body: file as unknown as string,
+          bodySerializer: (body: unknown) => body as BodyInit,
+          headers: { 'Content-Type': 'application/octet-stream' },
+        })
+      );
+      this.taskAttachments = {
+        ...this.taskAttachments,
+        [taskId]: [...(this.taskAttachments[taskId] ?? []), attachment],
+      };
+      this.#setAttachmentCount(taskId, (count) => count + 1);
+      return attachment;
+    } catch (error) {
+      toasts.error(error instanceof ApiError ? error.message : 'Attachment upload failed');
+      return null;
+    }
+  }
+
+  async addLinkAttachment(taskId: string, url: string): Promise<void> {
+    const id = newId();
+    const now = new Date().toISOString();
+    const optimistic: TaskAttachment = {
+      id,
+      task_id: taskId,
+      kind: 'link',
+      title: null,
+      description: null,
+      filename: null,
+      content_type: null,
+      size_bytes: null,
+      url,
+      preview_url: null,
+      favicon_url: null,
+      unfurl_state: 'pending',
+      created_at: now,
+      updated_at: now,
+    };
+    this.taskAttachments = {
+      ...this.taskAttachments,
+      [taskId]: [...(this.taskAttachments[taskId] ?? []), optimistic],
+    };
+    this.#setAttachmentCount(taskId, (count) => count + 1);
+    try {
+      const created = assertOk(
+        await api.POST('/api/attachments/links', { body: { id, task_id: taskId, url } })
+      );
+      this.#replaceAttachments(taskId, (attachments) =>
+        attachments.map((attachment) => (attachment.id === id ? created : attachment))
+      );
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
+    }
+  }
+
+  async patchAttachment(
+    taskId: string,
+    id: string,
+    patch: { title?: string | null; description?: string | null }
+  ): Promise<void> {
+    this.#replaceAttachments(taskId, (attachments) =>
+      attachments.map((attachment) =>
+        attachment.id === id ? { ...attachment, ...patch } : attachment
+      )
+    );
+    try {
+      const updated = assertOk(
+        await api.PATCH('/api/attachments/{id}', { params: { path: { id } }, body: patch })
+      );
+      this.#replaceAttachments(taskId, (attachments) =>
+        attachments.map((attachment) => (attachment.id === id ? updated : attachment))
+      );
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
+    }
+  }
+
+  async deleteAttachment(taskId: string, id: string): Promise<void> {
+    this.#replaceAttachments(taskId, (attachments) =>
+      attachments.filter((attachment) => attachment.id !== id)
+    );
+    this.#setAttachmentCount(taskId, (count) => count - 1);
+    try {
+      assertOk(await api.DELETE('/api/attachments/{id}', { params: { path: { id } } }));
+    } catch (error) {
+      await this.#mutationFailed(error);
+      await this.loadTaskDetail(taskId);
+    }
+  }
+
+  async downloadAttachment(attachment: TaskAttachment): Promise<void> {
+    try {
+      const blob = assertOk(
+        await api.GET('/api/attachments/{id}/download', {
+          params: { path: { id: attachment.id } },
+          parseAs: 'blob',
+        })
+      );
+      saveBlob(blob as Blob, attachment.filename ?? 'attachment');
+    } catch (error) {
+      toasts.error(error instanceof ApiError ? error.message : 'Download failed');
+    }
+  }
+
+  #setAttachmentCount(taskId: string, next: (current: number) => number): void {
+    this.tasks = this.tasks.map((task) =>
+      task.id === taskId
+        ? { ...task, attachment_count: Math.max(0, next(task.attachment_count ?? 0)) }
+        : task
+    );
   }
 
   #setCommentCount(taskId: string, next: (current: number) => number): void {
@@ -1715,7 +1865,11 @@ class BoardStore {
     switch (event.type) {
       case 'task_created': {
         const incoming = event.data as BoardTask;
-        const task = { ...incoming, comment_count: incoming.comment_count ?? 0 };
+        const task = {
+          ...incoming,
+          comment_count: incoming.comment_count ?? 0,
+          attachment_count: incoming.attachment_count ?? 0,
+        };
         this.tasks = this.tasks.some((t) => t.id === task.id)
           ? this.tasks.map((t) => (t.id === task.id ? task : t))
           : [...this.tasks, task];
@@ -1731,7 +1885,11 @@ class BoardStore {
         // task with its payload would otherwise blank the badge until a full refetch.
         this.tasks = this.tasks.map((t) =>
           t.id === incoming.id
-            ? { ...incoming, comment_count: incoming.comment_count ?? t.comment_count }
+            ? {
+                ...incoming,
+                comment_count: incoming.comment_count ?? t.comment_count,
+                attachment_count: incoming.attachment_count ?? t.attachment_count,
+              }
             : t
         );
         taskActivity.invalidate(incoming.id);
@@ -1908,6 +2066,30 @@ class BoardStore {
         if (this.taskImages[d.task_id] !== undefined) {
           void this.loadTaskDetail(d.task_id);
         }
+        break;
+      }
+      case 'attachment_created': {
+        const d = event.data as TaskAttachment & { attachment_count: number };
+        this.#setAttachmentCount(d.task_id, () => d.attachment_count);
+        // Skips the adder's own echo, which the optimistic append already placed.
+        this.#replaceAttachments(d.task_id, (attachments) =>
+          attachments.some((a) => a.id === d.id) ? attachments : [...attachments, d]
+        );
+        break;
+      }
+      case 'attachment_updated': {
+        const d = event.data as TaskAttachment;
+        this.#replaceAttachments(d.task_id, (attachments) =>
+          attachments.map((a) => (a.id === d.id ? d : a))
+        );
+        break;
+      }
+      case 'attachment_deleted': {
+        const d = event.data as { id: string; task_id: string; attachment_count: number };
+        this.#setAttachmentCount(d.task_id, () => d.attachment_count);
+        this.#replaceAttachments(d.task_id, (attachments) =>
+          attachments.filter((a) => a.id !== d.id)
+        );
         break;
       }
       case 'comment_created': {

@@ -30,6 +30,7 @@ function task(commentCount: number): BoardTask {
     comment_count: commentCount,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
   };
 }
 

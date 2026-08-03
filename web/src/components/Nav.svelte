@@ -11,6 +11,7 @@
   import { suppressTouchContextMenu } from '../lib/actions';
   import { APP_NAME } from '../lib/constants';
   import { motion } from '../lib/motion.svelte';
+  import { paletteChordHint } from '../lib/palette';
   import { projects, type Project } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { link, router } from '../lib/router.svelte';
@@ -224,6 +225,14 @@
   >
     {@render searchIcon()}
     Search
+    <!-- Hidden from the link's name: the chord opens the palette, not this page, so
+         it is a hint rather than something aria-keyshortcuts could truthfully claim. -->
+    <kbd
+      aria-hidden="true"
+      class="ml-auto inline-flex min-h-6 items-center justify-center rounded border border-edge bg-canvas px-1.5 text-xs font-medium text-muted"
+    >
+      {paletteChordHint()}
+    </kbd>
   </a>
 
   <div

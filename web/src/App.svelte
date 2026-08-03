@@ -28,6 +28,7 @@
   import ProjectRoute from './routes/ProjectRoute.svelte';
   import PublicBoard from './routes/PublicBoard.svelte';
   import NotFound from './routes/NotFound.svelte';
+  import CommandPalette from './components/CommandPalette.svelte';
   import Nav from './components/Nav.svelte';
   import ShortcutHelp from './components/ShortcutHelp.svelte';
   import Toasts from './components/Toasts.svelte';
@@ -143,6 +144,9 @@
        swallows every key but Escape. -->
   {#if shortcuts.helpOpen}
     <ShortcutHelp onclose={() => (shortcuts.helpOpen = false)} />
+  {/if}
+  {#if shortcuts.paletteOpen}
+    <CommandPalette onclose={() => (shortcuts.paletteOpen = false)} />
   {/if}
 {/if}
 

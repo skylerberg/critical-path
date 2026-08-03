@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { announcer } from '../lib/announcer.svelte';
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
@@ -17,13 +18,14 @@
 
   interface Props {
     taskId: string;
+    prefill?: string;
     onclose: () => void;
   }
 
-  let { taskId, onclose }: Props = $props();
+  let { taskId, prefill = '', onclose }: Props = $props();
 
   let columnId = $state<string | null>(null);
-  let query = $state('');
+  let query = $state(untrack(() => prefill));
   let highlightedKey = $state<string | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement>();

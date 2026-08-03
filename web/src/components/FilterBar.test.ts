@@ -32,6 +32,7 @@ function task(id: string, assigneeIds: string[]): BoardTask {
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
   };
 }
 

@@ -39,6 +39,9 @@ const BOARD_EVENTS = new Set([
   'checklist_item_created',
   'checklist_item_updated',
   'checklist_item_deleted',
+  'attachment_created',
+  'attachment_updated',
+  'attachment_deleted',
 ]);
 const PROJECT_EVENTS = new Set([
   'project_created',

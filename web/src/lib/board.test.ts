@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { board, positionAfterDrop } from './board.svelte';
+import { board, positionAfterDrop, type TaskAttachment } from './board.svelte';
 import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
@@ -79,6 +79,7 @@ function task(id: string, columnId: string, position: number, title: string) {
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
   };
 }
 
@@ -474,6 +475,7 @@ describe('board store readonly mode', () => {
         comment_count: 2,
         checklist_item_count: 2,
         checklist_done_count: 1,
+        attachment_count: 0,
       },
       {
         id: 't2',
@@ -489,6 +491,7 @@ describe('board store readonly mode', () => {
         comment_count: 0,
         checklist_item_count: 0,
         checklist_done_count: 0,
+        attachment_count: 0,
       },
     ],
     labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
@@ -3466,5 +3469,309 @@ describe('what changed since you last looked', () => {
     expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
     expect([...board.changedTaskIds]).toEqual([]);
     expect(stampedPaths()).toEqual([]);
+  });
+});
+
+describe('board store attachments', () => {
+  const A1 = testUuid('att1');
+  const A2 = testUuid('att2');
+
+  function serverAttachment(overrides: Partial<TaskAttachment> = {}): TaskAttachment {
+    return {
+      id: A1,
+      task_id: 't1',
+      kind: 'file',
+      title: null,
+      description: null,
+      filename: 'spec.pdf',
+      content_type: 'application/pdf',
+      size_bytes: 12,
+      url: null,
+      preview_url: null,
+      favicon_url: null,
+      unfurl_state: null,
+      created_at: SERVER_CREATED_AT,
+      updated_at: SERVER_CREATED_AT,
+      ...overrides,
+    };
+  }
+
+  function withAttachments(attachments: TaskAttachment[]): void {
+    mockRoutes((request, url) => {
+      if (request.method === 'GET' && /^\/api\/tasks\/[^/]+$/.test(url.pathname)) {
+        return jsonResponse(200, {
+          ...task('t1', 'c1', 1000, 'A'),
+          project_id: 'p1',
+          images: [],
+          comments: [],
+          checklist_items: [],
+          attachments,
+        });
+      }
+      if (url.pathname.startsWith('/api/attachments')) {
+        return jsonResponse(201, serverAttachment({ id: A2, filename: 'server.pdf' }));
+      }
+      return undefined;
+    });
+  }
+
+  beforeEach(async () => {
+    await board.load('p1');
+    board.taskAttachments = { t1: [] };
+    fetchMock.mockClear();
+  });
+
+  it('loadTaskDetail fills the list from the detail payload', async () => {
+    withAttachments([serverAttachment()]);
+    board.taskAttachments = {};
+
+    await board.loadTaskDetail('t1');
+
+    expect(board.taskAttachments.t1).toEqual([serverAttachment()]);
+  });
+
+  it('loadTaskDetail leaves the list empty for a pod that predates attachments', async () => {
+    board.taskAttachments = {};
+
+    await board.loadTaskDetail('t1');
+
+    expect(board.taskAttachments.t1).toEqual([]);
+  });
+
+  it('addLinkAttachment appends a pending row before the response and swaps it for the server row', async () => {
+    withAttachments([]);
+    const pending = board.addLinkAttachment('t1', 'https://example.com/doc');
+
+    expect(board.taskAttachments.t1!.map((a) => [a.kind, a.url, a.unfurl_state])).toEqual([
+      ['link', 'https://example.com/doc', 'pending'],
+    ]);
+
+    await pending;
+
+    expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual([A2]);
+    const request = requestAt(0);
+    expect(new URL(request.url).pathname).toBe('/api/attachments/links');
+    expect((await request.json()).url).toBe('https://example.com/doc');
+  });
+
+  it('uploadTaskAttachment sends the file as the body and appends the created row', async () => {
+    withAttachments([]);
+
+    const created = await board.uploadTaskAttachment(
+      't1',
+      new File(['x'], 'notes.txt', { type: 'text/plain' })
+    );
+
+    expect(created?.id).toBe(A2);
+    expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual([A2]);
+
+    const url = new URL(requestAt(0).url);
+    expect(url.pathname).toBe('/api/attachments/files');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      task_id: 't1',
+      filename: 'notes.txt',
+      content_type: 'text/plain',
+    });
+    // A body the browser can stream, rather than a form it has to assemble first.
+    // jsdom's Request drops a Blob body, so what it carries cannot be asserted here.
+    expect(requestAt(0).headers.get('Content-Type')).toBe('application/octet-stream');
+  });
+
+  it('uploadTaskAttachment names an unnamed, untyped file rather than sending nothing', async () => {
+    withAttachments([]);
+
+    await board.uploadTaskAttachment('t1', new File(['x'], ''));
+
+    expect(Object.fromEntries(new URL(requestAt(0).url).searchParams)).toEqual({
+      task_id: 't1',
+      filename: 'attachment',
+      content_type: 'application/octet-stream',
+    });
+  });
+
+  it('uploadTaskAttachment surfaces the server message and adds nothing', async () => {
+    mockRoutes((_request, url) =>
+      url.pathname === '/api/attachments/files'
+        ? jsonResponse(413, { error: 'Payload too large' })
+        : undefined
+    );
+
+    const created = await board.uploadTaskAttachment('t1', new File(['x'], 'big.zip'));
+
+    expect(created).toBeNull();
+    expect(board.taskAttachments.t1).toEqual([]);
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['Payload too large']);
+  });
+
+  it('patchAttachment writes the title optimistically and adopts the server row', async () => {
+    withAttachments([]);
+    board.taskAttachments = { t1: [serverAttachment()] };
+
+    const pending = board.patchAttachment('t1', A1, { title: 'The spec' });
+    expect(board.taskAttachments.t1![0].title).toBe('The spec');
+
+    await pending;
+
+    expect(board.taskAttachments.t1![0].id).toBe(A2);
+    expect(new URL(requestAt(0).url).pathname).toBe(`/api/attachments/${A1}`);
+  });
+
+  it('deleteAttachment removes the row before the response resolves', async () => {
+    board.taskAttachments = { t1: [serverAttachment()] };
+
+    const pending = board.deleteAttachment('t1', A1);
+    expect(board.taskAttachments.t1).toEqual([]);
+
+    await pending;
+    expect(new URL(requestAt(0).url).pathname).toBe(`/api/attachments/${A1}`);
+  });
+
+  it('refetches the detail payload rather than rolling back when a mutation fails', async () => {
+    mockRoutes((request, url) => {
+      if (request.method === 'DELETE' && url.pathname.startsWith('/api/attachments/')) {
+        return jsonResponse(500, { error: 'Server error' });
+      }
+      if (request.method === 'GET' && /^\/api\/tasks\/[^/]+$/.test(url.pathname)) {
+        return jsonResponse(200, {
+          ...task('t1', 'c1', 1000, 'A'),
+          project_id: 'p1',
+          images: [],
+          comments: [],
+          checklist_items: [],
+          attachments: [serverAttachment()],
+        });
+      }
+      return undefined;
+    });
+    board.taskAttachments = { t1: [serverAttachment()] };
+
+    await board.deleteAttachment('t1', A1);
+
+    expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual([A1]);
+    expect(toasts.toasts).toHaveLength(1);
+  });
+
+  it('applyRealtime appends a created row once, skipping the adder’s own echo', () => {
+    board.taskAttachments = { t1: [] };
+
+    board.applyRealtime({
+      type: 'attachment_created',
+      project_id: 'p1',
+      data: serverAttachment(),
+    });
+    board.applyRealtime({
+      type: 'attachment_created',
+      project_id: 'p1',
+      data: serverAttachment(),
+    });
+
+    expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual([A1]);
+  });
+
+  it('applyRealtime does nothing when the list is not cached', () => {
+    board.taskAttachments = {};
+
+    board.applyRealtime({
+      type: 'attachment_created',
+      project_id: 'p1',
+      data: serverAttachment(),
+    });
+
+    expect(board.taskAttachments.t1).toBeUndefined();
+  });
+
+  it('applyRealtime swaps in an unfurled row and deletes by the id the event carries', () => {
+    board.taskAttachments = {
+      t1: [serverAttachment({ kind: 'link', url: 'https://x.test/', unfurl_state: 'pending' })],
+    };
+
+    board.applyRealtime({
+      type: 'attachment_updated',
+      project_id: 'p1',
+      data: serverAttachment({
+        kind: 'link',
+        url: 'https://x.test/',
+        unfurl_state: 'ok',
+        title: 'Fetched',
+        preview_url: `/api/attachments/${A1}/preview`,
+      }),
+    });
+    expect(board.taskAttachments.t1![0]).toMatchObject({
+      title: 'Fetched',
+      unfurl_state: 'ok',
+      preview_url: `/api/attachments/${A1}/preview`,
+    });
+
+    board.applyRealtime({
+      type: 'attachment_deleted',
+      project_id: 'p1',
+      data: { id: A1, task_id: 't1', attachment_count: 0 },
+    });
+    expect(board.taskAttachments.t1).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe('card-face count', () => {
+    const countOf = (): number | undefined =>
+      board.tasks.find((t) => t.id === 't1')?.attachment_count;
+
+    it('rises with an upload and a link, and falls with a delete, before the response', async () => {
+      withAttachments([]);
+      expect(countOf()).toBe(0);
+
+      await board.uploadTaskAttachment('t1', new File(['x'], 'notes.txt'));
+      expect(countOf()).toBe(1);
+
+      const pendingLink = board.addLinkAttachment('t1', 'https://example.com/');
+      expect(countOf()).toBe(2);
+      await pendingLink;
+
+      const pendingDelete = board.deleteAttachment('t1', A2);
+      expect(countOf()).toBe(1);
+      await pendingDelete;
+    });
+
+    it('never falls below zero when a delete arrives for a card already at zero', async () => {
+      withAttachments([]);
+      await board.deleteAttachment('t1', A1);
+      expect(countOf()).toBe(0);
+    });
+
+    it('adopts the count the realtime events carry', () => {
+      board.taskAttachments = { t1: [] };
+
+      board.applyRealtime({
+        type: 'attachment_created',
+        project_id: 'p1',
+        data: { ...serverAttachment(), attachment_count: 4 },
+      });
+      expect(countOf()).toBe(4);
+
+      board.applyRealtime({
+        type: 'attachment_deleted',
+        project_id: 'p1',
+        data: { id: A1, task_id: 't1', attachment_count: 3 },
+      });
+      expect(countOf()).toBe(3);
+    });
+
+    // The count is the only thing on the card face that a missed event can strand,
+    // so opening the card has to be able to heal it.
+    it('is healed from the detail payload, which carries the list rather than a count', async () => {
+      withAttachments([serverAttachment(), serverAttachment({ id: A2 })]);
+      board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, attachment_count: 9 } : t));
+
+      await board.loadTaskDetail('t1');
+
+      expect(countOf()).toBe(2);
+    });
+  });
+
+  it('reset clears the cached lists', async () => {
+    board.taskAttachments = { t1: [serverAttachment()] };
+
+    board.reset();
+
+    expect(board.taskAttachments).toEqual({});
   });
 });
