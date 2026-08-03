@@ -155,6 +155,7 @@ describe('What changed since you last looked', () => {
 
     const archiveRes = await ctx.request(owner.token).post(`/api/tasks/${archivedTask}/archive`);
     expect(archiveRes.status).toBe(200);
+    await ctx.request(owner.token).post(`/api/tasks/${deletedTask}/archive`);
     const deleteRes = await ctx.request(owner.token).delete(`/api/tasks/${deletedTask}`);
     expect(deleteRes.status).toBe(204);
 

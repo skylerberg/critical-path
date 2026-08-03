@@ -347,6 +347,7 @@ describe('Comments API', () => {
       const { taskId } = await createTaskFixture();
       const created = await postComment(owner.token, taskId, 'doomed');
 
+      await ctx.request(owner.token).post(`/api/tasks/${taskId}/archive`);
       expect((await ctx.request(owner.token).delete(`/api/tasks/${taskId}`)).status).toBe(204);
       const row = await db
         .selectFrom('task_comment')

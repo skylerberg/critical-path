@@ -779,7 +779,27 @@ describe('Tasks CRUD', () => {
       expect(res.status).toBe(404);
     });
 
-    it('deletes the task, cascades dependencies, and removes stored images post-commit', async () => {
+    it('refuses a task that is still on the board', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+
+      const res = await ctx.request(user.token).delete(`/api/tasks/${id}`);
+      expect(res.status).toBe(422);
+      expect((await res.json()).error).toMatch(/archived/i);
+      expect((await ctx.request(user.token).get(`/api/tasks/${id}`)).status).toBe(200);
+    });
+
+    it('refuses a task restored back onto the board', async () => {
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+      expect((await ctx.request(user.token).post(`/api/tasks/${id}/archive`)).status).toBe(200);
+      expect((await ctx.request(user.token).post(`/api/tasks/${id}/restore`)).status).toBe(200);
+
+      expect((await ctx.request(user.token).delete(`/api/tasks/${id}`)).status).toBe(422);
+      expect((await ctx.request(user.token).get(`/api/tasks/${id}`)).status).toBe(200);
+    });
+
+    it('deletes an archived task, cascades dependencies, and removes stored images post-commit', async () => {
       const createdA = await ctx.request(user.token).post('/api/tasks', taskBody());
       const { id: blockerId } = await createdA.json();
       const createdB = await ctx.request(user.token).post('/api/tasks', taskBody());
@@ -795,6 +815,9 @@ describe('Tasks CRUD', () => {
       await fixtures.createImageRow(blockerId, { storageKey });
       expect(await storage.get(storageKey)).not.toBeNull();
 
+      expect((await ctx.request(user.token).post(`/api/tasks/${blockerId}/archive`)).status).toBe(
+        200
+      );
       const res = await ctx.request(user.token).delete(`/api/tasks/${blockerId}`);
       expect(res.status).toBe(204);
 
@@ -804,6 +827,15 @@ describe('Tasks CRUD', () => {
       const blocked = await ctx.request(user.token).get(`/api/tasks/${blockedId}`);
       const blockedBody = await blocked.json();
       expect(blockedBody.blocker_ids).toEqual([]);
+      // Read straight from the table: an archived blocker is already hidden from
+      // every board read, so only the row itself shows the cascade ran.
+      expect(
+        await db
+          .selectFrom('task_dependency')
+          .select('blocked_task_id')
+          .where('blocker_task_id', '=', blockerId)
+          .executeTakeFirst()
+      ).toBeUndefined();
 
       await vi.waitFor(async () => {
         expect(await storage.get(storageKey)).toBeNull();

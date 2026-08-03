@@ -263,6 +263,7 @@ describe('Mentions', () => {
 
     it('sends nothing when the task is deleted', async () => {
       const task = await createTask(owner.token, mentionDoc(member.id));
+      await ctx.request(owner.token).post(`/api/tasks/${task.id}/archive`);
       delivered.length = 0;
 
       const res = await ctx.request(owner.token).delete(`/api/tasks/${task.id}`);
