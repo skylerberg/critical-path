@@ -45,6 +45,7 @@
   );
   const dependents = $derived(board.tasks.filter((t) => t.blocker_ids.includes(taskId)));
   const columnName = $derived(board.columns.find((c) => c.id === task?.column_id)?.name ?? '');
+  const seriesSummary = $derived(board.taskSeriesSummaries[taskId] ?? null);
   const mentionUsers = $derived(currentProjectMentionCandidates());
   // A viewer is read-only but still has an identity, so they keep the comment
   // stream, the history and the timestamps; a public reader has none of that and
@@ -309,6 +310,14 @@
         {/if}
         <Button variant="ghost" aria-label="Close" onclick={close}>✕</Button>
       </div>
+
+      {#if seriesSummary !== null}
+        <p
+          class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
+        >
+          Repeats: {seriesSummary}
+        </p>
+      {/if}
 
       {#if conflicted}
         <div

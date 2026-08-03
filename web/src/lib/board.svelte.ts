@@ -433,6 +433,7 @@ class BoardStore {
     this.taskImages = {};
     this.taskComments = {};
     this.taskChecklists = {};
+    this.taskSeriesSummaries = {};
     this.taskAttachments = {};
     this.loading = false;
     this.error = null;
@@ -1364,6 +1365,7 @@ class BoardStore {
   taskImages = $state<Record<string, TaskImage[]>>({});
   taskComments = $state<Record<string, TaskComment[]>>({});
   taskChecklists = $state<Record<string, ChecklistItem[]>>({});
+  taskSeriesSummaries = $state<Record<string, string | null>>({});
   taskAttachments = $state<Record<string, TaskAttachment[]>>({});
 
   async loadTaskDetail(taskId: string): Promise<void> {
@@ -1372,6 +1374,10 @@ class BoardStore {
       this.taskImages = { ...this.taskImages, [taskId]: data.images };
       this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
       this.taskChecklists = { ...this.taskChecklists, [taskId]: data.checklist_items ?? [] };
+      this.taskSeriesSummaries = {
+        ...this.taskSeriesSummaries,
+        [taskId]: data.series_summary ?? null,
+      };
       this.taskAttachments = { ...this.taskAttachments, [taskId]: data.attachments ?? [] };
       // Heals a card face whose realtime event was missed; short of a full board
       // refetch this is the only authoritative read of the counts and the cover.
