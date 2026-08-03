@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
+  import { cardCursor } from '../lib/card-cursor.svelte';
   import { myTasks, type MyTaskPersonGroup } from '../lib/myTasks.svelte';
   import { link } from '../lib/router.svelte';
   import { taskHref } from '../lib/short-links';
@@ -26,6 +27,24 @@
     { title: 'Waiting on you', groups: myTasks.waitingOnYou },
     { title: 'You are waiting on', groups: myTasks.youAreWaitingOn },
   ]);
+
+  // Screen order, so j and k walk the page the way it reads. A card can appear in
+  // both a bucket and a person group, and the cursor needs one place to land.
+  const rowIds = $derived([
+    ...new Set([
+      ...taskSections.flatMap((section) => section.tasks.map((task) => task.id)),
+      ...groupSections.flatMap((section) =>
+        section.groups.flatMap((group) => group.tasks.map((task) => task.id))
+      ),
+    ]),
+  ]);
+
+  $effect(() => {
+    cardCursor.setRows(rowIds);
+  });
+  // Only the cursor, and only on the way out: a refreshed list keeps its cursor, and
+  // the arriving screen owns the rows whichever order the two screens swap in.
+  onDestroy(() => cardCursor.clear());
 </script>
 
 {#snippet personGroup(group: MyTaskPersonGroup)}
@@ -47,7 +66,13 @@
         <li>
           <a
             href={taskHref(task.id, task.title) + '?from=my-tasks'}
-            class="flex min-h-11 items-center rounded-md px-2 text-sm text-muted hover:bg-accent-soft hover:text-ink"
+            data-card-row={task.id}
+            onfocus={() => cardCursor.set(task.id)}
+            onpointerenter={() => cardCursor.set(task.id)}
+            class="flex min-h-11 items-center rounded-md px-2 text-sm hover:bg-accent-soft hover:text-ink {cardCursor.taskId ===
+            task.id
+              ? 'bg-accent-soft text-ink ring-2 ring-accent'
+              : 'text-muted'}"
           >
             {truncateTitle(task.title)}
           </a>

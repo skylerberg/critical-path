@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
   import { announcer } from '../lib/announcer.svelte';
-  import { board } from '../lib/board.svelte';
+  import { board, type BoardContext } from '../lib/board.svelte';
   import { editableCardTarget } from '../lib/card-target';
   import {
     flattenRows,
@@ -24,10 +24,11 @@
   import Spinner from './ui/Spinner.svelte';
 
   interface Props {
+    ctx: BoardContext;
     onclose: () => void;
   }
 
-  let { onclose }: Props = $props();
+  let { ctx, onclose }: Props = $props();
 
   // Its own store, never the shared one: opened over the search page it would
   // otherwise rewrite it behind the backdrop, and that page never self-heals.
@@ -44,11 +45,11 @@
   const openedPathname = splitPath(router.path).pathname;
 
   const targetId = $derived(editableCardTarget());
-  // A target absent from the payload — a foreign board still loaded, an archived
-  // card opened cold — is one the quick menus would close themselves over.
-  const card = $derived(targetId === null ? undefined : board.tasks.find((t) => t.id === targetId));
+  // A target absent from the payload — one whose project is still loading, an
+  // archived card opened cold — is one the quick menus would close themselves over.
+  const card = $derived(targetId === null ? undefined : ctx.tasks.find((t) => t.id === targetId));
   const completable = $derived(
-    card !== undefined && board.doneColumnIds.size > 0 && !board.doneColumnIds.has(card.column_id)
+    card !== undefined && ctx.doneColumnIds.size > 0 && !ctx.doneColumnIds.has(card.column_id)
   );
 
   const current = $derived.by(() => {
@@ -64,8 +65,13 @@
 
   const showSelectionHint = $derived.by(() => {
     const route = router.current;
+    if (targetId !== null) {
+      return false;
+    }
+    if (route.name === 'my-tasks' || route.name === 'search') {
+      return true;
+    }
     return (
-      targetId === null &&
       board.canEdit &&
       route.name === 'project' &&
       route.params.view === 'board' &&
@@ -79,8 +85,8 @@
       card: card === undefined ? null : { title: card.title, completable },
       current,
       projects: projects.active,
-      columns: board.columns,
-      labels: board.labels,
+      columns: ctx.columns,
+      labels: ctx.labels,
       tasks: paletteSearch.results,
     })
   );
@@ -242,14 +248,14 @@
     // region inert while it is up.
     if (action === 'done') {
       onclose();
-      if (board.markTaskDone(id)) {
+      if (ctx.markTaskDone(id)) {
         void announcer.announce(`Marked "${title}" done`);
       }
       return;
     }
     if (action === 'duplicate') {
       onclose();
-      void board.duplicateTask(id);
+      void ctx.duplicateTask(id);
       void announcer.announce(`Duplicated "${title}"`);
       return;
     }
@@ -265,7 +271,7 @@
       // redirect refetches the board, and a refetch racing the archive brings the
       // card back.
       const closePath = overlayClosePath(id);
-      await board.archiveTask(id);
+      await ctx.archiveTask(id);
       if (closePath !== null) {
         router.redirect(closePath);
       }

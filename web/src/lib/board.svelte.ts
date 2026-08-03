@@ -194,6 +194,14 @@ class BoardStore {
   #archivedToken = 0;
   #seenArmed = false;
   #cyclePathTimer: ReturnType<typeof setTimeout> | null = null;
+  readonly #ownsFilterUrl: boolean;
+
+  // Only the board on screen owns the address bar. A second one loaded for a card
+  // on another project has no filters of its own, and a response landing after the
+  // user walks onto that same project would strip theirs out of the URL.
+  constructor({ ownsFilterUrl = true }: { ownsFilterUrl?: boolean } = {}) {
+    this.#ownsFilterUrl = ownsFilterUrl;
+  }
 
   // Filters are adopted before the first await, so a link built from the store during
   // the fetch already carries the incoming project's narrowing.
@@ -1458,7 +1466,11 @@ class BoardStore {
 
   #writeFilterUrl(): void {
     const route = router.current;
-    if (route.name !== 'project' || !this.#routeTargetsCurrentProject(route.params)) {
+    if (
+      !this.#ownsFilterUrl ||
+      route.name !== 'project' ||
+      !this.#routeTargetsCurrentProject(route.params)
+    ) {
       return;
     }
     const { pathname, search } = splitPath(router.path);
@@ -2427,3 +2439,10 @@ class BoardStore {
 }
 
 export const board = new BoardStore();
+
+// A card acted on from a screen outside its project needs that project's columns,
+// labels and cards; loading them here would tear down the board the user is
+// looking at, so a second store holds them instead.
+export const awayBoard = new BoardStore({ ownsFilterUrl: false });
+
+export type BoardContext = typeof board;

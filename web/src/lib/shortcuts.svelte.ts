@@ -1,4 +1,5 @@
 import { board } from './board.svelte';
+import { cardCursor } from './card-cursor.svelte';
 import { cardMenu } from './card-menu.svelte';
 import { editableCardTarget } from './card-target';
 import type { DependencyDirection } from './dependency-types';
@@ -89,6 +90,7 @@ class ShortcutController {
 
   reset(): void {
     this.closeMenus();
+    cardCursor.reset();
     this.quickAddColumn = null;
     this.filterFocusRequested = false;
     this.searchFocusRequested = false;
@@ -147,12 +149,44 @@ class ShortcutController {
     // The filter bar is part of the shared project header, so f reaches it from the
     // graph too — but an open task overlay owns the key.
     const filterBarActive = view !== null && overlayTaskId === undefined;
+    const listActive = route.name === 'my-tasks' || route.name === 'search';
     if (selectionActive && this.#handleSelectionKey(event, projectId)) {
       return;
     }
+    if (listActive && this.#handleListKey(event)) {
+      return;
+    }
 
-    this.#handleCommonKey(event, selectionActive, filterBarActive);
+    this.#handleCommonKey(event, selectionActive, filterBarActive, listActive);
   };
+
+  #handleListKey(event: KeyboardEvent): boolean {
+    if (event.metaKey || event.ctrlKey || event.altKey) {
+      return false;
+    }
+    switch (event.key) {
+      // 'J' and 'K' are the same press with Shift held, and CapsLock inverts the
+      // case either way; a list has no range to extend, so both move the cursor.
+      case 'j':
+      case 'J':
+      case 'ArrowDown':
+        if (!cardCursor.move('down')) {
+          return false;
+        }
+        break;
+      case 'k':
+      case 'K':
+      case 'ArrowUp':
+        if (!cardCursor.move('up')) {
+          return false;
+        }
+        break;
+      default:
+        return false;
+    }
+    event.preventDefault();
+    return true;
+  }
 
   #completeChord(key: string, projectId: string | null): boolean {
     if (key === 'p') {
@@ -260,7 +294,12 @@ class ShortcutController {
     return true;
   }
 
-  #handleCommonKey(event: KeyboardEvent, selectionActive: boolean, filterBarActive: boolean): void {
+  #handleCommonKey(
+    event: KeyboardEvent,
+    selectionActive: boolean,
+    filterBarActive: boolean,
+    listActive: boolean
+  ): void {
     const editTarget = editableCardTarget();
     // Gated on selectionActive as well, so an open overlay stays single-card even
     // if a set somehow outlived the route change that clears it.
@@ -367,6 +406,13 @@ class ShortcutController {
         this.#armChord();
         break;
       case 'Escape':
+        if (listActive) {
+          if (cardCursor.taskId === null) {
+            return;
+          }
+          cardCursor.clear();
+          break;
+        }
         // In the overlay the dialog's own cancel owns Escape; on the graph there is no
         // selection to clear. Only the board view clears the selection here.
         if (!selectionActive || (selection.cursorTaskId === null && selection.count === 0)) {

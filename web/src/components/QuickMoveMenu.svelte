@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { announcer } from '../lib/announcer.svelte';
-  import { board } from '../lib/board.svelte';
+  import type { BoardContext } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
   import { positionForIndex } from '../lib/positions';
   import { truncateTitle } from '../lib/titles';
@@ -18,11 +18,12 @@
 
   interface Props {
     taskId: string;
+    ctx: BoardContext;
     prefill?: string;
     onclose: () => void;
   }
 
-  let { taskId, prefill = '', onclose }: Props = $props();
+  let { taskId, ctx, prefill = '', onclose }: Props = $props();
 
   let columnId = $state<string | null>(null);
   let query = $state(untrack(() => prefill));
@@ -31,9 +32,9 @@
   let listEl = $state<HTMLUListElement>();
   let committed = false;
 
-  const task = $derived(board.tasks.find((t) => t.id === taskId));
+  const task = $derived(ctx.tasks.find((t) => t.id === taskId));
   const targetColumn = $derived(
-    columnId === null ? undefined : board.columns.find((c) => c.id === columnId)
+    columnId === null ? undefined : ctx.columns.find((c) => c.id === columnId)
   );
   // Position order rather than display order: with a filter on, the display list
   // partitions matches to the front, and the anchors have to describe the order
@@ -41,7 +42,7 @@
   const others = $derived(
     targetColumn === undefined
       ? []
-      : board.tasksInColumn(targetColumn.id).filter((t) => t.id !== taskId)
+      : ctx.tasksInColumn(targetColumn.id).filter((t) => t.id !== taskId)
   );
 
   const searchLabel = $derived(targetColumn === undefined ? 'Search columns' : 'Search positions');
@@ -61,7 +62,7 @@
     const q = query.trim().toLowerCase();
     const matches = (label: string): boolean => label.toLowerCase().includes(q);
     if (targetColumn === undefined) {
-      return board.columns
+      return ctx.columns
         .filter((column) => matches(column.name))
         .map((column) => ({
           key: `column:${column.id}`,
@@ -136,9 +137,9 @@
       return;
     }
     committed = true;
-    const rest = board.tasksInColumn(column.id).filter((t) => t.id !== taskId);
+    const rest = ctx.tasksInColumn(column.id).filter((t) => t.id !== taskId);
     const index = placeIndex(target, rest);
-    void board.moveTask(
+    void ctx.moveTask(
       taskId,
       column.id,
       positionForIndex(
@@ -163,12 +164,12 @@
       }
       return;
     }
-    const column = board.columns.find((c) => c.id === row.columnId);
+    const column = ctx.columns.find((c) => c.id === row.columnId);
     if (column === undefined) {
       return;
     }
     // One possible slot is not a choice; skip a step whose rows all do the same thing.
-    if (board.tasksInColumn(column.id).every((t) => t.id === taskId)) {
+    if (ctx.tasksInColumn(column.id).every((t) => t.id === taskId)) {
       commit(column, { kind: 'bottom' });
       return;
     }

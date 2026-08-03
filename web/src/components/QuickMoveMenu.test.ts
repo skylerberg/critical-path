@@ -58,7 +58,7 @@ afterEach(() => {
 });
 
 function open(): ReturnType<typeof render> {
-  return render(QuickMoveMenu, { taskId: 't1', onclose });
+  return render(QuickMoveMenu, { taskId: 't1', ctx: board, onclose });
 }
 
 function rowLabels(name: string): string[] {
@@ -89,7 +89,7 @@ describe('QuickMoveMenu', () => {
   });
 
   it('opens narrowed to the column a caller named, without moving anything itself', () => {
-    render(QuickMoveMenu, { taskId: 't1', prefill: 'Done', onclose });
+    render(QuickMoveMenu, { taskId: 't1', ctx: board, prefill: 'Done', onclose });
 
     expect(screen.getByLabelText<HTMLInputElement>('Search columns').value).toBe('Done');
     expect(rowLabels('Destination columns')).toEqual(['Done']);
