@@ -1146,6 +1146,26 @@ describe('invitations_changed dispatch', () => {
     invitations.reset();
   });
 
+  function invitationRequests(): number {
+    return fetchMock.mock.calls.filter(
+      ([input]) => new URL((input as Request).url).pathname === '/api/projects/p1/invitations'
+    ).length;
+  }
+
+  async function reconnect(): Promise<void> {
+    vi.useFakeTimers();
+    latestSocket().serverClose();
+    vi.advanceTimersByTime(1000);
+    const socket = latestSocket();
+    socket.open();
+    socket.receive({ type: 'auth_ok' });
+    // openapi-fetch invokes fetch after an awaited request-middleware microtask.
+    for (let i = 0; i < 20; i++) {
+      await Promise.resolve();
+    }
+    vi.useRealTimers();
+  }
+
   it('refetches the pending list the share panel is showing', async () => {
     fetchMock.mockImplementation(async () => jsonResponse(200, { invitations: [] }));
     await invitations.load('p1');
@@ -1172,5 +1192,27 @@ describe('invitations_changed dispatch', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchMock.mock.calls).toHaveLength(before);
+  });
+
+  it('re-reads an open panel after a reconnect', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { invitations: [] }));
+    await invitations.load('p1');
+    await connectAndAuth(null);
+    expect(invitationRequests()).toBe(1);
+
+    await reconnect();
+
+    expect(invitationRequests()).toBe(2);
+  });
+
+  it('re-reads nothing after a reconnect with no panel open', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { invitations: [] }));
+    await invitations.load('p1');
+    invitations.reset();
+    await connectAndAuth(null);
+
+    await reconnect();
+
+    expect(invitationRequests()).toBe(1);
   });
 });

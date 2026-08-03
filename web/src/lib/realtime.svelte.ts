@@ -183,6 +183,7 @@ class RealtimeClient {
     // fetched everything; only a reconnect needs to self-heal the missed gap.
     if (this.#hasSyncedOnce) {
       void projects.load();
+      invitations.resync();
       if (board.currentProjectId !== null) {
         if (board.dragBusy) {
           this.#needsBoardRefetch = true;

@@ -58,6 +58,13 @@ class InvitationsStore {
     void this.load(projectId);
   }
 
+  // Nothing arrives while the socket is down, so the gap it left is re-read.
+  resync(): void {
+    if (this.currentProjectId !== null) {
+      void this.load(this.currentProjectId);
+    }
+  }
+
   // Re-inviting an address returns the row it already had, so this replaces as
   // often as it appends.
   adopt(invitation: Invitation): void {

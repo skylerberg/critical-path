@@ -527,4 +527,66 @@ describe('ProjectMembersModal pending invitations', () => {
     const listed = fetchMock.mock.calls.map((c) => new URL((c[0] as Request).url).pathname);
     expect(listed).not.toContain(INVITATIONS_PATH);
   });
+
+  it('forgets the addresses when it closes, and stops refetching them', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    projects.projects = [project({ created_by: me.id, member_ids: [] })];
+    const { unmount } = render(ProjectMembersModal, {
+      projectId: PROJECT_ID,
+      onclose: () => {},
+    });
+    expect(await screen.findByText(ghost)).toBeInTheDocument();
+
+    unmount();
+
+    expect(invitations.currentProjectId).toBeNull();
+    expect(invitations.list).toEqual([]);
+
+    fetchMock.mockClear();
+    invitations.applyRealtime({
+      type: 'invitations_changed',
+      project_id: PROJECT_ID,
+      data: null,
+    });
+    invitations.resync();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Clearing on the way out only works if "the way out" is closing or losing
+  // write access — a board rename must not cycle it and refetch on every event.
+  it('keeps the list through an unrelated project-list update', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    projects.projects = [project({ created_by: me.id, member_ids: [] })];
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+    expect(await screen.findByText(ghost)).toBeInTheDocument();
+    fetchMock.mockClear();
+
+    projects.projects = [project({ created_by: me.id, member_ids: [], name: 'Renamed' })];
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.getByText(ghost)).toBeInTheDocument();
+    expect(invitations.currentProjectId).toBe(PROJECT_ID);
+    const listed = fetchMock.mock.calls.map((c) => new URL((c[0] as Request).url).pathname);
+    expect(listed).not.toContain(INVITATIONS_PATH);
+  });
+
+  it('forgets them when a demotion arrives while it is open', async () => {
+    mockApi(() => jsonResponse(200, { users: [me] }), [invitation()]);
+    projects.projects = [project({ created_by: ada.id, member_ids: [me.id] })];
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+    expect(await screen.findByText(ghost)).toBeInTheDocument();
+
+    projects.projects = [
+      project({
+        created_by: ada.id,
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      }),
+    ];
+
+    await waitFor(() => expect(screen.queryByText(ghost)).toBeNull());
+    expect(invitations.list).toEqual([]);
+    expect(invitations.currentProjectId).toBeNull();
+  });
 });

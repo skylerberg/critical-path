@@ -139,6 +139,23 @@ describe('invitations store', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('resyncs the open panel and stays quiet when none is open', async () => {
+    await loadWith([invitation()]);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { invitations: [invitation({ id: 'inv-3' })] })
+    );
+
+    invitations.resync();
+    await vi.waitFor(() => expect(invitations.list.map((row) => row.id)).toEqual(['inv-3']));
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p-1/invitations');
+
+    fetchMock.mockClear();
+    invitations.reset();
+    invitations.resync();
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('moves the deadline before the resend is acknowledged', async () => {
     const expired = invitation({ expires_at: new Date(Date.now() - DAY_MS).toISOString() });
     await loadWith([expired]);
