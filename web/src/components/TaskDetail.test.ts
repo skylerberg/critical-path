@@ -70,6 +70,7 @@ function task(
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
     ...overrides,
   };
 }
@@ -310,6 +311,16 @@ describe('TaskDetail', () => {
 
     expect(screen.getByText(/Created .+ · Updated .+/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete task' })).toBeInTheDocument();
+  });
+
+  it('mounts the attachments section for an editor, leaving the images grid alone', async () => {
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    expect(screen.getByRole('heading', { name: 'Attachments' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Attach file' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add link' })).toBeInTheDocument();
+    expect(await screen.findByAltText('mock.png')).toHaveAttribute('src', '/api/images/img1');
+    expect(screen.getByRole('button', { name: 'Upload image' })).toBeInTheDocument();
   });
 
   it('loads images and comments from the one detail fetch and renders the Activity section', async () => {
@@ -1107,6 +1118,8 @@ describe('TaskDetail on a public board', () => {
 
     expect(screen.queryByRole('heading', { name: 'Images' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Upload image' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Attachments' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Attach file' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     expect(screen.queryByText(/Created .+ · Updated .+/)).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Activity' })).toBeNull();
@@ -1289,5 +1302,16 @@ describe('TaskDetail for a viewer', () => {
     expect(await screen.findByAltText('mock.png')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /as cover$/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Delete image/ })).toBeNull();
+  });
+
+  it('mounts the attachments section read-only, after the untouched Images one', async () => {
+    renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
+
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent);
+    expect(headings).toContain('Images');
+    expect(headings).toContain('Attachments');
+    expect(headings.indexOf('Attachments')).toBeGreaterThan(headings.indexOf('Images'));
+    expect(screen.queryByRole('button', { name: 'Attach file' })).toBeNull();
+    expect(await screen.findByText('No attachments.')).toBeInTheDocument();
   });
 });

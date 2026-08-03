@@ -51,6 +51,7 @@ function task(id: string, columnId: string, position: number, title: string): Bo
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
+    attachment_count: 0,
     image_count: 0,
     cover_image_url: null,
     due_date: null,

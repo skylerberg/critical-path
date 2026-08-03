@@ -26,6 +26,7 @@ function task(id: string, columnId: string, title: string, position: number): Bo
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
   };
 }
 

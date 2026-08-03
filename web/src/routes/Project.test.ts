@@ -76,6 +76,7 @@ function task(id: string, columnId: string, title: string, position = 1000): Boa
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
   };
 }
 

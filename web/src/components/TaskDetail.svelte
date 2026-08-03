@@ -15,6 +15,7 @@
   import LabelPicker from './LabelPicker.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
   import TaskActivity from './TaskActivity.svelte';
+  import TaskAttachments from './TaskAttachments.svelte';
   import TaskChecklist from './TaskChecklist.svelte';
   import Announcer from './ui/Announcer.svelte';
   import Badge from './ui/Badge.svelte';
@@ -530,6 +531,13 @@
               }}
             />
           {/if}
+        </section>
+      {/if}
+
+      {#if !anonymous}
+        <section class="flex flex-col gap-2">
+          <h3 class="text-sm font-semibold text-muted">Attachments</h3>
+          <TaskAttachments {taskId} {readonly} />
         </section>
       {/if}
 
