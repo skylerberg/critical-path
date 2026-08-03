@@ -68,13 +68,15 @@ export function toInvitationResponse(
 // It says which project's pending invitations changed and nothing more: an
 // address is the last thing that should ride a fan-out, and the readers allowed
 // to know one can refetch the list they are already allowed to read.
+// Broadcast because the panel that shows the list also opens from the project
+// list, where an editor is sitting in no board's room.
 export function publishInvitationsChanged(c: Pick<AppContext, 'get'>, projectId: string): void {
   publishAfterCommit(
     c,
     INVITATIONS_CHANGED,
     projectId,
     { project_id: projectId },
-    { editorsOnly: true }
+    { editorsOnly: true, broadcast: true }
   );
 }
 

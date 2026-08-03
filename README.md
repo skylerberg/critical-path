@@ -892,9 +892,14 @@ project" to "can write it" — creator plus `project_member` rows whose role is
 exactly `editor`, normalized fail-closed like everywhere else. A viewer, a
 signed-in non-member sitting in a public board's room, and an unrelated socket
 all receive nothing. The narrowing lives in the delivery layer, not in the
-publishers: it is checked before the exact-recipient and broadcast shortcuts,
-so an entry carrying a recipient list can only ever narrow the set further, and
-an editor-scoped entry with no project reaches nobody. The payload deliberately
+publishers: it is checked before the exact-recipient shortcut, so an entry
+carrying a recipient list can only ever narrow the set further, and an
+editor-scoped entry with no project reaches nobody. It is also broadcast, so
+the candidates are every authed socket rather than the board's room: the share
+panel opens from the project list too, and a client sitting there is subscribed
+to nothing, so a room-scoped event would leave exactly the panel this exists for
+stale. Widening the candidates is safe because the editor re-check, not the
+room, is what decides. The payload deliberately
 carries no address, not even the changed invitation's id — it says which board's
 list moved, and a client that may know the addresses refetches
 `GET /api/projects/:id/invitations`, which is editor-gated already. An event
