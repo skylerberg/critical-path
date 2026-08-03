@@ -5,6 +5,7 @@ import NotificationSettings from './NotificationSettings.svelte';
 import { session } from '../lib/session.svelte';
 
 const ASSIGNED = 'When someone assigns me a task';
+const BULK_ASSIGNED = 'When someone assigns me several cards at once';
 const ADDED = 'When someone adds me to a board';
 const WITHHELD_LINE = 'These emails are on hold until your address is verified.';
 
@@ -18,8 +19,12 @@ function signIn(emailVerified: boolean): void {
   };
 }
 
-function settingsResponse(task_assigned: boolean, added_to_project: boolean): Response {
-  return jsonResponse(200, { task_assigned, added_to_project });
+function settingsResponse(
+  task_assigned: boolean,
+  added_to_project: boolean,
+  bulk_task_assigned = true
+): Response {
+  return jsonResponse(200, { task_assigned, added_to_project, bulk_task_assigned });
 }
 
 beforeEach(() => {
@@ -55,8 +60,32 @@ describe('NotificationSettings', () => {
     expect(await request.clone().json()).toEqual({
       task_assigned: false,
       added_to_project: true,
+      bulk_task_assigned: true,
     });
     expect(await screen.findByText('Preferences saved')).toBeInTheDocument();
+  });
+
+  it('carries the digest toggle independently of the single-card one', async () => {
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true, true));
+    render(NotificationSettings);
+
+    const toggle = await screen.findByLabelText(BULK_ASSIGNED);
+    expect(toggle).toBeChecked();
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true, false));
+    await fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    expect(await requestAt(1).clone().json()).toEqual({
+      task_assigned: true,
+      added_to_project: true,
+      bulk_task_assigned: false,
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText(BULK_ASSIGNED)).not.toBeChecked();
+    });
+    expect(screen.getByLabelText(ASSIGNED)).toBeChecked();
   });
 
   it('reloads the stored preferences when a save fails', async () => {

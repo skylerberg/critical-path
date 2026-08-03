@@ -36,6 +36,18 @@ describe('Unsubscribe', () => {
     expect(await request.clone().json()).toEqual({ token: 'tok-123' });
   });
 
+  it('names the digest kind when that is what the link switched off', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { kind: 'bulk_task_assigned' }));
+    render(Unsubscribe, { token: 'tok-123' });
+    await confirm();
+
+    expect(
+      await screen.findByText(
+        'This address will no longer get email when someone assigns you several cards at once.'
+      )
+    ).toBeInTheDocument();
+  });
+
   // A 204 here is also the answer for a link whose address has moved on, which
   // matches no row, so the promise has to be one that holds in that case too.
   it('offers a second step, and promises it of the address rather than of a write', async () => {
