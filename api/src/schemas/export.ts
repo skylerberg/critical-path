@@ -14,9 +14,18 @@ const exportImageSchema = type({
   created_at: 'string',
 });
 
-const exportTaskSchema = boardTaskSchema
-  .omit('image_count')
-  .merge({ archived_at: 'string | null', images: exportImageSchema.array() });
+const exportChecklistItemSchema = type({
+  id: 'string',
+  text: 'string',
+  checked: 'boolean',
+  position: 'number',
+});
+
+const exportTaskSchema = boardTaskSchema.omit('image_count').merge({
+  archived_at: 'string | null',
+  images: exportImageSchema.array(),
+  checklist_items: exportChecklistItemSchema.array(),
+});
 
 export const projectExportQuerySchema = type({
   'format?': "'zip' | 'json'",

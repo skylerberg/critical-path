@@ -8,6 +8,7 @@ import { recordTaskActivity } from './taskActivity';
 import type { TiptapDoc, TiptapNode } from '../schemas/index';
 
 const IMAGE_SRC_PREFIX = '/api/images/';
+const CHECKLIST_INSERT_CHUNK = 5000;
 
 export interface CopyProjectInput {
   id: string;
@@ -184,6 +185,35 @@ export async function copyTasks(
         copyableDependencies.map((row) => ({
           blocker_task_id: taskIdMap.get(row.blocker_task_id) as string,
           blocked_task_id: taskIdMap.get(row.blocked_task_id) as string,
+        }))
+      )
+      .execute();
+  }
+
+  const checklistItems = await db
+    .selectFrom('checklist_item')
+    .select([
+      'checklist_item.task_id',
+      'checklist_item.text',
+      'checklist_item.checked',
+      'checklist_item.position',
+    ])
+    .where('checklist_item.task_id', 'in', input.sourceTaskIds)
+    .execute();
+
+  // Chunked because the item count per project is unbounded: Postgres caps a
+  // statement at 65,535 bind parameters, and one oversized copy would 500 after
+  // the image objects were already written.
+  for (let start = 0; start < checklistItems.length; start += CHECKLIST_INSERT_CHUNK) {
+    await db
+      .insertInto('checklist_item')
+      .values(
+        checklistItems.slice(start, start + CHECKLIST_INSERT_CHUNK).map((row) => ({
+          id: crypto.randomUUID(),
+          task_id: taskIdMap.get(row.task_id) as string,
+          text: row.text,
+          checked: row.checked,
+          position: row.position,
         }))
       )
       .execute();

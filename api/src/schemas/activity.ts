@@ -16,7 +16,7 @@ export const nullableActivityValueSchema = activityValueSchema.or('null');
 // One literal rather than a concatenation: arktype infers the union from the
 // source text, and a built string collapses to `never`.
 export const taskActivityKindSchema = type(
-  "'created' | 'title_changed' | 'description_changed' | 'column_changed' | 'due_date_changed' | 'label_added' | 'label_removed' | 'assignee_added' | 'assignee_removed' | 'blocker_added' | 'blocker_removed' | 'archived' | 'restored'"
+  "'created' | 'title_changed' | 'description_changed' | 'column_changed' | 'due_date_changed' | 'label_added' | 'label_removed' | 'assignee_added' | 'assignee_removed' | 'blocker_added' | 'blocker_removed' | 'archived' | 'restored' | 'checklist_item_added' | 'checklist_item_checked' | 'checklist_item_unchecked' | 'checklist_item_renamed' | 'checklist_item_removed' | 'checklist_item_promoted'"
 );
 
 export const taskActivitySchema = type({

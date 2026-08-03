@@ -20,6 +20,7 @@ const TASKS_CSV_HEADER = [
   'created_at',
   'updated_at',
   'archived_at',
+  'checklist',
   'description',
 ];
 
@@ -90,6 +91,10 @@ function resolveNames(ids: string[], index: NameIndex): string {
     .join('; ');
 }
 
+function checklistText(items: ProjectExport['tasks'][number]['checklist_items']): string {
+  return items.map((item) => `[${item.checked ? 'x' : ' '}] ${item.text}`).join('; ');
+}
+
 export function tasksCsv(exportPayload: ProjectExport): string {
   const columns = new Map(exportPayload.columns.map((column) => [column.id, column]));
   const labelNames = nameIndex(exportPayload.labels);
@@ -113,6 +118,7 @@ export function tasksCsv(exportPayload: ProjectExport): string {
       task.created_at,
       task.updated_at,
       task.archived_at ?? '',
+      checklistText(task.checklist_items),
       tiptapToPlainText(task.description),
     ]);
   }

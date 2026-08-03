@@ -49,6 +49,16 @@ export interface BoardColumn {
   project_id: string;
 }
 
+export interface ChecklistItem {
+  checked: Generated<boolean>;
+  created_at: Generated<Timestamp>;
+  id: string;
+  position: number;
+  task_id: string;
+  text: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Feedback {
   created_at: Generated<Timestamp>;
   id: string;
@@ -228,6 +238,7 @@ export interface WebhookDelivery {
 export interface DB {
   app_user: AppUser;
   board_column: BoardColumn;
+  checklist_item: ChecklistItem;
   feedback: Feedback;
   job: Job;
   label: Label;

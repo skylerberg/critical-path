@@ -388,8 +388,9 @@ router.get(
     summary: 'Get task detail',
     description:
       'Get a task in board-payload shape plus its project id, archived_at (null unless the ' +
-      'task is archived), images, and its full comment stream oldest first. Archived tasks ' +
-      'are readable here even though they are absent from every board payload.',
+      'task is archived), images, its full comment stream oldest first, and its checklist in ' +
+      'list order. Archived tasks are readable here even though they are absent from every ' +
+      'board payload.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -466,6 +467,24 @@ router.get(
       updated_at: comment.updated_at.toISOString(),
     }));
 
+    const checklistRows = await db
+      .selectFrom('checklist_item')
+      .selectAll()
+      .where('checklist_item.task_id', '=', id)
+      .orderBy('checklist_item.position')
+      .orderBy('checklist_item.id')
+      .execute();
+
+    const checklist_items = checklistRows.map((item) => ({
+      id: item.id,
+      task_id: item.task_id,
+      text: item.text,
+      checked: item.checked,
+      position: item.position,
+      created_at: item.created_at.toISOString(),
+      updated_at: item.updated_at.toISOString(),
+    }));
+
     return c.json(
       {
         ...result.task,
@@ -473,6 +492,7 @@ router.get(
         archived_at: result.archived_at,
         images,
         comments,
+        checklist_items,
       },
       200
     );
