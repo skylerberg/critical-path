@@ -425,6 +425,7 @@ describe('advertised keys really are bound', () => {
       label_ids: [],
       assignee_ids: [],
       blocker_ids: [],
+      attachment_count: 0,
       image_count: 0,
       cover_image_url: null,
       due_date: null,
