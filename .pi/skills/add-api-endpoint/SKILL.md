@@ -1,6 +1,6 @@
 ---
 name: add-api-endpoint
-description: Add a new HTTP route/handler to the Critical Path API (Hono). Use when adding or changing a POST/PUT/PATCH/DELETE/GET endpoint under src/routes. Enforces the project's 12 conventions: transaction middleware, client-supplied ids, describeRoute/OpenAPI, arktype validation, centralized authorization, and realtime publish.
+description: "Add a new HTTP route/handler to the Critical Path API (Hono). Use when adding or changing a POST/PUT/PATCH/DELETE/GET endpoint under src/routes. Enforces the project's 12 conventions: transaction middleware, client-supplied ids, describeRoute/OpenAPI, arktype validation, centralized authorization, and realtime publish."
 ---
 
 # Add an API endpoint

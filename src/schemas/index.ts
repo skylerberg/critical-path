@@ -25,3 +25,4 @@ export * from './attachments';
 export * from './activity';
 export * from './feedback';
 export * from './webhooks';
+export * from './taskSeries';

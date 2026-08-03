@@ -169,6 +169,8 @@ export interface Task {
   position: number;
   project_id: string;
   search_vector: Generated<string | null>;
+  series_id: string | null;
+  series_occurrence_date: Timestamp | null;
   title: string;
   updated_at: Generated<Timestamp>;
 }
@@ -238,6 +240,47 @@ export interface TaskLabel {
   task_id: string;
 }
 
+export interface TaskSeries {
+  column_id: string | null;
+  consecutive_failures: Generated<number>;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  description: Json | null;
+  due_date: Timestamp | null;
+  ended_at: Timestamp | null;
+  id: string;
+  last_error: string | null;
+  last_missed_date: Timestamp | null;
+  last_occurrence_date: Timestamp | null;
+  missed_occurrence_count: Generated<number>;
+  next_occurrence_at: Timestamp | null;
+  next_occurrence_date: Timestamp | null;
+  project_id: string;
+  rrule: string;
+  start_date: Timestamp;
+  status: Generated<string>;
+  timezone: string;
+  title: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface TaskSeriesAssignee {
+  series_id: string;
+  user_id: string;
+}
+
+export interface TaskSeriesChecklistItem {
+  id: string;
+  position: number;
+  series_id: string;
+  text: string;
+}
+
+export interface TaskSeriesLabel {
+  label_id: string;
+  series_id: string;
+}
+
 export interface WebhookDelivery {
   attempt_count: Generated<number>;
   created_at: Generated<Timestamp>;
@@ -276,5 +319,9 @@ export interface DB {
   task_dependency: TaskDependency;
   task_image: TaskImage;
   task_label: TaskLabel;
+  task_series: TaskSeries;
+  task_series_assignee: TaskSeriesAssignee;
+  task_series_checklist_item: TaskSeriesChecklistItem;
+  task_series_label: TaskSeriesLabel;
   webhook_delivery: WebhookDelivery;
 }

@@ -125,3 +125,8 @@ export const namedRefSchema = type({
   id: 'string',
   name: 'string',
 });
+
+// Shared by every `?project_id=` list query, for the same reason.
+export const projectIdQuerySchema = type({
+  project_id: uuid,
+});

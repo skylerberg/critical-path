@@ -1,5 +1,5 @@
 import { type } from 'arktype';
-import { uuid, stringWithLength, isoDateString } from './common';
+import { uuid, stringWithLength, isoDateString, projectIdQuerySchema } from './common';
 
 // Module-local so it never enters the OpenAPI schema-name registry.
 const intFromQuery = (min: number, max: number) =>
@@ -22,9 +22,7 @@ export const patchWebhookSchema = type({
   'disabled_at?': isoDateString.or('null'),
 });
 
-export const webhooksQuerySchema = type({
-  project_id: uuid,
-});
+export const webhooksQuerySchema = projectIdQuerySchema;
 
 export const webhookDeliveriesQuerySchema = type({
   'limit?': intFromQuery(1, 50),
