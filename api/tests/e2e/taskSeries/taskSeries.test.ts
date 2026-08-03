@@ -658,8 +658,8 @@ describe('Recurring series API', () => {
     });
   });
 
-  describe('no realtime or webhook surface for series configuration', () => {
-    it('publishes nothing to sockets or registrations when a series changes', async () => {
+  describe('realtime surface, but no webhook surface, for series configuration', () => {
+    it('pushes each change to sockets and none of them to registrations', async () => {
       const webhookId = newId();
       const registered = await ctx.request(owner.token).post('/api/webhooks', {
         id: webhookId,
@@ -679,7 +679,11 @@ describe('Recurring series API', () => {
       await ctx.request(owner.token).delete(`/api/task-series/${created.id}`);
       await settle();
 
-      expect(client.events.slice(from)).toEqual([]);
+      expect(client.events.slice(from).map((event) => event.type)).toEqual([
+        'series_created',
+        'series_updated',
+        'series_deleted',
+      ]);
       const deliveries = await db
         .selectFrom('webhook_delivery')
         .select('event_type')

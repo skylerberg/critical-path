@@ -484,6 +484,7 @@ describe('GET /api/public/projects/:id/board', () => {
     const imageRes = await ctx.request().get(`/api/images/${seeded.imageId}`);
     expect(imageRes.status).toBe(200);
     expect(imageRes.headers.get('Content-Type')).toBe('image/png');
+    expect((await imageRes.arrayBuffer()).byteLength).toBeGreaterThan(0);
   });
 
   it('sets a noindex robots header and never caches the response', async () => {

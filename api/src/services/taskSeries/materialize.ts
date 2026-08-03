@@ -1,6 +1,6 @@
 import { sql } from 'kysely';
 import { db } from '../../db/index';
-import type { BoardTask } from '../../schemas/index';
+import type { BoardTask, TaskSeriesResponse } from '../../schemas/index';
 import { logger } from '../../utils/logger';
 import { projectAccessIdsAmong } from '../authorization';
 import { fetchBoardTaskRows } from '../boardPayload';
@@ -8,6 +8,8 @@ import { PROJECT_CHANGED, publish } from '../realtime/bus';
 import { recordTaskActivity } from '../taskActivity';
 import { enqueueDeliveries } from '../webhooks/queue';
 import type { WebhookEvent } from '../webhooks/events';
+import { SERIES_UPDATED } from './events';
+import { fetchSeries } from './read';
 import { firstOccurrenceOnOrAfter, nextOccurrenceAfter, occurrencesBetween } from './rule';
 import { occurrenceInstant } from './write';
 
@@ -27,6 +29,7 @@ interface MaterializeResult {
   projectId: string;
   actorUserId: string | null;
   boardTasks: BoardTask[];
+  series: TaskSeriesResponse | null;
 }
 
 interface Candidate {
@@ -111,8 +114,13 @@ export async function runSeriesSweep(opts: { budgetMs?: number } = {}): Promise<
 // The transaction has already committed, so each publish is at most once and a
 // failure here must not undo the cards.
 function announce(result: MaterializeResult, webhookEvents: WebhookEvent[]): void {
-  if (result.boardTasks.length === 0) return;
   try {
+    // Even a run that created nothing moved the schedule on, and an open panel
+    // showing a next occurrence in the past is wrong rather than merely stale.
+    if (result.series !== null) {
+      publish({ type: SERIES_UPDATED, project_id: result.projectId, data: result.series });
+    }
+    if (result.boardTasks.length === 0) return;
     for (const boardTask of result.boardTasks) {
       publish({ type: 'task_created', project_id: result.projectId, data: boardTask });
       webhookEvents.push({
@@ -164,6 +172,10 @@ async function recordSeriesFailure(seriesId: string, err: unknown): Promise<void
       .where('id', '=', seriesId)
       .where('consecutive_failures', '>=', MAX_CONSECUTIVE_FAILURES)
       .execute();
+    const [row] = await fetchSeries(db, { ids: [seriesId] });
+    if (row) {
+      publish({ type: SERIES_UPDATED, project_id: row.project_id, data: row });
+    }
   } catch (recordErr) {
     logger.error({
       msg: 'Recurring series failure could not be recorded',
@@ -266,10 +278,12 @@ export async function materializeSeries(seriesId: string): Promise<MaterializeRe
       .execute();
 
     const rows = await fetchBoardTaskRows(trx, createdIds);
+    const [advanced] = await fetchSeries(trx, { ids: [series.id] });
     return {
       projectId: series.project_id,
       actorUserId,
       boardTasks: rows.map((row) => row.task),
+      series: advanced ?? null,
     };
   });
 }

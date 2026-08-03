@@ -6,6 +6,7 @@ import { AppError } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { storage } from '../services/storage/index';
+import { storedObjectResponse } from '../services/storage/response';
 import { logger } from '../utils/logger';
 import {
   idSchema,
@@ -54,8 +55,8 @@ router.get(
       throw new AppError(404, 'Image not found');
     }
 
-    const data = await storage.get(row.storage_key);
-    if (!data) {
+    const object = await storage.getStream(row.storage_key);
+    if (!object) {
       logger.error({
         msg: 'Image row exists but storage object is missing',
         imageId: id,
@@ -66,7 +67,7 @@ router.get(
 
     c.header('Content-Type', row.content_type);
     c.header('Cache-Control', 'private, max-age=31536000, immutable');
-    return c.body(new Uint8Array(data), 200);
+    return storedObjectResponse(c, object);
   }
 );
 

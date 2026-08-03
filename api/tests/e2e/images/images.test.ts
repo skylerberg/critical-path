@@ -292,6 +292,7 @@ describe('Images', () => {
       expect(res.status).toBe(200);
       expect(res.headers.get('Content-Type')).toBe('image/png');
       expect(res.headers.get('Cache-Control')).toBe('private, max-age=31536000, immutable');
+      expect(res.headers.get('Content-Length')).toBe(String(PNG_1X1.length));
       expect(Buffer.from(await res.arrayBuffer()).equals(PNG_1X1)).toBe(true);
     });
 
@@ -315,6 +316,7 @@ describe('Images', () => {
       const res = await ctx.request().get(`/api/images/${id}`);
       expect(res.status).toBe(200);
       expect(res.headers.get('Content-Type')).toBe('image/gif');
+      expect(Buffer.from(await res.arrayBuffer()).equals(polyglot)).toBe(true);
     });
 
     it('returns 404 for an unknown image', async () => {

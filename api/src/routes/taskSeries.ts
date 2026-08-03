@@ -10,6 +10,9 @@ import {
   createSeries,
   fetchSeries,
   patchSeries,
+  publishSeriesCreated,
+  publishSeriesDeleted,
+  publishSeriesUpdated,
 } from '../services/taskSeries/index';
 import {
   MAX_SERIES_PER_PROJECT,
@@ -150,6 +153,7 @@ router.post(
     if (!created) {
       throw new AppError(500, 'Failed to load created series');
     }
+    publishSeriesCreated(c, created);
     return c.json({ ...created, dropped_image_count: droppedImageCount }, 201);
   }
 );
@@ -198,6 +202,7 @@ router.patch(
     if (!updated) {
       throw new AppError(500, 'Failed to load updated series');
     }
+    publishSeriesUpdated(c, updated);
     return c.json(updated, 200);
   }
 );
@@ -227,8 +232,9 @@ router.delete(
     const db = c.get('db');
     const user = c.get('user');
 
-    await assertSeriesWrite(db, user.id, id);
+    const { series } = await assertSeriesWrite(db, user.id, id);
     await db.deleteFrom('task_series').where('id', '=', id).execute();
+    publishSeriesDeleted(c, series.project_id, id);
     return c.body(null, 204);
   }
 );

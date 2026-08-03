@@ -799,9 +799,87 @@ describe('Recurring series materialisation', () => {
     await settle();
     expect(stranger.events.filter((event) => event.type === 'task_created')).toEqual([]);
 
+    const advanced = await subscriber.waitForEvent(
+      (event) => event.type === 'series_updated' && event.data.id === series.id,
+      { from }
+    );
+    expect(advanced.project_id).toBe(projectId);
+    expect(advanced.data.next_occurrence_date).toBe(addDays(await todayIn('UTC'), 1));
+    expect(advanced.data.open_occurrence_count).toBe(1);
+
+    await settle();
+    expect(stranger.events.filter((event) => event.type === 'task_created')).toEqual([]);
+    expect(stranger.events.filter((event) => event.type === 'series_updated')).toEqual([]);
+
     subscriber.close();
     stranger.close();
     expect(await tasksOf(series.id)).toHaveLength(1);
+  });
+
+  // Weekly from 60 days back falls on neither today nor any day since the one
+  // forced due, so the sweep advances the schedule and creates nothing.
+  it('pushes the advanced schedule even when the sweep creates no card', async () => {
+    const subscriber = await RtClient.connect(port, member.token);
+    subscriber.subscribe(projectId);
+    await settle();
+    const from = subscriber.events.length;
+
+    const today = await todayIn('UTC');
+    const series = await createSeries({ preset: 'weekly', start_date: addDays(today, -60) });
+    await forceDue(series.id, addDays(today, -4));
+
+    expect(await runSeriesSweep()).toBe(1);
+    expect(await tasksOf(series.id)).toHaveLength(0);
+
+    const advanced = await subscriber.waitForEvent(
+      (event) => event.type === 'series_updated' && event.data.id === series.id,
+      { from }
+    );
+    expect(advanced.data.missed_occurrence_count).toBe(1);
+    expect(advanced.data.next_occurrence_date).toBe(addDays(today, 3));
+
+    await settle();
+    expect(subscriber.events.slice(from).filter((event) => event.type === 'task_created')).toEqual(
+      []
+    );
+    subscriber.close();
+  });
+
+  it('pushes the recorded failure and the pause it eventually forces', async () => {
+    const subscriber = await RtClient.connect(port, member.token);
+    subscriber.subscribe(projectId);
+    await settle();
+    const from = subscriber.events.length;
+
+    const today = await todayIn('UTC');
+    const poison = await createSeries({ title: 'broadcast poison' });
+    await db
+      .updateTable('task_series')
+      .set({ rrule: 'not a rule at all' })
+      .where('id', '=', poison.id)
+      .execute();
+
+    await runSeriesSweep();
+    const failed = await subscriber.waitForEvent(
+      (event) => event.type === 'series_updated' && event.data.id === poison.id,
+      { from }
+    );
+    expect(failed.data.last_error).not.toBeNull();
+    expect(failed.data.status).toBe('active');
+
+    for (let attempt = 2; attempt <= MAX_CONSECUTIVE_FAILURES; attempt++) {
+      await forceDue(poison.id, today);
+      await runSeriesSweep();
+    }
+
+    await subscriber.waitForEvent(
+      (event) =>
+        event.type === 'series_updated' &&
+        event.data.id === poison.id &&
+        event.data.status === 'paused',
+      { from }
+    );
+    subscriber.close();
   });
 
   it('queues exactly one webhook delivery per card', async () => {
