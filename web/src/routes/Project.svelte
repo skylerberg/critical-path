@@ -9,6 +9,7 @@
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { users } from '../lib/users.svelte';
   import ProjectHeader from '../components/ProjectHeader.svelte';
+  import SelectionBar from '../components/SelectionBar.svelte';
   import TaskDetail from '../components/TaskDetail.svelte';
   import Button from '../components/ui/Button.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
@@ -126,6 +127,7 @@
     <ProjectHeader {projectId} {view} />
     {#if view === 'board'}
       <Board {projectId} {readonly} />
+      <SelectionBar />
     {:else}
       <Graph {projectId} {readonly} />
     {/if}
