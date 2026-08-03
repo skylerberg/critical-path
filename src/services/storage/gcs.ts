@@ -3,7 +3,7 @@ import type { Bucket } from '@google-cloud/storage';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { isValidUuid } from '../../types/uuid';
-import type { StorageProvider } from './types';
+import type { StorageProvider, StoredObject } from './types';
 
 function isNotFound(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 404;
@@ -49,6 +49,25 @@ export class GcsStorageProvider implements StorageProvider {
       }
       throw err;
     }
+  }
+
+  // createReadStream cannot report a missing object as anything but a stream
+  // error, so existence is settled by the metadata read first; the generation it
+  // returns pins the read to the object that was measured.
+  async getStream(key: string): Promise<StoredObject | null> {
+    const resolved = this.resolveKey(key);
+    let metadata;
+    try {
+      [metadata] = await this.bucket.file(resolved).getMetadata();
+    } catch (err) {
+      if (isNotFound(err)) {
+        return null;
+      }
+      throw err;
+    }
+
+    const file = this.bucket.file(resolved, { generation: metadata.generation });
+    return { stream: file.createReadStream(), size: Number(metadata.size ?? 0) };
   }
 
   async copy(sourceKey: string, destKey: string): Promise<void> {
