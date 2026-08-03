@@ -16,6 +16,7 @@ const DECIDED: Record<string, 'in' | 'out'> = {
   'project_invitation.invited_by': 'out',
   'project_member.user_id': 'in',
   'project_user_position.user_id': 'out',
+  'project_user_seen.user_id': 'out',
   'session.user_id': 'in',
   'task_activity.actor_user_id': 'out',
   'task_assignee.user_id': 'out',

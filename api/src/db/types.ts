@@ -122,6 +122,13 @@ export interface ProjectUserPosition {
   user_id: string;
 }
 
+export interface ProjectUserSeen {
+  created_at: Generated<Timestamp>;
+  last_seen_at: Generated<Timestamp>;
+  project_id: string;
+  user_id: string;
+}
+
 export interface ProjectWebhook {
   consecutive_failures: Generated<number>;
   created_at: Generated<Timestamp>;
@@ -229,6 +236,7 @@ export interface DB {
   project_invitation: ProjectInvitation;
   project_member: ProjectMember;
   project_user_position: ProjectUserPosition;
+  project_user_seen: ProjectUserSeen;
   project_webhook: ProjectWebhook;
   session: Session;
   task: Task;

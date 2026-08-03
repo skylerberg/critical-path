@@ -40,6 +40,16 @@ export interface BoardPayloadBody {
   columns: BoardColumnPayload[];
   tasks: BoardTaskPayload[];
   labels: Array<{ id: string; name: string; color: string }>;
+  changed_task_ids: string[];
+}
+
+export interface ProjectListItemBody {
+  id: string;
+  name: string;
+  archived_at: string | null;
+  position: number | null;
+  last_seen_at: string | null;
+  has_unseen_changes: boolean;
 }
 
 export async function insertTask(options: {
