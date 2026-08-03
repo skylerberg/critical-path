@@ -14,6 +14,7 @@
   import QuickDependencyMenu from '../components/QuickDependencyMenu.svelte';
   import QuickLabelMenu from '../components/QuickLabelMenu.svelte';
   import QuickMoveMenu from '../components/QuickMoveMenu.svelte';
+  import SelectionBar from '../components/SelectionBar.svelte';
   import TaskDetail from '../components/TaskDetail.svelte';
   import Announcer from '../components/ui/Announcer.svelte';
   import Button from '../components/ui/Button.svelte';
@@ -132,6 +133,7 @@
     <ProjectHeader {projectId} {view} />
     {#if view === 'board'}
       <Board {projectId} {readonly} />
+      <SelectionBar />
     {:else}
       <Graph {projectId} {readonly} />
     {/if}

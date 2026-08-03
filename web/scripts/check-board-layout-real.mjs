@@ -87,6 +87,8 @@ const MEASURE = `(() => {
   });
   const cols = [...document.querySelectorAll('section')];
   const nr = nav?.getBoundingClientRect();
+  const bar = document.querySelector('[aria-label="Selection actions"]');
+  const br = bar?.getBoundingClientRect();
   const de = document.documentElement;
   return {
     cols: cols.length,
@@ -104,6 +106,12 @@ const MEASURE = `(() => {
     colH: cols.map((c) => Math.round(c.getBoundingClientRect().height)),
     navTop: nr && Math.round(nr.top),
     navW: nr && Math.round(nr.width),
+    barBottom: br && Math.round(br.bottom),
+    barW: br && Math.round(br.width),
+    barTaps: bar && [...bar.querySelectorAll('button')].map((b) => {
+      const r = b.getBoundingClientRect();
+      return Math.round(Math.min(r.width, r.height));
+    }),
   };
 })()`;
 
@@ -130,6 +138,22 @@ function check(m, vp) {
   const wantSnap = vp.mobile ? 'x mandatory' : 'none';
   if (m.boardSnap !== wantSnap)
     f.push(`board scroll-snap-type=${m.boardSnap} (want ${wantSnap} at rest)`);
+  if (!vp.selected) {
+    if (m.barBottom !== undefined) f.push('selection bar drawn with nothing selected');
+  } else if (m.barBottom === undefined) {
+    f.push('selection bar did not render');
+  } else {
+    // The whole point of docking the bar inside the board column instead of
+    // floating it over the viewport: it can never reach the bottom nav.
+    if (m.navTop !== undefined && m.barBottom > m.navTop + 2)
+      f.push(`selection bar overlaps the bottom nav (barBottom=${m.barBottom} navTop=${m.navTop})`);
+    if (m.barBottom > vp.h + 2)
+      f.push(`selection bar below the viewport (barBottom=${m.barBottom} vh=${vp.h})`);
+    if (m.barW > vp.w + 2) f.push(`selection bar wider than screen (barW=${m.barW} vw=${vp.w})`);
+    if (m.barTaps.length !== 5) f.push(`selection bar has ${m.barTaps.length} buttons (want 5)`);
+    if (!m.barTaps.every((t) => t >= 44))
+      f.push(`selection bar tap target below 44px (${m.barTaps.join(',')})`);
+  }
   return f;
 }
 
@@ -138,6 +162,9 @@ const CASES = [
   { w: 390, h: 844, cols: 4, tasks: 40 }, // tall columns -> scroll internally
   { w: 390, h: 844, cols: 8, tasks: 20 }, // many columns -> horizontal scroll, no document overflow
   { w: 1280, h: 800, cols: 4, tasks: 12 }, // desktop: lg sidebar, no bottom nav
+  { w: 390, h: 844, cols: 4, tasks: 40, selected: 3 }, // selection bar: board gives up the height, nav keeps its own
+  { w: 360, h: 640, cols: 4, tasks: 40, selected: 3 }, // narrowest phone: count + five 44px targets on one row
+  { w: 1280, h: 800, cols: 4, tasks: 12, selected: 3 }, // desktop: bar docks above the fold, no nav to clear
 ];
 
 let failed = 0;
@@ -145,14 +172,14 @@ console.log('check:layout:real — real Board.svelte in headless Chrome');
 for (const c of CASES) {
   const mobile = c.w < 1024;
   await setViewport({ width: c.w, height: c.h, mobile });
-  await goto(`${PROBE}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
+  await goto(`${PROBE}?cols=${c.cols}&tasks=${c.tasks}&selected=${c.selected ?? 0}`, { wait: 700 });
   const m = await evalPage(MEASURE);
   // On desktop the bottom nav is display:none; allow navTop/navW to be undefined.
   const failures = mobile
     ? check(m, { ...c, mobile })
-    : check(m, { ...c, mobile }).filter((x) => !x.includes('nav'));
+    : check(m, { ...c, mobile }).filter((x) => !x.includes('bottom nav'));
   // The desktop case disables snap via lg:snap-none, so its resting value is 'none' too.
-  const tag = `${mobile ? 'MOBILE' : 'DESKTOP'} ${c.w}x${c.h} cols=${c.cols} tasks=${c.tasks}`;
+  const tag = `${mobile ? 'MOBILE' : 'DESKTOP'} ${c.w}x${c.h} cols=${c.cols} tasks=${c.tasks} selected=${c.selected ?? 0}`;
   if (failures.length) {
     failed++;
     console.log(`  ✗ ${tag}`);

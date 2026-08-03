@@ -1,17 +1,21 @@
-// Dev-only probe (NOT shipped). Mounts the real Board.svelte (real Tailwind v4
-// CSS, real svelte-dnd-action) with seeded data inside a shell that mirrors
+// Dev-only probe (NOT shipped). Mounts the real Board.svelte and SelectionBar
+// (real Tailwind v4 CSS, real svelte-dnd-action) with seeded data in a shell that mirrors
 // App.svelte + Project.svelte, so headless Chrome can measure the TRUE rendered
 // layout. Driven by scripts/check-board-layout-real.mjs; documented by the
 // browser-repro skill.
 import { mount } from 'svelte';
 import '../src/app.css';
 import { board } from '../src/lib/board.svelte';
+import { selection } from '../src/lib/selection.svelte';
+import { session } from '../src/lib/session.svelte';
+import SelectionBar from '../src/components/SelectionBar.svelte';
 import Board from '../src/routes/Board.svelte';
 
 const params = new URLSearchParams(location.search);
 const COLS = Number(params.get('cols') ?? '4');
 const TASKS = Number(params.get('tasks') ?? '12');
 const READONLY = params.get('readonly') === '1';
+const SELECTED = Number(params.get('selected') ?? '0');
 
 // Card links are built by encoding the id, which rejects anything that is not a
 // uuid, so seeded ids have to be shaped like the real ones or nothing renders.
@@ -21,9 +25,25 @@ function probeId(n: number): string {
 }
 
 const PROJECT_ID = probeId(1);
+const USER_ID = probeId(2);
 board.currentProjectId = PROJECT_ID;
+// Signed in as the project's creator, which is what makes the set mutable — every
+// selection mutator no-ops on a board the user cannot edit.
+session.user = {
+  id: USER_ID,
+  name: 'Probe',
+  email: 'probe@example.com',
+  avatar_url: null,
+  email_verified: true,
+};
 // Minimal project: the board only needs project to be non-null for derived state.
-(board as unknown as { project: unknown }).project = { id: PROJECT_ID, name: 'Probe project' };
+(board as unknown as { project: unknown }).project = {
+  id: PROJECT_ID,
+  name: 'Probe project',
+  created_by: USER_ID,
+  member_ids: [],
+  members: [],
+};
 
 (board as unknown as { columns: unknown[] }).columns = Array.from({ length: COLS }, (_, c) => ({
   id: `c${c}`,
@@ -79,7 +99,15 @@ document.getElementById('app')!.innerHTML = `
   </div>
 `;
 
+const shell = document.getElementById('project-shell')!;
+
 mount(Board, {
-  target: document.getElementById('project-shell')!,
+  target: shell,
   props: { projectId: PROJECT_ID, readonly: READONLY },
 });
+
+for (let t = 0; t < SELECTED; t++) {
+  selection.toggle(probeId(1000 + t));
+}
+
+mount(SelectionBar, { target: shell });
