@@ -126,10 +126,16 @@ describe('Link unfurl', () => {
     expect(preview.status).toBe(200);
     expect(preview.headers.get('Content-Type')).toBe('image/webp');
     expect(preview.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox");
+    const previewBytes = Buffer.from(await preview.arrayBuffer());
+    expect(previewBytes.length).toBeGreaterThan(0);
+    expect(preview.headers.get('Content-Length')).toBe(String(previewBytes.length));
 
     const favicon = await ctx.request().get(`/api/attachments/${id}/favicon`);
     expect(favicon.status).toBe(200);
     expect(favicon.headers.get('Content-Type')).toBe('image/webp');
+    const faviconBytes = Buffer.from(await favicon.arrayBuffer());
+    expect(faviconBytes.length).toBeGreaterThan(0);
+    expect(favicon.headers.get('Content-Length')).toBe(String(faviconBytes.length));
   });
 
   it.each([
