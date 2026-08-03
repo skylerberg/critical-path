@@ -35,6 +35,7 @@ import { db } from './db/index';
 import { attachRealtime, initRedisBus, closeRedisBus } from './services/realtime/index';
 import { closeRedis } from './services/redis';
 import { startJobWorker } from './services/jobs/index';
+import { registerAttachmentUnfurlHandler } from './services/attachments/unfurl';
 import { startWebhookWorker } from './services/webhooks/index';
 import { logger } from './utils/logger';
 
@@ -53,9 +54,12 @@ import labelsRouter from './routes/labels';
 import commentsRouter from './routes/comments';
 import checklistItemsRouter from './routes/checklistItems';
 import imagesRouter from './routes/images';
+import attachmentsRouter from './routes/attachments';
 import feedbackRouter from './routes/feedback';
 import publicBoardsRouter from './routes/publicBoards';
 import webhooksRouter from './routes/webhooks';
+
+registerAttachmentUnfurlHandler();
 
 export const app = new Hono<{ Variables: Variables }>();
 
@@ -65,6 +69,7 @@ app.use('*', compress());
 
 const IMAGE_UPLOAD_PATH = /^\/api\/tasks\/[^/]+\/images$/;
 const AVATAR_UPLOAD_PATH = '/api/auth/me/avatar';
+const ATTACHMENT_UPLOAD_PATH = '/api/attachments/files';
 const globalBodyLimit = bodyLimit({
   maxSize: 1024 * 1024,
   onError: (c) => c.json({ error: 'Payload too large' }, 413),
@@ -74,7 +79,9 @@ const globalBodyLimit = bodyLimit({
 app.use('*', (c, next) => {
   if (
     c.req.method === 'POST' &&
-    (IMAGE_UPLOAD_PATH.test(c.req.path) || c.req.path === AVATAR_UPLOAD_PATH)
+    (IMAGE_UPLOAD_PATH.test(c.req.path) ||
+      c.req.path === AVATAR_UPLOAD_PATH ||
+      c.req.path === ATTACHMENT_UPLOAD_PATH)
   ) {
     return next();
   }
@@ -136,6 +143,7 @@ const openAPIOptions = {
       { name: 'Comments', description: 'Task comment threads' },
       { name: 'Checklists', description: 'Card checklist items' },
       { name: 'Images', description: 'Task image upload and retrieval' },
+      { name: 'Attachments', description: 'Task file and link attachments' },
       { name: 'Avatars', description: 'User profile image upload and retrieval' },
       { name: 'Feedback', description: 'User-submitted product feedback' },
       { name: 'Webhooks', description: 'Per-project outbound HTTP callbacks' },
@@ -178,6 +186,7 @@ app.route('/api/labels', labelsRouter);
 app.route('/api/comments', commentsRouter);
 app.route('/api/checklist-items', checklistItemsRouter);
 app.route('/api/images', imagesRouter);
+app.route('/api/attachments', attachmentsRouter);
 app.route('/api/avatars', avatarsRouter);
 app.route('/api/feedback', feedbackRouter);
 app.route('/api/webhooks', webhooksRouter);

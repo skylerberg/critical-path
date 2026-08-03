@@ -3,7 +3,12 @@ import { AppError } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { storage } from '../storage/index';
 import { tasksCsv } from './csv';
-import { imageArchivePath, type ExportImageRow } from './payload';
+import {
+  attachmentArchivePath,
+  imageArchivePath,
+  type ExportAttachmentRow,
+  type ExportImageRow,
+} from './payload';
 import { ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, zipSizeUpperBound, zipStream, type ZipEntry } from './zip';
 
 const MANIFEST_NAME = 'project.json';
@@ -11,7 +16,8 @@ const CSV_NAME = 'tasks.csv';
 const TOO_LARGE_MESSAGE =
   'This project is too large to package as a zip archive. Export it with ?format=json, ' +
   'which carries no image bytes, and fetch each one from GET /api/images/<id> using the ids ' +
-  'in tasks[].images[].';
+  'in tasks[].images[]. File attachments work the same way: the JSON export lists them under ' +
+  'tasks[].attachments[] and each one is fetched from GET /api/attachments/<id>/download.';
 
 export function exportFilename(projectName: string, now: Date): string {
   const slug =
@@ -23,8 +29,13 @@ export function exportFilename(projectName: string, now: Date): string {
   return `${slug}-${now.toISOString().slice(0, 10)}.zip`;
 }
 
-function assertArchiveFits(manifest: Buffer, csv: Buffer, images: ExportImageRow[]): void {
-  if (images.length + 2 > ZIP_MAX_ENTRIES) {
+function assertArchiveFits(
+  manifest: Buffer,
+  csv: Buffer,
+  images: ExportImageRow[],
+  attachments: ExportAttachmentRow[]
+): void {
+  if (images.length + attachments.length + 2 > ZIP_MAX_ENTRIES) {
     throw new AppError(413, TOO_LARGE_MESSAGE);
   }
   const bound = zipSizeUpperBound([
@@ -34,17 +45,23 @@ function assertArchiveFits(manifest: Buffer, csv: Buffer, images: ExportImageRow
       name: imageArchivePath(image.id, image.content_type),
       size: image.size_bytes,
     })),
+    ...attachments.map((attachment) => ({
+      name: attachmentArchivePath(attachment.id, attachment.filename),
+      size: attachment.size_bytes,
+    })),
   ]);
   if (bound > ZIP_MAX_BYTES) {
     throw new AppError(413, TOO_LARGE_MESSAGE);
   }
 }
 
-// Image bytes are already compressed, so deflating them costs CPU for nothing.
+// Image bytes are already compressed, so deflating them costs CPU for nothing;
+// attachment bytes are arbitrary and just as likely to be an archive already.
 async function* archiveEntries(
   manifest: Buffer,
   csv: Buffer,
-  images: ExportImageRow[]
+  images: ExportImageRow[],
+  attachments: ExportAttachmentRow[]
 ): AsyncGenerator<ZipEntry> {
   yield { name: MANIFEST_NAME, data: manifest, deflate: true };
   yield { name: CSV_NAME, data: csv, deflate: true };
@@ -61,17 +78,35 @@ async function* archiveEntries(
     }
     yield { name: imageArchivePath(image.id, image.content_type), data, deflate: false };
   }
+
+  for (const attachment of attachments) {
+    const data = await storage.get(attachment.storage_key);
+    if (!data) {
+      logger.warn({
+        msg: 'Attachment row exists but storage object is missing',
+        attachmentId: attachment.id,
+        storageKey: attachment.storage_key,
+      });
+      continue;
+    }
+    yield {
+      name: attachmentArchivePath(attachment.id, attachment.filename),
+      data,
+      deflate: false,
+    };
+  }
 }
 
 export function projectExportArchive(
   exportPayload: ProjectExport,
   images: ExportImageRow[],
+  attachments: ExportAttachmentRow[],
   now: Date
 ): ReadableStream<Uint8Array> {
   const manifest = Buffer.from(JSON.stringify(exportPayload, null, 2), 'utf8');
   const csv = Buffer.from(tasksCsv(exportPayload), 'utf8');
   // Must throw before the first byte is written; once the body starts streaming
   // the status code is already committed.
-  assertArchiveFits(manifest, csv, images);
-  return zipStream(archiveEntries(manifest, csv, images), now);
+  assertArchiveFits(manifest, csv, images, attachments);
+  return zipStream(archiveEntries(manifest, csv, images, attachments), now);
 }

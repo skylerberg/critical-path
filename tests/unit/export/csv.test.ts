@@ -198,6 +198,7 @@ function taskFixture(
     blocker_ids: [],
     images: [],
     checklist_items: [],
+    attachments: [],
     ...overrides,
   };
 }
@@ -207,7 +208,7 @@ describe('tasksCsv', () => {
     const csv = tasksCsv(exportFixture());
     expect(csv.startsWith('\ufeff')).toBe(true);
     expect(csv.slice(1)).toBe(
-      'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,checklist,description\r\n'
+      'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,attachment_count,created_at,updated_at,archived_at,checklist,description\r\n'
     );
   });
 
@@ -250,6 +251,21 @@ describe('tasksCsv', () => {
                 created_at: '2026-07-04T00:00:00.000Z',
               },
             ],
+            attachments: [
+              {
+                id: 'a1',
+                kind: 'file',
+                path: 'attachments/a1.pdf',
+                title: null,
+                description: null,
+                filename: 'spec.pdf',
+                content_type: 'application/pdf',
+                size_bytes: 9,
+                url: null,
+                unfurl_state: null,
+                created_at: '2026-07-04T00:00:00.000Z',
+              },
+            ],
           }),
         ],
       })
@@ -257,10 +273,10 @@ describe('tasksCsv', () => {
 
     const lines = csv.split('\r\n');
     expect(lines[1]).toBe(
-      't1,Blocker task,Done,true,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
+      't1,Blocker task,Done,true,1000,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[2]).toBe(
-      't2,Blocked task,To Do,false,2000,2026-08-03,bug,Owner,Blocker task,1,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
+      't2,Blocked task,To Do,false,2000,2026-08-03,bug,Owner,Blocker task,1,1,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[3]).toBe('');
   });
@@ -292,7 +308,7 @@ describe('tasksCsv', () => {
     );
 
     expect(csv.split('\r\n')[3]).toBe(
-      't3,Three,To Do,false,3000,,bug; ui,Owner; Dev,One; Two,0,' +
+      't3,Three,To Do,false,3000,,bug; ui,Owner; Dev,One; Two,0,0,' +
         '2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
   });
@@ -343,7 +359,7 @@ describe('tasksCsv', () => {
     );
 
     expect(csv.split('\r\n')[1]).toBe(
-      't1,Task,To Do,false,1000,,bug,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
+      't1,Task,To Do,false,1000,,bug,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
   });
 
@@ -364,10 +380,10 @@ describe('tasksCsv', () => {
 
     const lines = csv.split('\r\n');
     expect(lines[1]).toBe(
-      't1,Live,To Do,false,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
+      't1,Live,To Do,false,1000,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[2]).toBe(
-      't2,Shelved,To Do,false,2000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,' +
+      't2,Shelved,To Do,false,2000,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,' +
         '2026-07-05T00:00:00.000Z,,'
     );
   });

@@ -21,10 +21,26 @@ const exportChecklistItemSchema = type({
   position: 'number',
 });
 
+// path is null for a link: only file bytes ride in the archive.
+const exportAttachmentSchema = type({
+  id: 'string',
+  kind: "'file' | 'link'",
+  path: 'string | null',
+  title: 'string | null',
+  description: 'string | null',
+  filename: 'string | null',
+  content_type: 'string | null',
+  size_bytes: 'number | null',
+  url: 'string | null',
+  unfurl_state: "'pending' | 'ok' | 'failed' | null",
+  created_at: 'string',
+});
+
 const exportTaskSchema = boardTaskSchema.omit('image_count').merge({
   archived_at: 'string | null',
   images: exportImageSchema.array(),
   checklist_items: exportChecklistItemSchema.array(),
+  attachments: exportAttachmentSchema.array(),
 });
 
 export const projectExportQuerySchema = type({

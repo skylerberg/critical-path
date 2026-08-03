@@ -7,6 +7,7 @@ import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertTaskWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { sniffImageContentType } from '../services/imageSniff';
+import { assertProjectStorageQuota } from '../services/attachments/quota';
 import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
 import { isValidUuid } from '../types/uuid';
@@ -111,6 +112,9 @@ router.post(
     if (!contentType) {
       throw new AppError(422, 'Unsupported image type; allowed formats: PNG, JPEG, GIF, WebP');
     }
+
+    // Shared with attachments, or the quota is bypassed by uploading PNGs.
+    await assertProjectStorageQuota(db, project.id, data.length);
 
     const storageKey = crypto.randomUUID();
     await storage.put(storageKey, data, contentType);
