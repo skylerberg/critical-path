@@ -20,6 +20,7 @@ export * from './search';
 export * from './labels';
 export * from './images';
 export * from './comments';
+export * from './checklists';
 export * from './activity';
 export * from './feedback';
 export * from './webhooks';

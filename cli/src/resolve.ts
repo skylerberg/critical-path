@@ -18,6 +18,7 @@ export type MyTaskPersonGroup = components['schemas']['MyTaskPersonGroup'];
 export type MyTasksResponse = components['schemas']['MyTasksResponse'];
 export type ProjectInvitation = components['schemas']['ProjectInvitation'];
 export type TaskDetail = components['schemas']['TaskDetailResponse'];
+export type ChecklistItem = components['schemas']['ChecklistItem'];
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

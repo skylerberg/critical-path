@@ -11,6 +11,7 @@ import { nullableTiptapDocSchema } from './tiptap';
 import { boardTaskSchema } from './board';
 import { imageResponseSchema } from './images';
 import { commentSchema } from './comments';
+import { checklistItemSchema } from './checklists';
 
 export const TASK_TITLE_MIN_LENGTH = 1;
 export const TASK_TITLE_MAX_LENGTH = 2000;
@@ -59,6 +60,7 @@ export const taskDetailResponseSchema = boardTaskSchema.merge({
   archived_at: 'string | null',
   images: imageResponseSchema.array(),
   comments: commentSchema.array(),
+  checklist_items: checklistItemSchema.array(),
 });
 
 export type TaskDetailResponse = typeof taskDetailResponseSchema.infer;

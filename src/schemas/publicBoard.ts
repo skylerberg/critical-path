@@ -33,6 +33,8 @@ export const publicBoardTaskSchema = type({
   image_count: 'number',
   cover_image_url: 'string | null',
   comment_count: 'number',
+  checklist_item_count: 'number',
+  checklist_done_count: 'number',
 });
 
 // Spelled out rather than reusing the authenticated comment shape: the day a
@@ -47,6 +49,17 @@ export const publicBoardCommentSchema = type({
   updated_at: 'string',
 });
 
+// Spelled out for the same reason, and the missing timestamps are also what keep
+// it from producing JSON Schema identical to the authenticated item and colliding
+// in the schema-name registry.
+export const publicBoardChecklistItemSchema = type({
+  id: 'string',
+  task_id: 'string',
+  text: 'string',
+  checked: 'boolean',
+  position: finiteNumber,
+});
+
 export const publicBoardSchema = type({
   project: publicBoardProjectSchema,
   columns: boardColumnSchema.array(),
@@ -54,6 +67,7 @@ export const publicBoardSchema = type({
   labels: boardLabelSchema.array(),
   users: publicBoardUserSchema.array(),
   comments: publicBoardCommentSchema.array(),
+  checklist_items: publicBoardChecklistItemSchema.array(),
 });
 
 export type PublicBoard = typeof publicBoardSchema.infer;

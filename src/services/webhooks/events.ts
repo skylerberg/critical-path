@@ -28,6 +28,9 @@ export const WEBHOOK_EVENT_TYPES: ReadonlySet<string> = new Set([
   'comment_created',
   'comment_updated',
   'comment_deleted',
+  'checklist_item_created',
+  'checklist_item_updated',
+  'checklist_item_deleted',
   'project_updated',
 ]);
 

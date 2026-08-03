@@ -22,6 +22,8 @@ export interface BoardTaskPayload {
   image_count: number;
   cover_image_url: string | null;
   comment_count: number;
+  checklist_item_count: number;
+  checklist_done_count: number;
 }
 
 export interface BoardPayloadBody {
