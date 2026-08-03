@@ -96,7 +96,7 @@ row: a viewer attempting a mutation, and the two owner-only operations
 `editor` is treated as a viewer, so a future third role fails closed.
 
 - `PUT /api/projects/:id/members` (`{ user_ids?: uuid[], roles?: [{ user_id,
-  role }] }`, up to 100 of each) replaces the member set, changes roles, or
+role }] }`, up to 100 of each) replaces the member set, changes roles, or
   both. **Omit `user_ids` to change roles only** — that form can never add or
   remove anyone, however stale the caller's cached member list is, and it is
   what the web and CLI role controls send. A retained member with no `roles`
@@ -287,7 +287,7 @@ Signing up or logging in creates a session row and returns its opaque token.
 An account can see its own live sessions and revoke any one of them.
 
 - `GET /api/auth/sessions` lists them (`{ id, user_agent, created_at,
-  expires_at, is_current }`), newest first. `is_current` is true on the session
+expires_at, is_current }`), newest first. `is_current` is true on the session
   the request was made with — a caller holding a personal access token therefore
   sees every session and none marked current, because a token is not a session.
 - `DELETE /api/auth/sessions/:id` revokes one. Someone else's session id
@@ -342,7 +342,7 @@ and are accepted anywhere a session token is, including the `/ws` handshake.
   `{ token, personal_access_token }` and is the **only** time the secret is
   returned — only its sha256 hash is stored. Secrets are prefixed `cpat_`.
 - `GET /api/auth/tokens` lists the caller's tokens (`{ id, name, created_at,
-  expires_at }`), newest first, never the secret. Expired tokens stay listed
+expires_at }`), newest first, never the secret. Expired tokens stay listed
   until revoked so they can be seen and cleaned up.
 - `DELETE /api/auth/tokens/:id` revokes one. Someone else's token id answers
   404, the same as an unknown one.
@@ -448,7 +448,7 @@ RRULE value and evaluated with a library, because month ends, leap years and
 wrong. The UI offers six presets — daily, every weekday, weekly on the start
 day, monthly on the date, monthly on the nth weekday, yearly — and each maps to
 a rule. There is no general RRULE editor. Two of the mappings are not the
-obvious ones: `FREQ=MONTHLY;BYMONTHDAY=31` *skips* every month without a 31st,
+obvious ones: `FREQ=MONTHLY;BYMONTHDAY=31` _skips_ every month without a 31st,
 and `FREQ=YEARLY` from 29 February fires only in leap years, so both are stored
 as `BYMONTHDAY=<d>,-1;BYSETPOS=1`, which clamps to the last day instead. A rule
 that arrives outside the curated set is accepted, evaluates correctly, and
@@ -467,7 +467,7 @@ inside the length cap while multiplying every search by 86,400), and keep
 fire is a 422, not a zombie row. Every occurrence search is additionally bounded
 to 100 years. A project holds at most 50 series.
 
-**Time is a calendar day in a zone.** `next_occurrence_date` says *which*
+**Time is a calendar day in a zone.** `next_occurrence_date` says _which_
 occurrence is next; `next_occurrence_at` is the precomputed instant the sweep
 may create it, written as
 `(next_occurrence_date::timestamp at time zone timezone)` so Postgres tzdata
@@ -554,7 +554,7 @@ assignee without access to the destination dropped — the same rule the rest of
 the copy applies. The copy keeps the source's status, so an active schedule
 behaves in the copy exactly as it does in the original, and its next occurrence
 is recomputed from today rather than carried over, so a copy made after a missed
-occurrence does not immediately fire a stale one. A *duplicated card*, by
+occurrence does not immediately fire a stale one. A _duplicated card_, by
 contrast, is an ordinary card with no series link.
 
 **A card names the schedule it came from.** `GET /api/tasks/:id` carries
@@ -670,15 +670,15 @@ Images keep their own table, their own routes, their own covers and their own
 kinds live in one list embedded in the task-detail payload as `attachments[]`.
 Everything lives under `/api/attachments`.
 
-| Route                                 | Auth   |
-| ------------------------------------- | ------ |
-| `POST /api/attachments/files`         | bearer |
-| `POST /api/attachments/links`         | bearer |
-| `PATCH /api/attachments/:id`          | bearer |
-| `DELETE /api/attachments/:id`         | bearer |
-| `GET /api/attachments/:id/download`   | bearer |
-| `GET /api/attachments/:id/preview`    | none   |
-| `GET /api/attachments/:id/favicon`    | none   |
+| Route                               | Auth   |
+| ----------------------------------- | ------ |
+| `POST /api/attachments/files`       | bearer |
+| `POST /api/attachments/links`       | bearer |
+| `PATCH /api/attachments/:id`        | bearer |
+| `DELETE /api/attachments/:id`       | bearer |
+| `GET /api/attachments/:id/download` | bearer |
+| `GET /api/attachments/:id/preview`  | none   |
+| `GET /api/attachments/:id/favicon`  | none   |
 
 **Files of any type.** `POST /api/attachments/files` takes the file's raw
 bytes as the whole request body; `task_id`, `filename`, the declared
@@ -693,7 +693,7 @@ declares it. A malformed query parameter is a 400, an empty body a 422.
 Nothing is sniffed and nothing is normalised — a PDF cannot be re-encoded
 away, so the safety of an arbitrary upload comes from how it is served rather
 than from what it is.
-`content_type` records the sanitised *declared* MIME type; it drives the UI
+`content_type` records the sanitised _declared_ MIME type; it drives the UI
 glyph and the label and **is never written to a response header**. `filename`
 is likewise sanitised at upload and is immutable: `PATCH` writes `title`, the
 display label, so a rename can never change what a download saves as.
@@ -946,10 +946,11 @@ removing a row that is not there is a no-op. A card the call applied to but did
 not change — it already carried the label — appears in neither the response nor
 the activity log; that is a no-op, not a skip.
 
-A bulk assignment notifies nobody. The repeat suppression that keeps assignment
-mail sane is keyed per task, so twenty cards are twenty distinct budgets and one
-click could send twenty emails to each added user. A copy notifies nobody for
-the same family of reason.
+A bulk assignment sends no per-card email. The repeat suppression that keeps
+assignment mail sane is keyed per task, so twenty cards are twenty distinct
+budgets and one click would send twenty emails to each added user. Each added
+user gets one coalesced `bulk_task_assigned` digest instead — see "The bulk
+assignment digest". A copy still notifies nobody at all.
 
 Each route emits exactly one event and no per-task events — see Realtime — and
 none of them is a webhook event.
@@ -1220,7 +1221,7 @@ only that something happened in a project, once per request however many
 mutations it made, so that a member sitting on the project list — subscribed to
 no room at all — can raise the unseen dot without polling. It carries
 `actor_user_id` rather than being withheld from its own actor, because the
-actor's *other* devices still need it; only the dot ignores its own. Nothing
+actor's _other_ devices still need it; only the dot ignores its own. Nothing
 per-reader may ever ride in it, `has_unseen_changes` least of all: one
 recipient's answer would be wrong for every other member of the same board.
 The same rule is why the `project_updated` broadcast carries the projects-list
@@ -1412,7 +1413,10 @@ surface: nothing about a job belongs to a project, and the authorization model
 here is project-scoped only, so there is no role that could be allowed to see
 one. Registering a kind is a code change.
 
-The one registered kind is `attachment_unfurl`, which fetches the title,
+Registered kinds are `attachment_unfurl`, and the two periodic sweeps
+`task_series_materialize` and `assignment_digest`.
+
+`attachment_unfurl` fetches the title,
 description, preview image and favicon for a link attachment. It is one-shot,
 carries `{ attachment_id }` and nothing else, and never throws for a network
 outcome — a target that refuses, times out or resolves to a blocked address
@@ -1431,7 +1435,7 @@ The two share only the tick loop.
 **Why not pg-boss or graphile-worker**, which would supply cron, dead-lettering
 and inspection for free: both install and migrate their own schema from the
 process that starts them unless they are separately pre-migrated, and this
-deployment runs migrations to completion in a Job *before* any pod rolls, with
+deployment runs migrations to completion in a Job _before_ any pod rolls, with
 a strict-ordered migrator that refuses anything out of sequence. Both also want
 a connection string, where nothing here has one — the pool is assembled from
 discrete `DB_*` parts — so either would arrive with a second pool beside the
@@ -1594,11 +1598,18 @@ editor typed that address.
 
 ### Notification email
 
-Two events, and only two, produce email: `task_assigned` and
-`added_to_project`. Both are direct-address — somebody put your name on
-something — which is why they need no digest, no batching and no per-project
-mute. Everything else (mentions, unblocks, activity summaries) is deliberately
-not built.
+Three events, and only three, produce email: `task_assigned`,
+`bulk_task_assigned` and `added_to_project`. All are direct-address — somebody
+put your name on something — which is why none needs a per-project mute.
+Everything else (mentions, unblocks, activity summaries) is deliberately not
+built.
+
+`bulk_task_assigned` is the one digest. A selection assigned in one action
+would otherwise be one email per card, which is the pattern that trains people
+to filter this app's mail, so the cards are queued in
+`pending_assignment_notification` and coalesced per (recipient, actor, project)
+into a single "Skyler assigned you 20 cards in Roadmap". See below for the
+window it waits.
 
 Delivery is gated per recipient in the notification layer on three conditions:
 the address must be verified, the recipient must not have switched that kind
@@ -1679,12 +1690,56 @@ mutation that rolls back after queuing its notification sends nothing, and a
 failed send never affects the response; one recipient's failure does not stop
 the sends queued behind it, and leaves a log line as its only trace.
 
-Preferences are two booleans, both defaulting to true:
+Preferences are three booleans, all defaulting to true:
 
 - `GET /api/auth/me/notification-settings` and
   `PUT /api/auth/me/notification-settings` (authenticated,
-  `{ task_assigned, added_to_project }`). They are deliberately not part of
-  `PATCH /api/auth/me`, which publishes to everyone sharing a project.
+  `{ task_assigned, bulk_task_assigned, added_to_project }`). They are
+  deliberately not part of `PATCH /api/auth/me`, which publishes to everyone
+  sharing a project.
+
+The digest has its own toggle rather than riding on `task_assigned`: the set is
+per kind, and someone who wants to hear about a card handed to them personally
+is not thereby asking to hear about a sweep of twenty.
+
+#### The bulk assignment digest
+
+`POST /api/tasks/bulk-assignees` writes one `pending_assignment_notification`
+row per (recipient, actor, project, card) inside its own transaction, so the
+queue rolls back with the assignment. The actor is dropped there, as everywhere
+else. A periodic job flushes them.
+
+A group goes out once its actor has been quiet for two minutes, or fifteen
+minutes after its oldest card whichever comes first. Per bulk action was the
+simpler reading and was rejected: two bulk assigns a minute apart are one
+sitting and deserve one message, and the cap is what stops a sender who never
+stops from holding the message forever.
+
+A flush claims the group's rows `for update skip locked`, deletes them and only
+then sends, so two replicas sweeping the same group produce one email rather
+than two — and a group whose rows another replica already holds is skipped
+rather than re-read forever. The rows are deleted whatever the gates then
+decide, since a recipient who has the kind switched off must not accumulate a
+queue. The consequence is that a send that fails loses that message; it is not
+retried and not dead-lettered, exactly as every other notification here.
+
+At most 500 cards are resolved per flush, and the remainder simply goes out on
+the next tick as a second digest.
+
+Everything is re-read at send time, not trusted from the queue: the window is
+minutes wide, so the recipient's preference, their verified address, their
+access to the board, and whether each card is still live and still theirs are
+all evaluated then. Cards archived or unassigned in the meantime are dropped
+from the count, and a digest with nothing left sends nothing. The repeat budget
+is keyed on a fingerprint of the claimed card set rather than on the board, so a
+second, different selection is not mistaken for a repeat of the first — and the
+same selection handed over twice in an hour still is one.
+
+**Rollback runbook.** If a release carrying this is rolled back, the periodic
+`job` row survives with no handler anywhere. It is never claimed, but it appears
+in the recurring `unregisteredKindBacklog` warning forever, and queued rows then
+accumulate unflushed. Clear both with `delete from job where kind =
+'assignment_digest';` and `truncate pending_assignment_notification;`.
 
 Every notification email carries an unsubscribe link and the RFC 8058 headers
 `List-Unsubscribe` and `List-Unsubscribe-Post`; transactional mail carries
@@ -1826,7 +1881,8 @@ address, and this one would land in a logged response header.
   "exported_at": "2026-08-02T12:00:00.000Z",
   "account": { "id", "name", "email", "avatar_url", "created_at",
                "email_verified_at",
-               "notification_settings": { "task_assigned", "added_to_project" } },
+               "notification_settings": { "task_assigned", "bulk_task_assigned",
+                                          "added_to_project" } },
   "sessions":                [ { "id", "user_agent", "created_at", "expires_at" } ],
   "personal_access_tokens":  [ { "id", "name", "created_at", "expires_at" } ],
   "feedback":                [ { "id", "message", "page_path", "created_at" } ],
@@ -1864,9 +1920,9 @@ material does.** Deliberately absent, each for its own reason:
   to start.
 - `avatar_storage_key` — `avatar_url` is the same value in its already-published
   form.
-- **Pending invitations, in both directions.** An invitation the account *sent*
+- **Pending invitations, in both directions.** An invitation the account _sent_
   carries the invitee's address and a token hash, either of which alone would
-  disqualify it. An invitation addressed to the account's *own* address is a
+  disqualify it. An invitation addressed to the account's _own_ address is a
   different case — it is keyed by that address, held, and listed by no endpoint —
   and is still left out: it is a message from someone else about a board the
   account cannot yet see, and accepting it is what surfaces it. Any later pass
@@ -2345,7 +2401,7 @@ npm run openapi:dump && npm run --prefix cli generate-api
   capability URLs, so a preview image stays readable to anyone who learned the
   attachment id even after they lose access to the project. They carry no
   user-supplied bytes — only a WebP re-encode of a public page's own preview
-  image — but the fact that the project has *an* attachment with a preview does
+  image — but the fact that the project has _an_ attachment with a preview does
   leak. The download route deliberately does not work this way.
 - Attachment downloads support no Range requests and no resume: the storage
   interface returns a whole buffer, so a download costs its full size in pod

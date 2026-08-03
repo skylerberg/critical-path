@@ -43,7 +43,11 @@ interface AccountExportBody {
     avatar_url: string | null;
     created_at: string;
     email_verified_at: string | null;
-    notification_settings: { task_assigned: boolean; added_to_project: boolean };
+    notification_settings: {
+      task_assigned: boolean;
+      added_to_project: boolean;
+      bulk_task_assigned: boolean;
+    };
   };
   sessions: ExportedSession[];
   personal_access_tokens: ExportedToken[];
@@ -324,9 +328,11 @@ describe('GET /api/auth/me/export', () => {
 
   it('reports the notification preferences the account stored, not the defaults', async () => {
     const user = await ctx.createUser('export-prefs');
-    const saved = await ctx
-      .request(user.token)
-      .put('/api/auth/me/notification-settings', { task_assigned: false, added_to_project: true });
+    const saved = await ctx.request(user.token).put('/api/auth/me/notification-settings', {
+      task_assigned: false,
+      added_to_project: true,
+      bulk_task_assigned: false,
+    });
     expect(saved.status).toBe(200);
 
     const body = await exportBody(user.token);
@@ -334,6 +340,7 @@ describe('GET /api/auth/me/export', () => {
     expect(body.account.notification_settings).toEqual({
       task_assigned: false,
       added_to_project: true,
+      bulk_task_assigned: false,
     });
   });
 
@@ -539,7 +546,11 @@ describe('GET /api/auth/me/export', () => {
       avatar_url: null,
       created_at: expect.any(String),
       email_verified_at: null,
-      notification_settings: { task_assigned: true, added_to_project: true },
+      notification_settings: {
+        task_assigned: true,
+        added_to_project: true,
+        bulk_task_assigned: true,
+      },
     });
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0]!.user_agent).toBe(CHROME_UA);

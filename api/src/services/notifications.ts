@@ -17,7 +17,10 @@ export const MAX_NOTIFICATION_RECIPIENTS = 100;
 export const NOTIFY_COLUMN = {
   task_assigned: 'notify_task_assigned',
   added_to_project: 'notify_added_to_project',
+  bulk_task_assigned: 'notify_bulk_task_assigned',
 } as const satisfies Record<NotificationKind, string>;
+
+export const NOTIFICATION_KINDS = Object.keys(NOTIFY_COLUMN) as NotificationKind[];
 
 export interface Notification {
   kind: NotificationKind;
@@ -39,8 +42,8 @@ function repeatKey(notification: Notification): string {
   return `${notification.kind}:${notification.project.id}:${notification.task?.id ?? ''}`;
 }
 
-function unsubscribeLinks(
-  recipient: Recipient,
+export function unsubscribeLinks(
+  recipient: { id: string; email: string },
   kind: NotificationKind
 ): {
   page: string;
