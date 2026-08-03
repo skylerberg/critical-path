@@ -33,7 +33,7 @@ import {
   verifyUnsubscribeToken,
   verifyVerificationToken,
 } from '../services/emailToken';
-import { NOTIFY_COLUMN } from '../services/notifications';
+import { NOTIFICATION_KINDS, NOTIFY_COLUMN } from '../services/notifications';
 import type { NotificationKind } from '../schemas/notifications';
 import { enqueueVerificationEmail } from '../services/emailVerification';
 import { claimInvitationsForNewAccount } from '../services/invitations';
@@ -1209,7 +1209,7 @@ router.get(
     tags: ['Auth'],
     summary: 'Read notification settings',
     description:
-      'Return which notification emails the authenticated user has switched on. Both default ' +
+      'Return which notification emails the authenticated user has switched on. All default ' +
       'to true. They are read here rather than on the user record because that record is ' +
       'published to everyone sharing a project and a preference is private.',
     security: [{ bearerAuth: [] }],
@@ -1231,7 +1231,7 @@ router.get(
     const row = await c
       .get('db')
       .selectFrom('app_user')
-      .select(['notify_task_assigned', 'notify_added_to_project'])
+      .select(['notify_task_assigned', 'notify_added_to_project', 'notify_bulk_task_assigned'])
       .where('id', '=', c.get('user').id)
       .executeTakeFirstOrThrow();
 
@@ -1239,6 +1239,7 @@ router.get(
       {
         task_assigned: row.notify_task_assigned,
         added_to_project: row.notify_added_to_project,
+        bulk_task_assigned: row.notify_bulk_task_assigned,
       },
       200
     );
@@ -1280,6 +1281,7 @@ router.put(
       .set({
         notify_task_assigned: settings.task_assigned,
         notify_added_to_project: settings.added_to_project,
+        notify_bulk_task_assigned: settings.bulk_task_assigned,
       })
       .where('id', '=', c.get('user').id)
       .execute();
@@ -1344,7 +1346,7 @@ router.post(
     const { token } = c.req.valid('json');
     const { account } = await unsubscribeTarget(c, token);
     if (account !== null) {
-      await switchOffNotifications(c, account, ['task_assigned', 'added_to_project']);
+      await switchOffNotifications(c, account, NOTIFICATION_KINDS);
     }
 
     return c.body(null, 204);

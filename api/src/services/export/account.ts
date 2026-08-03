@@ -30,6 +30,7 @@ export async function buildAccountExport(
         'email_verified_at',
         'notify_task_assigned',
         'notify_added_to_project',
+        'notify_bulk_task_assigned',
       ])
       .where('id', '=', userId)
       .executeTakeFirstOrThrow(),
@@ -93,6 +94,7 @@ export async function buildAccountExport(
       notification_settings: {
         task_assigned: account.notify_task_assigned,
         added_to_project: account.notify_added_to_project,
+        bulk_task_assigned: account.notify_bulk_task_assigned,
       },
     },
     sessions: sessions.map((row) => ({
