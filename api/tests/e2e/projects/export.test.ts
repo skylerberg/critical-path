@@ -19,7 +19,7 @@ const JPEG_1X1 = Buffer.from(
 );
 
 const CSV_HEADER =
-  'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,checklist,description';
+  'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,attachment_count,created_at,updated_at,archived_at,checklist,description';
 
 const ctx = new TestContext();
 const createdProjectIds: string[] = [];
@@ -563,18 +563,18 @@ describe('GET /api/projects/:id/export', () => {
 
       const [blocker, main, done] = exportPayload.tasks;
       expect(rows[1]).toBe(
-        `${blocker.id},Blocker task,Backlog,false,1000,,,,,0,` +
+        `${blocker.id},Blocker task,Backlog,false,1000,,,,,0,0,` +
           `${blocker.created_at},${blocker.updated_at},,,`
       );
       // Assignee names follow the users[] order, which is by name, so
       // "export-member user" precedes "export-owner user".
       expect(rows[2]).toBe(
         `${main.id},"He said ""hi"", then\nleft",Backlog,false,2000,2026-08-03,bug; ui,` +
-          `${member.name}; ${owner.name},Blocker task,2,` +
+          `${member.name}; ${owner.name},Blocker task,2,0,` +
           `${main.created_at},${main.updated_at},,,"Notes\nA paragraph.\none\ntwo"`
       );
       expect(rows[3]).toBe(
-        `${done.id},Finished,Done,true,3000,,,${exMember.name},,0,` +
+        `${done.id},Finished,Done,true,3000,,,${exMember.name},,0,0,` +
           `${done.created_at},${done.updated_at},,,`
       );
     });
