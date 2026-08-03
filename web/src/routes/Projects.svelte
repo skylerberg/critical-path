@@ -214,18 +214,26 @@
     style={rail === null ? undefined : `box-shadow: inset 4px 0 0 ${rail}`}
   >
     <div class="min-w-0 flex-1 py-1">
-      <h3 class="truncate text-sm font-semibold">
-        <!-- The ::after covers the whole card, so the anchor is the only element a pointer
-             can hit: one composed title here, and the focus ring on the article, outside
-             the heading's truncate clip. -->
-        <a
-          href={projectHref(project.id, project.name)}
-          title={project.description === ''
-            ? project.name
-            : `${project.name}\n${project.description}`}
-          class="after:absolute after:inset-0 focus-visible:outline-none">{project.name}</a
-        >
-      </h3>
+      <!-- The dot is a sibling of the heading, not a child: `truncate` is
+           overflow-hidden, and a long name would clip it away first. -->
+      <div class="flex items-center gap-1.5">
+        <h3 class="min-w-0 truncate text-sm font-semibold">
+          <!-- The ::after covers the whole card, so the anchor is the only element a pointer
+               can hit: one composed title here, and the focus ring on the article, outside
+               the heading's truncate clip. -->
+          <a
+            href={projectHref(project.id, project.name)}
+            title={project.description === ''
+              ? project.name
+              : `${project.name}\n${project.description}`}
+            class="after:absolute after:inset-0 focus-visible:outline-none">{project.name}</a
+          >
+        </h3>
+        {#if project.has_unseen_changes && project.archived_at === null}
+          <span class="size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true"></span>
+          <span class="sr-only">Unseen changes</span>
+        {/if}
+      </div>
       {#if project.description !== ''}
         <p class="line-clamp-2 text-xs text-muted">
           {project.description}

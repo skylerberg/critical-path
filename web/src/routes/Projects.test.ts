@@ -35,6 +35,8 @@ function project(overrides: Partial<Project> = {}): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
     ...overrides,
   };
 }
@@ -476,5 +478,30 @@ describe('Projects card menu for a viewer', () => {
     for (const name of ['Copy', 'Share']) {
       expect(screen.getByRole('menuitem', { name })).toBeInTheDocument();
     }
+  });
+});
+
+describe('Projects unseen changes dot', () => {
+  it('marks a card with unseen changes and never an archived one', async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, {
+        projects: [
+          { ...activeProject, has_unseen_changes: true },
+          { ...archivedProject, has_unseen_changes: true },
+          project({ id: MINE_ID, name: 'Quiet', created_at: '2026-01-04T00:00:00.000Z' }),
+        ],
+      })
+    );
+
+    render(Projects);
+
+    expect(await screen.findByRole('link', { name: 'Alpha' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Quiet' })).toBeInTheDocument();
+    expect(screen.getAllByText('Unseen changes')).toHaveLength(1);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Archived (1)' }));
+
+    expect(screen.getByRole('link', { name: 'Old prototype' })).toBeInTheDocument();
+    expect(screen.getAllByText('Unseen changes')).toHaveLength(1);
   });
 });
