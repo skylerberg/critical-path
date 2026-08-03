@@ -59,14 +59,18 @@
   const pending = $derived(scoped && invitations.loaded ? invitations.list : []);
   const pendingError = $derived(scoped ? invitations.loadError : null);
 
-  // Invitations carry email addresses and are editor-only server-side; they also
-  // publish no realtime event, so this is a fetch on open rather than a subscription.
+  // Invitations carry email addresses and are editor-only server-side, so a
+  // viewer must not even ask. Another editor's change arrives as an event that
+  // names no address and prompts a refetch through the same gate.
+  // Cleared on the way out so the store holds addresses only while they are on
+  // screen, and so a refetch is only ever spent on a panel someone is looking at.
   $effect(() => {
     if (!canManage) {
       return;
     }
     const id = projectId;
     untrack(() => void invitations.load(id));
+    return () => invitations.reset();
   });
 
   const expiryFormat = new Intl.DateTimeFormat(undefined, {
