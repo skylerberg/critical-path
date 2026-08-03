@@ -36,6 +36,7 @@ export interface AppUser {
   id: string;
   name: string;
   notify_added_to_project: Generated<boolean>;
+  notify_bulk_task_assigned: Generated<boolean>;
   notify_task_assigned: Generated<boolean>;
   password_hash: string;
 }
@@ -84,6 +85,14 @@ export interface Label {
   id: string;
   name: string;
   project_id: string;
+}
+
+export interface PendingAssignmentNotification {
+  actor_user_id: string;
+  created_at: Generated<Timestamp>;
+  project_id: string;
+  recipient_user_id: string;
+  task_id: string;
 }
 
 export interface PersonalAccessToken {
@@ -303,6 +312,7 @@ export interface DB {
   feedback: Feedback;
   job: Job;
   label: Label;
+  pending_assignment_notification: PendingAssignmentNotification;
   personal_access_token: PersonalAccessToken;
   project: Project;
   project_invitation: ProjectInvitation;
