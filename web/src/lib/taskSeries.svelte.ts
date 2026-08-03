@@ -1,5 +1,6 @@
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
+import type { RealtimeEvent } from './realtime-types';
 import { toasts } from './toasts.svelte';
 
 export type TaskSeries = components['schemas']['TaskSeries'];
@@ -42,6 +43,43 @@ class TaskSeriesStore {
   reset(): void {
     this.#clear();
     this.currentProjectId = null;
+  }
+
+  applyRealtime(event: RealtimeEvent): void {
+    // Before the first list lands there is nothing to merge into, and building
+    // one from events alone would paint a list holding only what has changed.
+    if (!this.loaded || event.project_id !== this.currentProjectId) {
+      return;
+    }
+    switch (event.type) {
+      case 'series_created': {
+        const row = event.data as TaskSeries;
+        // The echo of our own create arrives after we appended it.
+        this.list = this.list.some((series) => series.id === row.id)
+          ? this.list.map((series) => (series.id === row.id ? row : series))
+          : [...this.list, row];
+        break;
+      }
+      case 'series_updated': {
+        // Update-only: a row we no longer hold is one we have already deleted,
+        // and an edit still in flight when that happened must not resurrect it.
+        const row = event.data as TaskSeries;
+        this.#replace(row.id, row);
+        break;
+      }
+      case 'series_deleted': {
+        const { id } = event.data as { id: string };
+        this.list = this.list.filter((series) => series.id !== id);
+        break;
+      }
+    }
+  }
+
+  // Nothing arrives while the socket is down, so the gap it left is re-read.
+  resync(): void {
+    if (this.currentProjectId !== null) {
+      void this.load(this.currentProjectId);
+    }
   }
 
   // Not optimistic, and deliberately so: the rule summary, the resolved preset

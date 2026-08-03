@@ -2,6 +2,7 @@ import { untrack } from 'svelte';
 import { board } from './board.svelte';
 import { invitations } from './invitations.svelte';
 import { projects } from './projects.svelte';
+import { taskSeries } from './taskSeries.svelte';
 import { users } from './users.svelte';
 import type { RealtimeEvent } from './realtime-types';
 import { session } from './session.svelte';
@@ -46,6 +47,7 @@ const BOARD_EVENTS = new Set([
   'attachment_updated',
   'attachment_deleted',
 ]);
+const SERIES_EVENTS = new Set(['series_created', 'series_updated', 'series_deleted']);
 const PROJECT_EVENTS = new Set([
   'project_created',
   'project_updated',
@@ -190,6 +192,7 @@ class RealtimeClient {
     if (this.#hasSyncedOnce) {
       void projects.load();
       invitations.resync();
+      taskSeries.resync();
       if (board.currentProjectId !== null) {
         if (board.dragBusy) {
           this.#needsBoardRefetch = true;
@@ -305,6 +308,10 @@ class RealtimeClient {
       ) {
         projects.markChanged(event.project_id);
       }
+    } else if (SERIES_EVENTS.has(event.type)) {
+      // Not queued behind a drag: a schedule is not a board row, and the panel
+      // that shows it is a modal that cannot be open while one is under way.
+      taskSeries.applyRealtime(event);
     } else if (event.type === 'invitations_changed') {
       invitations.applyRealtime(event);
     } else if (event.type === 'user_updated') {

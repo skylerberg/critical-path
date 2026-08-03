@@ -18,7 +18,7 @@
 
   let { projectId, onclose }: Props = $props();
 
-  let editing = $state<TaskSeries | null>(null);
+  let editingId = $state<string | null>(null);
   let creating = $state(false);
   let confirmingDeleteId = $state<string | null>(null);
 
@@ -27,6 +27,14 @@
   const scoped = $derived(taskSeries.currentProjectId === projectId);
   const rows = $derived(scoped && taskSeries.loaded ? taskSeries.list : null);
   const loadError = $derived(scoped ? taskSeries.loadError : null);
+  // Held by id, not by value, so a teammate deleting the series under an open
+  // form is something this can say rather than something Save discovers.
+  const editing = $derived(
+    editingId === null ? null : (rows?.find((row) => row.id === editingId) ?? null)
+  );
+  // Only a list we actually hold can testify that the row is gone; without one
+  // the panel is loading, not bereaved.
+  const editingVanished = $derived(editingId !== null && rows !== null && editing === null);
   const columnNames = $derived(new Map(board.columns.map((column) => [column.id, column.name])));
   const labelById = $derived(new Map(board.labels.map((label) => [label.id, label])));
 
@@ -59,14 +67,21 @@
   }
 
   function closeEditor(): void {
-    editing = null;
+    editingId = null;
     creating = false;
   }
 </script>
 
 <Modal open title="Recurring cards" {onclose}>
   <div class="flex flex-col gap-5">
-    {#if creating || editing !== null}
+    {#if editingVanished}
+      <div class="flex flex-col items-start gap-3">
+        <p role="alert" class="text-sm text-danger">
+          This recurring card was deleted while you were editing it.
+        </p>
+        <Button variant="secondary" onclick={closeEditor}>Back to the list</Button>
+      </div>
+    {:else if creating || editing !== null}
       <TaskSeriesEditor
         {projectId}
         series={editing ?? undefined}
@@ -177,7 +192,7 @@
                   <Button
                     variant="secondary"
                     aria-label="Edit {series.title}"
-                    onclick={() => (editing = series)}
+                    onclick={() => (editingId = series.id)}
                   >
                     Edit…
                   </Button>

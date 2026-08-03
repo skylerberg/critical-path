@@ -11,6 +11,7 @@
 
   const TOGGLES = [
     { key: 'task_assigned', label: 'When someone assigns me a task' },
+    { key: 'bulk_task_assigned', label: 'When someone assigns me several cards at once' },
     { key: 'added_to_project', label: 'When someone adds me to a board' },
   ] as const;
 

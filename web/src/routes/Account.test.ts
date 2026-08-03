@@ -54,7 +54,11 @@ function mockRoutes(status: number, body?: unknown): void {
       return jsonResponse(200, { sessions: [] });
     }
     if (path === '/api/auth/me/notification-settings') {
-      return jsonResponse(200, { task_assigned: true, added_to_project: true });
+      return jsonResponse(200, {
+        task_assigned: true,
+        added_to_project: true,
+        bulk_task_assigned: true,
+      });
     }
     return jsonResponse(status, body);
   });

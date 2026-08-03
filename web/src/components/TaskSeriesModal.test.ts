@@ -221,3 +221,79 @@ describe('TaskSeriesModal', () => {
     expect(screen.queryByText('Weekly review')).not.toBeInTheDocument();
   });
 });
+
+describe('TaskSeriesModal live updates', () => {
+  function realtime(type: string, data: unknown) {
+    taskSeries.applyRealtime({ type, project_id: 'p-1', data });
+  }
+
+  it('adds, changes and removes a row while the panel is open', async () => {
+    renderWith([series()]);
+    expect(await screen.findByText('Weekly review')).toBeInTheDocument();
+
+    realtime('series_created', series({ id: 's-2', title: 'Monthly invoices' }));
+    expect(await screen.findByText('Monthly invoices')).toBeInTheDocument();
+
+    realtime('series_updated', series({ status: 'paused' }));
+    expect(await screen.findByText('Paused')).toBeInTheDocument();
+
+    realtime('series_deleted', { id: 's-1' });
+    await waitFor(() => {
+      expect(screen.queryByText('Weekly review')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Monthly invoices')).toBeInTheDocument();
+  });
+
+  it('shows an advanced schedule and a fresh missed count from the sweep', async () => {
+    renderWith([series()]);
+    expect(await screen.findByText('Weekly review')).toBeInTheDocument();
+
+    realtime(
+      'series_updated',
+      series({ next_occurrence_date: '2099-02-16', missed_occurrence_count: 2 })
+    );
+
+    expect(await screen.findByText(/2 occurrences were missed/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Dismiss missed occurrences for Weekly review' })
+    ).toBeInTheDocument();
+  });
+
+  it('says so when the series being edited is deleted by someone else', async () => {
+    renderWith([series()]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit Weekly review' }));
+    expect(await screen.findByRole('form', { name: 'Recurring card' })).toBeInTheDocument();
+
+    realtime('series_deleted', { id: 's-1' });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This recurring card was deleted while you were editing it.'
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to the list' }));
+    expect(await screen.findByText('No recurring cards yet.')).toBeInTheDocument();
+  });
+
+  it('does not call an editing row deleted merely because the list went away', async () => {
+    renderWith([series()]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit Weekly review' }));
+    expect(await screen.findByRole('form', { name: 'Recurring card' })).toBeInTheDocument();
+
+    taskSeries.reset();
+
+    expect(await screen.findByText('Loading recurring cards…')).toBeInTheDocument();
+    expect(screen.queryByText(/was deleted while you were editing it/)).not.toBeInTheDocument();
+  });
+
+  it('leaves the open form alone when the series it edits is changed elsewhere', async () => {
+    renderWith([series()]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit Weekly review' }));
+    const title = await screen.findByLabelText('Title');
+    await fireEvent.input(title, { target: { value: 'My own wording' } });
+
+    realtime('series_updated', series({ title: 'Their wording' }));
+
+    await waitFor(() => {
+      expect(title).toHaveValue('My own wording');
+    });
+  });
+});
