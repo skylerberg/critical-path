@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/checklists/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/recurring-tasks/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -438,7 +438,7 @@ export interface paths {
         put?: never;
         /**
          * Create project
-         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, and images — not comments, assignees, members, archived cards, the accent colour, or the archived state of the project itself; copies start personal). Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
+         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, images, and recurring series with their templates — not comments, assignees, members, archived cards, the accent colour, or the archived state of the project itself; copies start personal). A copied series keeps the source’s status and schedules its next occurrence from today, so it behaves like the original without firing an occurrence the source already missed. Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
          */
         post: operations["postApiProjects"];
         delete?: never;
@@ -888,7 +888,7 @@ export interface paths {
         };
         /**
          * Get task detail
-         * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), images, its full comment stream oldest first, and its checklist in list order. Archived tasks are readable here even though they are absent from every board payload.
+         * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), images, its full comment stream oldest first, and its checklist in list order. Archived tasks are readable here even though they are absent from every board payload. `series_summary` names the recurrence in English for a card a recurring series created, and is null for every other card — including one whose series has since been deleted.
          */
         get: operations["getApiTasksById"];
         put?: never;
@@ -1451,6 +1451,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/task-series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List recurring series
+         * @description A series holds the template for a repeating card — title, description, labels, assignees, checklist items, an optional due date and destination column — plus an RFC 5545 RRULE and the calendar day its next occurrence falls on. Nothing is created ahead of time and nothing appears early: a background sweep materialises an ordinary card on the day the occurrence falls, and then advances the schedule. The occurrence decides only when the card comes into existence — a card carries the template’s own `due_date`, never the occurrence date. Cards already created are ordinary cards and never change when the series does. Between occurrences there is no card, so this list is the only place a recurring commitment is visible. Viewers may read it; only editors may change it. Ordered by the next occurrence, soonest first, with paused and finished series last.
+         */
+        get: operations["getApiTaskSeries"];
+        put?: never;
+        /**
+         * Create a recurring series
+         * @description A series holds the template for a repeating card — title, description, labels, assignees, checklist items, an optional due date and destination column — plus an RFC 5545 RRULE and the calendar day its next occurrence falls on. Nothing is created ahead of time and nothing appears early: a background sweep materialises an ordinary card on the day the occurrence falls, and then advances the schedule. The occurrence decides only when the card comes into existence — a card carries the template’s own `due_date`, never the occurrence date. Cards already created are ordinary cards and never change when the series does. Send either `preset` (one of the curated recurrences) or a raw `rrule`, never both. A raw rule must be a single RRULE value carrying no DTSTART, TZID, RDATE, EXDATE or EXRULE — the anchor is `start_date` and the zone is `timezone` — and must repeat daily or less often. The first occurrence is scheduled on or after today in the series timezone, so a past `start_date` backfills nothing. A project holds at most 50 series. Image nodes cannot belong to a template and are stripped from the description; `dropped_image_count` reports how many. The client supplies the id; a duplicate returns 409.
+         */
+        post: operations["postApiTaskSeries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/task-series/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End a recurring series
+         * @description Stop a schedule and forget its template. Cards it already created stay exactly as they are, with their comments and history; they simply stop naming the series they came from.
+         */
+        delete: operations["deleteApiTaskSeriesById"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a recurring series
+         * @description Change the template, the recurrence, or pause and resume the schedule. Every change applies to future occurrences only: cards this series has already created are ordinary cards and are never read or written here. A `label_ids`, `assignee_ids` or `checklist_items` array replaces that collection wholesale; omitting one leaves it alone. Changing the recurrence, start date or timezone — or resuming — reschedules forward from today, never backwards. `clear_missed` zeroes the missed counter. `status` accepts only active or paused; a series ends by exhausting its rule, or by being deleted.
+         */
+        patch: operations["patchApiTaskSeriesById"];
+        trace?: never;
+    };
     "/api/public/projects/{id}/board": {
         parameters: {
             query?: never;
@@ -1952,6 +2000,7 @@ export interface components {
             /** @description a finite number */
             position: number;
             project_id: string;
+            series_summary: components["schemas"]["UserAvatarurl"];
             title: string;
             updated_at: string;
         };
@@ -2163,6 +2212,112 @@ export interface components {
             redelivery_count: number;
             status: string;
             webhook_id: string;
+        };
+        TaskSeriesListResponse: {
+            series: components["schemas"]["TaskSeries"][];
+        };
+        TaskSeries: {
+            assignee_ids: string[];
+            checklist_items: components["schemas"]["TaskSeriesChecklistItem"][];
+            column_id: components["schemas"]["UserAvatarurl"];
+            created_at: string;
+            created_by: components["schemas"]["UserAvatarurl"];
+            description: components["schemas"]["NullableTiptapDoc"];
+            due_date: components["schemas"]["UserAvatarurl"];
+            ended_at: components["schemas"]["UserAvatarurl"];
+            id: string;
+            label_ids: string[];
+            last_error: components["schemas"]["UserAvatarurl"];
+            last_missed_date: components["schemas"]["UserAvatarurl"];
+            last_occurrence_date: components["schemas"]["UserAvatarurl"];
+            missed_occurrence_count: number;
+            next_occurrence_date: components["schemas"]["UserAvatarurl"];
+            open_occurrence_count: number;
+            preset: components["schemas"]["UserAvatarurl"];
+            project_id: string;
+            rrule: string;
+            start_date: string;
+            status: string;
+            summary: string;
+            timezone: string;
+            title: string;
+            updated_at: string;
+        };
+        TaskSeriesChecklistItem: {
+            id: string;
+            /** @description a finite number */
+            position: number;
+            text: string;
+        };
+        TaskSeriesCreateResponse: {
+            assignee_ids: string[];
+            checklist_items: components["schemas"]["TaskSeriesChecklistItem"][];
+            column_id: components["schemas"]["UserAvatarurl"];
+            created_at: string;
+            created_by: components["schemas"]["UserAvatarurl"];
+            description: components["schemas"]["NullableTiptapDoc"];
+            dropped_image_count: number;
+            due_date: components["schemas"]["UserAvatarurl"];
+            ended_at: components["schemas"]["UserAvatarurl"];
+            id: string;
+            label_ids: string[];
+            last_error: components["schemas"]["UserAvatarurl"];
+            last_missed_date: components["schemas"]["UserAvatarurl"];
+            last_occurrence_date: components["schemas"]["UserAvatarurl"];
+            missed_occurrence_count: number;
+            next_occurrence_date: components["schemas"]["UserAvatarurl"];
+            open_occurrence_count: number;
+            preset: components["schemas"]["UserAvatarurl"];
+            project_id: string;
+            rrule: string;
+            start_date: string;
+            status: string;
+            summary: string;
+            timezone: string;
+            title: string;
+            updated_at: string;
+        };
+        CreateTaskSeries: {
+            /** Format: uuid */
+            column_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            project_id: string;
+            start_date: string;
+            timezone: string;
+            title: string;
+            assignee_ids?: string[];
+            checklist_items?: components["schemas"]["RequestBodyChecklistitems"][];
+            description?: components["schemas"]["NullableTiptapDoc"];
+            due_date?: components["schemas"]["UserAvatarurl"];
+            label_ids?: string[];
+            /** @enum {unknown} */
+            preset?: "daily" | "monthly_date" | "monthly_weekday" | "weekdays" | "weekly" | "yearly";
+            rrule?: string;
+        };
+        RequestBodyChecklistitems: {
+            /** @description a finite number */
+            position: number;
+            text: string;
+        };
+        PatchTaskSeries: {
+            assignee_ids?: string[];
+            checklist_items?: components["schemas"]["RequestBodyChecklistitems"][];
+            clear_missed?: boolean;
+            /** Format: uuid */
+            column_id?: string;
+            description?: components["schemas"]["NullableTiptapDoc"];
+            due_date?: components["schemas"]["UserAvatarurl"];
+            label_ids?: string[];
+            /** @enum {unknown} */
+            preset?: "daily" | "monthly_date" | "monthly_weekday" | "weekdays" | "weekly" | "yearly";
+            rrule?: string;
+            start_date?: string;
+            /** @enum {unknown} */
+            status?: "active" | "paused";
+            timezone?: string;
+            title?: string;
         };
         PublicBoard: {
             checklist_items: components["schemas"]["PublicBoardChecklistItem"][];
@@ -7731,6 +7886,287 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiTaskSeries: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recurring series for the project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSeriesListResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiTaskSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaskSeries"];
+            };
+        };
+        responses: {
+            /** @description Created series */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSeriesCreateResponse"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - resource already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiTaskSeriesById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Series ended */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    patchApiTaskSeriesById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchTaskSeries"];
+            };
+        };
+        responses: {
+            /** @description Updated series */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSeries"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */

@@ -11,6 +11,7 @@
   import { search } from './lib/search.svelte';
   import { shortcuts } from './lib/shortcuts.svelte';
   import { taskRoute } from './lib/task-route.svelte';
+  import { taskSeries } from './lib/taskSeries.svelte';
   import { toasts } from './lib/toasts.svelte';
   import { webhooks } from './lib/webhooks.svelte';
   import Login from './routes/Login.svelte';
@@ -56,6 +57,7 @@
       search.reset();
       taskRoute.reset();
       webhooks.reset();
+      taskSeries.reset();
       drafts.clearAll();
       realtime.disconnect();
       shortcuts.reset();

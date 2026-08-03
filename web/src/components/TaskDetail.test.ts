@@ -321,6 +321,32 @@ describe('TaskDetail', () => {
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
   });
 
+  describe('recurrence', () => {
+    it('says a card repeats, in the same words the series panel uses', async () => {
+      mockRoutes((request, url) =>
+        request.method === 'GET' && url.pathname === `/api/tasks/${T1}`
+          ? jsonResponse(200, {
+              ...board.tasks[0],
+              project_id: PROJECT_ID,
+              series_summary: 'Every Monday',
+              images: [],
+              comments: [],
+            })
+          : undefined
+      );
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      expect(await screen.findByText('Repeats: Every Monday')).toBeInTheDocument();
+    });
+
+    it('says nothing for a card that came from no series', async () => {
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      await waitFor(() => expect(board.taskImages[T1]).toEqual([image]));
+      expect(screen.queryByText(/^Repeats:/)).not.toBeInTheDocument();
+    });
+  });
+
   // The overlay is the surface a long title is opened to read, so it is the one
   // place clipping would be a defect rather than the rule.
   describe('long titles', () => {

@@ -12,6 +12,7 @@
   import LabelManager from './LabelManager.svelte';
   import ProjectColorDialog from './ProjectColorDialog.svelte';
   import ProjectMembersModal from './ProjectMembersModal.svelte';
+  import TaskSeriesModal from './TaskSeriesModal.svelte';
   import WebhooksModal from './WebhooksModal.svelte';
   import Badge from './ui/Badge.svelte';
   import Spinner from './ui/Spinner.svelte';
@@ -28,6 +29,7 @@
   let shareOpen = $state(false);
   let archiveOpen = $state(false);
   let webhooksOpen = $state(false);
+  let seriesOpen = $state(false);
   let exporting = $state(false);
   let menuOpen = $state(false);
   let menuEl = $state<HTMLDivElement>();
@@ -225,6 +227,30 @@
             class={menuItemClass}
             onclick={() => {
               menuOpen = false;
+              seriesOpen = true;
+            }}
+          >
+            <svg
+              class="size-4 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 12a9 9 0 1 1-3.2-6.9" />
+              <polyline points="21 3 21 9 15 9" />
+            </svg>
+            Recurring cards
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            class={menuItemClass}
+            onclick={() => {
+              menuOpen = false;
               archiveOpen = true;
             }}
           >
@@ -328,4 +354,8 @@
 
 {#if webhooksOpen}
   <WebhooksModal {projectId} onclose={() => (webhooksOpen = false)} />
+{/if}
+
+{#if seriesOpen}
+  <TaskSeriesModal {projectId} onclose={() => (seriesOpen = false)} />
 {/if}
