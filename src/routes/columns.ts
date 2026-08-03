@@ -11,6 +11,7 @@ import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
 import { copyTasks } from '../services/projectCopy';
+import { publishSeriesUpdatedByIds } from '../services/taskSeries/index';
 import {
   idSchema,
   createColumnSchema,
@@ -450,6 +451,16 @@ router.delete(
       .orderBy('id')
       .execute();
 
+    // Read before the delete nulls them: a series pointing here loses its
+    // destination and stops firing until someone picks a new one.
+    const orphanedSeries = await db
+      .selectFrom('task_series')
+      .select('id')
+      .where('project_id', '=', column.project_id)
+      .where('column_id', '=', id)
+      .execute();
+    const orphanedSeriesIds = orphanedSeries.map((row) => row.id);
+
     if (tasks.length > 0) {
       if (target === undefined) {
         throw new AppError(409, 'Column has tasks; provide move_tasks_to');
@@ -464,12 +475,14 @@ router.delete(
       );
 
       await db.deleteFrom('board_column').where('id', '=', id).execute();
+      await publishSeriesUpdatedByIds(c, db, orphanedSeriesIds);
 
       publishAfterCommit(c, 'column_deleted', column.project_id, { id, moved_tasks: movedTasks });
       return c.json({ moved_tasks: movedTasks }, 200);
     }
 
     await db.deleteFrom('board_column').where('id', '=', id).execute();
+    await publishSeriesUpdatedByIds(c, db, orphanedSeriesIds);
 
     publishAfterCommit(c, 'column_deleted', column.project_id, { id, moved_tasks: [] });
     return c.body(null, 204);
