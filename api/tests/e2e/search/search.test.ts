@@ -372,6 +372,10 @@ describe('GET /api/search', () => {
     expect(describe.status).toBe(200);
     expect((await search(caller, 'estuary')).results.map((row) => row.task_id)).toEqual([taskId]);
 
+    const archive = await ctx.request(caller.token).post(`/api/tasks/${taskId}/archive`);
+    expect(archive.status).toBe(200);
+    expect((await search(caller, 'cormorant')).results).toEqual([]);
+
     const remove = await ctx.request(caller.token).delete(`/api/tasks/${taskId}`);
     expect(remove.status).toBe(204);
     expect((await search(caller, 'cormorant')).results).toEqual([]);

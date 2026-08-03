@@ -987,17 +987,26 @@ export function registerTask(program: Command, deps: CliDeps): void {
 
   task.addCommand(
     taskLeaf('delete')
-      .description('Delete a task')
-      .argument('<task>', 'task id or title')
+      .description('Permanently delete an archived task')
+      .argument('<task>', 'archived task id or title')
       .option('--force', 'skip the confirmation prompt')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
-          const { task: target } = await resolveTaskContext(
+          const { board, task: target } = await resolveTaskContext(
             ctx,
             ref,
             opts.project as string | undefined,
             { includeArchived: true }
           );
+          // Caught here as well as by the server, so a card that cannot be
+          // deleted never gets as far as a confirmation prompt.
+          if (board.tasks.some((task) => task.id === target.id)) {
+            throw new CliError(
+              `"${displayTitle(target.title)}" is still on the board. ` +
+                'Archive it first with "cpath task archive".',
+              EXIT.invalid
+            );
+          }
           await confirmOrAbort(
             ctx,
             `Delete task "${displayTitle(target.title)}"?`,

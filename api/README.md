@@ -760,6 +760,13 @@ and both return the task; archive returns it with its `archived_at`.
 `GET /api/projects/:id/archived-tasks` lists a project's archive, newest
 first and then in board position order, unpaginated.
 
+Archiving is the only way to get to a hard delete. `DELETE /api/tasks/:id`
+refuses a task that is still on the board with a 422 and deletes only one whose
+`archived_at` is set, so losing a card takes two deliberate steps with a
+reversible one in between; the check holds a row lock, so a concurrent restore
+cannot slip a live card past it. Clients enforce it too, but the endpoint is
+where the rule actually lives.
+
 An archived task behaves as if deleted, not as if done. It is absent from
 `GET /api/projects/:id`, from the export, from a project copy, and from the
 `open_task_count` / `done_task_count` of `GET /api/projects`. It also
@@ -864,6 +871,71 @@ way out: each created task gets its own activity entry and its own
 projects with webhooks, enqueues 100 deliveries per registration (see the
 webhook fan-out note). Clients that already handle single creates need no new
 code for it.
+
+### Bulk actions on a selection
+
+Four routes act on an arbitrary set of a project's cards — the set a client
+builds by multi-selecting on the board — in one request and one transaction:
+
+| route                            | body                                                          | 200                                 |
+| -------------------------------- | ------------------------------------------------------------- | ----------------------------------- |
+| `POST /api/tasks/bulk-move`      | `{ project_id, task_ids, column_id }`                         | `{ moved_tasks, skipped_task_ids }` |
+| `POST /api/tasks/bulk-archive`   | `{ project_id, task_ids }`                                    | `{ tasks, skipped_task_ids }`       |
+| `POST /api/tasks/bulk-labels`    | `{ project_id, task_ids, add_label_ids?, remove_label_ids? }` | `{ tasks, skipped_task_ids }`       |
+| `POST /api/tasks/bulk-assignees` | `{ project_id, task_ids, add_user_ids?, remove_user_ids? }`   | `{ tasks, skipped_task_ids }`       |
+
+There is deliberately no bulk delete. Deletion is only ever reachable from the
+archive, one card at a time, so a multi-select can never destroy anything in one
+action; a bulk archive is the reversible equivalent.
+
+Every body names its project and that access is asserted once for the whole
+batch, not per card: a per-card assertion would be two queries per id and would
+404 the entire request on one foreign id. `task_ids` holds 1 to 100 ids;
+duplicates are applied once and anything outside that range is a 422.
+
+**Nothing fails wholesale.** Ids that are unknown, that belong to another
+project, or that the specific action cannot touch come back in
+`skipped_task_ids` and the rest of the batch still commits — a teammate deleting
+one selected card must not cost the caller the other nineteen. An id in another
+project is never distinguishable from an unknown one, which is what stops the
+skip list becoming a cross-project existence oracle.
+
+Move and archive skip archived cards: an archived card has no board position,
+and restore is contracted to return it to the column it was archived from. The
+two delta routes do not skip them — an archived row is still exactly the card
+the user selected, and reporting a skip they cannot act on helps nobody.
+
+Move appends after the target column's existing cards in the order the ids were
+sent, so the client decides where the selection lands. The read of the target's
+maximum position spans archived rows, so a relocated card never collides with
+one. A card already in the target is re-stamped, so the selection lands
+contiguous, but keeps its `column_since` and writes no `column_changed` entry;
+every other card logs a move naming **its own** source column, which is why the
+column-wide relocate cannot be reused here. A `column_id` outside the project is
+a 422 even when every task id was skipped.
+
+Archive shares one `archived_at` across the batch, exactly like the column-wide
+archive, so the archive view's tie-break on position and then id interleaves the
+columns of a selection that spans several. Already-archived ids keep their
+original stamp, so a repeat call is a no-op 200.
+
+Labels and assignees are **deltas, not replaces**. A selection rarely shares a
+label set, so replacing one from a client snapshot would strip every label the
+cards did not have in common and would multiply the lost-update window by the
+size of the selection. At least one of the two arrays must be non-empty and they
+must not overlap; both are 422. Added ids are validated against the project
+(labels) or against project access (users); removed ids are not, because
+removing a row that is not there is a no-op. A card the call applied to but did
+not change — it already carried the label — appears in neither the response nor
+the activity log; that is a no-op, not a skip.
+
+A bulk assignment notifies nobody. The repeat suppression that keeps assignment
+mail sane is keyed per task, so twenty cards are twenty distinct budgets and one
+click could send twenty emails to each added user. A copy notifies nobody for
+the same family of reason.
+
+Each route emits exactly one event and no per-task events — see Realtime — and
+none of them is a webhook event.
 
 ### My tasks
 
@@ -1056,6 +1128,9 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `column_tasks_moved`                  | `{ column_id, target_column_id, moved_tasks }`                                                     |
 | `column_tasks_archived`               | `{ column_id, tasks }`                                                                             |
 | `column_tasks_reordered`              | `{ column_id, moved_tasks }`                                                                       |
+| `bulk_tasks_moved`                    | `{ moved_tasks }`                                                                                  |
+| `bulk_tasks_archived`                 | `{ tasks }`                                                                                        |
+| `bulk_tasks_relations_set`            | `{ tasks }`, each `{ task_id, label_ids, assignee_ids, blocker_ids }`                              |
 | `label_created` / `label_updated`     | label row                                                                                          |
 | `label_deleted`                       | `{ id }`                                                                                           |
 | `image_created`                       | image response plus `{ task_id, image_count }`                                                     |
@@ -1089,9 +1164,18 @@ form emitted by the column-scoped bulk actions; the per-task `task_updated` and
 `task_archived` events are **not** also emitted for those calls, because a
 fifty-card Done column would otherwise cost fifty envelopes and their delivery
 queries. A client that does not understand them converges on its next board
-read, which every reconnect performs. Batching stops there: bulk task create
-has no batched counterpart and emits one `task_created` per created task, so a
-100-item request produces 100 envelopes.
+read, which every reconnect performs. The three `bulk_tasks_*` types are the
+same idea for a selection rather than a whole column, and follow the same rule:
+one envelope per call, and no per-task `task_updated`, `task_archived` or
+`task_relations_set` alongside it. `bulk_tasks_relations_set`
+carries only the cards the call actually changed, so a card that already had the
+label is absent from it. Batching stops there: bulk task create has no batched
+counterpart and emits one `task_created` per created task, so a 100-item request
+produces 100 envelopes.
+
+None of the `bulk_tasks_*` types are webhook events, for the same reason the
+`column_tasks_*` types are not: a webhook consumer subscribes to per-card
+changes, and a batched envelope would hand it a payload it has no schema for.
 
 Delivery: project-scoped events go to sockets subscribed to that project whose
 user can access it (re-checked per event against `created_by` and
@@ -2033,6 +2117,7 @@ cpath column move-tasks "Done" --to "Backlog" --project "My Project"
 cpath column archive-tasks "Done" --project "My Project"
 cpath task archived --project "My Project" --search bug
 cpath task restore "Fix the bug" --project "My Project"
+cpath task delete "Fix the bug" --project "My Project"  # archived cards only
 cpath task checklist add "Fix the bug" "Write the regression test" --project "My Project"
 cpath task checklist add "Fix the bug" - --project "My Project" < steps.md  # bullets and [x] honored
 cpath task checklist check "Fix the bug" "regression" --project "My Project"

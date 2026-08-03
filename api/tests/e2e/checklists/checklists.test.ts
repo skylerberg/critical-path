@@ -386,6 +386,7 @@ describe('Checklists API', () => {
     it('takes the items with the task', async () => {
       const taskId = await createTask();
       await addItem(taskId, 'cascades');
+      await ctx.request(owner.token).post(`/api/tasks/${taskId}/archive`);
       expect((await ctx.request(owner.token).delete(`/api/tasks/${taskId}`)).status).toBe(204);
       const rows = await db
         .selectFrom('checklist_item')

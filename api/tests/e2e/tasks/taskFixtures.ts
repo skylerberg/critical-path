@@ -69,7 +69,7 @@ export class ProjectFixtures {
     projectId: string,
     columnId: string,
     title = 'seeded task',
-    opts: { description?: unknown; archivedAt?: Date } = {}
+    opts: { description?: unknown; archivedAt?: Date; position?: number } = {}
   ): Promise<string> {
     const id = newId();
     await db
@@ -79,7 +79,7 @@ export class ProjectFixtures {
         project_id: projectId,
         column_id: columnId,
         title,
-        position: 1000,
+        position: opts.position ?? 1000,
         description: opts.description === undefined ? null : JSON.stringify(opts.description),
         archived_at: opts.archivedAt ?? null,
       })
