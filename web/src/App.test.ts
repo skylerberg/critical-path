@@ -272,6 +272,42 @@ describe('App chrome', () => {
     );
   });
 
+  it('opens and closes the command palette from the keymap', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/my-tasks', { replace: true });
+
+    render(App);
+    await screen.findByRole('heading', { name: 'My tasks' });
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'k', metaKey: true, cancelable: true })
+    );
+
+    const palette = await screen.findByRole('combobox', { name: 'Command palette' });
+    expect(palette).toBeInTheDocument();
+
+    palette.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true })
+    );
+
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('combobox', { name: 'Command palette' })).toBeNull()
+    );
+  });
+
+  it('leaves the palette unreachable with nobody signed in', async () => {
+    router.navigate('/login', { replace: true });
+
+    render(App);
+    await screen.findByRole('button', { name: 'Log in' });
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'k', metaKey: true, cancelable: true })
+    );
+
+    expect(screen.queryByRole('combobox', { name: 'Command palette' })).toBeNull();
+  });
+
   it('routes the g m chord to my tasks from the projects list', async () => {
     localStorage.setItem('cp.token', 'token');
     router.navigate('/', { replace: true });

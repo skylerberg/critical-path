@@ -87,6 +87,14 @@ describe('QuickMoveMenu', () => {
     expect(rowLabels('Destination columns')).toEqual(['Doing']);
   });
 
+  it('opens narrowed to the column a caller named, without moving anything itself', () => {
+    render(QuickMoveMenu, { taskId: 't1', prefill: 'Done', onclose });
+
+    expect(screen.getByLabelText<HTMLInputElement>('Search columns').value).toBe('Done');
+    expect(rowLabels('Destination columns')).toEqual(['Done']);
+    expect(moveTask).not.toHaveBeenCalled();
+  });
+
   it('offers top, bottom and a row per following card in the chosen column', async () => {
     open();
 

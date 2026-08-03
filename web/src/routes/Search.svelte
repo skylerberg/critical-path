@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import { link, router } from '../lib/router.svelte';
-  import { SEARCH_MAX_QUERY_LENGTH, searchPath } from '../lib/search-query';
+  import { SEARCH_DEBOUNCE_MS, SEARCH_MAX_QUERY_LENGTH, searchPath } from '../lib/search-query';
   import { projectHref, taskHref } from '../lib/short-links';
   import { search } from '../lib/search.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
@@ -15,8 +15,6 @@
   }
 
   let { q }: Props = $props();
-
-  const SEARCH_DEBOUNCE_MS = 250;
 
   let typed = $state(untrack(() => q));
   let inputElement = $state<HTMLInputElement | null>(null);
