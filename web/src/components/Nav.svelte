@@ -166,6 +166,9 @@
   <!-- Still drawn, only unlinked, so the gap it leaves keeps the row's size. -->
   {@const href = isDragPlaceholder(project.id) ? undefined : projectHref(project.id, project.name)}
   {@const dot = accentVar(project.color)}
+  <!-- The drag placeholder is a clone of the held row with only its id replaced,
+       so it carries a real flag on a row that names no project. -->
+  {@const unseen = project.has_unseen_changes && !active && !isDragPlaceholder(project.id)}
   <a
     use:suppressTouchContextMenu
     {href}
@@ -179,6 +182,10 @@
       <ColorDot color={dot} size="sm" />
     {/if}
     <span class="min-w-0 flex-1 truncate">{project.name}</span>
+    {#if unseen}
+      <span class="size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true"></span>
+      <span class="sr-only">Unseen changes</span>
+    {/if}
   </a>
 {/snippet}
 

@@ -609,3 +609,20 @@ describe('TaskCard', () => {
     });
   });
 });
+
+describe('TaskCard changed since you last looked', () => {
+  it('names the change and swaps the surface, touching no other style channel', () => {
+    const plainRender = render(TaskCard, { props: { task, projectId: PROJECT_ID } });
+    const plain = card().className;
+    expect(plain).toContain('bg-canvas');
+    expect(screen.queryByText('Changed since you last looked')).toBeNull();
+    plainRender.unmount();
+
+    render(TaskCard, { props: { task, projectId: PROJECT_ID, changed: true } });
+
+    expect(screen.getByText('Changed since you last looked')).toBeInTheDocument();
+    // Hover owns the border and selection owns the ring, so the highlight has to
+    // differ from a plain card by the background token and nothing else.
+    expect(card().className.replace('bg-accent-soft', 'bg-canvas')).toBe(plain);
+  });
+});

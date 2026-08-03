@@ -72,6 +72,8 @@ function project(overrides: Partial<Project> = {}): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
     ...overrides,
   };
 }
@@ -491,5 +493,52 @@ describe('offline badge', () => {
 
     render(Nav);
     expect(screen.queryByText(/reconnecting/i)).toBeNull();
+  });
+});
+
+describe('Nav unseen changes dot', () => {
+  it('marks a project with unseen changes and leaves the open one alone', () => {
+    projects.projects = [
+      project({ id: A_ID, name: 'A', position: 1000, has_unseen_changes: true }),
+      project({ id: B_ID, name: 'B', position: 2000, has_unseen_changes: true }),
+      project({ id: C_ID, name: 'C', position: 3000 }),
+    ];
+    router.navigate(projectHref(B_ID, 'B'));
+
+    render(Nav);
+
+    expect(screen.getByRole('link', { name: 'A Unseen changes' })).toHaveAttribute(
+      'href',
+      projectHref(A_ID, 'A')
+    );
+    expect(screen.getByRole('link', { name: 'B' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'C' })).toBeInTheDocument();
+    expect(screen.getAllByText('Unseen changes')).toHaveLength(1);
+  });
+
+  // The placeholder is a clone of the held row carrying its real flag under an id
+  // that names no project, so an unguarded read dots a row that is not a project.
+  it('keeps the dot off the drag placeholder', async () => {
+    projects.projects = [
+      project({ id: A_ID, name: 'A', position: 1000, has_unseen_changes: true }),
+      project({ id: B_ID, name: 'B', position: 2000 }),
+    ];
+
+    render(Nav);
+    const linkA = await screen.findByRole('link', { name: 'A Unseen changes' });
+    const zone = linkA.parentElement!.parentElement!;
+    const [a, b] = projects.active;
+    await fireEvent(
+      zone,
+      new CustomEvent('consider', {
+        detail: {
+          items: [{ ...a!, isDndShadowItem: true, id: SHADOW_PLACEHOLDER_ITEM_ID }, b!],
+          info: { trigger: TRIGGERS.DRAG_STARTED, id: A_ID, source: SOURCES.POINTER },
+        },
+      })
+    );
+
+    expect(sidebarRowNames()).toEqual(['A', 'B']);
+    expect(screen.queryAllByText('Unseen changes')).toEqual([]);
   });
 });

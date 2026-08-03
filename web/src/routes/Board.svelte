@@ -443,6 +443,7 @@
                   blockedCount={openBlockerCount(task)}
                   done={doneColumnIds.has(task.column_id)}
                   dimmed={board.hasActiveFilters && !board.taskMatchesFilters(task)}
+                  changed={board.changedTaskIds.has(task.id)}
                 />
               </div>
             {/each}

@@ -116,6 +116,7 @@ function boardPayload(): BoardPayload {
     columns: [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }],
     tasks: [],
     labels: [],
+    changed_task_ids: [],
   };
 }
 
@@ -135,6 +136,8 @@ function project(overrides: Partial<Project> = {}): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
     ...overrides,
   };
 }
@@ -1040,5 +1043,70 @@ describe('project_updated reaches the open board', () => {
 
     expect(board.canEdit).toBe(false);
     expect(projects.projects).toHaveLength(1);
+  });
+});
+
+describe('project_changed raises the unseen dot', () => {
+  const SEEN = '2026-05-01T00:00:00.000Z';
+
+  function seed(): void {
+    projects.projects = [
+      project({ id: 'p1', last_seen_at: SEEN }),
+      project({ id: 'p2', name: 'Other', last_seen_at: SEEN }),
+    ];
+  }
+
+  function dotted(): string[] {
+    return projects.projects.filter((p) => p.has_unseen_changes).map((p) => p.id);
+  }
+
+  function changed(socket: FakeWebSocket, projectId: string, actorUserId?: string): void {
+    socket.receive({
+      type: 'project_changed',
+      project_id: projectId,
+      data:
+        actorUserId === undefined
+          ? { id: projectId }
+          : { id: projectId, actor_user_id: actorUserId },
+    });
+  }
+
+  it('dots a board a teammate changed while the caller is subscribed to no room', async () => {
+    seed();
+    const socket = await connectAndAuth(null);
+
+    changed(socket, 'p2', 'u-them');
+
+    expect(dotted()).toEqual(['p2']);
+  });
+
+  it('never dots the caller’s own edit, which still reaches their other devices', async () => {
+    seed();
+    const socket = await connectAndAuth(null);
+
+    changed(socket, 'p1', 'u1');
+    changed(socket, 'p2', 'u-them');
+
+    expect(dotted()).toEqual(['p2']);
+  });
+
+  it('never dots an event from a pod that names no actor', async () => {
+    seed();
+    const socket = await connectAndAuth(null);
+
+    changed(socket, 'p1');
+    changed(socket, 'p2', 'u-them');
+
+    expect(dotted()).toEqual(['p2']);
+  });
+
+  it('never dots the board the caller is looking at', async () => {
+    seed();
+    const socket = await connectAndAuth('p1');
+
+    changed(socket, 'p1', 'u-them');
+    changed(socket, 'p2', 'u-them');
+
+    expect(dotted()).toEqual(['p2']);
   });
 });

@@ -1,3 +1,4 @@
+import { SvelteSet } from 'svelte/reactivity';
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import { filtersToSearch, mergeFilterSearch, noFilters, type BoardFilters } from './board-filters';
@@ -160,12 +161,17 @@ class BoardStore {
   archivedLoading = $state(false);
   archivedLoaded = $state(false);
   archivedError = $state<string | null>(null);
+  // One instance, mutated in place: a SvelteSet makes its contents reactive, not
+  // the field holding it, so reassigning would leave the template subscribed to
+  // the set it read at mount.
+  readonly changedTaskIds = new SvelteSet<string>();
 
   // Monotonic tokens rather than project-id checks: ids cannot tell a stale
   // request apart from a fresh one across a P1->P2->P1 flip.
   #loadToken = 0;
   #fetchToken = 0;
   #archivedToken = 0;
+  #seenArmed = false;
   #cyclePathTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Filters are adopted before the first await, so a link built from the store during
@@ -196,6 +202,13 @@ class BoardStore {
     if (token === this.#loadToken) {
       this.loading = false;
     }
+  }
+
+  // Entering a project asks for one capture of what changed, held for that visit.
+  // The stale-while-revalidate reads that follow — an overlay opening, a view
+  // switch — must not replace it with the empty set the stamp has since made true.
+  armSeen(): void {
+    this.#seenArmed = true;
   }
 
   // `quiet` suppresses the error page for reads that merely supplement an action
@@ -237,6 +250,20 @@ class BoardStore {
       // Now that the label set is known, drop any the incoming URL named but this
       // project does not have.
       this.setFilters(this.filters);
+      if (this.#seenArmed) {
+        this.#seenArmed = false;
+        // An anonymous public board has no marker to move and nothing to compare
+        // against; a signed-in viewer is not this, and gets the whole feature.
+        if (!this.readonly) {
+          this.changedTaskIds.clear();
+          // Coalesced despite the type: an API pod that predates the marker omits
+          // the key, and the feature has to degrade to invisible rather than throw.
+          for (const id of data.changed_task_ids ?? []) {
+            this.changedTaskIds.add(id);
+          }
+          void projects.markSeen(projectId);
+        }
+      }
     } catch (error) {
       if (token !== this.#fetchToken || quiet) {
         return;
@@ -301,6 +328,7 @@ class BoardStore {
       columns: BoardColumn[];
       tasks: BoardTask[];
       labels: BoardLabel[];
+      changed_task_ids: string[];
     };
     projectUsers: User[];
     comments: Record<string, TaskComment[]>;
@@ -338,6 +366,7 @@ class BoardStore {
           column_since: '',
         })),
         labels: data.labels,
+        changed_task_ids: [],
       },
       projectUsers: data.users,
       comments,
@@ -356,6 +385,10 @@ class BoardStore {
     this.archivedLoading = false;
     this.archivedLoaded = false;
     this.archivedError = null;
+    this.changedTaskIds.clear();
+    // #seenArmed is deliberately not cleared: load() resets before the arriving
+    // project's capture has happened, and swallowing the flag here would leave a
+    // return visit to a board with no highlights at all.
     this.taskImages = {};
     this.taskComments = {};
     this.loading = false;

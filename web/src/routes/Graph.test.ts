@@ -70,6 +70,7 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
     ],
     tasks,
     labels: [],
+    changed_task_ids: [],
   };
 }
 

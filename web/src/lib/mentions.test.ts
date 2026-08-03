@@ -36,6 +36,8 @@ function listedProject(memberIds: string[]): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
   };
 }
 

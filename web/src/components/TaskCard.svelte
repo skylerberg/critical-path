@@ -22,6 +22,7 @@
     done?: boolean;
     dimmed?: boolean;
     readonly?: boolean;
+    changed?: boolean;
   }
 
   let {
@@ -32,6 +33,7 @@
     done = false,
     dimmed = false,
     readonly = false,
+    changed = false,
   }: Props = $props();
 
   const assignees = $derived(task.assignee_ids.map((id) => users.displayFor(id)));
@@ -126,10 +128,15 @@
       cardMenu.pressStart(event, task.id);
     }
   }}
-  class="relative isolate block min-h-11 touch-callout-none rounded-md border bg-canvas p-3 transition-opacity hover:border-accent {selected
-    ? 'border-accent ring-2 ring-accent'
-    : 'border-edge'} {dimmed ? 'opacity-30' : ''}"
+  class="relative isolate block min-h-11 touch-callout-none rounded-md border p-3 transition-opacity hover:border-accent {changed
+    ? 'bg-accent-soft'
+    : 'bg-canvas'} {selected ? 'border-accent ring-2 ring-accent' : 'border-edge'} {dimmed
+    ? 'opacity-30'
+    : ''}"
 >
+  {#if changed}
+    <span class="sr-only">Changed since you last looked</span>
+  {/if}
   {#if !renaming && !placeholder}
     <a
       use:link

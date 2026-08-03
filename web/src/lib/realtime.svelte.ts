@@ -41,6 +41,7 @@ const PROJECT_EVENTS = new Set([
   'project_updated',
   'project_deleted',
   'project_position_updated',
+  'project_seen',
 ]);
 
 class RealtimeClient {
@@ -276,6 +277,22 @@ class RealtimeClient {
       // and deferring it keeps a demoted member's affordances live for longer.
       if (event.type === 'project_updated') {
         board.applyRealtime(event);
+      }
+    } else if (event.type === 'project_changed') {
+      // Delivered to the actor's own devices too, because their other tabs still
+      // have to update the board — only the dot ignores its own. An event from a
+      // pod that predates the actor field carries none and is treated the same
+      // way: a missed dot self-heals on the next load, a false one on your own
+      // edit does not. The open board is skipped for the same reason — a dot on
+      // what you are already looking at is one you cannot act on.
+      const { actor_user_id: actor } = event.data as { actor_user_id?: string };
+      if (
+        event.project_id !== null &&
+        event.project_id !== board.currentProjectId &&
+        actor !== undefined &&
+        actor !== session.user?.id
+      ) {
+        projects.markChanged(event.project_id);
       }
     } else if (event.type === 'user_updated') {
       const updated = users.applyRealtime(event.data);
