@@ -43,6 +43,7 @@
   const commentCount = $derived(task.comment_count ?? 0);
   const checklistTotal = $derived(task.checklist_item_count ?? 0);
   const checklistDone = $derived(task.checklist_done_count ?? 0);
+  const attachmentCount = $derived(task.attachment_count ?? 0);
   const selected = $derived(selection.selectedTaskId === task.id);
   const renaming = $derived(cardMenu.renamingTaskId === task.id);
   const shownTitle = $derived(truncateTitle(task.title));
@@ -201,7 +202,7 @@
   {:else}
     <p class="text-sm font-medium break-words">{shownTitle}</p>
   {/if}
-  {#if dated || blockedCount > 0 || task.image_count > 0 || commentCount > 0 || checklistTotal > 0 || assignees.length > 0}
+  {#if dated || blockedCount > 0 || task.image_count > 0 || commentCount > 0 || attachmentCount > 0 || checklistTotal > 0 || assignees.length > 0}
     <!-- Raised above the overlay link so the badges keep their hover tooltips and
          the pill stays clickable; with no offsets it moves nothing. The row itself
          stays transparent to the pointer and each child opts back in, so the blank
@@ -270,6 +271,28 @@
             />
           </svg>
           {commentCount}
+        </span>
+      {/if}
+      {#if attachmentCount > 0}
+        <span
+          class="pointer-events-auto inline-flex items-center gap-1 text-xs text-muted"
+          title="{attachmentCount} attachment{attachmentCount === 1 ? '' : 's'}"
+        >
+          <svg
+            class="size-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+            />
+          </svg>
+          {attachmentCount}
         </span>
       {/if}
       {#if checklistTotal > 0}
