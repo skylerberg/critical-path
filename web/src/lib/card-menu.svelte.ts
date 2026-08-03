@@ -71,12 +71,13 @@ class CardMenuController {
   #timer: ReturnType<typeof setTimeout> | undefined;
   #press: Press | null = null;
 
-  // Selects too, so the keys the menu advertises act on the card it was opened on
-  // the moment it closes. A rename in flight elsewhere is left alone: the focus
-  // the menu takes blurs it, which saves it.
+  // Activates too, so the keys the menu advertises act on the card it was opened
+  // on the moment it closes — and so a right-click inside a selection keeps it,
+  // while one outside collapses it. A rename in flight elsewhere is left alone:
+  // the focus the menu takes blurs it, which saves it.
   open(taskId: string, x: number, y: number): void {
     this.cancelPress();
-    selection.set(taskId);
+    selection.activate(taskId);
     this.taskId = taskId;
     this.x = x;
     this.y = y;

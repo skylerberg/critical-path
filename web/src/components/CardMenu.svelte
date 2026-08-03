@@ -3,6 +3,7 @@
   import { CARD_ACTION_KEYS, type CardActionId } from '../lib/card-actions';
   import { cardMenu } from '../lib/card-menu.svelte';
   import { link } from '../lib/router.svelte';
+  import { selection } from '../lib/selection.svelte';
   import { publicTaskHref, taskHref } from '../lib/short-links';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { truncateTitle } from '../lib/titles';
@@ -44,13 +45,31 @@
   const completable = $derived(
     task !== undefined && board.doneColumnIds.size > 0 && !board.doneColumnIds.has(task.column_id)
   );
+  const targets = $derived(selection.targetsFor(cardMenu.taskId));
+  // Gated on canEdit, so a set left over from before a demotion still leaves the
+  // viewer the link rows rather than an empty menu.
+  const multi = $derived(canEdit && targets.length > 1);
 
   const editItems = $derived.by<Item[]>(() => {
     if (task === undefined || !canEdit) {
       return [];
     }
     const id = task.id;
+    if (multi) {
+      const n = targets.length;
+      return [
+        { id: 'labels', label: 'Labels…', run: () => (shortcuts.bulkMenu = 'labels') },
+        { id: 'assignees', label: 'Assignees…', run: () => (shortcuts.bulkMenu = 'assignees') },
+        { id: 'move', label: `Move ${n} cards to…`, run: () => (shortcuts.bulkMenu = 'move') },
+        { id: 'archive', label: `Archive ${n} cards`, run: () => (shortcuts.bulkMenu = 'archive') },
+      ];
+    }
     const items: Item[] = [
+      {
+        id: 'select',
+        label: selection.has(id) ? 'Deselect' : 'Select',
+        run: () => selection.toggle(id),
+      },
       { id: 'rename', label: 'Edit title', run: () => cardMenu.rename(id) },
       { id: 'labels', label: 'Labels…', run: () => (shortcuts.labelMenu = id) },
       { id: 'assignees', label: 'Assignees…', run: () => (shortcuts.assigneeMenu = id) },
@@ -76,11 +95,17 @@
     return items;
   });
 
-  const linkItems = $derived<Item[]>([
-    { id: 'open', label: 'Open', href },
-    { id: 'openNewTab', label: 'Open in new tab', href, newTab: true },
-    { id: 'copyLink', label: 'Copy link', run: () => void copyLink() },
-  ]);
+  // Open, Open in new tab and Copy link name one card, so they mean nothing for
+  // a set.
+  const linkItems = $derived<Item[]>(
+    multi
+      ? []
+      : [
+          { id: 'open', label: 'Open', href },
+          { id: 'openNewTab', label: 'Open in new tab', href, newTab: true },
+          { id: 'copyLink', label: 'Copy link', run: () => void copyLink() },
+        ]
+  );
 
   function keyShortcuts(item: Item): string | undefined {
     const keys = CARD_ACTION_KEYS[item.id];
@@ -254,7 +279,9 @@
     bind:this={menuEl}
     role="menu"
     tabindex="-1"
-    aria-label="Actions for {truncateTitle(task.title)}"
+    aria-label={multi
+      ? `Actions for ${String(targets.length)} selected cards`
+      : `Actions for ${truncateTitle(task.title)}`}
     {onkeydown}
     style="left: {placed.x}px; top: {placed.y}px"
     class="fixed z-40 max-h-[80vh] w-64 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
@@ -271,7 +298,7 @@
         {@render row(item)}
       </button>
     {/each}
-    {#if editItems.length > 0}
+    {#if editItems.length > 0 && linkItems.length > 0}
       <div role="separator" class="my-1 border-t border-edge"></div>
     {/if}
     {#each linkItems as item (item.id)}

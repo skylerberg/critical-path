@@ -7,6 +7,7 @@
 export type CardActionId =
   | 'open'
   | 'openDetail'
+  | 'select'
   | 'rename'
   | 'labels'
   | 'assignees'
@@ -22,6 +23,7 @@ export type CardActionId =
 export const CARD_ACTION_KEYS: Record<CardActionId, string[]> = {
   open: ['Enter', 'o'],
   openDetail: ['e'],
+  select: ['s'],
   rename: [],
   labels: ['l'],
   assignees: ['a'],

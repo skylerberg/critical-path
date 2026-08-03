@@ -309,7 +309,7 @@ describe('TaskDetail', () => {
     expect(screen.getByRole('button', { name: 'Delete image mock.png' })).toBeInTheDocument();
 
     expect(screen.getByText(/Created .+ · Updated .+/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Delete task' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
   });
 
   it('loads images and comments from the one detail fetch and renders the Activity section', async () => {
@@ -508,26 +508,15 @@ describe('TaskDetail', () => {
     expect(screen.getByText('Task not found')).toBeInTheDocument();
   });
 
-  it('waits for the delete to finish before redirecting, so the DELETE is never aborted', async () => {
-    let resolveDelete: (() => void) | undefined;
-    const deleteSpy = vi.spyOn(board, 'deleteTask').mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveDelete = resolve;
-        })
-    );
-    const redirectSpy = vi.spyOn(router, 'redirect').mockImplementation(() => {});
+  it('offers no delete: an open card can only be archived, and delete lives in the archive', () => {
+    const deleteSpy = vi.spyOn(board, 'deleteTask').mockResolvedValue();
 
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
-
-    expect(deleteSpy).toHaveBeenCalledWith(T1);
-    expect(redirectSpy).not.toHaveBeenCalled();
-
-    resolveDelete?.();
-    await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith(BOARD_PATH));
+    expect(screen.queryByRole('button', { name: /Delete task/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Confirm delete/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
+    expect(deleteSpy).not.toHaveBeenCalled();
   });
 
   it('archives without a confirm step, then redirects once the card is off the board', async () => {

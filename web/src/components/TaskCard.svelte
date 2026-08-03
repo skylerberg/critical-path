@@ -43,7 +43,10 @@
   const commentCount = $derived(task.comment_count ?? 0);
   const checklistTotal = $derived(task.checklist_item_count ?? 0);
   const checklistDone = $derived(task.checklist_done_count ?? 0);
-  const selected = $derived(selection.selectedTaskId === task.id);
+  const cursor = $derived(selection.cursorTaskId === task.id);
+  const picked = $derived(selection.has(task.id));
+  // Only while a set exists, so the default board is pixel-identical.
+  const selecting = $derived(selection.count > 0 && !readonly && board.canEdit);
   const renaming = $derived(cardMenu.renamingTaskId === task.id);
   const shownTitle = $derived(truncateTitle(task.title));
   // Still drawn, only unlinked, so the gap it leaves keeps the card's size.
@@ -130,14 +133,76 @@
       cardMenu.pressStart(event, task.id);
     }
   }}
+  onclick={(event) => {
+    if (readonly || !board.canEdit || renaming || placeholder) {
+      return;
+    }
+    // macOS opens the menu on ctrl-click and a long press trails a click, so the
+    // menu's own gesture must not also toggle.
+    if (cardMenu.taskId !== null) {
+      return;
+    }
+    // The overlay link ignores modifier clicks and hands them to the browser,
+    // which runs the default action after the whole dispatch — so cancelling it
+    // here is what reclaims the gesture.
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      selection.toggle(task.id);
+    } else if (event.shiftKey) {
+      event.preventDefault();
+      window.getSelection()?.removeAllRanges();
+      selection.extendTo(task.id);
+    }
+  }}
   class="relative isolate block min-h-11 touch-callout-none rounded-md border p-3 transition-opacity hover:border-accent {changed
     ? 'bg-accent-soft'
-    : 'bg-canvas'} {selected ? 'border-accent ring-2 ring-accent' : 'border-edge'} {dimmed
-    ? 'opacity-30'
-    : ''}"
+    : 'bg-canvas'} {cursor ? 'border-accent ring-2 ring-accent' : 'border-edge'} {picked
+    ? 'outline-2 -outline-offset-2 outline-accent-strong'
+    : ''} {dimmed ? 'opacity-30' : ''}"
 >
   {#if changed}
     <span class="sr-only">Changed since you last looked</span>
+  {/if}
+  {#if picked}
+    <span class="sr-only">Selected</span>
+  {/if}
+  {#if selecting && !renaming && !placeholder}
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={picked}
+      aria-label="Select {shownTitle}"
+      onclick={(event) => {
+        event.preventDefault();
+        // The container's own modifier handling would otherwise run second and
+        // undo this: a cmd-click would toggle twice, a shift-click would put the
+        // card straight back.
+        event.stopPropagation();
+        selection.toggle(task.id);
+      }}
+      class="absolute top-0 right-0 z-10 flex min-h-11 min-w-11 cursor-pointer items-center justify-center"
+    >
+      <span
+        class="flex size-5 items-center justify-center rounded-full border-2 {picked
+          ? 'border-accent-strong bg-accent-strong text-canvas'
+          : 'border-muted bg-canvas'}"
+      >
+        {#if picked}
+          <svg
+            class="size-3"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m5 12.5 5 5 9-11" />
+          </svg>
+        {/if}
+      </span>
+    </button>
   {/if}
   {#if !renaming && !placeholder}
     <a

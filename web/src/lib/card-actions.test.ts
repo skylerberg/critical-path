@@ -125,6 +125,10 @@ const effects: Record<CardActionId, (hint: string) => void> = {
     press(hint);
     expect(duplicateTask).toHaveBeenCalledWith(TASK_ID);
   },
+  select: (hint) => {
+    press(hint);
+    expect(selection.selectedIds).toEqual([TASK_ID]);
+  },
   rename: () => expect.unreachable('rename has no key'),
   archive: () => expect.unreachable('archive has no key'),
   openNewTab: () => expect.unreachable('open in a new tab has no key'),

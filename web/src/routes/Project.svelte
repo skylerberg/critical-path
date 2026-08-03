@@ -8,6 +8,7 @@
   import { selection } from '../lib/selection.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { users } from '../lib/users.svelte';
+  import BulkActions from '../components/BulkActions.svelte';
   import ProjectHeader from '../components/ProjectHeader.svelte';
   import QuickAssigneeMenu from '../components/QuickAssigneeMenu.svelte';
   import QuickDependencyMenu from '../components/QuickDependencyMenu.svelte';
@@ -162,6 +163,9 @@
   {/if}
   {#if shortcuts.moveMenu !== null}
     <QuickMoveMenu taskId={shortcuts.moveMenu} onclose={() => (shortcuts.moveMenu = null)} />
+  {/if}
+  {#if shortcuts.bulkMenu !== null}
+    <BulkActions kind={shortcuts.bulkMenu} onclose={() => (shortcuts.bulkMenu = null)} />
   {/if}
 {/if}
 

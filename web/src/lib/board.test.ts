@@ -5,6 +5,7 @@ import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
 import { router } from './router.svelte';
+import { selection } from './selection.svelte';
 import { session } from './session.svelte';
 import { projectHref, taskHref } from './short-links';
 import { testUuid } from './test-ids';
@@ -2422,6 +2423,331 @@ describe('column bulk actions', () => {
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2']);
     expect(board.tasks.some((t) => t.id === 't3')).toBe(true);
     expect(board.archivedTasks).toEqual([]);
+  });
+});
+
+describe('selection bulk actions', () => {
+  const ME = 'u-me';
+
+  function archivedTask(id: string, columnId = 'c1', title = 'A') {
+    return { ...task(id, columnId, 1000, title), archived_at: SERVER_ARCHIVED_AT };
+  }
+
+  function relations(taskId: string, labelIds: string[], assigneeIds: string[] = []) {
+    return {
+      task_id: taskId,
+      label_ids: labelIds,
+      assignee_ids: assigneeIds,
+      blocker_ids: [],
+    };
+  }
+
+  function pathsRequested(): string[] {
+    return fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+  }
+
+  function answer(path: string, body: unknown): void {
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === path ? jsonResponse(200, body) : undefined
+    );
+  }
+
+  beforeEach(async () => {
+    await board.load('p1');
+    session.user = {
+      id: ME,
+      name: 'Ada',
+      email: 'ada@example.com',
+      avatar_url: null,
+      email_verified: false,
+    };
+    board.project = { ...board.project!, created_by: ME };
+    selection.clear();
+    fetchMock.mockClear();
+  });
+
+  describe('bulkMoveTasks', () => {
+    it('appends in the order it was given and adopts the server positions', async () => {
+      answer('/api/tasks/bulk-move', {
+        moved_tasks: [
+          { id: 't2', column_id: 'c2', position: 7000 },
+          { id: 't1', column_id: 'c2', position: 8000 },
+        ],
+        skipped_task_ids: [],
+      });
+
+      const pending = board.bulkMoveTasks(['t2', 't1'], 'c2');
+
+      expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
+        ['t3', 1000],
+        ['t2', 2000],
+        ['t1', 3000],
+      ]);
+
+      await pending;
+
+      expect(await requestAt(0).json()).toEqual({
+        project_id: 'p1',
+        task_ids: ['t2', 't1'],
+        column_id: 'c2',
+      });
+      expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
+        ['t3', 1000],
+        ['t2', 7000],
+        ['t1', 8000],
+      ]);
+      expect(pathsRequested()).toEqual(['/api/tasks/bulk-move']);
+    });
+
+    it('names the counts and resyncs when the server skipped a card', async () => {
+      answer('/api/tasks/bulk-move', {
+        moved_tasks: [{ id: 't1', column_id: 'c2', position: 7000 }],
+        skipped_task_ids: ['t2'],
+      });
+
+      await board.bulkMoveTasks(['t1', 't2'], 'c2');
+
+      expect(toasts.toasts.map((t) => t.message)).toContain(
+        'Moved 1 of 2 cards. 1 changed before the action ran.'
+      );
+      expect(pathsRequested()).toEqual(['/api/tasks/bulk-move', '/api/projects/p1']);
+    });
+
+    it('resyncs when the server moved a card we did not send', async () => {
+      answer('/api/tasks/bulk-move', {
+        moved_tasks: [
+          { id: 't1', column_id: 'c2', position: 7000 },
+          { id: 't9', column_id: 'c2', position: 8000 },
+        ],
+        skipped_task_ids: [],
+      });
+
+      await board.bulkMoveTasks(['t1'], 'c2');
+
+      expect(pathsRequested()).toEqual(['/api/tasks/bulk-move', '/api/projects/p1']);
+    });
+
+    it('toasts and resyncs on failure', async () => {
+      mockRoutes((request, url) =>
+        request.method === 'POST' && url.pathname === '/api/tasks/bulk-move'
+          ? jsonResponse(500, { error: 'boom' })
+          : undefined
+      );
+
+      await board.bulkMoveTasks(['t1'], 'c2');
+
+      expect(toasts.toasts.map((t) => t.message)).toContain('boom');
+      expect(pathsRequested()).toContain('/api/projects/p1');
+    });
+
+    it('issues no request for an empty selection', async () => {
+      await board.bulkMoveTasks([], 'c2');
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('bulkArchiveTasks', () => {
+    it('drops the cards, strips their blocker edges, and adopts the server rows', async () => {
+      board.tasks = board.tasks.map((t) => (t.id === 't2' ? { ...t, blocker_ids: ['t1'] } : t));
+      answer('/api/tasks/bulk-archive', {
+        tasks: [archivedTask('t1', 'c1', 'A')],
+        skipped_task_ids: [],
+      });
+
+      await board.bulkArchiveTasks(['t1']);
+
+      expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
+      expect(board.tasks.find((t) => t.id === 't2')?.blocker_ids).toEqual([]);
+      expect(board.archivedTasks.map((t) => [t.id, t.archived_at])).toEqual([
+        ['t1', SERVER_ARCHIVED_AT],
+      ]);
+      expect(await requestAt(0).json()).toEqual({ project_id: 'p1', task_ids: ['t1'] });
+      expect(pathsRequested()).toEqual(['/api/tasks/bulk-archive']);
+    });
+
+    it('names the counts and resyncs when a card was already archived', async () => {
+      board.archivedLoaded = true;
+      answer('/api/tasks/bulk-archive', {
+        tasks: [archivedTask('t1', 'c1', 'A')],
+        skipped_task_ids: ['t2'],
+      });
+
+      await board.bulkArchiveTasks(['t1', 't2']);
+
+      expect(toasts.toasts.map((t) => t.message)).toContain(
+        'Archived 1 of 2 cards. 1 changed before the action ran.'
+      );
+      expect(pathsRequested()).toEqual([
+        '/api/tasks/bulk-archive',
+        '/api/projects/p1',
+        '/api/projects/p1/archived-tasks',
+      ]);
+    });
+
+    it('clears the provisional rows and resyncs on failure', async () => {
+      mockRoutes((request, url) =>
+        request.method === 'POST' && url.pathname === '/api/tasks/bulk-archive'
+          ? jsonResponse(500, { error: 'boom' })
+          : undefined
+      );
+
+      await board.bulkArchiveTasks(['t1', 't2']);
+
+      expect(board.archivedTasks).toEqual([]);
+      expect(toasts.toasts.map((t) => t.message)).toContain('boom');
+      expect(pathsRequested()).toContain('/api/projects/p1');
+    });
+  });
+
+  describe('bulkSetLabel and bulkSetAssignee', () => {
+    it('applies the label optimistically, sends only the add key, and reconciles', async () => {
+      answer('/api/tasks/bulk-labels', {
+        tasks: [relations('t2', ['l1'])],
+        skipped_task_ids: [],
+      });
+
+      const pending = board.bulkSetLabel(['t1', 't2'], 'l1', true);
+
+      expect(board.tasks.find((t) => t.id === 't2')?.label_ids).toEqual(['l1']);
+
+      await pending;
+
+      expect(await requestAt(0).json()).toEqual({
+        project_id: 'p1',
+        task_ids: ['t1', 't2'],
+        add_label_ids: ['l1'],
+      });
+      expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toEqual(['l1']);
+      expect(board.tasks.find((t) => t.id === 't2')?.label_ids).toEqual(['l1']);
+      // t1 already carried the label, so the server reports it as unchanged and
+      // that is not a skip.
+      expect(pathsRequested()).toEqual(['/api/tasks/bulk-labels']);
+    });
+
+    it('sends only the remove key when turning a label off', async () => {
+      answer('/api/tasks/bulk-labels', {
+        tasks: [relations('t1', [])],
+        skipped_task_ids: [],
+      });
+
+      await board.bulkSetLabel(['t1'], 'l1', false);
+
+      expect(await requestAt(0).json()).toEqual({
+        project_id: 'p1',
+        task_ids: ['t1'],
+        remove_label_ids: ['l1'],
+      });
+      expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toEqual([]);
+    });
+
+    it('applies an assignee across the selection', async () => {
+      answer('/api/tasks/bulk-assignees', {
+        tasks: [relations('t1', ['l1'], [ME]), relations('t2', [], [ME])],
+        skipped_task_ids: [],
+      });
+
+      const pending = board.bulkSetAssignee(['t1', 't2'], ME, true);
+
+      expect(board.tasks.find((t) => t.id === 't2')?.assignee_ids).toEqual([ME]);
+
+      await pending;
+
+      expect(await requestAt(0).json()).toEqual({
+        project_id: 'p1',
+        task_ids: ['t1', 't2'],
+        add_user_ids: [ME],
+      });
+      expect(board.tasks.find((t) => t.id === 't1')?.assignee_ids).toEqual([ME]);
+      expect(pathsRequested()).toEqual(['/api/tasks/bulk-assignees']);
+    });
+
+    it('names the counts and resyncs when a card was skipped', async () => {
+      answer('/api/tasks/bulk-labels', {
+        tasks: [relations('t1', ['l1'])],
+        skipped_task_ids: ['t2'],
+      });
+
+      await board.bulkSetLabel(['t1', 't2'], 'l1', true);
+
+      expect(toasts.toasts.map((t) => t.message)).toContain(
+        'Updated 1 of 2 cards. 1 changed before the action ran.'
+      );
+      expect(pathsRequested()).toEqual(['/api/tasks/bulk-labels', '/api/projects/p1']);
+    });
+
+    it('resyncs when the response names a card we did not send', async () => {
+      answer('/api/tasks/bulk-labels', {
+        tasks: [relations('t1', ['l1']), relations('t9', ['l1'])],
+        skipped_task_ids: [],
+      });
+
+      await board.bulkSetLabel(['t1'], 'l1', true);
+
+      expect(pathsRequested()).toEqual(['/api/tasks/bulk-labels', '/api/projects/p1']);
+    });
+
+    it('toasts and resyncs on failure', async () => {
+      mockRoutes((request, url) =>
+        request.method === 'POST' && url.pathname === '/api/tasks/bulk-labels'
+          ? jsonResponse(500, { error: 'boom' })
+          : undefined
+      );
+
+      await board.bulkSetLabel(['t1'], 'l1', true);
+
+      expect(toasts.toasts.map((t) => t.message)).toContain('boom');
+      expect(pathsRequested()).toContain('/api/projects/p1');
+    });
+  });
+
+  describe('applyRealtime', () => {
+    it('bulk_tasks_moved relocates the cards and leaves the selection standing', () => {
+      selection.toggle('t1');
+
+      board.applyRealtime({
+        type: 'bulk_tasks_moved',
+        project_id: 'p1',
+        data: { moved_tasks: [{ id: 't1', column_id: 'c2', position: 4000 }] },
+      });
+
+      expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1']);
+      expect(selection.selectedIds).toEqual(['t1']);
+    });
+
+    it('bulk_tasks_archived takes the cards off the board and into the archive', () => {
+      board.applyRealtime({
+        type: 'bulk_tasks_archived',
+        project_id: 'p1',
+        data: { tasks: [archivedTask('t1', 'c1', 'A')] },
+      });
+
+      expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
+      expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
+    });
+
+    it('bulk_tasks_relations_set rewrites only the cards it names', () => {
+      board.applyRealtime({
+        type: 'bulk_tasks_relations_set',
+        project_id: 'p1',
+        data: { tasks: [relations('t2', ['l1'], [ME])] },
+      });
+
+      expect(board.tasks.find((t) => t.id === 't2')?.label_ids).toEqual(['l1']);
+      expect(board.tasks.find((t) => t.id === 't2')?.assignee_ids).toEqual([ME]);
+      expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toEqual(['l1']);
+    });
+
+    it('ignores every bulk event aimed at another project', () => {
+      board.applyRealtime({
+        type: 'bulk_tasks_archived',
+        project_id: 'p2',
+        data: { tasks: [archivedTask('t1', 'c1', 'A')] },
+      });
+
+      expect(board.tasks.some((t) => t.id === 't1')).toBe(true);
+      expect(board.archivedTasks).toEqual([]);
+    });
   });
 });
 

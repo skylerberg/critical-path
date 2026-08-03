@@ -14,16 +14,29 @@
   let { open = false, onclose }: Props = $props();
 
   let query = $state('');
+  // One card at a time: a second Delete press elsewhere disarms the first, so an
+  // armed button can never be somewhere the user has stopped looking.
+  let confirmingId = $state<string | null>(null);
 
   $effect(() => {
     const projectId = board.currentProjectId;
     const isOpen = open;
     untrack(() => {
+      confirmingId = null;
       if (isOpen && projectId !== null) {
         void board.loadArchived();
       }
     });
   });
+
+  function requestDelete(taskId: string): void {
+    if (confirmingId !== taskId) {
+      confirmingId = taskId;
+      return;
+    }
+    confirmingId = null;
+    void board.deleteTask(taskId);
+  }
 
   const columnNames = $derived(new Map(board.columns.map((column) => [column.id, column.name])));
 
@@ -84,6 +97,19 @@
               class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-ink"
             >
               Restore
+            </button>
+            <button
+              type="button"
+              aria-label={confirmingId === task.id
+                ? `Confirm delete of card ${truncateTitle(task.title)}`
+                : `Delete card ${truncateTitle(task.title)}`}
+              onclick={() => requestDelete(task.id)}
+              class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm hover:bg-accent-soft {confirmingId ===
+              task.id
+                ? 'font-medium text-danger'
+                : 'text-muted hover:text-danger'}"
+            >
+              {confirmingId === task.id ? 'Confirm delete' : 'Delete'}
             </button>
           {/if}
         </li>

@@ -959,6 +959,53 @@ describe('Project mounted on the live route', () => {
     }
   });
 
+  it('mounts a bulk surface only while one is asked for', async () => {
+    const projectId = testUuid('p-route-bulk');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight'), task(T9, 'todo', 'Second', 2000)]);
+    router.navigate(projectHref(projectId, PROJECT_NAME), { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByText('Boss fight');
+      selection.toggle(T1);
+      selection.toggle(T9);
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      shortcuts.bulkMenu = 'archive';
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toHaveAccessibleName('Archive cards');
+      });
+
+      shortcuts.bulkMenu = null;
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull();
+      });
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('drops the selection when a card overlay opens', async () => {
+    const projectId = testUuid('p-route-bulk-clear');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(projectHref(projectId, PROJECT_NAME), { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await screen.findByText('Boss fight');
+      selection.toggle(T1);
+      expect(selection.selectedIds).toEqual([T1]);
+
+      router.navigate(taskHref(T1, 'Boss fight'));
+
+      await waitFor(() => {
+        expect(selection.selectedIds).toEqual([]);
+      });
+    } finally {
+      void unmount(app);
+    }
+  });
+
   it('keeps the board selection through a filter-only rewrite', async () => {
     const projectId = testUuid('p-route-selection');
     mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
@@ -973,7 +1020,7 @@ describe('Project mounted on the live route', () => {
       expect(router.path).toBe(`${projectHref(projectId, PROJECT_NAME)}?q=boss`);
       await tick();
 
-      expect(selection.selectedTaskId).toBe(T1);
+      expect(selection.cursorTaskId).toBe(T1);
     } finally {
       void unmount(app);
     }

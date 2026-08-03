@@ -9,6 +9,8 @@ import { currentProjectId } from './task-route.svelte';
 
 const CHORD_WINDOW_MS = 800;
 
+export type BulkMenu = 'labels' | 'assignees' | 'move' | 'archive';
+
 function isEditableTarget(): boolean {
   const el = document.activeElement;
   if (el === null) {
@@ -33,6 +35,7 @@ class ShortcutController {
   assigneeMenu = $state<string | null>(null);
   dependencyMenu = $state<{ taskId: string; direction: DependencyDirection } | null>(null);
   moveMenu = $state<string | null>(null);
+  bulkMenu = $state<BulkMenu | null>(null);
   quickAddColumn = $state<string | null>(null);
   filterFocusRequested = $state(false);
   searchFocusRequested = $state(false);
@@ -47,6 +50,7 @@ class ShortcutController {
       this.assigneeMenu !== null ||
       this.dependencyMenu !== null ||
       this.moveMenu !== null ||
+      this.bulkMenu !== null ||
       cardMenu.taskId !== null
     );
   }
@@ -60,6 +64,7 @@ class ShortcutController {
     this.assigneeMenu = null;
     this.dependencyMenu = null;
     this.moveMenu = null;
+    this.bulkMenu = null;
     cardMenu.reset();
   }
 
@@ -146,15 +151,27 @@ class ShortcutController {
   }
 
   #handleSelectionKey(event: KeyboardEvent, projectId: string | null): boolean {
-    const selectedId = selection.selectedTaskId;
+    const cursorId = selection.cursorTaskId;
     switch (event.key) {
+      // 'J' and 'K' are the same press with Shift held; the behaviour comes from
+      // the modifier and never the character's case, as CapsLock inverts it.
       case 'j':
+      case 'J':
       case 'ArrowDown':
-        selection.move('down');
+        if (event.shiftKey) {
+          selection.extend('down');
+        } else {
+          selection.move('down');
+        }
         break;
       case 'k':
+      case 'K':
       case 'ArrowUp':
-        selection.move('up');
+        if (event.shiftKey) {
+          selection.extend('up');
+        } else {
+          selection.move('up');
+        }
         break;
       case 'ArrowLeft':
         selection.move('left');
@@ -165,15 +182,22 @@ class ShortcutController {
       case 'Enter':
       case 'o':
       case 'e': {
-        if (selectedId === null || projectId === null) {
+        if (cursorId === null || projectId === null) {
           return false;
         }
-        const title = board.tasks.find((t) => t.id === selectedId)?.title ?? '';
-        router.navigate(taskHref(selectedId, title) + board.filterSearch);
+        const title = board.tasks.find((t) => t.id === cursorId)?.title ?? '';
+        router.navigate(taskHref(cursorId, title) + board.filterSearch);
         break;
       }
+      case 's':
+      case 'S':
+        if (cursorId === null || !board.canEdit || event.metaKey || event.ctrlKey || event.altKey) {
+          return false;
+        }
+        selection.toggle(cursorId);
+        break;
       case 'n': {
-        const columnId = selection.selectedColumnId ?? board.columns[0]?.id ?? null;
+        const columnId = selection.cursorColumnId ?? board.columns[0]?.id ?? null;
         if (columnId === null || !board.canEdit) {
           return false;
         }
@@ -184,13 +208,7 @@ class ShortcutController {
       case 'D':
         // CapsLock inverts the character, so duplicate-versus-done comes from the
         // modifier and never from the case of the key.
-        if (
-          selectedId === null ||
-          !board.canEdit ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.altKey
-        ) {
+        if (cursorId === null || !board.canEdit || event.metaKey || event.ctrlKey || event.altKey) {
           return false;
         }
         if (event.shiftKey) {
@@ -199,10 +217,10 @@ class ShortcutController {
           if (event.repeat) {
             return false;
           }
-          void board.duplicateTask(selectedId);
+          void board.duplicateTask(cursorId);
           break;
         }
-        if (!board.markTaskDone(selectedId)) {
+        if (!board.markTaskDone(cursorId)) {
           return false;
         }
         break;
@@ -219,10 +237,13 @@ class ShortcutController {
     selectionActive: boolean,
     filterBarActive: boolean
   ): void {
-    const target = overlayTaskId ?? (selectionActive ? selection.selectedTaskId : null);
+    const target = overlayTaskId ?? (selectionActive ? selection.cursorTaskId : null);
     // Every menu these open writes to the board, so for a viewer the key has to
     // fall through unclaimed rather than open a menu whose every row 403s.
     const editTarget = board.canEdit ? target : null;
+    // Gated on selectionActive as well, so an open overlay stays single-card even
+    // if a set somehow outlived the route change that clears it.
+    const bulk = selectionActive && selection.targetsFor(editTarget).length > 1;
     switch (event.key) {
       case '?':
         this.helpOpen = true;
@@ -280,12 +301,20 @@ class ShortcutController {
         if (editTarget === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
+        if (bulk) {
+          this.bulkMenu = 'labels';
+          break;
+        }
         this.labelMenu = editTarget;
         break;
       case 'a':
       case 'A':
         if (editTarget === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
+        }
+        if (bulk) {
+          this.bulkMenu = 'assignees';
+          break;
         }
         this.assigneeMenu = editTarget;
         break;
@@ -306,6 +335,10 @@ class ShortcutController {
         if (editTarget === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }
+        if (bulk) {
+          this.bulkMenu = 'move';
+          break;
+        }
         this.moveMenu = editTarget;
         break;
       case 'g':
@@ -315,7 +348,7 @@ class ShortcutController {
       case 'Escape':
         // In the overlay the dialog's own cancel owns Escape; on the graph there is no
         // selection to clear. Only the board view clears the selection here.
-        if (!selectionActive || selection.selectedTaskId === null) {
+        if (!selectionActive || (selection.cursorTaskId === null && selection.count === 0)) {
           return;
         }
         selection.clear();

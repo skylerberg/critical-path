@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/checklists/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/.claude/worktrees/multi-select/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -894,8 +894,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete a task
-         * @description Delete a task. Dependencies, labels, assignees, and images cascade; stored image objects are removed after commit.
+         * Delete an archived task
+         * @description Permanently delete a task that has already been archived. A task still on the board is refused with 422: archiving is the reversible step and deletion is only reachable from the archive, so nothing can be destroyed in one action. Dependencies, labels, assignees, and images cascade; stored image objects are removed after commit.
          */
         delete: operations["deleteApiTasksById"];
         options?: never;
@@ -1081,6 +1081,86 @@ export interface paths {
          * @description Attach an image to a task via multipart form data. The stored content type is determined solely by magic-byte sniffing (PNG, JPEG, GIF, or WebP); the client-declared MIME type is ignored. Maximum file size 10 MB. An optional `id` field supplies the image id (server-generated when omitted).
          */
         post: operations["postApiTasksByIdImages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/bulk-move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a selection of tasks to a column
+         * @description Move any number of a project’s tasks into one of its columns in a single transaction. The tasks are appended after the target column’s existing cards, keeping the order the ids were sent in, so the caller decides where the selection lands. Archived tasks are skipped: an archived card has no board position, and restoring one is contracted to return it to the column it was archived from. A card already in the target column is re-stamped so the selection lands contiguous, but keeps its column_since and records no move in its activity log. A column_id outside the project returns 422, even when every task id was skipped. Emits one bulk_tasks_moved event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
+         */
+        post: operations["postApiTasksBulkMove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/bulk-archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive a selection of tasks
+         * @description Archive any number of a project’s tasks in a single transaction: a soft delete that keeps the rows and their dependency edges but takes the cards out of the board payload, out of every blocker and dependent list, and out of the project task counts. Already archived ids keep their original archived_at, land in `skipped_task_ids`, and make a repeat call a no-op 200. The batch shares one archived_at, so the archive view breaks the tie on position and then id, which interleaves the columns of a selection that spans several. Emits one bulk_tasks_archived event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
+         */
+        post: operations["postApiTasksBulkArchive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/bulk-labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add or remove labels across a selection of tasks
+         * @description Apply a label delta to any number of a project’s tasks in a single transaction. This is an add/remove delta, never a replace: a selection rarely shares a label set, and replacing one from a client snapshot would strip every label the cards did not have in common. At least one of add_label_ids and remove_label_ids must be non-empty and the two must not overlap; both are 422. Ids in add_label_ids must be labels of the project (422 otherwise); ids in remove_label_ids are not validated, since removing an absent label is a no-op. Archived cards are labelled rather than skipped. A card the call applied to but did not change — it already carried the label — appears in neither list and writes no activity. The response carries the full label, assignee and blocker sets of every card that changed. Emits one bulk_tasks_relations_set event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
+         */
+        post: operations["postApiTasksBulkLabels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/bulk-assignees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add or remove assignees across a selection of tasks
+         * @description Apply an assignee delta to any number of a project’s tasks in a single transaction. Like the label delta this is add/remove, never a replace. At least one of add_user_ids and remove_user_ids must be non-empty and the two must not overlap; both are 422. Ids in add_user_ids must be users with access to the project (422 otherwise); ids in remove_user_ids are not validated. A bulk assignment notifies nobody: the repeat suppression that keeps assignment mail sane is keyed per task, so one click across a selection would send one email per card per added user. A copy notifies nobody either. A card the call applied to but did not change appears in neither list and writes no activity. Emits one bulk_tasks_relations_set event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
+         */
+        post: operations["postApiTasksBulkAssignees"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2030,6 +2110,50 @@ export interface components {
         AddBlocker: {
             /** Format: uuid */
             blocker_task_id: string;
+        };
+        BulkMovedTasksResponse: {
+            moved_tasks: components["schemas"]["MovedTask"][];
+            skipped_task_ids: string[];
+        };
+        BulkMoveTasks: {
+            /** Format: uuid */
+            column_id: string;
+            /** Format: uuid */
+            project_id: string;
+            task_ids: string[];
+        };
+        BulkArchivedTasksResponse: {
+            skipped_task_ids: string[];
+            tasks: components["schemas"]["ArchivedTask"][];
+        };
+        BulkTaskIds: {
+            /** Format: uuid */
+            project_id: string;
+            task_ids: string[];
+        };
+        BulkTaskRelationsResponse: {
+            skipped_task_ids: string[];
+            tasks: components["schemas"]["BulkTaskRelations"][];
+        };
+        BulkTaskRelations: {
+            assignee_ids: string[];
+            blocker_ids: string[];
+            label_ids: string[];
+            task_id: string;
+        };
+        BulkTaskLabels: {
+            /** Format: uuid */
+            project_id: string;
+            task_ids: string[];
+            add_label_ids?: string[];
+            remove_label_ids?: string[];
+        };
+        BulkTaskAssignees: {
+            /** Format: uuid */
+            project_id: string;
+            task_ids: string[];
+            add_user_ids?: string[];
+            remove_user_ids?: string[];
         };
         MyTasksResponse: {
             tasks: components["schemas"]["MyTask"][];
@@ -5408,6 +5532,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Unprocessable request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Internal Server Error */
             500: {
                 headers: {
@@ -6189,6 +6322,318 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiTasksBulkMove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkMoveTasks"];
+            };
+        };
+        responses: {
+            /** @description The tasks that moved, with their new positions, plus what was skipped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkMovedTasksResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiTasksBulkArchive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkTaskIds"];
+            };
+        };
+        responses: {
+            /** @description Newly archived tasks in board-payload shape, plus what was skipped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkArchivedTasksResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiTasksBulkLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkTaskLabels"];
+            };
+        };
+        responses: {
+            /** @description The relations of every card that changed, plus what was skipped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTaskRelationsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    postApiTasksBulkAssignees: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkTaskAssignees"];
+            };
+        };
+        responses: {
+            /** @description The relations of every card that changed, plus what was skipped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkTaskRelationsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation error or domain-rule violation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationOrUnprocessableError"];
                 };
             };
             /** @description Internal Server Error */
