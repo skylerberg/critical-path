@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { board } from '../lib/board.svelte';
+  import { board, type BoardContext } from '../lib/board.svelte';
   import type { DependencyDirection } from '../lib/dependency-types';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
   import Input from './ui/Input.svelte';
@@ -8,38 +8,39 @@
 
   interface Props {
     taskId: string;
+    ctx?: BoardContext;
     direction: DependencyDirection;
     autofocus?: boolean;
   }
 
-  let { taskId, direction, autofocus = false }: Props = $props();
+  let { taskId, ctx = board, direction, autofocus = false }: Props = $props();
 
   let query = $state('');
   let highlightedKey = $state<string | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement>();
 
-  const task = $derived(board.tasks.find((t) => t.id === taskId));
+  const task = $derived(ctx.tasks.find((t) => t.id === taskId));
 
   const excludedIds = $derived.by(() => {
     if (direction === 'blocker') {
       return new Set<string>([taskId, ...(task?.blocker_ids ?? [])]);
     }
-    const dependentIds = board.tasks.filter((t) => t.blocker_ids.includes(taskId)).map((t) => t.id);
+    const dependentIds = ctx.tasks.filter((t) => t.blocker_ids.includes(taskId)).map((t) => t.id);
     return new Set<string>([taskId, ...dependentIds]);
   });
 
   const candidates = $derived.by(() => {
     const q = query.trim().toLowerCase();
     if (q === '') return [];
-    return board.tasks
+    return ctx.tasks
       .filter((t) => !excludedIds.has(t.id) && t.title.toLowerCase().includes(q))
       .slice(0, 8);
   });
 
   const trimmed = $derived(query.trim());
   const showCreate = $derived(
-    trimmed !== '' && !board.tasks.some((t) => t.title.toLowerCase() === trimmed.toLowerCase())
+    trimmed !== '' && !ctx.tasks.some((t) => t.title.toLowerCase() === trimmed.toLowerCase())
   );
 
   const label = $derived(
@@ -73,14 +74,14 @@
       return;
     }
     if (row.kind === 'create') {
-      void board.createAndLinkTask(
+      void ctx.createAndLinkTask(
         row.title,
         direction === 'blocker' ? { blockerOf: taskId } : { blockedBy: taskId }
       );
     } else if (direction === 'blocker') {
-      void board.addBlocker(taskId, row.id);
+      void ctx.addBlocker(taskId, row.id);
     } else {
-      void board.addBlocker(row.id, taskId);
+      void ctx.addBlocker(row.id, taskId);
     }
     reset();
   }

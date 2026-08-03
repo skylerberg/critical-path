@@ -1,20 +1,21 @@
 <script lang="ts">
-  import { board } from '../lib/board.svelte';
+  import type { BoardContext } from '../lib/board.svelte';
   import { users } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
   import Modal from './ui/Modal.svelte';
 
   interface Props {
     taskId: string;
+    ctx: BoardContext;
     onclose: () => void;
   }
 
-  let { taskId, onclose }: Props = $props();
+  let { taskId, ctx, onclose }: Props = $props();
 
   let query = $state('');
   let highlighted = $state(0);
 
-  const projectId = $derived(board.currentProjectId);
+  const projectId = $derived(ctx.currentProjectId);
   $effect(() => {
     if (projectId !== null) {
       void users.loadForProject(projectId);
@@ -22,7 +23,7 @@
   });
 
   const list = $derived(projectId === null ? [] : users.forProject(projectId));
-  const task = $derived(board.tasks.find((t) => t.id === taskId));
+  const task = $derived(ctx.tasks.find((t) => t.id === taskId));
   const selectedIds = $derived(new Set(task?.assignee_ids ?? []));
   const filtered = $derived(
     list.filter((user) => user.name.toLowerCase().includes(query.trim().toLowerCase()))
@@ -33,7 +34,7 @@
     const next = current.includes(userId)
       ? current.filter((id) => id !== userId)
       : [...current, userId];
-    void board.setTaskAssignees(taskId, next);
+    void ctx.setTaskAssignees(taskId, next);
   }
 
   function onkeydown(event: KeyboardEvent): void {

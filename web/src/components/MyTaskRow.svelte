@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { cardCursor } from '../lib/card-cursor.svelte';
   import type { MyTask } from '../lib/myTasks.svelte';
   import { taskHref } from '../lib/short-links';
   import { truncateTitle } from '../lib/titles';
@@ -35,15 +36,22 @@
   const anchorTitle = $derived(
     peopleLines.length === 0 ? undefined : [shownTitle, ...peopleLines].join('\n')
   );
+
+  const cursor = $derived(cardCursor.taskId === task.id);
 </script>
 
 <article
-  class="relative flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-edge bg-surface p-3 transition-colors hover:border-accent has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-accent"
+  onpointerenter={() => cardCursor.set(task.id)}
+  class="relative flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-surface p-3 transition-colors hover:border-accent has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-accent {cursor
+    ? 'border-accent ring-2 ring-accent'
+    : 'border-edge'}"
 >
   <p class="min-w-0 flex-1 basis-full text-sm font-medium break-words sm:basis-auto">
     <a
       href={taskHref(task.id, task.title) + '?from=my-tasks'}
       title={anchorTitle}
+      data-card-row={task.id}
+      onfocus={() => cardCursor.set(task.id)}
       class="after:absolute after:inset-0 focus-visible:outline-none">{shownTitle}</a
     >
   </p>

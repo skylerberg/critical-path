@@ -98,7 +98,7 @@ function respondWith(results: SearchResult[], truncated = false): void {
 let onclose: ReturnType<typeof vi.fn<() => void>>;
 
 function open(): ReturnType<typeof render> {
-  return render(CommandPalette, { onclose });
+  return render(CommandPalette, { ctx: board, onclose });
 }
 
 // Drains the microtasks an announcement and a deferred handoff wait on, without
@@ -434,7 +434,7 @@ describe('search', () => {
       await held;
       return jsonResponse(200, { results: [result('t-1', 'Late hit')], truncated: false });
     });
-    const { unmount } = render(CommandPalette, { onclose });
+    const { unmount } = render(CommandPalette, { ctx: board, onclose });
 
     await fireEvent.input(box(), { target: { value: 'export' } });
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
@@ -447,7 +447,7 @@ describe('search', () => {
   });
 
   it('cancels a pending request when it closes before the debounce elapses', async () => {
-    const { unmount } = render(CommandPalette, { onclose });
+    const { unmount } = render(CommandPalette, { ctx: board, onclose });
 
     await fireEvent.input(box(), { target: { value: 'export' } });
     unmount();

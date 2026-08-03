@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import Search from './Search.svelte';
+import { cardCursor } from '../lib/card-cursor.svelte';
 import { router } from '../lib/router.svelte';
 import { search } from '../lib/search.svelte';
 import { searchPath, type SearchResult } from '../lib/search-query';
@@ -29,9 +30,9 @@ function respondWith(results: SearchResult[], truncated = false): void {
 
 // The shell reads q off the live route, so the page sees every URL rewrite it
 // makes; a plain string prop would freeze the page at its initial query.
-function renderAt(q: string): void {
+function renderAt(q: string): ReturnType<typeof render> {
   router.navigate(searchPath(q), { replace: true });
-  render(Search, {
+  return render(Search, {
     props: {
       get q(): string {
         const route = router.current;
@@ -54,6 +55,7 @@ async function type(value: string): Promise<void> {
 beforeEach(() => {
   vi.useFakeTimers();
   fetchMock.mockReset();
+  cardCursor.reset();
   search.reset();
   shortcuts.reset();
   router.beforeNavigate = undefined;
@@ -315,5 +317,75 @@ describe('Search page', () => {
     await waitFor(() => {
       expect(screen.getByText(/Add another word to narrow it down/)).toBeInTheDocument();
     });
+  });
+});
+
+describe('Search card cursor', () => {
+  it('publishes its rows grouped the way the page reads them', async () => {
+    respondWith([
+      result('t-2', 'p-2', 'Zeta', 'Second board'),
+      result('t-1', 'p-1', 'Alpha', 'First board'),
+    ]);
+
+    renderAt('board');
+    await vi.advanceTimersByTimeAsync(0);
+    await screen.findByText('First board');
+
+    cardCursor.move('down');
+    const first = cardCursor.taskId;
+    cardCursor.move('down');
+    const second = cardCursor.taskId;
+
+    expect([first, second]).toEqual([testUuid('t-2'), testUuid('t-1')]);
+  });
+
+  it('rings the row the cursor is on and follows the pointer', async () => {
+    respondWith([result('t-1', 'p-1', 'Alpha', 'Ship the export API')]);
+
+    renderAt('export');
+    await vi.advanceTimersByTimeAsync(0);
+    const anchor = await screen.findByRole('link', { name: /Ship the export API/ });
+    expect(anchor.className).not.toContain('ring-2');
+
+    await fireEvent.pointerEnter(anchor);
+
+    expect(cardCursor.taskId).toBe(testUuid('t-1'));
+    await waitFor(() => {
+      expect(anchor.className).toContain('ring-2');
+    });
+  });
+
+  it('drops a cursor whose row a narrower query removed', async () => {
+    respondWith([result('t-1', 'p-1', 'Alpha', 'Ship the export API')]);
+
+    renderAt('export');
+    await vi.advanceTimersByTimeAsync(0);
+    await screen.findByText(/Ship the export API/);
+    cardCursor.set(testUuid('t-1'));
+
+    respondWith([result('t-2', 'p-1', 'Alpha', 'Something else')]);
+    await type('nothing');
+
+    await waitFor(() => {
+      expect(cardCursor.taskId).toBeNull();
+    });
+  });
+});
+
+describe('list cursor handover between screens', () => {
+  it('leaves the arriving screen owning the rows, whichever way the swap flushes', async () => {
+    respondWith([result('t-1', 'p-1', 'Alpha', 'Ship the export API')]);
+
+    const view = renderAt('export');
+    await vi.advanceTimersByTimeAsync(0);
+    await screen.findByText(/Ship the export API/);
+    cardCursor.set(testUuid('t-1'));
+
+    view.unmount();
+
+    expect(cardCursor.taskId).toBeNull();
+    // The rows survive: the next screen replaces them, and clearing here would race
+    // a screen that has already published its own.
+    expect(cardCursor.move('down')).toBe(true);
   });
 });
