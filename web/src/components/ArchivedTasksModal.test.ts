@@ -40,6 +40,7 @@ function archived(id: string, title: string, columnId = 'c1'): ArchivedTask {
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
     archived_at: ARCHIVED_AT,
   };
 }

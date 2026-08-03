@@ -11,7 +11,7 @@ function filenameFrom(response: Response, fallback: string): string {
   return /filename="([^"]+)"/.exec(disposition ?? '')?.[1] ?? fallback;
 }
 
-function save(blob: Blob, filename: string): void {
+export function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -45,7 +45,7 @@ async function fetchExport(
 export async function downloadProjectExport(projectId: string): Promise<ExportedFormat> {
   try {
     const { blob, response } = await fetchExport(projectId);
-    save(blob, filenameFrom(response, FALLBACK_ARCHIVE_FILENAME));
+    saveBlob(blob, filenameFrom(response, FALLBACK_ARCHIVE_FILENAME));
     return 'zip';
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 413) {
@@ -54,12 +54,12 @@ export async function downloadProjectExport(projectId: string): Promise<Exported
   }
 
   const { blob, response } = await fetchExport(projectId, 'json');
-  save(blob, filenameFrom(response, FALLBACK_MANIFEST_FILENAME));
+  saveBlob(blob, filenameFrom(response, FALLBACK_MANIFEST_FILENAME));
   return 'json';
 }
 
 export async function downloadAccountExport(): Promise<void> {
   const result = await api.GET('/api/auth/me/export', { parseAs: 'blob' });
   const blob = assertOk(result);
-  save(blob, filenameFrom(result.response, FALLBACK_ACCOUNT_FILENAME));
+  saveBlob(blob, filenameFrom(result.response, FALLBACK_ACCOUNT_FILENAME));
 }

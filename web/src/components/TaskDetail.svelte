@@ -15,6 +15,7 @@
   import LabelPicker from './LabelPicker.svelte';
   import RichTextEditor from './RichTextEditor.svelte';
   import TaskActivity from './TaskActivity.svelte';
+  import TaskAttachments from './TaskAttachments.svelte';
   import TaskChecklist from './TaskChecklist.svelte';
   import Announcer from './ui/Announcer.svelte';
   import Badge from './ui/Badge.svelte';
@@ -44,6 +45,7 @@
   );
   const dependents = $derived(board.tasks.filter((t) => t.blocker_ids.includes(taskId)));
   const columnName = $derived(board.columns.find((c) => c.id === task?.column_id)?.name ?? '');
+  const seriesSummary = $derived(board.taskSeriesSummaries[taskId] ?? null);
   const mentionUsers = $derived(currentProjectMentionCandidates());
   // A viewer is read-only but still has an identity, so they keep the comment
   // stream, the history and the timestamps; a public reader has none of that and
@@ -295,6 +297,14 @@
         <Button variant="ghost" aria-label="Close" onclick={close}>✕</Button>
       </div>
 
+      {#if seriesSummary !== null}
+        <p
+          class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
+        >
+          Repeats: {seriesSummary}
+        </p>
+      {/if}
+
       {#if conflicted}
         <div
           role="alert"
@@ -516,6 +526,13 @@
               }}
             />
           {/if}
+        </section>
+      {/if}
+
+      {#if !anonymous}
+        <section class="flex flex-col gap-2">
+          <h3 class="text-sm font-semibold text-muted">Attachments</h3>
+          <TaskAttachments {taskId} {readonly} />
         </section>
       {/if}
 

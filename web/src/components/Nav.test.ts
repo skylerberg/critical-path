@@ -373,6 +373,35 @@ describe('Nav sidebar', () => {
     });
   });
 
+  it('prints the palette chord on the sidebar search row without renaming the link', () => {
+    render(Nav);
+
+    const [sidebar, bottomBar] = screen.getAllByRole('link', { name: 'Search' });
+    const chip = sidebar!.querySelector('kbd');
+
+    expect(chip).toHaveTextContent('Ctrl K');
+    expect(chip).toHaveAttribute('aria-hidden', 'true');
+    expect(bottomBar!.querySelector('kbd')).toBeNull();
+  });
+
+  it('names the modifier the platform answers to in that chip', () => {
+    const original = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      configurable: true,
+    });
+
+    try {
+      render(Nav);
+
+      expect(
+        screen.getAllByRole('link', { name: 'Search' })[0]!.querySelector('kbd')
+      ).toHaveTextContent('⌘ K');
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: original, configurable: true });
+    }
+  });
+
   it('keeps the long-press that starts a project drag from raising the link menu', () => {
     projects.projects = [project({ id: A_ID, name: 'A', position: 1000 })];
 

@@ -1,11 +1,13 @@
 import { board } from './board.svelte';
 import { cardMenu } from './card-menu.svelte';
+import { editableCardTarget } from './card-target';
 import type { DependencyDirection } from './dependency-types';
 import { router } from './router.svelte';
 import { projectHref, taskHref } from './short-links';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
 import { currentProjectId } from './task-route.svelte';
+import { isApplePlatform } from './userAgent';
 
 const CHORD_WINDOW_MS = 800;
 
@@ -29,13 +31,27 @@ function modalOwnsKeymap(): boolean {
   return document.querySelector('dialog[data-modal][open]') !== null;
 }
 
+// CapsLock reports a plain press as 'K', so the chord comes from the modifier and
+// never the character. Ctrl+K is kill-to-end-of-line in every macOS text field, so
+// there the palette answers to Cmd alone; Cmd+Shift+K is the browser's console.
+function isPaletteChord(event: KeyboardEvent): boolean {
+  if ((event.key !== 'k' && event.key !== 'K') || event.altKey || event.shiftKey) {
+    return false;
+  }
+  return event.metaKey || (event.ctrlKey && !isApplePlatform(navigator.userAgent));
+}
+
 class ShortcutController {
+  paletteOpen = $state(false);
   helpOpen = $state(false);
   labelMenu = $state<string | null>(null);
   assigneeMenu = $state<string | null>(null);
   dependencyMenu = $state<{ taskId: string; direction: DependencyDirection } | null>(null);
   moveMenu = $state<string | null>(null);
   bulkMenu = $state<BulkMenu | null>(null);
+  // Seeds the search box of the label or move menu about to open, so a palette row
+  // that named a label or a column lands on it instead of the whole list.
+  menuPrefill = $state('');
   quickAddColumn = $state<string | null>(null);
   filterFocusRequested = $state(false);
   searchFocusRequested = $state(false);
@@ -45,6 +61,7 @@ class ShortcutController {
 
   get anyMenuOpen(): boolean {
     return (
+      this.paletteOpen ||
       this.helpOpen ||
       this.labelMenu !== null ||
       this.assigneeMenu !== null ||
@@ -59,12 +76,14 @@ class ShortcutController {
   // back onto a card the user has navigated away from is not a courtesy. The menu
   // itself returns focus on the paths that dismiss it in place.
   closeMenus(): void {
+    this.paletteOpen = false;
     this.helpOpen = false;
     this.labelMenu = null;
     this.assigneeMenu = null;
     this.dependencyMenu = null;
     this.moveMenu = null;
     this.bulkMenu = null;
+    this.menuPrefill = '';
     cardMenu.reset();
   }
 
@@ -78,9 +97,21 @@ class ShortcutController {
   }
 
   handleKeydown = (event: KeyboardEvent): void => {
-    // svelte-dnd-action preventDefaults its own keyboard handlers; a live drag or a
-    // focused text field must own the keystroke instead of the shortcut layer.
-    if (event.defaultPrevented || board.dragBusy || isEditableTarget()) {
+    // svelte-dnd-action preventDefaults its own keyboard handlers; a live drag must
+    // own the keystroke instead of the shortcut layer.
+    if (event.defaultPrevented || board.dragBusy) {
+      return;
+    }
+
+    // Above the editable-target, menu-open and modal guards: this is the one key
+    // that has to reach the user from inside a text field and over an open overlay.
+    if (isPaletteChord(event)) {
+      this.#togglePalette(event);
+      return;
+    }
+
+    // A focused text field must own the keystroke instead of the shortcut layer.
+    if (isEditableTarget()) {
       return;
     }
 
@@ -120,9 +151,7 @@ class ShortcutController {
       return;
     }
 
-    // The task-scoped keys target the open overlay task first, else the board
-    // selection (null on the graph, so they no-op there without an overlay).
-    this.#handleCommonKey(event, overlayTaskId, selectionActive, filterBarActive);
+    this.#handleCommonKey(event, selectionActive, filterBarActive);
   };
 
   #completeChord(key: string, projectId: string | null): boolean {
@@ -231,16 +260,8 @@ class ShortcutController {
     return true;
   }
 
-  #handleCommonKey(
-    event: KeyboardEvent,
-    overlayTaskId: string | undefined,
-    selectionActive: boolean,
-    filterBarActive: boolean
-  ): void {
-    const target = overlayTaskId ?? (selectionActive ? selection.cursorTaskId : null);
-    // Every menu these open writes to the board, so for a viewer the key has to
-    // fall through unclaimed rather than open a menu whose every row 403s.
-    const editTarget = board.canEdit ? target : null;
+  #handleCommonKey(event: KeyboardEvent, selectionActive: boolean, filterBarActive: boolean): void {
+    const editTarget = editableCardTarget();
     // Gated on selectionActive as well, so an open overlay stays single-card even
     // if a set somehow outlived the route change that clears it.
     const bulk = selectionActive && selection.targetsFor(editTarget).length > 1;
@@ -365,6 +386,27 @@ class ShortcutController {
     this.#gTimer = setTimeout(() => {
       this.#gPending = false;
     }, CHORD_WINDOW_MS);
+  }
+
+  #togglePalette(event: KeyboardEvent): void {
+    // A dialog that is not one of ours is a question waiting on an answer: leave it
+    // up, and leave the browser its own key.
+    if (!this.paletteOpen && modalOwnsKeymap() && !this.anyMenuOpen) {
+      return;
+    }
+    // Claimed even on autorepeat: a held key would otherwise leak its later events
+    // to whatever the browser binds the chord to.
+    event.preventDefault();
+    if (event.repeat) {
+      return;
+    }
+    if (this.paletteOpen) {
+      this.paletteOpen = false;
+      return;
+    }
+    // One overlay at a time, rather than a second modal dialog stacked on ours.
+    this.closeMenus();
+    this.paletteOpen = true;
   }
 }
 

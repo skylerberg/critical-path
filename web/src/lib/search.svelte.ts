@@ -8,7 +8,7 @@ import {
 
 export type SearchStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
-class SearchStore {
+export class SearchStore {
   query = $state('');
   results = $state<SearchResult[]>([]);
   truncated = $state(false);

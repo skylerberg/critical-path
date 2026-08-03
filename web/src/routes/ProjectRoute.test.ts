@@ -50,6 +50,7 @@ function task(id: string, title: string, position = 1000): BoardTask {
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
   };
 }
 

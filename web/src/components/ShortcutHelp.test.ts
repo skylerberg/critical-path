@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/svelte';
+import { cleanup, render, screen, within } from '@testing-library/svelte';
 import ShortcutHelp from './ShortcutHelp.svelte';
 import { board } from '../lib/board.svelte';
 import { router } from '../lib/router.svelte';
@@ -51,6 +51,20 @@ describe('ShortcutHelp', () => {
     const row = screen.getByText('Move the selection to a column').closest('li')!;
 
     expect(within(row).getByText('m')).toBeVisible();
+  });
+
+  it('documents the palette chord, and keeps it for a viewer, whose half of it works', () => {
+    render(ShortcutHelp, { onclose: vi.fn() });
+    const row = screen.getByText('Open the command palette').closest('li')!;
+    expect(within(row).getByText('Ctrl K')).toBeVisible();
+
+    cleanup();
+    board.project = viewerProject();
+    router.navigate(BOARD_PATH, { replace: true });
+
+    render(ShortcutHelp, { onclose: vi.fn() });
+
+    expect(screen.getByText('Open the command palette')).toBeInTheDocument();
   });
 
   it('keeps the full keymap away from a board, even after leaving a read-only one', () => {

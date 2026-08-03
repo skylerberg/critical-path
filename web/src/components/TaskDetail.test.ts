@@ -70,6 +70,7 @@ function task(
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
     ...overrides,
   };
 }
@@ -312,6 +313,16 @@ describe('TaskDetail', () => {
     expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
   });
 
+  it('mounts the attachments section for an editor, leaving the images grid alone', async () => {
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    expect(screen.getByRole('heading', { name: 'Attachments' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Attach file' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add link' })).toBeInTheDocument();
+    expect(await screen.findByAltText('mock.png')).toHaveAttribute('src', '/api/images/img1');
+    expect(screen.getByRole('button', { name: 'Upload image' })).toBeInTheDocument();
+  });
+
   it('loads images and comments from the one detail fetch and renders the Activity section', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
@@ -319,6 +330,32 @@ describe('TaskDetail', () => {
     await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
     expect(board.taskImages[T1]).toEqual([image]);
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
+  });
+
+  describe('recurrence', () => {
+    it('says a card repeats, in the same words the series panel uses', async () => {
+      mockRoutes((request, url) =>
+        request.method === 'GET' && url.pathname === `/api/tasks/${T1}`
+          ? jsonResponse(200, {
+              ...board.tasks[0],
+              project_id: PROJECT_ID,
+              series_summary: 'Every Monday',
+              images: [],
+              comments: [],
+            })
+          : undefined
+      );
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      expect(await screen.findByText('Repeats: Every Monday')).toBeInTheDocument();
+    });
+
+    it('says nothing for a card that came from no series', async () => {
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      await waitFor(() => expect(board.taskImages[T1]).toEqual([image]));
+      expect(screen.queryByText(/^Repeats:/)).not.toBeInTheDocument();
+    });
   });
 
   // The overlay is the surface a long title is opened to read, so it is the one
@@ -1096,6 +1133,8 @@ describe('TaskDetail on a public board', () => {
 
     expect(screen.queryByRole('heading', { name: 'Images' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Upload image' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Attachments' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Attach file' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     expect(screen.queryByText(/Created .+ · Updated .+/)).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Activity' })).toBeNull();
@@ -1278,5 +1317,16 @@ describe('TaskDetail for a viewer', () => {
     expect(await screen.findByAltText('mock.png')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /as cover$/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Delete image/ })).toBeNull();
+  });
+
+  it('mounts the attachments section read-only, after the untouched Images one', async () => {
+    renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
+
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent);
+    expect(headings).toContain('Images');
+    expect(headings).toContain('Attachments');
+    expect(headings.indexOf('Attachments')).toBeGreaterThan(headings.indexOf('Images'));
+    expect(screen.queryByRole('button', { name: 'Attach file' })).toBeNull();
+    expect(await screen.findByText('No attachments.')).toBeInTheDocument();
   });
 });

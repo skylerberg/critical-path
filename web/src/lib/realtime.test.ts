@@ -76,6 +76,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
     comment_count: 0,
     checklist_item_count: 0,
     checklist_done_count: 0,
+    attachment_count: 0,
   };
 }
 
@@ -703,6 +704,82 @@ describe('drag-aware queue', () => {
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
     expect(paths).toContain('/api/projects/p1');
     expect(paths).toContain('/api/projects/p1/archived-tasks');
+  });
+
+  it('routes every attachment event to the board and drops an unlisted type', async () => {
+    board.tasks = [task('t1')];
+    const attachment = {
+      id: 'att1',
+      task_id: 't1',
+      kind: 'link',
+      title: null,
+      description: null,
+      filename: null,
+      content_type: null,
+      size_bytes: null,
+      url: 'https://example.com/doc',
+      preview_url: null,
+      favicon_url: null,
+      unfurl_state: 'pending',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+    board.taskAttachments = { t1: [] };
+    const socket = await connectAndAuth('p1');
+
+    socket.receive({ type: 'attachment_created', project_id: 'p1', data: attachment });
+    expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual(['att1']);
+
+    socket.receive({
+      type: 'attachment_updated',
+      project_id: 'p1',
+      data: { ...attachment, unfurl_state: 'ok', title: 'Fetched' },
+    });
+    expect(board.taskAttachments.t1![0]).toMatchObject({ title: 'Fetched', unfurl_state: 'ok' });
+
+    socket.receive({
+      type: 'attachment_renamed',
+      project_id: 'p1',
+      data: { ...attachment, title: 'Never applied' },
+    });
+    expect(board.taskAttachments.t1![0]!.title).toBe('Fetched');
+
+    socket.receive({
+      type: 'attachment_deleted',
+      project_id: 'p1',
+      data: { id: 'att1', task_id: 't1' },
+    });
+    expect(board.taskAttachments.t1).toEqual([]);
+  });
+
+  it('holds an attachment event behind a card-overlay drag', async () => {
+    board.tasks = [task('t1')];
+    board.taskAttachments = { t1: [] };
+    const socket = await connectAndAuth('p1');
+    const attachment = {
+      id: 'att1',
+      task_id: 't1',
+      kind: 'file',
+      title: null,
+      description: null,
+      filename: 'spec.pdf',
+      content_type: 'application/pdf',
+      size_bytes: 4,
+      url: null,
+      preview_url: null,
+      favicon_url: null,
+      unfurl_state: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+
+    board.detailDragging = true;
+    socket.receive({ type: 'attachment_created', project_id: 'p1', data: attachment });
+    expect(board.taskAttachments.t1).toEqual([]);
+
+    board.detailDragging = false;
+    flushSync();
+    expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual(['att1']);
   });
 
   it('holds comment events while dragging too', async () => {

@@ -21,6 +21,7 @@ function makeTask(partial: Partial<BoardTask> & Pick<BoardTask, 'id'>): BoardTas
     comment_count: partial.comment_count ?? 0,
     checklist_item_count: partial.checklist_item_count ?? 0,
     checklist_done_count: partial.checklist_done_count ?? 0,
+    attachment_count: partial.attachment_count ?? 0,
   };
 }
 

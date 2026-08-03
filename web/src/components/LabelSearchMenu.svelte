@@ -1,14 +1,16 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
   import ColorDot from './ui/ColorDot.svelte';
 
   interface Props {
     taskId: string;
     autofocus?: boolean;
+    prefill?: string;
     onclose?: () => void;
   }
 
-  let { taskId, autofocus = false, onclose }: Props = $props();
+  let { taskId, autofocus = false, prefill = '', onclose }: Props = $props();
 
   const PALETTE = [
     '#ef4444',
@@ -23,7 +25,7 @@
     '#64748b',
   ];
 
-  let query = $state('');
+  let query = $state(untrack(() => prefill));
   let highlighted = $state(0);
   let listEl = $state<HTMLDivElement>();
 

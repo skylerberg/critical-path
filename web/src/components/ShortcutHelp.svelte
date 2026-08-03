@@ -1,6 +1,7 @@
 <script lang="ts">
   import { board } from '../lib/board.svelte';
   import { CARD_ACTION_KEYS } from '../lib/card-actions';
+  import { paletteChordHint } from '../lib/palette';
   import { router } from '../lib/router.svelte';
   import Modal from './ui/Modal.svelte';
 
@@ -101,6 +102,7 @@
         { keys: ['g', 'g'], label: 'Go to graph', chord: true },
         { keys: ['g', 'p'], label: 'Go to projects', chord: true },
         { keys: ['g', 'm'], label: 'Go to my tasks', chord: true },
+        { keys: [paletteChordHint()], label: 'Open the command palette' },
         { keys: ['/'], label: 'Search all projects' },
         { keys: ['?'], label: 'Show this help' },
       ],
