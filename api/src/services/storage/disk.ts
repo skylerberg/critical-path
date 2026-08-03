@@ -1,9 +1,10 @@
 import { createWriteStream, promises as fs } from 'fs';
+import type { FileHandle } from 'fs/promises';
 import path from 'path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { isValidUuid } from '../../types/uuid';
-import type { StorageProvider } from './types';
+import type { StorageProvider, StoredObject } from './types';
 
 export class DiskStorageProvider implements StorageProvider {
   constructor(private root: string) {}
@@ -36,6 +37,28 @@ export class DiskStorageProvider implements StorageProvider {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return null;
       }
+      throw err;
+    }
+  }
+
+  // Measures the open descriptor rather than the path, so the size cannot
+  // describe a different file than the one that streams.
+  async getStream(key: string): Promise<StoredObject | null> {
+    let handle: FileHandle;
+    try {
+      handle = await fs.open(this.resolveKey(key), 'r');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+      throw err;
+    }
+
+    try {
+      const { size } = await handle.stat();
+      return { stream: handle.createReadStream(), size };
+    } catch (err) {
+      await handle.close();
       throw err;
     }
   }
