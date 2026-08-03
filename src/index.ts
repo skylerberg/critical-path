@@ -35,6 +35,7 @@ import { db } from './db/index';
 import { attachRealtime, initRedisBus, closeRedisBus } from './services/realtime/index';
 import { closeRedis } from './services/redis';
 import { startJobWorker } from './services/jobs/index';
+import { registerAssignmentDigestJob } from './services/assignmentDigest';
 import { registerTaskSeriesJob } from './services/taskSeries/index';
 import { registerAttachmentUnfurlHandler } from './services/attachments/unfurl';
 import { startWebhookWorker } from './services/webhooks/index';
@@ -236,6 +237,7 @@ if (isEntrypoint) {
   const realtime = attachRealtime(server);
   const webhookWorker = startWebhookWorker();
   registerTaskSeriesJob();
+  registerAssignmentDigestJob();
   const jobWorker = startJobWorker();
 
   initRedisBus().catch((err: unknown) => {

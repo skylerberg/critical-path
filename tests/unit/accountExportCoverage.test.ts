@@ -11,6 +11,8 @@ import { db } from '../helpers/database';
 // invisible here, so this bounds the rot, it does not end it.
 const DECIDED: Record<string, 'in' | 'out'> = {
   'feedback.user_id': 'in',
+  'pending_assignment_notification.actor_user_id': 'out',
+  'pending_assignment_notification.recipient_user_id': 'out',
   'personal_access_token.user_id': 'in',
   'project.created_by': 'in',
   'project_invitation.invited_by': 'out',
@@ -44,6 +46,7 @@ const DECIDED_COLUMNS: Record<string, 'in' | 'out'> = {
   'app_user.id': 'in',
   'app_user.name': 'in',
   'app_user.notify_added_to_project': 'in',
+  'app_user.notify_bulk_task_assigned': 'in',
   'app_user.notify_task_assigned': 'in',
   'app_user.password_hash': 'out',
   'feedback.created_at': 'in',

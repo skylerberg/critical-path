@@ -4,6 +4,7 @@ import { sql } from 'kysely';
 import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { AppError } from '../utils/errors';
+import { recordBulkAssignments } from '../services/assignmentDigest';
 import { assertProjectWrite, projectAccessIdsAmong } from '../services/authorization';
 import { assertColumnInProject } from '../services/boardColumns';
 import { getArchivedTasksByIds } from '../services/boardPayload';
@@ -295,9 +296,10 @@ router.post(
       'the label delta this is add/remove, never a replace. At least one of add_user_ids and ' +
       'remove_user_ids must be non-empty and the two must not overlap; both are 422. Ids in ' +
       'add_user_ids must be users with access to the project (422 otherwise); ids in ' +
-      'remove_user_ids are not validated. A bulk assignment notifies nobody: the repeat ' +
-      'suppression that keeps assignment mail sane is keyed per task, so one click across a ' +
-      'selection would send one email per card per added user. A copy notifies nobody either. ' +
+      'remove_user_ids are not validated. A bulk assignment sends no per-card email: each ' +
+      'added user instead gets one digest naming how many cards they were handed, once their ' +
+      'assigner has stopped for a couple of minutes, gated on their own bulk_task_assigned ' +
+      'preference. Assigning yourself notifies nobody, and a copy notifies nobody either. ' +
       'A card the call applied to but did not change appears in neither list and writes no ' +
       'activity. Emits one bulk_tasks_relations_set event and no per-task events. ' +
       SKIPPED_NOTE,
@@ -361,6 +363,12 @@ router.post(
         userId: pair.value,
       })),
     ]);
+
+    await recordBulkAssignments(c, {
+      actorUserId: user.id,
+      projectId: project.id,
+      pairs: delta.added.map((pair) => ({ task_id: pair.task_id, user_id: pair.value })),
+    });
 
     const changed = changedTaskIds(delta, taskIds);
     const tasks = toRelations(await fetchTaskRelations(db, changed));
