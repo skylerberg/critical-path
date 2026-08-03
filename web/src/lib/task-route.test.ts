@@ -195,6 +195,32 @@ describe('ensure', () => {
     });
   });
 
+  it('resolves a seeded task with no lookup, and reset clears it', () => {
+    taskRoute.seed(TASK_ID, PROJECT_ID);
+
+    expect(taskRoute.locate({ projectId: null, taskId: TASK_ID })).toEqual({
+      status: 'ready',
+      projectId: PROJECT_ID,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    taskRoute.reset();
+    expect(taskRoute.locate({ projectId: null, taskId: TASK_ID })).toEqual({ status: 'pending' });
+  });
+
+  it('does not let a seed overwrite what a lookup already answered', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { id: TASK_ID, project_id: PROJECT_ID }));
+    taskRoute.ensure(TASK_ID);
+    await settle();
+
+    taskRoute.seed(TASK_ID, OTHER_PROJECT_ID);
+
+    expect(taskRoute.locate({ projectId: null, taskId: TASK_ID })).toEqual({
+      status: 'ready',
+      projectId: PROJECT_ID,
+    });
+  });
+
   it('reset clears the cache', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { id: TASK_ID, project_id: PROJECT_ID }));
     taskRoute.ensure(TASK_ID);

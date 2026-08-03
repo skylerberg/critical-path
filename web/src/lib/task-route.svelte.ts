@@ -74,6 +74,15 @@ class TaskRouteResolver {
     return hit?.project_id ?? null;
   }
 
+  // As authoritative as the lookup it saves: the caller was authorized for the read
+  // that named the project. Without it the jump would tear the screen down for a
+  // spinner instead of resolving on the same tick.
+  seed(taskId: string, projectId: string): void {
+    if (this.#byTask[taskId] === undefined) {
+      this.#byTask = { ...this.#byTask, [taskId]: projectId };
+    }
+  }
+
   ensure(taskId: string): void {
     if (
       this.#inflight.has(taskId) ||

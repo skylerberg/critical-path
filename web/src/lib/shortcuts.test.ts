@@ -879,6 +879,168 @@ describe('graph overlay context', () => {
   });
 });
 
+describe('command palette', () => {
+  const MAC_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/124.0.0.0 Safari/537.36';
+
+  function stubUserAgent(value: string): void {
+    Object.defineProperty(navigator, 'userAgent', { value, configurable: true });
+  }
+
+  afterEach(() => {
+    delete (navigator as { userAgent?: string }).userAgent;
+  });
+
+  it('opens on Cmd+K and preventDefaults', () => {
+    const event = press('k', { metaKey: true });
+    expect(shortcuts.paletteOpen).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('opens on Ctrl+K off Apple platforms, under CapsLock too', () => {
+    expect(press('k', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(shortcuts.paletteOpen).toBe(true);
+
+    shortcuts.reset();
+    press('K', { ctrlKey: true });
+    expect(shortcuts.paletteOpen).toBe(true);
+  });
+
+  it('leaves Ctrl+K to macOS, where it kills to end of line in the field it is typed in', () => {
+    stubUserAgent(MAC_UA);
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+
+    const event = press('k', { ctrlKey: true });
+    expect(shortcuts.paletteOpen).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+
+    expect(press('k', { metaKey: true }).defaultPrevented).toBe(true);
+    expect(shortcuts.paletteOpen).toBe(true);
+  });
+
+  it('ignores the chord with Shift or Alt held', () => {
+    router.navigate('/my-tasks', { replace: true });
+
+    for (const init of [
+      { metaKey: true, shiftKey: true },
+      { metaKey: true, altKey: true },
+      { ctrlKey: true, altKey: true },
+    ]) {
+      const event = press('k', init);
+      expect(shortcuts.paletteOpen).toBe(false);
+      expect(event.defaultPrevented).toBe(false);
+    }
+  });
+
+  it('moves the selection on an unmodified k', () => {
+    selection.set(TASK_2);
+    press('k');
+    expect(shortcuts.paletteOpen).toBe(false);
+    expect(selection.selectedTaskId).toBe(TASK_1);
+  });
+
+  // Cmd+K used to fall through to the selection arm, which does not inspect modifiers.
+  it('no longer moves the selection on Cmd+K', () => {
+    const move = vi.spyOn(selection, 'move');
+    selection.set(TASK_2);
+
+    press('k', { metaKey: true });
+
+    expect(move).not.toHaveBeenCalled();
+    expect(selection.selectedTaskId).toBe(TASK_2);
+  });
+
+  it('opens from inside a focused text field', () => {
+    const input = document.createElement('input');
+    document.body.append(input);
+    input.focus();
+
+    expect(press('k', { metaKey: true }).defaultPrevented).toBe(true);
+    expect(shortcuts.paletteOpen).toBe(true);
+  });
+
+  it('supersedes an open quick menu rather than stacking on it', () => {
+    shortcuts.moveMenu = TASK_1;
+
+    press('k', { metaKey: true });
+
+    expect(shortcuts.paletteOpen).toBe(true);
+    expect(shortcuts.moveMenu).toBeNull();
+  });
+
+  it('opens over the task overlay route', () => {
+    router.navigate(TASK_PATH, { replace: true });
+
+    press('k', { metaKey: true });
+
+    expect(shortcuts.paletteOpen).toBe(true);
+  });
+
+  it('leaves the key to a foreign modal dialog', () => {
+    document.body.innerHTML = '<dialog data-modal open></dialog>';
+
+    const event = press('k', { metaKey: true });
+
+    expect(shortcuts.paletteOpen).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('does nothing while a drag is live', () => {
+    board.dragging = true;
+
+    const event = press('k', { metaKey: true });
+
+    expect(shortcuts.paletteOpen).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('closes on a second chord, and holds the key without toggling', () => {
+    press('k', { metaKey: true });
+    press('k', { metaKey: true });
+    expect(shortcuts.paletteOpen).toBe(false);
+
+    press('k', { metaKey: true });
+    const repeated = press('k', { metaKey: true, repeat: true });
+    expect(shortcuts.paletteOpen).toBe(true);
+    expect(repeated.defaultPrevented).toBe(true);
+  });
+
+  it('makes the rest of the keymap inert while it is open, and closes on Escape', () => {
+    selection.set(TASK_1);
+    press('k', { metaKey: true });
+    expect(shortcuts.anyMenuOpen).toBe(true);
+
+    press('j');
+    expect(selection.selectedTaskId).toBe(TASK_1);
+
+    const closed = press('Escape');
+    expect(shortcuts.paletteOpen).toBe(false);
+    expect(closed.defaultPrevented).toBe(true);
+  });
+
+  it('is cleared by closeMenus and by reset', () => {
+    press('k', { metaKey: true });
+    shortcuts.closeMenus();
+    expect(shortcuts.paletteOpen).toBe(false);
+
+    press('k', { metaKey: true });
+    shortcuts.reset();
+    expect(shortcuts.paletteOpen).toBe(false);
+  });
+
+  it('takes the menu seed down with the menus', () => {
+    shortcuts.menuPrefill = 'Done';
+    shortcuts.moveMenu = TASK_1;
+
+    shortcuts.closeMenus();
+
+    expect(shortcuts.menuPrefill).toBe('');
+  });
+});
+
 describe('shortcuts on a read-only board', () => {
   beforeEach(() => {
     board.project = {
