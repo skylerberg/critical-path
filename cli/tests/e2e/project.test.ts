@@ -4,7 +4,7 @@ import { createCliHarness, type CliHarness } from './helpers';
 import { decodeId, encodeId } from '../../src/short-links';
 import type { components } from '../../src/api/api.generated';
 
-type BoardPayload = components['schemas']['BoardPayload'];
+type BoardPayload = components['schemas']['BoardResponse'];
 type Project = components['schemas']['Project'];
 type ProjectListItem = components['schemas']['ProjectListItem'];
 

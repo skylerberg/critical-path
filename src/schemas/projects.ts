@@ -35,10 +35,14 @@ export const projectSchema = type({
 
 export type ProjectResponse = typeof projectSchema.infer;
 
+// The last three are answers about the caller, not about the project, so they
+// belong to this per-caller list and never to the shared project row.
 export const projectListItemSchema = projectSchema.merge({
   open_task_count: 'number',
   done_task_count: 'number',
   position: finiteNumber.or('null'),
+  last_seen_at: 'string | null',
+  has_unseen_changes: 'boolean',
 });
 
 export type ProjectListItem = typeof projectListItemSchema.infer;
@@ -138,3 +142,12 @@ export const boardPayloadSchema = type({
 });
 
 export type BoardPayload = typeof boardPayloadSchema.infer;
+
+// Merged rather than folded into the payload itself: the export, the public
+// board and the copy all build a BoardPayload and none of them has a caller
+// whose marker this could be measured against.
+export const boardResponseSchema = boardPayloadSchema.merge({
+  changed_task_ids: 'string[]',
+});
+
+export type BoardResponse = typeof boardResponseSchema.infer;

@@ -49,6 +49,7 @@ function board(tasks: BoardTask[]): BoardPayload {
     ],
     labels: [],
     tasks,
+    changed_task_ids: [],
   };
 }
 

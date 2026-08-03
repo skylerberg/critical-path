@@ -6,7 +6,7 @@ import { decodeId, encodeId, slugify } from '../../src/short-links';
 import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
 import type { components } from '../../src/api/api.generated';
 
-type BoardPayload = components['schemas']['BoardPayload'];
+type BoardPayload = components['schemas']['BoardResponse'];
 type BoardTask = components['schemas']['BoardTask'];
 type TaskDetailResponse = components['schemas']['TaskDetailResponse'];
 type StatefulTask = BoardTask & { state: string };

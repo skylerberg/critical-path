@@ -710,6 +710,40 @@ deleted or the user's account is removed; leaving a project keeps the row,
 which is harmless (the project no longer appears in the list) and restores
 the old position if the user is re-added.
 
+### What changed since you last looked
+
+`PUT /api/projects/:id/seen` moves the caller's marker for a project to now and
+returns 204. It is the only thing that moves it: a board read, an export, a CLI
+listing or a webhook delivery never does, so nothing a script reads can clear
+somebody's dot. Any member may call it, viewers included — a marker only that
+user can see is not a write to the board — and non-accessors get 404. Archiving
+does not stop it.
+
+Two reads are answered from that marker, and both mean the same thing by
+"changed": a live card in the project carrying a `task_activity` or
+`task_comment` row written by somebody else, after the marker.
+`GET /api/projects` returns `last_seen_at` (null until the caller has ever
+opened the board) and `has_unseen_changes`; `GET /api/projects/:id` and
+`POST /api/projects` return `changed_task_ids`, the ids in that same payload
+that qualify.
+
+With no marker the comparison is against null, so a board the caller has never
+opened reports no unseen changes and highlights nothing, rather than everything
+since the beginning of time. `has_unseen_changes` is additionally false for an
+archived project: a dot asks to be looked at, and an archived board is one the
+user has put away. `changed_task_ids` is not, so opening an archived board
+still shows what moved in it.
+
+Both silences below are deliberate, and both lose a highlight rather than
+inventing one. Activity and comments cascade with their task, so a deleted or
+archived card leaves nothing to notice. And `created_at` defaults to
+transaction start, so a bulk write that began before a stamp and commits after
+it sorts below the marker and is seen forever.
+
+Removing a member deletes their marker for that project, unlike their position
+row: a marker is a claim about what they have read, and re-adding them later
+should not silently carry one from before they were removed.
+
 ### Realtime
 
 A WebSocket endpoint listens at `/ws` on the same server (not part of the
@@ -746,6 +780,8 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `project_created` / `project_updated` | projects-list item (with `member_ids`, `members` and task counts, without the per-user `position`) |
 | `project_deleted`                     | `{ id }`                                                                                           |
 | `project_position_updated`            | `{ id, position }`                                                                                 |
+| `project_seen`                        | `{ id }`                                                                                           |
+| `project_changed`                     | `{ id, actor_user_id }`                                                                            |
 | `user_updated`                        | public user `{ id, name, avatar_url }`                                                             |
 | `sessions_revoked`                    | `{ user_id }`, optionally plus `personal_access_token_id`, `session_id` or `except_session_id`      |
 
@@ -780,10 +816,20 @@ re-check reaches the demoted member and is what makes an open client
 re-render read-only. Project deletion
 snapshots its recipients (creator plus members) the same way, since the rows
 backing the access check are gone after commit.
-`project_position_updated` also uses an exact recipient list — the caller
-only — even though its row survives the commit: positions are per-user, so
-the event exists solely to sync the caller's other devices and must never
-reach other members.
+`project_position_updated` and `project_seen` also use an exact recipient
+list — the caller only — even though their rows survive the commit: both are
+per-user, so the events exist solely to sync the caller's other devices and
+must never reach other members.
+`project_changed` is the one broadcast that is not a project-list row. It says
+only that something happened in a project, once per request however many
+mutations it made, so that a member sitting on the project list — subscribed to
+no room at all — can raise the unseen dot without polling. It carries
+`actor_user_id` rather than being withheld from its own actor, because the
+actor's *other* devices still need it; only the dot ignores its own. Nothing
+per-reader may ever ride in it, `has_unseen_changes` least of all: one
+recipient's answer would be wrong for every other member of the same board.
+The same rule is why the `project_updated` broadcast carries the projects-list
+item without `position`, `last_seen_at` or `has_unseen_changes`.
 `sessions_revoked` is never delivered to a client: the transport intercepts it
 and closes sockets instead. A payload of `{ user_id }` closes that user's
 session sockets only; one that also carries `personal_access_token_id` closes
@@ -885,7 +931,9 @@ event for publishing or unpublishing a board's public link. Task activity writes
 no event of its own, so it arrives as the mutation that caused it.
 
 **Never delivered.** `user_updated` and `sessions_revoked` are not project data
-and carry an email address. `project_position_updated` is per-user. No
+and carry an email address. `project_position_updated` and `project_seen` are
+per-user, and `project_changed` only restates a change that already went out
+under its own type. No
 registration can exist for a project at `project_created` time, and by
 `project_deleted` the registration is already gone by cascade — that type is
 also reused to evict removed members from a project that still exists, where it
