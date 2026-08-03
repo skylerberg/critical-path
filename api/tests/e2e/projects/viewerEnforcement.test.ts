@@ -28,6 +28,7 @@ describe('Viewer enforcement across every mutating route', () => {
   let labelId: string;
   let imageId: string;
   let commentId: string;
+  let checklistItemId: string;
   let webhookId: string;
 
   beforeAll(async () => {
@@ -88,6 +89,15 @@ describe('Viewer enforcement across every mutating route', () => {
     });
     expect(comment.status).toBe(201);
     commentId = ((await comment.json()) as { id: string }).id;
+
+    checklistItemId = newId();
+    const item = await ctx.request(owner.token).post('/api/checklist-items', {
+      id: checklistItemId,
+      task_id: taskId,
+      text: 've checklist item',
+      position: 1000,
+    });
+    expect(item.status).toBe(201);
 
     webhookId = newId();
     const webhook = await ctx.request(owner.token).post('/api/webhooks', {
@@ -235,6 +245,33 @@ describe('Viewer enforcement across every mutating route', () => {
         send: (t) => ctx.request(t).delete(`/api/images/${imageId}`),
       },
       {
+        name: 'POST /api/checklist-items',
+        send: (t) =>
+          ctx.request(t).post('/api/checklist-items', {
+            id: newId(),
+            task_id: taskId,
+            text: 'nope',
+            position: 1000,
+          }),
+      },
+      {
+        name: 'PATCH /api/checklist-items/:id',
+        send: (t) =>
+          ctx.request(t).patch(`/api/checklist-items/${checklistItemId}`, { checked: true }),
+      },
+      {
+        name: 'DELETE /api/checklist-items/:id',
+        send: (t) => ctx.request(t).delete(`/api/checklist-items/${checklistItemId}`),
+      },
+      {
+        name: 'POST /api/checklist-items/:id/promote',
+        send: (t) =>
+          ctx.request(t).post(`/api/checklist-items/${checklistItemId}/promote`, {
+            id: newId(),
+            position: 9900,
+          }),
+      },
+      {
         name: 'POST /api/columns',
         send: (t) =>
           ctx.request(t).post('/api/columns', {
@@ -376,6 +413,13 @@ describe('Viewer enforcement across every mutating route', () => {
         .where('project_id', '=', projectId)
         .execute();
       expect(webhooks).toEqual([{ url: 'https://example.com/hook' }]);
+
+      const items = await db
+        .selectFrom('checklist_item')
+        .select(['id', 'text', 'checked'])
+        .where('task_id', '=', taskId)
+        .execute();
+      expect(items).toEqual([{ id: checklistItemId, text: 've checklist item', checked: false }]);
 
       const assignees = await db
         .selectFrom('task_assignee')

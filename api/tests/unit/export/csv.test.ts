@@ -197,6 +197,7 @@ function taskFixture(
     assignee_ids: [],
     blocker_ids: [],
     images: [],
+    checklist_items: [],
     ...overrides,
   };
 }
@@ -206,8 +207,24 @@ describe('tasksCsv', () => {
     const csv = tasksCsv(exportFixture());
     expect(csv.startsWith('\ufeff')).toBe(true);
     expect(csv.slice(1)).toBe(
-      'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,description\r\n'
+      'id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,checklist,description\r\n'
     );
+  });
+
+  it('renders the checklist as tickboxes joined with "; ", in the order given', () => {
+    const csv = tasksCsv(
+      exportFixture({
+        tasks: [
+          taskFixture({
+            checklist_items: [
+              { id: 'k1', text: 'first', checked: true, position: 1000 },
+              { id: 'k2', text: 'second', checked: false, position: 2000 },
+            ],
+          }),
+        ],
+      })
+    );
+    expect(csv.split('\r\n')[1]).toContain(',[x] first; [ ] second,');
   });
 
   it('writes one row per task with resolved column, labels, assignees and blockers', () => {
@@ -240,10 +257,10 @@ describe('tasksCsv', () => {
 
     const lines = csv.split('\r\n');
     expect(lines[1]).toBe(
-      't1,Blocker task,Done,true,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
+      't1,Blocker task,Done,true,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[2]).toBe(
-      't2,Blocked task,To Do,false,2000,2026-08-03,bug,Owner,Blocker task,1,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
+      't2,Blocked task,To Do,false,2000,2026-08-03,bug,Owner,Blocker task,1,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[3]).toBe('');
   });
@@ -276,7 +293,7 @@ describe('tasksCsv', () => {
 
     expect(csv.split('\r\n')[3]).toBe(
       't3,Three,To Do,false,3000,,bug; ui,Owner; Dev,One; Two,0,' +
-        '2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
+        '2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
   });
 
@@ -326,7 +343,7 @@ describe('tasksCsv', () => {
     );
 
     expect(csv.split('\r\n')[1]).toBe(
-      't1,Task,To Do,false,1000,,bug,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
+      't1,Task,To Do,false,1000,,bug,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
   });
 
@@ -347,11 +364,11 @@ describe('tasksCsv', () => {
 
     const lines = csv.split('\r\n');
     expect(lines[1]).toBe(
-      't1,Live,To Do,false,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,'
+      't1,Live,To Do,false,1000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[2]).toBe(
       't2,Shelved,To Do,false,2000,,,,,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,' +
-        '2026-07-05T00:00:00.000Z,'
+        '2026-07-05T00:00:00.000Z,,'
     );
   });
 

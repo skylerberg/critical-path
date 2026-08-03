@@ -11,6 +11,7 @@ import {
   listArchivedTasks,
   listUsers,
   matchArchivedTask,
+  matchRef,
   matchRefOrNull,
   projectRefOrNull,
   resolveBoard,
@@ -24,6 +25,7 @@ import {
   type BoardColumn,
   type BoardPayload,
   type BoardTask,
+  type ChecklistItem,
 } from '../resolve';
 import {
   blockerTree,
@@ -432,6 +434,89 @@ async function createManyTasks(ctx: RuntimeContext, opts: Opts): Promise<void> {
   });
 }
 
+interface ChecklistContext {
+  taskId: string;
+  items: ChecklistItem[];
+}
+
+async function resolveChecklist(
+  ctx: RuntimeContext,
+  ref: string,
+  projectRef: string | undefined
+): Promise<ChecklistContext> {
+  const taskId = await resolveTaskId(ctx, ref, projectRef, { includeArchived: true });
+  const detail = assertOk(
+    await ctx.api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } })
+  );
+  return { taskId, items: sortedChecklist(detail.checklist_items ?? []) };
+}
+
+function sortedChecklist(items: readonly ChecklistItem[]): ChecklistItem[] {
+  return [...items].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+}
+
+function resolveChecklistItem(items: readonly ChecklistItem[], ref: string): ChecklistItem {
+  return matchRef(
+    ref,
+    items,
+    'checklist item',
+    (item) => item.id,
+    (item) => item.text
+  );
+}
+
+function checklistLine(item: ChecklistItem): string {
+  return `[${item.checked ? 'x' : ' '}] ${displayTitle(item.text)}`;
+}
+
+// A pasted Markdown checklist is the point of stdin ingestion, so the bullet and
+// the tickbox are consumed as syntax rather than stored as part of the text.
+const LIST_MARKER_RE = /^\s*(?:[-*+]|\d+[.)])\s+/;
+const TICKBOX_RE = /^\[([ xX])\]\s+/;
+
+function parseChecklistLine(line: string): { text: string; checked: boolean } | null {
+  const withoutBullet = line.replace(LIST_MARKER_RE, '');
+  const tickbox = TICKBOX_RE.exec(withoutBullet);
+  const text = (tickbox === null ? withoutBullet : withoutBullet.slice(tickbox[0].length)).trim();
+  return text === '' ? null : { text, checked: tickbox !== null && tickbox[1] !== ' ' };
+}
+
+async function addChecklistItems(
+  ctx: RuntimeContext,
+  opts: Opts,
+  ref: string,
+  entries: { text: string; checked: boolean }[]
+): Promise<void> {
+  const { taskId, items } = await resolveChecklist(ctx, ref, opts.project as string | undefined);
+  const positions = positionsForPlacement(
+    placementFrom(opts),
+    items,
+    (anchor) => resolveChecklistItem(items, anchor).id,
+    entries.length
+  );
+  const created: ChecklistItem[] = [];
+  for (const [index, entry] of entries.entries()) {
+    created.push(
+      assertOk(
+        await ctx.api.POST('/api/checklist-items', {
+          body: {
+            id: crypto.randomUUID(),
+            task_id: taskId,
+            text: entry.text,
+            position: positions[index],
+            ...(entry.checked ? { checked: true } : {}),
+          },
+        })
+      )
+    );
+  }
+  ctx.out.data(created.length === 1 ? created[0] : created, () => {
+    for (const item of created) {
+      ctx.out.line(`Added ${checklistLine(item)}`);
+    }
+  });
+}
+
 async function updateLabels(
   ctx: RuntimeContext,
   opts: Opts,
@@ -616,6 +701,14 @@ export function registerTask(program: Command, deps: CliDeps): void {
             }
             renderDependencySection(ctx, board, 'Blocked by', blockedBy);
             renderDependencySection(ctx, board, 'Blocks', blocks);
+            const checklist = sortedChecklist(detail.checklist_items ?? []);
+            if (checklist.length > 0) {
+              const done = checklist.filter((item) => item.checked).length;
+              ctx.out.line(`Checklist: ${String(done)}/${String(checklist.length)} done`);
+              for (const item of checklist) {
+                ctx.out.line(`  ${checklistLine(item)}`);
+              }
+            }
             if (detail.images.length > 0) {
               ctx.out.line('Images:');
               for (const image of detail.images) {
@@ -963,6 +1056,210 @@ export function registerTask(program: Command, deps: CliDeps): void {
   );
 
   task.addCommand(label);
+
+  const checklist = new Command('checklist').description('Manage the checklist on a task');
+
+  checklist.addCommand(
+    taskLeaf('list')
+      .description('List the checklist items on a task')
+      .argument('<task>', 'task id or title')
+      .action(
+        withCtx(deps, async (ctx, opts, ref) => {
+          const { items } = await resolveChecklist(ctx, ref, opts.project as string | undefined);
+          ctx.out.data(items, () => {
+            if (items.length === 0) {
+              ctx.out.line('No checklist items');
+              return;
+            }
+            const done = items.filter((item) => item.checked).length;
+            ctx.out.line(`${String(done)}/${String(items.length)} done`);
+            for (const item of items) {
+              ctx.out.line(`  ${item.id.slice(0, 8)}  ${checklistLine(item)}`);
+            }
+          });
+        })
+      )
+  );
+
+  checklist.addCommand(
+    addPlacementOptions(
+      taskLeaf('add')
+        .description('Add a checklist item (at the bottom by default)')
+        .argument('<task>', 'task id or title')
+        .argument(
+          '<text>',
+          'item text, or - to read one item per line from stdin (Markdown bullets and [x] tickboxes are honored)'
+        )
+        .action(
+          withCtx(deps, async (ctx, opts, ref, text) => {
+            if (text !== '-') {
+              await addChecklistItems(ctx, opts, ref, [{ text, checked: false }]);
+              return;
+            }
+            // Draining a terminal would look like a hang until the user guessed Ctrl-D.
+            if (ctx.deps.stdin.isTTY === true) {
+              throw new CliError(
+                'Pipe one item per line into `task checklist add <task> -` ' +
+                  '(e.g. `task checklist add mycard - < items.md`)',
+                EXIT.usage
+              );
+            }
+            const entries = (await readAllStdin(ctx))
+              .split(/\r\n|\r|\n/)
+              .map(parseChecklistLine)
+              .filter((entry) => entry !== null);
+            if (entries.length === 0) {
+              throw new CliError('No checklist items on stdin', EXIT.usage);
+            }
+            await addChecklistItems(ctx, opts, ref, entries);
+          })
+        )
+    )
+  );
+
+  for (const [name, checked] of [
+    ['check', true],
+    ['uncheck', false],
+  ] as const) {
+    checklist.addCommand(
+      taskLeaf(name)
+        .description(`Mark a checklist item as ${checked ? 'done' : 'not done'}`)
+        .argument('<task>', 'task id or title')
+        .argument('<item>', 'checklist item id or text')
+        .action(
+          withCtx(deps, async (ctx, opts, ref, itemRef) => {
+            const { items } = await resolveChecklist(ctx, ref, opts.project as string | undefined);
+            const target = resolveChecklistItem(items, itemRef);
+            const updated = assertOk(
+              await ctx.api.PATCH('/api/checklist-items/{id}', {
+                params: { path: { id: target.id } },
+                body: { checked },
+              })
+            );
+            ctx.out.data(updated, () => ctx.out.line(`Updated ${checklistLine(updated)}`));
+          })
+        )
+    );
+  }
+
+  checklist.addCommand(
+    taskLeaf('rename')
+      .description('Change the text of a checklist item')
+      .argument('<task>', 'task id or title')
+      .argument('<item>', 'checklist item id or text')
+      .argument('<text>', 'new item text')
+      .action(
+        withCtx(deps, async (ctx, opts, ref, itemRef, text) => {
+          const { items } = await resolveChecklist(ctx, ref, opts.project as string | undefined);
+          const target = resolveChecklistItem(items, itemRef);
+          const updated = assertOk(
+            await ctx.api.PATCH('/api/checklist-items/{id}', {
+              params: { path: { id: target.id } },
+              body: { text },
+            })
+          );
+          ctx.out.data(updated, () => ctx.out.line(`Renamed to ${checklistLine(updated)}`));
+        })
+      )
+  );
+
+  checklist.addCommand(
+    addPlacementOptions(
+      taskLeaf('move')
+        .description('Reorder a checklist item')
+        .argument('<task>', 'task id or title')
+        .argument('<item>', 'checklist item id or text')
+        .action(
+          withCtx(deps, async (ctx, opts, ref, itemRef) => {
+            const { items } = await resolveChecklist(ctx, ref, opts.project as string | undefined);
+            const target = resolveChecklistItem(items, itemRef);
+            const others = items.filter((item) => item.id !== target.id);
+            const position = positionForPlacement(
+              placementFrom(opts),
+              others,
+              (anchor) => resolveChecklistItem(items, anchor).id
+            );
+            const updated = assertOk(
+              await ctx.api.PATCH('/api/checklist-items/{id}', {
+                params: { path: { id: target.id } },
+                body: { position },
+              })
+            );
+            ctx.out.data(updated, () => ctx.out.line(`Moved ${checklistLine(updated)}`));
+          })
+        )
+    )
+  );
+
+  checklist.addCommand(
+    taskLeaf('remove')
+      .description('Delete a checklist item')
+      .argument('<task>', 'task id or title')
+      .argument('<item>', 'checklist item id or text')
+      .option('--force', 'skip the confirmation prompt')
+      .action(
+        withCtx(deps, async (ctx, opts, ref, itemRef) => {
+          const { items } = await resolveChecklist(ctx, ref, opts.project as string | undefined);
+          const target = resolveChecklistItem(items, itemRef);
+          await confirmOrAbort(
+            ctx,
+            `Delete checklist item "${displayTitle(target.text)}"?`,
+            opts.force === true
+          );
+          assertOk(
+            await ctx.api.DELETE('/api/checklist-items/{id}', {
+              params: { path: { id: target.id } },
+            })
+          );
+          ctx.out.data({ deleted: true, id: target.id }, () =>
+            ctx.out.line(`Deleted checklist item "${displayTitle(target.text)}"`)
+          );
+        })
+      )
+  );
+
+  checklist.addCommand(
+    taskLeaf('promote')
+      .description('Turn a checklist item into its own card, directly below the parent')
+      .argument('<task>', 'task id or title')
+      .argument('<item>', 'checklist item id or text')
+      .action(
+        withCtx(deps, async (ctx, opts, ref, itemRef) => {
+          const { board, task: parent } = await resolveTaskContext(
+            ctx,
+            ref,
+            opts.project as string | undefined,
+            { includeArchived: true }
+          );
+          const detail = assertOk(
+            await ctx.api.GET('/api/tasks/{id}', { params: { path: { id: parent.id } } })
+          );
+          const target = resolveChecklistItem(
+            sortedChecklist(detail.checklist_items ?? []),
+            itemRef
+          );
+          const siblings = sortedTasksIn(board, parent.column_id);
+          const position = positionsForIndex(
+            siblings.map((t) => t.position),
+            siblings.findIndex((t) => t.id === parent.id) + 1,
+            1
+          )[0];
+          const created = assertOk(
+            await ctx.api.POST('/api/checklist-items/{id}/promote', {
+              params: { path: { id: target.id } },
+              body: { id: crypto.randomUUID(), position },
+            })
+          );
+          ctx.out.data(created, () =>
+            ctx.out.line(
+              `Created task "${displayTitle(created.title)}" (${created.id.slice(0, 8)}) from the checklist item`
+            )
+          );
+        })
+      )
+  );
+
+  task.addCommand(checklist);
 
   task.addCommand(
     taskLeaf('assign')
