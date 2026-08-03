@@ -3,6 +3,7 @@ import { describeRoute } from 'hono-openapi';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
 import { storage } from '../services/storage/index';
+import { storedObjectResponse } from '../services/storage/response';
 import { logger } from '../utils/logger';
 import {
   idSchema,
@@ -51,8 +52,8 @@ router.get(
       throw new AppError(404, 'Avatar not found');
     }
 
-    const data = await storage.get(id);
-    if (!data) {
+    const object = await storage.getStream(id);
+    if (!object) {
       logger.error({
         msg: 'Avatar column set but storage object is missing',
         storageKey: id,
@@ -62,7 +63,7 @@ router.get(
 
     c.header('Content-Type', row.avatar_content_type);
     c.header('Cache-Control', 'private, max-age=31536000, immutable');
-    return c.body(new Uint8Array(data), 200);
+    return storedObjectResponse(c, object);
   }
 );
 
