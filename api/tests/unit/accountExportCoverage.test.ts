@@ -21,6 +21,8 @@ const DECIDED: Record<string, 'in' | 'out'> = {
   'task_activity.actor_user_id': 'out',
   'task_assignee.user_id': 'out',
   'task_comment.user_id': 'out',
+  'task_series.created_by': 'out',
+  'task_series_assignee.user_id': 'out',
 };
 
 // Every column of the four account-owned tables the export reads, each decided

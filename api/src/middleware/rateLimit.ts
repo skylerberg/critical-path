@@ -447,3 +447,21 @@ export async function enforceSignupRateLimit(c: Context): Promise<void> {
     throw new AppError(429, 'Too many accounts created, please try again later');
   }
 }
+
+export const LINK_ATTACH_WINDOW_MS = 60 * 60_000;
+export const LINK_ATTACH_MAX_ATTEMPTS = 60;
+
+// Attaching a link is the only user-triggered outbound request in the product,
+// so it gets a budget: without one, a card is an unbounded request amplifier
+// pointed at whatever host the caller names.
+export async function enforceLinkAttachmentRateLimit(userId: string): Promise<void> {
+  const allowed = await consumeRateLimit(
+    `link-attach:${userId}`,
+    Date.now(),
+    LINK_ATTACH_MAX_ATTEMPTS,
+    LINK_ATTACH_WINDOW_MS
+  );
+  if (!allowed) {
+    throw new AppError(429, 'Too many links, please try again later');
+  }
+}

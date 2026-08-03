@@ -1,5 +1,7 @@
 import { Storage } from '@google-cloud/storage';
 import type { Bucket } from '@google-cloud/storage';
+import type { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { isValidUuid } from '../../types/uuid';
 import type { StorageProvider } from './types';
 
@@ -27,6 +29,14 @@ export class GcsStorageProvider implements StorageProvider {
       contentType,
       resumable: false,
     });
+  }
+
+  // Not resumable: a resumable session buffers chunks in memory to replay them.
+  async putStream(key: string, data: Readable, contentType: string): Promise<void> {
+    await pipeline(
+      data,
+      this.bucket.file(this.resolveKey(key)).createWriteStream({ contentType, resumable: false })
+    );
   }
 
   async get(key: string): Promise<Buffer | null> {

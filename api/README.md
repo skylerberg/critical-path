@@ -424,6 +424,136 @@ Items cascade away with their task. They **are** copied by a card duplicate, a
 column duplicate and a project copy, text and ticked state verbatim under fresh
 ids — a copy is a copy. They are published on public boards.
 
+### Recurring series
+
+A repeating commitment lives on a `task_series` row, not on a card. The row
+holds the template — title, description, labels, assignees, checklist items and
+destination column — plus an RRULE, the calendar day of the next occurrence and
+the timezone that day is measured in. `GET /api/task-series?project_id=`,
+`POST /api/task-series`, `PATCH /api/task-series/:id` and
+`DELETE /api/task-series/:id` manage it. Viewers may read the list; every
+mutation asserts write.
+
+**Materialisation is lazy.** A card exists only once its occurrence is due.
+Completing an instance creates nothing; a periodic background sweep does, on the
+day the occurrence falls, and then advances the schedule. Nothing appears early:
+there is no lead time and no way to ask for one. Each occurrence is therefore an
+ordinary card with its own comments, activity and history, and it emits an
+ordinary `task_created`. Editing a series changes future occurrences only — the
+PATCH handler never reads or writes a `task` row.
+
+**Expressive storage, menu-shaped interface.** The rule is stored as an RFC 5545
+RRULE value and evaluated with a library, because month ends, leap years and
+"last weekday of the month" are exactly where hand-rolled recurrence goes
+wrong. The UI offers six presets — daily, every weekday, weekly on the start
+day, monthly on the date, monthly on the nth weekday, yearly — and each maps to
+a rule. There is no general RRULE editor. Two of the mappings are not the
+obvious ones: `FREQ=MONTHLY;BYMONTHDAY=31` *skips* every month without a 31st,
+and `FREQ=YEARLY` from 29 February fires only in leap years, so both are stored
+as `BYMONTHDAY=<d>,-1;BYSETPOS=1`, which clamps to the last day instead. A rule
+that arrives outside the curated set is accepted, evaluates correctly, and
+reports `preset: null` with a library-rendered `summary`; the six presets get
+curated English instead, because the library renders the clamped monthly rule
+as "every month on the 31st and last".
+
+**The rule is also an attack surface**, since the API deliberately accepts
+input the UI cannot produce. A submitted rule must be one line under 500
+characters, carry no `RRULE:` prefix and no `DTSTART`, `TZID`, `RDATE`, `EXDATE`
+or `EXRULE` (there is exactly one anchor, `start_date`, and one zone,
+`timezone`), repeat no more often than daily, carry no `BYHOUR`, `BYMINUTE` or
+`BYSECOND` (an occurrence is a whole calendar day, and those three together fit
+inside the length cap while multiplying every search by 86,400), and keep
+`INTERVAL` ≤ 366, `COUNT` ≤ 1000 and `UNTIL` before 2200. A rule that can never
+fire is a 422, not a zombie row. Every occurrence search is additionally bounded
+to 100 years. A project holds at most 50 series.
+
+**Time is a calendar day in a zone.** `next_occurrence_date` says *which*
+occurrence is next; `next_occurrence_at` is the precomputed instant the sweep
+may create it, written as
+`(next_occurrence_date::timestamp at time zone timezone)` so Postgres tzdata
+does the DST arithmetic and the sweep's predicate stays sargable.
+
+**The occurrence date is not a due date.** It decides when a card comes into
+existence and nothing else. `due_date` is one more optional field on the
+template, exactly like title, description, labels and assignees: set it and
+every materialised card carries that value, leave it and materialised cards
+have no due date, which is the default. It is never computed.
+
+**Scheduling is forward-only.** `next_occurrence_date` only ever moves to an
+occurrence after the one just materialised, or — on create, rule edit or resume
+— to the first occurrence on or after today in the series timezone. A series
+anchored a year in the past therefore backfills nothing.
+
+**Catch-up skips forward and records the gap.** If the worker was down for
+three days, the occurrences strictly before today are counted into
+`missed_occurrence_count` and never created; retroactively spawning a week of
+stale cards is the worse failure. A backlog longer than one 500-occurrence scan
+is walked forward over successive sweeps rather than in one transaction.
+
+**A due occurrence is created even when the previous one is still open**,
+because silently skipping hides work that was genuinely due. The list reports
+`open_occurrence_count` so the outstanding ones are visible instead.
+
+**Idempotence has three independent layers**, so correctness does not rest on
+any one of them: the runner's job lease, a per-series
+`select ... for update skip locked`, and a unique index on
+`(series_id, series_occurrence_date)` inserted against with
+`on conflict do nothing`. The middle one is load-bearing — the job lease covers
+the **job row**, and one periodic row drives every series, so it provides no
+per-series exclusion at all. `do nothing` rather than a caught 23505 because a
+raised unique violation would abort the transaction the schedule advance still
+has to run in.
+
+**One periodic sweep, not a job per occurrence.** An indexed table is already
+the queue, and the sweep is self-healing after any edit, pause, resume or
+delete with no schedule to cancel and reschedule. Each series is materialised in
+its own transaction and every failure is absorbed per series into
+`consecutive_failures` / `last_error`, pausing that series at five: a periodic
+job row is never retired on failure, so a handler that threw would stall every
+project's schedules behind its backoff.
+
+**Three deliberate deviations from "all FKs are `ON DELETE CASCADE`".**
+`task.series_id` is `SET NULL`, because cascading would delete a year of
+completed invoices the moment someone stops a schedule. `task_series.column_id`
+is nullable and `SET NULL`, because a column holding only series reports itself
+empty and deletes with a 204 — a cascade would silently and unrecoverably
+destroy the series, where nulling stops the sweep and asks for a new
+destination. `task_series.created_by` is nullable and `SET NULL`, because a
+series belongs to the project and not to whoever set it up: it gates nothing,
+so cascading would let a member who leaves take a project's schedules with
+them. A series whose creator is gone still materialises, and the card's
+creation entry is attributed to the project's owner instead.
+
+**Series CRUD emits no realtime event**, the same exception outbound webhooks
+take: a series is board configuration, not board data, no client caches it
+across sessions, and the panel loads the list when it opens. Materialisation,
+which *is* a board mutation, publishes a real `task_created` plus the
+`project_changed` dot, with the series creator as the actor so the live dot and
+the dot a board read computes from the activity log agree.
+
+**Copying a project copies its series**, template and all, with every
+project-scoped id remapped to the copy's own columns and labels and every
+assignee without access to the destination dropped — the same rule the rest of
+the copy applies. The copy keeps the source's status, so an active schedule
+behaves in the copy exactly as it does in the original, and its next occurrence
+is recomputed from today rather than carried over, so a copy made after a missed
+occurrence does not immediately fire a stale one. A *duplicated card*, by
+contrast, is an ordinary card with no series link.
+
+**A card names the schedule it came from.** `GET /api/tasks/:id` carries
+`series_summary`, the same English rendering of the rule the series list shows,
+so an open card can say it repeats. It is null for an ordinary card and for one
+whose series has since been deleted. Board payloads deliberately do not carry
+it: a join and a rule render per card, for a line one open card at a time shows.
+
+**Known gap:** a recurring card that assigns someone notifies nobody, where a
+manual assignment does.
+
+**Rollback runbook.** If a release carrying this is rolled back, the periodic
+`job` row survives with no handler anywhere. It is never claimed, but it appears
+in the recurring `unregisteredKindBacklog` warning forever. Clear it with
+`delete from job where kind = 'task_series_materialize';`.
+
 ### Mentions
 
 `mention` is a node in the restricted Tiptap allow-list, so a task description
@@ -514,6 +644,110 @@ The choice lives on the image row itself, so deleting the image takes the
 cover with it; every `image_deleted` event carries whatever cover the task has
 left. Covers are copied when a project, a column or a card is duplicated, and
 they are published on public boards.
+
+### Attachments
+
+`task_attachment` is a sibling of `task_image`, not a replacement for it.
+Images keep their own table, their own routes, their own covers and their own
+`images/` export folder; attachments carry `kind` of `file` or `link`, and both
+kinds live in one list embedded in the task-detail payload as `attachments[]`.
+Everything lives under `/api/attachments`.
+
+| Route                                 | Auth   |
+| ------------------------------------- | ------ |
+| `POST /api/attachments/files`         | bearer |
+| `POST /api/attachments/links`         | bearer |
+| `PATCH /api/attachments/:id`          | bearer |
+| `DELETE /api/attachments/:id`         | bearer |
+| `GET /api/attachments/:id/download`   | bearer |
+| `GET /api/attachments/:id/preview`    | none   |
+| `GET /api/attachments/:id/favicon`    | none   |
+
+**Files of any type.** `POST /api/attachments/files` takes the file's raw
+bytes as the whole request body; `task_id`, `filename`, the declared
+`content_type` and an optional client-supplied `id` travel as query
+parameters. The body is never assembled in memory: it is piped straight to
+storage as it arrives, and the byte cap is applied to the stream rather than
+to a finished buffer, so an upload that exceeds it is cut off mid-transfer and
+the partial object is reclaimed. That is what makes a 50 MB cap affordable —
+concurrent uploads cost a chunk of memory each, not a whole file each. It also
+means a request with no `Content-Length` is bounded exactly like one that
+declares it. A malformed query parameter is a 400, an empty body a 422.
+Nothing is sniffed and nothing is normalised — a PDF cannot be re-encoded
+away, so the safety of an arbitrary upload comes from how it is served rather
+than from what it is.
+`content_type` records the sanitised *declared* MIME type; it drives the UI
+glyph and the label and **is never written to a response header**. `filename`
+is likewise sanitised at upload and is immutable: `PATCH` writes `title`, the
+display label, so a rename can never change what a download saves as.
+
+`GET /api/attachments/:id/download` always answers
+`Content-Type: application/octet-stream` with
+`Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` and
+`Content-Security-Policy: default-src 'none'; sandbox`, whatever the file is.
+There is no code path that serves user-uploaded bytes with a renderable
+content type, so an uploaded `.svg` or `.html` downloads rather than executing.
+Unlike `GET /api/images/:id` this route is authenticated and answers 404 to a
+caller without project access, so removing someone from a project takes their
+access to its documents with it. A viewer may download; only an editor may
+attach, rename or delete.
+
+**Limits.** `ATTACHMENT_MAX_BYTES` (50 MB by default) caps one file, and
+`PROJECT_STORAGE_QUOTA_BYTES` (1 GiB by default) caps a whole project. The
+project quota sums `task_attachment` **and** `task_image` bytes, so it also
+applies to image uploads — a project already over quota cannot upload again
+until it deletes something. A task holds at most 50 attachments. Whichever of
+the two byte limits bites first is the one the upload stream is cut at, so a
+project with 3 MB of quota left refuses a 50 MB file after 3 MB rather than
+after 50; the exact, serialised quota check still runs once the size is known
+and before the row commits, and the object it refuses is reclaimed.
+
+**On the card.** Every board task carries `attachment_count`, both kinds
+together, so a card can show a paperclip without fetching the list.
+`attachment_created` and `attachment_deleted` carry the new count for the same
+reason `comment_created` does. Public boards do **not** publish it: the
+attachment list, its bytes and its count are all members-only.
+
+**Links.** `POST /api/attachments/links` stores the URL and answers 201
+immediately with `unfurl_state: "pending"`; adding never waits on the network.
+Only `http`/`https` URLs without embedded credentials are stored, and at most
+2048 characters. A background `attachment_unfurl` job then fetches the page and
+fills in `title`, `description`, a preview image and a favicon, publishing
+`attachment_updated` when it settles. Both images are re-fetched into our own
+storage and re-encoded to WebP rather than hotlinked, so rendering a card leaks
+no viewer's IP to a third party and does not break when they move the file.
+They are served from unauthenticated capability URLs, like images and avatars,
+because they go in an `<img>`; each of those two routes selects only its own
+key column, so neither can serve a document's bytes whatever id is guessed.
+
+Unfurling is best-effort by design: a target that refuses unfurlers, times out,
+answers a non-HTML body or resolves to a blocked address settles the row at
+`failed` with the URL intact, and the user supplies a title by hand. There is
+no refresh and no manual re-unfurl — a user-triggered, repeatable server-side
+fetch of an attacker-chosen URL is exactly what the SSRF budget is there to
+prevent. Attaching a link is rate limited to 60 an hour per user.
+
+The unfurl fetcher reuses the webhook sender's target rules verbatim: private,
+loopback, link-local and reserved ranges are blocked (including
+`169.254.169.254`), the vetted address is pinned to the socket so DNS rebinding
+cannot switch it, every redirect hop is re-validated rather than only the first
+URL, at most three redirects are followed, responses are capped (512 KB of HTML,
+2 MB of preview image, 256 KB of favicon), `Accept-Encoding: identity` makes a
+compression bomb structurally impossible, and one absolute deadline covers the
+whole chain so a target trickling one byte a second still settles. `http://` is
+allowed even in production: the blocklist, not TLS, is the defence, and
+refusing a pasted `http://` link would help nobody.
+
+Storing a link and fetching it are separate decisions. A URL pointing at a
+private host is stored — recording `http://wiki.internal/spec` is legitimate —
+and its job is still enqueued; the job is what refuses to fetch it.
+
+**Lifecycle.** Rows cascade from the task, so task, project and account
+deletion take them; the stored objects are reclaimed after commit. Duplicating
+a card, a column or a project copies both kinds, with fresh ids and freshly
+copied storage objects, and a copied link keeps the metadata it already has
+rather than being re-fetched. The export archive carries file bytes under
+`attachments/<id>.<ext>` and lists both kinds in `tasks[].attachments[]`.
 
 ### Archived tasks
 
@@ -901,6 +1135,9 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `label_deleted`                       | `{ id }`                                                                                           |
 | `image_created`                       | image response plus `{ task_id, image_count }`                                                     |
 | `image_deleted`                       | `{ task_id, image_count, cover_image_url }`                                                        |
+| `attachment_created`                  | attachment response plus `{ attachment_count }`                                                    |
+| `attachment_updated`                  | attachment response shape                                                                          |
+| `attachment_deleted`                  | `{ id, task_id, attachment_count }`                                                                |
 | `comment_created`                     | comment row plus `{ comment_count }`                                                               |
 | `comment_updated`                     | comment row                                                                                        |
 | `comment_deleted`                     | `{ id, task_id, comment_count }`                                                                   |
@@ -1153,6 +1390,15 @@ Deferred and recurring server-side work runs off the `job` table, leased with
 surface: nothing about a job belongs to a project, and the authorization model
 here is project-scoped only, so there is no role that could be allowed to see
 one. Registering a kind is a code change.
+
+The one registered kind is `attachment_unfurl`, which fetches the title,
+description, preview image and favicon for a link attachment. It is one-shot,
+carries `{ attachment_id }` and nothing else, and never throws for a network
+outcome — a target that refuses, times out or resolves to a blocked address
+settles the row at `failed` and reports success, so a link cannot sit at
+`pending` behind six hours of backoff. Two concurrent runs race a guarded
+`update ... where unfurl_state = 'pending'`; the loser reclaims the storage
+objects it wrote and publishes nothing.
 
 Webhook delivery does **not** use this. `webhook_delivery` keeps its own table
 and claim because it carries per-receiver behaviour a generic table cannot hold
@@ -1684,7 +1930,14 @@ back:
   as live, which is no longer true. It went to `3` when `users[].email` was
   dropped: no user record carries an address any more. `checklist_items` was
   added without a bump: a reader of a `3` export keeps parsing, since an absent
-  key and an empty checklist mean the same thing.
+  key and an empty checklist mean the same thing. `attachments` was added the
+  same way, and for the same reason.
+- `tasks[].attachments[]` lists both kinds. A `file` entry carries `path`
+  (`attachments/<id>.<ext>`, derived from the id, never from `filename`) and its
+  bytes ride in the zip; a `link` entry carries `url` and `unfurl_state` and has
+  `path: null`. Fetched preview and favicon bytes are **not** archived — they
+  are a cache of someone else's image, not the user's content — so a re-import
+  keeps the link and its text and re-unfurls its pictures.
 - Archived cards are exported. Each carries the `archived_at` that marks it and
   the `column_id` it was archived from, so an importer can restore it archived,
   drop it, or ask. A live card has `archived_at: null`. `blocker_ids` still
@@ -1720,7 +1973,7 @@ back:
 then
 
 ```
-id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,created_at,updated_at,archived_at,checklist,description
+id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_count,attachment_count,created_at,updated_at,archived_at,checklist,description
 ```
 
 one row per task in the manifest's order, RFC 4180 quoting, CRLF line endings.
@@ -1733,11 +1986,13 @@ prefixed or escaped, so treat a `tasks.csv` opened in a spreadsheet the same way
 you would treat any other untrusted CSV. Use `project.json` when you need
 exactness.
 
-The archive is plain zip, not zip64, so a project whose images would push it
-past 4 GiB answers 413 and has to be exported with `?format=json` plus one
-`GET /api/images/:id` per image. With a 10 MB per-image upload cap that ceiling
-is roughly 430 full-size images in one project, so it is reachable; widening the
-writer to zip64 is the fix if anyone hits it.
+The archive is plain zip, not zip64, so a project whose images and attachments
+would push it past 4 GiB answers 413 and has to be exported with `?format=json`
+plus one `GET /api/images/:id` or `GET /api/attachments/:id/download` per
+object. Attachments count toward both that byte bound and the 65,535-entry
+bound. With a 10 MB per-image and 50 MB per-attachment upload cap that ceiling
+is far more reachable than images alone made it; widening the writer to zip64
+is the fix if anyone hits it.
 
 ## Database workflow
 
@@ -2050,8 +2305,31 @@ npm run openapi:dump && npm run --prefix cli generate-api
   capability URLs (unguessable UUIDs) so `<img>` tags work without auth
   headers.
 - Task images are stored exactly as uploaded — no resizing, no re-encoding (only
-  avatars are re-encoded). A card cover therefore serves the full original, so a
-  10 MB upload is a 10 MB card image; there is no derived thumbnail.
+  avatars and link previews are re-encoded). A card cover therefore serves the
+  full original, so a 10 MB upload is a 10 MB card image; there is no derived
+  thumbnail.
+- File attachments are stored exactly as uploaded and are safe only because of
+  how they are served: `application/octet-stream`, an attachment
+  `Content-Disposition`, `nosniff`, and a `default-src 'none'; sandbox` CSP that
+  puts the response in an opaque origin if anything ever does load it as a
+  document. They are not served from a separate origin, which would be the
+  stronger answer: `/api` and `/ws` are same-origin behind one load balancer,
+  the dev proxy assumes it, and the service worker caches `/api/images/` as
+  same-origin, so moving them is its own piece of work. The residual risk is
+  that a future route serving those bytes with a renderable content type would
+  be stored XSS against the app's own origin; the download route is the only
+  one that reads `task_attachment.storage_key`, and it is the only place that
+  has to keep that promise.
+- `GET /api/attachments/:id/preview` and `/favicon` are unauthenticated
+  capability URLs, so a preview image stays readable to anyone who learned the
+  attachment id even after they lose access to the project. They carry no
+  user-supplied bytes — only a WebP re-encode of a public page's own preview
+  image — but the fact that the project has *an* attachment with a preview does
+  leak. The download route deliberately does not work this way.
+- Attachment downloads support no Range requests and no resume: the storage
+  interface returns a whole buffer, so a download costs its full size in pod
+  memory per concurrent request. This was already true of images and is simply
+  more noticeable at 50 MB. Uploads stream; downloads do not.
 - `GET /api/public/projects/:id/board` is unauthenticated and gated only by the
   project's `is_public` flag, which any member may flip. Clearing it stops the
   board being served immediately, but images embedded in card descriptions, card

@@ -54,6 +54,9 @@ const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
   'label_updated',
   'image_created',
   'image_deleted',
+  'attachment_created',
+  'attachment_updated',
+  'attachment_deleted',
   'comment_updated',
   'comment_deleted',
   // Both take their card off the board, and its activity goes with it, so a

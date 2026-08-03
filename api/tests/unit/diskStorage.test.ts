@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { Readable } from 'node:stream';
 import { DiskStorageProvider } from '../../src/services/storage/disk';
 
 describe('DiskStorageProvider', () => {
@@ -22,6 +23,32 @@ describe('DiskStorageProvider', () => {
     const result = await provider.get(key);
     expect(result).not.toBeNull();
     expect(result!.toString()).toBe('hello bytes');
+  });
+
+  it('writes a stream in order', async () => {
+    const key = crypto.randomUUID();
+    await provider.putStream(
+      key,
+      Readable.from([Buffer.from('one '), Buffer.from('two '), Buffer.from('three')]),
+      'application/octet-stream'
+    );
+    expect((await provider.get(key))!.toString()).toBe('one two three');
+  });
+
+  it('rejects when the source fails and leaves the partial object for the caller', async () => {
+    const key = crypto.randomUUID();
+    const source = new Readable({
+      read() {
+        this.push(Buffer.from('half'));
+        this.destroy(new Error('source died'));
+      },
+    });
+
+    await expect(provider.putStream(key, source, 'application/octet-stream')).rejects.toThrow(
+      'source died'
+    );
+    await provider.delete(key);
+    expect(await provider.get(key)).toBeNull();
   });
 
   it('returns null for a missing key', async () => {
