@@ -44,7 +44,8 @@ const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
   'project_seen',
   PROJECT_CHANGED,
   // Not board content, and the dot would be one every viewer sees for a change
-  // none of them may read.
+  // none of them may read. Membership is also what keeps signup working: the
+  // dot below reads the calling user, and a claim during signup has none.
   INVITATIONS_CHANGED,
   'column_created',
   'column_updated',

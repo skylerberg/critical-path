@@ -274,6 +274,7 @@ describe('webhook event catalogue', () => {
       'project_position_updated',
       'user_updated',
       'sessions_revoked',
+      'invitations_changed',
       'not_a_real_event',
     ]) {
       expect(isWebhookEvent(type)).toBe(false);
