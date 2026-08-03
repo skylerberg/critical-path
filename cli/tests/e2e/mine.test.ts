@@ -3,7 +3,7 @@ import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import type { components } from '../../src/api/api.generated';
 
-type BoardPayload = components['schemas']['BoardPayload'];
+type BoardPayload = components['schemas']['BoardResponse'];
 type MyTasksResponse = components['schemas']['MyTasksResponse'];
 
 describe('mine', () => {

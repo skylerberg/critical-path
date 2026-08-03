@@ -336,6 +336,36 @@ describe('DELETE /api/auth/me', () => {
     expect((await users.json()).users.map((u: { id: string }) => u.id)).not.toContain(guest.id);
   });
 
+  it("takes the departing member's unseen marker and leaves everyone else's", async () => {
+    const owner = await ctx.createUser('del-seen-owner');
+    const guest = await ctx.createUser('del-seen-guest');
+    const projectId = await createProject(owner, 'Marker board');
+    await ctx
+      .request(owner.token)
+      .put(`/api/projects/${projectId}/members`, { user_ids: [guest.id] });
+    for (const user of [owner, guest]) {
+      expect(
+        (await ctx.request(user.token).put(`/api/projects/${projectId}/seen`, {})).status
+      ).toBe(204);
+    }
+
+    async function markerHolders(): Promise<string[]> {
+      const rows = await db
+        .selectFrom('project_user_seen')
+        .select('user_id')
+        .where('project_id', '=', projectId)
+        .execute();
+      return rows.map((row) => row.user_id).sort();
+    }
+
+    expect(await markerHolders()).toEqual([owner.id, guest.id].sort());
+
+    const res = await ctx.request(guest.token).delete('/api/auth/me', { password: guest.password });
+    expect(res.status).toBe(204);
+
+    expect(await markerHolders()).toEqual([owner.id]);
+  });
+
   it('publishes the post-state to the members and assignees left behind', async () => {
     const owner = await ctx.createUser('del-events-owner');
     const guest = await ctx.createUser('del-events-guest');

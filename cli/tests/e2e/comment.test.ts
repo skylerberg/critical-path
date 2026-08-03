@@ -27,7 +27,7 @@ describe('comment commands', () => {
       name: 'CLI Comment Fixture',
     });
     expect(project.status).toBe(201);
-    const board = (await project.json()) as components['schemas']['BoardPayload'];
+    const board = (await project.json()) as components['schemas']['BoardResponse'];
     taskId = crypto.randomUUID();
     const task = await client.post('/api/tasks', {
       id: taskId,
