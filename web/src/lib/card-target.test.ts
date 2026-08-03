@@ -2,11 +2,16 @@ import '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { board } from './board.svelte';
 import type { BoardTask } from './board-types';
+import { cardContext } from './card-context.svelte';
+import { cardCursor } from './card-cursor.svelte';
 import { cardTarget, editableCardTarget } from './card-target';
+import { myTasks, type MyTask } from './myTasks.svelte';
+import { projects, type Project } from './projects.svelte';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
 import { projectHref, publicBoardHref, taskHref } from './short-links';
+import { taskRoute } from './task-route.svelte';
 import { testUuid } from './test-ids';
 
 const me = {
@@ -47,8 +52,52 @@ function task(id: string, columnId: string, position: number, title = id): Board
   };
 }
 
+const AWAY_PROJECT = testUuid('p2');
+const AWAY_TASK = testUuid('t3');
+
+function awayProject(patch: Partial<Project>): Project {
+  return {
+    id: AWAY_PROJECT,
+    name: 'Away',
+    description: '',
+    archived_at: null,
+    created_by: me.id,
+    member_ids: [],
+    members: [],
+    is_public: false,
+    color: null,
+    created_at: '2026-01-01T00:00:00Z',
+    open_task_count: 0,
+    done_task_count: 0,
+    position: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
+    ...patch,
+  };
+}
+
+function awayTask(): MyTask {
+  return {
+    id: AWAY_TASK,
+    project_id: AWAY_PROJECT,
+    project_name: 'Away',
+    column_name: 'To Do',
+    title: 'Ship the demo',
+    bucket: 'ready',
+    assignee_ids: [me.id],
+    waiting_user_ids: [],
+    blocking: [],
+    blocked_by: [],
+  };
+}
+
 beforeEach(() => {
   board.reset();
+  cardContext.reset();
+  cardCursor.reset();
+  myTasks.reset();
+  projects.reset();
+  taskRoute.reset();
   selection.clear();
   board.currentProjectId = PROJECT_ID;
   board.project = {
@@ -102,14 +151,29 @@ describe('cardTarget', () => {
 
   it.each([
     ['/', '/'],
-    ['/my-tasks', '/my-tasks'],
-    ['/search?q=a', '/search'],
     ['public board', publicBoardHref(PROJECT_ID)],
-  ])('is null off the project routes (%s)', (_name, path) => {
+  ])('is null on a screen with no card in context (%s)', (_name, path) => {
     selection.set(TASK_2);
+    cardCursor.set(TASK_2);
     router.navigate(path, { replace: true });
 
     expect(cardTarget()).toBeNull();
+  });
+
+  // The board's own cursor never reaches these: it is a grid position, and these
+  // screens are flat lists whose rows come from every project at once.
+  it.each([
+    ['/my-tasks', '/my-tasks'],
+    ['/search?q=a', '/search?q=a'],
+  ])('answers the list cursor on %s', (_name, path) => {
+    selection.set(TASK_1);
+    router.navigate(path, { replace: true });
+
+    expect(cardTarget()).toBeNull();
+
+    cardCursor.set(TASK_2);
+
+    expect(cardTarget()).toBe(TASK_2);
   });
 });
 
@@ -131,6 +195,31 @@ describe('editableCardTarget', () => {
 
     expect(board.canEdit).toBe(false);
     expect(cardTarget()).toBe(TASK_2);
+    expect(editableCardTarget()).toBeNull();
+  });
+
+  it('answers a list-screen target the caller can write in its own project', () => {
+    projects.projects = [awayProject({ created_by: me.id })];
+    myTasks.tasks = [awayTask()];
+    router.navigate('/my-tasks', { replace: true });
+    cardCursor.set(AWAY_TASK);
+
+    expect(editableCardTarget()).toBe(AWAY_TASK);
+  });
+
+  it('is null for a list-screen target in a project the caller may only read', () => {
+    projects.projects = [
+      awayProject({
+        created_by: 'u-owner',
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' as const }],
+      }),
+    ];
+    myTasks.tasks = [awayTask()];
+    router.navigate('/my-tasks', { replace: true });
+    cardCursor.set(AWAY_TASK);
+
+    expect(cardTarget()).toBe(AWAY_TASK);
     expect(editableCardTarget()).toBeNull();
   });
 });

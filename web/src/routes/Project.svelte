@@ -8,15 +8,9 @@
   import { selection } from '../lib/selection.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { users } from '../lib/users.svelte';
-  import BulkActions from '../components/BulkActions.svelte';
   import ProjectHeader from '../components/ProjectHeader.svelte';
-  import QuickAssigneeMenu from '../components/QuickAssigneeMenu.svelte';
-  import QuickDependencyMenu from '../components/QuickDependencyMenu.svelte';
-  import QuickLabelMenu from '../components/QuickLabelMenu.svelte';
-  import QuickMoveMenu from '../components/QuickMoveMenu.svelte';
   import SelectionBar from '../components/SelectionBar.svelte';
   import TaskDetail from '../components/TaskDetail.svelte';
-  import Announcer from '../components/ui/Announcer.svelte';
   import Button from '../components/ui/Button.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
   import Board from './Board.svelte';
@@ -147,46 +141,4 @@
         taskHref(id, board.tasks.find((t) => t.id === id)?.title ?? '', view) + overlaySearch}
     />
   {/if}
-  {#if shortcuts.labelMenu !== null}
-    <!-- The seed is dropped here as well as in closeMenus(): a menu dismissed on its
-         own never reaches that, and it must not carry into the next menu opened. -->
-    <QuickLabelMenu
-      taskId={shortcuts.labelMenu}
-      prefill={shortcuts.menuPrefill}
-      onclose={() => {
-        shortcuts.labelMenu = null;
-        shortcuts.menuPrefill = '';
-      }}
-    />
-  {/if}
-  {#if shortcuts.assigneeMenu !== null}
-    <QuickAssigneeMenu
-      taskId={shortcuts.assigneeMenu}
-      onclose={() => (shortcuts.assigneeMenu = null)}
-    />
-  {/if}
-  {#if shortcuts.dependencyMenu !== null}
-    <QuickDependencyMenu
-      taskId={shortcuts.dependencyMenu.taskId}
-      direction={shortcuts.dependencyMenu.direction}
-      onclose={() => (shortcuts.dependencyMenu = null)}
-    />
-  {/if}
-  {#if shortcuts.moveMenu !== null}
-    <QuickMoveMenu
-      taskId={shortcuts.moveMenu}
-      prefill={shortcuts.menuPrefill}
-      onclose={() => {
-        shortcuts.moveMenu = null;
-        shortcuts.menuPrefill = '';
-      }}
-    />
-  {/if}
-  {#if shortcuts.bulkMenu !== null}
-    <BulkActions kind={shortcuts.bulkMenu} onclose={() => (shortcuts.bulkMenu = null)} />
-  {/if}
 {/if}
-
-<!-- Outside the loading branches: a region created in the same flush as its text is
-     not announced, and it has to outlive the menu that wrote to it. -->
-<Announcer />

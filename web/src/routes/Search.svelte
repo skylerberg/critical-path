@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
+  import { cardCursor } from '../lib/card-cursor.svelte';
   import { link, router } from '../lib/router.svelte';
   import { SEARCH_DEBOUNCE_MS, SEARCH_MAX_QUERY_LENGTH, searchPath } from '../lib/search-query';
   import { projectHref, taskHref } from '../lib/short-links';
@@ -91,6 +92,16 @@
 
   onDestroy(cancelCommit);
 
+  // Group order, not server order: j and k have to walk the page the way it reads.
+  $effect(() => {
+    cardCursor.setRows(
+      search.groups.flatMap((group) => group.results.map((result) => result.task_id))
+    );
+  });
+  // Only the cursor, and only on the way out: a refreshed list keeps its cursor, and
+  // the arriving screen owns the rows whichever order the two screens swap in.
+  onDestroy(() => cardCursor.clear());
+
   const showResults = $derived(search.results.length > 0);
   const showSpinner = $derived(search.status === 'loading' && !showResults);
   const statusText = $derived.by(() => {
@@ -181,7 +192,13 @@
               <li class="border-b border-edge last:border-b-0">
                 <a
                   href={taskHref(result.task_id, result.title)}
-                  class="flex min-h-11 flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-accent-soft"
+                  data-card-row={result.task_id}
+                  onfocus={() => cardCursor.set(result.task_id)}
+                  onpointerenter={() => cardCursor.set(result.task_id)}
+                  class="flex min-h-11 flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-accent-soft {cardCursor.taskId ===
+                  result.task_id
+                    ? 'bg-accent-soft ring-2 ring-accent'
+                    : ''}"
                 >
                   <span class="text-ink">{truncateTitle(result.title)}</span>
                   <span class="text-xs text-muted">{result.column_name}</span>

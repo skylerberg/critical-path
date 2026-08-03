@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse } from './api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import App from './App.svelte';
+import { announcer } from './lib/announcer.svelte';
 import { board } from './lib/board.svelte';
 import { invitations } from './lib/invitations.svelte';
 import { myTasks } from './lib/myTasks.svelte';
@@ -91,6 +92,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   realtime.disconnect();
+  announcer.clear();
   board.reset();
   invitations.reset();
   myTasks.reset();
@@ -306,6 +308,25 @@ describe('App chrome', () => {
     );
 
     expect(screen.queryByRole('combobox', { name: 'Command palette' })).toBeNull();
+  });
+
+  // A live region created in the same flush as its text is not announced, so it has
+  // to be the shell's rather than any one screen's.
+  it('keeps one live region up on every signed-in screen', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/my-tasks', { replace: true });
+
+    const { container } = render(App);
+    await screen.findByRole('heading', { name: 'My tasks' });
+
+    const regions = container.querySelectorAll('[role="status"][aria-live="polite"]');
+    expect(regions).toHaveLength(1);
+
+    await announcer.announce('Moved "Ship it" to Done, position 1 of 1');
+
+    await vi.waitFor(() => {
+      expect(regions[0]!.textContent).toBe('Moved "Ship it" to Done, position 1 of 1');
+    });
   });
 
   it('routes the g m chord to my tasks from the projects list', async () => {

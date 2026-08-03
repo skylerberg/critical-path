@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import MyTasks from './MyTasks.svelte';
+import { cardCursor } from '../lib/card-cursor.svelte';
 import { myTasks, type MyTask, type MyTaskPersonGroup } from '../lib/myTasks.svelte';
 import { router } from '../lib/router.svelte';
 import { session } from '../lib/session.svelte';
@@ -37,6 +38,10 @@ function task(key: string, bucket: MyTask['bucket'], overrides: Partial<MyTask> 
   };
 }
 
+function link(key: string, title: string): MyTaskPersonGroup['tasks'][number] {
+  return { id: testUuid(key), project_id: PROJECT_ID, title, assignee_ids: [] };
+}
+
 function mockResponse(overrides: {
   tasks?: MyTask[];
   waiting_on_you?: MyTaskPersonGroup[];
@@ -53,6 +58,7 @@ function mockResponse(overrides: {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  cardCursor.reset();
   myTasks.reset();
   users.reset();
   session.user = me;
@@ -261,5 +267,62 @@ describe('MyTasks', () => {
 
     await waitFor(() => expect(screen.getByText('Write the docs')).toBeInTheDocument());
     expect(screen.queryByText('Server exploded')).toBeNull();
+  });
+});
+
+describe('MyTasks card cursor', () => {
+  it('publishes its rows in screen order so j and k walk the page', async () => {
+    mockResponse({
+      tasks: [task('t-1', 'blocking'), task('t-2', 'ready')],
+      waiting_on_you: [{ user_id: ada.id, tasks: [link('t-3', 'Their card')] }],
+    });
+
+    render(MyTasks);
+    await screen.findByText('Task t-1');
+
+    cardCursor.move('down');
+    expect(cardCursor.taskId).toBe(testUuid('t-1'));
+    cardCursor.move('down');
+    expect(cardCursor.taskId).toBe(testUuid('t-2'));
+    cardCursor.move('down');
+    expect(cardCursor.taskId).toBe(testUuid('t-3'));
+  });
+
+  it('rings the row the cursor is on', async () => {
+    mockResponse({ tasks: [task('t-1', 'ready', { title: 'Ship the export API' })] });
+
+    render(MyTasks);
+    const anchor = await screen.findByRole('link', { name: 'Ship the export API' });
+    const row = anchor.closest('article')!;
+    expect(row.className).not.toContain('ring-2');
+
+    cardCursor.set(testUuid('t-1'));
+
+    await waitFor(() => {
+      expect(row.className).toContain('ring-2');
+    });
+  });
+
+  it('moves the cursor onto the row under the pointer', async () => {
+    mockResponse({ tasks: [task('t-1', 'ready', { title: 'Ship the export API' })] });
+
+    render(MyTasks);
+    const anchor = await screen.findByRole('link', { name: 'Ship the export API' });
+
+    await fireEvent.pointerEnter(anchor.closest('article')!);
+
+    expect(cardCursor.taskId).toBe(testUuid('t-1'));
+  });
+
+  it('drops the cursor when the screen goes away', async () => {
+    mockResponse({ tasks: [task('t-1', 'ready')] });
+
+    const view = render(MyTasks);
+    await screen.findByText('Task t-1');
+    cardCursor.set(testUuid('t-1'));
+
+    view.unmount();
+
+    expect(cardCursor.taskId).toBeNull();
   });
 });

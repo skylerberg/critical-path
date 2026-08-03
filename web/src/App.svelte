@@ -3,6 +3,7 @@
   import { isAuthOptionalRoute, isPublicRoute, session } from './lib/session.svelte';
   import { users } from './lib/users.svelte';
   import { board } from './lib/board.svelte';
+  import { cardContext } from './lib/card-context.svelte';
   import { drafts } from './lib/drafts.svelte';
   import { invitations } from './lib/invitations.svelte';
   import { myTasks } from './lib/myTasks.svelte';
@@ -28,10 +29,11 @@
   import ProjectRoute from './routes/ProjectRoute.svelte';
   import PublicBoard from './routes/PublicBoard.svelte';
   import NotFound from './routes/NotFound.svelte';
-  import CommandPalette from './components/CommandPalette.svelte';
   import Nav from './components/Nav.svelte';
+  import QuickMenus from './components/QuickMenus.svelte';
   import ShortcutHelp from './components/ShortcutHelp.svelte';
   import Toasts from './components/Toasts.svelte';
+  import Announcer from './components/ui/Announcer.svelte';
   import Spinner from './components/ui/Spinner.svelte';
 
   const route = $derived(router.current);
@@ -52,6 +54,7 @@
       // Per-account caches must not survive into the next session in this tab.
       users.reset();
       board.reset();
+      cardContext.reset();
       invitations.reset();
       myTasks.reset();
       projects.reset();
@@ -140,14 +143,15 @@
       <NotFound path={route.path} />
     {/if}
   </div>
-  <!-- Goes wherever the keymap listens: an open help state with nothing rendering it
+  <!-- Goes wherever the keymap listens: an open menu state with nothing rendering it
        swallows every key but Escape. -->
   {#if shortcuts.helpOpen}
     <ShortcutHelp onclose={() => (shortcuts.helpOpen = false)} />
   {/if}
-  {#if shortcuts.paletteOpen}
-    <CommandPalette onclose={() => (shortcuts.paletteOpen = false)} />
-  {/if}
+  <QuickMenus />
+  <!-- Outside every route branch: a region created in the same flush as its text is
+       not announced, and it has to outlive the menu that wrote to it. -->
+  <Announcer />
 {/if}
 
 <Toasts />

@@ -7,6 +7,7 @@ import type { BoardPayload } from './board-types';
 import { projects, type Project } from './projects.svelte';
 import { realtime } from './realtime.svelte';
 import { session } from './session.svelte';
+import { taskSeries } from './taskSeries.svelte';
 import { users } from './users.svelte';
 
 class FakeWebSocket {
@@ -170,6 +171,7 @@ beforeEach(async () => {
   realtime.disconnect();
   board.reset();
   projects.reset();
+  taskSeries.reset();
   localStorage.setItem('cp.token', 'test-token');
   fetchMock.mockResolvedValue(
     jsonResponse(200, {
@@ -522,6 +524,89 @@ describe('project event application', () => {
     const socket = await connectAndAuth(null);
     socket.receive({ type: 'project_position_updated', data: { id: 'p1', position: 250 } });
     expect(projects.projects[0]!.position).toBe(250);
+  });
+});
+
+describe('series event application', () => {
+  const seriesRow = { id: 's1', project_id: 'p1', title: 'Weekly review', status: 'active' };
+
+  beforeEach(async () => {
+    board.currentProjectId = 'p1';
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { series: [] }));
+    await taskSeries.load('p1');
+    fetchMock.mockReset();
+  });
+
+  it('routes the three series events off the wire into the series store', async () => {
+    const socket = await connectAndAuth('p1');
+
+    socket.receive({ type: 'series_created', project_id: 'p1', data: seriesRow });
+    expect(taskSeries.list.map((row) => row.id)).toEqual(['s1']);
+
+    socket.receive({
+      type: 'series_updated',
+      project_id: 'p1',
+      data: { ...seriesRow, title: 'Renamed' },
+    });
+    expect(taskSeries.list[0]!.title).toBe('Renamed');
+
+    socket.receive({ type: 'series_deleted', project_id: 'p1', data: { id: 's1' } });
+    expect(taskSeries.list).toEqual([]);
+  });
+
+  it('ignores a series event for a different project', async () => {
+    const socket = await connectAndAuth('p1');
+
+    socket.receive({
+      type: 'series_created',
+      project_id: 'p-other',
+      data: { ...seriesRow, project_id: 'p-other' },
+    });
+
+    expect(taskSeries.list).toEqual([]);
+  });
+
+  it('applies a series event while a drag is live instead of queueing it', async () => {
+    const socket = await connectAndAuth('p1');
+    board.dragging = true;
+
+    socket.receive({ type: 'series_created', project_id: 'p1', data: seriesRow });
+
+    expect(taskSeries.list.map((row) => row.id)).toEqual(['s1']);
+    board.dragging = false;
+  });
+
+  it('re-reads the series list on a reconnect but not on the first connect', async () => {
+    await connectAndAuth('p1');
+    expect(
+      fetchMock.mock.calls.some(
+        (call) => new URL((call[0] as Request).url).pathname === '/api/task-series'
+      )
+    ).toBe(false);
+
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname === '/api/task-series') {
+        return jsonResponse(200, { series: [seriesRow] });
+      }
+      if (url.pathname === '/api/projects') {
+        return jsonResponse(200, { projects: [] });
+      }
+      return jsonResponse(200, boardPayload());
+    });
+
+    vi.useFakeTimers();
+    latestSocket().serverClose();
+    vi.advanceTimersByTime(1000);
+    const socket2 = latestSocket();
+    socket2.open();
+    socket2.receive({ type: 'auth_ok' });
+
+    // openapi-fetch invokes fetch after an awaited request-middleware microtask.
+    for (let i = 0; i < 30; i++) {
+      await Promise.resolve();
+    }
+    expect(taskSeries.list.map((row) => row.id)).toEqual(['s1']);
   });
 });
 

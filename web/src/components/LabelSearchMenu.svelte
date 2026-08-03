@@ -1,16 +1,17 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { board } from '../lib/board.svelte';
+  import { board, type BoardContext } from '../lib/board.svelte';
   import ColorDot from './ui/ColorDot.svelte';
 
   interface Props {
     taskId: string;
+    ctx?: BoardContext;
     autofocus?: boolean;
     prefill?: string;
     onclose?: () => void;
   }
 
-  let { taskId, autofocus = false, prefill = '', onclose }: Props = $props();
+  let { taskId, ctx = board, autofocus = false, prefill = '', onclose }: Props = $props();
 
   const PALETTE = [
     '#ef4444',
@@ -29,15 +30,15 @@
   let highlighted = $state(0);
   let listEl = $state<HTMLDivElement>();
 
-  const task = $derived(board.tasks.find((t) => t.id === taskId));
+  const task = $derived(ctx.tasks.find((t) => t.id === taskId));
   const selectedIds = $derived(new Set(task?.label_ids ?? []));
   const trimmed = $derived(query.trim());
   const filtered = $derived(
-    board.labels.filter((label) => label.name.toLowerCase().includes(trimmed.toLowerCase()))
+    ctx.labels.filter((label) => label.name.toLowerCase().includes(trimmed.toLowerCase()))
   );
   const showCreate = $derived(
     trimmed !== '' &&
-      !board.labels.some((label) => label.name.toLowerCase() === trimmed.toLowerCase())
+      !ctx.labels.some((label) => label.name.toLowerCase() === trimmed.toLowerCase())
   );
   const rowCount = $derived(filtered.length + (showCreate ? 1 : 0));
 
@@ -46,7 +47,7 @@
     const next = current.includes(labelId)
       ? current.filter((id) => id !== labelId)
       : [...current, labelId];
-    void board.setTaskLabels(taskId, next);
+    void ctx.setTaskLabels(taskId, next);
   }
 
   async function createAndApply(): Promise<void> {
@@ -54,15 +55,15 @@
     if (name === '') {
       return;
     }
-    const existing = new Set(board.labels.map((label) => label.id));
-    const color = PALETTE[board.labels.length % PALETTE.length]!;
+    const existing = new Set(ctx.labels.map((label) => label.id));
+    const color = PALETTE[ctx.labels.length % PALETTE.length]!;
     query = '';
     highlighted = 0;
     if (listEl !== undefined) {
       listEl.scrollTop = 0;
     }
-    const create = board.createLabel(name, color);
-    const created = board.labels.find((label) => !existing.has(label.id));
+    const create = ctx.createLabel(name, color);
+    const created = ctx.labels.find((label) => !existing.has(label.id));
     // Applying the label PUTs its id; wait for the create's POST to commit first,
     // or the PUT can arrive before the label row exists and be rejected with a 422.
     try {
@@ -73,7 +74,7 @@
     if (created === undefined) {
       return;
     }
-    await board.setTaskLabels(taskId, [...(task?.label_ids ?? []), created.id]);
+    await ctx.setTaskLabels(taskId, [...(task?.label_ids ?? []), created.id]);
   }
 
   function activate(index: number): void {
