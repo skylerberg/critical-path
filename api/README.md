@@ -424,6 +424,136 @@ Items cascade away with their task. They **are** copied by a card duplicate, a
 column duplicate and a project copy, text and ticked state verbatim under fresh
 ids — a copy is a copy. They are published on public boards.
 
+### Recurring series
+
+A repeating commitment lives on a `task_series` row, not on a card. The row
+holds the template — title, description, labels, assignees, checklist items and
+destination column — plus an RRULE, the calendar day of the next occurrence and
+the timezone that day is measured in. `GET /api/task-series?project_id=`,
+`POST /api/task-series`, `PATCH /api/task-series/:id` and
+`DELETE /api/task-series/:id` manage it. Viewers may read the list; every
+mutation asserts write.
+
+**Materialisation is lazy.** A card exists only once its occurrence is due.
+Completing an instance creates nothing; a periodic background sweep does, on the
+day the occurrence falls, and then advances the schedule. Nothing appears early:
+there is no lead time and no way to ask for one. Each occurrence is therefore an
+ordinary card with its own comments, activity and history, and it emits an
+ordinary `task_created`. Editing a series changes future occurrences only — the
+PATCH handler never reads or writes a `task` row.
+
+**Expressive storage, menu-shaped interface.** The rule is stored as an RFC 5545
+RRULE value and evaluated with a library, because month ends, leap years and
+"last weekday of the month" are exactly where hand-rolled recurrence goes
+wrong. The UI offers six presets — daily, every weekday, weekly on the start
+day, monthly on the date, monthly on the nth weekday, yearly — and each maps to
+a rule. There is no general RRULE editor. Two of the mappings are not the
+obvious ones: `FREQ=MONTHLY;BYMONTHDAY=31` *skips* every month without a 31st,
+and `FREQ=YEARLY` from 29 February fires only in leap years, so both are stored
+as `BYMONTHDAY=<d>,-1;BYSETPOS=1`, which clamps to the last day instead. A rule
+that arrives outside the curated set is accepted, evaluates correctly, and
+reports `preset: null` with a library-rendered `summary`; the six presets get
+curated English instead, because the library renders the clamped monthly rule
+as "every month on the 31st and last".
+
+**The rule is also an attack surface**, since the API deliberately accepts
+input the UI cannot produce. A submitted rule must be one line under 500
+characters, carry no `RRULE:` prefix and no `DTSTART`, `TZID`, `RDATE`, `EXDATE`
+or `EXRULE` (there is exactly one anchor, `start_date`, and one zone,
+`timezone`), repeat no more often than daily, carry no `BYHOUR`, `BYMINUTE` or
+`BYSECOND` (an occurrence is a whole calendar day, and those three together fit
+inside the length cap while multiplying every search by 86,400), and keep
+`INTERVAL` ≤ 366, `COUNT` ≤ 1000 and `UNTIL` before 2200. A rule that can never
+fire is a 422, not a zombie row. Every occurrence search is additionally bounded
+to 100 years. A project holds at most 50 series.
+
+**Time is a calendar day in a zone.** `next_occurrence_date` says *which*
+occurrence is next; `next_occurrence_at` is the precomputed instant the sweep
+may create it, written as
+`(next_occurrence_date::timestamp at time zone timezone)` so Postgres tzdata
+does the DST arithmetic and the sweep's predicate stays sargable.
+
+**The occurrence date is not a due date.** It decides when a card comes into
+existence and nothing else. `due_date` is one more optional field on the
+template, exactly like title, description, labels and assignees: set it and
+every materialised card carries that value, leave it and materialised cards
+have no due date, which is the default. It is never computed.
+
+**Scheduling is forward-only.** `next_occurrence_date` only ever moves to an
+occurrence after the one just materialised, or — on create, rule edit or resume
+— to the first occurrence on or after today in the series timezone. A series
+anchored a year in the past therefore backfills nothing.
+
+**Catch-up skips forward and records the gap.** If the worker was down for
+three days, the occurrences strictly before today are counted into
+`missed_occurrence_count` and never created; retroactively spawning a week of
+stale cards is the worse failure. A backlog longer than one 500-occurrence scan
+is walked forward over successive sweeps rather than in one transaction.
+
+**A due occurrence is created even when the previous one is still open**,
+because silently skipping hides work that was genuinely due. The list reports
+`open_occurrence_count` so the outstanding ones are visible instead.
+
+**Idempotence has three independent layers**, so correctness does not rest on
+any one of them: the runner's job lease, a per-series
+`select ... for update skip locked`, and a unique index on
+`(series_id, series_occurrence_date)` inserted against with
+`on conflict do nothing`. The middle one is load-bearing — the job lease covers
+the **job row**, and one periodic row drives every series, so it provides no
+per-series exclusion at all. `do nothing` rather than a caught 23505 because a
+raised unique violation would abort the transaction the schedule advance still
+has to run in.
+
+**One periodic sweep, not a job per occurrence.** An indexed table is already
+the queue, and the sweep is self-healing after any edit, pause, resume or
+delete with no schedule to cancel and reschedule. Each series is materialised in
+its own transaction and every failure is absorbed per series into
+`consecutive_failures` / `last_error`, pausing that series at five: a periodic
+job row is never retired on failure, so a handler that threw would stall every
+project's schedules behind its backoff.
+
+**Three deliberate deviations from "all FKs are `ON DELETE CASCADE`".**
+`task.series_id` is `SET NULL`, because cascading would delete a year of
+completed invoices the moment someone stops a schedule. `task_series.column_id`
+is nullable and `SET NULL`, because a column holding only series reports itself
+empty and deletes with a 204 — a cascade would silently and unrecoverably
+destroy the series, where nulling stops the sweep and asks for a new
+destination. `task_series.created_by` is nullable and `SET NULL`, because a
+series belongs to the project and not to whoever set it up: it gates nothing,
+so cascading would let a member who leaves take a project's schedules with
+them. A series whose creator is gone still materialises, and the card's
+creation entry is attributed to the project's owner instead.
+
+**Series CRUD emits no realtime event**, the same exception outbound webhooks
+take: a series is board configuration, not board data, no client caches it
+across sessions, and the panel loads the list when it opens. Materialisation,
+which *is* a board mutation, publishes a real `task_created` plus the
+`project_changed` dot, with the series creator as the actor so the live dot and
+the dot a board read computes from the activity log agree.
+
+**Copying a project copies its series**, template and all, with every
+project-scoped id remapped to the copy's own columns and labels and every
+assignee without access to the destination dropped — the same rule the rest of
+the copy applies. The copy keeps the source's status, so an active schedule
+behaves in the copy exactly as it does in the original, and its next occurrence
+is recomputed from today rather than carried over, so a copy made after a missed
+occurrence does not immediately fire a stale one. A *duplicated card*, by
+contrast, is an ordinary card with no series link.
+
+**A card names the schedule it came from.** `GET /api/tasks/:id` carries
+`series_summary`, the same English rendering of the rule the series list shows,
+so an open card can say it repeats. It is null for an ordinary card and for one
+whose series has since been deleted. Board payloads deliberately do not carry
+it: a join and a rule render per card, for a line one open card at a time shows.
+
+**Known gap:** a recurring card that assigns someone notifies nobody, where a
+manual assignment does.
+
+**Rollback runbook.** If a release carrying this is rolled back, the periodic
+`job` row survives with no handler anywhere. It is never claimed, but it appears
+in the recurring `unregisteredKindBacklog` warning forever. Clear it with
+`delete from job where kind = 'task_series_materialize';`.
+
 ### Mentions
 
 `mention` is a node in the restricted Tiptap allow-list, so a task description

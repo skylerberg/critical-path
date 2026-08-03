@@ -6,6 +6,7 @@ import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { dueDateText } from './dueDate';
 import { recordTaskActivity } from './taskActivity';
+import { copySeries } from './taskSeries/copy';
 import type { TiptapDoc, TiptapNode } from '../schemas/index';
 
 const IMAGE_SRC_PREFIX = '/api/images/';
@@ -338,6 +339,16 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
       )
       .execute();
   }
+
+  // Ahead of the tasks: copyTasks writes storage objects the transaction cannot
+  // roll back, so nothing that can throw belongs after it.
+  await copySeries(db, {
+    sourceProjectId: input.sourceProjectId,
+    project: { id: input.id, created_by: input.createdBy },
+    createdBy: input.createdBy,
+    columnIdFor: (columnId) => columnIdMap.get(columnId) as string,
+    labelIdFor: (labelId) => labelIdMap.get(labelId) as string,
+  });
 
   const sourceTasks = await db
     .selectFrom('task')

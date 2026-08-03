@@ -35,6 +35,7 @@ import {
   recordTaskActivity,
 } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
+import { seriesSummaryForTask } from '../services/taskSeries/read';
 import {
   idSchema,
   createTaskSchema,
@@ -391,7 +392,9 @@ router.get(
       'Get a task in board-payload shape plus its project id, archived_at (null unless the ' +
       'task is archived), images, its full comment stream oldest first, and its checklist in ' +
       'list order. Archived tasks are readable here even though they are absent from every ' +
-      'board payload.',
+      'board payload. `series_summary` names the recurrence in English for a card a ' +
+      'recurring series created, and is null for every other card — including one whose ' +
+      'series has since been deleted.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -493,6 +496,7 @@ router.get(
         ...result.task,
         project_id: result.project_id,
         archived_at: result.archived_at,
+        series_summary: await seriesSummaryForTask(db, id),
         images,
         comments,
         checklist_items,

@@ -1,0 +1,167 @@
+import { sql, type Kysely, type Selectable } from 'kysely';
+import { jsonArrayFrom } from 'kysely/helpers/postgres';
+import type { DB, Project, TaskSeries } from '../../db/types';
+import type { TaskSeriesResponse, TiptapDoc } from '../../schemas/index';
+import { AppError } from '../../utils/errors';
+import { assertProjectWrite } from '../authorization';
+import { presetFor, summarise } from './rule';
+
+export const SERIES_NOT_FOUND = 'Series not found';
+
+// node-pg parses a `date` into a JS Date at local midnight, which serializes
+// back out as the previous day anywhere east of UTC.
+const seriesDateText = (column: string) =>
+  sql<string | null>`to_char(${sql.ref(column)}, 'YYYY-MM-DD')`;
+
+export interface FetchSeriesFilter {
+  projectId?: string;
+  ids?: readonly string[];
+}
+
+export async function fetchSeries(
+  db: Kysely<DB>,
+  filter: FetchSeriesFilter
+): Promise<TaskSeriesResponse[]> {
+  if (filter.ids !== undefined && filter.ids.length === 0) {
+    return [];
+  }
+  let query = db
+    .selectFrom('task_series')
+    .select((eb) => [
+      'task_series.id',
+      'task_series.project_id',
+      'task_series.column_id',
+      'task_series.title',
+      'task_series.description',
+      seriesDateText('task_series.due_date').as('due_date'),
+      'task_series.rrule',
+      seriesDateText('task_series.start_date').as('start_date'),
+      'task_series.timezone',
+      'task_series.status',
+      seriesDateText('task_series.next_occurrence_date').as('next_occurrence_date'),
+      seriesDateText('task_series.last_occurrence_date').as('last_occurrence_date'),
+      'task_series.missed_occurrence_count',
+      seriesDateText('task_series.last_missed_date').as('last_missed_date'),
+      'task_series.last_error',
+      'task_series.ended_at',
+      'task_series.created_by',
+      'task_series.created_at',
+      'task_series.updated_at',
+      jsonArrayFrom(
+        eb
+          .selectFrom('task_series_label')
+          .select('task_series_label.label_id')
+          .whereRef('task_series_label.series_id', '=', 'task_series.id')
+          .orderBy('task_series_label.label_id')
+      ).as('label_rows'),
+      jsonArrayFrom(
+        eb
+          .selectFrom('task_series_assignee')
+          .select('task_series_assignee.user_id')
+          .whereRef('task_series_assignee.series_id', '=', 'task_series.id')
+          .orderBy('task_series_assignee.user_id')
+      ).as('assignee_rows'),
+      jsonArrayFrom(
+        eb
+          .selectFrom('task_series_checklist_item')
+          .select([
+            'task_series_checklist_item.id',
+            'task_series_checklist_item.text',
+            'task_series_checklist_item.position',
+          ])
+          .whereRef('task_series_checklist_item.series_id', '=', 'task_series.id')
+          .orderBy('task_series_checklist_item.position')
+          .orderBy('task_series_checklist_item.id')
+      ).as('checklist_rows'),
+      // The honest half of "create the next occurrence anyway": the panel says
+      // so when earlier ones are still outstanding.
+      eb
+        .selectFrom('task')
+        .innerJoin('board_column', 'board_column.id', 'task.column_id')
+        .select((cb) => cb.fn.countAll<string>().as('open_count'))
+        .whereRef('task.series_id', '=', 'task_series.id')
+        .where('task.archived_at', 'is', null)
+        .where('board_column.is_done', '=', false)
+        .as('open_occurrence_count'),
+    ])
+    .orderBy('task_series.next_occurrence_date', (ob) => ob.asc().nullsLast())
+    .orderBy('task_series.created_at')
+    .orderBy('task_series.id');
+
+  if (filter.projectId !== undefined) {
+    query = query.where('task_series.project_id', '=', filter.projectId);
+  }
+  if (filter.ids !== undefined) {
+    query = query.where('task_series.id', 'in', [...filter.ids]);
+  }
+
+  const rows = await query.execute();
+
+  return rows.map((row) => ({
+    id: row.id,
+    project_id: row.project_id,
+    column_id: row.column_id,
+    title: row.title,
+    description: row.description as TiptapDoc | null,
+    due_date: row.due_date,
+    rrule: row.rrule,
+    preset: presetFor(row.rrule, row.start_date as string),
+    summary: summarise(row.rrule, row.start_date as string),
+    start_date: row.start_date as string,
+    timezone: row.timezone,
+    status: row.status,
+    next_occurrence_date: row.next_occurrence_date,
+    last_occurrence_date: row.last_occurrence_date,
+    missed_occurrence_count: row.missed_occurrence_count,
+    last_missed_date: row.last_missed_date,
+    open_occurrence_count: Number(row.open_occurrence_count),
+    last_error: row.last_error,
+    ended_at: row.ended_at?.toISOString() ?? null,
+    created_by: row.created_by,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+    label_ids: row.label_rows.map((label) => label.label_id),
+    assignee_ids: row.assignee_rows.map((assignee) => assignee.user_id),
+    checklist_items: row.checklist_rows,
+  }));
+}
+
+// Card detail only. Every board payload carrying this would mean a join and a
+// rule render per card, for a line one open card at a time ever shows.
+export async function seriesSummaryForTask(db: Kysely<DB>, taskId: string): Promise<string | null> {
+  const row = await db
+    .selectFrom('task')
+    .innerJoin('task_series', 'task_series.id', 'task.series_id')
+    .select(['task_series.rrule', seriesDateText('task_series.start_date').as('start_date')])
+    .where('task.id', '=', taskId)
+    .executeTakeFirst();
+  if (!row) {
+    return null;
+  }
+  return summarise(row.rrule, row.start_date as string);
+}
+
+export type SeriesRow = Selectable<TaskSeries> & { start_date_text: string };
+
+export async function loadSeriesRow(db: Kysely<DB>, seriesId: string): Promise<SeriesRow> {
+  const series = await db
+    .selectFrom('task_series')
+    .selectAll()
+    .select(seriesDateText('task_series.start_date').as('start_date_text'))
+    .where('task_series.id', '=', seriesId)
+    .executeTakeFirst();
+  if (!series) {
+    throw new AppError(404, SERIES_NOT_FOUND);
+  }
+  return { ...series, start_date_text: series.start_date_text as string };
+}
+
+export async function assertSeriesWrite(
+  db: Kysely<DB>,
+  userId: string,
+  seriesId: string
+): Promise<{ series: SeriesRow; project: Selectable<Project> }> {
+  const series = await loadSeriesRow(db, seriesId);
+  const project = await assertProjectWrite(db, userId, series.project_id, SERIES_NOT_FOUND);
+  return { series, project };
+}
