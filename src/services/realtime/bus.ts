@@ -59,6 +59,11 @@ const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
   'attachment_deleted',
   'comment_updated',
   'comment_deleted',
+  // A schedule writes no activity row, so a board read reports nothing changed
+  // and the dot would be one no amount of looking at the board clears.
+  'series_created',
+  'series_updated',
+  'series_deleted',
   // Both take their card off the board, and its activity goes with it, so a
   // reader would find nothing to notice.
   'task_deleted',
