@@ -10,7 +10,7 @@ import type {
   UnknownRow,
 } from 'kysely';
 import { app } from '../../../src/index';
-import authRouter from '../../../src/routes/auth';
+import authRouter, { publicAuthRouter } from '../../../src/routes/auth';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
@@ -672,6 +672,7 @@ describe('Notifications', () => {
         await next();
       });
       harness.onError(errorHandler);
+      harness.route('/api/auth', publicAuthRouter);
       harness.route('/api/auth', authRouter);
 
       return harness.request('/api/auth/unsubscribe', {

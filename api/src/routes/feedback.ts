@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { env } from '../config/env';
@@ -42,7 +41,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createFeedbackSchema),
   async (c) => {
     const { id, message, page_path } = c.req.valid('json');
