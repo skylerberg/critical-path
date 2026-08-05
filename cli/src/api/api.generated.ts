@@ -1903,6 +1903,7 @@ export interface components {
       name: string;
       open_task_count: number;
       position: number | null;
+      sort_key: components['schemas']['UserAvatarurl'];
     };
     NullableProjectAccent:
       | 'amber'
@@ -2052,6 +2053,7 @@ export interface components {
           checked: boolean;
           id: string;
           position: number;
+          sort_key: components['schemas']['UserAvatarurl'];
           text: string;
         }[];
         column_id: string;
@@ -2085,6 +2087,8 @@ export interface components {
     SetProjectPosition: {
       /** @description a finite number */
       position: number;
+      /** @description a sort key */
+      sort_key?: string;
     };
     SetProjectMembers: {
       roles?: components['schemas']['ProjectMemberRoleEntry'][];
@@ -2686,6 +2690,7 @@ export interface components {
       id: string;
       /** @description a finite number */
       position: number;
+      sort_key: components['schemas']['UserAvatarurl'];
       task_id: string;
       text: string;
     };
@@ -2709,6 +2714,7 @@ export interface components {
       label_ids: string[];
       /** @description a finite number */
       position: number;
+      sort_key: components['schemas']['UserAvatarurl'];
       title: string;
     };
   };

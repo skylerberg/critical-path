@@ -292,6 +292,7 @@ interface PublicChecklistItemRow {
   text: string;
   checked: boolean;
   position: number;
+  sort_key: string | null;
 }
 
 async function fetchChecklistItemsForTasks(
@@ -309,6 +310,7 @@ async function fetchChecklistItemsForTasks(
       'checklist_item.text',
       'checklist_item.checked',
       'checklist_item.position',
+      'checklist_item.sort_key',
     ])
     .where('checklist_item.task_id', 'in', [...taskIds])
     .orderBy('checklist_item.sort_key')
@@ -342,6 +344,7 @@ export function toPublicBoard(
       column_id: task.column_id,
       title: task.title,
       description: task.description,
+      sort_key: task.sort_key,
       position: task.position,
       due_date: task.due_date,
       label_ids: task.label_ids,
@@ -376,6 +379,7 @@ export function toPublicBoard(
       task_id: item.task_id,
       text: item.text,
       checked: item.checked,
+      sort_key: item.sort_key,
       position: item.position,
     })),
   };
