@@ -2916,6 +2916,27 @@ describe('board store cover images', () => {
     expect(board.tasks.find((t) => t.title === 'New task')?.cover_image_url).toBeNull();
   });
 
+  it('uploadTaskImage adds nothing twice when the realtime echo beat the response', async () => {
+    const fresh = { ...cover, id: 'img3', url: '/api/images/img3', filename: 'fresh.png' };
+    board.taskImages = { t1: [] };
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/tasks/t1/images'
+        ? jsonResponse(201, fresh)
+        : undefined
+    );
+
+    const upload = board.uploadTaskImage('t1', new File(['x'], 'fresh.png', { type: 'image/png' }));
+    board.applyRealtime({
+      type: 'image_created',
+      project_id: 'p1',
+      data: { ...fresh, task_id: 't1', image_count: 1 },
+    });
+    await upload;
+
+    expect(board.taskImages.t1!.map((i) => i.id)).toEqual(['img3']);
+    expect(board.tasks.find((t) => t.id === 't1')!.image_count).toBe(1);
+  });
+
   it('deleteTaskImage clears the cover it just removed, without waiting for a refetch', async () => {
     await board.setTaskCover('t1', cover);
     fetchMock.mockClear();
@@ -3901,6 +3922,24 @@ describe('board store attachments', () => {
     // A body the browser can stream, rather than a form it has to assemble first.
     // jsdom's Request drops a Blob body, so what it carries cannot be asserted here.
     expect(requestAt(0).headers.get('Content-Type')).toBe('application/octet-stream');
+  });
+
+  it('uploadTaskAttachment adds nothing twice when the realtime echo beat the response', async () => {
+    withAttachments([]);
+
+    const upload = board.uploadTaskAttachment(
+      't1',
+      new File(['x'], 'notes.txt', { type: 'text/plain' })
+    );
+    board.applyRealtime({
+      type: 'attachment_created',
+      project_id: 'p1',
+      data: { ...serverAttachment({ id: A2 }), attachment_count: 1 },
+    });
+    await upload;
+
+    expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual([A2]);
+    expect(board.tasks.find((t) => t.id === 't1')!.attachment_count).toBe(1);
   });
 
   it('uploadTaskAttachment names an unnamed, untyped file rather than sending nothing', async () => {

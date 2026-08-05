@@ -1,6 +1,7 @@
 <script lang="ts">
   import { announcer } from '../lib/announcer.svelte';
   import { board, type TaskAttachment } from '../lib/board.svelte';
+  import { uploadsAsImage } from '../lib/uploads';
   import Button from './ui/Button.svelte';
   import Spinner from './ui/Spinner.svelte';
 
@@ -16,6 +17,10 @@
   const URL_HINT = 'Enter a link starting with http:// or https://';
 
   const attachments = $derived(board.taskAttachments[taskId]);
+  const task = $derived(board.tasks.find((candidate) => candidate.id === taskId));
+  const loadedImages = $derived(board.taskImages[taskId]);
+  const images = $derived(loadedImages ?? []);
+  const imagesLoading = $derived(loadedImages === undefined && (task?.image_count ?? 0) > 0);
 
   let fileInput = $state<HTMLInputElement>();
   let addingLink = $state(false);
@@ -26,6 +31,10 @@
   let confirmingDeleteId = $state<string | null>(null);
   let dropActive = $state(false);
   let pending = $state<{ key: string; name: string }[]>([]);
+
+  const nothingAttached = $derived(
+    images.length === 0 && (attachments?.length ?? 0) === 0 && pending.length === 0
+  );
 
   $effect(() => {
     void taskId;
@@ -104,7 +113,10 @@
       const key = `${String(Date.now())}-${file.name}-${String(Math.random())}`;
       pending = [...pending, { key, name: file.name }];
       void announcer.announce(`Uploading ${file.name}`);
-      void board.uploadTaskAttachment(taskId, file).finally(() => {
+      const upload = uploadsAsImage(file)
+        ? board.uploadTaskImage(taskId, file)
+        : board.uploadTaskAttachment(taskId, file);
+      void upload.finally(() => {
         pending = pending.filter((entry) => entry.key !== key);
       });
     }
@@ -260,13 +272,52 @@
     </ul>
   {/if}
 
+  {#if imagesLoading}
+    <Spinner size="sm" label="Loading images" />
+  {:else if images.length > 0}
+    <ul class="grid grid-cols-3 gap-2 sm:grid-cols-4">
+      {#each images as image (image.id)}
+        {@const isCover = task?.cover_image_url === image.url}
+        <li class="relative flex flex-col gap-1">
+          <img
+            src={image.url}
+            alt={image.filename}
+            loading="lazy"
+            class="aspect-square w-full rounded-md border border-edge object-cover"
+          />
+          {#if !readonly}
+            <button
+              type="button"
+              aria-label="Use image {image.filename} as cover"
+              aria-pressed={isCover}
+              onclick={() => void board.setTaskCover(taskId, isCover ? null : image)}
+              class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1 rounded-md border text-xs focus-visible:outline-2 focus-visible:outline-accent {isCover
+                ? 'border-accent bg-accent-soft text-ink'
+                : 'border-edge text-muted hover:bg-accent-soft'}"
+            >
+              {isCover ? '★' : '☆'} Cover
+            </button>
+            <button
+              type="button"
+              aria-label="Delete image {image.filename}"
+              onclick={() => void board.deleteTaskImage(taskId, image.id)}
+              class="absolute top-1 right-1 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/60 text-sm text-white hover:bg-danger"
+            >
+              ✕
+            </button>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
+
   {#if attachments !== undefined}
-    {#if attachments.length === 0 && pending.length === 0}
+    {#if nothingAttached && !imagesLoading}
       <p class="text-sm text-muted">
         {readonly ? 'No attachments.' : 'Nothing attached yet. Drop a file here, or add a link.'}
       </p>
-    {:else}
-      <ul class="flex flex-col">
+    {:else if attachments.length > 0}
+      <ul class="flex flex-col {images.length > 0 ? 'border-t border-edge pt-2' : ''}">
         {#each attachments as attachment (attachment.id)}
           {@const label = displayLabel(attachment)}
           {@const href = attachment.kind === 'link' ? safeHref(attachment.url) : null}

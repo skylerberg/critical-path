@@ -20,7 +20,6 @@
   import Announcer from './ui/Announcer.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
-  import Spinner from './ui/Spinner.svelte';
 
   type TiptapDoc = NonNullable<BoardTask['description']>;
 
@@ -36,7 +35,6 @@
   let { taskId, closePath, taskPath, readonly = false }: Props = $props();
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
-  const images = $derived(board.taskImages[taskId]);
   const taskById = $derived(new Map(board.tasks.map((t) => [t.id, t])));
   const doneColumnIds = $derived(board.doneColumnIds);
   const blockers = $derived((task?.blocker_ids ?? []).flatMap((id) => taskById.get(id) ?? []));
@@ -53,7 +51,6 @@
   const anonymous = $derived(board.readonly);
 
   let dialog = $state<HTMLDialogElement>();
-  let uploadInput = $state<HTMLInputElement>();
   let removing = $state(false);
   let duplicating = $state(false);
   let closed = $state(false);
@@ -457,74 +454,6 @@
           {/if}
           {#if !readonly}
             <DependencyPicker {taskId} direction="blocked" />
-          {/if}
-        </section>
-      {/if}
-
-      {#if !anonymous}
-        <section class="flex flex-col gap-2">
-          <div class="flex items-center justify-between gap-2">
-            <h3 class="text-sm font-semibold text-muted">Images</h3>
-            {#if !readonly}
-              <Button variant="secondary" onclick={() => uploadInput?.click()}>Upload image</Button>
-            {/if}
-          </div>
-          {#if images === undefined}
-            {#if task.image_count > 0}
-              <Spinner size="sm" label="Loading images" />
-            {/if}
-          {:else if images.length === 0}
-            <p class="text-sm text-muted">No images attached.</p>
-          {:else}
-            <ul class="grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {#each images as image (image.id)}
-                {@const isCover = task.cover_image_url === image.url}
-                <li class="relative flex flex-col gap-1">
-                  <img
-                    src={image.url}
-                    alt={image.filename}
-                    loading="lazy"
-                    class="aspect-square w-full rounded-md border border-edge object-cover"
-                  />
-                  {#if !readonly}
-                    <button
-                      type="button"
-                      aria-label="Use image {image.filename} as cover"
-                      aria-pressed={isCover}
-                      onclick={() => void board.setTaskCover(taskId, isCover ? null : image)}
-                      class="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1 rounded-md border text-xs focus-visible:outline-2 focus-visible:outline-accent {isCover
-                        ? 'border-accent bg-accent-soft text-ink'
-                        : 'border-edge text-muted hover:bg-accent-soft'}"
-                    >
-                      {isCover ? '★' : '☆'} Cover
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Delete image {image.filename}"
-                      onclick={() => void board.deleteTaskImage(taskId, image.id)}
-                      class="absolute top-1 right-1 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/60 text-sm text-white hover:bg-danger"
-                    >
-                      ✕
-                    </button>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-          {#if !readonly}
-            <input
-              bind:this={uploadInput}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              multiple
-              class="hidden"
-              onchange={(event) => {
-                for (const file of event.currentTarget.files ?? []) {
-                  void board.uploadTaskImage(taskId, file);
-                }
-                event.currentTarget.value = '';
-              }}
-            />
           {/if}
         </section>
       {/if}
