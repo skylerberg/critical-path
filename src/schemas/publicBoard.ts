@@ -26,6 +26,7 @@ export const publicBoardTaskSchema = type({
   title: 'string',
   description: nullableTiptapDocSchema,
   position: finiteNumber,
+  sort_key: 'string | null',
   due_date: 'string | null',
   label_ids: 'string[]',
   assignee_ids: 'string[]',
@@ -55,6 +56,7 @@ export const publicBoardChecklistItemSchema = type({
   text: 'string',
   checked: 'boolean',
   position: finiteNumber,
+  sort_key: 'string | null',
 });
 
 export const publicBoardSchema = type({
