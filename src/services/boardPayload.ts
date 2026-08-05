@@ -10,6 +10,7 @@ import type {
   TiptapDoc,
 } from '../schemas/index';
 import { assertPublicProject, usersWithProjectAccess } from './authorization';
+import { MIRRORED_IMAGE_KIND } from './attachments/index';
 import { normalizeProjectAccent, toMemberEntries } from './projectListItem';
 import { dueDateText } from './dueDate';
 import { unarchivedBlockerIds } from './taskRelations';
@@ -73,6 +74,7 @@ function boardTasksQuery(db: Kysely<DB>) {
       .selectFrom('task_attachment')
       .select((ab) => ab.fn.countAll<string>().as('attachment_count'))
       .whereRef('task_attachment.task_id', '=', 'task.id')
+      .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
       .as('attachment_count'),
   ]);
 }
