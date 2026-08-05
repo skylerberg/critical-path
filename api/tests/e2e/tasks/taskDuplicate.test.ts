@@ -50,9 +50,10 @@ describe('POST /api/tasks/:id/duplicate', () => {
   afterAll(async () => {
     if (projectIds.length > 0) {
       const imageRows = await db
-        .selectFrom('task_image')
-        .innerJoin('task', 'task.id', 'task_image.task_id')
-        .select('task_image.storage_key')
+        .selectFrom('task_attachment')
+        .innerJoin('task', 'task.id', 'task_attachment.task_id')
+        .select('task_attachment.image_storage_key as storage_key')
+        .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', 'in', projectIds)
         .execute();
       await Promise.all(imageRows.map((row) => storage.delete(row.storage_key)));
@@ -139,9 +140,10 @@ describe('POST /api/tasks/:id/duplicate', () => {
     expect([...copy.assignee_ids].sort()).toEqual([owner.id, member.id].sort());
 
     const newImage = await db
-      .selectFrom('task_image')
-      .select(['id', 'storage_key', 'filename'])
+      .selectFrom('task_attachment')
+      .select(['id', 'image_storage_key as storage_key', 'filename'])
       .where('task_id', '=', copyId)
+      .where('kind', '=', 'image')
       .executeTakeFirstOrThrow();
     expect(newImage.id).not.toBe(imageId);
     expect(newImage.storage_key).not.toBe(storageKey);
@@ -194,9 +196,10 @@ describe('POST /api/tasks/:id/duplicate', () => {
     const copy = (await res.json()) as BoardTaskPayload;
 
     const copiedImages = await db
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select(['id', 'filename', 'is_cover'])
       .where('task_id', '=', copyId)
+      .where('kind', '=', 'image')
       .execute();
     expect(copiedImages).toHaveLength(2);
     const copiedCover = copiedImages.find((image) => image.is_cover);
@@ -205,10 +208,11 @@ describe('POST /api/tasks/:id/duplicate', () => {
     expect(copy.cover_image_url).toBe(`/api/images/${copiedCover!.id}`);
 
     const sourceCover = await db
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select('id')
       .where('task_id', '=', sourceId)
       .where('is_cover', '=', true)
+      .where('kind', '=', 'image')
       .executeTakeFirstOrThrow();
     expect(sourceCover.id).toBe(cover.imageId);
   });

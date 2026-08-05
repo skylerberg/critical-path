@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import { copyTaskAttachments, type ObjectCopy } from './attachments/copy';
-import { mirrorImagesInserted } from './attachments/imageMirror';
+import { insertTaskImages } from './attachments/images';
 import { MIRRORED_IMAGE_KIND } from './attachments/index';
 import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
@@ -243,33 +243,18 @@ export async function copyTasks(
     await reconcileSortKeys(db, 'checklist_item', taskIdMap.get(sourceTaskId) as string);
   }
 
-  if (images.length > 0) {
-    const inserted = await db
-      .insertInto('task_image')
-      .values(
-        images.map((image) => ({
-          id: imageIdMap.get(image.id) as string,
-          task_id: taskIdMap.get(image.task_id) as string,
-          storage_key: newStorageKeys.get(image.id) as string,
-          filename: image.filename,
-          content_type: image.content_type,
-          size_bytes: image.size_bytes,
-          is_cover: image.is_cover,
-        }))
-      )
-      .returning([
-        'id',
-        'task_id',
-        'storage_key',
-        'filename',
-        'content_type',
-        'size_bytes',
-        'is_cover',
-        'created_at',
-      ])
-      .execute();
-    await mirrorImagesInserted(db, inserted);
-  }
+  await insertTaskImages(
+    db,
+    images.map((image) => ({
+      id: imageIdMap.get(image.id) as string,
+      task_id: taskIdMap.get(image.task_id) as string,
+      storage_key: newStorageKeys.get(image.id) as string,
+      filename: image.filename,
+      content_type: image.content_type,
+      size_bytes: image.size_bytes,
+      is_cover: image.is_cover,
+    }))
+  );
 
   const objectCopies: ObjectCopy[] = [
     ...images.map((image) => ({
