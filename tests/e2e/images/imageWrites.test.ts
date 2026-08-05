@@ -216,7 +216,7 @@ describe('image writes', () => {
     expect(copies[0]!.image_storage_key).not.toBe(sourceKey.storage_key);
   });
 
-  it('stays out of the attachment surface: no count, list, quota or export', async () => {
+  it('surfaces as an attachment everywhere except the export, which keeps both arrays', async () => {
     const { projectId, taskId } = await createTaskFixture(user.id);
 
     await ctx
@@ -225,11 +225,14 @@ describe('image writes', () => {
 
     const detail = (await (await ctx.request(user.token).get(`/api/tasks/${taskId}`)).json()) as {
       images: unknown[];
-      attachments: unknown[];
+      attachments: { kind: string; image_url: string; is_cover: boolean }[];
       image_count: number;
     };
+    // images[] is still populated this release so a client that has not reloaded
+    // keeps rendering; the next one removes it.
     expect(detail.images).toHaveLength(1);
-    expect(detail.attachments).toEqual([]);
+    expect(detail.attachments).toHaveLength(1);
+    expect(detail.attachments[0]).toMatchObject({ kind: 'image', is_cover: false });
     expect(detail.image_count).toBe(1);
 
     const board = (await (
@@ -237,8 +240,11 @@ describe('image writes', () => {
     ).json()) as { tasks: { id: string; image_count: number; attachment_count: number }[] };
     const card = board.tasks.find((task) => task.id === taskId);
     expect(card?.image_count).toBe(1);
-    expect(card?.attachment_count).toBe(0);
+    expect(card?.attachment_count).toBe(1);
 
+    // project.json is a documented interchange format with its own version, so
+    // it keeps listing images under images[] and leaves attachments[] to the
+    // other two kinds. Merging them there would be a breaking format change.
     const exported = (await (
       await ctx.request(user.token).get(`/api/projects/${projectId}/export?format=json`)
     ).json()) as { tasks: { id: string; images: unknown[]; attachments: unknown[] }[] };
@@ -246,7 +252,7 @@ describe('image writes', () => {
     expect(exportedTask?.images).toHaveLength(1);
     expect(exportedTask?.attachments).toEqual([]);
 
-    // The bytes are in both tables now, and the quota must still count them once.
+    // Counted once, from the one table.
     const allowance = await projectStorageAllowance(db, projectId);
     expect(allowance.used).toBe(PNG_1X1.length);
   });

@@ -1,11 +1,15 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../../db/types';
-import { MIRRORED_IMAGE_KIND } from './index';
+import { IMAGE_KIND } from './index';
 
 // Every write of a kind='image' row. Images live in task_attachment alongside
 // files and links, and carry their own storage and content-type columns so the
 // unauthenticated image route can reach them without being able to reach a
 // document's bytes.
+// Images are capped below the general attachment limit: they are served inline
+// from an unauthenticated URL, so they stay small enough to be cheap to hand out.
+export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
 export interface TaskImageInsert {
   id: string;
   task_id: string;
@@ -33,7 +37,7 @@ export async function insertTaskImages(
       images.map((image) => ({
         id: image.id,
         task_id: image.task_id,
-        kind: MIRRORED_IMAGE_KIND,
+        kind: IMAGE_KIND,
         filename: image.filename,
         size_bytes: image.size_bytes,
         image_storage_key: image.storage_key,
@@ -50,7 +54,7 @@ export async function deleteTaskImage(db: Kysely<DB>, imageId: string): Promise<
   await db
     .deleteFrom('task_attachment')
     .where('task_attachment.id', '=', imageId)
-    .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+    .where('task_attachment.kind', '=', IMAGE_KIND)
     .execute();
 }
 
@@ -65,7 +69,7 @@ export async function setTaskCoverImage(
     .updateTable('task_attachment')
     .set({ is_cover: false })
     .where('task_attachment.task_id', '=', taskId)
-    .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+    .where('task_attachment.kind', '=', IMAGE_KIND)
     .where('task_attachment.is_cover', '=', true)
     .execute();
 
@@ -74,7 +78,7 @@ export async function setTaskCoverImage(
       .updateTable('task_attachment')
       .set({ is_cover: true })
       .where('task_attachment.id', '=', imageId)
-      .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+      .where('task_attachment.kind', '=', IMAGE_KIND)
       .execute();
   }
 }

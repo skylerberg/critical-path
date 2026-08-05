@@ -1,8 +1,7 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
-import { copyTaskAttachments, type ObjectCopy } from './attachments/copy';
-import { insertTaskImages } from './attachments/images';
-import { MIRRORED_IMAGE_KIND } from './attachments/index';
+import { copyTaskAttachments } from './attachments/copy';
+import { IMAGE_KIND } from './attachments/index';
 import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -86,33 +85,16 @@ export async function copyTasks(
     .execute();
   const taskIdMap = new Map(tasks.map((task) => [task.id, newIdFor()]));
 
-  const imageRows = await db
+  // Only the ids, and only to mint the copies' ids up front: the descriptions
+  // inserted below embed `/api/images/<id>` and have to point at the copies
+  // before copyTaskAttachments writes them.
+  const imageIds = await db
     .selectFrom('task_attachment')
-    .select([
-      'task_attachment.id',
-      'task_attachment.task_id',
-      'task_attachment.image_storage_key',
-      'task_attachment.filename',
-      'task_attachment.image_content_type',
-      'task_attachment.size_bytes',
-      'task_attachment.is_cover',
-    ])
+    .select('task_attachment.id')
     .where('task_attachment.task_id', 'in', input.sourceTaskIds)
-    .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+    .where('task_attachment.kind', '=', IMAGE_KIND)
     .execute();
-
-  // The image shape CHECK makes these non-null on a kind='image' row.
-  const images = imageRows.map((row) => ({
-    id: row.id,
-    task_id: row.task_id,
-    storage_key: row.image_storage_key ?? '',
-    filename: row.filename ?? '',
-    content_type: row.image_content_type ?? '',
-    size_bytes: row.size_bytes ?? 0,
-    is_cover: row.is_cover,
-  }));
-  const imageIdMap = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
-  const newStorageKeys = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
+  const imageIdMap = new Map(imageIds.map((row) => [row.id, crypto.randomUUID()]));
 
   if (tasks.length > 0) {
     await db
@@ -243,30 +225,13 @@ export async function copyTasks(
     await reconcileSortKeys(db, 'checklist_item', taskIdMap.get(sourceTaskId) as string);
   }
 
-  await insertTaskImages(
-    db,
-    images.map((image) => ({
-      id: imageIdMap.get(image.id) as string,
-      task_id: taskIdMap.get(image.task_id) as string,
-      storage_key: newStorageKeys.get(image.id) as string,
-      filename: image.filename,
-      content_type: image.content_type,
-      size_bytes: image.size_bytes,
-      is_cover: image.is_cover,
-    }))
-  );
-
-  const objectCopies: ObjectCopy[] = [
-    ...images.map((image) => ({
-      source: image.storage_key,
-      dest: newStorageKeys.get(image.id) as string,
-    })),
-    ...(await copyTaskAttachments(db, {
-      sourceTaskIds: input.sourceTaskIds,
-      taskIdMap,
-      insertChunk: CHECKLIST_INSERT_CHUNK,
-    })),
-  ];
+  // One routine copies all three kinds now, images included.
+  const { objectCopies } = await copyTaskAttachments(db, {
+    sourceTaskIds: input.sourceTaskIds,
+    taskIdMap,
+    imageIdMap,
+    insertChunk: CHECKLIST_INSERT_CHUNK,
+  });
 
   // Stored objects live outside the transaction, so a partial copy has to be
   // reclaimed by hand or the rollback strands it with no row pointing at it.
