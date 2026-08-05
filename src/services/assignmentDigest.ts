@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { sql } from 'kysely';
 import { APP_NAME } from '../config/constants';
-import { env } from '../config/env';
+import { projectLink, taskLink } from './webLinks';
 import { db } from '../db/index';
 import { withNotificationBudget } from '../middleware/rateLimit';
 import { logger } from '../utils/logger';
@@ -158,8 +158,8 @@ function digestMessage(
   const remaining = count - listed.length;
   const target =
     count === 1 && tasks[0] !== undefined
-      ? `${env.appUrlBase}/projects/${project.id}/tasks/${tasks[0].id}`
-      : `${env.appUrlBase}/projects/${project.id}`;
+      ? taskLink(project.id, tasks[0].id)
+      : projectLink(project.id);
 
   const lines = [
     `${actor} assigned you ${cards} on the board "${board}" on ${APP_NAME}.`,
