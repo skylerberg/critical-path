@@ -668,11 +668,23 @@ they are published on public boards.
 
 ### Attachments
 
-`task_attachment` is a sibling of `task_image`, not a replacement for it.
-Images keep their own table, their own routes, their own covers and their own
-`images/` export folder; attachments carry `kind` of `file` or `link`, and both
-kinds live in one list embedded in the task-detail payload as `attachments[]`.
-Everything lives under `/api/attachments`.
+`task_attachment` holds three kinds — `file`, `link` and `image` — and is the
+source of truth for all of them. `task_image` still exists and is still written
+to, but nothing reads it; it is dropped in a later release.
+
+The API surface has not merged yet. Images keep their own routes, their own
+covers, their own `images[]` and `image_count`, and their own `images/` export
+folder; `attachments[]` and `attachment_count` still mean files and links only.
+An image is unreachable through `/api/attachments/:id` and a file attachment is
+unreachable through `/api/images/:id`, in both directions and by id.
+
+An image row carries `image_storage_key` and `image_content_type` rather than
+sharing `storage_key` and `content_type` with files. That is what keeps
+`GET /api/images/:id` — unauthenticated, and the one route that echoes a stored
+content type — structurally unable to reach a document's bytes: it selects only
+those two columns, and a file row has both null. The type is CHECK-restricted to
+the four formats magic-byte sniffing produces, so no repair query can leave a row
+it would serve as something renderable.
 
 | Route                               | Auth   |
 | ----------------------------------- | ------ |
@@ -715,9 +727,9 @@ attach, rename or delete.
 
 **Limits.** `ATTACHMENT_MAX_BYTES` (50 MB by default) caps one file, and
 `PROJECT_STORAGE_QUOTA_BYTES` (1 GiB by default) caps a whole project. The
-project quota sums `task_attachment` **and** `task_image` bytes, so it also
-applies to image uploads — a project already over quota cannot upload again
-until it deletes something. A task holds at most 50 attachments. Whichever of
+project quota sums every `task_attachment` row, images included, so it applies
+to image uploads too — a project already over quota cannot upload again until
+it deletes something. A task holds at most 50 attachments. Whichever of
 the two byte limits bites first is the one the upload stream is cut at, so a
 project with 3 MB of quota left refuses a 50 MB file after 3 MB rather than
 after 50; the exact, serialised quota check still runs once the size is known

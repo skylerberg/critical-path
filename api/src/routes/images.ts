@@ -52,27 +52,32 @@ publicImagesRouter.get(
   async (c) => {
     const { id } = c.req.valid('param');
 
+    // Selects the two image-only columns and never storage_key or content_type,
+    // so this route stays structurally incapable of serving a file attachment's
+    // bytes — a file row has both of these null and 404s here. That, rather than
+    // a kind filter someone could drop, is what keeps an unauthenticated URL
+    // from echoing an uploader-chosen content type over uploader-chosen bytes.
     const row = await c
       .get('db')
-      .selectFrom('task_image')
-      .select(['storage_key', 'content_type'])
+      .selectFrom('task_attachment')
+      .select(['image_storage_key', 'image_content_type'])
       .where('id', '=', id)
       .executeTakeFirst();
-    if (!row) {
+    if (!row || row.image_storage_key === null || row.image_content_type === null) {
       throw new AppError(404, 'Image not found');
     }
 
-    const object = await storage.getStream(row.storage_key);
+    const object = await storage.getStream(row.image_storage_key);
     if (!object) {
       logger.error({
         msg: 'Image row exists but storage object is missing',
         imageId: id,
-        storageKey: row.storage_key,
+        storageKey: row.image_storage_key,
       });
       throw new AppError(404, 'Image not found');
     }
 
-    c.header('Content-Type', row.content_type);
+    c.header('Content-Type', row.image_content_type);
     c.header('Cache-Control', 'private, max-age=31536000, immutable');
     return storedObjectResponse(c, object);
   }
@@ -102,30 +107,34 @@ router.delete(
     const { id } = c.req.valid('param');
 
     const row = await db
-      .selectFrom('task_image')
-      .innerJoin('task', 'task.id', 'task_image.task_id')
-      .select(['task_image.storage_key', 'task_image.task_id', 'task.project_id'])
-      .where('task_image.id', '=', id)
+      .selectFrom('task_attachment')
+      .innerJoin('task', 'task.id', 'task_attachment.task_id')
+      .select(['task_attachment.image_storage_key', 'task_attachment.task_id', 'task.project_id'])
+      .where('task_attachment.id', '=', id)
+      .where('task_attachment.kind', '=', 'image')
       .executeTakeFirst();
-    if (!row) {
+    if (!row || row.image_storage_key === null) {
       throw new AppError(404, 'Image not found');
     }
+    const storageKey = row.image_storage_key;
     await assertProjectWrite(db, c.get('user').id, row.project_id, 'Image not found');
 
     await db.deleteFrom('task_image').where('task_image.id', '=', id).execute();
     await mirrorImageDeleted(db, id);
-    c.get('postCommitHooks').push(() => storage.delete(row.storage_key));
+    c.get('postCommitHooks').push(() => storage.delete(storageKey));
 
     const { count } = await db
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select((eb) => eb.fn.countAll<string>().as('count'))
       .where('task_id', '=', row.task_id)
+      .where('kind', '=', 'image')
       .executeTakeFirstOrThrow();
     const cover = await db
-      .selectFrom('task_image')
-      .select('task_image.id')
-      .where('task_image.task_id', '=', row.task_id)
-      .where('task_image.is_cover', '=', true)
+      .selectFrom('task_attachment')
+      .select('task_attachment.id')
+      .where('task_attachment.task_id', '=', row.task_id)
+      .where('task_attachment.kind', '=', 'image')
+      .where('task_attachment.is_cover', '=', true)
       .executeTakeFirst();
     publishAfterCommit(c, 'image_deleted', row.project_id, {
       task_id: row.task_id,

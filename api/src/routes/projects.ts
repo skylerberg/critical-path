@@ -623,12 +623,6 @@ router.delete(
       recipients.add(project.created_by);
     }
 
-    const imageRows = await db
-      .selectFrom('task_image')
-      .innerJoin('task', 'task.id', 'task_image.task_id')
-      .select('task_image.storage_key')
-      .where('task.project_id', '=', id)
-      .execute();
     const attachmentKeys = await attachmentStorageKeys(db, { projectId: id });
 
     const result = await db.deleteFrom('project').where('id', '=', id).executeTakeFirst();
@@ -636,7 +630,7 @@ router.delete(
       throw new AppError(404, 'Project not found');
     }
 
-    const keys = [...imageRows.map((row) => row.storage_key), ...attachmentKeys];
+    const keys = attachmentKeys;
     if (keys.length > 0) {
       c.get('postCommitHooks').push(async () => {
         await Promise.all(keys.map((key) => storage.delete(key)));

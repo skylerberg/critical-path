@@ -2,33 +2,9 @@ import { sql, type Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import { env } from '../../config/env';
 import { AppError } from '../../utils/errors';
-import { MIRRORED_IMAGE_KIND } from './index';
 
 function megabytes(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
-}
-
-async function sumOf(
-  db: Kysely<DB>,
-  table: 'task_attachment' | 'task_image',
-  projectId: string
-): Promise<number> {
-  let query = db
-    .selectFrom(table)
-    .innerJoin('task', 'task.id', `${table}.task_id`)
-    .select((eb) =>
-      eb.fn.coalesce(eb.fn.sum<string>(`${table}.size_bytes`), sql<string>`0`).as('total')
-    )
-    .where('task.project_id', '=', projectId);
-
-  // Mirrored image rows carry the same bytes as their task_image original, so
-  // counting both would double every image against the quota.
-  if (table === 'task_attachment') {
-    query = query.where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND);
-  }
-
-  const row = await query.executeTakeFirstOrThrow();
-  return Number(row.total);
 }
 
 function quotaExceeded(used: number, quota: number): AppError {
@@ -39,13 +15,19 @@ function quotaExceeded(used: number, quota: number): AppError {
   );
 }
 
-// Image bytes count too, or the quota is bypassed by uploading PNGs.
+// One table, one sum. Images are rows here too, so the quota still covers them
+// and a PNG cannot be used to slip past it — it just no longer takes a second
+// query and a reconciliation to say so.
 async function usedBytes(db: Kysely<DB>, projectId: string): Promise<number> {
-  const [attachmentBytes, imageBytes] = await Promise.all([
-    sumOf(db, 'task_attachment', projectId),
-    sumOf(db, 'task_image', projectId),
-  ]);
-  return attachmentBytes + imageBytes;
+  const row = await db
+    .selectFrom('task_attachment')
+    .innerJoin('task', 'task.id', 'task_attachment.task_id')
+    .select((eb) =>
+      eb.fn.coalesce(eb.fn.sum<string>('task_attachment.size_bytes'), sql<string>`0`).as('total')
+    )
+    .where('task.project_id', '=', projectId)
+    .executeTakeFirstOrThrow();
+  return Number(row.total);
 }
 
 export interface ProjectStorageAllowance {

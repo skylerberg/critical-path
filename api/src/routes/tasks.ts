@@ -13,7 +13,11 @@ import {
   projectAccessIdsAmong,
   type ProjectAccessFields,
 } from '../services/authorization';
-import { attachmentStorageKeys, fetchTaskAttachments } from '../services/attachments/index';
+import {
+  attachmentStorageKeys,
+  fetchTaskAttachments,
+  MIRRORED_IMAGE_KIND,
+} from '../services/attachments/index';
 import { mirrorCoverSet } from '../services/attachments/imageMirror';
 import { assertColumnInProject } from '../services/boardColumns';
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
@@ -432,25 +436,29 @@ router.get(
     await assertProjectAccess(db, user.id, result.project_id, 'Task not found');
 
     const imageRows = await db
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select([
-        'task_image.id',
-        'task_image.filename',
-        'task_image.content_type',
-        'task_image.size_bytes',
-        'task_image.created_at',
+        'task_attachment.id',
+        'task_attachment.filename',
+        'task_attachment.image_content_type',
+        'task_attachment.size_bytes',
+        'task_attachment.created_at',
       ])
-      .where('task_image.task_id', '=', id)
-      .orderBy('task_image.created_at')
-      .orderBy('task_image.id')
+      .where('task_attachment.task_id', '=', id)
+      .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+      .orderBy('task_attachment.created_at')
+      .orderBy('task_attachment.id')
       .execute();
 
+    // The image shape CHECK makes every one of these non-null on a kind='image'
+    // row; the fallbacks only satisfy the compiler, which sees the column types
+    // the file and link kinds need.
     const images = imageRows.map((image) => ({
       id: image.id,
       url: `/api/images/${image.id}`,
-      filename: image.filename,
-      content_type: image.content_type,
-      size_bytes: image.size_bytes,
+      filename: image.filename ?? '',
+      content_type: image.image_content_type ?? '',
+      size_bytes: image.size_bytes ?? 0,
       created_at: image.created_at.toISOString(),
     }));
 
@@ -807,11 +815,6 @@ router.delete(
       throw new AppError(422, 'Only an archived task can be deleted; archive it first');
     }
 
-    const images = await db
-      .selectFrom('task_image')
-      .select('task_image.storage_key')
-      .where('task_image.task_id', '=', id)
-      .execute();
     const attachmentKeys = await attachmentStorageKeys(db, { taskIds: [id] });
 
     // Read before the delete, which takes the edges with it by cascade.
@@ -842,7 +845,7 @@ router.delete(
       }))
     );
 
-    const keys = [...images.map((image) => image.storage_key), ...attachmentKeys];
+    const keys = attachmentKeys;
     if (keys.length > 0) {
       c.get('postCommitHooks').push(async () => {
         await Promise.all(keys.map((key) => storage.delete(key)));
@@ -1182,9 +1185,10 @@ router.put(
 
     if (image_id !== null) {
       const image = await db
-        .selectFrom('task_image')
-        .select('task_image.task_id')
-        .where('task_image.id', '=', image_id)
+        .selectFrom('task_attachment')
+        .select('task_attachment.task_id')
+        .where('task_attachment.id', '=', image_id)
+        .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
         .executeTakeFirst();
       if (!image || image.task_id !== id) {
         throw new AppError(422, 'image_id must reference an image on this task');

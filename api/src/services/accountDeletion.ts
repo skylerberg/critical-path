@@ -70,17 +70,9 @@ export async function storageKeysOwnedBy(
   userId: string,
   avatarStorageKey: string | null
 ): Promise<string[]> {
-  const rows = await db
-    .selectFrom('task_image')
-    .innerJoin('task', 'task.id', 'task_image.task_id')
-    .innerJoin('project', 'project.id', 'task.project_id')
-    .select('task_image.storage_key')
-    .where('project.created_by', '=', userId)
-    .execute();
-  const keys = [
-    ...rows.map((row) => row.storage_key),
-    ...(await attachmentStorageKeys(db, { projectsCreatedBy: userId })),
-  ];
+  // Image keys ride along inside attachmentStorageKeys now that images are rows
+  // in that table, which is what keeps every deletion path down to one funnel.
+  const keys = await attachmentStorageKeys(db, { projectsCreatedBy: userId });
   return avatarStorageKey === null ? keys : [avatarStorageKey, ...keys];
 }
 
