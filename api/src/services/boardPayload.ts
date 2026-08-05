@@ -45,15 +45,17 @@ function boardTasksQuery(db: Kysely<DB>) {
     ).as('assignee_rows'),
     unarchivedBlockerIds(eb).as('blocker_rows'),
     eb
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select((ib) => ib.fn.countAll<string>().as('image_count'))
-      .whereRef('task_image.task_id', '=', 'task.id')
+      .whereRef('task_attachment.task_id', '=', 'task.id')
+      .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
       .as('image_count'),
     eb
-      .selectFrom('task_image')
-      .select('task_image.id')
-      .whereRef('task_image.task_id', '=', 'task.id')
-      .where('task_image.is_cover', '=', true)
+      .selectFrom('task_attachment')
+      .select('task_attachment.id')
+      .whereRef('task_attachment.task_id', '=', 'task.id')
+      .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+      .where('task_attachment.is_cover', '=', true)
       .as('cover_image_id'),
     eb
       .selectFrom('task_comment')
