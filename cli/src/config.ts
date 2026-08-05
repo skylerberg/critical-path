@@ -21,8 +21,7 @@ export const DEFAULT_API_URL = 'https://criticalpath.skylerberg.com';
 export const DEFAULT_WEB_URL = 'https://criticalpath.skylerberg.com';
 
 // A path is appended to this, so a value that cannot precede one has to fail here
-// rather than silently produce an unusable link — and credentials would otherwise
-// ride along in every link shared from it.
+// rather than silently produce an unusable link — or one carrying credentials.
 export function normalizeWebUrl(value: string): string {
   let parsed: URL;
   try {

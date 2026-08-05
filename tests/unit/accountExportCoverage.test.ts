@@ -3,10 +3,9 @@ import { describe, it, expect } from 'vitest';
 import { db } from '../helpers/database';
 
 // Every foreign key into app_user, each decided once. A new user-keyed table
-// fails this until someone decides which side it belongs on; the account export
-// itself is what "in" means.
+// fails this until someone decides which side it belongs on.
 //
-// This sees foreign keys only. Personal data keyed by email address — the shape
+// Foreign keys only: personal data keyed by email address — the shape
 // project_invitation already uses — or by a token or any soft reference is
 // invisible here, so this bounds the rot, it does not end it.
 const DECIDED: Record<string, 'in' | 'out'> = {
@@ -29,8 +28,7 @@ const DECIDED: Record<string, 'in' | 'out'> = {
 
 // Every column of the four account-owned tables the export reads, each decided
 // once. A new column on one of them is the likelier rot — the two notification
-// preferences arrived exactly that way. "in" means the value reaches the file,
-// verbatim or in the published form every other response already uses.
+// preferences arrived exactly that way. "in" means the value reaches the file.
 //
 // project and project_member are out of this census on purpose: the export takes
 // a pointer list from them, so their columns churn for board reasons that say

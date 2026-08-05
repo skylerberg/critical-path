@@ -26,14 +26,14 @@ export const MAX_RRULE_LENGTH = 500;
 export const MAX_INTERVAL = 366;
 export const MAX_COUNT = 1000;
 export const MAX_UNTIL_YEAR = 2200;
-// Every search is bounded by this rather than left to rrule's year-9999 limit,
-// so a rule whose next occurrence is unreachable costs a fixed walk instead of
+// Bounds every search rather than leaving it to rrule's year-9999 limit, so a
+// rule whose next occurrence is unreachable costs a fixed walk instead of
 // millions of iterations inside the sweep.
 const SEARCH_HORIZON_YEARS = 100;
 
 const CALENDAR_FREQUENCIES = new Set([RRule.YEARLY, RRule.MONTHLY, RRule.WEEKLY, RRule.DAILY]);
 const BANNED_SUBSTRINGS = ['DTSTART', 'TZID', 'RDATE', 'EXDATE', 'EXRULE'];
-// One calendar day is one occurrence, so a time-of-day part adds nothing except
+// One calendar day is one occurrence, so a time-of-day part adds nothing but
 // iterations: BYHOUR+BYMINUTE+BYSECOND fits inside the length cap and multiplies
 // every occurrence search by 86,400, inside the sweep's transaction.
 const BANNED_TIME_PARTS = ['BYHOUR', 'BYMINUTE', 'BYSECOND'];

@@ -29,7 +29,7 @@ export class UnfurlFetchError extends Error {}
 
 // node:http request() rather than fetch, for the same two reasons the webhook
 // sender uses it: only request() takes the `lookup` option that pins the socket
-// to the vetted address, and it does not follow redirects, so every hop can be
+// to the vetted address, and it does not follow redirects, so every hop is
 // re-validated instead of only the first.
 export async function fetchVetted(
   url: string,

@@ -557,9 +557,9 @@ describe('Pending project invitations', () => {
       const revoking = new Promise<void>((resolve) => {
         proceed = resolve;
       });
-      // A member set being replaced, held open between the two statements a
-      // real one issues in this order: claim the board, then drop the
-      // invitations of everyone it just left without write access.
+      // A member set being replaced, held open between the two statements a real
+      // one issues in this order: claim the board, then drop the invitations of
+      // everyone it just left without write access.
       const demotion = db.transaction().execute(async (trx) => {
         await trx
           .selectFrom('project')

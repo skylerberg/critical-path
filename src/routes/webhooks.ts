@@ -245,9 +245,9 @@ router.patch(
     if (body.disabled_at !== undefined) {
       if (body.disabled_at === null) {
         updates.disabled_at = null;
-        // A re-enabled webhook would otherwise auto-disable on its first failure
-        // — but only on the transition, or a client that resubmits the whole
-        // record on every patch would keep a dead endpoint alive forever.
+        // A re-enabled webhook would otherwise auto-disable on its first
+        // failure — but only on the transition, or a client resubmitting the
+        // whole record on every patch would keep a dead endpoint alive forever.
         if (existing.disabled_at !== null) {
           updates.consecutive_failures = 0;
         }

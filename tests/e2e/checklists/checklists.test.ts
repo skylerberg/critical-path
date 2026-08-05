@@ -453,9 +453,8 @@ describe('Checklists API', () => {
     });
 
     // The only test that fails when the route stops deleting first: the delete's
-    // row lock is what serializes the racers, and its zero-row result is what
-    // tells the loser it has nothing to promote. A non-locking read followed by
-    // an unchecked delete answers 201 twice and makes two cards from one item.
+    // row lock serializes the racers, and its zero-row result is what tells the
+    // loser it has nothing to promote.
     it('creates exactly one card when two promotes race the same item', async () => {
       for (let attempt = 0; attempt < 3; attempt++) {
         const title = `raced ${String(attempt)}`;

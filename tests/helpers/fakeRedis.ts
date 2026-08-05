@@ -5,8 +5,8 @@ interface Entry {
 
 // Every round trip costs a real turn of the event loop, which is the whole
 // point: a caller that decides across two of them can be overtaken here the way
-// it is over a network, where the per-process path only drains microtasks and
-// closes the same window by accident.
+// it is over a network. The per-process path only drains microtasks, and closes
+// the same window by accident.
 export class FakeRedis {
   readonly store = new Map<string, Entry>();
   now = 0;

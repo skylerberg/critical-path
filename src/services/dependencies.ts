@@ -108,8 +108,8 @@ export async function findDependencyCyclePath(
   for (const id of path) {
     const title = titles.get(id);
     // READ COMMITTED gives this statement a newer snapshot than the edge fetch,
-    // so a concurrently deleted task has no row; report no path at all rather
-    // than a step with a blank name.
+    // so a concurrently deleted task has no row; report no path rather than a
+    // step with a blank name.
     if (title === undefined) {
       return [];
     }

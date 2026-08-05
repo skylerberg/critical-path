@@ -149,8 +149,7 @@ export async function recordFailure(
 
   return db.transaction().execute(async (trx): Promise<FailureOutcome> => {
     // Locked, not just read: a row put back to pending on a webhook disabled
-    // mid-send is unreachable to both the claim and the prune, and would flood
-    // the receiver the moment it came back.
+    // mid-send is unreachable to both the claim and the prune.
     const webhook = await trx
       .selectFrom('project_webhook')
       .select('disabled_at')

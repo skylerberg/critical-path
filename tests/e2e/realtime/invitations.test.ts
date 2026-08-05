@@ -109,9 +109,8 @@ describe('Invitation realtime events', () => {
     });
     expect(shared.status).toBe(204);
 
-    // Published so the outsider is a real reader of this board rather than an
-    // unrelated account: the room they subscribe to is one they could plausibly
-    // have open.
+    // Published so the outsider is a real reader of this board: the room they
+    // subscribe to is one they could plausibly have open.
     const published = await ctx
       .request(owner.token)
       .patch(`/api/projects/${projectId}`, { is_public: true });

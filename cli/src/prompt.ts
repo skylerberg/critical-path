@@ -29,10 +29,9 @@ function ask(ctx: RuntimeContext, question: string, hidden: boolean): Promise<st
     output: echo,
     terminal: isTty,
   });
-  // readline's output carries the prompt and the echo of what is typed, and it redraws
-  // that line from scratch — erasing anything written around it. A visible answer must
-  // therefore let readline own the prompt; a hidden one, whose echo is dropped
-  // wholesale, must write its own.
+  // readline redraws its line from scratch, erasing anything written around it, so a
+  // visible answer must let readline own the prompt; a hidden one, whose echo is
+  // dropped wholesale, must write its own.
   if (hidden) {
     stderr.write(question);
   }

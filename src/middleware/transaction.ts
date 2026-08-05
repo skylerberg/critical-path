@@ -6,12 +6,10 @@ import { logger } from '../utils/logger';
 
 const TRANSACTIONAL_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-// Add as a no-op middleware on any route whose handler should NOT be wrapped
-// in the automatic db.transaction(). Hono stores the middleware reference
-// directly in the route record, so the same reference shows up in
-// `c.req.matchedRoutes[i].handler` and transactionMiddleware below picks it
-// up by identity — totally independent of the route's path, so renames and
-// remounts carry the marker with them.
+// Add to any route whose handler should NOT be wrapped in the automatic
+// db.transaction(). Hono stores the middleware reference directly in the route
+// record, so transactionMiddleware below picks it up by identity from
+// `c.req.matchedRoutes` — renames and remounts carry the marker with them.
 export const skipAutoTransaction: MiddlewareHandler = async (_c, next) => {
   await next();
 };
@@ -29,10 +27,9 @@ export const transactionMiddleware = createMiddleware<{ Variables: Variables }>(
       await db.transaction().execute(async (trx) => {
         c.set('db', trx);
         await next();
-        // Hono's compose catches handler throws at the handler's own dispatch
-        // frame and builds the response via onError, so next() resolves even
-        // for errors; rethrow c.error so Kysely rolls back instead of
-        // committing writes made before the failure.
+        // Hono's compose catches handler throws and builds the response via
+        // onError, so next() resolves even for errors; rethrow c.error so
+        // Kysely rolls back instead of committing writes made before it.
         if (c.error) {
           throw c.error;
         }

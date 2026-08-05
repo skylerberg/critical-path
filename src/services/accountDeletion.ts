@@ -9,9 +9,9 @@ export interface OwnedProject {
   shared: boolean;
 }
 
-// Locked because the delete is keyed to this snapshot: an ownership transfer
-// can hand the caller someone else's board mid-request, and a member add on a
-// row in here has to wait rather than slip in behind the shared check.
+// Locked because the delete is keyed to this snapshot: an ownership transfer can
+// hand the caller someone else's board mid-request, and a member add has to wait
+// rather than slip in behind the shared check.
 export async function lockOwnedProjects(db: Kysely<DB>, userId: string): Promise<OwnedProject[]> {
   const rows = await db
     .selectFrom('project')
@@ -63,9 +63,8 @@ export async function deleteUnsharedProjects(db: Kysely<DB>, projectIds: string[
 }
 
 // Images and attachments in projects the user did not create are excluded:
-// neither table has an uploader column, the row outlives the account with its
-// project, and deleting the object would blank a picture, or break a download,
-// on someone else's live card.
+// neither table has an uploader column, and deleting the object would blank a
+// picture or break a download on someone else's live card.
 export async function storageKeysOwnedBy(
   db: Kysely<DB>,
   userId: string,

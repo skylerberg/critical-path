@@ -21,8 +21,8 @@ type ProjectAccent = NonNullable<components['schemas']['NullableProjectAccent']>
 const ROLES: ProjectRole[] = ['editor', 'viewer'];
 
 // A Record, not an array: an array typed by the union rejects an unknown key but
-// never notices a missing one, so a palette the API grew would be refused at
-// runtime instead of failing the build.
+// never notices a missing one, so a palette the API grew would fail at runtime
+// instead of at build time.
 const ACCENTS: Record<ProjectAccent, true> = {
   rose: true,
   amber: true,
