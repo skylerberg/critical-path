@@ -24,7 +24,7 @@ const pool = new Pool({
   user: env.db.user,
   password: env.db.password,
   ssl: caCert ? { rejectUnauthorized: true, ca: caCert } : false,
-  max: 10,
+  max: env.db.poolMax,
   connectionTimeoutMillis: 10_000,
   idleTimeoutMillis: 30_000,
   options: `-c statement_timeout=${STATEMENT_TIMEOUT_MS} -c idle_in_transaction_session_timeout=${IDLE_IN_TRANSACTION_TIMEOUT_MS}`,

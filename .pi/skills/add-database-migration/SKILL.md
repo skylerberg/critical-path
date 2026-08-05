@@ -47,7 +47,7 @@ Conventions:
 
 ```sh
 npm run migrate             # dev DB (game_dev)
-npm run migrate:test        # test DB (game_dev_test)
+npm run migrate:test        # this checkout's test DB (game_dev_test_<checkout>_<hash>)
 ```
 
 **Never** run `migrate:down` against a data-bearing column on `game_dev`, and
