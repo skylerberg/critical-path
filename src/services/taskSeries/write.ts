@@ -9,6 +9,7 @@ import type {
 import { AppError } from '../../utils/errors';
 import { projectAccessIdsAmong, type ProjectAccessFields } from '../authorization';
 import { assertColumnInProject } from '../boardColumns';
+import { reconcileSortKeys } from '../sortKeyAssignment';
 import {
   assertUsableRrule,
   firstOccurrenceOnOrAfter,
@@ -211,6 +212,7 @@ async function writeChildren(
           }))
         )
         .execute();
+      await reconcileSortKeys(db, 'task_series_checklist_item', seriesId);
     }
   }
 }

@@ -16,6 +16,7 @@ type BaseVariables = {
   postCommitHooks: Array<() => Promise<void>>;
   webhookEvents: WebhookEvent[];
   changedProjectIds: Set<string>;
+  sortKeyScopes: Set<string>;
 };
 
 // The difference between these two is the whole point: `user` is present

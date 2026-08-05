@@ -5,6 +5,7 @@ import { logger } from '../../utils/logger';
 import { projectAccessIdsAmong } from '../authorization';
 import { fetchBoardTaskRows } from '../boardPayload';
 import { PROJECT_CHANGED, publish } from '../realtime/bus';
+import { reconcileSortKeys } from '../sortKeyAssignment';
 import { recordTaskActivity } from '../taskActivity';
 import { enqueueDeliveries } from '../webhooks/queue';
 import type { WebhookEvent } from '../webhooks/events';
@@ -402,6 +403,9 @@ async function createOccurrences(
         )
         .execute();
     }
+    if (checklistRows.length > 0) {
+      await reconcileSortKeys(trx, 'checklist_item', taskId);
+    }
 
     // An activity row needs a real person and there is no system user, so an
     // ownerless project gets a card with no history rather than no card.
@@ -410,6 +414,10 @@ async function createOccurrences(
         { taskId, kind: 'created', newValue: { text: series.title } },
       ]);
     }
+  }
+
+  if (createdIds.length > 0) {
+    await reconcileSortKeys(trx, 'task', columnId);
   }
 
   return createdIds;
