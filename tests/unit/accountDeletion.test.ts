@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { db } from '../helpers/database';
 import { newId, uniqueEmail } from '../helpers/fixtures';
+import { mirrorImagesInserted } from '../../src/services/attachments/imageMirror';
 import {
   assignedTasksElsewhere,
   deleteUnsharedProjects,
@@ -10,6 +11,11 @@ import {
 } from '../../src/services/accountDeletion';
 
 const userIds: string[] = [];
+
+// Real uuids rather than readable labels: image keys live in a uuid column now,
+// and the names below keep the assertions legible.
+const OWNED_IMAGE_KEY = newId();
+const FOREIGN_IMAGE_KEY = newId();
 
 async function createUser(name: string): Promise<string> {
   const id = newId();
@@ -45,17 +51,31 @@ async function createTask(projectId: string, title: string): Promise<string> {
 }
 
 async function attachImage(taskId: string, storageKey: string): Promise<void> {
-  await db
+  const id = newId();
+  const row = await db
     .insertInto('task_image')
     .values({
-      id: newId(),
+      id,
       task_id: taskId,
       storage_key: storageKey,
       filename: 'shot.webp',
       content_type: 'image/webp',
       size_bytes: 12,
     })
-    .execute();
+    .returning('created_at')
+    .executeTakeFirstOrThrow();
+  await mirrorImagesInserted(db, [
+    {
+      id,
+      task_id: taskId,
+      storage_key: storageKey,
+      filename: 'shot.webp',
+      content_type: 'image/webp',
+      size_bytes: 12,
+      is_cover: false,
+      created_at: row.created_at,
+    },
+  ]);
 }
 
 let owner: string;
@@ -90,10 +110,10 @@ beforeAll(async () => {
     .execute();
 
   const soloTaskId = await createTask(soloProjectId, 'solo task');
-  await attachImage(soloTaskId, 'owned-image-key');
+  await attachImage(soloTaskId, OWNED_IMAGE_KEY);
 
   foreignTaskId = await createTask(foreignProjectId, 'foreign task');
-  await attachImage(foreignTaskId, 'foreign-image-key');
+  await attachImage(foreignTaskId, FOREIGN_IMAGE_KEY);
 
   assignedElsewhereTaskId = foreignTaskId;
   await db
@@ -183,12 +203,12 @@ describe('deleteUnsharedProjects', () => {
 describe('storageKeysOwnedBy', () => {
   it('returns the avatar key plus image keys from created projects only', async () => {
     const keys = await storageKeysOwnedBy(db, owner, 'avatar-key');
-    expect(keys).toEqual(['avatar-key', 'owned-image-key']);
-    expect(keys).not.toContain('foreign-image-key');
+    expect(keys).toEqual(['avatar-key', OWNED_IMAGE_KEY]);
+    expect(keys).not.toContain(FOREIGN_IMAGE_KEY);
   });
 
   it('omits the avatar when the user has none', async () => {
-    expect(await storageKeysOwnedBy(db, owner, null)).toEqual(['owned-image-key']);
+    expect(await storageKeysOwnedBy(db, owner, null)).toEqual([OWNED_IMAGE_KEY]);
   });
 
   it('returns nothing for a user with no avatar and no created projects', async () => {
@@ -197,7 +217,7 @@ describe('storageKeysOwnedBy', () => {
   });
 
   it('does not return an image key from a project the user only belongs to', async () => {
-    expect(await storageKeysOwnedBy(db, other, null)).toEqual(['foreign-image-key']);
+    expect(await storageKeysOwnedBy(db, other, null)).toEqual([FOREIGN_IMAGE_KEY]);
   });
 });
 

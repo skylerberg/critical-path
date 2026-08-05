@@ -1,5 +1,6 @@
 import { db } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
+import { mirrorImagesInserted } from '../../../src/services/attachments/imageMirror';
 import { reconcileSortKeys } from '../../../src/services/sortKeyAssignment';
 
 export class ProjectFixtures {
@@ -95,17 +96,32 @@ export class ProjectFixtures {
     opts: { storageKey?: string; filename?: string } = {}
   ): Promise<string> {
     const id = newId();
-    await db
+    const storageKey = opts.storageKey ?? newId();
+    const filename = opts.filename ?? 'picture.png';
+    const row = await db
       .insertInto('task_image')
       .values({
         id,
         task_id: taskId,
-        storage_key: opts.storageKey ?? newId(),
-        filename: opts.filename ?? 'picture.png',
+        storage_key: storageKey,
+        filename,
         content_type: 'image/png',
         size_bytes: 4,
       })
-      .execute();
+      .returning('created_at')
+      .executeTakeFirstOrThrow();
+    await mirrorImagesInserted(db, [
+      {
+        id,
+        task_id: taskId,
+        storage_key: storageKey,
+        filename,
+        content_type: 'image/png',
+        size_bytes: 4,
+        is_cover: false,
+        created_at: row.created_at,
+      },
+    ]);
     return id;
   }
 

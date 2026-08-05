@@ -68,16 +68,12 @@ export function toAttachmentResponse(row: AttachmentRow): AttachmentResponse {
   };
 }
 
-// Transitional, and deliberately ahead of the rows it describes. Images are
-// moving into task_attachment as a third kind; the release after this one starts
-// mirroring them there while task_image stays their source of truth. Because the
-// migration job runs before any pod rolls, those rows appear while pods from the
-// previous release are still serving — so the filters have to be deployed first,
-// as no-ops, or those pods would read an image as an attachment and inflate
-// every count, list and quota that touches this table.
-//
-// The release that moves image reads across deletes this constant and every use
-// of it; `grep -rn MIRRORED_IMAGE_KIND src` finds the whole set.
+// Images are rows in this table now, and this is the line between the two things
+// the API still presents separately: `attachments[]` and attachment_count mean
+// files and links, `images[]` and image_count mean images. Reads on either side
+// name this constant rather than spelling the kind, so the release that merges
+// the two surfaces can find every decision it has to revisit —
+// `grep -rn MIRRORED_IMAGE_KIND src`.
 export const MIRRORED_IMAGE_KIND = 'image';
 
 export async function fetchAttachmentRow(
@@ -172,6 +168,7 @@ export async function attachmentStorageKeys(
       'task_attachment.storage_key',
       'task_attachment.preview_storage_key',
       'task_attachment.favicon_storage_key',
+      'task_attachment.image_storage_key',
     ]);
 
   if ('taskIds' in scope) {
@@ -186,8 +183,11 @@ export async function attachmentStorageKeys(
 
   const rows = await query.execute();
   return rows.flatMap((row) =>
-    [row.storage_key, row.preview_storage_key, row.favicon_storage_key].filter(
-      (key): key is string => key !== null
-    )
+    [
+      row.storage_key,
+      row.preview_storage_key,
+      row.favicon_storage_key,
+      row.image_storage_key,
+    ].filter((key): key is string => key !== null)
   );
 }

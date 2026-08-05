@@ -8,6 +8,7 @@ import { insertTaskImage } from './helpers';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
 import type { ProjectExport, TiptapDoc } from '../../../src/schemas/index';
+import { mirrorImagesInserted } from '../../../src/services/attachments/imageMirror';
 
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -632,17 +633,32 @@ describe('GET /api/projects/:id/export', () => {
         ).status
       ).toBe(201);
       for (let i = 0; i < 3; i++) {
-        await db
+        const id = newId();
+        const storageKey = newId();
+        const row = await db
           .insertInto('task_image')
           .values({
-            id: newId(),
+            id,
             task_id: taskId,
-            storage_key: newId(),
+            storage_key: storageKey,
             filename: `huge-${i}.png`,
             content_type: 'image/png',
             size_bytes: 2_000_000_000,
           })
-          .execute();
+          .returning('created_at')
+          .executeTakeFirstOrThrow();
+        await mirrorImagesInserted(db, [
+          {
+            id,
+            task_id: taskId,
+            storage_key: storageKey,
+            filename: `huge-${i}.png`,
+            content_type: 'image/png',
+            size_bytes: 2_000_000_000,
+            is_cover: false,
+            created_at: row.created_at,
+          },
+        ]);
       }
 
       const res = await ctx.request(owner.token).get(`/api/projects/${hugeProjectId}/export`);
