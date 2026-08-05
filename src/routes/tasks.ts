@@ -20,6 +20,7 @@ import { dueDateText } from '../services/dueDate';
 import { notifyMentions } from '../services/mentions';
 import { notify } from '../services/notifications';
 import { copyTasks } from '../services/projectCopy';
+import { markSortKeyScope } from '../services/sortKeyAssignment';
 import { storage } from '../services/storage/index';
 import {
   findDependencyCyclePath,
@@ -175,6 +176,8 @@ router.post(
       }
       throw err;
     }
+
+    markSortKeyScope(c, 'task', body.column_id);
 
     if (labelIds.length > 0) {
       await db
@@ -349,6 +352,8 @@ router.post(
       }
       throw err;
     }
+
+    markSortKeyScope(c, 'task', body.column_id);
 
     await recordTaskActivity(
       db,
@@ -657,6 +662,25 @@ router.patch(
     // `{}` patch would compile to an UPDATE with an empty SET list.
     if (Object.keys(changes).length > 0) {
       await db.updateTable('task').set(changes).where('task.id', '=', id).execute();
+    }
+
+    // Only the destination: taking a row out of a column leaves the keys behind
+    // it in order. A position-only patch skips the `before` read above, and
+    // widening that read would take its row lock on every drag.
+    if (body.position !== undefined || columnChanged) {
+      const destination =
+        body.column_id ??
+        before?.column_id ??
+        (
+          await db
+            .selectFrom('task')
+            .select('task.column_id')
+            .where('task.id', '=', id)
+            .executeTakeFirst()
+        )?.column_id;
+      if (destination !== undefined) {
+        markSortKeyScope(c, 'task', destination);
+      }
     }
 
     if (before !== null) {

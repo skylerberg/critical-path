@@ -2,6 +2,7 @@ import { sql, type Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import type { MovedTask } from '../schemas/index';
 import { appendPositions, type ColumnInProject } from './boardColumns';
+import { reconcileSortKeys } from './sortKeyAssignment';
 import { recordTaskActivity } from './taskActivity';
 
 export interface BulkTaskRow {
@@ -102,6 +103,8 @@ export async function relocateSelectedTasks(
       and task.project_id = ${projectId}::uuid
       and task.archived_at is null
   `.execute(db);
+
+  await reconcileSortKeys(db, 'task', target.id);
 
   const relocated = rows.filter((row) => row.column_id !== target.id);
   if (relocated.length === 0) {
