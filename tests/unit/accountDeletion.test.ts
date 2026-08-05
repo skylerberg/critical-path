@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { db } from '../helpers/database';
 import { newId, uniqueEmail } from '../helpers/fixtures';
-import { mirrorImagesInserted } from '../../src/services/attachments/imageMirror';
+import { insertTaskImages } from '../../src/services/attachments/images';
 import {
   assignedTasksElsewhere,
   deleteUnsharedProjects,
@@ -52,19 +52,7 @@ async function createTask(projectId: string, title: string): Promise<string> {
 
 async function attachImage(taskId: string, storageKey: string): Promise<void> {
   const id = newId();
-  const row = await db
-    .insertInto('task_image')
-    .values({
-      id,
-      task_id: taskId,
-      storage_key: storageKey,
-      filename: 'shot.webp',
-      content_type: 'image/webp',
-      size_bytes: 12,
-    })
-    .returning('created_at')
-    .executeTakeFirstOrThrow();
-  await mirrorImagesInserted(db, [
+  await insertTaskImages(db, [
     {
       id,
       task_id: taskId,
@@ -73,7 +61,6 @@ async function attachImage(taskId: string, storageKey: string): Promise<void> {
       content_type: 'image/webp',
       size_bytes: 12,
       is_cover: false,
-      created_at: row.created_at,
     },
   ]);
 }

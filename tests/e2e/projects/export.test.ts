@@ -8,7 +8,7 @@ import { insertTaskImage } from './helpers';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
 import type { ProjectExport, TiptapDoc } from '../../../src/schemas/index';
-import { mirrorImagesInserted } from '../../../src/services/attachments/imageMirror';
+import { insertTaskImages } from '../../../src/services/attachments/images';
 
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -398,9 +398,10 @@ describe('GET /api/projects/:id/export', () => {
   afterAll(async () => {
     if (createdProjectIds.length > 0) {
       const rows = await db
-        .selectFrom('task_image')
-        .innerJoin('task', 'task.id', 'task_image.task_id')
-        .select('task_image.storage_key')
+        .selectFrom('task_attachment')
+        .innerJoin('task', 'task.id', 'task_attachment.task_id')
+        .select('task_attachment.image_storage_key as storage_key')
+        .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', 'in', createdProjectIds)
         .execute();
       await Promise.all(
@@ -461,9 +462,10 @@ describe('GET /api/projects/:id/export', () => {
       expect(exportPayload.tasks[0].images).toEqual([]);
 
       const storageKeys = await db
-        .selectFrom('task_image')
-        .innerJoin('task', 'task.id', 'task_image.task_id')
-        .select('task_image.storage_key')
+        .selectFrom('task_attachment')
+        .innerJoin('task', 'task.id', 'task_attachment.task_id')
+        .select('task_attachment.image_storage_key as storage_key')
+        .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', '=', projectId)
         .execute();
       expect(storageKeys).toHaveLength(2);
@@ -635,19 +637,7 @@ describe('GET /api/projects/:id/export', () => {
       for (let i = 0; i < 3; i++) {
         const id = newId();
         const storageKey = newId();
-        const row = await db
-          .insertInto('task_image')
-          .values({
-            id,
-            task_id: taskId,
-            storage_key: storageKey,
-            filename: `huge-${i}.png`,
-            content_type: 'image/png',
-            size_bytes: 2_000_000_000,
-          })
-          .returning('created_at')
-          .executeTakeFirstOrThrow();
-        await mirrorImagesInserted(db, [
+        await insertTaskImages(db, [
           {
             id,
             task_id: taskId,
@@ -656,7 +646,6 @@ describe('GET /api/projects/:id/export', () => {
             content_type: 'image/png',
             size_bytes: 2_000_000_000,
             is_cover: false,
-            created_at: row.created_at,
           },
         ]);
       }

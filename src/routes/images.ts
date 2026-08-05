@@ -5,7 +5,7 @@ import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
-import { mirrorImageDeleted } from '../services/attachments/imageMirror';
+import { deleteTaskImage } from '../services/attachments/images';
 import { storage } from '../services/storage/index';
 import { storedObjectResponse } from '../services/storage/response';
 import { logger } from '../utils/logger';
@@ -119,8 +119,7 @@ router.delete(
     const storageKey = row.image_storage_key;
     await assertProjectWrite(db, c.get('user').id, row.project_id, 'Image not found');
 
-    await db.deleteFrom('task_image').where('task_image.id', '=', id).execute();
-    await mirrorImageDeleted(db, id);
+    await deleteTaskImage(db, id);
     c.get('postCommitHooks').push(() => storage.delete(storageKey));
 
     const { count } = await db

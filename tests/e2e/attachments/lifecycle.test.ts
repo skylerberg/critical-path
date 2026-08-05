@@ -6,7 +6,7 @@ import { db } from '../../../src/db/index';
 import { storage } from '../../../src/services/storage/index';
 import { storageKeysOwnedBy } from '../../../src/services/accountDeletion';
 import { copyTasks } from '../../../src/services/projectCopy';
-import { mirrorImagesInserted } from '../../../src/services/attachments/imageMirror';
+import { insertTaskImages } from '../../../src/services/attachments/images';
 import {
   cleanupProjects,
   clearUnfurlJobs,
@@ -259,19 +259,7 @@ describe('Attachment lifecycle', () => {
       const imageKey = newId();
       const imageId = newId();
       await storage.put(imageKey, Buffer.from('image'), 'image/png');
-      const imageRow = await db
-        .insertInto('task_image')
-        .values({
-          id: imageId,
-          task_id: taskId,
-          storage_key: imageKey,
-          filename: 'p.png',
-          content_type: 'image/png',
-          size_bytes: 5,
-        })
-        .returning('created_at')
-        .executeTakeFirstOrThrow();
-      await mirrorImagesInserted(db, [
+      await insertTaskImages(db, [
         {
           id: imageId,
           task_id: taskId,
@@ -280,7 +268,6 @@ describe('Attachment lifecycle', () => {
           content_type: 'image/png',
           size_bytes: 5,
           is_cover: false,
-          created_at: imageRow.created_at,
         },
       ]);
 

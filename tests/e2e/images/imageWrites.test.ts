@@ -21,11 +21,11 @@ function imageForm(filename: string, id?: string): FormData {
   return form;
 }
 
-// Transitional coverage for services/attachments/imageMirror.ts. Two properties
-// matter and they pull in opposite directions: the mirror has to be complete, so
-// no image is stranded in task_image when reads move across, and it has to be
-// invisible, so this release changes nothing a client can observe.
-describe('task_image -> task_attachment mirror', () => {
+// Covers services/attachments/images.ts, the only writer of kind='image' rows.
+// The second property is the one worth holding on to past this release: an image
+// is a task_attachment row, and it still must not surface as an attachment —
+// not in attachments[], not in attachment_count, and not twice in the quota.
+describe('image writes', () => {
   const ctx = new TestContext();
   const createdProjectIds: string[] = [];
 
@@ -69,7 +69,7 @@ describe('task_image -> task_attachment mirror', () => {
     return { projectId, columnId, taskId };
   }
 
-  function mirrorRows(taskId: string) {
+  function imageRows(taskId: string) {
     return db
       .selectFrom('task_attachment')
       .select([
@@ -90,9 +90,10 @@ describe('task_image -> task_attachment mirror', () => {
   afterAll(async () => {
     if (createdProjectIds.length > 0) {
       const rows = await db
-        .selectFrom('task_image')
-        .innerJoin('task', 'task.id', 'task_image.task_id')
-        .select('task_image.storage_key')
+        .selectFrom('task_attachment')
+        .innerJoin('task', 'task.id', 'task_attachment.task_id')
+        .select('task_attachment.image_storage_key as storage_key')
+        .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', 'in', createdProjectIds)
         .execute();
       await Promise.all(
@@ -103,7 +104,7 @@ describe('task_image -> task_attachment mirror', () => {
     await ctx.cleanup();
   });
 
-  it('mirrors an upload under the image id, with the same storage key', async () => {
+  it('stores an upload under the client-supplied id, with its sniffed type', async () => {
     const { taskId } = await createTaskFixture(user.id);
     const imageId = newId();
 
@@ -112,41 +113,51 @@ describe('task_image -> task_attachment mirror', () => {
       .postMultipart(`/api/tasks/${taskId}/images`, imageForm('pixel.png', imageId));
     expect(res.status).toBe(201);
 
-    const source = await db
-      .selectFrom('task_image')
-      .select(['storage_key', 'content_type', 'size_bytes'])
+    const rows = await imageRows(taskId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: imageId,
+      kind: 'image',
+      filename: 'pixel.png',
+      size_bytes: PNG_1X1.length,
+      // Sniffed, never taken from the upload's declared type.
+      image_content_type: 'image/png',
+      is_cover: false,
+    });
+    // The bytes live under a key of the server's choosing, not the row id.
+    expect(rows[0]!.image_storage_key).not.toBe(imageId);
+    expect(rows[0]!.image_storage_key).not.toBeNull();
+
+    // File and link columns stay empty, which is what keeps this row off the
+    // attachment download route.
+    const shape = await db
+      .selectFrom('task_attachment')
+      .select(['storage_key', 'content_type', 'url', 'unfurl_state'])
       .where('id', '=', imageId)
       .executeTakeFirstOrThrow();
-
-    const mirrored = await mirrorRows(taskId);
-    expect(mirrored).toEqual([
-      {
-        id: imageId,
-        kind: 'image',
-        filename: 'pixel.png',
-        size_bytes: source.size_bytes,
-        image_storage_key: source.storage_key,
-        image_content_type: source.content_type,
-        is_cover: false,
-      },
-    ]);
+    expect(shape).toEqual({
+      storage_key: null,
+      content_type: null,
+      url: null,
+      unfurl_state: null,
+    });
   });
 
-  it('removes the mirror when the image is deleted', async () => {
+  it('removes the row when the image is deleted', async () => {
     const { taskId } = await createTaskFixture(user.id);
     const imageId = newId();
 
     await ctx
       .request(user.token)
       .postMultipart(`/api/tasks/${taskId}/images`, imageForm('pixel.png', imageId));
-    expect(await mirrorRows(taskId)).toHaveLength(1);
+    expect(await imageRows(taskId)).toHaveLength(1);
 
     const res = await ctx.request(user.token).delete(`/api/images/${imageId}`);
     expect(res.status).toBe(204);
-    expect(await mirrorRows(taskId)).toHaveLength(0);
+    expect(await imageRows(taskId)).toHaveLength(0);
   });
 
-  it('mirrors the cover flag, including clearing it', async () => {
+  it('sets the cover flag, including clearing it', async () => {
     const { taskId } = await createTaskFixture(user.id);
     const first = newId();
     const second = newId();
@@ -159,22 +170,22 @@ describe('task_image -> task_attachment mirror', () => {
       .postMultipart(`/api/tasks/${taskId}/images`, imageForm('two.png', second));
 
     await ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id: first });
-    expect((await mirrorRows(taskId)).filter((row) => row.is_cover).map((row) => row.id)).toEqual([
+    expect((await imageRows(taskId)).filter((row) => row.is_cover).map((row) => row.id)).toEqual([
       first,
     ]);
 
     // Moving the cover must clear the old one, or the partial unique index that
     // makes "one cover per task" true would reject the write.
     await ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id: second });
-    expect((await mirrorRows(taskId)).filter((row) => row.is_cover).map((row) => row.id)).toEqual([
+    expect((await imageRows(taskId)).filter((row) => row.is_cover).map((row) => row.id)).toEqual([
       second,
     ]);
 
     await ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id: null });
-    expect((await mirrorRows(taskId)).filter((row) => row.is_cover)).toHaveLength(0);
+    expect((await imageRows(taskId)).filter((row) => row.is_cover)).toHaveLength(0);
   });
 
-  it('mirrors copies made by duplicating a card, under the copy ids', async () => {
+  it('writes copies made by duplicating a card, under the copy ids', async () => {
     const { taskId } = await createTaskFixture(user.id);
     const imageId = newId();
 
@@ -189,7 +200,7 @@ describe('task_image -> task_attachment mirror', () => {
       .post(`/api/tasks/${taskId}/duplicate`, { id: copyId, position: 2000 });
     expect(res.status).toBe(201);
 
-    const copies = await mirrorRows(copyId);
+    const copies = await imageRows(copyId);
     expect(copies).toHaveLength(1);
     expect(copies[0]!.id).not.toBe(imageId);
     expect(copies[0]!.is_cover).toBe(true);
@@ -197,14 +208,15 @@ describe('task_image -> task_attachment mirror', () => {
     // A copy is a fresh object, never a second row pointing at the original's
     // bytes — deleting the source must not blank the copy.
     const sourceKey = await db
-      .selectFrom('task_image')
-      .select('storage_key')
+      .selectFrom('task_attachment')
+      .select('image_storage_key as storage_key')
       .where('id', '=', imageId)
+      .where('kind', '=', 'image')
       .executeTakeFirstOrThrow();
     expect(copies[0]!.image_storage_key).not.toBe(sourceKey.storage_key);
   });
 
-  it('stays invisible: the mirror moves no count, list, quota or export', async () => {
+  it('stays out of the attachment surface: no count, list, quota or export', async () => {
     const { projectId, taskId } = await createTaskFixture(user.id);
 
     await ctx

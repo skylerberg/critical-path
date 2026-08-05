@@ -32,10 +32,11 @@ describe('PUT /api/tasks/:id/cover', () => {
 
   async function coverRows(taskId: string): Promise<string[]> {
     const rows = await db
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select('id')
       .where('task_id', '=', taskId)
       .where('is_cover', '=', true)
+      .where('kind', '=', 'image')
       .execute();
     return rows.map((row) => row.id);
   }
@@ -123,9 +124,10 @@ describe('PUT /api/tasks/:id/cover', () => {
     expect(await boardCover(taskId)).toBeNull();
 
     const image = await db
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select('id')
       .where('id', '=', imageId)
+      .where('kind', '=', 'image')
       .executeTakeFirst();
     expect(image).toBeDefined();
   });

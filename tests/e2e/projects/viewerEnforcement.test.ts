@@ -110,9 +110,10 @@ describe('Viewer enforcement across every mutating route', () => {
 
   afterAll(async () => {
     const copied = await db
-      .selectFrom('task_image')
-      .innerJoin('task', 'task.id', 'task_image.task_id')
-      .select('task_image.storage_key')
+      .selectFrom('task_attachment')
+      .innerJoin('task', 'task.id', 'task_attachment.task_id')
+      .select('task_attachment.image_storage_key as storage_key')
+      .where('task_attachment.kind', '=', 'image')
       .where('task.project_id', 'in', projectIds)
       .execute();
     await deleteProjects(projectIds);
@@ -401,9 +402,10 @@ describe('Viewer enforcement across every mutating route', () => {
       expect(label).toEqual({ name: 've label' });
 
       const image = await db
-        .selectFrom('task_image')
+        .selectFrom('task_attachment')
         .select(['id', 'is_cover'])
         .where('id', '=', imageId)
+        .where('kind', '=', 'image')
         .executeTakeFirst();
       expect(image).toEqual({ id: imageId, is_cover: false });
 
