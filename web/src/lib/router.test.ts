@@ -223,14 +223,17 @@ describe('matchRoute', () => {
     expect(matchRoute('/p/abc%zz')).toEqual({ name: 'not-found', path: '/p/abc%zz' });
   });
 
-  it('rejects an alias that is not exactly 22 canonical characters', () => {
+  it('rejects an alias that is not exactly 22 in-range characters', () => {
     for (const bad of [
       'zzz',
       P.slice(0, 21),
       `${P}A`,
       P.toLowerCase(),
-      `${P.slice(0, 21)}B`,
-      `${P.slice(0, 21)}Z`,
+      // Well-formed but past the largest uuid, and a dash-bearing alias from the
+      // base64url scheme this replaced.
+      'HxECNQWFdpvuJxIw3HPrmI',
+      '9999999999999999999999',
+      '-KGyw9TlT2qLnA0eLzpLXA',
     ]) {
       expect(matchRoute(`/p/${bad}`).name).toBe('not-found');
       expect(matchRoute(`/t/${bad}`).name).toBe('not-found');
@@ -239,8 +242,8 @@ describe('matchRoute', () => {
     }
   });
 
-  it('rejects a public task overlay whose task alias is non-canonical', () => {
-    expect(matchRoute(`/public/projects/${P}/tasks/${T.slice(0, 21)}B`).name).toBe('not-found');
+  it('rejects a public task overlay whose task alias names no uuid', () => {
+    expect(matchRoute(`/public/projects/${P}/tasks/HxECNQWFdpvuJxIw3HPrmI`).name).toBe('not-found');
   });
 
   it('no longer accepts a raw uuid anywhere', () => {

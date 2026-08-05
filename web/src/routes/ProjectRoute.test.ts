@@ -289,10 +289,11 @@ describe('a cold task link', () => {
     }
   });
 
-  it('rejects a non-canonical alias before any request', async () => {
+  // Well-formed, 22 characters, one past the largest uuid: rejected by shape
+  // alone, so the route must not reach for the network to find that out.
+  it('rejects an alias that names no uuid before any request', async () => {
     mockApi([task(T1, 'Boss fight')]);
-    const alias = encodeId(T1);
-    router.navigate(`/t/${alias.slice(0, 21)}B`, { replace: true });
+    router.navigate('/t/HxECNQWFdpvuJxIw3HPrmI', { replace: true });
 
     const app = mountOnRoute();
     try {
