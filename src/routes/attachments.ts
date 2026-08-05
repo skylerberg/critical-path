@@ -63,7 +63,7 @@ export const publicAttachmentsRouter: PublicHono = new Hono();
 
 // The one guarantee that makes arbitrary uploads safe: user-supplied bytes are
 // only ever handed back as an opaque download, never as something the browser
-// may render, whatever the uploader declared or the id suggests.
+// may render, whatever the uploader declared.
 function setDownloadHeaders(
   c: Parameters<MiddlewareHandler>[0],
   contentType: string,
@@ -136,7 +136,7 @@ router.post(
 
     const allowance = await projectStorageAllowance(db, project.id);
     // Whichever bound bites first is where the stream is cut, so an upload that
-    // could never be stored stops arriving instead of being measured afterwards.
+    // could never be stored stops arriving rather than being measured after.
     const cap = Math.min(maxBytes, allowance.remaining);
     const capIsQuota = allowance.remaining < maxBytes;
 
@@ -190,7 +190,6 @@ router.post(
         .returningAll()
         .executeTakeFirstOrThrow();
     } catch (err) {
-      // Intentionally not cleaned up: an orphaned object is acceptable.
       logger.warn({
         msg: 'Orphaned storage object: attachment row insert failed after storage write',
         storageKey: upload.storageKey,

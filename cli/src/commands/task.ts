@@ -200,9 +200,8 @@ async function resolveTaskContext(
     if (found !== null) {
       return found;
     }
-    // An alias is also a legal title, so one that names no task falls through to
-    // the title tiers instead of shadowing them — but a uuid is only ever an id,
-    // and titles need a project to live in.
+    // An alias is also a legal title, so one naming no task falls through to the
+    // title tiers — but a uuid is only ever an id, and titles need a project.
     if (decoded === null || projectRefOrNull(ctx, projectRef) === null) {
       throw new CliError(`No task matching "${ref}"`, EXIT.notFound);
     }

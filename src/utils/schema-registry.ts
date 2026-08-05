@@ -4,19 +4,17 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
 import * as schemas from '../schemas/index';
 import { isInlineSchema } from './openapi-dedupe';
 
-// Mirrors hono-openapi's internal arktype morph handling so that our manual
-// conversion produces byte-identical OpenAPI schema output to what
-// generateSpecs() embeds in the spec. Without this, ArkType throws on any
-// schema that uses `.pipe(...)` morphs (e.g. uuid, isoDateString).
+// Mirrors hono-openapi's internal arktype morph handling, so this manual
+// conversion produces byte-identical output to what generateSpecs() embeds.
+// Without it ArkType throws on any schema using `.pipe(...)` morphs.
 const arktypeMorphFallback = (ctx: { base: unknown }) => ctx.base;
 const TO_OPENAPI_OPTS = {
   options: { fallback: arktypeMorphFallback },
 } as const;
 
 function isStandardSchema(value: unknown): value is StandardSchemaV1 {
-  // ArkType schemas are callable functions, not plain objects, so we accept
-  // either typeof "object" or "function" — what matters is the "~standard"
-  // marker that defines a Standard Schema.
+  // ArkType schemas are callable functions, not plain objects; what identifies
+  // one is the "~standard" marker.
   if (value === null) return false;
   if (typeof value !== 'object' && typeof value !== 'function') return false;
   return (
@@ -30,13 +28,9 @@ function toPrettyName(exportName: string): string {
 }
 
 /**
- * Builds a Map<schemaJsonHash, prettyName> using the same md5 hash the dedupe
- * utility computes for inline schemas — the two must stay in sync or
- * registered names silently stop matching.
- *
- * Aliases (two exports pointing at the same schema object via `===`) collapse
- * to the shortest, alphabetically-first name. Throws on hash collisions
- * between distinct schemas.
+ * Keyed by the same md5 hash the dedupe utility computes for inline schemas —
+ * the two must stay in sync or registered names silently stop matching.
+ * Aliases collapse to the shortest, alphabetically-first name.
  */
 export async function buildSchemaNameRegistry(): Promise<Map<string, string>> {
   const byIdentity = new Map<StandardSchemaV1, string[]>();
@@ -53,11 +47,9 @@ export async function buildSchemaNameRegistry(): Promise<Map<string, string>> {
   const registry = new Map<string, string>();
   const collisions: { hash: string; existing: string; conflicting: string }[] = [];
 
-  // Variants we need to register for each schema:
-  //  - open: as it appears in resolver() / validator("query"|"param", ...)
-  //  - closed: as it appears via jsonValidator(), which calls
-  //    `.onUndeclaredKey("delete")` and adds `additionalProperties: false`.
-  // Same source schema, two distinct shapes in the spec — we need both.
+  // One source schema, two distinct shapes in the spec: open as it appears in
+  // resolver(), and closed as jsonValidator() leaves it after
+  // `.onUndeclaredKey("delete")` adds `additionalProperties: false`.
   const variantBuilders: ((s: StandardSchemaV1) => StandardSchemaV1)[] = [
     (s) => s,
     (s) => {

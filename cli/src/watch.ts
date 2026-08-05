@@ -130,8 +130,7 @@ export function watchEvents(options: WatchOptions): Promise<void> {
     }
 
     // Recovery is driven from here rather than delegated to onClose: closing a half-open
-    // socket only queues a close frame, and the adapter detaches its handlers anyway, so
-    // no close event may ever arrive to re-arm anything.
+    // socket only queues a close frame, so no close event may ever arrive to re-arm.
     function onStale(): void {
       if (stopped) return;
       options.notify(`No frames for ${STALE_TIMEOUT_MS} ms; reconnecting`);
@@ -234,8 +233,7 @@ export function watchEvents(options: WatchOptions): Promise<void> {
         return;
       }
       // The server also sends 4401 for auth timeouts and rejected handshakes, so let one
-      // HTTP round-trip decide whether the session is really gone. An inconclusive check
-      // is a blip, not a revocation.
+      // HTTP round-trip decide whether the session is really gone.
       let stillValid = true;
       try {
         stillValid = await options.revalidateSession();

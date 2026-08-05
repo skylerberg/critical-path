@@ -37,9 +37,7 @@ export const publicBoardTaskSchema = type({
   checklist_done_count: 'number',
 });
 
-// Spelled out rather than reusing the authenticated comment shape: the day a
-// field is added there, what a stranger receives must stay where it is until
-// someone widens it here on purpose.
+// Spelled out for the same reason.
 export const publicBoardCommentSchema = type({
   id: 'string',
   task_id: 'string',
@@ -49,9 +47,8 @@ export const publicBoardCommentSchema = type({
   updated_at: 'string',
 });
 
-// Spelled out for the same reason, and the missing timestamps are also what keep
-// it from producing JSON Schema identical to the authenticated item and colliding
-// in the schema-name registry.
+// Spelled out for the same reason; the missing timestamps also keep it from
+// colliding with the authenticated item in the schema-name registry.
 export const publicBoardChecklistItemSchema = type({
   id: 'string',
   task_id: 'string',

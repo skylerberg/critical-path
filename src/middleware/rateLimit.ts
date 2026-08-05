@@ -33,17 +33,13 @@ interface Budget {
   max: number;
 }
 
-// Deciding and spending have to be one step. Reading a counter and then raising
-// it leaves everything that arrives in between reading the stale value and
-// passing too, and over a network that gap is a round trip wide.
-//
-// Answers 0, or the 1-based position of the first full budget having spent
-// nothing. Every key it looks at is given an expiry if it has none, whatever
-// the verdict: a counter that lost its expiry never resets, and repairing only
-// what gets spent would strand exactly the full ones, forever.
-//
-// Sent in full rather than by hash, because a NOSCRIPT answer after a Redis
-// restart would silently drop every budget back to the per-process window.
+// Answers 0, or the 1-based position of the first full budget, having spent
+// nothing. One script rather than GET-then-INCR: over a network that gap is a
+// round trip wide. Every key gets an expiry if it has none, whatever the
+// verdict — one that lost its expiry never resets, and repairing only what gets
+// spent would strand exactly the full ones. Sent in full rather than by hash: a
+// NOSCRIPT reply after a Redis restart would silently drop every budget back to
+// the per-process window.
 const CONSUME_SCRIPT = `
 local n = #KEYS
 local refused = 0
@@ -63,8 +59,8 @@ end
 return 0
 `;
 
-// Guarded rather than a plain DECR: on a key whose window has already expired
-// that would recreate it at -1 with no expiry at all.
+// Guarded rather than a plain DECR: on an already-expired key that would
+// recreate it at -1 with no expiry at all.
 const REFUND_SCRIPT = `
 for i = 1, #KEYS do
   if tonumber(redis.call('GET', KEYS[i]) or '0') > 0 then
@@ -74,9 +70,8 @@ end
 return 0
 `;
 
-// null means "no shared verdict" (Redis unconfigured or unreachable); the
-// caller then falls back to the per-process window, which still bounds abuse
-// per replica rather than failing closed on a Redis outage.
+// null means "no shared verdict" (Redis unconfigured or unreachable); the caller
+// falls back to the per-process window rather than failing closed on an outage.
 async function runShared(
   script: string,
   budgets: Budget[],
@@ -90,8 +85,7 @@ async function runShared(
       keys: budgets.map((budget) => `ratelimit:${budget.key}`),
       arguments: args,
     });
-    // An error reply arrives as a normal completion, not a lost connection, so
-    // anything that is not a position has to be refused as a verdict.
+    // An error reply arrives as a normal completion, not a lost connection.
     if (typeof reply !== 'number' || reply < 0 || reply > budgets.length) {
       throw new Error(`Unreadable rate limit reply: ${JSON.stringify(reply)}`);
     }
@@ -124,8 +118,7 @@ function consumeBudgetsLocal(budgets: Budget[], now: number, windowMs: number): 
   return 0;
 }
 
-// All or nothing, so a message one budget refuses never denies the next one
-// another budget's slot.
+// All or nothing, so a message one budget refuses never spends another's slot.
 async function consumeBudgets(
   budgets: Budget[],
   now: number,
@@ -274,10 +267,9 @@ export const INVITE_SEND_MAX_ATTEMPTS = 20;
 export const INVITE_RESEND_WINDOW_MS = 60 * 60_000;
 export const INVITE_RESEND_MAX_ATTEMPTS = 3;
 
-// Metered apart from mail because they are different harms: this bounds how
-// fast a share attempt can be used to tell an address with an account from one
-// without, and every attempt spends it whatever the answer, so no reply about
-// an address is free. Sized for onboarding a team in one sitting.
+// Metered apart from mail: this bounds how fast a share attempt can tell an
+// address with an account from one without. Spent whatever the answer, so no
+// reply about an address is free. Sized for onboarding a team in one sitting.
 export async function enforceInvitationLookupRateLimit(userId: string): Promise<void> {
   const allowed = await consumeRateLimit(
     `invite-lookup:${userId}`,
@@ -292,8 +284,8 @@ export async function enforceInvitationLookupRateLimit(userId: string): Promise<
 
 const inviteSendKey = (userId: string): string => `invite-send:${userId}`;
 
-// Refuses every caller alike once the mail budget is gone, including the ones
-// whose call would never have sent anything: a budget that only turned away the
+// Refuses every caller alike once the mail budget is gone, including those whose
+// call would never have sent anything: a budget that turned away only the
 // addresses with no account would make its own 429 the answer about an address.
 export async function assertInvitationSendBudget(userId: string): Promise<void> {
   const remaining = await peekRateLimit(
@@ -306,8 +298,8 @@ export async function assertInvitationSendBudget(userId: string): Promise<void> 
   }
 }
 
-// Spent only where mail actually goes out, since this is the only path that
-// mails an address nobody has proved they control.
+// Spent only where mail goes out: the only path that mails an address nobody
+// has proved they control.
 export async function enforceInvitationSendRateLimit(userId: string): Promise<void> {
   const allowed = await consumeRateLimit(
     inviteSendKey(userId),
@@ -320,9 +312,9 @@ export async function enforceInvitationSendRateLimit(userId: string): Promise<vo
   }
 }
 
-// Tighter, and keyed on the invitation rather than the caller: the inviter's
-// hourly total does not stop one address being mailed the same link over and
-// over, by them or by a second editor.
+// Keyed on the invitation rather than the caller: the inviter's hourly total
+// does not stop one address being mailed the same link over and over, by them
+// or by a second editor.
 export async function enforceInvitationResendRateLimit(invitationId: string): Promise<void> {
   const allowed = await consumeRateLimit(
     `invite-resend:${invitationId}`,
@@ -338,26 +330,24 @@ export async function enforceInvitationResendRateLimit(invitationId: string): Pr
 export const NOTIFY_WINDOW_MS = 60 * 60_000;
 export const NOTIFY_PAIR_MAX_ATTEMPTS = 20;
 export const NOTIFY_RECIPIENT_MAX_ATTEMPTS = 100;
-// Distinct senders named per silenced mailbox per window. One line cannot tell
-// a single loop from a farm of accounts, which is the attack the ceiling exists
-// for; one line per sender is unbounded, which is the log spam it was avoiding.
+// Distinct senders named per silenced mailbox per window. One line cannot tell a
+// single loop from a farm of accounts, which is the attack the ceiling exists
+// for; one line per sender is the log spam it was avoiding.
 export const NOTIFY_SILENCE_LOG_MAX = 10;
 
-// An abuse loop is the high-volume case, so an unconditional line would turn a
-// flood into log spam, but dropping mail with no trace at all leaves a silenced
-// recipient invisible.
+// An unconditional line would turn an abuse loop into log spam, but dropping
+// mail with no trace leaves a silenced recipient invisible.
 async function warnDropped(budgets: Budget[], fields: LogFields): Promise<void> {
   if ((await consumeBudgets(budgets, Date.now(), NOTIFY_WINDOW_MS)) === null) {
     logger.warn(fields);
   }
 }
 
-// Keyed on the pair. A budget keyed on the recipient alone is spent by whoever
-// causes the write, so a stranger can exhaust it on someone else's behalf and
-// silence the people that recipient actually works with; one keyed on the
-// sender alone bounds nothing about what a mailbox receives. The ceiling above
-// the pair only bites once many separate senders are involved. Refusal is
-// silent rather than thrown, because the mutation has already committed.
+// Keyed on the pair: keyed on the recipient alone, a stranger could exhaust it
+// on someone else's behalf and silence the people that recipient works with;
+// keyed on the sender alone it bounds nothing about what a mailbox receives. The
+// ceiling above the pair only bites once many separate senders are involved.
+// Refusal is silent rather than thrown — the mutation has already committed.
 export async function withNotificationBudget(
   recipientId: string,
   actorId: string,
@@ -404,9 +394,8 @@ export async function withNotificationBudget(
     await send();
   } catch (err) {
     // Only the collapse slot comes back: its job is to not say the same thing
-    // twice, and nothing was said. The other two bound attempts, not
-    // deliveries, and an address the provider rejects every time is the case
-    // they exist for — refunding those uncaps the loop that never succeeds.
+    // twice, and nothing was said. The other two bound attempts, not deliveries,
+    // and refunding those uncaps a loop whose sends never succeed.
     await refundBudgets([repeat], now);
     throw err;
   }
@@ -415,8 +404,8 @@ export async function withNotificationBudget(
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
   const normalizedEmail = email.toLowerCase();
   const ipAllowed = await consumeRateLimit(`ip:${clientIp(c)}:${normalizedEmail}`);
-  // Second, IP-independent dimension: bounds total guesses against one
-  // account even when attempts arrive from many distinct source IPs.
+  // IP-independent dimension: bounds total guesses against one account even
+  // when attempts arrive from many distinct source IPs.
   const emailAllowed = await consumeRateLimit(
     `email:${normalizedEmail}`,
     Date.now(),
@@ -433,9 +422,8 @@ export const SIGNUP_IP_MAX_ATTEMPTS = 50;
 
 // The only bound on how many accounts one source can open on addresses it does
 // not own: the buckets signup already spends are keyed on the address, so a
-// fresh one costs an attacker nothing in either dimension. Refuses rather than
-// withholding a side effect — what is capped is the account, not a message —
-// at a ceiling far above a whole office signing up together.
+// fresh one costs an attacker nothing. The ceiling sits far above a whole office
+// signing up together.
 export async function enforceSignupRateLimit(c: Context): Promise<void> {
   const allowed = await consumeRateLimit(
     `signup-ip:${clientIp(c)}`,
@@ -451,9 +439,8 @@ export async function enforceSignupRateLimit(c: Context): Promise<void> {
 export const LINK_ATTACH_WINDOW_MS = 60 * 60_000;
 export const LINK_ATTACH_MAX_ATTEMPTS = 60;
 
-// Attaching a link is the only user-triggered outbound request in the product,
-// so it gets a budget: without one, a card is an unbounded request amplifier
-// pointed at whatever host the caller names.
+// The only user-triggered outbound request in the product: without a budget, a
+// card is an unbounded request amplifier pointed at whatever host is named.
 export async function enforceLinkAttachmentRateLimit(userId: string): Promise<void> {
   const allowed = await consumeRateLimit(
     `link-attach:${userId}`,

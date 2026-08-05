@@ -135,7 +135,6 @@ router.post(
         .executeTakeFirstOrThrow();
       createdAt = row.created_at;
     } catch (err) {
-      // Intentionally not cleaned up: an orphaned object is acceptable.
       logger.warn({
         msg: 'Orphaned storage object: image row insert failed after storage write',
         storageKey,

@@ -122,7 +122,6 @@ router.post(
         .where('id', '=', user.id)
         .execute();
     } catch (err) {
-      // Intentionally not cleaned up: an orphaned object is acceptable.
       logger.warn({
         msg: 'Orphaned storage object: avatar row update failed after storage write',
         storageKey,

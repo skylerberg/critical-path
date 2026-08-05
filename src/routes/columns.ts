@@ -108,9 +108,9 @@ async function relocateTasks(
   return movedTasks;
 }
 
-// A one-shot reorder within a single column: re-stamp evenly spaced positions
-// in the given order so the result commits to manual order (no column change,
-// no activity entry, no column_since bump).
+// A one-shot reorder within a single column: re-stamps evenly spaced positions
+// so the result commits to manual order. No column change, no activity entry,
+// no column_since bump.
 async function reorderTasks(
   db: Kysely<DB>,
   column: { id: string },

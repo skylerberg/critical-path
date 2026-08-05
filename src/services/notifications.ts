@@ -92,8 +92,7 @@ export const notificationDelivery: {
     // The module-level connection, not the request's: by the time a post-commit
     // hook runs its transaction is closed.
     //
-    // Every gate here is per recipient: below every call site so account-access
-    // mail cannot be caught by them, and per-row so one unverified, opted-out,
+    // Every gate here is per recipient, so one unverified, opted-out,
     // since-evicted or throttled recipient never suppresses mail to the rest.
     const rows = await db
       .selectFrom('app_user')
@@ -146,8 +145,8 @@ export async function notify(
     recipientUserIds: string[];
   }
 ): Promise<void> {
-  // The actor rule lives here rather than at the call sites so that every
-  // future kind inherits it: acting on yourself never mails you.
+  // Here rather than at the call sites so every future kind inherits it: acting
+  // on yourself never mails you.
   const recipientUserIds = [...new Set(args.recipientUserIds)]
     .filter((id) => id !== args.actor.id)
     .slice(0, MAX_NOTIFICATION_RECIPIENTS);

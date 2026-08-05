@@ -191,8 +191,7 @@ describe('Recurring series materialisation', () => {
   });
 
   // The handler registry and the job table both outlive this file: a kind left
-  // registered gets a schedule seeded by whichever file runs next, and a row
-  // left behind fails that file's own emptiness assertions.
+  // registered gets a schedule seeded by whichever file runs next.
   afterEach(async () => {
     for (const kind of registeredJobKinds()) unregisterJobHandler(kind);
     await db.deleteFrom('job').execute();
