@@ -1,11 +1,14 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 
-// Transitional: images are still owned by task_image and every read comes from
-// it, but each write is mirrored into task_attachment as kind='image' so the two
-// tables converge while old and new pods run side by side. The release that
-// moves reads across deletes this module and its call sites; the one after that
-// drops task_image.
+// Transitional, and now pointing the other way: every read comes from
+// task_attachment as of this release, so these writes exist only to keep
+// task_image current for pods still serving the previous one. An image created
+// here during the rollout has to be visible to a pod that still reads the old
+// table, which is the whole reason both writes survive another release.
+//
+// The next release deletes this module and its call sites; the one after drops
+// task_image.
 export interface MirroredImage {
   id: string;
   task_id: string;

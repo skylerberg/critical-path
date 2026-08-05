@@ -59,24 +59,25 @@ export async function buildProjectExport(
 }> {
   const projectId = payload.project.id;
 
-  const [users, archivedTasks, images, checklistItems, attachmentRows] = await Promise.all([
+  const [users, archivedTasks, imageRows, checklistItems, attachmentRows] = await Promise.all([
     usersWithProjectAccess(db, projectId),
     getArchivedTasks(db, projectId),
     db
-      .selectFrom('task_image')
-      .innerJoin('task', 'task.id', 'task_image.task_id')
+      .selectFrom('task_attachment')
+      .innerJoin('task', 'task.id', 'task_attachment.task_id')
       .select([
-        'task_image.id',
-        'task_image.task_id',
-        'task_image.storage_key',
-        'task_image.filename',
-        'task_image.content_type',
-        'task_image.size_bytes',
-        'task_image.created_at',
+        'task_attachment.id',
+        'task_attachment.task_id',
+        'task_attachment.image_storage_key as storage_key',
+        'task_attachment.filename',
+        'task_attachment.image_content_type as content_type',
+        'task_attachment.size_bytes',
+        'task_attachment.created_at',
       ])
       .where('task.project_id', '=', projectId)
-      .orderBy('task_image.created_at')
-      .orderBy('task_image.id')
+      .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+      .orderBy('task_attachment.created_at')
+      .orderBy('task_attachment.id')
       .execute(),
     // No archived_at filter: the manifest lists archived cards too, and filtering
     // would silently drop their items.
@@ -117,6 +118,18 @@ export async function buildProjectExport(
       .orderBy('task_attachment.id')
       .execute(),
   ]);
+
+  // The image shape CHECK makes all four non-null on a kind='image' row; the
+  // coalescing is for the compiler, which sees columns the other kinds leave null.
+  const images: ExportImageRow[] = imageRows.map((row) => ({
+    id: row.id,
+    task_id: row.task_id,
+    storage_key: row.storage_key ?? '',
+    filename: row.filename ?? '',
+    content_type: row.content_type ?? '',
+    size_bytes: row.size_bytes ?? 0,
+    created_at: row.created_at,
+  }));
 
   const imagesByTask = new Map<string, ProjectExport['tasks'][number]['images']>();
   for (const image of images) {

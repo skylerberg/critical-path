@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import { copyTaskAttachments, type ObjectCopy } from './attachments/copy';
 import { mirrorImagesInserted } from './attachments/imageMirror';
+import { MIRRORED_IMAGE_KIND } from './attachments/index';
 import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -85,19 +86,31 @@ export async function copyTasks(
     .execute();
   const taskIdMap = new Map(tasks.map((task) => [task.id, newIdFor()]));
 
-  const images = await db
-    .selectFrom('task_image')
+  const imageRows = await db
+    .selectFrom('task_attachment')
     .select([
-      'task_image.id',
-      'task_image.task_id',
-      'task_image.storage_key',
-      'task_image.filename',
-      'task_image.content_type',
-      'task_image.size_bytes',
-      'task_image.is_cover',
+      'task_attachment.id',
+      'task_attachment.task_id',
+      'task_attachment.image_storage_key',
+      'task_attachment.filename',
+      'task_attachment.image_content_type',
+      'task_attachment.size_bytes',
+      'task_attachment.is_cover',
     ])
-    .where('task_image.task_id', 'in', input.sourceTaskIds)
+    .where('task_attachment.task_id', 'in', input.sourceTaskIds)
+    .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
     .execute();
+
+  // The image shape CHECK makes these non-null on a kind='image' row.
+  const images = imageRows.map((row) => ({
+    id: row.id,
+    task_id: row.task_id,
+    storage_key: row.image_storage_key ?? '',
+    filename: row.filename ?? '',
+    content_type: row.image_content_type ?? '',
+    size_bytes: row.size_bytes ?? 0,
+    is_cover: row.is_cover,
+  }));
   const imageIdMap = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
   const newStorageKeys = new Map(images.map((image) => [image.id, crypto.randomUUID()]));
 

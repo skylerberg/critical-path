@@ -6,6 +6,7 @@ import { db } from '../../../src/db/index';
 import { storage } from '../../../src/services/storage/index';
 import { storageKeysOwnedBy } from '../../../src/services/accountDeletion';
 import { copyTasks } from '../../../src/services/projectCopy';
+import { mirrorImagesInserted } from '../../../src/services/attachments/imageMirror';
 import {
   cleanupProjects,
   clearUnfurlJobs,
@@ -256,18 +257,32 @@ describe('Attachment lifecycle', () => {
       await attachEverything(user.token, taskId);
 
       const imageKey = newId();
+      const imageId = newId();
       await storage.put(imageKey, Buffer.from('image'), 'image/png');
-      await db
+      const imageRow = await db
         .insertInto('task_image')
         .values({
-          id: newId(),
+          id: imageId,
           task_id: taskId,
           storage_key: imageKey,
           filename: 'p.png',
           content_type: 'image/png',
           size_bytes: 5,
         })
-        .execute();
+        .returning('created_at')
+        .executeTakeFirstOrThrow();
+      await mirrorImagesInserted(db, [
+        {
+          id: imageId,
+          task_id: taskId,
+          storage_key: imageKey,
+          filename: 'p.png',
+          content_type: 'image/png',
+          size_bytes: 5,
+          is_cover: false,
+          created_at: imageRow.created_at,
+        },
+      ]);
 
       const attempted: string[] = [];
       const copySpy = vi

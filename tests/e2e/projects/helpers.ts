@@ -1,4 +1,5 @@
 import { db } from '../../helpers/database';
+import { mirrorImagesInserted } from '../../../src/services/attachments/imageMirror';
 import { reconcileSortKeys } from '../../../src/services/sortKeyAssignment';
 
 export interface BoardColumnPayload {
@@ -108,18 +109,35 @@ export async function insertTaskImage(options: {
 }): Promise<{ imageId: string; storageKey: string }> {
   const imageId = options.imageId ?? crypto.randomUUID();
   const storageKey = options.storageKey ?? crypto.randomUUID();
-  await db
+  const filename = options.filename ?? 'test.png';
+  const isCover = options.isCover ?? false;
+  const row = await db
     .insertInto('task_image')
     .values({
       id: imageId,
       task_id: options.taskId,
       storage_key: storageKey,
-      filename: options.filename ?? 'test.png',
+      filename,
       content_type: 'image/png',
       size_bytes: 4,
-      is_cover: options.isCover ?? false,
+      is_cover: isCover,
     })
-    .execute();
+    .returning('created_at')
+    .executeTakeFirstOrThrow();
+  // Writes both tables through the same mirror the API uses, so a fixture can
+  // never describe a state the application could not have produced.
+  await mirrorImagesInserted(db, [
+    {
+      id: imageId,
+      task_id: options.taskId,
+      storage_key: storageKey,
+      filename,
+      content_type: 'image/png',
+      size_bytes: 4,
+      is_cover: isCover,
+      created_at: row.created_at,
+    },
+  ]);
   return { imageId, storageKey };
 }
 

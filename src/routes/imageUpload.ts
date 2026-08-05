@@ -160,9 +160,10 @@ router.post(
     }
 
     const { count } = await db
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select((eb) => eb.fn.countAll<string>().as('count'))
       .where('task_id', '=', taskId)
+      .where('kind', '=', 'image')
       .executeTakeFirstOrThrow();
 
     const image = {
