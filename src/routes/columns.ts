@@ -6,7 +6,11 @@ import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
-import { assertColumnInProject, type ColumnInProject } from '../services/boardColumns';
+import {
+  appendPositions,
+  assertColumnInProject,
+  type ColumnInProject,
+} from '../services/boardColumns';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
@@ -80,19 +84,7 @@ async function relocateTasks(
     return [];
   }
 
-  // Spans archived rows too, so a relocated task never collides with one.
-  const { max } = await db
-    .selectFrom('task')
-    .select((eb) => eb.fn.max<number | null>('position').as('max'))
-    .where('column_id', '=', target.id)
-    .executeTakeFirstOrThrow();
-  const base = max ?? 0;
-
-  const movedTasks = taskIds.map((taskId, index) => ({
-    id: taskId,
-    column_id: target.id,
-    position: base + (index + 1) * 1000,
-  }));
+  const movedTasks = await appendPositions(db, target.id, taskIds);
 
   await sql`
     update task

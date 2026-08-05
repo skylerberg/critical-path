@@ -1,7 +1,7 @@
 import { sql, type Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import type { MovedTask } from '../schemas/index';
-import type { ColumnInProject } from './boardColumns';
+import { appendPositions, type ColumnInProject } from './boardColumns';
 import { recordTaskActivity } from './taskActivity';
 
 export interface BulkTaskRow {
@@ -79,19 +79,11 @@ export async function relocateSelectedTasks(
     return [];
   }
 
-  // Spans archived rows too, so a relocated task never collides with one.
-  const { max } = await db
-    .selectFrom('task')
-    .select((eb) => eb.fn.max<number | null>('position').as('max'))
-    .where('column_id', '=', target.id)
-    .executeTakeFirstOrThrow();
-  const base = max ?? 0;
-
-  const movedTasks = rows.map((row, index) => ({
-    id: row.id,
-    column_id: target.id,
-    position: base + (index + 1) * 1000,
-  }));
+  const movedTasks = await appendPositions(
+    db,
+    target.id,
+    rows.map((row) => row.id)
+  );
 
   // The project and archived predicates guard the gap between the classifying
   // read and this write.

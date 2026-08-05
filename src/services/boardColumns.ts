@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
+import type { MovedTask } from '../schemas/index';
 import { AppError } from '../utils/errors';
 
 export interface ColumnInProject {
@@ -30,4 +31,25 @@ export async function assertColumnInProject(
     throw new AppError(422, messages.otherProject ?? CROSS_PROJECT_MESSAGE);
   }
   return column;
+}
+
+// The probe spans archived rows too, so an appended task never collides with
+// one that is only hidden.
+export async function appendPositions(
+  db: Kysely<DB>,
+  targetColumnId: string,
+  taskIds: readonly string[]
+): Promise<MovedTask[]> {
+  const { max } = await db
+    .selectFrom('task')
+    .select((eb) => eb.fn.max<number | null>('position').as('max'))
+    .where('column_id', '=', targetColumnId)
+    .executeTakeFirstOrThrow();
+  const base = max ?? 0;
+
+  return taskIds.map((taskId, index) => ({
+    id: taskId,
+    column_id: targetColumnId,
+    position: base + (index + 1) * 1000,
+  }));
 }
