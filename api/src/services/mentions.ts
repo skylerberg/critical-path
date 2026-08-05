@@ -1,5 +1,5 @@
 import { projectAccessIdsAmong, type ProjectAccessFields } from './authorization';
-import type { AppContext } from '../types/index';
+import type { PublicContext } from '../types/index';
 
 // Membership already bounds who can be notified; this bounds the fan-out of a
 // single write on a project with a large membership.
@@ -59,7 +59,7 @@ export function newMentionIds(previous: unknown, next: unknown): string[] {
 }
 
 export async function notifyMentions(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   args: {
     actorUserId: string;
     project: ProjectAccessFields;

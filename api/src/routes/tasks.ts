@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql, type Kysely } from 'kysely';
 import type { DB } from '../db/types';
-import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -143,7 +142,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createTaskSchema),
   async (c) => {
     const body = c.req.valid('json');
@@ -254,7 +252,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(duplicateSchema),
   async (c) => {
@@ -323,7 +320,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createTasksBatchSchema),
   async (c) => {
     const body = c.req.valid('json');
@@ -412,7 +408,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -540,7 +535,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -587,7 +581,6 @@ router.patch(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(patchTaskSchema),
   async (c) => {
@@ -759,7 +752,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -858,7 +850,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -913,7 +904,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -980,7 +970,6 @@ router.put(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(setTaskLabelsSchema),
   async (c) => {
@@ -1064,7 +1053,6 @@ router.put(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(setTaskAssigneesSchema),
   async (c) => {
@@ -1146,7 +1134,6 @@ router.put(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(setTaskCoverSchema),
   async (c) => {
@@ -1235,7 +1222,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(addBlockerSchema),
   async (c) => {
@@ -1310,7 +1296,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(taskBlockerParamsSchema),
   async (c) => {
     const { id, blockerTaskId } = c.req.valid('param');

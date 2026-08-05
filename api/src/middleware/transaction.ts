@@ -1,5 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import type { MiddlewareHandler } from 'hono';
+import { matchedRoutes } from 'hono/route';
 import { db } from '../db/index';
 import type { Variables } from '../types/index';
 import { logger } from '../utils/logger';
@@ -9,9 +10,9 @@ const TRANSACTIONAL_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 // Add as a no-op middleware on any route whose handler should NOT be wrapped
 // in the automatic db.transaction(). Hono stores the middleware reference
 // directly in the route record, so the same reference shows up in
-// `c.req.matchedRoutes[i].handler` and transactionMiddleware below picks it
-// up by identity — totally independent of the route's path, so renames and
-// remounts carry the marker with them.
+// `matchedRoutes(c)[i].handler` and transactionMiddleware below picks it up by
+// identity — totally independent of the route's path, so renames and remounts
+// carry the marker with them. `skipAuth` in ./auth works the same way.
 export const skipAutoTransaction: MiddlewareHandler = async (_c, next) => {
   await next();
 };
@@ -22,7 +23,7 @@ export const transactionMiddleware = createMiddleware<{ Variables: Variables }>(
   c.set('webhookEvents', []);
   c.set('changedProjectIds', new Set());
 
-  const skip = c.req.matchedRoutes.some((r) => r.handler === skipAutoTransaction);
+  const skip = matchedRoutes(c).some((r) => r.handler === skipAutoTransaction);
 
   if (TRANSACTIONAL_METHODS.has(c.req.method) && !skip) {
     try {

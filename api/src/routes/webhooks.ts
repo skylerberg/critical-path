@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import type { Selectable } from 'kysely';
-import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -103,7 +102,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createWebhookSchema),
   async (c) => {
     const { id, project_id, url } = c.req.valid('json');
@@ -173,7 +171,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   queryValidator(webhooksQuerySchema),
   async (c) => {
     const { project_id } = c.req.valid('query');
@@ -218,7 +215,6 @@ router.patch(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(patchWebhookSchema),
   async (c) => {
@@ -301,7 +297,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -345,7 +340,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -392,7 +386,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   queryValidator(webhookDeliveriesQuerySchema),
   async (c) => {
@@ -443,7 +436,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(webhookDeliveryParamsSchema),
   async (c) => {
     const { id, deliveryId } = c.req.valid('param');

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
+import { skipAuth } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
 import { getPublicBoard } from '../services/boardPayload';
@@ -10,9 +11,9 @@ import {
   notFoundErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
-import { AppHono } from '../types/index';
+import { PublicHono } from '../types/index';
 
-const router: AppHono = new Hono();
+const router: PublicHono = new Hono();
 
 router.get(
   '/projects/:id/board',
@@ -41,6 +42,7 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
