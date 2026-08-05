@@ -22,7 +22,7 @@ const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]/;
 const CONTACT_KEY = /e-?mail/i;
 
 // Nothing reads this column and nothing reviews what enters it, so an address
-// written here outlives every consent and access check that authorised it.
+// written here would outlive every consent and access check that authorised it.
 // Payloads carry ids; handlers re-resolve.
 export function assertJobPayload(value: JsonValue, path = 'payload'): void {
   if (typeof value === 'string') {
@@ -71,8 +71,8 @@ export async function enqueueJob(
   return id;
 }
 
-// Restricted to the kinds this process handles: during a rolling deploy an old
-// pod then leaves a new kind alone instead of claiming it, finding no handler,
+// Restricted to the kinds this process handles, so during a rolling deploy an
+// old pod leaves a new kind alone instead of claiming it, finding no handler,
 // and burning its attempts.
 export async function claimDueJobs(kinds: string[], limit: number): Promise<JobRow[]> {
   if (kinds.length === 0) return [];

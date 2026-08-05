@@ -71,8 +71,7 @@ export async function assertProjectStorageQuota(
 ): Promise<void> {
   // Under READ COMMITTED two concurrent uploads both read the pre-insert total
   // and both commit, overshooting the quota. The salt differs from every other
-  // advisory lock in the codebase so an upload can never serialise against an
-  // unrelated write whose id happens to hash the same.
+  // advisory lock here so an upload never serialises against an unrelated write.
   await sql`select pg_advisory_xact_lock(hashtextextended(${projectId}::text, 1))`.execute(db);
 
   const used = await usedBytes(db, projectId);

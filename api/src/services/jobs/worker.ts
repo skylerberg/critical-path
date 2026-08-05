@@ -22,8 +22,8 @@ export const TICK_BUDGET_MS = 45_000;
 const MAINTENANCE_EVERY_TICKS = 60;
 
 // Process-wide rather than per tick: overrunning the budget releases the
-// no-overlap latch without stopping the rows the slow tick is still running, so
-// a per-tick bound would let every further tick pile on another batch.
+// no-overlap latch without stopping the rows still running, so a per-tick bound
+// would let every further tick pile on another batch.
 let inFlight = 0;
 
 export async function runDueJobs(): Promise<number> {
@@ -58,8 +58,8 @@ export async function runDueJobs(): Promise<number> {
 }
 
 // Bounds how long the runner waits, not the handler: an overrunning handler
-// keeps going and its row is re-claimed once the lease lapses, which is the
-// concurrency the handler contract already requires it to survive.
+// keeps going and its row is re-claimed once the lease lapses, which the handler
+// contract already requires it to survive.
 async function withTimeout(handler: JobHandler, payload: JobRow['payload']): Promise<void> {
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -142,9 +142,9 @@ export function startJobWorker(): { close: () => void } {
     tickMs: TICK_MS,
     budgetMs: TICK_BUDGET_MS,
     tick: async () => {
-      // Repeated rather than done once at start: a handler registered after the
-      // worker started still gets its schedule, and a row that parks in failed
-      // hours later is still reported.
+      // Repeated rather than done once at start: a handler registered later
+      // still gets its schedule, and a row that parks in failed hours later is
+      // still reported.
       if (ticks % MAINTENANCE_EVERY_TICKS === 0) await runJobMaintenance();
       ticks += 1;
       await runDueJobs();

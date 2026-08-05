@@ -32,10 +32,9 @@ export async function openRealRedis(): Promise<RealRedis> {
   const client = createClient({
     url: redisTestUrl,
     disableOfflineQueue: true,
-    // The one place this deliberately parts company with the client the app
-    // builds: reconnecting forever is how production degrades instead of
-    // failing, but here it turns a Redis that is simply not there into a hang
-    // until the hook times out, connect() never having rejected.
+    // The one place this parts company with the client the app builds:
+    // reconnecting forever is how production degrades instead of failing, but
+    // here it turns an absent Redis into a hang until the hook times out.
     socket: { connectTimeout: 2000, reconnectStrategy: false },
   });
   // An 'error' with no listener is thrown rather than reported.

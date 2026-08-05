@@ -3,8 +3,8 @@ import { finiteNumber, stringWithLength, uuid } from './common';
 
 // Must stay equal to the task title maximum: promoting an item writes its text
 // into a title by direct insert, past that schema, and the column has no length
-// CHECK. Restated rather than imported — the module holding it imports this one,
-// and arktype resolves that cycle to undefined at load.
+// CHECK. Restated rather than imported — arktype resolves the import cycle that
+// would create to undefined at load.
 export const CHECKLIST_ITEM_TEXT_MIN_LENGTH = 1;
 export const CHECKLIST_ITEM_TEXT_MAX_LENGTH = 2000;
 

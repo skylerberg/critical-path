@@ -12,9 +12,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     // 204, so a cascade here would silently destroy the schedule. Nulling it
     // stops the sweep and the panel asks for a new destination.
     .addColumn('column_id', 'uuid', (col) => col.references('board_column.id').onDelete('set null'))
-    // A series belongs to the project, not to whoever set it up, and is never an
-    // authorization gate; cascading would let a departing member destroy
-    // schedules in projects they did not own.
+    // A series belongs to the project, not to whoever set it up; cascading would
+    // let a departing member destroy schedules in projects they did not own.
     .addColumn('created_by', 'uuid', (col) => col.references('app_user.id').onDelete('set null'))
     .addColumn('title', 'text', (col) => col.notNull())
     .addColumn('description', 'jsonb')

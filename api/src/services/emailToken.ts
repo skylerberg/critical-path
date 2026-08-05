@@ -56,7 +56,7 @@ function decode(token: string): Record<string, unknown> | null {
 }
 
 // Recomputed from the stored address at redemption, so changing the address
-// invalidates every outstanding link with no stored state — and no address ever
+// invalidates every outstanding link with no stored state — and no address
 // reaches a URL, an access log or a browser history.
 export function emailAddressHash(email: string): string {
   return crypto
@@ -99,10 +99,9 @@ export function verifyVerificationToken(
 }
 
 // No expiry: an unsubscribe link has to work in a year-old email, and the only
-// thing it authorizes is turning a preference off, so replay is idempotent and
-// a leak cannot enable anything. Binding the address supplies the one
-// revocation that is still needed: nothing else retires a token, so losing the
-// mailbox it was sent to has to.
+// thing it authorizes is turning a preference off, so replay is idempotent and a
+// leak cannot enable anything. Binding the address supplies the one revocation
+// still needed — nothing else retires a token.
 export function createUnsubscribeToken(
   userId: string,
   email: string,

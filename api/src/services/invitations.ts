@@ -31,10 +31,9 @@ export const INVITATION_COLUMNS = [
   'expires_at',
 ] as const;
 
-// Derived from the row id rather than stored, so a resend can reproduce the
-// link that was already mailed without the raw secret ever being persisted.
-// Validity still depends on the row existing, which is what makes revocation
-// and expiry work at all.
+// Derived from the row id rather than stored, so a resend can reproduce the link
+// already mailed without the raw secret ever being persisted. Validity still
+// depends on the row existing, which is what makes revocation and expiry work.
 export function invitationToken(invitationId: string): string {
   return crypto
     .createHmac('sha256', env.emailTokenSecret)
@@ -64,12 +63,10 @@ export function toInvitationResponse(
   };
 }
 
-// The only publisher of this event, so no caller can decide what rides in it.
-// It says which project's pending invitations changed and nothing more: an
-// address is the last thing that should ride a fan-out, and the readers allowed
-// to know one can refetch the list they are already allowed to read.
-// Broadcast because the panel that shows the list also opens from the project
-// list, where an editor is sitting in no board's room.
+// The only publisher of this event, so no caller can decide what rides in it: it
+// names the project and nothing more, and readers allowed to know an address can
+// refetch the list. Broadcast because the panel showing that list also opens
+// from the project list, where an editor is sitting in no board's room.
 export function publishInvitationsChanged(c: Pick<AppContext, 'get'>, projectId: string): void {
   publishAfterCommit(
     c,
@@ -131,10 +128,10 @@ export async function claimInvitations(
     .execute();
   const projectById = new Map(projects.map((project) => [project.id, project]));
 
-  // Locked rather than read: deleting an account cascades these rows away while
-  // holding only the boards that account created, so the boards taken above are
-  // not enough to keep the role answered below from being one on its way out. A
-  // share lock is the weakest that conflicts with the cascade.
+  // Locked rather than read: deleting an account cascades these rows away
+  // holding only the boards that account created, so the boards taken above
+  // cannot keep the role below from being one on its way out. A share lock is
+  // the weakest that conflicts with the cascade.
   const held = await db
     .selectFrom('project_member')
     .select(['project_id', 'role'])
@@ -145,16 +142,15 @@ export async function claimInvitations(
   const heldRole = new Map(held.map((row) => [row.project_id, normalizeProjectRole(row.role)]));
 
   // Someone who already has access takes nothing from the link, so it stays
-  // alive for whoever it was addressed to; a project that vanished under the
-  // claim has nothing for a member row to reference.
+  // alive for whoever it was addressed to.
   const grantable = rows.filter((row) => {
     const project = projectById.get(row.project_id);
     return project !== undefined && project.created_by !== userId && !heldRole.has(row.project_id);
   });
 
-  // Consumed before it is honoured, and only rows this statement removed are:
-  // a revoke already holding the row wins outright rather than being overtaken
-  // by a grant that read the row before it was withdrawn.
+  // Consumed before it is honoured, and only rows this statement removed are: a
+  // revoke already holding the row wins rather than being overtaken by a grant
+  // that read the row before it was withdrawn.
   const consumed =
     grantable.length === 0
       ? []

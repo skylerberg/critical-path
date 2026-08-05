@@ -107,9 +107,8 @@ function dedupe(ids: string[]): string[] {
   return [...new Set(ids)];
 }
 
-// The generated Json column type has an index signature the TiptapDoc
-// interface cannot satisfy; serializing keeps the write type-safe and jsonb
-// parses the text back into the same document.
+// The generated Json column type has an index signature the TiptapDoc interface
+// cannot satisfy; jsonb parses the text back into the same document.
 function serializeDescription(description: TiptapDoc | null | undefined): string | null {
   return description == null ? null : JSON.stringify(description);
 }
@@ -367,8 +366,8 @@ router.post(
 
     const rows = await fetchBoardTaskRows(db, taskIds);
     const byId = new Map(rows.map((row) => [row.task.id, row.task]));
-    // Reordered here because the read makes no promise about row order while
-    // the response promises request order.
+    // The read makes no promise about row order; the response promises request
+    // order.
     const tasks = taskIds.map((taskId) => {
       const created = byId.get(taskId);
       if (created === undefined) {
@@ -603,13 +602,13 @@ router.patch(
         ? null
         : await assertColumnInProject(db, body.column_id, project.id);
 
-    // Gates the bump as well as the check: a move that moved updated_at would invalidate every
-    // other open editor's precondition.
+    // Gates the bump as well as the check: a move that moved updated_at would
+    // invalidate every other open editor's precondition.
     const guardsContent = body.title !== undefined || 'description' in body;
     const nextDescription = 'description' in body ? serializeDescription(body.description) : null;
 
-    // Read under the same lock the UPDATE takes, so two concurrent patches cannot both read
-    // the pre-update row: that would pass both preconditions, and it would log two
+    // Read under the same lock the UPDATE takes: two concurrent patches both
+    // reading the pre-update row would pass both preconditions and log two
     // transitions out of a value only one of them saw.
     const before =
       guardsContent || body.column_id !== undefined || 'due_date' in body
@@ -623,8 +622,8 @@ router.patch(
               'task.updated_at',
               'board_column.name as column_name',
               dueDateText.as('due_date'),
-              // Postgres normalizes jsonb key order on storage, so only jsonb equality can
-              // tell an unchanged description from a re-serialized one.
+              // Postgres normalizes jsonb key order on storage, so only jsonb
+              // equality tells an unchanged description from a re-serialized one.
               sql<boolean>`task.description is distinct from ${nextDescription}::jsonb`.as(
                 'description_changed'
               ),
@@ -637,8 +636,8 @@ router.patch(
       throw new AppError(404, 'Task not found');
     }
 
-    // Compared in JS, never in SQL: timestamptz keeps microseconds the millisecond-precision
-    // ISO string a client echoes back cannot carry.
+    // Compared in JS, never in SQL: timestamptz keeps microseconds the
+    // millisecond-precision ISO string a client echoes back cannot carry.
     if (
       guardsContent &&
       body.expected_updated_at !== undefined &&
@@ -661,15 +660,16 @@ router.patch(
       ...(columnChanged ? { column_since: sql<Date>`now()` } : {}),
     };
 
-    // Every field is optional and an empty body validates, so without this a `{}` patch would
-    // compile to an UPDATE with an empty SET list.
+    // Every field is optional and an empty body validates, so without this a
+    // `{}` patch would compile to an UPDATE with an empty SET list.
     if (Object.keys(changes).length > 0) {
       await db.updateTable('task').set(changes).where('task.id', '=', id).execute();
     }
 
     if (before !== null) {
-      // Written one at a time, in this order, so the entries read in the order the fields
-      // appear on the card and a rename cannot be swallowed by a coalesced description edit.
+      // One at a time, in this order, so the entries read in the order the
+      // fields appear on the card and a rename cannot be swallowed by a
+      // coalesced description edit.
       if (body.title !== undefined && body.title !== before.title) {
         await recordTaskActivity(db, actorId, [
           {
@@ -806,8 +806,8 @@ router.delete(
       throw new AppError(404, 'Task not found');
     }
 
-    // This card's own log dies with it; the cards it was blocking outlive it and would
-    // otherwise show a blocker that vanished with nothing to explain it.
+    // This card's own log dies with it; the cards it was blocking outlive it and
+    // would otherwise show a blocker that vanished with nothing to explain it.
     await recordTaskActivity(
       db,
       actorId,
@@ -937,8 +937,8 @@ router.post(
     if (restored) {
       await recordTaskActivity(db, c.get('user').id, [{ taskId: id, kind: 'restored' }]);
       publishAfterCommit(c, 'task_restored', project.id, row.task);
-      // The dependents' side of each edge is not derivable from the restored task
-      // alone, so their blocker_ids have to be republished.
+      // The dependents' side of each edge is not derivable from the restored
+      // task alone, so their blocker_ids have to be republished.
       const dependents = await db
         .selectFrom('task_dependency')
         .innerJoin('task', 'task.id', 'task_dependency.blocked_task_id')
@@ -998,8 +998,8 @@ router.put(
     if (desired.length > 0) {
       removal = removal.where('task_label.label_id', 'not in', desired);
     }
-    // `do nothing` returns no row for a pair that was already there, so `returning`
-    // yields the exact added and removed sets.
+    // `do nothing` returns no row for a pair that was already there, so
+    // `returning` yields the exact added and removed sets.
     const removed = await removal.returning('task_label.label_id').execute();
 
     const added =
@@ -1156,9 +1156,9 @@ router.put(
 
     const project = await assertTaskWrite(db, c.get('user').id, id);
 
-    // Serializes cover writes per task: under READ COMMITTED the clear below only
-    // sees committed rows, so a concurrent set would survive a clear that answered
-    // 204 and published a payload disagreeing with the stored row.
+    // Serializes cover writes per task: under READ COMMITTED the clear below
+    // only sees committed rows, so a concurrent set would survive a clear that
+    // answered 204 and published a payload disagreeing with the stored row.
     await sql`select pg_advisory_xact_lock(hashtextextended(${id}::text, 0))`.execute(db);
 
     if (image_id !== null) {
@@ -1258,8 +1258,8 @@ router.post(
     if (!blocker || blocker.project_id !== project.id) {
       throw new AppError(422, 'blocker_task_id must reference a task in the same project');
     }
-    // Board reads hide archived blockers, so allowing this would hand the task an
-    // edge no client could ever display or remove.
+    // Board reads hide archived blockers, so allowing this would hand the task
+    // an edge no client could ever display or remove.
     if (blocker.archived_at !== null) {
       throw new AppError(422, 'blocker_task_id must not reference an archived task');
     }

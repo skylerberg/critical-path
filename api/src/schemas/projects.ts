@@ -144,8 +144,7 @@ export const boardPayloadSchema = type({
 export type BoardPayload = typeof boardPayloadSchema.infer;
 
 // Merged rather than folded into the payload itself: the export, the public
-// board and the copy all build a BoardPayload and none of them has a caller
-// whose marker this could be measured against.
+// board and the copy all build a BoardPayload with no caller to measure against.
 export const boardResponseSchema = boardPayloadSchema.merge({
   changed_task_ids: 'string[]',
 });

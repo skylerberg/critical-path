@@ -80,10 +80,9 @@ async function assertOwnComment(
   return { task_id: row.task_id, project };
 }
 
-// Only a body that carries a mention can have added one, so an edit that
-// mentions nobody never pays for the comparison. It takes the lock the UPDATE
-// will take anyway, so two concurrent patches cannot both see the pre-edit body
-// and resolve the same mention twice.
+// Only a body carrying a mention can have added one, so an edit that mentions
+// nobody never pays for the comparison. It takes the lock the UPDATE will take
+// anyway, so two concurrent patches cannot both see the pre-edit body.
 async function bodyBeforeMentionEdit(
   db: Kysely<DB>,
   commentId: string,

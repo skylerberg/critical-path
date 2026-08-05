@@ -16,9 +16,9 @@ const CHARSET_SCAN_BYTES = 4 * 1024;
 // No HTML parser dependency: this is the one path in the product that eats
 // attacker-controlled bytes, and four fields do not justify the supply-chain
 // surface. Every pattern below is bounded and anchored so a crafted document
-// cannot make the scan superlinear.
-// Well above the longest value that survives trimming, so an over-long field is
-// truncated rather than making its whole tag unmatchable and silently lost.
+// cannot make the scan superlinear. The bounds sit well above the longest value
+// that survives trimming, so an over-long field is truncated rather than making
+// its whole tag unmatchable and silently lost.
 const TAG_PATTERN = /<(meta|title|link)\b([^>]{0,16000})>/gi;
 const ATTRIBUTE_PATTERN =
   /([a-zA-Z_:][-a-zA-Z0-9_:.]{0,60})\s*=\s*("[^"]{0,16000}"|'[^']{0,16000}'|[^\s"'>]{0,16000})/g;

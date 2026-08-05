@@ -219,8 +219,8 @@ describe('GET /api/public/projects/:id/board', () => {
   }
 
   // The 404 above passes whichever order the flag and the payload are read in, so
-  // this watches which tables are touched instead. Anonymous callers must not be
-  // able to spend a board query on a project they are refused.
+  // this watches which tables are touched instead: an anonymous caller must not
+  // be able to spend a board query on a project they are refused.
   it('reads nothing but the flag when the board is private', async () => {
     const board = await createProject('Never assembled');
     const taskId = await insertTask({

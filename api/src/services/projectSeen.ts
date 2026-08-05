@@ -10,10 +10,9 @@ type ProjectRef = string | RawBuilder<unknown>;
 // row every comparison is null, which is the rule — nothing is unseen until you
 // have opened the board once.
 //
-// Two silences are deliberate. Activity and comments cascade with their task, so
-// a deleted or archived card leaves nothing to notice; and `created_at` defaults
+// Two silences are deliberate: activity and comments cascade with their task, so
+// a deleted or archived card leaves nothing to notice, and `created_at` defaults
 // to transaction start, so a long write committing after a stamp sorts below it.
-// Both lose a highlight, neither invents one.
 function changedTasks(userId: string, project: ProjectRef): RawBuilder<{ id: string }> {
   const seenAt = sql`(select seen.last_seen_at from project_user_seen seen
       where seen.user_id = ${userId} and seen.project_id = ${project})`;

@@ -18,21 +18,19 @@ export const DIGEST_SWEEP_TIMEOUT_MS = 15_000;
 export const DIGEST_SWEEP_BUDGET_MS = 10_000;
 export const DIGEST_SWEEP_BATCH = 50;
 
-// A second bulk assign a minute after the first belongs in the same message, so
-// the group waits for its sender to stop rather than for a fixed delay after
-// the first card.
+// The group waits for its sender to stop rather than for a fixed delay after the
+// first card, so a second bulk assign a minute later joins the same message.
 export const DIGEST_QUIET_SECONDS = 120;
 // …but a sender who keeps going never lets it settle, so the wait is capped.
 export const DIGEST_MAX_WAIT_SECONDS = 900;
 
-// One digest is one email whatever the volume behind it; the cap bounds the id
-// list a single flush resolves, and the remainder simply flushes next tick.
+// Bounds the id list a single flush resolves; the remainder flushes next tick.
 export const DIGEST_MAX_TASKS = 500;
 const TITLES_IN_EMAIL = 5;
 const MAX_TITLE_CHARS = 120;
 
-// Titles and board names may legitimately carry newlines, and a bullet list a
-// card title can break out of is an unsubscribe footer a card title can forge.
+// Titles and board names may carry newlines, and a bullet list a card title can
+// break out of is an unsubscribe footer a card title can forge.
 function oneLine(text: string): string {
   const collapsed = text.replace(/\s+/gu, ' ').trim();
   return collapsed.length > MAX_TITLE_CHARS
@@ -106,11 +104,10 @@ async function dueGroups(limit: number): Promise<DigestGroup[]> {
 }
 
 /**
- * Takes the group's pending rows away under a lock and hands back what was
- * taken, so a second replica sweeping the same group at the same instant finds
- * nothing to send rather than sending the message twice. The rows are gone
- * whatever the gates downstream decide: a recipient who has switched the kind
- * off must not accumulate a queue forever.
+ * Takes the group's pending rows away under a lock, so a second replica sweeping
+ * the same group finds nothing rather than sending the message twice. The rows
+ * are gone whatever the gates downstream decide: a recipient who has switched
+ * the kind off must not accumulate a queue forever.
  */
 async function claimDigest(group: DigestGroup): Promise<AssignmentDigest | null> {
   return db.transaction().execute(async (trx) => {
@@ -185,8 +182,7 @@ function digestMessage(
 }
 
 // Not the group key: two different sets of cards from the same person on the
-// same board are two different things to say, and the coalescing window is
-// already what stops one action being reported twice.
+// same board are two different things to say.
 function repeatKey(projectId: string, taskIds: string[]): string {
   const fingerprint = crypto
     .createHash('sha256')
@@ -202,9 +198,9 @@ export const assignmentDigestDelivery: {
   deliver: (digest: AssignmentDigest) => Promise<void>;
 } = {
   deliver: async (digest) => {
-    // Every gate is re-evaluated here rather than trusted from the write that
-    // queued the rows: the window is minutes wide, and access, assignment and
-    // the preference itself can all have moved inside it.
+    // Every gate is re-evaluated rather than trusted from the write that queued
+    // the rows: the window is minutes wide, and access, assignment and the
+    // preference itself can all have moved inside it.
     const recipient = await db
       .selectFrom('app_user')
       .select(['id', 'email'])
@@ -232,8 +228,7 @@ export const assignmentDigestDelivery: {
     if (!actor) return;
 
     // Cards archived or unassigned since are dropped, so the count the message
-    // claims is the count the board would show. Listed in board order, which is
-    // the order the reader is about to see them in.
+    // claims is the count the board would show. Listed in board order.
     const tasks = await db
       .selectFrom('task')
       .innerJoin('task_assignee', (join) =>
@@ -284,10 +279,9 @@ export async function runAssignmentDigestSweep(opts: { budgetMs?: number } = {})
       if (digest === null) continue;
       claimedAny = true;
 
-      // Claimed rows are already gone, so a failed send loses the message
-      // rather than the sweep: the alternative is holding a transaction open
-      // across an SMTP call, and every other notification here drops the same
-      // way.
+      // Claimed rows are already gone, so a failed send loses the message rather
+      // than the sweep: the alternative is holding a transaction open across an
+      // SMTP call.
       try {
         await assignmentDigestDelivery.deliver(digest);
       } catch (err) {

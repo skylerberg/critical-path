@@ -6,11 +6,10 @@ import { sql, type Kysely } from 'kysely';
 import type { DB } from './types';
 import { logger } from '../utils/logger';
 
-// Well under deadlock_timeout, so a migration that cannot get a table always
-// aborts itself rather than letting the deadlock detector choose between it and
-// a user's request. Waiting longer cannot help when the holder is itself
-// blocked behind us, and every millisecond of it stalls traffic, so the budget
-// goes into more attempts rather than longer ones.
+// Well under deadlock_timeout, so a migration that cannot get a table aborts
+// itself rather than letting the deadlock detector choose between it and a
+// user's request. Waiting longer cannot help when the holder is itself blocked
+// behind us, so the budget goes into more attempts rather than longer ones.
 const LOCK_TIMEOUT_MS = 100;
 
 const MAX_ATTEMPTS = 30;
@@ -48,9 +47,8 @@ async function runOnce(db: Kysely<DB>, direction: string): Promise<MigrationResu
 }
 
 // Every pending migration runs in one transaction, so a run that loses a lock
-// race leaves nothing behind and the retry starts from the same state. Only
-// lock contention is retried: a migration that is simply wrong still fails on
-// the first attempt.
+// race leaves nothing behind and the retry starts from the same state. Only lock
+// contention is retried; a migration that is simply wrong fails on the first.
 export async function runMigrations(
   db: Kysely<DB>,
   direction: string = 'up'
