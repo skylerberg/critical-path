@@ -2267,8 +2267,10 @@ export interface components {
       favicon_url: string | null;
       filename: string | null;
       id: string;
+      image_url: string | null;
+      is_cover: boolean;
       /** @enum {unknown} */
-      kind: 'file' | 'link';
+      kind: 'file' | 'image' | 'link';
       preview_url: string | null;
       size_bytes: number | null;
       task_id: string;

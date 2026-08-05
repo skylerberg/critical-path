@@ -9,6 +9,7 @@ import {
   deleteProjects,
   insertLabel,
   insertTask,
+  insertTaskImage,
 } from '../projects/helpers';
 
 const PNG_1X1 = Buffer.from(
@@ -650,5 +651,51 @@ describe('GET /api/public/projects/:id/board', () => {
 
     expect(firstPayload.tasks.map((task) => task.id)).toEqual([firstTaskId]);
     expect(secondPayload.tasks.map((task) => task.id)).toEqual([secondTaskId]);
+  });
+
+  // Images and documents share one table and one count everywhere else. Here they
+  // must not: a public board shows pictures but no attachment list, so a count
+  // that included files and links would publish how many private documents a
+  // card holds to anyone with the link.
+  it('counts only images on a public board, never files or links', async () => {
+    const { project, columns } = await createProject('Counting');
+    const taskId = await insertTask({
+      projectId: project.id,
+      columnId: columns[0].id,
+      title: 'Mixed',
+    });
+    await insertTaskImage({ taskId });
+    await db
+      .insertInto('task_attachment')
+      .values([
+        {
+          id: newId(),
+          task_id: taskId,
+          kind: 'file',
+          filename: 'secret.pdf',
+          content_type: 'application/pdf',
+          size_bytes: 10,
+          storage_key: newId(),
+        },
+        {
+          id: newId(),
+          task_id: taskId,
+          kind: 'link',
+          url: 'https://example.com/private',
+          unfurl_state: 'ok',
+        },
+      ])
+      .execute();
+    expect((await publish(project.id, true)).status).toBe(200);
+
+    const payload = (await (
+      await ctx.request().get(`/api/public/projects/${project.id}/board`)
+    ).json()) as PublicBoardBody;
+    const task = payload.tasks.find((candidate) => candidate.id === taskId)!;
+
+    expect(task.image_count).toBe(1);
+    expect(Object.keys(task)).not.toContain('attachment_count');
+    expect(JSON.stringify(payload)).not.toContain('secret.pdf');
+    expect(JSON.stringify(payload)).not.toContain('example.com/private');
   });
 });

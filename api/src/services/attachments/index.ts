@@ -5,12 +5,16 @@ import { assertProjectAccess, assertProjectWrite } from '../authorization';
 import type { AttachmentResponse } from '../../schemas/attachments';
 
 export const ATTACHMENT_NOT_FOUND = 'Attachment not found';
+export const IMAGE_KIND = 'image';
 export const MAX_ATTACHMENTS_PER_TASK = 50;
 
 export interface AttachmentRow {
   id: string;
   task_id: string;
   kind: string;
+  image_content_type: string | null;
+  image_storage_key: string | null;
+  is_cover: boolean;
   title: string | null;
   description: string | null;
   filename: string | null;
@@ -37,12 +41,16 @@ const ATTACHMENT_COLUMNS = [
   'task_attachment.preview_storage_key',
   'task_attachment.favicon_storage_key',
   'task_attachment.unfurl_state',
+  'task_attachment.image_content_type',
+  'task_attachment.image_storage_key',
+  'task_attachment.is_cover',
   'task_attachment.created_at',
   'task_attachment.updated_at',
 ] as const;
 
 function narrowKind(kind: string): AttachmentResponse['kind'] {
-  return kind === 'link' ? 'link' : 'file';
+  if (kind === 'link') return 'link';
+  return kind === IMAGE_KIND ? 'image' : 'file';
 }
 
 function narrowUnfurlState(state: string | null): AttachmentResponse['unfurl_state'] {
@@ -50,6 +58,7 @@ function narrowUnfurlState(state: string | null): AttachmentResponse['unfurl_sta
 }
 
 export function toAttachmentResponse(row: AttachmentRow): AttachmentResponse {
+  const isImage = row.kind === IMAGE_KIND;
   return {
     id: row.id,
     task_id: row.task_id,
@@ -57,24 +66,19 @@ export function toAttachmentResponse(row: AttachmentRow): AttachmentResponse {
     title: row.title,
     description: row.description,
     filename: row.filename,
-    content_type: row.content_type,
+    // An image's type lives in its own column; the shared one is null on that row.
+    content_type: isImage ? row.image_content_type : row.content_type,
     size_bytes: row.size_bytes,
     url: row.url,
     preview_url: row.preview_storage_key === null ? null : `/api/attachments/${row.id}/preview`,
     favicon_url: row.favicon_storage_key === null ? null : `/api/attachments/${row.id}/favicon`,
     unfurl_state: narrowUnfurlState(row.unfurl_state),
+    image_url: isImage ? `/api/images/${row.id}` : null,
+    is_cover: row.is_cover,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   };
 }
-
-// Images are rows in this table now, and this is the line between the two things
-// the API still presents separately: `attachments[]` and attachment_count mean
-// files and links, `images[]` and image_count mean images. Reads on either side
-// name this constant rather than spelling the kind, so the release that merges
-// the two surfaces can find every decision it has to revisit —
-// `grep -rn MIRRORED_IMAGE_KIND src`.
-export const MIRRORED_IMAGE_KIND = 'image';
 
 export async function fetchAttachmentRow(
   db: Kysely<DB>,
@@ -84,7 +88,6 @@ export async function fetchAttachmentRow(
     .selectFrom('task_attachment')
     .select(ATTACHMENT_COLUMNS)
     .where('task_attachment.id', '=', attachmentId)
-    .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
     .executeTakeFirst();
 }
 
@@ -96,7 +99,6 @@ export async function fetchTaskAttachments(
     .selectFrom('task_attachment')
     .select(ATTACHMENT_COLUMNS)
     .where('task_attachment.task_id', '=', taskId)
-    .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
     .orderBy('task_attachment.created_at')
     .orderBy('task_attachment.id')
     .execute();
@@ -108,7 +110,6 @@ export async function countTaskAttachments(db: Kysely<DB>, taskId: string): Prom
     .selectFrom('task_attachment')
     .select((eb) => eb.fn.countAll<string>().as('count'))
     .where('task_attachment.task_id', '=', taskId)
-    .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
     .executeTakeFirstOrThrow();
   return Number(count);
 }
@@ -119,7 +120,6 @@ async function attachmentProjectId(db: Kysely<DB>, attachmentId: string): Promis
     .innerJoin('task', 'task.id', 'task_attachment.task_id')
     .select('task.project_id')
     .where('task_attachment.id', '=', attachmentId)
-    .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
     .executeTakeFirst();
   if (!row) {
     throw new AppError(404, ATTACHMENT_NOT_FOUND);

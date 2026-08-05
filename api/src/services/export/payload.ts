@@ -2,7 +2,7 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import type { BoardPayload, BoardTask, ProjectExport } from '../../schemas/index';
 import { usersWithProjectAccess } from '../authorization';
-import { MIRRORED_IMAGE_KIND } from '../attachments/index';
+import { IMAGE_KIND } from '../attachments/index';
 import { getArchivedTasks } from '../boardPayload';
 
 export const PROJECT_EXPORT_FORMAT = 'critical-path-project-export';
@@ -75,7 +75,7 @@ export async function buildProjectExport(
         'task_attachment.created_at',
       ])
       .where('task.project_id', '=', projectId)
-      .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+      .where('task_attachment.kind', '=', IMAGE_KIND)
       .orderBy('task_attachment.created_at')
       .orderBy('task_attachment.id')
       .execute(),
@@ -114,7 +114,7 @@ export async function buildProjectExport(
         'task_attachment.created_at',
       ])
       .where('task.project_id', '=', projectId)
-      .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
+      .where('task_attachment.kind', '<>', IMAGE_KIND)
       .orderBy('task_attachment.created_at')
       .orderBy('task_attachment.id')
       .execute(),

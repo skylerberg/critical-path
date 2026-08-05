@@ -6,6 +6,7 @@ import { AppError } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { deleteTaskImage } from '../services/attachments/images';
+import { countTaskAttachments } from '../services/attachments/index';
 import { storage } from '../services/storage/index';
 import { storedObjectResponse } from '../services/storage/response';
 import { logger } from '../utils/logger';
@@ -78,6 +79,11 @@ publicImagesRouter.get(
     }
 
     c.header('Content-Type', row.image_content_type);
+    // The type is sniffed and CHECK-constrained to four image formats, but a
+    // file can be a valid GIF *and* valid HTML at once. nosniff is what stops a
+    // browser looking past the declared type and rendering the other half as a
+    // document on our own origin, from a URL that needs no credentials.
+    c.header('X-Content-Type-Options', 'nosniff');
     c.header('Cache-Control', 'private, max-age=31536000, immutable');
     return storedObjectResponse(c, object);
   }
@@ -139,6 +145,11 @@ router.delete(
       task_id: row.task_id,
       image_count: Number(count),
       cover_image_url: cover === undefined ? null : `/api/images/${cover.id}`,
+    });
+    publishAfterCommit(c, 'attachment_deleted', row.project_id, {
+      id,
+      task_id: row.task_id,
+      attachment_count: await countTaskAttachments(db, row.task_id),
     });
 
     return c.body(null, 204);

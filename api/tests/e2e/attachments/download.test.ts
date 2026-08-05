@@ -35,11 +35,12 @@ describe('GET /api/attachments/:id/download', () => {
     return (await res.json()).id;
   }
 
+  // A PNG is not in this table: the upload endpoint sniffs it into an image,
+  // which is served by the image route instead. See the case below.
   it.each([
     ['a PDF', PDF, 'spec.pdf', 'application/pdf'],
     ['an SVG', SVG, 'evil.svg', 'image/svg+xml'],
     ['an HTML file', HTML, 'evil.html', 'text/html'],
-    ['a PNG', PNG_1X1, 'pixel.png', 'image/png'],
   ])(
     'serves %s as an opaque download, never as its declared type',
     async (_label, bytes, filename, mimeType) => {
@@ -61,6 +62,24 @@ describe('GET /api/attachments/:id/download', () => {
       expect(Buffer.from(await res.arrayBuffer()).equals(bytes)).toBe(true);
     }
   );
+
+  // A PNG sent here is sniffed into an image, so it leaves this route entirely
+  // and is served by the image one. That is a real change in who can read it:
+  // downloads are authenticated, an image URL is a capability anyone holding it
+  // can use.
+  it('routes a PNG to the image route instead, which serves it unauthenticated', async () => {
+    const user = await ctx.createUser('dl-png');
+    const { taskId } = await createTaskFixture(user.id, createdProjectIds);
+    const id = await upload(user.token, taskId, PNG_1X1, 'pixel.png', 'image/png');
+
+    expect((await ctx.request(user.token).get(`/api/attachments/${id}/download`)).status).toBe(404);
+
+    const served = await ctx.request().get(`/api/images/${id}`);
+    expect(served.status).toBe(200);
+    expect(served.headers.get('Content-Type')).toBe('image/png');
+    expect(served.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(Buffer.from(await served.arrayBuffer()).equals(PNG_1X1)).toBe(true);
+  });
 
   it('answers 401 without a token', async () => {
     const user = await ctx.createUser('dl-anon');

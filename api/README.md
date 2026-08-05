@@ -673,11 +673,29 @@ they are published on public boards.
 only place any of them lives. The separate `task_image` table it replaced is
 gone.
 
-The API surface has not merged yet. Images keep their own routes, their own
-covers, their own `images[]` and `image_count`, and their own `images/` export
-folder; `attachments[]` and `attachment_count` still mean files and links only.
-An image is unreachable through `/api/attachments/:id` and a file attachment is
-unreachable through `/api/images/:id`, in both directions and by id.
+`attachments[]` and `attachment_count` cover all three kinds. An image entry
+carries `kind: "image"`, its `content_type`, `is_cover`, and an `image_url` —
+the same `/api/images/:id` a description's embedded `src` uses, so one URL
+serves the list thumbnail and the inline picture. `PATCH /api/attachments/:id`
+renames an image like any other, and `DELETE` removes one.
+
+`images[]` and `image_count` are still sent alongside, unchanged, so a browser
+that has not reloaded keeps rendering; a later release removes them. The
+`images/` export folder and `project.json`'s separate `images[]` stay as they
+are — that is a documented, versioned interchange format, and merging its two
+arrays would be a breaking change to it.
+
+**Which kind an upload becomes is the server's decision.**
+`POST /api/attachments/files` reads the first twelve bytes: PNG, JPEG, GIF or
+WebP under 10 MB becomes `kind: "image"`, anything else `kind: "file"` under the
+50 MB cap. The declared `content_type` never decides — it is recorded for display
+on a file and ignored entirely on an image. That keeps the rule in one place
+rather than in every client, and means a `.bin` that is really a PNG is stored as
+one while an SVG, which no sniffer here recognises, stays a file and is served as
+an opaque download.
+
+A file attachment stays unreachable through `/api/images/:id`, and an image
+through `/api/attachments/:id/download`, `/preview` and `/favicon`.
 
 An image row carries `image_storage_key` and `image_content_type` rather than
 sharing `storage_key` and `content_type` with files. That is what keeps
@@ -685,7 +703,10 @@ sharing `storage_key` and `content_type` with files. That is what keeps
 content type — structurally unable to reach a document's bytes: it selects only
 those two columns, and a file row has both null. The type is CHECK-restricted to
 the four formats magic-byte sniffing produces, so no repair query can leave a row
-it would serve as something renderable.
+it would serve as something renderable. The route also sends
+`X-Content-Type-Options: nosniff`: a file can be a valid GIF *and* valid HTML at
+once, and the header is what stops a browser looking past the declared type and
+rendering the other half as a document on our own origin.
 
 | Route                               | Auth   |
 | ----------------------------------- | ------ |
@@ -736,11 +757,19 @@ project with 3 MB of quota left refuses a 50 MB file after 3 MB rather than
 after 50; the exact, serialised quota check still runs once the size is known
 and before the row commits, and the object it refuses is reclaimed.
 
-**On the card.** Every board task carries `attachment_count`, both kinds
-together, so a card can show a paperclip without fetching the list.
+**On the card.** Every board task carries `attachment_count` — all three kinds
+together — so a card can show a paperclip without fetching the list.
 `attachment_created` and `attachment_deleted` carry the new count for the same
-reason `comment_created` does. Public boards do **not** publish it: the
-attachment list, its bytes and its count are all members-only.
+reason `comment_created` does, and an image mutation now publishes both its
+`image_*` event and the matching `attachment_*` one so a browser holding either
+vocabulary stays current.
+
+Public boards do **not** publish `attachment_count`, and this is the one place
+the merge has to stay undone: the attachment list, its bytes and its count are
+members-only, while images are public — a public board carries `image_count` and
+`cover_image_url` and renders inline pictures. A single count there would leak
+how many documents a private card holds, so the public payload keeps counting
+`kind = 'image'` alone.
 
 **Links.** `POST /api/attachments/links` stores the URL and answers 201
 immediately with `unfurl_state: "pending"`; adding never waits on the network.

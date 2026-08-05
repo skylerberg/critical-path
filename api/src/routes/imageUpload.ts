@@ -7,7 +7,12 @@ import { assertTaskWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { sniffImageContentType } from '../services/imageSniff';
 import { assertProjectStorageQuota } from '../services/attachments/quota';
-import { insertTaskImages } from '../services/attachments/images';
+import { insertTaskImages, IMAGE_MAX_BYTES } from '../services/attachments/images';
+import {
+  countTaskAttachments,
+  fetchAttachmentRow,
+  toAttachmentResponse,
+} from '../services/attachments/index';
 import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
 import { isValidUuid } from '../types/uuid';
@@ -24,8 +29,6 @@ import {
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
-
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const router: AppHono = new Hono();
 
@@ -102,7 +105,7 @@ router.post(
       throw new AppError(422, 'id must be a valid UUID');
     }
 
-    if (file.size > MAX_FILE_BYTES) {
+    if (file.size > IMAGE_MAX_BYTES) {
       throw new AppError(413, 'File exceeds the 10 MB limit');
     }
 
@@ -173,6 +176,15 @@ router.post(
       task_id: taskId,
       image_count: Number(count),
     });
+    // The same upload under the merged vocabulary. Both go out until the release
+    // that removes image_created, so a tab holding either version stays current.
+    const row = await fetchAttachmentRow(db, imageId);
+    if (row) {
+      publishAfterCommit(c, 'attachment_created', project.id, {
+        ...toAttachmentResponse(row),
+        attachment_count: await countTaskAttachments(db, taskId),
+      });
+    }
     return c.json(image, 201);
   }
 );
