@@ -944,7 +944,9 @@ must not overlap; both are 422. Added ids are validated against the project
 (labels) or against project access (users); removed ids are not, because
 removing a row that is not there is a no-op. A card the call applied to but did
 not change — it already carried the label — appears in neither the response nor
-the activity log; that is a no-op, not a skip.
+the activity log; that is a no-op, not a skip. The cards that did change come
+back in `task_ids` order, so a client can zip the response against the
+selection it sent.
 
 A bulk assignment sends no per-card email. The repeat suppression that keeps
 assignment mail sane is keyed per task, so twenty cards are twenty distinct
