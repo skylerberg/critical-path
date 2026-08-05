@@ -4,6 +4,37 @@ function parseIntOrDefault(value: string | undefined, defaultValue: number): num
   return isNaN(parsed) ? defaultValue : parsed;
 }
 
+// Strict where parseIntOrDefault is lenient, because these two decide which
+// address the rate limiter believes. `TRUST_PROXY=1` reading as false, or a
+// misspelled hop count quietly becoming 1, is a change to who shares a bucket
+// with whom, and neither leaves a trace. `assertProxyConfig` makes that a boot
+// failure rather than something noticed under load.
+function parseStrictBoolean(name: string, value: string | undefined, fallback: boolean): boolean {
+  const raw = value?.trim().toLowerCase();
+  if (raw === undefined || raw === '') return fallback;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  throw new Error(`${name} must be "true" or "false", not ${JSON.stringify(value)}`);
+}
+
+function parseStrictHops(name: string, value: string | undefined, fallback: number): number {
+  const raw = value?.trim();
+  if (raw === undefined || raw === '') return fallback;
+  // A whole number of entries counted from the right. Zero and below name no
+  // entry at all, which would silently fall back to the socket address.
+  if (!/^\d+$/.test(raw) || Number(raw) < 1) {
+    throw new Error(`${name} must be a whole number of 1 or more, not ${JSON.stringify(value)}`);
+  }
+  return Number(raw);
+}
+
+// Reads both so a bad value fails at startup instead of on the first request
+// that happens to be rate limited.
+export function assertProxyConfig(): void {
+  parseStrictBoolean('TRUST_PROXY', process.env.TRUST_PROXY, false);
+  parseStrictHops('TRUST_PROXY_HOPS', process.env.TRUST_PROXY_HOPS, 1);
+}
+
 const rawEnvironment = process.env.ENVIRONMENT;
 const environment: 'development' | 'test' | 'production' =
   rawEnvironment === 'production'
@@ -43,11 +74,11 @@ export const env = {
 
   // Getters so tests can toggle the underlying env vars at runtime.
   get trustProxy(): boolean {
-    return process.env.TRUST_PROXY?.trim().toLowerCase() === 'true';
+    return parseStrictBoolean('TRUST_PROXY', process.env.TRUST_PROXY, false);
   },
 
   get trustProxyHops(): number {
-    return parseIntOrDefault(process.env.TRUST_PROXY_HOPS, 1);
+    return parseStrictHops('TRUST_PROXY_HOPS', process.env.TRUST_PROXY_HOPS, 1);
   },
 
   get attachmentMaxBytes(): number {
