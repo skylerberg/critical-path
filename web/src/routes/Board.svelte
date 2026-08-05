@@ -14,7 +14,7 @@
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu } from '../lib/card-menu.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
-  import { edgeScrollSpeed } from '../lib/board-scroll';
+  import { edgeScrollSpeed, fitsHorizontally, snapScrollLeft } from '../lib/board-scroll';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { truncateTitle } from '../lib/titles';
@@ -37,8 +37,21 @@
 
   const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
 
-  let localColumns = $state<BoardColumn[]>([]);
-  let localTasks = $state<Record<string, BoardTask[]>>({});
+  function tasksByColumn(): Record<string, BoardTask[]> {
+    const next: Record<string, BoardTask[]> = {};
+    for (const column of board.columns) {
+      next[column.id] = board.displayTasksInColumn(column.id);
+    }
+    return next;
+  }
+
+  // Seeded from the store rather than left empty for the effects below to fill:
+  // an effect runs after the first render, and a board that renders no columns at
+  // all — even once — leaves the "+ Add column" tile as the only scroll-snap
+  // target in the scroller. The browser snaps to it, and inserting the columns in
+  // front of it a moment later strands the board at the far right end.
+  let localColumns = $state<BoardColumn[]>([...board.columns]);
+  let localTasks = $state<Record<string, BoardTask[]>>(tasksByColumn());
   let columnDragging = $state(false);
   let taskDragging = $state(false);
   let dragOrigin: { columnId: string; index: number } | null = null;
@@ -74,13 +87,16 @@
   let centeringTarget = $state<string | null>(null);
   const snapActive = $derived(!dragging && centeringTarget === null);
 
+  function columnSections(scroller: HTMLElement): HTMLElement[] {
+    return Array.from(scroller.querySelectorAll<HTMLElement>('section'));
+  }
+
   function nearestColumnIndex(scroller: HTMLElement): number {
-    const board = scroller.getBoundingClientRect();
-    const mid = board.left + board.width / 2;
-    const sections = scroller.querySelectorAll<HTMLElement>('section');
+    const view = scroller.getBoundingClientRect();
+    const mid = view.left + view.width / 2;
     let best = 0;
     let bestDist = Infinity;
-    sections.forEach((el, i) => {
+    columnSections(scroller).forEach((el, i) => {
       const rect = el.getBoundingClientRect();
       const dist = Math.abs(rect.left + rect.width / 2 - mid);
       if (dist < bestDist) {
@@ -91,15 +107,16 @@
     return best;
   }
 
-  function scrollToColumn(scroller: HTMLElement, index: number): void {
-    const section = scroller.querySelectorAll<HTMLElement>('section')[index];
-    if (!section) {
-      return;
-    }
-    const board = scroller.getBoundingClientRect();
-    const rect = section.getBoundingClientRect();
+  // Reading the scroll padding back off the element keeps the breakpoint that sets
+  // it in one place — the class list — rather than duplicating rem values here.
+  function slideColumnIntoView(scroller: HTMLElement, section: HTMLElement): void {
     scroller.scrollTo({
-      left: scroller.scrollLeft + (rect.left + rect.width / 2 - (board.left + board.width / 2)),
+      left: snapScrollLeft(
+        scroller.scrollLeft,
+        scroller.getBoundingClientRect(),
+        section.getBoundingClientRect(),
+        parseFloat(getComputedStyle(scroller).scrollPaddingLeft) || 0
+      ),
       behavior: motion.reduced ? 'auto' : 'smooth',
     });
   }
@@ -159,23 +176,29 @@
   });
 
   // On a pointer drop, slide the destination column into view, then re-arm snap.
+  // A column the user can already see whole is left exactly where it is: moving a
+  // card must not move the board out from under them. That makes this a no-op on
+  // any screen wide enough to show the destination, and on a reorder within the
+  // column they are already looking at.
+  //
+  // The decision is made here rather than in the drop handlers because this runs
+  // after Svelte has committed the DOM: a column reorder moves the very column
+  // being measured, and a handler would measure it at its old position.
   $effect(() => {
     const scroller = boardScroller;
     const target = centeringTarget;
     if (!scroller || dragging || target === null) {
       return;
     }
-    const section = Array.from(scroller.querySelectorAll<HTMLElement>('section')).find(
-      (el) => el.dataset.columnId === target
-    );
-    if (section) {
-      const board = scroller.getBoundingClientRect();
-      const rect = section.getBoundingClientRect();
-      scroller.scrollTo({
-        left: scroller.scrollLeft + (rect.left + rect.width / 2 - (board.left + board.width / 2)),
-        behavior: motion.reduced ? 'auto' : 'smooth',
-      });
+    const section = columnSections(scroller).find((el) => el.dataset.columnId === target);
+    if (
+      section === undefined ||
+      fitsHorizontally(scroller.getBoundingClientRect(), section.getBoundingClientRect())
+    ) {
+      centeringTarget = null;
+      return;
     }
+    slideColumnIntoView(scroller, section);
     let done = false;
     const finish = () => {
       if (done) {
@@ -193,39 +216,51 @@
     };
   });
 
-  // --- Resting swipe is paginated: at most one column per swipe ---
+  // --- A touch swipe moves at most one column ---
   // Each column has scroll-snap-stop: always (snap-always), which is meant to cap
-  // a fling at one column, but it isn't honored on every mobile browser (older
-  // iOS Safari in particular), so a vigorous swipe can sail past several columns.
-  // As a reliable guardrail, when a native scroll settles more than one column
-  // from where this gesture started, slide it back to exactly one.
+  // a fling at one column, but it isn't honored on every mobile browser, so a
+  // vigorous swipe can sail past several. When one does, slide it back to exactly
+  // one.
+  //
+  // Only a finger arms this. `scrollend` cannot tell a fling from a wheel or
+  // trackpad scroll, from our own centering slide, or from the browser re-snapping
+  // after a layout change — and paginating those is what yanked the board back
+  // mid-scroll on desktop and panned it across the board on arrival. Sampling the
+  // origin on touchstart rather than up front also means it is never read off a
+  // board that hasn't laid out yet. Our own correction lands disarmed, so it can
+  // never trigger a second one.
   $effect(() => {
     const scroller = boardScroller;
     if (!scroller || !snapActive) {
       return;
     }
-    let restIndex = nearestColumnIndex(scroller);
-    let correcting = false;
+    let from: number | null = null;
+    const onTouchStart = () => {
+      // Nothing to compensate for where the board doesn't snap (lg and up).
+      from =
+        getComputedStyle(scroller).scrollSnapType === 'none' ? null : nearestColumnIndex(scroller);
+    };
     const onScrollEnd = () => {
-      const index = nearestColumnIndex(scroller);
-      if (correcting) {
-        // this scrollend is our own correction landing — just record it
-        correcting = false;
-        restIndex = index;
+      const start = from;
+      from = null;
+      if (start === null) {
         return;
       }
-      const delta = index - restIndex;
-      if (Math.abs(delta) > 1) {
-        const target = restIndex + Math.sign(delta);
-        restIndex = target;
-        correcting = true;
-        scrollToColumn(scroller, target);
-      } else {
-        restIndex = index;
+      const delta = nearestColumnIndex(scroller) - start;
+      if (Math.abs(delta) <= 1) {
+        return;
+      }
+      const section = columnSections(scroller)[start + Math.sign(delta)];
+      if (section !== undefined) {
+        slideColumnIntoView(scroller, section);
       }
     };
+    scroller.addEventListener('touchstart', onTouchStart, { passive: true });
     scroller.addEventListener('scrollend', onScrollEnd);
-    return () => scroller.removeEventListener('scrollend', onScrollEnd);
+    return () => {
+      scroller.removeEventListener('touchstart', onTouchStart);
+      scroller.removeEventListener('scrollend', onScrollEnd);
+    };
   });
 
   // QuickAddTask encapsulates its open/focus state, so the shortcut opens it via its trigger.
@@ -254,11 +289,7 @@
 
   $effect(() => {
     if (!taskDragging) {
-      const next: Record<string, BoardTask[]> = {};
-      for (const column of board.columns) {
-        next[column.id] = board.displayTasksInColumn(column.id);
-      }
-      localTasks = next;
+      localTasks = tasksByColumn();
     }
   });
 
@@ -376,7 +407,7 @@
 
 <div
   bind:this={boardScroller}
-  class="relative flex min-h-0 flex-1 flex-col overscroll-x-contain overflow-y-hidden {snapActive
+  class="relative flex min-h-0 flex-1 scroll-p-3 flex-col overscroll-x-contain overflow-y-hidden lg:scroll-p-4 {snapActive
     ? 'overflow-x-auto snap-x snap-mandatory lg:snap-none'
     : 'overflow-x-hidden'}"
 >
@@ -402,7 +433,7 @@
           data-column-id={column.id}
           animate:flip={{ duration: flipMs }}
           aria-label={column.name}
-          class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-center snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start"
+          class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-start snap-always flex-col rounded-lg border border-edge bg-surface"
         >
           <ColumnHeader
             {column}
@@ -457,7 +488,7 @@
       {/each}
     </div>
     {#if !readonly}
-      <div class="w-[85vw] max-w-72 shrink-0 snap-center snap-always md:snap-start">
+      <div class="w-[85vw] max-w-72 shrink-0 snap-start snap-always">
         {#if addingColumn}
           <form
             onsubmit={submitNewColumn}

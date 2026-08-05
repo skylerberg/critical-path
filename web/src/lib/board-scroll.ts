@@ -41,3 +41,37 @@ export function edgeScrollSpeed(
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
+
+interface Span {
+  left: number;
+  right: number;
+}
+
+// Sub-pixel layout puts a column flush against an edge a fraction outside it,
+// and reading that as clipped would slide the board for nothing the user can see.
+const EDGE_TOLERANCE_PX = 1;
+
+/**
+ * Is `target` entirely within `view` horizontally? A `DOMRect` satisfies `Span`,
+ * so callers pass rects straight through.
+ */
+export function fitsHorizontally(view: Span, target: Span): boolean {
+  return (
+    target.left >= view.left - EDGE_TOLERANCE_PX && target.right <= view.right + EDGE_TOLERANCE_PX
+  );
+}
+
+/**
+ * The `scrollLeft` that parks `target` on the scroller's snap position, given the
+ * container's `scroll-padding-left`. Landing short of it by the gutter width is
+ * not harmless: under mandatory snap the browser then rounds the scroll to
+ * whichever snap point is nearest, which can be the next column over.
+ */
+export function snapScrollLeft(
+  scrollLeft: number,
+  view: Span,
+  target: Span,
+  scrollPaddingLeft: number
+): number {
+  return scrollLeft + (target.left - view.left - scrollPaddingLeft);
+}

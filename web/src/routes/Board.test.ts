@@ -345,7 +345,11 @@ describe('Board readonly', () => {
 });
 
 describe('Board snapping', () => {
-  it('centers snap targets below md, aligns them to the start from md, and drops snapping at lg', async () => {
+  // Start-aligned at every width, with scroll padding matching the board's gutter,
+  // so the FIRST column's snap position is a scrollLeft the board can actually
+  // reach. Centering them put it at a negative offset no scroll can land on, which
+  // leaves a mandatory-snap container free to resolve to some other column.
+  it('start-aligns snap targets against the gutter and drops snapping at lg', async () => {
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
@@ -353,10 +357,13 @@ describe('Board snapping', () => {
       'snap-x',
       'snap-mandatory',
       'overscroll-x-contain',
-      'lg:snap-none'
+      'lg:snap-none',
+      'scroll-p-3',
+      'lg:scroll-p-4'
     );
     for (const target of [column(), addColumnTile()]) {
-      expect(target).toHaveClass('snap-center', 'md:snap-start', 'snap-always');
+      expect(target).toHaveClass('snap-start', 'snap-always');
+      expect(target).not.toHaveClass('snap-center');
     }
   });
 
@@ -826,10 +833,20 @@ describe('Board pointer drops', () => {
     expect(scroller().className).toBe(resting);
   });
 
-  it('centers the destination column after a drop that moved something', async () => {
+  // jsdom lays nothing out, so every rect is 0x0 at 0,0 and the destination always
+  // reads as "already on screen". These stub the two elements the decision compares
+  // — and must stay per-element: an Element.prototype stub gives the board and the
+  // column the same rect, which reads as a perfect fit and guts the assertion.
+  function placeColumn(boardRect: DOMRect, columnRect: DOMRect): void {
+    vi.spyOn(scroller(), 'getBoundingClientRect').mockReturnValue(boardRect);
+    vi.spyOn(column(), 'getBoundingClientRect').mockReturnValue(columnRect);
+  }
+
+  it('follows the card to a destination column the user cannot see whole', async () => {
     const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
+    placeColumn(new DOMRect(0, 0, 390, 600), new DOMRect(420, 0, 288, 600));
     const [first, ...rest] = board.tasksInColumn('c1');
 
     pickUp(T1);
@@ -841,6 +858,27 @@ describe('Board pointer drops', () => {
 
     await fireEvent(scroller(), new Event('scrollend'));
     expect(scroller().className).toContain('snap-mandatory');
+  });
+
+  // The whole point on desktop: a board wide enough to show the destination must
+  // not move when a card lands in it, and neither must a reorder within the column
+  // the user is already looking at.
+  it('leaves the board alone when the destination column is already on screen', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    placeColumn(new DOMRect(0, 0, 1000, 600), new DOMRect(16, 0, 288, 600));
+    const [first, ...rest] = board.tasksInColumn('c1');
+
+    pickUp(T1);
+    drop(T1, [...rest, first!]);
+    await tick();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    // Snap is never dropped, so the board stays swipeable throughout.
+    expect(scroller().className).toContain('snap-mandatory');
+    // The move still commits: we skipped the scroll, not the write.
+    await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
   });
 });
 
@@ -900,6 +938,134 @@ describe('Board column drops', () => {
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
 
     expect(new URL(patchRequests()[0]!.url).pathname).toBe('/api/columns/c1');
+  });
+
+  it('leaves the board alone when the reordered column is already on screen', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    vi.spyOn(scroller(), 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1000, 600));
+    vi.spyOn(column(), 'getBoundingClientRect').mockReturnValue(new DOMRect(16, 0, 288, 600));
+    const [first, second] = board.columns;
+
+    dragColumn('c1', 'consider', [first, second]);
+    dragColumn('c1', 'finalize', [second, first]);
+    await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+});
+
+// The one-column cap exists for mobile browsers that ignore scroll-snap-stop, and
+// a finger is the only thing that should arm it: `scrollend` cannot distinguish a
+// fling from a trackpad scroll, our own centering slide, or the browser re-snapping
+// after a layout change.
+describe('Board swipe pagination', () => {
+  // `centered` is the column index sitting under the board's midpoint; moving it
+  // and firing scrollend is how a settled scroll is modelled without any layout.
+  let centered = 0;
+
+  function stubGeometry(): void {
+    vi.spyOn(scroller(), 'getBoundingClientRect').mockImplementation(
+      () => new DOMRect(0, 0, 300, 600)
+    );
+    for (const [index, section] of [...document.querySelectorAll('section')].entries()) {
+      vi.spyOn(section, 'getBoundingClientRect').mockImplementation(
+        () => new DOMRect((index - centered) * 300 + 6, 0, 288, 600)
+      );
+    }
+  }
+
+  // The handlers read nothing off the event, so a plain Event sidesteps jsdom's
+  // TouchEvent constructor entirely.
+  const swipeStart = () => fireEvent(scroller(), new Event('touchstart'));
+  const settle = () => fireEvent(scroller(), new Event('scrollend'));
+
+  // jsdom applies no stylesheet, so it computes `scroll-snap-type: none` for
+  // everything — which is exactly what the guardrail treats as "desktop, leave it
+  // alone". Every case has to say which of the two it is modelling.
+  function setSnapType(value: string): void {
+    const real = window.getComputedStyle;
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) =>
+      element === scroller()
+        ? ({ scrollSnapType: value, scrollPaddingLeft: '12px' } as CSSStyleDeclaration)
+        : real.call(window, element, pseudo)
+    );
+  }
+
+  beforeEach(() => {
+    centered = 0;
+    board.columns = [
+      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+      { id: 'c3', name: 'Review', position: 3000, is_done: false },
+      { id: 'c4', name: 'Done', position: 4000, is_done: true },
+    ];
+  });
+
+  async function mount(snapType = 'x mandatory'): Promise<ReturnType<typeof vi.spyOn>> {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    stubGeometry();
+    setSnapType(snapType);
+    return scrollTo;
+  }
+
+  // The desktop bug: a trackpad flick across several columns settles like any
+  // other scroll, and correcting it yanked the board backwards mid-gesture.
+  it('leaves a scroll no finger started where it lands', async () => {
+    const scrollTo = await mount();
+
+    centered = 3;
+    await settle();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('pulls a touch fling back to one column', async () => {
+    const scrollTo = await mount();
+
+    await swipeStart();
+    centered = 3;
+    await settle();
+
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    // With column 3 centered, column 1 sits at x=-594; the 12px scroll padding
+    // shifts the landing so its left edge clears the board's gutter.
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: -606 }));
+  });
+
+  it('leaves a one-column swipe alone', async () => {
+    const scrollTo = await mount();
+
+    await swipeStart();
+    centered = 1;
+    await settle();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('does not correct its own correction', async () => {
+    const scrollTo = await mount();
+
+    await swipeStart();
+    centered = 3;
+    await settle();
+    centered = 1;
+    await settle();
+
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not paginate where the board is not snapping', async () => {
+    const scrollTo = await mount('none');
+
+    await swipeStart();
+    centered = 3;
+    await settle();
+
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 });
 

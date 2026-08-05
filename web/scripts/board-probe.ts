@@ -106,6 +106,23 @@ mount(Board, {
   props: { projectId: PROJECT_ID, readonly: READONLY },
 });
 
+// A board that pans on its own after arrival is a time series, not a state, so
+// the samples have to start before the first frame — the check script reads
+// them back and asserts the spread is zero.
+const scrollSamples: number[] = [];
+(window as unknown as { __boardScroll: number[] }).__boardScroll = scrollSamples;
+(function sampleScroll() {
+  const scroller = [...shell.querySelectorAll('div')].find(
+    (el) => getComputedStyle(el).overflowX === 'auto'
+  );
+  if (scroller) {
+    scrollSamples.push(scroller.scrollLeft);
+  }
+  if (scrollSamples.length < 120) {
+    requestAnimationFrame(sampleScroll);
+  }
+})();
+
 for (let t = 0; t < SELECTED; t++) {
   selection.toggle(probeId(1000 + t));
 }
