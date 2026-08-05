@@ -404,6 +404,23 @@ describe('Bulk actions on a selection', () => {
       }
     });
 
+    it('answers in archive-listing order, not the order the ids were sent', async () => {
+      const ids = await seed(3);
+      // Reversed, so board order and request order disagree and the assertion
+      // below can only pass one way. This is the odd one out among the bulk
+      // routes on purpose: the batch shares one archived_at, the tie breaks on
+      // board position, and the response therefore lists the cards exactly as
+      // GET /api/projects/:id/archived-tasks is about to.
+      const requested = [...ids].reverse();
+
+      const res = await post('bulk-archive', { project_id: projectId, task_ids: requested });
+
+      expect(res.status).toBe(200);
+      expect(
+        ((await res.json()) as { tasks: Array<{ id: string }> }).tasks.map((t) => t.id)
+      ).toEqual(ids);
+    });
+
     it('skips an already archived id, keeps its stamp, and repeats as a no-op', async () => {
       const ids = await seed(2);
       const first = await post('bulk-archive', { project_id: projectId, task_ids: ids });
@@ -462,6 +479,24 @@ describe('Bulk actions on a selection', () => {
         expect(await labelIdsOf(id)).toEqual([labelId]);
         expect((await activityOf(id)).filter((e) => e.kind === 'label_added')).toHaveLength(1);
       }
+    });
+
+    it('reports the selection in request order, not the order the rows were written', async () => {
+      const ids = await seed(4);
+      // Reversed so a reader that serves whatever the scan returns — which for
+      // a small fresh table is insertion order — cannot pass by coincidence.
+      const requested = [...ids].reverse();
+
+      const response = await post('bulk-labels', {
+        project_id: projectId,
+        task_ids: requested,
+        add_label_ids: [labelId],
+      });
+
+      expect(response.status).toBe(200);
+      expect(
+        ((await response.json()) as { tasks: Relations[] }).tasks.map((t) => t.task_id)
+      ).toEqual(requested);
     });
 
     it('adds and removes in one call and reports the full relation sets', async () => {
