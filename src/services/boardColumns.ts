@@ -11,8 +11,9 @@ export interface ColumnInProject {
 
 const CROSS_PROJECT_MESSAGE = 'column_id must reference a column in the project';
 
-// The database refuses a task whose column belongs to another project, so this
-// is what turns that refusal into a 422 naming the field the caller sent.
+// The database refuses a task or series whose column belongs to another
+// project, so this is what turns that refusal into a 422 naming the field the
+// caller sent.
 export async function assertColumnInProject(
   db: Kysely<DB>,
   columnId: string,
