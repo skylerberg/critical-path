@@ -84,7 +84,7 @@ describe('matchRefOrAlias', () => {
   const target = items[0];
   const alias = encodeId(target.id);
   // Decodes to a valid uuid, which is what lets a decode shadow a name.
-  const alsoANameShapedLikeAnAlias = 'ReleaseNotesVersion12Q';
+  const alsoANameShapedLikeAnAlias = 'ArchivedRoadmapQ3Notes';
   const withAliasShapedName: Item[] = [
     ...items,
     { id: 'dddd1111-0000-4000-8000-000000000005', name: alsoANameShapedLikeAnAlias },

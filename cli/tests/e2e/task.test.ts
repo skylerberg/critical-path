@@ -489,19 +489,25 @@ describe('task commands', () => {
 
   it('treats an alias as case sensitive rather than lowercasing it', async () => {
     const alias = encodeId(alpha.id);
-    // Digits have no case, and only the last character carries the padding bits, so
-    // a letter flipped before it is a canonical alias for a different id rather than
-    // a spelling the decoder would reject anyway.
-    const at = [...alias.slice(0, 21)].findIndex((c) => /[a-z]/i.test(c));
-    expect(at).toBeGreaterThanOrEqual(0);
-    const swapped =
-      alias[at] === alias[at].toLowerCase() ? alias[at].toUpperCase() : alias[at].toLowerCase();
-    const flipped = alias.slice(0, at) + swapped + alias.slice(at + 1);
-    const decoded = decodeId(flipped);
-    expect(decoded).not.toBeNull();
-    expect(decoded).not.toBe(alpha.id);
+    // Which letter can be flipped depends on the value: every alias begins A-H
+    // because a larger leading digit would put it past the largest uuid, so
+    // raising the first character yields nothing rather than something else.
+    // Any flip that still names an id proves the point equally well.
+    let flipped: string | null = null;
+    for (let at = 0; at < alias.length && flipped === null; at++) {
+      const character = alias[at]!;
+      if (!/[a-z]/i.test(character)) continue;
+      const swapped =
+        character === character.toLowerCase() ? character.toUpperCase() : character.toLowerCase();
+      const candidate = alias.slice(0, at) + swapped + alias.slice(at + 1);
+      const decoded = decodeId(candidate);
+      if (decoded !== null && decoded !== alpha.id) {
+        flipped = candidate;
+      }
+    }
+    expect(flipped).not.toBeNull();
 
-    const show = await h.runCli(['task', 'show', flipped, '--json']);
+    const show = await h.runCli(['task', 'show', flipped!, '--json']);
     expect(show.exitCode).toBe(4);
     expect(show.stdout).toBe('');
   });
@@ -578,7 +584,7 @@ describe('task commands', () => {
 
   it('leaves a title that is shaped like an alias reachable by that title', async () => {
     // Decodes to a valid uuid, which is what lets a decode shadow a title.
-    const title = 'ReleaseNotesVersion12Q';
+    const title = 'ArchivedRoadmapQ3Notes';
     expect(decodeId(title)).not.toBeNull();
     const created = await tc.request(user.token).post('/api/projects', {
       id: crypto.randomUUID(),
