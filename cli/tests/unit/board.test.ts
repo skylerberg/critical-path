@@ -16,6 +16,7 @@ function task(
     title: `Task ${id}`,
     description: null,
     position,
+    sort_key: `V${position}`,
     due_date: null,
     created_at: TS,
     updated_at: TS,
@@ -47,8 +48,8 @@ function board(tasks: BoardTask[]): BoardPayload {
       color: null,
     },
     columns: [
-      { id: 'todo', name: 'Todo', position: 1000, is_done: false },
-      { id: 'done', name: 'Done', position: 2000, is_done: true },
+      { id: 'todo', name: 'Todo', position: 1000, sort_key: 'V0', is_done: false },
+      { id: 'done', name: 'Done', position: 2000, sort_key: 'V1', is_done: true },
     ],
     labels: [],
     tasks,

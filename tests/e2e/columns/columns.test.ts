@@ -66,7 +66,7 @@ async function updatedAt(taskId: string): Promise<string> {
 function tasksInColumn(columnId: string) {
   return db
     .selectFrom('task')
-    .select(['id', 'column_id', 'position'])
+    .select(['id', 'column_id', 'position', 'sort_key'])
     .where('column_id', '=', columnId)
     .orderBy('position')
     .execute();
@@ -114,6 +114,7 @@ describe('POST /api/columns', () => {
       project_id: projectId,
       name: 'Review',
       position: 2500,
+      sort_key: expect.any(String),
       is_done: false,
       created_at: expect.any(String),
     });
@@ -384,9 +385,9 @@ describe('DELETE /api/columns/:id', () => {
     const body = await res.json();
     expect(body).toEqual({
       moved_tasks: [
-        { id: first, column_id: targetId, position: 6000 },
-        { id: second, column_id: targetId, position: 7000 },
-        { id: third, column_id: targetId, position: 8000 },
+        { id: first, column_id: targetId, position: 6000, sort_key: expect.any(String) },
+        { id: second, column_id: targetId, position: 7000, sort_key: expect.any(String) },
+        { id: third, column_id: targetId, position: 8000, sort_key: expect.any(String) },
       ],
     });
 
@@ -399,10 +400,10 @@ describe('DELETE /api/columns/:id', () => {
 
     const targetTasks = await tasksInColumn(targetId);
     expect(targetTasks).toEqual([
-      { id: existingTarget, column_id: targetId, position: 5000 },
-      { id: first, column_id: targetId, position: 6000 },
-      { id: second, column_id: targetId, position: 7000 },
-      { id: third, column_id: targetId, position: 8000 },
+      { id: existingTarget, column_id: targetId, position: 5000, sort_key: expect.any(String) },
+      { id: first, column_id: targetId, position: 6000, sort_key: expect.any(String) },
+      { id: second, column_id: targetId, position: 7000, sort_key: expect.any(String) },
+      { id: third, column_id: targetId, position: 8000, sort_key: expect.any(String) },
     ]);
   });
 
@@ -421,7 +422,7 @@ describe('DELETE /api/columns/:id', () => {
       .delete(`/api/columns/${sourceId}?move_tasks_to=${targetId}`);
     expect(res.status).toBe(200);
     expect((await res.json()).moved_tasks).toEqual([
-      { id: taskId, column_id: targetId, position: 1000 },
+      { id: taskId, column_id: targetId, position: 1000, sort_key: expect.any(String) },
     ]);
 
     const archived = await ctx.request(token).get(`/api/projects/${projectId}/archived-tasks`);
@@ -474,8 +475,8 @@ describe('DELETE /api/columns/:id', () => {
 
     const body = await res.json();
     expect(body.moved_tasks).toEqual([
-      { id: a, column_id: targetId, position: 1000 },
-      { id: b, column_id: targetId, position: 2000 },
+      { id: a, column_id: targetId, position: 1000, sort_key: expect.any(String) },
+      { id: b, column_id: targetId, position: 2000, sort_key: expect.any(String) },
     ]);
   });
 });
@@ -590,15 +591,15 @@ describe('POST /api/columns/:id/move-tasks', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       moved_tasks: [
-        { id: first, column_id: targetId, position: 6000 },
-        { id: second, column_id: targetId, position: 7000 },
+        { id: first, column_id: targetId, position: 6000, sort_key: expect.any(String) },
+        { id: second, column_id: targetId, position: 7000, sort_key: expect.any(String) },
       ],
     });
 
     expect(await tasksInColumn(targetId)).toEqual([
-      { id: existingTarget, column_id: targetId, position: 5000 },
-      { id: first, column_id: targetId, position: 6000 },
-      { id: second, column_id: targetId, position: 7000 },
+      { id: existingTarget, column_id: targetId, position: 5000, sort_key: expect.any(String) },
+      { id: first, column_id: targetId, position: 6000, sort_key: expect.any(String) },
+      { id: second, column_id: targetId, position: 7000, sort_key: expect.any(String) },
     ]);
   });
 
@@ -687,7 +688,7 @@ describe('POST /api/columns/:id/move-tasks', () => {
     expect(await res.json()).toEqual({ moved_tasks: [] });
 
     expect(await tasksInColumn(targetId)).toEqual([
-      { id: settled, column_id: targetId, position: 1000 },
+      { id: settled, column_id: targetId, position: 1000, sort_key: expect.any(String) },
     ]);
   });
 
@@ -703,8 +704,8 @@ describe('POST /api/columns/:id/move-tasks', () => {
       .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
     expect(res.status).toBe(200);
     expect((await res.json()).moved_tasks).toEqual([
-      { id: a, column_id: targetId, position: 1000 },
-      { id: b, column_id: targetId, position: 2000 },
+      { id: a, column_id: targetId, position: 1000, sort_key: expect.any(String) },
+      { id: b, column_id: targetId, position: 2000, sort_key: expect.any(String) },
     ]);
   });
 
@@ -721,11 +722,11 @@ describe('POST /api/columns/:id/move-tasks', () => {
       .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
     expect(res.status).toBe(200);
     expect((await res.json()).moved_tasks).toEqual([
-      { id: liveId, column_id: targetId, position: 1000 },
+      { id: liveId, column_id: targetId, position: 1000, sort_key: expect.any(String) },
     ]);
 
     expect(await tasksInColumn(sourceId)).toEqual([
-      { id: archivedId, column_id: sourceId, position: 1000 },
+      { id: archivedId, column_id: sourceId, position: 1000, sort_key: expect.any(String) },
     ]);
     const archived = await ctx.request(token).get(`/api/projects/${projectId}/archived-tasks`);
     expect(((await archived.json()) as { tasks: Array<Record<string, unknown>> }).tasks).toEqual([
@@ -760,7 +761,7 @@ describe('POST /api/columns/:id/move-tasks', () => {
       .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
     expect(res.status).toBe(200);
     expect((await res.json()).moved_tasks).toEqual([
-      { id: moving, column_id: targetId, position: 10000 },
+      { id: moving, column_id: targetId, position: 10000, sort_key: expect.any(String) },
     ]);
   });
 });
@@ -1038,16 +1039,16 @@ describe('POST /api/columns/:id/reorder', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       moved_tasks: [
-        { id: first, column_id: columnId, position: 1000 },
-        { id: second, column_id: columnId, position: 2000 },
-        { id: third, column_id: columnId, position: 3000 },
+        { id: first, column_id: columnId, position: 1000, sort_key: expect.any(String) },
+        { id: second, column_id: columnId, position: 2000, sort_key: expect.any(String) },
+        { id: third, column_id: columnId, position: 3000, sort_key: expect.any(String) },
       ],
     });
 
     expect(await tasksInColumn(columnId)).toEqual([
-      { id: first, column_id: columnId, position: 1000 },
-      { id: second, column_id: columnId, position: 2000 },
-      { id: third, column_id: columnId, position: 3000 },
+      { id: first, column_id: columnId, position: 1000, sort_key: expect.any(String) },
+      { id: second, column_id: columnId, position: 2000, sort_key: expect.any(String) },
+      { id: third, column_id: columnId, position: 3000, sort_key: expect.any(String) },
     ]);
   });
 

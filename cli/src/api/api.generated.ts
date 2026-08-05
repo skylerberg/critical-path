@@ -43,6 +43,126 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/auth/forgot-password': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Request password reset
+     * @description Email a password-reset link if an account with that address exists. Always responds 204 so the response never reveals whether the email is registered.
+     */
+    post: operations['postApiAuthForgotPassword'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/auth/reset-password': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reset password
+     * @description Set a new password using a token from a password-reset email. On success every session is revoked and outstanding reset tokens are invalidated.
+     */
+    post: operations['postApiAuthResetPassword'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/auth/verify-email': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Verify email address
+     * @description Mark an email address as verified using a token from a verification email. Unauthenticated: the token authenticates nothing, creates no session and returns nothing about the account. Idempotent — redeeming a token again succeeds without moving the recorded time, and every outstanding token for the address stays usable. A token stops working once the account moves to a different address, and expires 24 hours after it was issued.
+     */
+    post: operations['postApiAuthVerifyEmail'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/auth/unsubscribe': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Unsubscribe from one kind of notification
+     * @description Switch off the one notification kind the token names, and report which it was so the landing page can say what it did. Unauthenticated and idempotent: the token proves nothing beyond itself, is refused by every authenticating path, and never expires, because an unsubscribe link has to work in a year-old email. There is deliberately no request shape that switches a preference back on — that is what makes a leaked or replayed link harmless, and it must not be weakened by adding one. The response is the same whether or not the account still exists, so nothing here reveals that.
+     */
+    post: operations['postApiAuthUnsubscribe'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/auth/unsubscribe/all': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Unsubscribe from every notification
+     * @description Switch off every notification email for the account the token names, whatever kind the token itself carries. Same properties as the single-kind form: unauthenticated, idempotent, and incapable of switching anything on.
+     */
+    post: operations['postApiAuthUnsubscribeAll'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/auth/unsubscribe/one-click': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * One-click unsubscribe (RFC 8058)
+     * @description The target of the List-Unsubscribe header on notification email. A mail client posts List-Unsubscribe=One-Click as form data, which is not JSON, so the token comes from the query string and the body is never read. It switches off the kind the token names.
+     */
+    post: operations['postApiAuthUnsubscribeOneClick'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/auth/logout': {
     parameters: {
       query?: never;
@@ -195,66 +315,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/auth/forgot-password': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Request password reset
-     * @description Email a password-reset link if an account with that address exists. Always responds 204 so the response never reveals whether the email is registered.
-     */
-    post: operations['postApiAuthForgotPassword'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/auth/reset-password': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Reset password
-     * @description Set a new password using a token from a password-reset email. On success every session is revoked and outstanding reset tokens are invalidated.
-     */
-    post: operations['postApiAuthResetPassword'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/auth/verify-email': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Verify email address
-     * @description Mark an email address as verified using a token from a verification email. Unauthenticated: the token authenticates nothing, creates no session and returns nothing about the account. Idempotent — redeeming a token again succeeds without moving the recorded time, and every outstanding token for the address stays usable. A token stops working once the account moves to a different address, and expires 24 hours after it was issued.
-     */
-    post: operations['postApiAuthVerifyEmail'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   '/api/auth/verify-email/resend': {
     parameters: {
       query?: never;
@@ -313,66 +373,6 @@ export interface paths {
      */
     put: operations['putApiAuthMeNotificationSettings'];
     post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/auth/unsubscribe': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Unsubscribe from one kind of notification
-     * @description Switch off the one notification kind the token names, and report which it was so the landing page can say what it did. Unauthenticated and idempotent: the token proves nothing beyond itself, is refused by every authenticating path, and never expires, because an unsubscribe link has to work in a year-old email. There is deliberately no request shape that switches a preference back on — that is what makes a leaked or replayed link harmless, and it must not be weakened by adding one. The response is the same whether or not the account still exists, so nothing here reveals that.
-     */
-    post: operations['postApiAuthUnsubscribe'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/auth/unsubscribe/all': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Unsubscribe from every notification
-     * @description Switch off every notification email for the account the token names, whatever kind the token itself carries. Same properties as the single-kind form: unauthenticated, idempotent, and incapable of switching anything on.
-     */
-    post: operations['postApiAuthUnsubscribeAll'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/auth/unsubscribe/one-click': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * One-click unsubscribe (RFC 8058)
-     * @description The target of the List-Unsubscribe header on notification email. A mail client posts List-Unsubscribe=One-Click as form data, which is not JSON, so the token comes from the query string and the body is never read. It switches off the kind the token names.
-     */
-    post: operations['postApiAuthUnsubscribeOneClick'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1383,6 +1383,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/attachments/{id}/preview': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get a link preview image
+     * @description Serve the preview image fetched for a link attachment, re-encoded to WebP at unfurl time. Unauthenticated: the unguessable attachment id acts as a capability URL so <img> tags work without auth headers. 404 when the link has no stored preview.
+     */
+    get: operations['getApiAttachmentsByIdPreview'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/attachments/{id}/favicon': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get a link favicon
+     * @description Serve the favicon fetched for a link attachment, re-encoded to WebP at unfurl time. Unauthenticated for the same reason as the preview. 404 when the link has no stored favicon.
+     */
+    get: operations['getApiAttachmentsByIdFavicon'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/attachments/files': {
     parameters: {
       query?: never;
@@ -1459,46 +1499,6 @@ export interface paths {
      * @description Serve the stored bytes. Unlike image URLs this route is authenticated and answers 404 to anyone without project access, so a spec or a contract stops being readable the moment someone is removed from the project. The response is always application/octet-stream with an attachment Content-Disposition, nosniff and a sandbox CSP, whatever the file is — no user-supplied bytes are ever served with a renderable content type. A link attachment answers 404.
      */
     get: operations['getApiAttachmentsByIdDownload'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/attachments/{id}/preview': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Get a link preview image
-     * @description Serve the preview image fetched for a link attachment, re-encoded to WebP at unfurl time. Unauthenticated: the unguessable attachment id acts as a capability URL so <img> tags work without auth headers. 404 when the link has no stored preview.
-     */
-    get: operations['getApiAttachmentsByIdPreview'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/attachments/{id}/favicon': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Get a link favicon
-     * @description Serve the favicon fetched for a link attachment, re-encoded to WebP at unfurl time. Unauthenticated for the same reason as the preview. 404 when the link has no stored favicon.
-     */
-    get: operations['getApiAttachmentsByIdFavicon'];
     put?: never;
     post?: never;
     delete?: never;
@@ -1774,6 +1774,20 @@ export interface components {
       email: string;
       password: string;
     };
+    ForgotPassword: {
+      email: string;
+    };
+    ResetPassword: {
+      new_password: string;
+      token: string;
+    };
+    EmailTokenRequest: {
+      token: string;
+    };
+    UnsubscribeResponse: {
+      /** @enum {unknown} */
+      kind: 'added_to_project' | 'bulk_task_assigned' | 'task_assigned';
+    };
     PatchMe: {
       email?: string;
       name?: string;
@@ -1822,16 +1836,6 @@ export interface components {
       current_password: string;
       new_password: string;
     };
-    ForgotPassword: {
-      email: string;
-    };
-    ResetPassword: {
-      new_password: string;
-      token: string;
-    };
-    EmailTokenRequest: {
-      token: string;
-    };
     AccountExport: {
       account: {
         avatar_url: components['schemas']['UserAvatarurl'];
@@ -1871,10 +1875,6 @@ export interface components {
       added_to_project: boolean;
       bulk_task_assigned: boolean;
       task_assigned: boolean;
-    };
-    UnsubscribeResponse: {
-      /** @enum {unknown} */
-      kind: 'added_to_project' | 'bulk_task_assigned' | 'task_assigned';
     };
     UsersResponse: {
       users: components['schemas']['User'][];
@@ -1932,6 +1932,7 @@ export interface components {
       name: string;
       /** @description a finite number */
       position: number;
+      sort_key: components['schemas']['UserAvatarurl'];
     };
     BoardLabel: {
       color: string;
@@ -1968,6 +1969,7 @@ export interface components {
       label_ids: string[];
       /** @description a finite number */
       position: number;
+      sort_key: components['schemas']['UserAvatarurl'];
       title: string;
       updated_at: string;
     };
@@ -2014,6 +2016,7 @@ export interface components {
       label_ids: string[];
       /** @description a finite number */
       position: number;
+      sort_key: components['schemas']['UserAvatarurl'];
       title: string;
       updated_at: string;
     };
@@ -2070,6 +2073,7 @@ export interface components {
         label_ids: string[];
         /** @description a finite number */
         position: number;
+        sort_key: components['schemas']['UserAvatarurl'];
         title: string;
         updated_at: string;
       }[];
@@ -2138,6 +2142,7 @@ export interface components {
       /** @description a finite number */
       position: number;
       project_id: string;
+      sort_key: components['schemas']['UserAvatarurl'];
     };
     CreateColumn: {
       /** Format: uuid */
@@ -2148,6 +2153,8 @@ export interface components {
       /** Format: uuid */
       project_id: string;
       is_done?: boolean;
+      /** @description a sort key */
+      sort_key?: string;
     };
     DuplicatedColumnResponse: {
       column: components['schemas']['Column'];
@@ -2158,12 +2165,16 @@ export interface components {
       id: string;
       /** @description a finite number */
       position: number;
+      /** @description a sort key */
+      sort_key?: string;
     };
     PatchColumn: {
       is_done?: boolean;
       name?: string;
       /** @description a finite number */
       position?: number;
+      /** @description a sort key */
+      sort_key?: string;
     };
     MovedTasksResponse: {
       moved_tasks: components['schemas']['MovedTask'][];
@@ -2173,6 +2184,7 @@ export interface components {
       id: string;
       /** @description a finite number */
       position: number;
+      sort_key: components['schemas']['UserAvatarurl'];
     };
     MoveColumnTasks: {
       /** Format: uuid */
@@ -2195,6 +2207,8 @@ export interface components {
       description?: components['schemas']['NullableTiptapDoc'];
       due_date?: components['schemas']['UserAvatarurl'];
       label_ids?: string[];
+      /** @description a sort key */
+      sort_key?: string;
     };
     TasksBatchResponse: {
       tasks: components['schemas']['BoardTask'][];
@@ -2212,6 +2226,8 @@ export interface components {
       /** @description a finite number */
       position: number;
       title: string;
+      /** @description a sort key */
+      sort_key?: string;
     };
     TaskDetailResponse: {
       archived_at: components['schemas']['UserAvatarurl'];
@@ -2238,6 +2254,7 @@ export interface components {
       position: number;
       project_id: string;
       series_summary: components['schemas']['UserAvatarurl'];
+      sort_key: components['schemas']['UserAvatarurl'];
       title: string;
       updated_at: string;
     };
@@ -2264,6 +2281,7 @@ export interface components {
       id: string;
       /** @description a finite number */
       position: number;
+      sort_key: components['schemas']['UserAvatarurl'];
       task_id: string;
       text: string;
       updated_at: string;
@@ -2292,6 +2310,8 @@ export interface components {
       expected_updated_at?: string;
       /** @description a finite number */
       position?: number;
+      /** @description a sort key */
+      sort_key?: string;
       title?: string;
     };
     TaskActivityResponse: {
@@ -2473,11 +2493,15 @@ export interface components {
       task_id: string;
       text: string;
       checked?: boolean;
+      /** @description a sort key */
+      sort_key?: string;
     };
     PatchChecklistItem: {
       checked?: boolean;
       /** @description a finite number */
       position?: number;
+      /** @description a sort key */
+      sort_key?: string;
       text?: string;
     };
     CreateLinkAttachment: {
@@ -2798,6 +2822,247 @@ export interface operations {
       };
       /** @description Too Many Requests */
       429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  postApiAuthForgotPassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ForgotPassword'];
+      };
+    };
+    responses: {
+      /** @description Accepted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ValidationError'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  postApiAuthResetPassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ResetPassword'];
+      };
+    };
+    responses: {
+      /** @description Password reset and all sessions revoked */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error or domain-rule violation */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  postApiAuthVerifyEmail: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EmailTokenRequest'];
+      };
+    };
+    responses: {
+      /** @description Address verified */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error or domain-rule violation */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  postApiAuthUnsubscribe: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EmailTokenRequest'];
+      };
+    };
+    responses: {
+      /** @description The notification kind that was switched off */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['UnsubscribeResponse'];
+        };
+      };
+      /** @description Validation error or domain-rule violation */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  postApiAuthUnsubscribeAll: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EmailTokenRequest'];
+      };
+    };
+    responses: {
+      /** @description All notification email switched off */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation error or domain-rule violation */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  postApiAuthUnsubscribeOneClick: {
+    parameters: {
+      query: {
+        /** @description The unsubscribe token from the mailed link */
+        token: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Notification kind switched off */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unprocessable request */
+      422: {
         headers: {
           [name: string]: unknown;
         };
@@ -3316,126 +3581,6 @@ export interface operations {
       };
     };
   };
-  postApiAuthForgotPassword: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ForgotPassword'];
-      };
-    };
-    responses: {
-      /** @description Accepted */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Validation error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ValidationError'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
-  postApiAuthResetPassword: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['ResetPassword'];
-      };
-    };
-    responses: {
-      /** @description Password reset and all sessions revoked */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Validation error or domain-rule violation */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ValidationOrUnprocessableError'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
-  postApiAuthVerifyEmail: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['EmailTokenRequest'];
-      };
-    };
-    responses: {
-      /** @description Address verified */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Validation error or domain-rule violation */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ValidationOrUnprocessableError'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
   postApiAuthVerifyEmailResend: {
     parameters: {
       query?: never;
@@ -3595,127 +3740,6 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ValidationError'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
-  postApiAuthUnsubscribe: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['EmailTokenRequest'];
-      };
-    };
-    responses: {
-      /** @description The notification kind that was switched off */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['UnsubscribeResponse'];
-        };
-      };
-      /** @description Validation error or domain-rule violation */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ValidationOrUnprocessableError'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
-  postApiAuthUnsubscribeAll: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['EmailTokenRequest'];
-      };
-    };
-    responses: {
-      /** @description All notification email switched off */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Validation error or domain-rule violation */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ValidationOrUnprocessableError'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
-  postApiAuthUnsubscribeOneClick: {
-    parameters: {
-      query: {
-        /** @description The unsubscribe token from the mailed link */
-        token: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Notification kind switched off */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Unprocessable request */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
         };
       };
       /** @description Internal Server Error */
@@ -7948,6 +7972,104 @@ export interface operations {
       };
     };
   };
+  getApiAttachmentsByIdPreview: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description WebP image bytes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'image/webp': string;
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  getApiAttachmentsByIdFavicon: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description WebP image bytes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'image/webp': string;
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
   postApiAttachmentsFiles: {
     parameters: {
       query: {
@@ -8321,104 +8443,6 @@ export interface operations {
       };
       /** @description Authentication required or failed */
       401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
-  getApiAttachmentsByIdPreview: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description WebP image bytes */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'image/webp': string;
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
-  getApiAttachmentsByIdFavicon: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description WebP image bytes */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'image/webp': string;
-        };
-      };
-      /** @description Bad Request */
-      400: {
         headers: {
           [name: string]: unknown;
         };
