@@ -60,8 +60,8 @@ beforeEach(() => {
     color: null,
   };
   board.columns = [
-    { id: 'c-1', name: 'Todo', position: 1000, is_done: false },
-    { id: 'c-2', name: 'Doing', position: 2000, is_done: false },
+    { id: 'c-1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+    { id: 'c-2', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
   ];
   board.labels = [];
   // The users store fetches the project roster on mount.

@@ -65,6 +65,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
     title: id,
     description: null,
     position,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
@@ -118,7 +119,7 @@ function boardPayload(): BoardPayload {
       color: null,
       created_at: '2026-01-01T00:00:00Z',
     },
-    columns: [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }],
+    columns: [{ id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false }],
     tasks: [],
     labels: [],
     changed_task_ids: [],
@@ -141,6 +142,7 @@ function project(overrides: Partial<Project> = {}): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
     ...overrides,
@@ -295,31 +297,35 @@ describe('board event application', () => {
     board.applyRealtime({
       type: 'column_created',
       project_id: 'p1',
-      data: { id: 'c2', name: 'Done', position: 500, is_done: true },
+      data: { id: 'c2', name: 'Done', position: 500, sort_key: 'V0000005001', is_done: true },
     });
     board.applyRealtime({
       type: 'column_created',
       project_id: 'p1',
-      data: { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+      data: { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
     });
     expect(board.columns.map((c) => c.id)).toEqual(['c2', 'c1']);
   });
 
   it('removes the column and applies moved_tasks on column_deleted', () => {
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-      { id: 'c2', name: 'Done', position: 2000, is_done: true },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
     ];
     board.tasks = [task('t1', 'c1'), task('t2', 'c1')];
     board.applyRealtime({
       type: 'column_deleted',
       project_id: 'p1',
-      data: { id: 'c1', moved_tasks: [{ id: 't1', column_id: 'c2', position: 3000 }] },
+      data: {
+        id: 'c1',
+        moved_tasks: [{ id: 't1', column_id: 'c2', position: 3000, sort_key: 'V0000030001' }],
+      },
     });
     expect(board.columns.map((c) => c.id)).toEqual(['c2']);
     expect(board.tasks.find((t) => t.id === 't1')).toMatchObject({
       column_id: 'c2',
       position: 3000,
+      sort_key: 'V0000030001',
     });
     expect(board.tasks.find((t) => t.id === 't2')).toBeUndefined();
   });
@@ -522,7 +528,10 @@ describe('project event application', () => {
   it('merges the position from a project_position_updated wire event', async () => {
     projects.projects = [project()];
     const socket = await connectAndAuth(null);
-    socket.receive({ type: 'project_position_updated', data: { id: 'p1', position: 250 } });
+    socket.receive({
+      type: 'project_position_updated',
+      data: { id: 'p1', position: 250, sort_key: 'V0000002501' },
+    });
     expect(projects.projects[0]!.position).toBe(250);
   });
 });
@@ -631,6 +640,7 @@ describe('drag-aware queue', () => {
       text: 'theirs',
       checked: false,
       position: 1000,
+      sort_key: 'V0000010001',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
       checklist_item_count: 1,
@@ -668,15 +678,15 @@ describe('drag-aware queue', () => {
 
   it('treats column_tasks_moved as a board event: project-filtered, queued, then applied', async () => {
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-      { id: 'c2', name: 'Done', position: 2000, is_done: true },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
     ];
     board.tasks = [task('t1', 'c1')];
     const socket = await connectAndAuth('p1');
     const data = {
       column_id: 'c1',
       target_column_id: 'c2',
-      moved_tasks: [{ id: 't1', column_id: 'c2', position: 3000 }],
+      moved_tasks: [{ id: 't1', column_id: 'c2', position: 3000, sort_key: 'V0000030001' }],
     };
 
     socket.receive({ type: 'column_tasks_moved', project_id: 'p2', data });
@@ -698,8 +708,8 @@ describe('drag-aware queue', () => {
     const data = {
       column_id: 'c1',
       moved_tasks: [
-        { id: 't1', position: 2000 },
-        { id: 't2', position: 1000 },
+        { id: 't1', position: 2000, sort_key: 'V0000020001' },
+        { id: 't2', position: 1000, sort_key: 'V0000010001' },
       ],
     };
 

@@ -54,6 +54,7 @@ function task(id: string, overrides: Partial<BoardTask> = {}): BoardTask {
     title: id,
     description: null,
     position: 1000,
+    sort_key: 'V0000010001',
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
     column_since: '2026-07-15T00:00:00Z',
@@ -78,6 +79,7 @@ function item(id: string, text: string, position: number, checked = false): Chec
     text,
     checked,
     position,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
   };
@@ -146,7 +148,9 @@ beforeEach(() => {
   motion.reduced = false;
   board.reset();
   board.currentProjectId = PROJECT_ID;
-  board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+  board.columns = [
+    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+  ];
   board.tasks = [
     task(T1, { checklist_item_count: 3, checklist_done_count: 1 }),
     task(T2, { position: 2000 }),
@@ -211,11 +215,11 @@ describe('TaskChecklist reordering', () => {
     });
 
     expect(move).toHaveBeenCalledTimes(1);
-    const position = move.mock.calls[0]![2];
-    expect(Number.isFinite(position)).toBe(true);
-    expect(position).toBeGreaterThan(A.position);
-    expect(position).toBeLessThan(B.position);
-    expect(move).toHaveBeenCalledWith(T1, C.id, position);
+    const placed = move.mock.calls[0]![2];
+    expect(Number.isFinite(placed.position)).toBe(true);
+    expect(placed.sort_key > A.sort_key!).toBe(true);
+    expect(placed.sort_key < B.sort_key!).toBe(true);
+    expect(move).toHaveBeenCalledWith(T1, C.id, placed);
   });
 
   it('writes nothing when a row is dropped back where it was picked up', async () => {

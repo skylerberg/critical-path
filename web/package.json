@@ -37,6 +37,7 @@
     "@tiptap/extensions": "~3.27.3",
     "@tiptap/starter-kit": "~3.27.3",
     "@tiptap/suggestion": "3.27.3",
+    "fractional-indexing": "^4.0.0",
     "openapi-fetch": "~0.17.0",
     "svelte": "~5.56.4",
     "svelte-dnd-action": "0.9.70"

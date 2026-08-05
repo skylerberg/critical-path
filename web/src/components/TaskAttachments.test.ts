@@ -17,6 +17,7 @@ function task(id: string, overrides: Partial<BoardTask> = {}): BoardTask {
     title: id,
     description: null,
     position: 1000,
+    sort_key: 'V0000010001',
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
     column_since: '2026-07-15T00:00:00Z',
@@ -92,7 +93,9 @@ beforeEach(() => {
   board.reset();
   toasts.toasts = [];
   board.currentProjectId = PROJECT_ID;
-  board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+  board.columns = [
+    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+  ];
   board.tasks = [task(T1)];
   board.taskAttachments = { [T1]: [] };
 });

@@ -15,6 +15,7 @@ function task(id: string): BoardTask {
     title: id,
     description: null,
     position: 1000,
+    sort_key: 'V0000010001',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
@@ -283,7 +284,9 @@ describe('open and close', () => {
         color: null,
         created_at: '2026-01-01T00:00:00Z',
       };
-      board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+      board.columns = [
+        { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      ];
       board.tasks = [task('t1'), { ...task('t2'), position: 2000 }];
     });
 

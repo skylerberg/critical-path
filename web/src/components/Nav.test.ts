@@ -58,7 +58,7 @@ const C_ID = testUuid('p-c');
 
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [];
-  return {
+  const base: Project = {
     id: testUuid('p-1'),
     name: 'Alpha',
     description: '',
@@ -72,10 +72,17 @@ function project(overrides: Partial<Project> = {}): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
     ...overrides,
   };
+  // A positioned project is a ranked one; without the key every reorder would
+  // take the re-stamp branch and PUT the whole sidebar.
+  if (base.sort_key === null && base.position !== null) {
+    base.sort_key = `V0${String(base.position).padStart(8, '0')}1`;
+  }
+  return base;
 }
 
 function sidebarProjectNames(): string[] {
@@ -158,7 +165,7 @@ describe('Nav sidebar', () => {
   // what an indexed palette lookup dies on — and the death lands mid-drag.
   it('survives a drag placeholder that carries no colour at all', async () => {
     projects.projects = [
-      project({ id: A_ID, name: 'A', position: 1000, color: 'sky' }),
+      project({ id: A_ID, name: 'A', position: 1000, sort_key: 'V0000010001', color: 'sky' }),
       project({ id: B_ID, name: 'B', position: 2000 }),
     ];
 
@@ -209,7 +216,10 @@ describe('Nav sidebar', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(requestAt(0).method).toBe('PUT');
     expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${C_ID}/position`);
-    expect(await requestAt(0).clone().json()).toEqual({ position: 1500 });
+    expect(await requestAt(0).clone().json()).toEqual({
+      position: 1500,
+      sort_key: expect.any(String),
+    });
     await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['A', 'C', 'B']));
   });
 
@@ -297,12 +307,18 @@ describe('Nav sidebar', () => {
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
       expect(requestAt(0).method).toBe('PUT');
       expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${A_ID}/position`);
-      expect(await requestAt(0).clone().json()).toEqual({ position: 2500 });
+      expect(await requestAt(0).clone().json()).toEqual({
+        position: 2500,
+        sort_key: expect.any(String),
+      });
 
       await fireEvent.keyDown(item, { key: 'ArrowDown' });
       await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['B', 'C', 'A']));
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-      expect(await requestAt(1).clone().json()).toEqual({ position: 4000 });
+      expect(await requestAt(1).clone().json()).toEqual({
+        position: 4000,
+        sort_key: expect.any(String),
+      });
 
       await fireEvent.keyDown(item, { key: 'Enter' });
       expect(alertText()).toContain('Stopped dragging item A');
@@ -493,7 +509,10 @@ describe('Nav reduced motion', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(requestAt(0).method).toBe('PUT');
     expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${A_ID}/position`);
-    expect(await requestAt(0).clone().json()).toEqual({ position: 2500 });
+    expect(await requestAt(0).clone().json()).toEqual({
+      position: 2500,
+      sort_key: expect.any(String),
+    });
     expectEveryZone(0, true);
   });
 });
@@ -528,8 +547,20 @@ describe('offline badge', () => {
 describe('Nav unseen changes dot', () => {
   it('marks a project with unseen changes and leaves the open one alone', () => {
     projects.projects = [
-      project({ id: A_ID, name: 'A', position: 1000, has_unseen_changes: true }),
-      project({ id: B_ID, name: 'B', position: 2000, has_unseen_changes: true }),
+      project({
+        id: A_ID,
+        name: 'A',
+        position: 1000,
+        sort_key: 'V0000010001',
+        has_unseen_changes: true,
+      }),
+      project({
+        id: B_ID,
+        name: 'B',
+        position: 2000,
+        sort_key: 'V0000020001',
+        has_unseen_changes: true,
+      }),
       project({ id: C_ID, name: 'C', position: 3000 }),
     ];
     router.navigate(projectHref(B_ID, 'B'));
@@ -549,7 +580,13 @@ describe('Nav unseen changes dot', () => {
   // that names no project, so an unguarded read dots a row that is not a project.
   it('keeps the dot off the drag placeholder', async () => {
     projects.projects = [
-      project({ id: A_ID, name: 'A', position: 1000, has_unseen_changes: true }),
+      project({
+        id: A_ID,
+        name: 'A',
+        position: 1000,
+        sort_key: 'V0000010001',
+        has_unseen_changes: true,
+      }),
       project({ id: B_ID, name: 'B', position: 2000 }),
     ];
 

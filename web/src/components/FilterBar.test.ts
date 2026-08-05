@@ -20,6 +20,7 @@ function task(id: string, assigneeIds: string[]): BoardTask {
     title: `Task ${id}`,
     description: null,
     position: 1000,
+    sort_key: 'V0000010001',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
@@ -42,7 +43,9 @@ beforeEach(() => {
   users.reset();
   shortcuts.reset();
   board.currentProjectId = PROJECT_ID;
-  board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+  board.columns = [
+    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+  ];
   users.users = [{ id: 'u1', name: 'Ada', avatar_url: null }];
 });
 

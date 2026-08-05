@@ -28,6 +28,7 @@ function archived(id: string, title: string, columnId = 'c1'): ArchivedTask {
     title,
     description: null,
     position: 1000,
+    sort_key: 'V0000010001',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
@@ -80,8 +81,8 @@ beforeEach(() => {
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [
-    { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-    { id: 'c2', name: 'Done', position: 2000, is_done: true },
+    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+    { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
   ];
 });
 

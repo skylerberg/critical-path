@@ -16,8 +16,8 @@ function payload() {
   return {
     project: { id: PROJECT_ID, name: 'Roadmap', description: 'What is coming' },
     columns: [
-      { id: 'todo', name: 'To Do', position: 1000, is_done: false },
-      { id: 'done', name: 'Shipped', position: 2000, is_done: true },
+      { id: 'todo', name: 'To Do', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'done', name: 'Shipped', position: 2000, sort_key: 'V0000020001', is_done: true },
     ],
     tasks: [
       {
@@ -26,6 +26,7 @@ function payload() {
         title: 'Design cards',
         description: null,
         position: 1000,
+        sort_key: 'V0000010001',
         due_date: '2020-01-04',
         label_ids: [],
         assignee_ids: ['u-ada'],
@@ -40,6 +41,7 @@ function payload() {
         title: 'Pick a name',
         description: null,
         position: 1000,
+        sort_key: 'V0000010001',
         due_date: null,
         label_ids: [],
         assignee_ids: [],

@@ -57,6 +57,7 @@ function task(id: string, columnId: string, position: number, title: string): Bo
     title,
     description: null,
     position,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
     column_since: '2026-07-15T00:00:00Z',
@@ -83,7 +84,9 @@ beforeEach(() => {
   cardMenu.reset();
   session.user = null;
   drafts.clearAll();
-  board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+  board.columns = [
+    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+  ];
   board.tasks = [
     task(T1, 'c1', 1000, 'plain one'),
     task(T2, 'c1', 2000, 'match a'),
@@ -252,8 +255,8 @@ describe('Board column header count', () => {
 
   it('counts each column separately', async () => {
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
     ];
     board.tasks = [
       ...board.tasks,
@@ -269,7 +272,10 @@ describe('Board column header count', () => {
   });
 
   it('shows 0 of 0 for a column with no tasks while a filter is active', async () => {
-    board.columns = [...board.columns, { id: 'c3', name: 'Empty', position: 3000, is_done: false }];
+    board.columns = [
+      ...board.columns,
+      { id: 'c3', name: 'Empty', position: 3000, sort_key: 'V0000030001', is_done: false },
+    ];
     board.setFilterQuery('match');
     render(Board, { props: { projectId: PROJECT_ID } });
 
@@ -486,7 +492,11 @@ describe('Board keyboard reordering', () => {
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
     const patch = patchRequests()[0]!;
     expect(new URL(patch.url).pathname).toBe(`/api/tasks/${T1}`);
-    expect(await patch.clone().json()).toEqual({ column_id: 'c1', position: 2500 });
+    expect(await patch.clone().json()).toEqual({
+      column_id: 'c1',
+      position: 2500,
+      sort_key: expect.any(String),
+    });
 
     await fireEvent.keyDown(item, { key: 'Enter' });
     await vi.waitFor(() => expect(board.dragging).toBe(false));
@@ -509,8 +519,8 @@ describe('Board keyboard reordering', () => {
 
   it('reorders columns by keyboard via the drag handle', async () => {
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
     ];
     render(Board, { props: { projectId: PROJECT_ID } });
 
@@ -535,7 +545,7 @@ describe('Board keyboard reordering', () => {
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
     const patch = patchRequests()[0]!;
     expect(new URL(patch.url).pathname).toBe('/api/columns/c1');
-    expect(await patch.clone().json()).toEqual({ position: 3000 });
+    expect(await patch.clone().json()).toEqual({ position: 3000, sort_key: expect.any(String) });
 
     await fireEvent.keyDown(section, { key: 'Enter' });
     await vi.waitFor(() => expect(board.dragging).toBe(false));
@@ -599,7 +609,11 @@ describe('Board reduced motion', () => {
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
     const patch = patchRequests()[0]!;
     expect(new URL(patch.url).pathname).toBe(`/api/tasks/${T1}`);
-    expect(await patch.clone().json()).toEqual({ column_id: 'c1', position: 2500 });
+    expect(await patch.clone().json()).toEqual({
+      column_id: 'c1',
+      position: 2500,
+      sort_key: expect.any(String),
+    });
     expectEveryZone(0, true);
   });
 });
@@ -663,8 +677,8 @@ describe('Board filter scrolling', () => {
 
   it('resets every column, not just the one that matched', async () => {
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
     ];
     board.tasks = [
       ...board.tasks,
@@ -770,8 +784,8 @@ describe('Board drag placeholder', () => {
 describe('Board pointer drops', () => {
   function twoColumns(): void {
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
     ];
   }
 
@@ -909,8 +923,8 @@ describe('Board column drops', () => {
 
   beforeEach(() => {
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
     ];
   });
 
@@ -996,10 +1010,10 @@ describe('Board swipe pagination', () => {
   beforeEach(() => {
     centered = 0;
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-      { id: 'c2', name: 'Doing', position: 2000, is_done: false },
-      { id: 'c3', name: 'Review', position: 3000, is_done: false },
-      { id: 'c4', name: 'Done', position: 4000, is_done: true },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
+      { id: 'c3', name: 'Review', position: 3000, sort_key: 'V0000030001', is_done: false },
+      { id: 'c4', name: 'Done', position: 4000, sort_key: 'V0000040001', is_done: true },
     ];
   });
 

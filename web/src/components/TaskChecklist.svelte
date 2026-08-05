@@ -8,7 +8,7 @@
     TRIGGERS,
     type DndEvent,
   } from 'svelte-dnd-action';
-  import { board, positionAfterDrop } from '../lib/board.svelte';
+  import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { ChecklistItem } from '../lib/board-types';
   import { motion } from '../lib/motion.svelte';
   import { router } from '../lib/router.svelte';
@@ -108,7 +108,7 @@
     void board.moveChecklistItem(
       taskId,
       event.detail.info.id,
-      positionAfterDrop(items, event.detail.info.id)
+      placementAfterDrop(items, event.detail.info.id)
     );
   }
 

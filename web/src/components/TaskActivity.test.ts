@@ -18,6 +18,7 @@ function task(commentCount: number): BoardTask {
     title: 'Design cards',
     description: null,
     position: 1000,
+    sort_key: 'V0000010001',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
@@ -49,6 +50,7 @@ function projectListItem(memberIds: string[]): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
   };

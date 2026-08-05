@@ -36,6 +36,7 @@ function task(id: string, columnId: string, position: number, title = id): Board
     title,
     description: null,
     position,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
@@ -70,6 +71,7 @@ function awayProject(patch: Partial<Project>): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
     ...patch,
@@ -112,7 +114,9 @@ beforeEach(() => {
     color: null,
     created_at: '2026-01-01T00:00:00Z',
   };
-  board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+  board.columns = [
+    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+  ];
   board.tasks = [task(TASK_1, 'c1', 1000, 'A'), task(TASK_2, 'c1', 2000, 'B')];
   router.navigate(BOARD_PATH, { replace: true });
   session.user = me;

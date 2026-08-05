@@ -66,6 +66,7 @@ function task(id: string, columnId: string, title: string, position = 1000): Boa
     title,
     description: null,
     position,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
     column_since: '2026-07-15T00:00:00Z',
@@ -100,8 +101,8 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
       created_at: '2026-07-15T00:00:00Z',
     },
     columns: [
-      { id: 'todo', name: 'To Do', position: 1000, is_done: false },
-      { id: 'done', name: 'Done', position: 2000, is_done: true },
+      { id: 'todo', name: 'To Do', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'done', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
     ],
     tasks,
     labels: [],
@@ -428,7 +429,10 @@ describe('Project', () => {
       await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
       await fireEvent.click(within(menu).getByRole('button', { name: /^Top/ }));
 
-      expect(moveTask).toHaveBeenCalledWith(T1, 'done', 0);
+      expect(moveTask).toHaveBeenCalledWith(T1, 'done', {
+        position: 0,
+        sort_key: expect.any(String),
+      });
       const overlay = screen.getByLabelText('Task title').closest('dialog')!;
       await waitFor(() => {
         expect(

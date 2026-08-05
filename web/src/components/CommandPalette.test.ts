@@ -45,6 +45,7 @@ function task(id: string, columnId: string, position: number, title: string): Bo
     title,
     description: null,
     position,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
@@ -76,6 +77,7 @@ function project(id: string, name: string) {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
   };
@@ -173,8 +175,8 @@ beforeEach(() => {
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [
-    { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-    { id: 'done', name: 'Done', position: 2000, is_done: true },
+    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+    { id: 'done', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
   ];
   board.labels = [
     { id: 'l1', name: 'art', color: '#ff0000' },
@@ -270,7 +272,9 @@ describe('rendering and grouping', () => {
   });
 
   it('drops Mark done on a board with no done column to move it to', () => {
-    board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+    board.columns = [
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+    ];
 
     open();
 

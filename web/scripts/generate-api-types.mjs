@@ -17,17 +17,41 @@ const OUTPUT_PATH = resolve(__dirname, '..', 'src', 'api', 'api.generated.ts');
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace']);
 
-// Walks up rather than resolving a fixed depth: this runs both from the repo and
-// from a worktree several levels below it.
+// The API repo is a sibling of the *main* checkout, which a worktree outside the
+// repository cannot reach by walking up. Ask git where the main checkout is and
+// look beside that too, so a worktree anywhere on disk still finds the spec
+// rather than silently falling back to whatever is serving on SPEC_URL.
+function mainCheckout() {
+  try {
+    const gitDir = execFileSync(
+      'git',
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      {
+        cwd: __dirname,
+        encoding: 'utf8',
+      }
+    ).trim();
+    return gitDir === '' ? null : dirname(gitDir);
+  } catch {
+    return null;
+  }
+}
+
 function findDumpedSpec() {
-  let dir = __dirname;
-  for (;;) {
-    const candidate = resolve(dir, API_REPO_DIR, 'openapi.json');
-    if (existsSync(candidate)) return candidate;
+  const roots = [];
+  for (let dir = __dirname; ; ) {
+    roots.push(dir);
     const parent = dirname(dir);
-    if (parent === dir) return null;
+    if (parent === dir) break;
     dir = parent;
   }
+  const main = mainCheckout();
+  if (main !== null) roots.push(main, dirname(main));
+  for (const dir of roots) {
+    const candidate = resolve(dir, API_REPO_DIR, 'openapi.json');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 // A stale spec silently drops whole endpoints from the client, and the result

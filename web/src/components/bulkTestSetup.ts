@@ -16,6 +16,7 @@ export function bulkTask(
     column_id: columnId,
     title: id,
     description: null,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     position,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -60,8 +61,8 @@ export function seedBulkBoard(tasks: BoardTask[], selected: string[]): void {
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [
-    { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-    { id: 'c2', name: 'Done', position: 2000, is_done: true },
+    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0', is_done: false },
+    { id: 'c2', name: 'Done', position: 2000, sort_key: 'V1', is_done: true },
   ];
   board.tasks = tasks;
   for (const id of selected) {
