@@ -112,11 +112,18 @@ router.post(
       throw new AppError(422, 'Unsupported image type; allowed formats: PNG, JPEG, GIF, WebP');
     }
 
-    // Shared with attachments, or the quota is bypassed by uploading PNGs.
-    await assertProjectStorageQuota(db, project.id, data.length);
-
     const storageKey = crypto.randomUUID();
     await storage.put(storageKey, data, contentType);
+
+    // After the transfer, as the attachment route does it: the lock is held to
+    // commit, so checking first would hold a project's uploads behind whichever
+    // one is mid-put.
+    try {
+      await assertProjectStorageQuota(db, project.id, data.length);
+    } catch (err) {
+      await storage.delete(storageKey);
+      throw err;
+    }
 
     const filename = (file.name || 'upload').slice(0, 255);
 
