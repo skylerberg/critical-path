@@ -240,17 +240,6 @@ export interface TaskDependency {
   created_at: Generated<Timestamp>;
 }
 
-export interface TaskImage {
-  content_type: string;
-  created_at: Generated<Timestamp>;
-  filename: string;
-  id: string;
-  is_cover: Generated<boolean>;
-  size_bytes: number;
-  storage_key: string;
-  task_id: string;
-}
-
 export interface TaskLabel {
   label_id: string;
   task_id: string;
@@ -335,7 +324,6 @@ export interface DB {
   task_attachment: TaskAttachment;
   task_comment: TaskComment;
   task_dependency: TaskDependency;
-  task_image: TaskImage;
   task_label: TaskLabel;
   task_series: TaskSeries;
   task_series_assignee: TaskSeriesAssignee;
