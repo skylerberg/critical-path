@@ -68,6 +68,18 @@ export function toAttachmentResponse(row: AttachmentRow): AttachmentResponse {
   };
 }
 
+// Transitional, and deliberately ahead of the rows it describes. Images are
+// moving into task_attachment as a third kind; the release after this one starts
+// mirroring them there while task_image stays their source of truth. Because the
+// migration job runs before any pod rolls, those rows appear while pods from the
+// previous release are still serving — so the filters have to be deployed first,
+// as no-ops, or those pods would read an image as an attachment and inflate
+// every count, list and quota that touches this table.
+//
+// The release that moves image reads across deletes this constant and every use
+// of it; `grep -rn MIRRORED_IMAGE_KIND src` finds the whole set.
+export const MIRRORED_IMAGE_KIND = 'image';
+
 export async function fetchAttachmentRow(
   db: Kysely<DB>,
   attachmentId: string
@@ -76,6 +88,7 @@ export async function fetchAttachmentRow(
     .selectFrom('task_attachment')
     .select(ATTACHMENT_COLUMNS)
     .where('task_attachment.id', '=', attachmentId)
+    .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
     .executeTakeFirst();
 }
 
@@ -87,6 +100,7 @@ export async function fetchTaskAttachments(
     .selectFrom('task_attachment')
     .select(ATTACHMENT_COLUMNS)
     .where('task_attachment.task_id', '=', taskId)
+    .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
     .orderBy('task_attachment.created_at')
     .orderBy('task_attachment.id')
     .execute();
@@ -98,6 +112,7 @@ export async function countTaskAttachments(db: Kysely<DB>, taskId: string): Prom
     .selectFrom('task_attachment')
     .select((eb) => eb.fn.countAll<string>().as('count'))
     .where('task_attachment.task_id', '=', taskId)
+    .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
     .executeTakeFirstOrThrow();
   return Number(count);
 }
@@ -108,6 +123,7 @@ async function attachmentProjectId(db: Kysely<DB>, attachmentId: string): Promis
     .innerJoin('task', 'task.id', 'task_attachment.task_id')
     .select('task.project_id')
     .where('task_attachment.id', '=', attachmentId)
+    .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
     .executeTakeFirst();
   if (!row) {
     throw new AppError(404, ATTACHMENT_NOT_FOUND);

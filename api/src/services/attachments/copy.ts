@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../../db/types';
+import { MIRRORED_IMAGE_KIND } from './index';
 
 export interface CopyAttachmentsInput {
   sourceTaskIds: string[];
@@ -45,6 +46,7 @@ export async function copyTaskAttachments(
       'task_attachment.unfurl_state',
     ])
     .where('task_attachment.task_id', 'in', input.sourceTaskIds)
+    .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
     .execute();
   if (rows.length === 0) {
     return [];

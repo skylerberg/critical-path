@@ -2,6 +2,7 @@ import { sql, type Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import { env } from '../../config/env';
 import { AppError } from '../../utils/errors';
+import { MIRRORED_IMAGE_KIND } from './index';
 
 function megabytes(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
@@ -12,14 +13,21 @@ async function sumOf(
   table: 'task_attachment' | 'task_image',
   projectId: string
 ): Promise<number> {
-  const row = await db
+  let query = db
     .selectFrom(table)
     .innerJoin('task', 'task.id', `${table}.task_id`)
     .select((eb) =>
       eb.fn.coalesce(eb.fn.sum<string>(`${table}.size_bytes`), sql<string>`0`).as('total')
     )
-    .where('task.project_id', '=', projectId)
-    .executeTakeFirstOrThrow();
+    .where('task.project_id', '=', projectId);
+
+  // Mirrored image rows carry the same bytes as their task_image original, so
+  // counting both would double every image against the quota.
+  if (table === 'task_attachment') {
+    query = query.where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND);
+  }
+
+  const row = await query.executeTakeFirstOrThrow();
   return Number(row.total);
 }
 
