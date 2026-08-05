@@ -2,17 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { decodeId, encodeId, slugify, taskUrl } from '../../src/short-links';
 
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-
 // Asserted verbatim in the web app's twin suite; the two implementations share no
 // package, and these pairs are the only thing that stops them drifting.
 const VECTORS: [uuid: string, alias: string][] = [
   ['00000000-0000-0000-0000-000000000000', 'AAAAAAAAAAAAAAAAAAAAAA'],
-  ['ffffffff-ffff-ffff-ffff-ffffffffffff', '_____________________w'],
-  ['7c098c3d-1f2e-4a6b-8c9d-0e1f2a3b4c5d', 'fAmMPR8uSmuMnQ4fKjtMXQ'],
-  ['0550a4bd-9e33-4f10-a2b7-6c5d4e3f2a1b', 'BVCkvZ4zTxCit2xdTj8qGw'],
-  ['deadbeef-0000-4000-8000-feedfacecafe', '3q2-7wAAQACAAP7t-s7K_g'],
+  ['ffffffff-ffff-ffff-ffff-ffffffffffff', 'HxECNQWFdpvuJxIw3HPrmH'],
+  ['7c098c3d-1f2e-4a6b-8c9d-0e1f2a3b4c5d', 'DwDZhW21Arz6NkibWPJZy1'],
+  ['0550a4bd-9e33-4f10-a2b7-6c5d4e3f2a1b', 'AKBykCIbK5eny27ibPhskr'],
+  ['deadbeef-0000-4000-8000-feedfacecafe', 'GwLrToEBWPYKIkSF5unkbc'],
 ];
+
+// The largest uuid and the string one step past it. 22 base62 characters reach
+// about eight times 2^128, so this pair is where a well-formed alias stops
+// naming anything.
+const LARGEST_UUID_ALIAS = 'HxECNQWFdpvuJxIw3HPrmH';
+const FIRST_UNNAMEABLE_ALIAS = 'HxECNQWFdpvuJxIw3HPrmI';
 
 describe('encodeId', () => {
   it('matches the fixed cross-repo vectors', () => {
@@ -21,19 +25,22 @@ describe('encodeId', () => {
     }
   });
 
-  it('emits 22 URL-safe characters with no padding', () => {
-    for (let i = 0; i < 1000; i++) {
-      expect(encodeId(randomUUID())).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  // The whole point of base62 over base64url. An alias that can begin with '-'
+  // is an option flag to every CLI parser, which broke `cpath project show`
+  // outright for the 1 project in 64 whose id started one.
+  it('emits 22 alphanumeric characters and never a leading dash', () => {
+    for (let i = 0; i < 5000; i++) {
+      expect(encodeId(randomUUID())).toMatch(/^[A-Za-z0-9]{22}$/);
     }
   });
 
   it('accepts an uppercase uuid and normalizes it', () => {
-    expect(encodeId('7C098C3D-1F2E-4A6B-8C9D-0E1F2A3B4C5D')).toBe('fAmMPR8uSmuMnQ4fKjtMXQ');
+    expect(encodeId('7C098C3D-1F2E-4A6B-8C9D-0E1F2A3B4C5D')).toBe('DwDZhW21Arz6NkibWPJZy1');
   });
 
   it('throws on anything that is not a uuid', () => {
     expect(() => encodeId('p1')).toThrow(TypeError);
-    expect(() => encodeId('fAmMPR8uSmuMnQ4fKjtMXQ')).toThrow(TypeError);
+    expect(() => encodeId('DwDZhW21Arz6NkibWPJZy1')).toThrow(TypeError);
   });
 });
 
@@ -51,29 +58,25 @@ describe('decodeId', () => {
     }
   });
 
-  // The catcher for an implementation built on Buffer.from(x, 'base64url') or
-  // atob: both accept all 16 spellings and return the same uuid, which would give
-  // every card sixteen working URLs.
-  it('rejects every non-canonical trailing character', () => {
-    for (const [, alias] of VECTORS) {
-      const canonicalIndex = ALPHABET.indexOf(alias[21]);
-      expect(canonicalIndex % 16).toBe(0);
-      for (let offset = 1; offset < 16; offset++) {
-        const variant = alias.slice(0, 21) + ALPHABET[canonicalIndex + offset];
-        expect(variant).not.toBe(alias);
-        expect(decodeId(variant)).toBeNull();
-        // The bug being guarded against: the variant does decode elsewhere.
-        expect(Buffer.from(variant, 'base64url').toString('hex')).toBe(
-          VECTORS.find((v) => v[1] === alias)![0].replace(/-/g, '')
-        );
+  // Fixed-width big-endian base62 is a bijection, so this replaces the old
+  // scheme's problem outright: base64url's four spare bits gave every id fifteen
+  // working spellings, and the decoder had to re-encode to reject them.
+  it('gives an id exactly one spelling', () => {
+    const [uuid, alias] = VECTORS[2]!;
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let position = 0; position < alias.length; position++) {
+      for (const character of ALPHABET) {
+        if (character === alias[position]) continue;
+        const variant = alias.slice(0, position) + character + alias.slice(position + 1);
+        expect(decodeId(variant)).not.toBe(uuid);
       }
     }
   });
 
-  it('accepts only the four canonical terminal characters', () => {
-    const stem = 'AAAAAAAAAAAAAAAAAAAAA';
-    const accepted = [...ALPHABET].filter((c) => decodeId(stem + c) !== null);
-    expect(accepted).toEqual(['A', 'Q', 'g', 'w']);
+  it('rejects a well-formed alias that names no uuid', () => {
+    expect(decodeId(LARGEST_UUID_ALIAS)).toBe('ffffffff-ffff-ffff-ffff-ffffffffffff');
+    expect(decodeId(FIRST_UNNAMEABLE_ALIAS)).toBeNull();
+    expect(decodeId('9'.repeat(22))).toBeNull();
   });
 
   it('rejects the wrong length', () => {
@@ -84,15 +87,24 @@ describe('decodeId', () => {
   });
 
   it('rejects characters outside the alphabet', () => {
-    expect(decodeId('fAmMPR8uSmuMnQ4fKjtM+Q')).toBeNull();
-    expect(decodeId('fAmMPR8uSmuMnQ4fKjtM/Q')).toBeNull();
-    expect(decodeId('fAmMPR8uSmuMnQ4fKjtM=Q')).toBeNull();
+    expect(decodeId('DwDZhW21Arz6NkibWPJZ+1')).toBeNull();
+    expect(decodeId('DwDZhW21Arz6NkibWPJZ/1')).toBeNull();
+    expect(decodeId('DwDZhW21Arz6NkibWPJZ=1')).toBeNull();
+  });
+
+  // The dash and underscore are no longer in the alphabet, so every alias minted
+  // by the base64url scheme this replaced is now unreadable. That is the known
+  // cost of the change, asserted rather than discovered.
+  it('rejects an alias minted by the old base64url scheme', () => {
+    expect(decodeId('-KGyw9TlT2qLnA0eLzpLXA')).toBeNull();
+    expect(decodeId('_____________________w')).toBeNull();
+    expect(decodeId('3q2-7wAAQACAAP7t-s7K_g')).toBeNull();
   });
 
   it('is case sensitive, so a lowercased ref is not the same alias', () => {
-    const alias = 'fAmMPR8uSmuMnQ4fKjtMXQ';
+    const alias = 'DwDZhW21Arz6NkibWPJZy1';
     expect(decodeId(alias.toLowerCase())).toBeNull();
-    expect(decodeId('FAmMPR8uSmuMnQ4fKjtMXQ')).not.toBe(decodeId(alias));
+    expect(decodeId(`d${alias.slice(1)}`)).not.toBe(decodeId(alias));
   });
 
   it('never decodes a plain uuid', () => {
@@ -124,12 +136,12 @@ describe('taskUrl', () => {
   it('joins the web base URL, the alias and the slug', () => {
     expect(
       taskUrl('https://example.test', '0550a4bd-9e33-4f10-a2b7-6c5d4e3f2a1b', 'Fix the login bug')
-    ).toBe('https://example.test/t/BVCkvZ4zTxCit2xdTj8qGw/fix-the-login-bug');
+    ).toBe('https://example.test/t/AKBykCIbK5eny27ibPhskr/fix-the-login-bug');
   });
 
   it('still produces a slug segment for an unslugifiable title', () => {
     expect(taskUrl('https://example.test', '0550a4bd-9e33-4f10-a2b7-6c5d4e3f2a1b', '★★★')).toBe(
-      'https://example.test/t/BVCkvZ4zTxCit2xdTj8qGw/-'
+      'https://example.test/t/AKBykCIbK5eny27ibPhskr/-'
     );
   });
 });

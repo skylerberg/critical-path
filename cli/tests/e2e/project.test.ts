@@ -193,7 +193,7 @@ describe('project commands', () => {
 
   it('leaves a name that is shaped like an alias reachable by that name', async () => {
     // Decodes to a valid uuid, which is what lets a decode shadow a name.
-    const name = 'ReleaseNotesVersion12Q';
+    const name = 'ArchivedRoadmapQ3Notes';
     expect(decodeId(name)).not.toBeNull();
     const board = await createProject(name);
     const show = await h.runCli(['project', 'show', name, '--json']);
@@ -201,13 +201,28 @@ describe('project commands', () => {
     expect(show.json<BoardPayload>().project.id).toBe(board.project.id);
   });
 
-  it('rejects a non-canonical spelling of a project alias', async () => {
-    const board = await createProject('Non Canonical Board');
-    const alias = encodeId(board.project.id);
-    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-    const variant = alias.slice(0, 21) + ALPHABET[ALPHABET.indexOf(alias[21]) + 1];
-    const show = await h.runCli(['project', 'show', variant]);
+  // One past the largest uuid: well-formed, 22 characters, names nothing.
+  it('rejects a well-formed alias that names no uuid', async () => {
+    const show = await h.runCli(['project', 'show', 'HxECNQWFdpvuJxIw3HPrmI']);
     expect(show.exitCode).toBe(4);
+  });
+
+  // The reason the alphabet is alphanumeric. Under base64url this id encoded to
+  // -KGyw9TlT2qLnA0eLzpLXA, which every CLI parser reads as an option, so the
+  // command failed with a usage error instead of showing the board.
+  it('shows a project whose id would once have encoded to a leading dash', async () => {
+    // Chosen, not random: the first byte has to land in 0xf8-0xfb for the old
+    // scheme to have produced a dash. POST takes the id, so the CLI need not.
+    const id = 'f8a1b2c3-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+    const created = await tc.request(user.token).post('/api/projects', { id, name: 'Dash Board' });
+    expect(created.status).toBe(201);
+    projectIds.push(id);
+
+    const alias = encodeId(id);
+    expect(alias).toMatch(/^[A-Za-z0-9]{22}$/);
+    const show = await h.runCli(['project', 'show', alias, '--json']);
+    expect(show.exitCode).toBe(0);
+    expect(show.json<BoardPayload>().project.id).toBe(id);
   });
 
   it('unresolvable project ref exits 4', async () => {
