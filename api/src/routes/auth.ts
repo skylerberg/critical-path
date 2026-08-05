@@ -14,7 +14,7 @@ import {
 } from '../middleware/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { logger } from '../utils/logger';
-import { env } from '../config/env';
+import { passwordResetLink } from '../services/webLinks';
 import { APP_NAME } from '../config/constants';
 import { isValidUuid } from '../types/uuid';
 import {
@@ -981,9 +981,7 @@ publicAuthRouter.post(
         .executeTakeFirst();
 
       if (user) {
-        const link = `${env.resetUrlBase}?token=${encodeURIComponent(
-          createResetToken(user.alternative_id)
-        )}`;
+        const link = passwordResetLink(createResetToken(user.alternative_id));
         c.get('postCommitHooks').push(() =>
           getEmailSender().send({
             to: user.email,
