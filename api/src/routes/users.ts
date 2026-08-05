@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import { authMiddleware } from '../middleware/auth';
 import { queryValidator } from '../middleware/requestValidator';
 import {
   assertProjectAccess,
@@ -53,7 +52,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   queryValidator(usersQuerySchema),
   async (c) => {
     const { project_id, email } = c.req.valid('query');

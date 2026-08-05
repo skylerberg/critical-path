@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -65,7 +64,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   queryValidator(projectIdQuerySchema),
   async (c) => {
     const { project_id } = c.req.valid('query');
@@ -106,7 +104,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createTaskSeriesSchema),
   async (c) => {
     const body = c.req.valid('json');
@@ -186,7 +183,6 @@ router.patch(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(patchTaskSeriesSchema),
   async (c) => {
@@ -225,7 +221,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');

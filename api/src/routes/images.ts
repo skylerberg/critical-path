@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import { authMiddleware } from '../middleware/auth';
+import { skipAuth } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
@@ -16,11 +16,16 @@ import {
   notFoundErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
-import { AppHono } from '../types/index';
+import { AppHono, PublicHono } from '../types/index';
 
 const router: AppHono = new Hono();
 
-router.get(
+// Serving bytes is unauthenticated, deleting is not, and the two cannot share a
+// router: one Hono instance carries one context type, and the GET handler must
+// not be told a user is present.
+export const publicImagesRouter: PublicHono = new Hono();
+
+publicImagesRouter.get(
   '/:id',
   describeRoute({
     tags: ['Images'],
@@ -41,6 +46,7 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -89,7 +95,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const db = c.get('db');

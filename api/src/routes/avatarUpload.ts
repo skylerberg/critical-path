@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { describeRoute, resolver } from 'hono-openapi';
 import sharp from 'sharp';
-import { authMiddleware } from '../middleware/auth';
 import { AppError } from '../utils/errors';
 import { avatarUrl } from '../services/avatars';
 import { USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
@@ -67,7 +66,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   bodyLimit({
     maxSize: 11 * 1024 * 1024,
     onError: (c) => c.json({ error: 'Payload too large' }, 413),
@@ -172,7 +170,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     const db = c.get('db');
     const user = c.get('user');

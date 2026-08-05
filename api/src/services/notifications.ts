@@ -8,7 +8,7 @@ import { getEmailSender } from './email/index';
 import { createUnsubscribeToken } from './emailToken';
 import type { EmailMessage } from './email/types';
 import type { NotificationKind } from '../schemas/notifications';
-import type { AppContext } from '../types/index';
+import type { PublicContext } from '../types/index';
 
 // Membership already bounds who can be notified; this bounds the fan-out of a
 // single write on a project with a large membership.
@@ -136,7 +136,7 @@ export const notificationDelivery: {
 };
 
 export async function notify(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   args: {
     kind: NotificationKind;
     actor: { id: string; name: string };

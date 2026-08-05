@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import type { Updateable } from 'kysely';
 import type { AppUser } from '../db/types';
-import { authMiddleware, bearerToken } from '../middleware/auth';
+import { bearerToken, skipAuth } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import {
@@ -78,9 +78,15 @@ import {
   internalServerErrorResponse,
   type PersonalAccessTokenResponse,
 } from '../schemas/index';
-import { AppContext, AppHono } from '../types/index';
+import { AppContext, AppHono, PublicContext, PublicHono } from '../types/index';
 
 const router: AppHono = new Hono();
+
+// Signing up, logging in and acting on an emailed token all happen without a
+// session, so those routes take the context where `user` may be absent. Both
+// routers mount at /api/auth; the marker is per-route precisely so the two can
+// share a prefix without one leaking its auth behaviour onto the other.
+export const publicAuthRouter: PublicHono = new Hono();
 
 const MAX_TOKEN_LIFETIME_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 
@@ -125,7 +131,7 @@ const INVALID_UNSUBSCRIBE_MESSAGE = 'This unsubscribe link is not valid';
 // gone or has moved. The response is identical either way, which is what keeps
 // these endpoints silent about whether an account exists.
 async function unsubscribeTarget(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   token: string
 ): Promise<{ kind: NotificationKind; account: { id: string; email: string } | null }> {
   const verification = verifyUnsubscribeToken(token);
@@ -150,7 +156,7 @@ async function unsubscribeTarget(
 // Only ever writes false. That is what bounds a non-expiring bearer token to
 // nothing: replay is idempotent and a leaked link cannot switch anything on.
 async function switchOffNotifications(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   account: { id: string; email: string },
   kinds: NotificationKind[]
 ): Promise<void> {
@@ -171,7 +177,7 @@ async function switchOffNotifications(
 }
 
 async function applyUnsubscribe(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   token: string
 ): Promise<NotificationKind> {
   const { kind, account } = await unsubscribeTarget(c, token);
@@ -186,7 +192,7 @@ async function applyUnsubscribe(
 // caller that means to stay signed in can name the session that survives —
 // otherwise the revocation evicts the one it just issued.
 async function setPasswordAndRevokeSessions(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   userId: string,
   newPassword: string,
   { exceptSessionId }: { exceptSessionId: string | null }
@@ -214,7 +220,7 @@ function callerTokenHash(c: AppContext): string | null {
   return token === null ? null : hashBearerToken(token);
 }
 
-router.post(
+publicAuthRouter.post(
   '/signup',
   describeRoute({
     tags: ['Auth'],
@@ -241,6 +247,7 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   jsonValidator(signupRequestSchema),
   async (c) => {
     const { id, email, password, name } = c.req.valid('json');
@@ -285,7 +292,7 @@ router.post(
   }
 );
 
-router.post(
+publicAuthRouter.post(
   '/login',
   describeRoute({
     tags: ['Auth'],
@@ -306,6 +313,7 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   jsonValidator(loginRequestSchema),
   async (c) => {
     const { email, password } = c.req.valid('json');
@@ -362,7 +370,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     const hash = callerTokenHash(c);
     if (hash !== null) {
@@ -392,7 +399,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     return c.json(c.get('user'), 200);
   }
@@ -426,7 +432,6 @@ router.patch(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(patchMeSchema),
   async (c) => {
     const { name, email } = c.req.valid('json');
@@ -532,7 +537,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(deleteAccountSchema),
   async (c) => {
     const { password } = c.req.valid('json');
@@ -654,7 +658,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createPersonalAccessTokenSchema),
   async (c) => {
     const { id, name, expires_at } = c.req.valid('json');
@@ -730,7 +733,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     const rows = await c
       .get('db')
@@ -770,7 +772,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -824,7 +825,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     const currentHash = callerTokenHash(c);
     const rows = await c
@@ -880,7 +880,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -926,7 +925,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(changePasswordSchema),
   async (c) => {
     const { current_password, new_password } = c.req.valid('json');
@@ -953,7 +951,7 @@ router.post(
   }
 );
 
-router.post(
+publicAuthRouter.post(
   '/forgot-password',
   describeRoute({
     tags: ['Auth'],
@@ -969,6 +967,7 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   jsonValidator(forgotPasswordSchema),
   async (c) => {
     const { email } = c.req.valid('json');
@@ -1002,7 +1001,7 @@ router.post(
   }
 );
 
-router.post(
+publicAuthRouter.post(
   '/reset-password',
   describeRoute({
     tags: ['Auth'],
@@ -1018,6 +1017,7 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   jsonValidator(resetPasswordSchema),
   async (c) => {
     const { token, new_password } = c.req.valid('json');
@@ -1047,7 +1047,7 @@ router.post(
   }
 );
 
-router.post(
+publicAuthRouter.post(
   '/verify-email',
   describeRoute({
     tags: ['Auth'],
@@ -1067,6 +1067,7 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   jsonValidator(emailTokenRequestSchema),
   async (c) => {
     const { token } = c.req.valid('json');
@@ -1127,7 +1128,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     const user = c.get('user');
     if (user.email_verified) {
@@ -1180,7 +1180,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     // One reading, so the manifest timestamp and the filename date agree.
     const now = new Date();
@@ -1221,7 +1220,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     const row = await c
       .get('db')
@@ -1265,7 +1263,6 @@ router.put(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(notificationSettingsSchema),
   async (c) => {
     const settings = c.req.valid('json');
@@ -1285,7 +1282,7 @@ router.put(
   }
 );
 
-router.post(
+publicAuthRouter.post(
   '/unsubscribe',
   describeRoute({
     tags: ['Auth'],
@@ -1311,6 +1308,7 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   jsonValidator(emailTokenRequestSchema),
   async (c) => {
     const { token } = c.req.valid('json');
@@ -1319,7 +1317,7 @@ router.post(
   }
 );
 
-router.post(
+publicAuthRouter.post(
   '/unsubscribe/all',
   describeRoute({
     tags: ['Auth'],
@@ -1336,6 +1334,7 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   jsonValidator(emailTokenRequestSchema),
   async (c) => {
     const { token } = c.req.valid('json');
@@ -1348,7 +1347,7 @@ router.post(
   }
 );
 
-router.post(
+publicAuthRouter.post(
   '/unsubscribe/one-click',
   describeRoute({
     tags: ['Auth'],
@@ -1374,6 +1373,7 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
+  skipAuth,
   async (c) => {
     await applyUnsubscribe(c, c.req.query('token') ?? '');
     return c.body(null, 204);

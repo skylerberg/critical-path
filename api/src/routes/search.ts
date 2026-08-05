@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import { authMiddleware } from '../middleware/auth';
 import { queryValidator } from '../middleware/requestValidator';
 import { SEARCH_RESULT_LIMIT, searchTasks } from '../services/search';
 import {
@@ -47,7 +46,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   queryValidator(searchQuerySchema),
   async (c) => {
     const { q } = c.req.valid('query');

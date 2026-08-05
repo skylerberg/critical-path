@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import { env } from '../config/env';
-import type { AppContext } from '../types/index';
+import type { PublicContext } from '../types/index';
 
 export function generateSessionToken(): string {
   return crypto.randomBytes(32).toString('base64url');
@@ -17,7 +17,7 @@ export interface CreatedSession {
   token: string;
 }
 
-export type SessionRequestContext = Pick<AppContext, 'get' | 'req'>;
+export type SessionRequestContext = Pick<PublicContext, 'get' | 'req'>;
 
 const MAX_USER_AGENT_LENGTH = 512;
 

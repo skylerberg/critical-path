@@ -3,7 +3,7 @@ import type { MiddlewareHandler } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql } from 'kysely';
 import { env } from '../config/env';
-import { authMiddleware } from '../middleware/auth';
+import { skipAuth } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { enforceLinkAttachmentRateLimit } from '../middleware/rateLimit';
@@ -53,9 +53,13 @@ import {
   validationErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
-import { AppHono } from '../types/index';
+import { AppHono, PublicHono } from '../types/index';
 
 const router: AppHono = new Hono();
+
+// The preview and favicon bytes serve unauthenticated (see imageServingRoute
+// below), which is a different context type, so they need their own router.
+export const publicAttachmentsRouter: PublicHono = new Hono();
 
 // The one guarantee that makes arbitrary uploads safe: user-supplied bytes are
 // only ever handed back as an opaque download, never as something the browser
@@ -111,7 +115,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   queryValidator(uploadAttachmentQuerySchema),
   async (c) => {
     const db = c.get('db');
@@ -235,7 +238,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createLinkAttachmentSchema),
   async (c) => {
     const { id, task_id, url, title } = c.req.valid('json');
@@ -311,7 +313,6 @@ router.patch(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(patchAttachmentSchema),
   async (c) => {
@@ -363,7 +364,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -429,7 +429,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -470,7 +469,7 @@ function imageServingRoute(
   summary: string,
   description: string
 ): void {
-  router.get(
+  publicAttachmentsRouter.get(
     `/:id/${segment}`,
     describeRoute({
       tags: ['Attachments'],
@@ -486,6 +485,7 @@ function imageServingRoute(
         ...internalServerErrorResponse,
       },
     }),
+    skipAuth,
     paramValidator(idSchema),
     async (c) => {
       const { id } = c.req.valid('param');
