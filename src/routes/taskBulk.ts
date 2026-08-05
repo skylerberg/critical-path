@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql } from 'kysely';
-import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { AppError } from '../utils/errors';
 import { recordBulkAssignments } from '../services/assignmentDigest';
@@ -99,7 +98,6 @@ router.post(
       ...errorResponses,
     },
   }),
-  authMiddleware,
   jsonValidator(bulkMoveTasksSchema),
   async (c) => {
     const body = c.req.valid('json');
@@ -148,7 +146,6 @@ router.post(
       ...errorResponses,
     },
   }),
-  authMiddleware,
   jsonValidator(bulkTaskIdsSchema),
   async (c) => {
     const body = c.req.valid('json');
@@ -213,7 +210,6 @@ router.post(
       ...errorResponses,
     },
   }),
-  authMiddleware,
   jsonValidator(bulkTaskLabelsSchema),
   async (c) => {
     const body = c.req.valid('json');
@@ -314,7 +310,6 @@ router.post(
       ...errorResponses,
     },
   }),
-  authMiddleware,
   jsonValidator(bulkTaskAssigneesSchema),
   async (c) => {
     const body = c.req.valid('json');

@@ -1,4 +1,4 @@
-import type { AppContext } from '../../types/index';
+import type { PublicContext } from '../../types/index';
 import { logger } from '../../utils/logger';
 // Imported from the modules directly, not the barrel, so the sender and its
 // node:http / node:dns dependencies stay out of every module that touches the bus.
@@ -118,7 +118,7 @@ export function resetBus(): void {
 }
 
 export function publishAfterCommit(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   type: string,
   projectId: string | null,
   data: unknown,
@@ -141,7 +141,12 @@ export function publishAfterCommit(
       changed.add(projectId);
       // The actor rides along rather than being withheld the event: their other
       // devices still have to update, and only the dot has to ignore it.
-      const actorUserId = c.get('user').id;
+      //
+      // Null when the caller has no session — a signup claiming its invitations
+      // is the one such path — which dots the project for everyone rather than
+      // failing. Every unauthenticated type is in UNCHANGED_TYPES today, so this
+      // is the fallback that keeps removing one from being a 500.
+      const actorUserId = c.get('user')?.id ?? null;
       hooks.push(async () => {
         publish({
           type: PROJECT_CHANGED,

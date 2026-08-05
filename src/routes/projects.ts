@@ -3,7 +3,6 @@ import { describeRoute, resolver } from 'hono-openapi';
 import { sql } from 'kysely';
 import type { Kysely, Updateable } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
-import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import {
   assertInvitationSendBudget,
@@ -154,7 +153,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     const user = c.get('user');
     const rows = await c
@@ -261,7 +259,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createProjectSchema),
   async (c) => {
     const body = c.req.valid('json');
@@ -371,7 +368,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -412,7 +408,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -465,7 +460,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   queryValidator(projectExportQuerySchema),
   async (c) => {
@@ -543,7 +537,6 @@ router.patch(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(patchProjectSchema),
   async (c) => {
@@ -606,7 +599,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -669,7 +661,6 @@ router.put(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(setProjectPositionSchema),
   async (c) => {
@@ -721,7 +712,6 @@ router.put(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -778,7 +768,6 @@ router.put(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(setProjectMembersSchema),
   async (c) => {
@@ -958,7 +947,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(addProjectMemberByEmailSchema),
   async (c) => {
@@ -1129,7 +1117,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -1170,7 +1157,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(projectInvitationParamsSchema),
   async (c) => {
     const { id, invitationId } = c.req.valid('param');
@@ -1217,7 +1203,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(projectInvitationParamsSchema),
   async (c) => {
     const { id, invitationId } = c.req.valid('param');
@@ -1287,7 +1272,6 @@ router.put(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(setProjectOwnerSchema),
   async (c) => {

@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { DB, Project } from '../db/types';
-import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -122,7 +121,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createChecklistItemSchema),
   async (c) => {
     const { id, task_id, text, position, checked } = c.req.valid('json');
@@ -188,7 +186,6 @@ router.patch(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(patchChecklistItemSchema),
   async (c) => {
@@ -286,7 +283,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
@@ -347,7 +343,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(duplicateSchema),
   async (c) => {

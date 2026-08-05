@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { describeRoute, resolver } from 'hono-openapi';
-import { authMiddleware } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertTaskWrite } from '../services/authorization';
@@ -75,7 +74,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   bodyLimit({
     maxSize: 11 * 1024 * 1024,
     onError: (c) => c.json({ error: 'Payload too large' }, 413),

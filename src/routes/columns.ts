@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql, type Kysely } from 'kysely';
-import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -182,7 +181,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(createColumnSchema),
   async (c) => {
     const { id, project_id, name, position, is_done } = c.req.valid('json');
@@ -242,7 +240,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(duplicateSchema),
   async (c) => {
@@ -331,7 +328,6 @@ router.patch(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(patchColumnSchema),
   async (c) => {
@@ -411,7 +407,6 @@ router.delete(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   queryValidator(deleteColumnQuerySchema),
   async (c) => {
@@ -511,7 +506,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(moveColumnTasksSchema),
   async (c) => {
@@ -598,7 +592,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   jsonValidator(reorderColumnTasksSchema),
   async (c) => {
@@ -657,7 +650,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');

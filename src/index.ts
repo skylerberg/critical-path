@@ -29,7 +29,9 @@ import { env } from './config/env';
 import { APP_NAME } from './config/constants';
 import { corsMiddleware } from './middleware/cors';
 import { errorHandler } from './middleware/errorHandler';
+import { authMiddleware, skipAuth } from './middleware/auth';
 import { transactionMiddleware } from './middleware/transaction';
+import { assertPublicRoutes } from './utils/assert-public-routes';
 import { Variables } from './types/index';
 import { db } from './db/index';
 import { attachRealtime, initRedisBus, closeRedisBus } from './services/realtime/index';
@@ -41,7 +43,7 @@ import { registerAttachmentUnfurlHandler } from './services/attachments/unfurl';
 import { startWebhookWorker } from './services/webhooks/index';
 import { logger } from './utils/logger';
 
-import authRouter from './routes/auth';
+import authRouter, { publicAuthRouter } from './routes/auth';
 import avatarUploadRouter from './routes/avatarUpload';
 import avatarsRouter from './routes/avatars';
 import usersRouter from './routes/users';
@@ -56,8 +58,8 @@ import imageUploadRouter from './routes/imageUpload';
 import labelsRouter from './routes/labels';
 import commentsRouter from './routes/comments';
 import checklistItemsRouter from './routes/checklistItems';
-import imagesRouter from './routes/images';
-import attachmentsRouter from './routes/attachments';
+import imagesRouter, { publicImagesRouter } from './routes/images';
+import attachmentsRouter, { publicAttachmentsRouter } from './routes/attachments';
 import feedbackRouter from './routes/feedback';
 import publicBoardsRouter from './routes/publicBoards';
 import webhooksRouter from './routes/webhooks';
@@ -102,6 +104,11 @@ app.use('*', async (c, next) => {
 
 app.use('*', transactionMiddleware);
 
+// Authentication is the default, not something each route opts into: a handler
+// that forgets it cannot exist. The routes that genuinely serve without a token
+// carry the `skipAuth` marker, and `assertPublicRoutes` below pins that set.
+app.use('*', authMiddleware);
+
 const healthCheck = async (c: Context) => {
   try {
     await sql`select 1`.execute(db);
@@ -111,8 +118,8 @@ const healthCheck = async (c: Context) => {
   }
 };
 
-app.get('/health', healthCheck);
-app.get('/', healthCheck);
+app.get('/health', skipAuth, healthCheck);
+app.get('/', skipAuth, healthCheck);
 
 const openAPIOptions = {
   documentation: {
@@ -169,12 +176,13 @@ export async function buildOpenApiSpec(): Promise<Record<string, unknown>> {
   return assertUniqueOperationIds(dedupedSpec);
 }
 
-app.get('/api/openapi.json', async (c) => {
+app.get('/api/openapi.json', skipAuth, async (c) => {
   return c.json(await buildOpenApiSpec());
 });
 
-app.get('/api/docs', swaggerUI({ url: '/api/openapi.json' }));
+app.get('/api/docs', skipAuth, swaggerUI({ url: '/api/openapi.json' }));
 
+app.route('/api/auth', publicAuthRouter);
 app.route('/api/auth', authRouter);
 // Second router on the same prefix: POST /me/avatar needs its own bodyLimit.
 app.route('/api/auth', avatarUploadRouter);
@@ -192,13 +200,17 @@ app.route('/api/search', searchRouter);
 app.route('/api/labels', labelsRouter);
 app.route('/api/comments', commentsRouter);
 app.route('/api/checklist-items', checklistItemsRouter);
+app.route('/api/images', publicImagesRouter);
 app.route('/api/images', imagesRouter);
+app.route('/api/attachments', publicAttachmentsRouter);
 app.route('/api/attachments', attachmentsRouter);
 app.route('/api/avatars', avatarsRouter);
 app.route('/api/feedback', feedbackRouter);
 app.route('/api/webhooks', webhooksRouter);
 app.route('/api/task-series', taskSeriesRouter);
 app.route('/api/public', publicBoardsRouter);
+
+assertPublicRoutes(app.routes);
 
 app.notFound((c) => {
   return c.json(

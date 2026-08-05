@@ -24,29 +24,43 @@ for the frontend's conventions.
    `c.get('db')` — never import `db` directly in route handlers. Opt out with
    the `skipAutoTransaction` marker middleware. Post-commit work (e.g. storage
    object deletion) goes through `c.get('postCommitHooks')`.
-2. POST endpoints take a client-supplied `id` (enables optimistic UI).
+2. Authentication is global (`app.use('*', authMiddleware)`), not per-route. A
+   route serves without a token only by carrying the `skipAuth` marker
+   middleware, and `assertPublicRoutes` fails at boot if the marked set drifts
+   from the list in `src/utils/assert-public-routes.ts`. Never add `skipAuth`
+   via `use('*')` on a sub-router: it would match every sibling sharing that
+   mount prefix, and `/api/auth`, `/api/images` and `/api/attachments` each host
+   public and authenticated routes together. Those three files export a second
+   `PublicHono` router for their public half, because one Hono instance carries
+   one context type: handlers on an `AppHono` get `AppContext`, where
+   `c.get('user')` is a user; handlers on a `PublicHono` get `PublicContext`,
+   where it is `AuthenticatedUser | undefined`. A service that never reads the
+   user takes `Pick<PublicContext, 'get'>` so either kind of route can call it;
+   one that does read it takes `Pick<AppContext, 'get'>`, which is what stops a
+   public route from reaching it.
+3. POST endpoints take a client-supplied `id` (enables optimistic UI).
    Duplicate id → 409. Map Postgres unique violations (code 23505, see
    `isUniqueViolation`) to 409 in handlers — pre-checks alone race.
-3. Every route gets `describeRoute` with tags, summary, description,
+4. Every route gets `describeRoute` with tags, summary, description,
    `security: [{ bearerAuth: [] }]` when authed, response schemas via
    `resolver(arkSchema)`, and error responses spread from `src/schemas/errors.ts`.
-4. Request body validation via `jsonValidator(schema)` (strips undeclared
+5. Request body validation via `jsonValidator(schema)` (strips undeclared
    keys, fails 422 with `{ error, details }`).
-5. Re-export every schema module from `src/schemas/index.ts`; the OpenAPI
+6. Re-export every schema module from `src/schemas/index.ts`; the OpenAPI
    schema-name registry reads that barrel.
-6. Text length limits are enforced with arktype, not DB CHECK constraints.
+7. Text length limits are enforced with arktype, not DB CHECK constraints.
    Non-empty CHECKs exist only where empty is never valid (names, title,
    email, color).
-7. All FKs are `ON DELETE CASCADE`; don't manually delete rows the DB
+8. All FKs are `ON DELETE CASCADE`; don't manually delete rows the DB
    cascades. The one exception is `project.created_by`, which is `ON DELETE
    RESTRICT`: an account cannot be deleted while it still owns a project, so
    ownership has to move (`PUT /api/projects/:id/owner`) or the project has to
    be deleted first.
-8. Avoid N+1 queries; prefer one bulk query (`jsonArrayFrom` correlated
+9. Avoid N+1 queries; prefer one bulk query (`jsonArrayFrom` correlated
    subqueries) per screen-sized read.
-9. Mutations with no useful body return `c.body(null, 204)`.
-10. Comments: absolute minimum, only non-obvious why.
-11. Project access is strict and centralized in `src/services/authorization.ts`:
+10. Mutations with no useful body return `c.body(null, 204)`.
+11. Comments: absolute minimum, only non-obvious why.
+12. Project access is strict and centralized in `src/services/authorization.ts`:
     a project is visible to its creator (implicit, never stored as a member
     row, always an editor) and to its `project_member` rows, each of which
     carries a `role` of `editor` or `viewer`. **404 for a caller with no
@@ -62,7 +76,7 @@ for the frontend's conventions.
     viewer who could never set their own is a bug, not a safety property.
     Roles are normalized fail-closed — anything that is not exactly
     `editor` reads as `viewer`.
-12. Every mutation emits a realtime event via `publishAfterCommit` from
+13. Every mutation emits a realtime event via `publishAfterCommit` from
     `src/services/realtime` (runs as a post-commit hook, so nothing is
     published on rollback). Events about rows or access that are gone
     post-commit (`project_deleted`, membership-removal evictions) must
