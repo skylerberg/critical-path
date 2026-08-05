@@ -5,6 +5,7 @@ import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { dueDateText } from './dueDate';
+import { reconcileSortKeys } from './sortKeyAssignment';
 import { recordTaskActivity } from './taskActivity';
 import { copySeries } from './taskSeries/copy';
 import type { TiptapDoc, TiptapNode } from '../schemas/index';
@@ -120,6 +121,10 @@ export async function copyTasks(
       )
       .execute();
 
+    for (const columnId of new Set(tasks.map((task) => input.columnIdFor(task.column_id)))) {
+      await reconcileSortKeys(db, 'task', columnId);
+    }
+
     // The copies are new cards whose history starts here.
     await recordTaskActivity(
       db,
@@ -220,6 +225,10 @@ export async function copyTasks(
       .execute();
   }
 
+  for (const sourceTaskId of new Set(checklistItems.map((row) => row.task_id))) {
+    await reconcileSortKeys(db, 'checklist_item', taskIdMap.get(sourceTaskId) as string);
+  }
+
   if (images.length > 0) {
     await db
       .insertInto('task_image')
@@ -316,6 +325,8 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
         }))
       )
       .execute();
+
+    await reconcileSortKeys(db, 'board_column', input.id);
   }
 
   const labels = await db

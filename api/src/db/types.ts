@@ -48,6 +48,7 @@ export interface BoardColumn {
   name: string;
   position: number;
   project_id: string;
+  sort_key: string | null;
 }
 
 export interface ChecklistItem {
@@ -55,6 +56,7 @@ export interface ChecklistItem {
   created_at: Generated<Timestamp>;
   id: string;
   position: number;
+  sort_key: string | null;
   task_id: string;
   text: string;
   updated_at: Generated<Timestamp>;
@@ -138,6 +140,7 @@ export interface ProjectUserPosition {
   created_at: Generated<Timestamp>;
   position: number;
   project_id: string;
+  sort_key: string | null;
   user_id: string;
 }
 
@@ -180,6 +183,7 @@ export interface Task {
   search_vector: Generated<string | null>;
   series_id: string | null;
   series_occurrence_date: Timestamp | null;
+  sort_key: string | null;
   title: string;
   updated_at: Generated<Timestamp>;
 }
@@ -282,6 +286,7 @@ export interface TaskSeriesChecklistItem {
   id: string;
   position: number;
   series_id: string;
+  sort_key: string | null;
   text: string;
 }
 

@@ -52,6 +52,7 @@ import {
 } from '../services/projectListItem';
 import { changedTaskIds, hasUnseenChanges } from '../services/projectSeen';
 import { publishAfterCommit } from '../services/realtime/index';
+import { markSortKeyScope } from '../services/sortKeyAssignment';
 import { recordAssigneeChanges } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import { storage } from '../services/storage/index';
@@ -306,6 +307,7 @@ router.post(
             }))
           )
           .execute();
+        markSortKeyScope(c, 'board_column', body.id);
       }
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -676,6 +678,8 @@ router.put(
       .values({ user_id: user.id, project_id: id, position })
       .onConflict((oc) => oc.columns(['user_id', 'project_id']).doUpdateSet({ position }))
       .execute();
+
+    markSortKeyScope(c, 'project_user_position', user.id);
 
     // Per-user data: exact recipients sync the caller's other devices without
     // reshuffling anything for other members.

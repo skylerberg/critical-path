@@ -14,6 +14,7 @@ import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
 import { copyTasks } from '../services/projectCopy';
+import { markSortKeyScope, reconcileSortKeys } from '../services/sortKeyAssignment';
 import { publishSeriesUpdatedByIds } from '../services/taskSeries/index';
 import {
   idSchema,
@@ -94,6 +95,10 @@ async function relocateTasks(
     where task.id = v.id
   `.execute(db);
 
+  // Only the destination needs re-deriving: taking rows out of a scope leaves
+  // the remaining keys in order.
+  await reconcileSortKeys(db, 'task', target.id);
+
   await recordTaskActivity(
     db,
     actorUserId,
@@ -152,6 +157,8 @@ async function reorderTasks(
       and task.archived_at is null
   `.execute(db);
 
+  await reconcileSortKeys(db, 'task', column.id);
+
   return movedTasks;
 }
 
@@ -195,6 +202,7 @@ router.post(
         .values({ id, project_id, name, position, is_done: is_done ?? false })
         .returning(COLUMN_COLUMNS)
         .executeTakeFirstOrThrow();
+      markSortKeyScope(c, 'board_column', project_id);
       publishAfterCommit(c, 'column_created', project_id, serializeColumn(column));
       return c.json(serializeColumn(column), 201);
     } catch (err) {
@@ -363,6 +371,10 @@ router.patch(
 
     if (!column) {
       throw new AppError(404, 'Column not found');
+    }
+
+    if (position !== undefined) {
+      markSortKeyScope(c, 'board_column', column.project_id);
     }
 
     publishAfterCommit(c, 'column_updated', column.project_id, serializeColumn(column));
