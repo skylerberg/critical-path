@@ -2,7 +2,7 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import TaskAttachments from './TaskAttachments.svelte';
-import { board, type TaskAttachment } from '../lib/board.svelte';
+import { board, type TaskAttachment, type TaskImage } from '../lib/board.svelte';
 import { testUuid } from '../lib/test-ids';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -64,6 +64,18 @@ function link(id: string, overrides: Partial<TaskAttachment> = {}): TaskAttachme
     unfurl_state: 'ok',
     ...overrides,
   });
+}
+
+function image(id: string, overrides: Partial<TaskImage> = {}): TaskImage {
+  return {
+    id: testUuid(id),
+    url: `/api/images/${testUuid(id)}`,
+    filename: 'mock.png',
+    content_type: 'image/png',
+    size_bytes: 2048,
+    created_at: '2026-07-15T00:00:00Z',
+    ...overrides,
+  };
 }
 
 function renderSection(props: { taskId?: string; readonly?: boolean } = {}) {
@@ -400,6 +412,116 @@ describe('TaskAttachments uploads', () => {
 
     await waitFor(() => expect(requestAt(0).url).toContain('/api/attachments/links'));
     expect(await requestBody(0)).toMatchObject({ url: 'https://example.com/dragged' });
+  });
+
+  it('sends a picked PNG to the image endpoint and a PDF to the attachment endpoint', async () => {
+    fetchMock.mockImplementation(async (input) =>
+      String((input as Request).url).includes('/images')
+        ? jsonResponse(201, image('i1'))
+        : jsonResponse(201, attachment('a1'))
+    );
+    renderSection();
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', {
+      value: fileList([
+        new File(['x'], 'shot.png', { type: 'image/png' }),
+        new File(['x'], 'spec.pdf', { type: 'application/pdf' }),
+      ]),
+    });
+    await fireEvent.change(input);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(requestAt(0).url).toContain(`/api/tasks/${T1}/images`);
+    expect(requestAt(1).url).toContain('/api/attachments/files');
+  });
+
+  it('sends a dropped SVG down the attachment path, which the image endpoint would refuse', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(201, attachment('a1')));
+    const { container } = renderSection();
+    const zone = container.querySelector('div') as HTMLElement;
+
+    await fireEvent.drop(zone, {
+      dataTransfer: {
+        types: ['Files'],
+        files: fileList([new File(['<svg/>'], 'logo.svg', { type: 'image/svg+xml' })]),
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => expect(requestAt(0).url).toContain('/api/attachments/files'));
+  });
+});
+
+describe('TaskAttachments images', () => {
+  beforeEach(() => {
+    board.tasks = [task(T1, { image_count: 1 })];
+    board.taskImages = { [T1]: [image('i1')] };
+  });
+
+  it('shows images in the same section as files and links, with their own controls', () => {
+    board.taskAttachments = { [T1]: [attachment('a1')] };
+    renderSection();
+
+    expect(screen.getByAltText('mock.png')).toHaveAttribute('src', `/api/images/${testUuid('i1')}`);
+    expect(screen.getByRole('button', { name: 'Use image mock.png as cover' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Delete image mock.png' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Download spec.pdf' })).toBeVisible();
+  });
+
+  it('keeps the empty copy away when the only thing attached is an image', () => {
+    renderSection();
+
+    expect(screen.getByAltText('mock.png')).toBeVisible();
+    expect(
+      screen.queryByText('Nothing attached yet. Drop a file here, or add a link.')
+    ).not.toBeInTheDocument();
+  });
+
+  it('drops the cover and delete controls for a viewer', () => {
+    renderSection({ readonly: true });
+
+    expect(screen.getByAltText('mock.png')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /as cover$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Delete image/ })).toBeNull();
+  });
+
+  it('marks the image as the cover and unmarks it on a second press', async () => {
+    renderSection();
+    const toggle = screen.getByRole('button', { name: 'Use image mock.png as cover' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    await fireEvent.click(toggle);
+    await waitFor(() => expect(requestAt(0).url).toContain(`/api/tasks/${T1}/cover`));
+    expect(await requestBody(0)).toEqual({ image_id: testUuid('i1') });
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-pressed', 'true'));
+
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+    await fireEvent.click(toggle);
+    await waitFor(() => expect(requestAt(0).url).toContain(`/api/tasks/${T1}/cover`));
+    expect(await requestBody(0)).toEqual({ image_id: null });
+  });
+
+  it('deletes an image without the two-step confirm the attachment rows use', async () => {
+    renderSection();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete image mock.png' }));
+
+    await waitFor(() => expect(requestAt(0).url).toContain(`/api/images/${testUuid('i1')}`));
+    expect(requestAt(0).method).toBe('DELETE');
+    expect(screen.queryByAltText('mock.png')).not.toBeInTheDocument();
+  });
+
+  it('spins only while a task known to hold images is still loading them', () => {
+    board.taskImages = {};
+    const { unmount } = renderSection();
+    expect(screen.getByRole('status', { name: 'Loading images' })).toBeVisible();
+    unmount();
+
+    board.tasks = [task(T1, { image_count: 0 })];
+    renderSection();
+    expect(screen.queryByRole('status', { name: 'Loading images' })).not.toBeInTheDocument();
   });
 });
 

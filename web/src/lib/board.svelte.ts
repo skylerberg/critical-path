@@ -1609,13 +1609,16 @@ class BoardStore {
           },
         })
       );
-      this.taskImages = {
-        ...this.taskImages,
-        [taskId]: [...(this.taskImages[taskId] ?? []), image],
-      };
-      this.tasks = this.tasks.map((task) =>
-        task.id === taskId ? { ...task, image_count: task.image_count + 1 } : task
-      );
+      // The realtime echo can land before this response does, and it appends the
+      // row and sets the authoritative count itself; appending again would show
+      // the thumbnail twice and leave the count one too high.
+      const cached = this.taskImages[taskId] ?? [];
+      if (!cached.some((existing) => existing.id === image.id)) {
+        this.taskImages = { ...this.taskImages, [taskId]: [...cached, image] };
+        this.tasks = this.tasks.map((task) =>
+          task.id === taskId ? { ...task, image_count: task.image_count + 1 } : task
+        );
+      }
       return image;
     } catch (error) {
       toasts.error(error instanceof ApiError ? error.message : 'Image upload failed');
@@ -1678,11 +1681,12 @@ class BoardStore {
           headers: { 'Content-Type': 'application/octet-stream' },
         })
       );
-      this.taskAttachments = {
-        ...this.taskAttachments,
-        [taskId]: [...(this.taskAttachments[taskId] ?? []), attachment],
-      };
-      this.#setAttachmentCount(taskId, (count) => count + 1);
+      // Same echo race as uploadTaskImage: the event may already have appended it.
+      const cached = this.taskAttachments[taskId] ?? [];
+      if (!cached.some((existing) => existing.id === attachment.id)) {
+        this.taskAttachments = { ...this.taskAttachments, [taskId]: [...cached, attachment] };
+        this.#setAttachmentCount(taskId, (count) => count + 1);
+      }
       return attachment;
     } catch (error) {
       toasts.error(error instanceof ApiError ? error.message : 'Attachment upload failed');

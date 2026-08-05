@@ -313,14 +313,18 @@ describe('TaskDetail', () => {
     expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
   });
 
-  it('mounts the attachments section for an editor, leaving the images grid alone', async () => {
+  it('gathers images, files and links under one Attachments heading', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     expect(screen.getByRole('heading', { name: 'Attachments' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Images' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Attach file' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add link' })).toBeInTheDocument();
-    expect(await screen.findByAltText('mock.png')).toHaveAttribute('src', '/api/images/img1');
-    expect(screen.getByRole('button', { name: 'Upload image' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Upload image' })).toBeNull();
+
+    const section = screen.getByRole('heading', { name: 'Attachments' }).closest('section');
+    expect(section).toContainElement(await screen.findByAltText('mock.png'));
+    expect(section).toContainElement(screen.getByRole('button', { name: 'Delete image mock.png' }));
   });
 
   it('loads images and comments from the one detail fetch and renders the Activity section', async () => {
@@ -1131,10 +1135,9 @@ describe('TaskDetail on a public board', () => {
     expect(screen.queryByRole('button', { name: /^Remove blocked task/ })).toBeNull();
     expect(screen.queryByLabelText('Add a blocking task')).toBeNull();
 
-    expect(screen.queryByRole('heading', { name: 'Images' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Upload image' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Attachments' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Attach file' })).toBeNull();
+    expect(screen.queryByAltText('mock.png')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     expect(screen.queryByText(/Created .+ · Updated .+/)).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Activity' })).toBeNull();
@@ -1298,7 +1301,7 @@ describe('TaskDetail for a viewer', () => {
 
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.queryByLabelText('Column')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Upload image' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Attach file' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Duplicate' })).toBeNull();
@@ -1319,14 +1322,17 @@ describe('TaskDetail for a viewer', () => {
     expect(screen.queryByRole('button', { name: /^Delete image/ })).toBeNull();
   });
 
-  it('mounts the attachments section read-only, after the untouched Images one', async () => {
+  it('mounts one read-only Attachments section holding the images', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
 
     const headings = screen.getAllByRole('heading').map((h) => h.textContent);
-    expect(headings).toContain('Images');
     expect(headings).toContain('Attachments');
-    expect(headings.indexOf('Attachments')).toBeGreaterThan(headings.indexOf('Images'));
+    expect(headings).not.toContain('Images');
     expect(screen.queryByRole('button', { name: 'Attach file' })).toBeNull();
-    expect(await screen.findByText('No attachments.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add link' })).toBeNull();
+
+    // An image is still something attached, so the empty copy stays away.
+    expect(await screen.findByAltText('mock.png')).toBeInTheDocument();
+    expect(screen.queryByText('No attachments.')).toBeNull();
   });
 });
