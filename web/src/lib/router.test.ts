@@ -246,12 +246,32 @@ describe('matchRoute', () => {
     expect(matchRoute(`/public/projects/${P}/tasks/HxECNQWFdpvuJxIw3HPrmI`).name).toBe('not-found');
   });
 
-  it('no longer accepts a raw uuid anywhere', () => {
-    expect(matchRoute(`/projects/${PROJECT_ID}`).name).toBe('not-found');
-    expect(matchRoute(`/projects/${PROJECT_ID}/graph`).name).toBe('not-found');
-    expect(matchRoute(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`).name).toBe('not-found');
-    expect(matchRoute(`/public/projects/${PROJECT_ID}`).name).toBe('not-found');
+  // The two shapes the API emails, and only those two. They resolve so the mail
+  // is not dead; the board rewrites the address to the alias form once it loads,
+  // so they never become a second canonical URL.
+  it('resolves the uuid links the API sends in email', () => {
+    const project = matchRoute(`/projects/${PROJECT_ID}`);
+    expect(project.name).toBe('project');
+    expect(project.name === 'project' && project.params.projectId).toBe(PROJECT_ID);
+    expect(project.name === 'project' && project.params.taskId).toBeUndefined();
+
+    const task = matchRoute(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`);
+    expect(task.name).toBe('project');
+    expect(task.name === 'project' && task.params.projectId).toBe(PROJECT_ID);
+    expect(task.name === 'project' && task.params.taskId).toBe(TASK_ID);
+  });
+
+  it('accepts a uuid only in the emailed shapes, never in an alias slot', () => {
     expect(matchRoute(`/p/${PROJECT_ID}`).name).toBe('not-found');
+    expect(matchRoute(`/t/${TASK_ID}`).name).toBe('not-found');
+    expect(matchRoute(`/public/projects/${PROJECT_ID}`).name).toBe('not-found');
+    expect(matchRoute(`/projects/${PROJECT_ID}/graph`).name).toBe('not-found');
+  });
+
+  it('rejects a uuid-shaped segment that is not a uuid', () => {
+    expect(matchRoute('/projects/not-a-uuid').name).toBe('not-found');
+    expect(matchRoute(`/projects/${PROJECT_ID}x`).name).toBe('not-found');
+    expect(matchRoute(`/projects/${PROJECT_ID}/tasks/nope`).name).toBe('not-found');
   });
 
   it('returns not-found for unknown paths', () => {

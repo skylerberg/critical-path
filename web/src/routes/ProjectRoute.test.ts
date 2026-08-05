@@ -147,6 +147,42 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// The links the API puts in notification and digest email. It has no alias
+// encoder, so it addresses by uuid and the board is what rewrites the address
+// to the canonical alias form.
+describe('an emailed uuid link', () => {
+  it('opens the board and rewrites the address to the alias form', async () => {
+    mockApi([task(T1, 'Boss fight')]);
+    router.navigate(`/projects/${PROJECT_ID}`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      await waitFor(() => {
+        expect(router.path).toBe(projectHref(PROJECT_ID, PROJECT_NAME));
+      });
+      expect(router.path).toContain(`/p/${encodeId(PROJECT_ID)}`);
+      expect(board.currentProjectId).toBe(PROJECT_ID);
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('opens the task overlay from the emailed task link and rewrites it too', async () => {
+    mockApi([task(T1, 'Boss fight')]);
+    router.navigate(`/projects/${PROJECT_ID}/tasks/${T1}`, { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      expect(await screen.findByLabelText('Task title')).toHaveValue('Boss fight');
+      await waitFor(() => {
+        expect(router.path).toBe(taskHref(T1, 'Boss fight'));
+      });
+    } finally {
+      void unmount(app);
+    }
+  });
+});
+
 describe('a cold task link', () => {
   it('resolves the project in one lookup, then loads that board', async () => {
     mockApi([task(T1, 'Boss fight')]);

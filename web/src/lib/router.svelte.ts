@@ -53,6 +53,28 @@ function matchPattern(pattern: string, pathname: string): Record<string, string>
   return params;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The shape the API puts in email. It has no alias encoder — aliases are a
+// client concern, and giving the server a third copy of one is how the three
+// drift — so it links by uuid and the board canonicalises the address to
+// /p/<alias>/<slug> once it loads. Lowercased because a uuid is case
+// insensitive while the id the rest of the app compares against is not.
+function matchUuids(pattern: string, pathname: string): Record<string, string> | null {
+  const params = matchPattern(pattern, pathname);
+  if (params === null) {
+    return null;
+  }
+  const ids: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (!UUID_RE.test(value)) {
+      return null;
+    }
+    ids[key] = value.toLowerCase();
+  }
+  return ids;
+}
+
 // The one place untrusted URL text becomes an id: an alias that is missing,
 // mistyped or non-canonical fails to match its arm and reaches the not-found
 // page, so nothing downstream ever sees anything but a uuid.
@@ -147,6 +169,12 @@ export function matchRoute(pathname: string, search = ''): Route {
   if (ids) return projectRoute(null, 'board', search, ids.task!);
   ids = matchIds('/t/:taskAlias/:slug/graph', path);
   if (ids) return projectRoute(null, 'graph', search, ids.task!);
+  // Emailed links, last so no alias arm can be shadowed. Not a canonical form:
+  // the board rewrites the address to /p/<alias>/<slug> as soon as it loads.
+  let uuids = matchUuids('/projects/:projectId', path);
+  if (uuids) return projectRoute(uuids.projectId!, 'board', search);
+  uuids = matchUuids('/projects/:projectId/tasks/:taskId', path);
+  if (uuids) return projectRoute(uuids.projectId!, 'board', search, uuids.taskId!);
   ids = matchIds('/public/projects/:projectAlias', path);
   if (ids) return { name: 'public-board', params: { id: ids.project! } };
   ids = matchIds('/public/projects/:projectAlias/tasks/:taskAlias', path);
