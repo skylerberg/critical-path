@@ -1,6 +1,7 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import { copyTaskAttachments, type ObjectCopy } from './attachments/copy';
+import { mirrorImagesInserted } from './attachments/imageMirror';
 import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -230,7 +231,7 @@ export async function copyTasks(
   }
 
   if (images.length > 0) {
-    await db
+    const inserted = await db
       .insertInto('task_image')
       .values(
         images.map((image) => ({
@@ -243,7 +244,18 @@ export async function copyTasks(
           is_cover: image.is_cover,
         }))
       )
+      .returning([
+        'id',
+        'task_id',
+        'storage_key',
+        'filename',
+        'content_type',
+        'size_bytes',
+        'is_cover',
+        'created_at',
+      ])
       .execute();
+    await mirrorImagesInserted(db, inserted);
   }
 
   const objectCopies: ObjectCopy[] = [

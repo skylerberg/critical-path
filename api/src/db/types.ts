@@ -211,6 +211,9 @@ export interface TaskAttachment {
   favicon_storage_key: string | null;
   filename: string | null;
   id: string;
+  image_content_type: string | null;
+  image_storage_key: string | null;
+  is_cover: Generated<boolean>;
   kind: string;
   preview_storage_key: string | null;
   size_bytes: number | null;
