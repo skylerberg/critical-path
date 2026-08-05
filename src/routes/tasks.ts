@@ -14,6 +14,7 @@ import {
   type ProjectAccessFields,
 } from '../services/authorization';
 import { attachmentStorageKeys, fetchTaskAttachments } from '../services/attachments/index';
+import { mirrorCoverSet } from '../services/attachments/imageMirror';
 import { assertColumnInProject } from '../services/boardColumns';
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
 import { dueDateText } from '../services/dueDate';
@@ -1206,6 +1207,8 @@ router.put(
         throw err;
       }
     }
+
+    await mirrorCoverSet(db, id, image_id);
 
     const updated = await fetchBoardTask(db, id);
     if (!updated) {
