@@ -36,10 +36,12 @@ export async function assertColumnInProject(
 }
 
 // Anything that appends by reading the column's greatest position has to hold
-// this first. Two concurrent moves into one column otherwise read the same max
-// and stamp the same positions, and the selections interleave by id instead of
-// landing as blocks. Salts 0 and 1 are taken by task covers, dependency cycles
-// and attachment quota.
+// this first, and before any row lock it goes on to take: the bulk move locks
+// the rows it is moving, so the reverse order deadlocks the two against each
+// other. Two concurrent moves into one column otherwise read the same max and
+// stamp the same positions, and the selections interleave by id instead of
+// landing as blocks. Salts 0 and 1 are taken by dependency cycles and
+// attachment quota.
 export async function lockColumnTail(db: Kysely<DB>, columnId: string): Promise<void> {
   await sql`select pg_advisory_xact_lock(hashtextextended(${columnId}::text, 2))`.execute(db);
 }

@@ -5,7 +5,7 @@ import { jsonValidator } from '../middleware/jsonValidator';
 import { AppError } from '../utils/errors';
 import { recordBulkAssignments } from '../services/assignmentDigest';
 import { assertProjectWrite, projectAccessIdsAmong } from '../services/authorization';
-import { assertColumnInProject } from '../services/boardColumns';
+import { assertColumnInProject, lockColumnTail } from '../services/boardColumns';
 import { getArchivedTasksByIds } from '../services/boardPayload';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordAssigneeChanges, recordTaskActivity } from '../services/taskActivity';
@@ -105,11 +105,17 @@ router.post(
     const user = c.get('user');
 
     const project = await assertProjectWrite(db, user.id, body.project_id);
+    // Before the row locks, not after: the column routes take this lock first
+    // and reach the same rows through their own write, so acquiring the two in
+    // the other order here deadlocks a drag against a column emptied into the
+    // same place. Validating the target ahead of the early return keeps a bad
+    // column the caller's mistake either way.
+    const target = await assertColumnInProject(db, body.column_id, project.id);
+    await lockColumnTail(db, target.id);
+
     const { rows, skipped } = await loadBulkTargets(db, project.id, body.task_ids, {
       liveOnly: true,
     });
-    // Before the early return: a bad target is the caller's mistake either way.
-    const target = await assertColumnInProject(db, body.column_id, project.id);
 
     if (rows.length === 0) {
       return c.json({ moved_tasks: [], skipped_task_ids: skipped }, 200);
