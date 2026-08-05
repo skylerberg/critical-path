@@ -1,4 +1,5 @@
 import { db } from '../../helpers/database';
+import { reconcileSortKeys } from '../../../src/services/sortKeyAssignment';
 
 export interface BoardColumnPayload {
   id: string;
@@ -76,6 +77,7 @@ export async function insertTask(options: {
       due_date: options.dueDate ?? null,
     })
     .execute();
+  await reconcileSortKeys(db, 'task', options.columnId);
   return id;
 }
 

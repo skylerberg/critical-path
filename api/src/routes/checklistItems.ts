@@ -8,7 +8,7 @@ import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectWrite, assertTaskWrite } from '../services/authorization';
 import { fetchBoardTaskRows } from '../services/boardPayload';
 import { publishAfterCommit } from '../services/realtime/index';
-import { markSortKeyScope } from '../services/sortKeyAssignment';
+import { reconcileSortKeys } from '../services/sortKeyAssignment';
 import { recordTaskActivity } from '../services/taskActivity';
 import {
   idSchema,
@@ -144,7 +144,7 @@ router.post(
       throw err;
     }
 
-    markSortKeyScope(c, 'checklist_item', task_id);
+    await reconcileSortKeys(db, 'checklist_item', task_id);
 
     await recordTaskActivity(db, actorId, [
       { taskId: task_id, kind: 'checklist_item_added', newValue: { text } },
@@ -231,7 +231,7 @@ router.patch(
     }
 
     if (body.position !== undefined) {
-      markSortKeyScope(c, 'checklist_item', task_id);
+      await reconcileSortKeys(db, 'checklist_item', task_id);
     }
 
     if (body.text !== undefined && body.text !== before.text) {
@@ -399,7 +399,7 @@ router.post(
       throw err;
     }
 
-    markSortKeyScope(c, 'task', parent.column_id);
+    await reconcileSortKeys(db, 'task', parent.column_id);
 
     await recordTaskActivity(db, actorId, [
       { taskId: body.id, kind: 'created', newValue: { text: removed.text } },
