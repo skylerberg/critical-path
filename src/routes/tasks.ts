@@ -1181,7 +1181,15 @@ router.put(
     // Serializes cover writes per task: under READ COMMITTED the clear below
     // only sees committed rows, so a concurrent set would survive a clear that
     // answered 204 and published a payload disagreeing with the stored row.
-    await sql`select pg_advisory_xact_lock(hashtextextended(${id}::text, 0))`.execute(db);
+    const target = await db
+      .selectFrom('task')
+      .select('task.id')
+      .where('task.id', '=', id)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!target) {
+      throw new AppError(404, 'Task not found');
+    }
 
     if (image_id !== null) {
       const image = await db
