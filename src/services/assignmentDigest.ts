@@ -10,7 +10,7 @@ import { getEmailSender } from './email/index';
 import { registerJobHandler } from './jobs/handlers';
 import { NOTIFY_COLUMN, unsubscribeLinks } from './notifications';
 import type { EmailMessage } from './email/types';
-import type { AppContext } from '../types/index';
+import type { PublicContext } from '../types/index';
 
 export const ASSIGNMENT_DIGEST_JOB_KIND = 'assignment_digest';
 export const DIGEST_SWEEP_INTERVAL_SECONDS = 30;
@@ -58,7 +58,7 @@ interface DigestGroup {
  * the assignment that caused them.
  */
 export async function recordBulkAssignments(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   args: {
     actorUserId: string;
     projectId: string;

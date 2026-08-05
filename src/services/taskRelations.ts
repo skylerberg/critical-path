@@ -1,7 +1,7 @@
 import type { ExpressionBuilder, Kysely } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB } from '../db/types';
-import type { AppContext } from '../types/index';
+import type { PublicContext } from '../types/index';
 import { publishAfterCommit } from './realtime/index';
 
 // An archived blocker leaves the list entirely rather than reading as satisfied,
@@ -67,7 +67,7 @@ export async function fetchTaskRelations(
 }
 
 export function publishTaskRelationsSet(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   relations: TaskRelations[]
 ): void {
   for (const relation of relations) {

@@ -13,7 +13,7 @@ import {
 } from './projectListItem';
 import { INVITATIONS_CHANGED, publishAfterCommit } from './realtime/index';
 import { hashBearerToken } from './sessions';
-import type { AppContext } from '../types/index';
+import type { PublicContext } from '../types/index';
 import type { ProjectInvitationResponse } from '../schemas/projects';
 
 export const INVITATION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -70,7 +70,7 @@ export function toInvitationResponse(
 // to know one can refetch the list they are already allowed to read.
 // Broadcast because the panel that shows the list also opens from the project
 // list, where an editor is sitting in no board's room.
-export function publishInvitationsChanged(c: Pick<AppContext, 'get'>, projectId: string): void {
+export function publishInvitationsChanged(c: Pick<PublicContext, 'get'>, projectId: string): void {
   publishAfterCommit(
     c,
     INVITATIONS_CHANGED,
@@ -81,7 +81,7 @@ export function publishInvitationsChanged(c: Pick<AppContext, 'get'>, projectId:
 }
 
 export function enqueueInvitationEmail(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   invitation: { id: string; email: string },
   projectName: string,
   inviterName: string
@@ -110,7 +110,7 @@ export interface ClaimedInvitation {
 // Never demotes: a viewer invitation must not take an existing editor's rights
 // away.
 export async function claimInvitations(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   db: Kysely<DB>,
   userId: string,
   rows: Pick<InvitationRow, 'id' | 'project_id' | 'role'>[]
@@ -214,7 +214,7 @@ export async function claimInvitations(
 // would be a standing grant that fires months later when someone edits their
 // address to a previously invited one.
 export async function claimInvitationsForNewAccount(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   db: Kysely<DB>,
   userId: string,
   email: string
@@ -231,7 +231,7 @@ export async function claimInvitationsForNewAccount(
 // Write access is what makes an invitation an editor-grant, so losing it has to
 // take the outstanding grants along rather than let them land days later.
 export async function revokeInvitationsFromNonEditors(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   db: Kysely<DB>,
   projectId: string,
   createdBy: string,
