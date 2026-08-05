@@ -1,5 +1,5 @@
 import { type } from 'arktype';
-import { uuid, stringWithLength, finiteNumber } from './common';
+import { uuid, stringWithLength, finiteNumber, sortKey } from './common';
 import { boardTaskSchema } from './board';
 
 export const createColumnSchema = type({
@@ -7,12 +7,14 @@ export const createColumnSchema = type({
   project_id: uuid,
   name: stringWithLength(1, 200),
   position: finiteNumber,
+  'sort_key?': sortKey,
   'is_done?': 'boolean',
 });
 
 export const patchColumnSchema = type({
   'name?': stringWithLength(1, 200),
   'position?': finiteNumber,
+  'sort_key?': sortKey,
   'is_done?': 'boolean',
 });
 
@@ -21,6 +23,7 @@ export const columnSchema = type({
   project_id: 'string',
   name: 'string',
   position: finiteNumber,
+  sort_key: 'string | null',
   is_done: 'boolean',
   created_at: 'string',
 });
@@ -46,6 +49,7 @@ export const movedTaskSchema = type({
   id: 'string',
   column_id: 'string',
   position: finiteNumber,
+  sort_key: 'string | null',
 });
 
 export type MovedTask = typeof movedTaskSchema.infer;
