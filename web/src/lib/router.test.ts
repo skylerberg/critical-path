@@ -246,6 +246,35 @@ describe('matchRoute', () => {
     expect(matchRoute(`/public/projects/${P}/tasks/HxECNQWFdpvuJxIw3HPrmI`).name).toBe('not-found');
   });
 
+  // The complete set of paths the API sends people to, kept in step with
+  // critical-path-api/src/services/webLinks.ts, where the same list is pinned
+  // from the sending end. Neither repo can see the other, so each holds its own
+  // half and both fail loudly; that is what /projects/:id lacked when the app
+  // went alias-only and every assignment email started landing on not-found.
+  //
+  // A path removed here without being removed there is dead mail. Deleting a
+  // case is a decision to stop honouring a link that is already in inboxes.
+  it('routes every path the API puts in an email', () => {
+    const emailed = [
+      ['project', `/projects/${PROJECT_ID}`, ''],
+      ['task', `/projects/${PROJECT_ID}/tasks/${TASK_ID}`, ''],
+      ['invite', '/invite', '?token=abc'],
+      ['verify-email', '/verify-email', '?token=abc'],
+      ['unsubscribe', '/unsubscribe', '?token=abc'],
+      ['password reset', '/reset-password', '?token=abc'],
+    ] as const;
+
+    const resolved = emailed.map(([label, path, search]) => [label, matchRoute(path, search).name]);
+    expect(resolved).toEqual([
+      ['project', 'project'],
+      ['task', 'project'],
+      ['invite', 'invite'],
+      ['verify-email', 'verify-email'],
+      ['unsubscribe', 'unsubscribe'],
+      ['password reset', 'reset-password'],
+    ]);
+  });
+
   // The two shapes the API emails, and only those two. They resolve so the mail
   // is not dead; the board rewrites the address to the alias form once it loads,
   // so they never become a second canonical URL.
