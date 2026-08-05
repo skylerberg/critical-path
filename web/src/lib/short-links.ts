@@ -2,9 +2,18 @@ import { SHADOW_PLACEHOLDER_ITEM_ID } from 'svelte-dnd-action';
 
 export type ProjectView = 'board' | 'graph';
 
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+// Alphanumeric, not base64url: a base64url alias can begin with '-', and an
+// argument that begins with '-' is an option to every CLI parser there is, so
+// `cpath project show <alias>` failed outright for 1 project in 64. Base62
+// needs the same 22 characters for 128 bits (62^22 > 2^128), so the fix costs
+// no length — only the bit-slicing, which base62 cannot use. Kept identical to
+// the CLI's copy in critical-path-api/cli/src/short-links.ts.
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const BASE = BigInt(ALPHABET.length);
+const ALIAS_LENGTH = 22;
+const UUID_MAX = 1n << 128n;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ALIAS_RE = /^[A-Za-z0-9_-]{22}$/;
+const ALIAS_RE = /^[A-Za-z0-9]{22}$/;
 const SLUG_MAX_LENGTH = 60;
 
 // Not '': a slugless canonical form would rewrite itself forever.
@@ -14,45 +23,36 @@ export function encodeId(uuid: string): string {
   if (!UUID_RE.test(uuid)) {
     throw new TypeError(`Not a UUID: ${uuid}`);
   }
-  const hex = uuid.replace(/-/g, '');
-  const bytes: number[] = [];
-  for (let i = 0; i < 32; i += 2) {
-    bytes.push(Number.parseInt(hex.slice(i, i + 2), 16));
+  let value = BigInt(`0x${uuid.replace(/-/g, '')}`);
+  // Fixed width rather than the shortest form: padding with the zero digit is
+  // what keeps every alias 22 characters and the encoding a bijection.
+  const digits = new Array<string>(ALIAS_LENGTH);
+  for (let i = ALIAS_LENGTH - 1; i >= 0; i--) {
+    digits[i] = ALPHABET[Number(value % BASE)]!;
+    value /= BASE;
   }
-  let out = '';
-  for (let i = 0; i < 15; i += 3) {
-    const group = (bytes[i]! << 16) | (bytes[i + 1]! << 8) | bytes[i + 2]!;
-    out +=
-      ALPHABET[(group >> 18) & 63]! +
-      ALPHABET[(group >> 12) & 63]! +
-      ALPHABET[(group >> 6) & 63]! +
-      ALPHABET[group & 63]!;
-  }
-  const last = bytes[15]!;
-  return out + ALPHABET[last >> 2]! + ALPHABET[(last & 3) << 4]!;
+  return digits.join('');
 }
 
-// 22 base64 characters carry four more bits than a uuid, so every alias has 15
-// non-canonical spellings that a general-purpose decoder accepts. The re-encode
-// comparison is what rejects them. Null rather than a throw: the input is
-// untrusted URL text.
+// 22 base62 characters address about eight times as many values as a uuid has,
+// so a well-formed alias can still name nothing. That is the range check below,
+// and it is the whole of canonicality here: fixed-width big-endian base62 gives
+// each id exactly one spelling, unlike the base64url scheme this replaced,
+// where four spare bits gave every id fifteen. Null rather than a throw: the
+// input is untrusted URL text.
 export function decodeId(alias: string): string | null {
   if (!ALIAS_RE.test(alias)) {
     return null;
   }
-  const bytes: number[] = [];
-  for (let i = 0; i < 20; i += 4) {
-    const group =
-      (ALPHABET.indexOf(alias[i]!) << 18) |
-      (ALPHABET.indexOf(alias[i + 1]!) << 12) |
-      (ALPHABET.indexOf(alias[i + 2]!) << 6) |
-      ALPHABET.indexOf(alias[i + 3]!);
-    bytes.push((group >> 16) & 255, (group >> 8) & 255, group & 255);
+  let value = 0n;
+  for (const character of alias) {
+    value = value * BASE + BigInt(ALPHABET.indexOf(character));
   }
-  bytes.push((ALPHABET.indexOf(alias[20]!) << 2) | (ALPHABET.indexOf(alias[21]!) >> 4));
-  const hex = bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
-  const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  return encodeId(uuid) === alias ? uuid : null;
+  if (value >= UUID_MAX) {
+    return null;
+  }
+  const hex = value.toString(16).padStart(32, '0');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 export function slugify(title: string): string {
