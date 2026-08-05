@@ -190,6 +190,88 @@ for (const c of CASES) {
   }
 }
 
+// --- Scroll behaviour ---
+// The board must move only when the user moved it. jsdom models no scrolling at
+// all, so these are the only tests that can see the real thing: whether it drifts
+// on arrival, and whether a scroll the user did not make with a finger gets
+// paginated back. A real wheel would need page.mouse.wheel, which the browser
+// helper doesn't expose; a programmatic scrollTo is a faithful stand-in because
+// the bug is precisely that the board cannot tell the two apart.
+const SCROLL_PROBE = `(async () => {
+  const board = [...document.querySelectorAll('div')].find(
+    (el) => getComputedStyle(el).overflowX === 'auto'
+  );
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  const settle = () => new Promise((r) => {
+    const done = () => { clearTimeout(timer); board.removeEventListener('scrollend', done); r(); };
+    const timer = setTimeout(done, 900);
+    board.addEventListener('scrollend', done, { once: true });
+  });
+  const jump = () => board.scrollTo({ left: Math.round(board.clientWidth * 2.5), behavior: 'auto' });
+
+  const samples = window.__boardScroll ?? [];
+  while (samples.length < 120) await pause(50);
+  const drift = Math.max(...samples) - Math.min(...samples);
+  const resting = board.scrollLeft;
+
+  jump();
+  await settle();
+  const landed = board.scrollLeft;
+  await pause(700);
+  const afterWheel = board.scrollLeft;
+
+  board.scrollTo({ left: 0, behavior: 'auto' });
+  await settle();
+  board.dispatchEvent(new Event('touchstart'));
+  jump();
+  await settle();
+  await pause(700);
+  const afterTouch = board.scrollLeft;
+
+  return { drift, resting, landed, afterWheel, afterTouch, step: board.clientWidth };
+})()`;
+
+function checkScroll(s, mobile) {
+  const f = [];
+  if (s.drift > 2) f.push(`board drifted ${s.drift}px after arrival with no input`);
+  if (mobile && s.resting > 2) f.push(`board did not arrive at the first column (${s.resting})`);
+  if (Math.abs(s.afterWheel - s.landed) > 2)
+    f.push(`untouched scroll was paginated (landed=${s.landed} -> ${s.afterWheel})`);
+  if (mobile) {
+    // The guardrail must still be alive where scroll-snap-stop can be ignored:
+    // one column advanced, not the two and a half the scroll asked for.
+    if (s.afterTouch >= s.afterWheel - 2)
+      f.push(`touch swipe was not capped at one column (${s.afterTouch} of ${s.afterWheel})`);
+    if (s.afterTouch <= 2) f.push(`touch swipe advanced nothing (${s.afterTouch})`);
+  } else if (Math.abs(s.afterTouch - s.afterWheel) > 2) {
+    f.push(`touch swipe was paginated where the board does not snap (${s.afterTouch})`);
+  }
+  return f;
+}
+
+const SCROLL_CASES = [
+  { w: 390, h: 844, cols: 12, tasks: 3 },
+  { w: 1280, h: 800, cols: 12, tasks: 3 },
+];
+
+console.log('\ncheck:layout:real — board scroll behaviour');
+for (const c of SCROLL_CASES) {
+  const mobile = c.w < 1024;
+  await setViewport({ width: c.w, height: c.h, mobile });
+  await goto(`${PROBE}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
+  const s = await evalPage(SCROLL_PROBE);
+  const failures = checkScroll(s, mobile);
+  const tag = `${mobile ? 'MOBILE' : 'DESKTOP'} ${c.w}x${c.h} cols=${c.cols}`;
+  if (failures.length) {
+    failed++;
+    console.log(`  ✗ ${tag}`);
+    for (const x of failures) console.log(`      - ${x}`);
+    console.log(`      metrics: ${JSON.stringify(s)}`);
+  } else {
+    console.log(`  ✓ ${tag} (${JSON.stringify(s)})`);
+  }
+}
+
 close();
 teardown();
 if (failed > 0) {

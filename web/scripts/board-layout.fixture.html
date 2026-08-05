@@ -48,7 +48,7 @@
       .overflow-y-hidden { overflow-y: hidden; }
       .overscroll-x-contain { overscroll-behavior-x: contain; }
       .snap-x { scroll-snap-type: x mandatory; } /* .snap-mandatory folded in; no layout effect */
-      .snap-center { scroll-snap-align: center; }
+      .snap-start { scroll-snap-align: start; }
       .items-stretch { align-items: stretch; }
       .items-center { align-items: center; }
       .gap-1 { gap: 0.25rem; }
@@ -123,7 +123,7 @@
         <div class="board-scroller" data-board-scroller>
           <div class="row" data-row>
             <div class="flex items-stretch gap-3" aria-label="Columns" data-columns></div>
-            <div class="w-85vw max-w-72 shrink-0 snap-center" data-add-column>
+            <div class="w-85vw max-w-72 shrink-0 snap-start" data-add-column>
               <button class="viewbtn" style="border:1px dashed #ddd;width:100%;justify-content:center;color:#737373;">+ Add column</button>
             </div>
           </div>
@@ -157,7 +157,7 @@
       for (let c = 0; c < COLS; c++) {
         const section = document.createElement('section');
         section.className =
-          'flex max-h-full w-85vw max-w-72 shrink-0 snap-center flex-col border';
+          'flex max-h-full w-85vw max-w-72 shrink-0 snap-start flex-col border';
         section.setAttribute('aria-label', `Column ${c + 1}`);
         // Faithful to ColumnHeader.svelte: the count badge wraps an sr-only label.
         // The sr-only is position:absolute with NO inset, so when nothing up the
