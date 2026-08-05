@@ -2,11 +2,12 @@ import type { PublicContext } from '../../types/index';
 import { logger } from '../../utils/logger';
 // Imported from the modules directly, not the barrel, so the sender and its
 // node:http / node:dns dependencies stay out of every module that touches the bus.
-import { isWebhookEvent } from '../webhooks/events';
 import { enqueueDeliveries } from '../webhooks/queue';
+import { isWebhookEvent, raisesUnseenDot } from './eventCatalog';
+import type { AccountEventType, ProjectEventType, RealtimeEventType } from './eventCatalog';
 
 export interface RealtimeEnvelope {
-  type: string;
+  type: RealtimeEventType;
   project_id: string | null;
   data: unknown;
 }
@@ -31,45 +32,6 @@ export const SESSIONS_REVOKED = 'sessions_revoked';
 export const USER_UPDATED = 'user_updated';
 export const PROJECT_CHANGED = 'project_changed';
 export const INVITATIONS_CHANGED = 'invitations_changed';
-
-// Types that leave behind no activity or comment row, so a board read would not
-// report them as changed either. An unclassified new type therefore raises a dot
-// the next board open clears, which is the safe way round.
-const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
-  'project_created',
-  'project_updated',
-  'project_deleted',
-  'project_position_updated',
-  'project_seen',
-  PROJECT_CHANGED,
-  // Not board content, and the dot would be one every viewer sees for a change
-  // none of them may read. Membership also keeps signup working: the dot below
-  // reads the calling user, and a claim during signup has none.
-  INVITATIONS_CHANGED,
-  'column_created',
-  'column_updated',
-  'column_tasks_reordered',
-  'label_created',
-  'label_updated',
-  'image_created',
-  'image_deleted',
-  'attachment_created',
-  'attachment_updated',
-  'attachment_deleted',
-  'comment_updated',
-  'comment_deleted',
-  // A schedule writes no activity row, so the dot would be one no amount of
-  // looking at the board clears.
-  'series_created',
-  'series_updated',
-  'series_deleted',
-  // Both take their card off the board, and its activity goes with it, so a
-  // reader would find nothing to notice.
-  'task_deleted',
-  'task_archived',
-  'column_tasks_archived',
-  'bulk_tasks_archived',
-]);
 
 const subscribers = new Set<BusSubscriber>();
 
@@ -117,9 +79,26 @@ export function resetBus(): void {
   remotePublish = null;
 }
 
+// Split by scope so the project id cannot disagree with the type: an account
+// event published against a project, or a project event published with null,
+// would silently skip both the unseen dot and the webhook queue.
 export function publishAfterCommit(
   c: Pick<PublicContext, 'get'>,
-  type: string,
+  type: AccountEventType,
+  projectId: null,
+  data: unknown,
+  opts?: PublishOptions
+): void;
+export function publishAfterCommit(
+  c: Pick<PublicContext, 'get'>,
+  type: ProjectEventType,
+  projectId: string,
+  data: unknown,
+  opts?: PublishOptions
+): void;
+export function publishAfterCommit(
+  c: Pick<PublicContext, 'get'>,
+  type: RealtimeEventType,
   projectId: string | null,
   data: unknown,
   opts?: PublishOptions
@@ -135,7 +114,7 @@ export function publishAfterCommit(
     return;
   }
 
-  if (!UNCHANGED_TYPES.has(type)) {
+  if (raisesUnseenDot(type)) {
     const changed = c.get('changedProjectIds');
     if (!changed.has(projectId)) {
       changed.add(projectId);
@@ -144,8 +123,8 @@ export function publishAfterCommit(
       //
       // Null when the caller has no session — a signup claiming its invitations
       // is the one such path — which dots the project for everyone rather than
-      // failing. Every unauthenticated type is in UNCHANGED_TYPES today, so this
-      // is the fallback that keeps removing one from being a 500.
+      // failing. No type published without a session raises a dot today, so this
+      // is the fallback that keeps that changing from being a 500.
       const actorUserId = c.get('user')?.id ?? null;
       hooks.push(async () => {
         publish({

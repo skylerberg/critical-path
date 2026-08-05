@@ -69,20 +69,27 @@ for the frontend's conventions.
     `assertTaskAccess`); every project-scoped mutation asserts write
     (`assertProjectWrite` / `assertTaskWrite`), which is the same 404 plus a
     403 for a viewer. A new mutating route that asserts only access is a
-    defect. Two categories are the deliberate exceptions, and both assert
+    defect. Three categories are the deliberate exceptions, and all assert
     access rather than write: comments, because viewers may post, edit and
-    delete their own; and a row keyed to the calling user and observable by
+    delete their own; a row keyed to the calling user and observable by
     nobody else (`project_user_position`, `project_user_seen`), because a
-    viewer who could never set their own is a bug, not a safety property.
-    Roles are normalized fail-closed — anything that is not exactly
-    `editor` reads as `viewer`.
+    viewer who could never set their own is a bug, not a safety property;
+    and `PUT /api/projects/:id/members`, which asserts access and then gates
+    on the caller's role itself, because a viewer may use it to remove
+    themselves and nothing else. Roles are normalized fail-closed — anything
+    that is not exactly `editor` reads as `viewer`.
 13. Every mutation emits a realtime event via `publishAfterCommit` from
     `src/services/realtime` (runs as a post-commit hook, so nothing is
     published on rollback). Events about rows or access that are gone
     post-commit (`project_deleted`, membership-removal evictions) must
     snapshot `recipientUserIds` inside the transaction; events about live rows
-    rely on the delivery layer's per-event access re-check. Event catalog and
-    envelope are in README.md.
+    rely on the delivery layer's per-event access re-check. Payload shapes are
+    in README.md; every other fact about a type — that it exists, whether it
+    reaches webhook registrations, whether it raises the unseen-changes dot,
+    and whether it carries a project — is one row of the table in
+    `src/services/realtime/eventCatalog.ts`. Adding a type there is what makes
+    it publishable, so the classification cannot be left half-done, and a
+    unit test holds the README table to the same set.
 
 # Realtime, email, and password reset
 

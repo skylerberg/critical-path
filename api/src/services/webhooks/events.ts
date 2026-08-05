@@ -1,43 +1,17 @@
+import type { WebhookEventType } from '../realtime/eventCatalog';
+
+// Which types are deliverable, and the reason each is or is not, now lives in
+// the realtime event catalogue: one table answers that alongside every other
+// question about a type, so a new event cannot reach the bus with the webhook
+// question left unanswered.
+export {
+  isWebhookEvent,
+  WEBHOOK_EVENT_TYPES,
+  type WebhookEventType,
+} from '../realtime/eventCatalog';
+
 export interface WebhookEvent {
-  type: string;
+  type: WebhookEventType;
   project_id: string;
   data: unknown;
-}
-
-// The project-scoped, deliverable subset of the realtime catalogue. A type is
-// excluded when it carries no project (user_updated, sessions_revoked), targets
-// an exact recipient list (project_position_updated, project_seen), describes a
-// row that cannot have a registration at send time (project_created,
-// project_deleted), restates a change that already went out under its own type
-// (project_changed), or is readable only by a subset of a project's people
-// (invitations_changed).
-export const WEBHOOK_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'task_created',
-  'task_updated',
-  'task_deleted',
-  'task_archived',
-  'task_restored',
-  'task_relations_set',
-  'column_created',
-  'column_updated',
-  'column_deleted',
-  'label_created',
-  'label_updated',
-  'label_deleted',
-  'image_created',
-  'image_deleted',
-  'attachment_created',
-  'attachment_updated',
-  'attachment_deleted',
-  'comment_created',
-  'comment_updated',
-  'comment_deleted',
-  'checklist_item_created',
-  'checklist_item_updated',
-  'checklist_item_deleted',
-  'project_updated',
-]);
-
-export function isWebhookEvent(type: string): boolean {
-  return WEBHOOK_EVENT_TYPES.has(type);
 }
