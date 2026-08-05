@@ -1,4 +1,4 @@
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import type { MovedTask } from '../schemas/index';
 import { AppError } from '../utils/errors';
@@ -34,6 +34,15 @@ export async function assertColumnInProject(
   return column;
 }
 
+// Anything that appends by reading the column's greatest position has to hold
+// this first. Two concurrent moves into one column otherwise read the same max
+// and stamp the same positions, and the selections interleave by id instead of
+// landing as blocks. Salts 0 and 1 are taken by task covers, dependency cycles
+// and attachment quota.
+export async function lockColumnTail(db: Kysely<DB>, columnId: string): Promise<void> {
+  await sql`select pg_advisory_xact_lock(hashtextextended(${columnId}::text, 2))`.execute(db);
+}
+
 // The probe spans archived rows too, so an appended task never collides with
 // one that is only hidden.
 export async function appendPositions(
@@ -41,6 +50,8 @@ export async function appendPositions(
   targetColumnId: string,
   taskIds: readonly string[]
 ): Promise<MovedTask[]> {
+  await lockColumnTail(db, targetColumnId);
+
   const { max } = await db
     .selectFrom('task')
     .select((eb) => eb.fn.max<number | null>('position').as('max'))

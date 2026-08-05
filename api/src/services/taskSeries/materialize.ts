@@ -3,6 +3,7 @@ import { db } from '../../db/index';
 import type { BoardTask, TaskSeriesResponse } from '../../schemas/index';
 import { logger } from '../../utils/logger';
 import { projectAccessIdsAmong } from '../authorization';
+import { lockColumnTail } from '../boardColumns';
 import { fetchBoardTaskRows } from '../boardPayload';
 import { PROJECT_CHANGED, publish } from '../realtime/bus';
 import { reconcileSortKeys } from '../sortKeyAssignment';
@@ -337,6 +338,10 @@ async function createOccurrences(
     .orderBy('task_series_checklist_item.position')
     .orderBy('task_series_checklist_item.id')
     .execute();
+
+  // The sweep runs on every replica, and a user moving cards into this column
+  // concurrently would otherwise share the tail this probe reads.
+  await lockColumnTail(trx, columnId);
 
   const tail = await trx
     .selectFrom('task')
