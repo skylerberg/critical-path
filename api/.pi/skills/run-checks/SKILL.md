@@ -23,11 +23,16 @@ and amends — let it.
 
 ## Test suite safety
 
-`npm test` loads `.env.test` and runs against `game_dev_test`. The global setup
-migrates and **truncates** that database at suite start. The guard refuses to
-run unless `ENVIRONMENT=test`, but never point it at `game_dev` — that database
-holds the owner's real projects and tasks and must never be wiped, truncated, or
-bulk-deleted. Only `game_dev_test` / `game_dev_test_*` may be reset.
+`npm test` loads `.env.test` and runs against a database derived from this
+checkout's path (`game_dev_test_<checkout>_<hash>`), which the global setup
+creates, migrates and **truncates** at suite start. That derivation is what
+makes it safe for several worktrees to run the suite at once, so never set
+`DB_DATABASE` to pin a specific database — the run will refuse it.
+
+The guard also refuses to run unless `ENVIRONMENT=test`, but never point any of
+this at `game_dev` — that database holds the owner's real projects and tasks and
+must never be wiped, truncated, or bulk-deleted. Only `game_dev_test` /
+`game_dev_test_*` may be reset.
 
 ## If you changed the API surface
 

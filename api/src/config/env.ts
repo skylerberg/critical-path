@@ -23,6 +23,7 @@ export const env = {
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD,
     caCertPath: process.env.DB_CA_CERT_PATH,
+    poolMax: parseIntOrDefault(process.env.DB_POOL_MAX, 10),
   },
 
   storageDriver: process.env.STORAGE_DRIVER || 'disk',
