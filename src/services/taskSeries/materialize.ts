@@ -335,7 +335,7 @@ async function createOccurrences(
     .selectFrom('task_series_checklist_item')
     .select(['task_series_checklist_item.id', 'task_series_checklist_item.text'])
     .where('task_series_checklist_item.series_id', '=', series.id)
-    .orderBy('task_series_checklist_item.position')
+    .orderBy('task_series_checklist_item.sort_key')
     .orderBy('task_series_checklist_item.id')
     .execute();
 

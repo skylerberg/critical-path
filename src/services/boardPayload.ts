@@ -79,8 +79,13 @@ function boardTasksQuery(db: Kysely<DB>) {
   ]);
 }
 
+// A sort key only orders a task against its own column's, so a project-wide
+// list has to sort by the column first. `position` used to be globally
+// comparable and hid this.
 function projectTasksQuery(db: Kysely<DB>, projectId: string) {
-  return boardTasksQuery(db).where('task.project_id', '=', projectId);
+  return boardTasksQuery(db)
+    .innerJoin('board_column', 'board_column.id', 'task.column_id')
+    .where('task.project_id', '=', projectId);
 }
 
 type ProjectTaskRow = Awaited<ReturnType<ReturnType<typeof boardTasksQuery>['execute']>>[number];
@@ -127,7 +132,7 @@ export async function fetchBoardTaskRows(
   }
   const rows = await boardTasksQuery(db)
     .where('task.id', 'in', [...taskIds])
-    .orderBy('task.position')
+    .orderBy('task.sort_key')
     .orderBy('task.id')
     .execute();
 
@@ -138,13 +143,14 @@ export async function fetchBoardTaskRows(
   }));
 }
 
-// A bulk column archive stamps one archived_at across the batch, so position is
+// A bulk column archive stamps one archived_at across the batch, so the key is
 // what keeps those rows in board order rather than uuid order.
 function archivedTasksQuery(db: Kysely<DB>, projectId: string) {
   return projectTasksQuery(db, projectId)
     .where('task.archived_at', 'is not', null)
     .orderBy('task.archived_at', 'desc')
-    .orderBy('task.position')
+    .orderBy('board_column.sort_key')
+    .orderBy('task.sort_key')
     .orderBy('task.id');
 }
 
@@ -204,13 +210,14 @@ export async function getBoardPayload(
     .selectFrom('board_column')
     .select(['id', 'name', 'position', 'is_done'])
     .where('project_id', '=', projectId)
-    .orderBy('position')
+    .orderBy('sort_key')
     .orderBy('id')
     .execute();
 
   const tasks = await projectTasksQuery(db, projectId)
     .where('task.archived_at', 'is', null)
-    .orderBy('task.position')
+    .orderBy('board_column.sort_key')
+    .orderBy('task.sort_key')
     .orderBy('task.id')
     .execute();
 
@@ -300,7 +307,7 @@ async function fetchChecklistItemsForTasks(
       'checklist_item.position',
     ])
     .where('checklist_item.task_id', 'in', [...taskIds])
-    .orderBy('checklist_item.position')
+    .orderBy('checklist_item.sort_key')
     .orderBy('checklist_item.id')
     .execute();
 }

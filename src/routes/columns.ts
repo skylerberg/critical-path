@@ -14,7 +14,7 @@ import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
 import { copyTasks } from '../services/projectCopy';
-import { markSortKeyScope, reconcileSortKeys } from '../services/sortKeyAssignment';
+import { reconcileSortKeys } from '../services/sortKeyAssignment';
 import { publishSeriesUpdatedByIds } from '../services/taskSeries/index';
 import {
   idSchema,
@@ -202,7 +202,7 @@ router.post(
         .values({ id, project_id, name, position, is_done: is_done ?? false })
         .returning(COLUMN_COLUMNS)
         .executeTakeFirstOrThrow();
-      markSortKeyScope(c, 'board_column', project_id);
+      await reconcileSortKeys(db, 'board_column', project_id);
       publishAfterCommit(c, 'column_created', project_id, serializeColumn(column));
       return c.json(serializeColumn(column), 201);
     } catch (err) {
@@ -374,7 +374,7 @@ router.patch(
     }
 
     if (position !== undefined) {
-      markSortKeyScope(c, 'board_column', column.project_id);
+      await reconcileSortKeys(db, 'board_column', column.project_id);
     }
 
     publishAfterCommit(c, 'column_updated', column.project_id, serializeColumn(column));
@@ -446,7 +446,7 @@ router.delete(
       .selectFrom('task')
       .select('id')
       .where('column_id', '=', id)
-      .orderBy('position')
+      .orderBy('sort_key')
       .orderBy('id')
       .execute();
 
@@ -549,7 +549,7 @@ router.post(
       .select('id')
       .where('column_id', '=', id)
       .where('archived_at', 'is', null)
-      .orderBy('position')
+      .orderBy('sort_key')
       .orderBy('id')
       .execute();
 

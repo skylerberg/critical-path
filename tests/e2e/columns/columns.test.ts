@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../../src/db/index';
+import { reconcileSortKeys } from '../../../src/services/sortKeyAssignment';
 import { newId, rawJsonWithPosition } from '../../helpers/fixtures';
 
 const ctx = new TestContext();
@@ -33,6 +34,7 @@ async function insertColumn(
       is_done: opts.is_done ?? false,
     })
     .execute();
+  await reconcileSortKeys(db, 'board_column', projectId);
   return id;
 }
 
@@ -42,6 +44,7 @@ async function insertTask(projectId: string, columnId: string, position: number)
     .insertInto('task')
     .values({ id, project_id: projectId, column_id: columnId, title: 'Task', position })
     .execute();
+  await reconcileSortKeys(db, 'task', columnId);
   return id;
 }
 

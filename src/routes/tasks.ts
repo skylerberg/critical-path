@@ -21,7 +21,7 @@ import { dueDateText } from '../services/dueDate';
 import { notifyMentions } from '../services/mentions';
 import { notify } from '../services/notifications';
 import { copyTasks } from '../services/projectCopy';
-import { markSortKeyScope } from '../services/sortKeyAssignment';
+import { reconcileSortKeys } from '../services/sortKeyAssignment';
 import { storage } from '../services/storage/index';
 import {
   findDependencyCyclePath,
@@ -178,7 +178,7 @@ router.post(
       throw err;
     }
 
-    markSortKeyScope(c, 'task', body.column_id);
+    await reconcileSortKeys(db, 'task', body.column_id);
 
     if (labelIds.length > 0) {
       await db
@@ -354,7 +354,7 @@ router.post(
       throw err;
     }
 
-    markSortKeyScope(c, 'task', body.column_id);
+    await reconcileSortKeys(db, 'task', body.column_id);
 
     await recordTaskActivity(
       db,
@@ -476,7 +476,7 @@ router.get(
       .selectFrom('checklist_item')
       .selectAll()
       .where('checklist_item.task_id', '=', id)
-      .orderBy('checklist_item.position')
+      .orderBy('checklist_item.sort_key')
       .orderBy('checklist_item.id')
       .execute();
 
@@ -680,7 +680,7 @@ router.patch(
             .executeTakeFirst()
         )?.column_id;
       if (destination !== undefined) {
-        markSortKeyScope(c, 'task', destination);
+        await reconcileSortKeys(db, 'task', destination);
       }
     }
 
