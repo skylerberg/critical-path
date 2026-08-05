@@ -1,6 +1,7 @@
 import { sql, type Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import { projectAccessIdsAmong, type ProjectAccessFields } from '../authorization';
+import { reconcileSortKeys } from '../sortKeyAssignment';
 import { scheduleFrom, todayIn } from './write';
 
 export interface CopySeriesInput {
@@ -125,5 +126,13 @@ export async function copySeries(db: Kysely<DB>, input: CopySeriesInput): Promis
         }))
       )
       .execute();
+
+    for (const sourceSeriesId of new Set(checklistItems.map((row) => row.series_id))) {
+      await reconcileSortKeys(
+        db,
+        'task_series_checklist_item',
+        seriesIdMap.get(sourceSeriesId) as string
+      );
+    }
   }
 }
