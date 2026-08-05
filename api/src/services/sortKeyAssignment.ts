@@ -1,6 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 import type { DB } from '../db/types';
-import { keysBetween } from './sortKey';
+import { keyBetween, keysBetween } from './sortKey';
 
 // Re-derives a scope's keys from its `position` order. Callers run it inline
 // rather than at commit, because a handler that reads its own write back --
@@ -118,4 +118,31 @@ export async function reconcileSortKeys(
     )})
     where ${sql.join(match, sql` and `)}
   `.execute(db);
+}
+
+// The row is not in the table yet, so the neighbours are found by the same
+// (position, tiebreak) comparison the reads order by. Deriving before the write
+// keeps the inserted row's own response honest -- reconciling afterwards would
+// leave whatever the insert returned holding a stale key.
+export async function sortKeyForPosition(
+  db: Kysely<DB>,
+  table: SortKeyTable,
+  group: string,
+  position: number,
+  tiebreak: string
+): Promise<string> {
+  const scope: ScopeShape = SCOPES[table];
+  const neighbour = async (direction: 'before' | 'after'): Promise<string | null> => {
+    const { rows } = await sql<{ sort_key: string }>`
+      select sort_key from ${sql.ref(table)}
+      where ${sql.ref(scope.group)} = ${group}
+        and sort_key is not null
+        and (position, ${sql.ref(scope.tiebreak)}) ${direction === 'before' ? sql`<` : sql`>`} (${position}, ${tiebreak})
+      order by position ${direction === 'before' ? sql`desc` : sql`asc`},
+        ${sql.ref(scope.tiebreak)} ${direction === 'before' ? sql`desc` : sql`asc`}
+      limit 1
+    `.execute(db);
+    return rows[0]?.sort_key ?? null;
+  };
+  return keyBetween(await neighbour('before'), await neighbour('after'));
 }

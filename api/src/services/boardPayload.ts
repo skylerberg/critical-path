@@ -23,6 +23,7 @@ function boardTasksQuery(db: Kysely<DB>) {
     'task.title',
     'task.description',
     'task.position',
+    'task.sort_key',
     dueDateText.as('due_date'),
     'task.created_at',
     'task.updated_at',
@@ -97,6 +98,7 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
     title: task.title,
     description: task.description as TiptapDoc | null,
     position: task.position,
+    sort_key: task.sort_key,
     due_date: task.due_date,
     created_at: task.created_at.toISOString(),
     updated_at: task.updated_at.toISOString(),
@@ -208,7 +210,7 @@ export async function getBoardPayload(
 
   const columns = await db
     .selectFrom('board_column')
-    .select(['id', 'name', 'position', 'is_done'])
+    .select(['id', 'name', 'position', 'sort_key', 'is_done'])
     .where('project_id', '=', projectId)
     .orderBy('sort_key')
     .orderBy('id')
@@ -330,6 +332,7 @@ export function toPublicBoard(
       id: column.id,
       name: column.name,
       position: column.position,
+      sort_key: column.sort_key,
       is_done: column.is_done,
     })),
     tasks: payload.tasks.map((task) => ({

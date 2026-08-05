@@ -6,6 +6,7 @@ import {
   calendarDate,
   finiteNumber,
   isoDateString,
+  sortKey,
 } from './common';
 import { nullableTiptapDocSchema } from './tiptap';
 import { boardTaskSchema } from './board';
@@ -26,6 +27,7 @@ export const createTaskSchema = type({
   title: taskTitle,
   'description?': nullableTiptapDocSchema,
   position: finiteNumber,
+  'sort_key?': sortKey,
   'due_date?': calendarDate.or('null'),
   'label_ids?': boundedUuidArray(100),
   'assignee_ids?': boundedUuidArray(100),
@@ -35,6 +37,7 @@ export const createTasksBatchItemSchema = type({
   id: uuid,
   title: taskTitle,
   position: finiteNumber,
+  'sort_key?': sortKey,
 });
 
 export const createTasksBatchSchema = type({
@@ -52,6 +55,7 @@ export const patchTaskSchema = type({
   'description?': nullableTiptapDocSchema,
   'column_id?': uuid,
   'position?': finiteNumber,
+  'sort_key?': sortKey,
   'due_date?': calendarDate.or('null'),
   'expected_updated_at?': isoDateString,
 });

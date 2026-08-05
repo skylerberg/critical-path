@@ -32,6 +32,7 @@ const BOARD_TASK_KEYS = [
   'title',
   'description',
   'position',
+  'sort_key',
   'due_date',
   'created_at',
   'updated_at',

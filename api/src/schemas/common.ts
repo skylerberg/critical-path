@@ -1,5 +1,6 @@
 import { type } from 'arktype';
 import { isValidUuid, toUuid } from '../types/uuid';
+import { isValidSortKey } from '../services/sortKey';
 
 // ctx.error's string form is the *expected* clause, which arktype already
 // prefixes with "must be" — spelling it out again reads as "must be must be".
@@ -34,6 +35,12 @@ export const email = type('string').pipe((s, ctx) => {
 export const finiteNumber = type('number')
   .narrow((n, ctx) => Number.isFinite(n) || ctx.mustBe('a finite number'))
   .configure({ description: 'a finite number' });
+
+// Rejected rather than repaired: a malformed key breaks the generator for every
+// later insert against it, so it must never reach the column.
+export const sortKey = type('string')
+  .narrow((s, ctx) => isValidSortKey(s) || ctx.mustBe('a sort key'))
+  .configure({ description: 'a sort key' });
 
 export const stringWithLength = (min: number, max: number) =>
   type('string').pipe((s, ctx) => {
@@ -117,6 +124,7 @@ export const idSchema = type({
 export const duplicateSchema = type({
   id: uuid,
   position: finiteNumber,
+  'sort_key?': sortKey,
 });
 
 // Shared for the same reason: identical shapes become one component either way,

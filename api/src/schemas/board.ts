@@ -6,6 +6,7 @@ export const boardColumnSchema = type({
   id: 'string',
   name: 'string',
   position: finiteNumber,
+  sort_key: 'string | null',
   is_done: 'boolean',
 });
 
@@ -25,6 +26,7 @@ export const boardTaskSchema = type({
   title: 'string',
   description: nullableTiptapDocSchema,
   position: finiteNumber,
+  sort_key: 'string | null',
   due_date: 'string | null',
   created_at: 'string',
   updated_at: 'string',

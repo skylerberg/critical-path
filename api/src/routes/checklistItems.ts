@@ -8,7 +8,7 @@ import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectWrite, assertTaskWrite } from '../services/authorization';
 import { fetchBoardTaskRows } from '../services/boardPayload';
 import { publishAfterCommit } from '../services/realtime/index';
-import { reconcileSortKeys } from '../services/sortKeyAssignment';
+import { reconcileSortKeys, sortKeyForPosition } from '../services/sortKeyAssignment';
 import { recordTaskActivity } from '../services/taskActivity';
 import {
   idSchema,
@@ -38,6 +38,7 @@ interface ChecklistItemRow {
   text: string;
   checked: boolean;
   position: number;
+  sort_key: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -54,6 +55,7 @@ function toResponse(row: ChecklistItemRow): ChecklistItemResponse {
     text: row.text,
     checked: row.checked,
     position: row.position,
+    sort_key: row.sort_key,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   };
@@ -124,7 +126,7 @@ router.post(
   }),
   jsonValidator(createChecklistItemSchema),
   async (c) => {
-    const { id, task_id, text, position, checked } = c.req.valid('json');
+    const { id, task_id, text, position, sort_key, checked } = c.req.valid('json');
     const db = c.get('db');
     const actorId = c.get('user').id;
 
@@ -134,7 +136,15 @@ router.post(
     try {
       row = await db
         .insertInto('checklist_item')
-        .values({ id, task_id, text, position, checked: checked ?? false })
+        .values({
+          id,
+          task_id,
+          text,
+          position,
+          sort_key:
+            sort_key ?? (await sortKeyForPosition(db, 'checklist_item', task_id, position, id)),
+          checked: checked ?? false,
+        })
         .returningAll()
         .executeTakeFirstOrThrow();
     } catch (err) {
@@ -143,8 +153,6 @@ router.post(
       }
       throw err;
     }
-
-    await reconcileSortKeys(db, 'checklist_item', task_id);
 
     await recordTaskActivity(db, actorId, [
       { taskId: task_id, kind: 'checklist_item_added', newValue: { text } },
@@ -217,6 +225,13 @@ router.patch(
       ...(body.text !== undefined ? { text: body.text } : {}),
       ...(body.checked !== undefined ? { checked: body.checked } : {}),
       ...(body.position !== undefined ? { position: body.position } : {}),
+      ...(body.sort_key !== undefined
+        ? { sort_key: body.sort_key }
+        : body.position !== undefined
+          ? {
+              sort_key: await sortKeyForPosition(db, 'checklist_item', task_id, body.position, id),
+            }
+          : {}),
       ...(contentChanged ? { updated_at: sql<Date>`now()` } : {}),
     };
 
@@ -228,10 +243,6 @@ router.patch(
         .set(changes)
         .where('checklist_item.id', '=', id)
         .execute();
-    }
-
-    if (body.position !== undefined) {
-      await reconcileSortKeys(db, 'checklist_item', task_id);
     }
 
     if (body.text !== undefined && body.text !== before.text) {
