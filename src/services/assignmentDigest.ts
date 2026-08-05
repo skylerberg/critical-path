@@ -240,7 +240,7 @@ export const assignmentDigestDelivery: {
       .where('task.id', 'in', digest.taskIds)
       .where('task.project_id', '=', project.id)
       .where('task.archived_at', 'is', null)
-      .orderBy('task.position')
+      .orderBy('task.sort_key')
       .orderBy('task.id')
       .execute();
     if (tasks.length === 0) return;

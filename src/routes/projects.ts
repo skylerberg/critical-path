@@ -52,7 +52,7 @@ import {
 } from '../services/projectListItem';
 import { changedTaskIds, hasUnseenChanges } from '../services/projectSeen';
 import { publishAfterCommit } from '../services/realtime/index';
-import { markSortKeyScope } from '../services/sortKeyAssignment';
+import { reconcileSortKeys } from '../services/sortKeyAssignment';
 import { recordAssigneeChanges } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import { storage } from '../services/storage/index';
@@ -206,8 +206,13 @@ router.get(
           .as('done_task_count'),
       ])
       .where(accessibleProjectsFilter(user.id))
-      .groupBy(['project.id', 'project_user_position.position', 'project_user_seen.last_seen_at'])
-      .orderBy('project_user_position.position', (ob) => ob.asc().nullsLast())
+      .groupBy([
+        'project.id',
+        'project_user_position.position',
+        'project_user_position.sort_key',
+        'project_user_seen.last_seen_at',
+      ])
+      .orderBy('project_user_position.sort_key', (ob) => ob.asc().nullsLast())
       .orderBy('project.created_at')
       .orderBy('project.id')
       .execute();
@@ -307,7 +312,7 @@ router.post(
             }))
           )
           .execute();
-        markSortKeyScope(c, 'board_column', body.id);
+        await reconcileSortKeys(db, 'board_column', body.id);
       }
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -679,7 +684,7 @@ router.put(
       .onConflict((oc) => oc.columns(['user_id', 'project_id']).doUpdateSet({ position }))
       .execute();
 
-    markSortKeyScope(c, 'project_user_position', user.id);
+    await reconcileSortKeys(db, 'project_user_position', user.id);
 
     // Per-user data: exact recipients sync the caller's other devices without
     // reshuffling anything for other members.
