@@ -2,6 +2,7 @@ import { sql, type Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import { env } from '../../config/env';
 import { AppError } from '../../utils/errors';
+import { AdvisoryLock, takeAdvisoryLock } from '../advisoryLock';
 
 function megabytes(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
@@ -60,9 +61,8 @@ export async function assertProjectStorageQuota(
   addedBytes: number
 ): Promise<void> {
   // Under READ COMMITTED two concurrent uploads both read the pre-insert total
-  // and both commit, overshooting the quota. The salt differs from every other
-  // advisory lock here so an upload never serialises against an unrelated write.
-  await sql`select pg_advisory_xact_lock(hashtextextended(${projectId}::text, 1))`.execute(db);
+  // and both commit, overshooting the quota.
+  await takeAdvisoryLock(db, AdvisoryLock.projectStorageQuota, projectId);
 
   const used = await usedBytes(db, projectId);
   const quota = env.projectStorageQuotaBytes;
