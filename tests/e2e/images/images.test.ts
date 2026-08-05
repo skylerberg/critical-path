@@ -61,9 +61,10 @@ describe('Images', () => {
   afterAll(async () => {
     if (createdProjectIds.length > 0) {
       const rows = await db
-        .selectFrom('task_image')
-        .innerJoin('task', 'task.id', 'task_image.task_id')
-        .select('task_image.storage_key')
+        .selectFrom('task_attachment')
+        .innerJoin('task', 'task.id', 'task_attachment.task_id')
+        .select('task_attachment.image_storage_key as storage_key')
+        .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', 'in', createdProjectIds)
         .execute();
       await Promise.all(
@@ -162,9 +163,10 @@ describe('Images', () => {
       expect(body.content_type).toBe('image/gif');
 
       const row = await db
-        .selectFrom('task_image')
-        .select('content_type')
+        .selectFrom('task_attachment')
+        .select('image_content_type as content_type')
         .where('id', '=', body.id)
+        .where('kind', '=', 'image')
         .executeTakeFirstOrThrow();
       expect(row.content_type).toBe('image/gif');
     });
@@ -340,9 +342,10 @@ describe('Images', () => {
       const { id } = await upload.json();
 
       const row = await db
-        .selectFrom('task_image')
-        .select('storage_key')
+        .selectFrom('task_attachment')
+        .select('image_storage_key as storage_key')
         .where('id', '=', id)
+        .where('kind', '=', 'image')
         .executeTakeFirstOrThrow();
       const filePath = path.join(env.storageDiskRoot, row.storage_key);
       expect(existsSync(filePath)).toBe(true);
@@ -351,9 +354,10 @@ describe('Images', () => {
       expect(res.status).toBe(204);
 
       const remaining = await db
-        .selectFrom('task_image')
+        .selectFrom('task_attachment')
         .select('id')
         .where('id', '=', id)
+        .where('kind', '=', 'image')
         .executeTakeFirst();
       expect(remaining).toBeUndefined();
 

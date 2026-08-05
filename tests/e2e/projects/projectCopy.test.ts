@@ -30,9 +30,10 @@ describe('POST /api/projects with source_project_id', () => {
   afterAll(async () => {
     if (projectIds.length > 0) {
       const imageRows = await db
-        .selectFrom('task_image')
-        .innerJoin('task', 'task.id', 'task_image.task_id')
-        .select('task_image.storage_key')
+        .selectFrom('task_attachment')
+        .innerJoin('task', 'task.id', 'task_attachment.task_id')
+        .select('task_attachment.image_storage_key as storage_key')
+        .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', 'in', projectIds)
         .execute();
       await Promise.all(imageRows.map((row) => storage.delete(row.storage_key)));
@@ -156,9 +157,17 @@ describe('POST /api/projects with source_project_id', () => {
     });
 
     const newImageRow = await db
-      .selectFrom('task_image')
-      .select(['id', 'storage_key', 'filename', 'content_type', 'size_bytes', 'is_cover'])
+      .selectFrom('task_attachment')
+      .select([
+        'id',
+        'image_storage_key as storage_key',
+        'filename',
+        'image_content_type as content_type',
+        'size_bytes',
+        'is_cover',
+      ])
       .where('task_id', '=', copiedBlocker.id)
+      .where('kind', '=', 'image')
       .executeTakeFirstOrThrow();
     expect(newImageRow.id).not.toBe(imageId);
     expect(newImageRow.storage_key).not.toBe(storageKey);

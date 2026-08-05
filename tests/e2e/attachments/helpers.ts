@@ -103,9 +103,10 @@ export async function cleanupProjects(createdProjectIds: string[]): Promise<void
     .where('task.project_id', 'in', createdProjectIds)
     .execute();
   const imageRows = await db
-    .selectFrom('task_image')
-    .innerJoin('task', 'task.id', 'task_image.task_id')
-    .select('task_image.storage_key')
+    .selectFrom('task_attachment')
+    .innerJoin('task', 'task.id', 'task_attachment.task_id')
+    .select('task_attachment.image_storage_key as storage_key')
+    .where('task_attachment.kind', '=', 'image')
     .where('task.project_id', 'in', createdProjectIds)
     .execute();
 
