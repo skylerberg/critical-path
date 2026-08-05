@@ -63,9 +63,10 @@ describe('POST /api/columns/:id/duplicate', () => {
   afterAll(async () => {
     if (projectIds.length > 0) {
       const imageRows = await db
-        .selectFrom('task_image')
-        .innerJoin('task', 'task.id', 'task_image.task_id')
-        .select('task_image.storage_key')
+        .selectFrom('task_attachment')
+        .innerJoin('task', 'task.id', 'task_attachment.task_id')
+        .select('task_attachment.image_storage_key as storage_key')
+        .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', 'in', projectIds)
         .execute();
       await Promise.all(imageRows.map((row) => storage.delete(row.storage_key)));
@@ -161,9 +162,10 @@ describe('POST /api/columns/:id/duplicate', () => {
     expect(copyC!.blocker_ids).toEqual([]);
 
     const copiedCover = await db
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select(['id', 'filename', 'is_cover'])
       .where('task_id', '=', copyA!.id)
+      .where('kind', '=', 'image')
       .executeTakeFirstOrThrow();
     expect(copiedCover).toMatchObject({ filename: 'cover.png', is_cover: true });
     expect(copyA!.cover_image_url).toBe(`/api/images/${copiedCover.id}`);

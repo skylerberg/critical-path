@@ -7,7 +7,7 @@ import { assertTaskWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { sniffImageContentType } from '../services/imageSniff';
 import { assertProjectStorageQuota } from '../services/attachments/quota';
-import { mirrorImagesInserted } from '../services/attachments/imageMirror';
+import { insertTaskImages } from '../services/attachments/images';
 import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
 import { isValidUuid } from '../types/uuid';
@@ -122,20 +122,7 @@ router.post(
 
     let createdAt: Date;
     try {
-      const row = await db
-        .insertInto('task_image')
-        .values({
-          id: imageId,
-          task_id: taskId,
-          storage_key: storageKey,
-          filename,
-          content_type: contentType,
-          size_bytes: data.length,
-        })
-        .returning('created_at')
-        .executeTakeFirstOrThrow();
-      createdAt = row.created_at;
-      await mirrorImagesInserted(db, [
+      const created = await insertTaskImages(db, [
         {
           id: imageId,
           task_id: taskId,
@@ -144,9 +131,9 @@ router.post(
           content_type: contentType,
           size_bytes: data.length,
           is_cover: false,
-          created_at: createdAt,
         },
       ]);
+      createdAt = created.get(imageId) as Date;
     } catch (err) {
       logger.warn({
         msg: 'Orphaned storage object: image row insert failed after storage write',

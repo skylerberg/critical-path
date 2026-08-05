@@ -70,9 +70,10 @@ describe('DELETE /api/auth/me', () => {
     expect(res.status).toBe(201);
     const imageId = (await res.json()).id;
     const row = await db
-      .selectFrom('task_image')
-      .select('storage_key')
+      .selectFrom('task_attachment')
+      .select('image_storage_key as storage_key')
       .where('id', '=', imageId)
+      .where('kind', '=', 'image')
       .executeTakeFirstOrThrow();
     return row.storage_key;
   }
@@ -164,9 +165,10 @@ describe('DELETE /api/auth/me', () => {
       .executeTakeFirst();
     expect(task).toBeUndefined();
     const images = await db
-      .selectFrom('task_image')
+      .selectFrom('task_attachment')
       .select('id')
       .where('task_id', '=', taskId)
+      .where('kind', '=', 'image')
       .execute();
     expect(images).toEqual([]);
     const columns = await db

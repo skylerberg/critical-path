@@ -18,7 +18,7 @@ import {
   fetchTaskAttachments,
   MIRRORED_IMAGE_KIND,
 } from '../services/attachments/index';
-import { mirrorCoverSet } from '../services/attachments/imageMirror';
+import { setTaskCoverImage } from '../services/attachments/images';
 import { assertColumnInProject } from '../services/boardColumns';
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
 import { dueDateText } from '../services/dueDate';
@@ -1195,31 +1195,14 @@ router.put(
       }
     }
 
-    // Clear before set: a single `is_cover = (id = $image_id)` update trips the
-    // partial unique index as it walks the rows.
-    await db
-      .updateTable('task_image')
-      .set({ is_cover: false })
-      .where('task_image.task_id', '=', id)
-      .where('task_image.is_cover', '=', true)
-      .execute();
-
-    if (image_id !== null) {
-      try {
-        await db
-          .updateTable('task_image')
-          .set({ is_cover: true })
-          .where('task_image.id', '=', image_id)
-          .execute();
-      } catch (err) {
-        if (isUniqueViolation(err)) {
-          throw new AppError(409, 'Cover image changed concurrently; retry');
-        }
-        throw err;
+    try {
+      await setTaskCoverImage(db, id, image_id);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new AppError(409, 'Cover image changed concurrently; retry');
       }
+      throw err;
     }
-
-    await mirrorCoverSet(db, id, image_id);
 
     const updated = await fetchBoardTask(db, id);
     if (!updated) {
