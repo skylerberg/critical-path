@@ -29,6 +29,10 @@ STORAGE_DISK_ROOT=./data/test-uploads
 ENVIRONMENT=test
 ```
 
+`DB_DATABASE` here is the *base* name: each checkout derives and creates its
+own `game_dev_test_<checkout>_<hash>` from it, so parallel worktrees never
+share a test database. See [Testing](#testing).
+
 ## Development
 
 ```sh
@@ -2094,14 +2098,43 @@ variable — it does not use `.env`'s `DB_*` variables.
 ## Testing
 
 ```sh
-npm test                    # full suite against game_dev_test
+npm test                    # full suite against this checkout's own database
 npm run test:watch
 npm run test:coverage
+npm run test:db:prune       # drop test databases whose checkout is gone
 ```
 
 The suite loads `.env.test`, migrates the test DB in global setup, and
 truncates all tables at suite start — never point it at a database with data
 you care about.
+
+### One database per checkout
+
+The test database name is **derived, not configured**. `vitest.config.ts`
+takes `DB_DATABASE` from `.env.test` as a base — it must end in `_test` — and
+appends this checkout's directory name and a hash of its absolute path, giving
+e.g. `game_dev_test_signup_ip_cap_3f2a1b9c`. `globalSetup` creates the database
+on first use (`CREATE DATABASE`, so the role needs `CREATEDB`) and stamps it
+with `COMMENT ON DATABASE` naming the checkout it belongs to.
+
+This exists because the opening `TRUNCATE` is fatal to a suite running beside
+it: two worktrees sharing one database meant one run wiped the other's rows
+mid-test, or blocked behind its transactions until the statement timeout. With
+the name derived from the path, two checkouts cannot collide even though they
+copy the same `.env.test`. Two suites started in the *same* checkout still
+share its database and will still disturb each other — run them from separate
+worktrees.
+
+`npm run migrate:test` reaches the same database via `scripts/with-test-db.ts`.
+Set `TEST_DB_NAME` to override the derivation entirely, `DB_MAINTENANCE_DATABASE`
+(default `postgres`) to change where `CREATE DATABASE` is issued, and
+`DB_POOL_MAX` (default 10, and 5 under vitest) to keep concurrent suites inside
+`max_connections`.
+
+Every run drops databases whose stamped checkout no longer exists. Databases
+carrying no stamp — from before this scheme, or from another tool — are never
+removed automatically; `npm run test:db:prune` lists them and `npm run
+test:db:prune -- --legacy` drops them.
 
 The in-process rate limiter is reset once per test file, so each file starts on
 a full budget rather than on whatever the file before it left. Every test

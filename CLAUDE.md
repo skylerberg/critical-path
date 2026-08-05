@@ -132,9 +132,18 @@ npm run --prefix cli generate-api` and commit the regenerated
 # Running things
 
 - `npm run dev` — API on port 3001.
-- `npm test` — full suite (loads `.env.test`, migrates + truncates
-  `game_dev_test`). Single file:
-  `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>`.
+- `npm test` — full suite (loads `.env.test`, migrates + truncates). Single
+  file: `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>`.
+- The test database name is derived, never configured: `vitest.config.ts`
+  appends this checkout's directory name and a hash of its path to the
+  `_test`-suffixed base in `.env.test`, and `globalSetup` creates it. That is
+  what lets agents in parallel worktrees run the suite at once — the opening
+  `TRUNCATE` would otherwise wipe or block a suite running beside it. Never set
+  `DB_DATABASE` to reach a specific database; both the config and the workers
+  assert the derived name and fail loudly. Two suites in the *same* checkout
+  still share one database, so run them from separate worktrees.
+  `npm run test:db:prune` clears databases whose checkout is gone (add
+  `-- --legacy` for unstamped leftovers).
 - Two files check the shared Redis path against a real server and skip without
   `REDIS_TEST_URL` in `.env.test` (`redis://127.0.0.1:6379/15`, `brew install
   redis`); CI has one and fails there rather than skipping. Never put
