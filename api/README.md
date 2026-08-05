@@ -659,7 +659,8 @@ One of a task's images can be marked as the card's cover, and every board task
 carries `cover_image_url` — the `/api/images/:id` URL of that image, or null.
 `PUT /api/tasks/:id/cover` (`{ image_id }`) sets it and `{ image_id: null }`
 clears it; the image must belong to the task, and a task has at most one cover
-(a partial unique index on `task_image.is_cover`, enforced per task). It is
+(a partial unique index on `task_attachment.is_cover`, scoped to image rows and
+enforced per task). It is
 opt-in and off by default, so a board that never uses it is unchanged.
 The choice lives on the image row itself, so deleting the image takes the
 cover with it; every `image_deleted` event carries whatever cover the task has
@@ -669,8 +670,8 @@ they are published on public boards.
 ### Attachments
 
 `task_attachment` holds three kinds — `file`, `link` and `image` — and is the
-source of truth for all of them. `task_image` still exists and is still written
-to, but nothing reads it; it is dropped in a later release.
+only place any of them lives. The separate `task_image` table it replaced is
+gone.
 
 The API surface has not merged yet. Images keep their own routes, their own
 covers, their own `images[]` and `image_count`, and their own `images/` export
@@ -1861,11 +1862,12 @@ it should have got.
 
 **Storage objects.** Postgres holds the only reference to a stored object, so
 the keys are enumerated inside the transaction and deleted from
-`postCommitHooks`: the caller's avatar plus every `task_image` in a project they
-created. Images they uploaded into someone else's project are deliberately left
-alone — `task_image` records no uploader, the row survives with its project, and
-deleting the object would blank a picture on a live card someone else still
-owns. An account's key set is unbounded, so the hook deletes in batches and
+`postCommitHooks`: the caller's avatar plus every attachment object — file,
+preview, favicon and image alike — in a project they created. Anything they
+uploaded into someone else's project is deliberately left alone: no attachment
+row records an uploader, the row survives with its project, and deleting the
+object would blank a picture or break a download on a live card someone else
+still owns. An account's key set is unbounded, so the hook deletes in batches and
 settles each one: a key that fails is logged individually, because after the
 rows are gone the log line is the only trace of the orphan.
 

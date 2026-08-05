@@ -2,9 +2,10 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import { MIRRORED_IMAGE_KIND } from './index';
 
-// Image writes, now that task_attachment is the only place they land. This was
-// the mirror that kept the two tables converged; task_image is no longer written
-// at all and is dropped in the next release.
+// Every write of a kind='image' row. Images live in task_attachment alongside
+// files and links, and carry their own storage and content-type columns so the
+// unauthenticated image route can reach them without being able to reach a
+// document's bytes.
 export interface TaskImageInsert {
   id: string;
   task_id: string;
