@@ -1,12 +1,13 @@
 import { sql, type Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import type { CycleTask } from '../schemas/index';
+import { AdvisoryLock, takeAdvisoryLock } from './advisoryLock';
 
 // Serializes concurrent dependency writes within a project; without it two
 // transactions could each pass the cycle check and commit a cycle under
 // READ COMMITTED. Must run inside the request transaction.
 export async function lockProjectDependencies(db: Kysely<DB>, projectId: string): Promise<void> {
-  await sql`select pg_advisory_xact_lock(hashtextextended(${projectId}::text, 0))`.execute(db);
+  await takeAdvisoryLock(db, AdvisoryLock.projectDependencies, projectId);
 }
 
 // UNION (not UNION ALL) deduplicates rows, so the walk terminates even if

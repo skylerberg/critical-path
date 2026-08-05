@@ -1,7 +1,8 @@
-import { sql, type Kysely } from 'kysely';
+import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import type { MovedTask } from '../schemas/index';
 import { AppError } from '../utils/errors';
+import { AdvisoryLock, takeAdvisoryLock } from './advisoryLock';
 import { keysBetween } from './sortKey';
 
 export interface ColumnInProject {
@@ -40,10 +41,9 @@ export async function assertColumnInProject(
 // the rows it is moving, so the reverse order deadlocks the two against each
 // other. Two concurrent moves into one column otherwise read the same max and
 // stamp the same positions, and the selections interleave by id instead of
-// landing as blocks. Salts 0 and 1 are taken by dependency cycles and
-// attachment quota.
+// landing as blocks.
 export async function lockColumnTail(db: Kysely<DB>, columnId: string): Promise<void> {
-  await sql`select pg_advisory_xact_lock(hashtextextended(${columnId}::text, 2))`.execute(db);
+  await takeAdvisoryLock(db, AdvisoryLock.columnTail, columnId);
 }
 
 // The probe spans archived rows too, so an appended task never collides with
