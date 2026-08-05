@@ -70,7 +70,7 @@ export async function fetchSeries(
             'task_series_checklist_item.position',
           ])
           .whereRef('task_series_checklist_item.series_id', '=', 'task_series.id')
-          .orderBy('task_series_checklist_item.position')
+          .orderBy('task_series_checklist_item.sort_key')
           .orderBy('task_series_checklist_item.id')
       ).as('checklist_rows'),
       // The honest half of "create the next occurrence anyway": the panel says

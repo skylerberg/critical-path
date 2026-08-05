@@ -188,8 +188,8 @@ function myTasksQuery(db: Kysely<DB>, userId: string) {
     .where(accessibleProjectsFilter(userId))
     .orderBy('project.name')
     .orderBy('project.id')
-    .orderBy('board_column.position')
-    .orderBy('task.position')
+    .orderBy('board_column.sort_key')
+    .orderBy('task.sort_key')
     .orderBy('task.id');
 }
 

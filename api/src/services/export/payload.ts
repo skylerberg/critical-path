@@ -91,7 +91,7 @@ export async function buildProjectExport(
         'checklist_item.position',
       ])
       .where('task.project_id', '=', projectId)
-      .orderBy('checklist_item.position')
+      .orderBy('checklist_item.sort_key')
       .orderBy('checklist_item.id')
       .execute(),
     db

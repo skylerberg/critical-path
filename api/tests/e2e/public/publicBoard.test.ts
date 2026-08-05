@@ -270,7 +270,10 @@ describe('GET /api/public/projects/:id/board', () => {
       name: 'Roadmap',
       description: '',
     });
-    expect(payload.tasks.map((task) => task.id)).toEqual([seeded.blockerTaskId, seeded.mainTaskId]);
+    // Board order, not position order: a sort key only ranks a task against its
+    // own column's, so the list runs column by column. Main sits in Backlog and
+    // Blocker in Done, whatever positions they were given.
+    expect(payload.tasks.map((task) => task.id)).toEqual([seeded.mainTaskId, seeded.blockerTaskId]);
     const main = payload.tasks.find((task) => task.id === seeded.mainTaskId)!;
     expect(main).toMatchObject({
       title: 'Main',

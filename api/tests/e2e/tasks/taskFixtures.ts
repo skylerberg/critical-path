@@ -1,5 +1,6 @@
 import { db } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
+import { reconcileSortKeys } from '../../../src/services/sortKeyAssignment';
 
 export class ProjectFixtures {
   private projectIds: string[] = [];
@@ -56,6 +57,7 @@ export class ProjectFixtures {
         is_done: opts.isDone ?? false,
       })
       .execute();
+    await reconcileSortKeys(db, 'board_column', projectId);
     return id;
   }
 
@@ -84,6 +86,7 @@ export class ProjectFixtures {
         archived_at: opts.archivedAt ?? null,
       })
       .execute();
+    await reconcileSortKeys(db, 'task', columnId);
     return id;
   }
 

@@ -3,7 +3,6 @@ import type { MiddlewareHandler } from 'hono';
 import { matchedRoutes } from 'hono/route';
 import { db } from '../db/index';
 import type { Variables } from '../types/index';
-import { reconcileSortKeyScopes } from '../services/sortKeyAssignment';
 import { logger } from '../utils/logger';
 
 const TRANSACTIONAL_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -22,7 +21,6 @@ export const transactionMiddleware = createMiddleware<{ Variables: Variables }>(
   c.set('postCommitHooks', hooks);
   c.set('webhookEvents', []);
   c.set('changedProjectIds', new Set());
-  c.set('sortKeyScopes', new Set());
 
   const skip = matchedRoutes(c).some((r) => r.handler === skipAutoTransaction);
 
@@ -37,7 +35,6 @@ export const transactionMiddleware = createMiddleware<{ Variables: Variables }>(
         if (c.error) {
           throw c.error;
         }
-        await reconcileSortKeyScopes(trx, c.get('sortKeyScopes'));
       });
     } catch (err) {
       if (err === c.error) {
