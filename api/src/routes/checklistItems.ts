@@ -353,9 +353,9 @@ router.post(
 
     const { task_id, project } = await assertItemWrite(db, actorId, id);
 
-    // Delete first: a second concurrent promote blocks on this row lock, re-reads
-    // after commit, matches nothing and answers 404 having created no card.
-    // Inserting first would make two cards out of one item.
+    // Delete first: a second concurrent promote blocks on this row lock, then
+    // matches nothing and answers 404 having created no card. Inserting first
+    // would make two cards out of one item.
     const removed = await db
       .deleteFrom('checklist_item')
       .where('checklist_item.id', '=', id)

@@ -120,8 +120,7 @@ export async function copyTasks(
       )
       .execute();
 
-    // The copies are new cards whose history starts here; the source's entries stay
-    // with the source.
+    // The copies are new cards whose history starts here.
     await recordTaskActivity(
       db,
       input.actorUserId,

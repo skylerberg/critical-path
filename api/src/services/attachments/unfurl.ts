@@ -27,8 +27,7 @@ const HTML_ACCEPT = ['text/html', 'application/xhtml+xml'];
 const IMAGE_ACCEPT = ['image/'];
 
 // https is not required even in production: the blocklist, not TLS, is the SSRF
-// defence here, and refusing to unfurl a pasted http:// link would be
-// user-hostile for no security gain.
+// defence here, and refusing a pasted http:// link buys no security.
 export function unfurlPolicy(): TargetPolicy {
   return { allowPrivate: targetPolicy().allowPrivate, requireHttps: false };
 }
@@ -47,7 +46,7 @@ async function storeImage(
       unfurlPolicy()
     );
     if (!sniffImageContentType(fetched.body)) return null;
-    // Without the pixel cap a kilobyte-sized bomb decodes to gigabytes and OOMs the pod.
+    // Without the pixel cap a kilobyte-sized bomb decodes to gigabytes.
     const webp = await sharp(fetched.body, { autoOrient: true, limitInputPixels: 32_000_000 })
       .resize(dimensions[0], dimensions[1], { fit: 'inside', withoutEnlargement: true })
       .webp()
@@ -142,9 +141,9 @@ async function attempt(url: string): Promise<UnfurlOutcome> {
   }
 }
 
-// A network outcome is never a throw: a 403 from an unfurler-hostile site, a
-// timeout, a non-HTML body or a blocked address all settle the row at 'failed'
-// and report success, so it cannot sit at 'pending' behind six hours of backoff.
+// A network outcome is never a throw: a 403, a timeout, a non-HTML body or a
+// blocked address all settle the row at 'failed' and report success, so it
+// cannot sit at 'pending' behind six hours of backoff.
 export async function runAttachmentUnfurl(attachmentId: string): Promise<void> {
   const row = await db
     .selectFrom('task_attachment')

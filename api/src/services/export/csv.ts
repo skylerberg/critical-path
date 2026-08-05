@@ -76,8 +76,8 @@ function nameIndex(named: Array<{ id: string; name: string }>): NameIndex {
 }
 
 // The id lists are ordered by id, which is meaningless to a reader and unstable
-// across a re-import, so names come out in the order of the collection that
-// names them: labels and users by name, blockers by board position.
+// across a re-import, so names come out in the order of the collection naming
+// them: labels and users by name, blockers by board position.
 function resolveNames(ids: string[], index: NameIndex): string {
   const found: Array<{ order: number; name: string }> = [];
   for (const id of ids) {

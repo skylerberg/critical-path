@@ -95,9 +95,9 @@ function wrapMark(mark: Rec, children: PhrasingContent[]): PhrasingContent[] {
   }
 }
 
-// Consecutive nodes sharing a leading mark are grouped under one wrapper so
-// runs like bold("a ") + bold-italic("b") serialize as **a *b*** rather than
-// as adjacent emphasis runs, which would not reparse to the same document.
+// Consecutive nodes sharing a leading mark are grouped under one wrapper so runs
+// like bold("a ") + bold-italic("b") serialize as **a *b*** rather than as
+// adjacent emphasis runs, which would not reparse to the same document.
 function phrasingFromItems(items: InlineItem[], depth: number): PhrasingContent[] {
   const out: PhrasingContent[] = [];
   let i = 0;

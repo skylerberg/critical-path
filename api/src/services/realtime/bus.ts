@@ -34,8 +34,7 @@ export const INVITATIONS_CHANGED = 'invitations_changed';
 
 // Types that leave behind no activity or comment row, so a board read would not
 // report them as changed either. An unclassified new type therefore raises a dot
-// the next board open clears, which is the safe way round: a dot too many costs
-// one glance, a dot missing costs the feature.
+// the next board open clears, which is the safe way round.
 const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
   'project_created',
   'project_updated',
@@ -44,8 +43,8 @@ const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
   'project_seen',
   PROJECT_CHANGED,
   // Not board content, and the dot would be one every viewer sees for a change
-  // none of them may read. Membership is also what keeps signup working: the
-  // dot below reads the calling user, and a claim during signup has none.
+  // none of them may read. Membership also keeps signup working: the dot below
+  // reads the calling user, and a claim during signup has none.
   INVITATIONS_CHANGED,
   'column_created',
   'column_updated',
@@ -59,8 +58,8 @@ const UNCHANGED_TYPES: ReadonlySet<string> = new Set([
   'attachment_deleted',
   'comment_updated',
   'comment_deleted',
-  // A schedule writes no activity row, so a board read reports nothing changed
-  // and the dot would be one no amount of looking at the board clears.
+  // A schedule writes no activity row, so the dot would be one no amount of
+  // looking at the board clears.
   'series_created',
   'series_updated',
   'series_deleted',
@@ -140,9 +139,8 @@ export function publishAfterCommit(
     const changed = c.get('changedProjectIds');
     if (!changed.has(projectId)) {
       changed.add(projectId);
-      // The actor rides along instead of the server withholding the event from
-      // them: their own other devices still have to update the board they are
-      // looking at, and only the dot has to ignore it.
+      // The actor rides along rather than being withheld the event: their other
+      // devices still have to update, and only the dot has to ignore it.
       //
       // Null when the caller has no session — a signup claiming its invitations
       // is the one such path — which dots the project for everyone rather than
@@ -154,8 +152,7 @@ export function publishAfterCommit(
           type: PROJECT_CHANGED,
           project_id: projectId,
           data: { id: projectId, actor_user_id: actorUserId },
-          // A member sitting on the project list subscribes to no room, and this
-          // exists for exactly them.
+          // A member sitting on the project list subscribes to no room.
           broadcast: true,
         });
       });

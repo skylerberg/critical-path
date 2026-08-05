@@ -140,7 +140,7 @@ function resolveRule(
 
 // The forward-only invariant: a schedule is only ever placed on or after today
 // in its own zone, so a series anchored a year back backfills nothing and the
-// unique index stays a pure concurrency backstop rather than load-bearing.
+// unique index stays a pure concurrency backstop.
 export function scheduleFrom(
   fields: SeriesRuleFields,
   today: string

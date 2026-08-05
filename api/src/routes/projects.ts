@@ -190,9 +190,9 @@ router.get(
             .orderBy('project_member.created_at')
             .orderBy('project_member.user_id')
         ).as('member_rows'),
-        // Archived rows are excluded inside the aggregate, never in the outer
-        // where: that would turn the left joins into inner ones and drop every
-        // project whose tasks are all archived.
+        // Excluded inside the aggregate, never in the outer where: that would
+        // turn the left joins into inner ones and drop every project whose
+        // tasks are all archived.
         eb.fn
           .count<string>('task.id')
           .filterWhere(eb.not(eb.fn.coalesce('board_column.is_done', eb.val(false))))
@@ -471,10 +471,9 @@ router.get(
     // One reading, so the manifest timestamp and the filename date agree.
     const now = new Date();
 
-    // An export is a file the user keeps and feeds to an importer, so the reads
-    // behind it take one snapshot: under read committed a concurrent edit lands
-    // between two of them and the archive is permanently self-inconsistent. It
-    // closes here — the body must not hold a connection while it streams.
+    // One snapshot: under read committed a concurrent edit lands between two of
+    // these reads and the archive is permanently self-inconsistent. It closes
+    // here — the body must not hold a connection while it streams.
     const snapshot = await db
       .transaction()
       .setIsolationLevel('repeatable read')
@@ -679,7 +678,7 @@ router.put(
       .execute();
 
     // Per-user data: exact recipients sync the caller's other devices without
-    // leaking or reshuffling anything for other members.
+    // reshuffling anything for other members.
     publishAfterCommit(
       c,
       'project_position_updated',
@@ -722,9 +721,9 @@ router.put(
     await assertProjectAccess(db, user.id, id);
 
     // Deliberately takes no project lock, so a board open never queues behind an
-    // unrelated member edit. It cannot deadlock with the removal that deletes these
-    // rows while holding the project row: the row written here is invisible to that
-    // delete until it commits, so the delete never waits on it.
+    // unrelated member edit. The removal that deletes these rows under the
+    // project lock cannot deadlock with it: this row is invisible to that delete
+    // until it commits, so the delete never waits on it.
     await db
       .insertInto('project_user_seen')
       .values({ user_id: user.id, project_id: id })
@@ -733,8 +732,8 @@ router.put(
       )
       .execute();
 
-    // Per-user data: exact recipients clear the dot on the caller's other devices
-    // without touching anyone else's.
+    // Per-user data: exact recipients clear the dot on the caller's other
+    // devices without touching anyone else's.
     publishAfterCommit(c, 'project_seen', id, { id }, { recipientUserIds: [user.id] });
     return c.body(null, 204);
   }
@@ -787,12 +786,12 @@ router.put(
         : (current.find((member) => member.user_id === user.id)?.role ?? 'viewer');
 
     // Before any domain validation: a viewer must not be able to drive the
-    // user-existence check below and read it as an oracle, and must not be able
-    // to evict anyone else even with a stale cached member list.
+    // user-existence check below and read it as an oracle, nor evict anyone else
+    // with a stale cached member list.
     if (callerRole !== 'editor') {
-      // `roles` is refused rather than ignored: leaving is the only thing this can
-      // mean for a viewer, and answering 204 to a body asking for something else
-      // would report a role change that never happened.
+      // `roles` is refused rather than ignored: leaving is the only thing this
+      // can mean for a viewer, and 204 would report a role change that never
+      // happened.
       if (user_ids === undefined || user_ids.includes(user.id) || roles !== undefined) {
         throw new AppError(403, READ_ONLY_MESSAGE);
       }
@@ -892,8 +891,8 @@ router.put(
     }
     const remaining = await fetchMembers(db, id);
     await revokeInvitationsFromNonEditors(c, db, id, project.created_by, remaining);
-    // A demotion keeps access, so the broadcast plus the per-event access
-    // re-check is what re-renders an open client.
+    // A demotion keeps access, so the broadcast is what re-renders an open
+    // client.
     await publishProjectListItem(c, db, project, remaining);
 
     return c.body(null, 204);
@@ -958,15 +957,14 @@ router.post(
 
     // Locked before the role is read: this write's target is the caller's own
     // authorization state, so a demotion committing against an unlocked read
-    // would be undone by the upsert that follows it. It is also what serializes
-    // two editors inviting the same address.
+    // would be undone by the upsert below. It also serializes two editors
+    // inviting the same address.
     const project = await lockProject(db, id);
     await assertCanWriteProject(db, user.id, project);
 
-    // Both budgets are settled before the address is looked up — one spent
-    // whatever the answer, the other refusing the call whatever the answer — so
-    // that neither the reply nor the 429 tells an address with an account from
-    // one without.
+    // Both budgets settle before the address is looked up, and both act whatever
+    // the answer, so neither the reply nor the 429 tells an address with an
+    // account from one without.
     await enforceInvitationLookupRateLimit(user.id);
     await assertInvitationSendBudget(user.id);
 
@@ -978,9 +976,9 @@ router.post(
       .executeTakeFirst();
 
     if (target) {
-      // The address can only have gained its account after the invitation was
-      // sent, and signup is the sole claimer, so nothing will ever consume this
-      // row — while its link stays redeemable by anyone holding it.
+      // Signup is the sole claimer and this address already has an account, so
+      // nothing will ever consume the row — while its link stays redeemable by
+      // anyone holding it.
       const dropped = await db
         .deleteFrom('project_invitation')
         .where('project_id', '=', id)
@@ -1049,15 +1047,15 @@ router.post(
         throw new AppError(422, 'This project has too many pending invitations');
       }
     } else {
-      // Re-inviting re-mails the identical link to the identical address, so it
-      // has to answer to the same per-invitation budget a resend does.
+      // Re-inviting re-mails the identical link, so it answers to the same
+      // per-invitation budget a resend does.
       await enforceInvitationResendRateLimit(existing.id);
     }
     await enforceInvitationSendRateLimit(user.id);
 
-    // Reusing the id keeps the link already in the recipient's mailbox the one
-    // that works, and lets both branches store the hash of the link being mailed
-    // — a re-invite under a rotated signing secret otherwise stores neither.
+    // Reusing the id keeps the link already in the recipient's mailbox working,
+    // and lets both branches store the hash of the link actually mailed — a
+    // re-invite under a rotated signing secret otherwise stores neither.
     const invitationId = existing?.id ?? crypto.randomUUID();
     const row = await db
       .insertInto('project_invitation')
@@ -1231,9 +1229,8 @@ router.post(
 
     await db
       .updateTable('project_invitation')
-      // Re-derived rather than left alone: the stored hash is the only thing
-      // that can match the link being mailed, and a rotation of the signing
-      // secret would otherwise strand every outstanding row unredeemable.
+      // Re-derived rather than left alone: a rotation of the signing secret
+      // would otherwise strand every outstanding row unredeemable.
       .set({ expires_at: invitationExpiry(), token_hash: invitationTokenHash(invitationId) })
       .where('id', '=', invitationId)
       .execute();

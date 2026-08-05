@@ -73,8 +73,7 @@ export function matchRef<T>(
 }
 
 // The matcher lowercases every ref and a case-flipped alias is a different id, so
-// the decode happens out here. A decode that names nothing present falls through
-// to the name tiers rather than shadowing them.
+// the decode happens out here.
 export function matchRefOrAliasOrNull<T>(
   ref: string,
   items: readonly T[],
@@ -327,8 +326,7 @@ export async function listUsers(
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Costs a round trip because the server is the only side that holds an address.
-// Still just the first tier: one that names nobody falls through to the name
-// tiers rather than short-circuiting their message.
+// Still just the first tier: one that names nobody falls through to the name tiers.
 export async function resolveUser(
   ctx: RuntimeContext,
   ref: string,

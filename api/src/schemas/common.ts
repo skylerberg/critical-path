@@ -119,8 +119,8 @@ export const duplicateSchema = type({
   position: finiteNumber,
 });
 
-// Shared for the same reason, across unrelated uses: identical shapes become one
-// component either way, so the one they share needs a name that fits them all.
+// Shared for the same reason: identical shapes become one component either way,
+// so the one they share needs a name that fits them all.
 export const namedRefSchema = type({
   id: 'string',
   name: 'string',

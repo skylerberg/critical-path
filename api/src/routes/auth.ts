@@ -107,7 +107,7 @@ function toTokenResponse(row: {
 const STORAGE_DELETE_BATCH = 25;
 
 // An account's keys are every image of every board it created, so unlike the
-// per-board cleanups these are batched and settled: after the rows are gone a
+// per-board cleanups these are batched and settled: once the rows are gone, a
 // key that fails is only recoverable from this log line.
 async function deleteStorageObjects(keys: string[]): Promise<void> {
   for (let start = 0; start < keys.length; start += STORAGE_DELETE_BATCH) {
@@ -128,11 +128,8 @@ async function deleteStorageObjects(keys: string[]): Promise<void> {
 const INVALID_UNSUBSCRIBE_MESSAGE = 'This unsubscribe link is not valid';
 
 // A null account means the link no longer names a live mailbox — the account is
-// gone or has moved to a different address. The *response* is then identical to
-// a hit's, which is what keeps these endpoints silent about whether an account
-// exists; the write a miss skips is still visible in timing, but minting a
-// token that names an account needs the signing secret, so that separates live
-// from dead only for a link the caller already holds.
+// gone or has moved. The response is identical either way, which is what keeps
+// these endpoints silent about whether an account exists.
 async function unsubscribeTarget(
   c: Pick<PublicContext, 'get'>,
   token: string
@@ -173,8 +170,8 @@ async function switchOffNotifications(
     .updateTable('app_user')
     .set(changes)
     .where('id', '=', account.id)
-    // The address is re-asserted rather than locked: a change committing since
-    // it was read would otherwise let a link that move retired write anyway.
+    // Re-asserted rather than locked: an address change committing since it was
+    // read would otherwise let a link that move retired write anyway.
     .where('email', '=', account.email)
     .execute();
 }
@@ -561,10 +558,9 @@ router.delete(
       .filter((project) => project.shared)
       .map((project) => ({ id: project.id, name: project.name }));
     if (blocking.length > 0) {
-      // Returned, not thrown: errorHandler copies every AppError message into the
-      // log line, and this one names boards. Keep the guard ahead of the first
-      // write — returning commits the transaction, which is only a no-op while
-      // everything above it is a read.
+      // Returned, not thrown: errorHandler copies every AppError message into
+      // the log line, and this one names boards. Keep the guard ahead of the
+      // first write — returning commits the transaction.
       return c.json(
         {
           error:
@@ -1096,10 +1092,9 @@ publicAuthRouter.post(
       throw new AppError(422, 'Invalid verification link');
     }
 
-    // The address is re-asserted here, not just in the check above: an address
-    // change committing between the two statements would otherwise satisfy the
-    // null guard — it nulls that column itself — and stamp a mailbox nobody
-    // confirmed as verified.
+    // Re-asserted here, not just in the check above: an address change
+    // committing between the two statements nulls email_verified_at itself, so
+    // it would satisfy the null guard and stamp a mailbox nobody confirmed.
     await db
       .updateTable('app_user')
       .set({ email_verified_at: new Date() })

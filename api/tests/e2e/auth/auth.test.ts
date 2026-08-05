@@ -133,8 +133,8 @@ describe('Auth', () => {
       });
 
       // Every address is distinct, which is exactly what the other limiter's
-      // address-keyed buckets leave unbounded. The second source is the whole
-      // point: one counter for everyone would refuse it too.
+      // address-keyed buckets leave unbounded. The second source is the point:
+      // one counter for everyone would refuse it too.
       it('refuses one source past the budget however many addresses it uses', async () => {
         for (let i = 0; i < SIGNUP_IP_MAX_ATTEMPTS; i++) {
           expect((await signUp(OFFICE, `cap-${i}`)).status).toBe(201);

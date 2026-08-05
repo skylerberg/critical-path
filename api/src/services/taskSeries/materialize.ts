@@ -42,9 +42,9 @@ async function claimCandidates(
   cursorId: string | null,
   limit: number
 ): Promise<Candidate[]> {
-  // Keyset rather than OFFSET or a bare LIMIT: a series another replica holds,
-  // or one the per-series claim declines, stays at the head of the result set
-  // and an offsetless re-query would spin on it forever.
+  // Keyset rather than OFFSET or a bare LIMIT: a series another replica holds
+  // stays at the head of the result set, and an offsetless re-query would spin
+  // on it forever.
   const { rows } = await sql<Candidate>`
     select s.id, s.next_occurrence_at
     from task_series s
@@ -130,8 +130,8 @@ function announce(result: MaterializeResult, webhookEvents: WebhookEvent[]): voi
       });
     }
     // The actor rides along so the unread dot agrees with the one a board read
-    // computes from the activity log; with no actor there is no activity row
-    // either, and naming nobody would raise a dot that vanishes on reload.
+    // computes from the activity log: with no actor there is no activity row
+    // either, so naming nobody would raise a dot that vanishes on reload.
     publish({
       type: PROJECT_CHANGED,
       project_id: result.projectId,
@@ -150,9 +150,8 @@ function announce(result: MaterializeResult, webhookEvents: WebhookEvent[]): voi
   }
 }
 
-// A periodic job row is never retired on failure, so a handler that throws
-// stalls every project's schedules behind its backoff; failures are absorbed
-// per series instead.
+// A periodic job row is never retired on failure, so a handler that throws would
+// stall every project's schedules behind its backoff.
 async function recordSeriesFailure(seriesId: string, err: unknown): Promise<void> {
   const message = err instanceof Error ? err.message : String(err);
   logger.error({ msg: 'Recurring series could not be materialised', series_id: seriesId, message });
@@ -239,7 +238,7 @@ export async function materializeSeries(seriesId: string): Promise<MaterializeRe
       missedDates = [];
       next = firstOccurrenceOnOrAfter(series.rrule, series.start_date_text, today);
     } else if (window.length === MAX_CATCHUP_SCAN && window[window.length - 1] < today) {
-      // The scan saturated, so this run only walks the backlog forward. The
+      // The scan saturated, so this run only walks the backlog forward; the
       // series stays due and converges over the next few sweeps. A full window
       // ending today is not saturation — nothing can follow today inside it —
       // and counting it as one would drop today's card.

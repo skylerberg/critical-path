@@ -71,8 +71,8 @@ describe('Notifications', () => {
   let columnId: string;
 
   // Post-commit hooks are fire-and-forget, so an assertion about what was sent
-  // has to wait for the delivery this request started — including the deliveries
-  // that should not have happened.
+  // has to wait for the delivery this request started — including the ones that
+  // should not have happened.
   async function settle(): Promise<void> {
     const started = pending;
     pending = [];
@@ -638,9 +638,8 @@ describe('Notifications', () => {
       });
     });
 
-    // Nothing outside a request can be slipped into the middle of one, and the
-    // clause under test only bites on a change that commits between the read
-    // and the write. A result transform is the one hook that runs there and
+    // The clause under test only bites on a change that commits between the read
+    // and the write, and a result transform is the one hook that runs there and
     // can await.
     async function unsubscribeInterleavedWith(
       token: string,
@@ -962,8 +961,7 @@ describe('Notifications', () => {
       }
 
       // Boards the victim has never heard of, from an account that shares no
-      // project with them and needed their consent for none of it. Each one is a
-      // fresh repeat key, so nothing collapses them.
+      // project with them. Each is a fresh repeat key, so nothing collapses them.
       for (let index = 0; index < NOTIFY_PAIR_MAX_ATTEMPTS; index++) {
         const junk = await createProject(attacker.token, `Junk ${String(index)}`);
         await addVictim(attacker.token, junk.project.id);

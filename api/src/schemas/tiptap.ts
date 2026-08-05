@@ -184,7 +184,7 @@ export function findTiptapDocProblem(doc: unknown): string | null {
 
 // arktype cannot express the recursive node tree in a form the OpenAPI generator
 // handles, so the allow-lists and size cap are enforced by the pipe's tree walk.
-// `actual: ''` keeps the (potentially 100 KB) document out of the error message.
+// `actual: ''` keeps the document itself out of the error message.
 export const tiptapDocSchema = type({
   type: "'doc'",
   'content?': 'unknown[]',
