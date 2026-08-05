@@ -168,6 +168,7 @@ router.post(
           title: body.title,
           description: serializeDescription(body.description),
           position: body.position,
+          sort_key: body.sort_key ?? null,
           due_date: body.due_date ?? null,
         })
         .execute();
@@ -178,7 +179,9 @@ router.post(
       throw err;
     }
 
-    await reconcileSortKeys(db, 'task', body.column_id);
+    if (body.sort_key === undefined) {
+      await reconcileSortKeys(db, 'task', body.column_id);
+    }
 
     if (labelIds.length > 0) {
       await db
@@ -344,6 +347,7 @@ router.post(
             column_id: body.column_id,
             title: task.title,
             position: task.position,
+            sort_key: task.sort_key ?? null,
           }))
         )
         .execute();
@@ -354,7 +358,9 @@ router.post(
       throw err;
     }
 
-    await reconcileSortKeys(db, 'task', body.column_id);
+    if (body.tasks.some((task) => task.sort_key === undefined)) {
+      await reconcileSortKeys(db, 'task', body.column_id);
+    }
 
     await recordTaskActivity(
       db,
@@ -654,6 +660,7 @@ router.patch(
       ...('description' in body ? { description: nextDescription } : {}),
       ...(body.column_id !== undefined ? { column_id: body.column_id } : {}),
       ...(body.position !== undefined ? { position: body.position } : {}),
+      ...(body.sort_key !== undefined ? { sort_key: body.sort_key } : {}),
       ...('due_date' in body ? { due_date: body.due_date ?? null } : {}),
       ...(guardsContent ? { updated_at: sql<Date>`now()` } : {}),
       ...(columnChanged ? { column_since: sql<Date>`now()` } : {}),
@@ -668,7 +675,7 @@ router.patch(
     // Only the destination: taking a row out of a column leaves the keys behind
     // it in order. A position-only patch skips the `before` read above, and
     // widening that read would take its row lock on every drag.
-    if (body.position !== undefined || columnChanged) {
+    if (body.sort_key === undefined && (body.position !== undefined || columnChanged)) {
       const destination =
         body.column_id ??
         before?.column_id ??
