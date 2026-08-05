@@ -22,6 +22,7 @@ import {
   countTaskAttachments,
   fetchAttachmentRow,
   toAttachmentResponse,
+  MIRRORED_IMAGE_KIND,
 } from '../services/attachments/index';
 import { assertProjectStorageQuota, projectStorageAllowance } from '../services/attachments/quota';
 import {
@@ -374,6 +375,7 @@ router.delete(
     const deleted = await db
       .deleteFrom('task_attachment')
       .where('task_attachment.id', '=', id)
+      .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
       .returning([
         'task_attachment.task_id',
         'task_attachment.storage_key',
