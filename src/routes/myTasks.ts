@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import { authMiddleware } from '../middleware/auth';
 import { getMyTasks } from '../services/myTasks';
 import {
   myTasksResponseSchema,
@@ -40,7 +39,6 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   async (c) => {
     const user = c.get('user');
     return c.json(await getMyTasks(c.get('db'), user.id), 200);

@@ -2,10 +2,10 @@ import { APP_NAME } from '../config/constants';
 import { env } from '../config/env';
 import { getEmailSender } from './email/index';
 import { createVerificationToken } from './emailToken';
-import type { AppContext } from '../types/index';
+import type { PublicContext } from '../types/index';
 
 export function enqueueVerificationEmail(
-  c: Pick<AppContext, 'get'>,
+  c: Pick<PublicContext, 'get'>,
   user: { id: string; email: string }
 ): void {
   const link = `${env.appUrlBase}/verify-email?token=${encodeURIComponent(

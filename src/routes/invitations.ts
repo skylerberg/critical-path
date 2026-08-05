@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import { authMiddleware } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { AppError } from '../utils/errors';
 import { claimInvitations } from '../services/invitations';
@@ -46,7 +45,6 @@ router.post(
       ...internalServerErrorResponse,
     },
   }),
-  authMiddleware,
   jsonValidator(acceptInvitationSchema),
   async (c) => {
     const { token } = c.req.valid('json');
