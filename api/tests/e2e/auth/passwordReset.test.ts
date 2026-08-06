@@ -70,9 +70,9 @@ describe('Password reset', () => {
       expect(emails).toHaveLength(1);
       expect(emails[0].to).toBe(user.email);
       expect(emails[0].subject).toContain('password');
-      // The literal path, not `${env.resetUrlBase}` interpolated back: that
-      // compared the link against the variable that supplied it, so it held
-      // whatever the path happened to be.
+      // The literal path. This once read `${env.resetUrlBase}`, comparing the
+      // link against the variable that supplied it, so it held whatever the
+      // path happened to be.
       expect(emails[0].text).toContain(`${env.appUrlBase}/reset-password?token=`);
     });
 

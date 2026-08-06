@@ -44,12 +44,8 @@ export function unsubscribeLink(token: string): string {
   return withToken(WEB_PATHS.unsubscribe, token);
 }
 
-// The one path a deployment can still move, and the reason RESET_URL_BASE
-// should go: while it is set, this path is written in a manifest where neither
-// repo's tests can see it. Removing it has to wait a release — an old pod
-// rolling alongside a new one still reads it, and would fall back to localhost.
 export function passwordResetLink(token: string): string {
-  return `${env.resetUrlBase}?token=${encodeURIComponent(token)}`;
+  return withToken(WEB_PATHS.passwordReset, token);
 }
 
 // Not a web route: the one-click target is an API endpoint, served from the
