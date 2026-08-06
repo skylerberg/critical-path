@@ -497,13 +497,13 @@ router.get(
     if (!snapshot) {
       throw new AppError(404, 'Project not found');
     }
-    const { exportPayload, images, attachments } = snapshot;
+    const { exportPayload, attachments } = snapshot;
 
     if (format === 'json') {
       return c.json(exportPayload, 200);
     }
 
-    const archive = projectExportArchive(exportPayload, images, attachments, now);
+    const archive = projectExportArchive(exportPayload, attachments, now);
     c.header('Content-Type', 'application/zip');
     c.header(
       'Content-Disposition',

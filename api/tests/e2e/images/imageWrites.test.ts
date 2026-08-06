@@ -21,10 +21,11 @@ function imageForm(filename: string, id?: string): FormData {
   return form;
 }
 
-// Covers services/attachments/images.ts, the only writer of kind='image' rows.
-// The second property is the one worth holding on to past this release: an image
-// is a task_attachment row, and it still must not surface as an attachment —
-// not in attachments[], not in attachment_count, and not twice in the quota.
+// Covers services/attachments/images.ts, the only writer of kind='image' rows:
+// what an upload, a delete, a cover change and a card copy each leave behind,
+// and that an image reaches every attachment surface exactly once — one row in
+// attachments[], one in the count, one in the export, one set of bytes in the
+// quota.
 describe('image writes', () => {
   const ctx = new TestContext();
   const createdProjectIds: string[] = [];
@@ -216,7 +217,7 @@ describe('image writes', () => {
     expect(copies[0]!.image_storage_key).not.toBe(sourceKey.storage_key);
   });
 
-  it('stays out of the attachment surface: no count, list, quota or export', async () => {
+  it('surfaces as an attachment in the detail, the board count and the export', async () => {
     const { projectId, taskId } = await createTaskFixture(user.id);
 
     await ctx
@@ -225,11 +226,14 @@ describe('image writes', () => {
 
     const detail = (await (await ctx.request(user.token).get(`/api/tasks/${taskId}`)).json()) as {
       images: unknown[];
-      attachments: unknown[];
+      attachments: { kind: string; image_url: string; is_cover: boolean }[];
       image_count: number;
     };
+    // images[] is still populated this release so a client that has not reloaded
+    // keeps rendering; the next one removes it.
     expect(detail.images).toHaveLength(1);
-    expect(detail.attachments).toEqual([]);
+    expect(detail.attachments).toHaveLength(1);
+    expect(detail.attachments[0]).toMatchObject({ kind: 'image', is_cover: false });
     expect(detail.image_count).toBe(1);
 
     const board = (await (
@@ -237,16 +241,23 @@ describe('image writes', () => {
     ).json()) as { tasks: { id: string; image_count: number; attachment_count: number }[] };
     const card = board.tasks.find((task) => task.id === taskId);
     expect(card?.image_count).toBe(1);
-    expect(card?.attachment_count).toBe(0);
+    expect(card?.attachment_count).toBe(1);
 
+    // project.json merged its two arrays as well, at version 4: one model
+    // everywhere, including the interchange format that describes it.
     const exported = (await (
       await ctx.request(user.token).get(`/api/projects/${projectId}/export?format=json`)
-    ).json()) as { tasks: { id: string; images: unknown[]; attachments: unknown[] }[] };
+    ).json()) as {
+      version: number;
+      tasks: { id: string; attachments: { kind: string; path: string }[] }[];
+    };
+    expect(exported.version).toBe(4);
     const exportedTask = exported.tasks.find((task) => task.id === taskId);
-    expect(exportedTask?.images).toHaveLength(1);
-    expect(exportedTask?.attachments).toEqual([]);
+    expect(exportedTask?.attachments).toHaveLength(1);
+    expect(exportedTask?.attachments[0]).toMatchObject({ kind: 'image' });
+    expect(exportedTask?.attachments[0]?.path).toMatch(/^attachments\//);
 
-    // The bytes are in both tables now, and the quota must still count them once.
+    // Counted once, from the one table.
     const allowance = await projectStorageAllowance(db, projectId);
     expect(allowance.used).toBe(PNG_1X1.length);
   });

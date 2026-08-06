@@ -65,11 +65,19 @@ describe('image and file attachment isolation', () => {
     expect((await ctx.request().get(`/api/attachments/${imageId}/favicon`)).status).toBe(404);
   });
 
-  it('keeps an image out of the attachment mutation routes while the surfaces are separate', async () => {
-    expect(
-      (await ctx.request(user.token).patch(`/api/attachments/${imageId}`, { title: 'nope' })).status
-    ).toBe(404);
-    expect((await ctx.request(user.token).delete(`/api/attachments/${imageId}`)).status).toBe(404);
+  // Isolation is about which bytes each route can reach, not about which rows it
+  // can name. An image is an attachment now, so the metadata routes reach it —
+  // that is the point of the merge, and it takes nothing away from the rules
+  // above, which are enforced by the columns each serving route selects.
+  it('lets the attachment routes rename an image, which is now one of them', async () => {
+    const res = await ctx
+      .request(user.token)
+      .patch(`/api/attachments/${imageId}`, { title: 'Mock-up' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { kind: string; title: string; image_url: string };
+    expect(body.kind).toBe('image');
+    expect(body.title).toBe('Mock-up');
+    expect(body.image_url).toBe(`/api/images/${imageId}`);
   });
 
   it('still serves the image itself, unauthenticated and with its sniffed type', async () => {

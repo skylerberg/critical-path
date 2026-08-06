@@ -673,11 +673,29 @@ they are published on public boards.
 only place any of them lives. The separate `task_image` table it replaced is
 gone.
 
-The API surface has not merged yet. Images keep their own routes, their own
-covers, their own `images[]` and `image_count`, and their own `images/` export
-folder; `attachments[]` and `attachment_count` still mean files and links only.
-An image is unreachable through `/api/attachments/:id` and a file attachment is
-unreachable through `/api/images/:id`, in both directions and by id.
+`attachments[]` and `attachment_count` cover all three kinds. An image entry
+carries `kind: "image"`, its `content_type`, `is_cover`, and an `image_url` —
+the same `/api/images/:id` a description's embedded `src` uses, so one URL
+serves the list thumbnail and the inline picture. `PATCH /api/attachments/:id`
+renames an image like any other, and `DELETE` removes one.
+
+`images[]` and `image_count` are still sent alongside, unchanged, so a browser
+that has not reloaded keeps rendering; a later release removes them. The
+`images/` export folder and `project.json`'s separate `images[]` stay as they
+are — that is a documented, versioned interchange format, and merging its two
+arrays would be a breaking change to it.
+
+**Which kind an upload becomes is the server's decision.**
+`POST /api/attachments/files` reads the first twelve bytes: PNG, JPEG, GIF or
+WebP under 10 MB becomes `kind: "image"`, anything else `kind: "file"` under the
+50 MB cap. The declared `content_type` never decides — it is recorded for display
+on a file and ignored entirely on an image. That keeps the rule in one place
+rather than in every client, and means a `.bin` that is really a PNG is stored as
+one while an SVG, which no sniffer here recognises, stays a file and is served as
+an opaque download.
+
+A file attachment stays unreachable through `/api/images/:id`, and an image
+through `/api/attachments/:id/download`, `/preview` and `/favicon`.
 
 An image row carries `image_storage_key` and `image_content_type` rather than
 sharing `storage_key` and `content_type` with files. That is what keeps
@@ -685,7 +703,10 @@ sharing `storage_key` and `content_type` with files. That is what keeps
 content type — structurally unable to reach a document's bytes: it selects only
 those two columns, and a file row has both null. The type is CHECK-restricted to
 the four formats magic-byte sniffing produces, so no repair query can leave a row
-it would serve as something renderable.
+it would serve as something renderable. The route also sends
+`X-Content-Type-Options: nosniff`: a file can be a valid GIF *and* valid HTML at
+once, and the header is what stops a browser looking past the declared type and
+rendering the other half as a document on our own origin.
 
 | Route                               | Auth   |
 | ----------------------------------- | ------ |
@@ -736,11 +757,28 @@ project with 3 MB of quota left refuses a 50 MB file after 3 MB rather than
 after 50; the exact, serialised quota check still runs once the size is known
 and before the row commits, and the object it refuses is reclaimed.
 
-**On the card.** Every board task carries `attachment_count`, both kinds
-together, so a card can show a paperclip without fetching the list.
+**On the card.** Every board task carries `attachment_count` — all three kinds
+together — so a card can show a paperclip without fetching the list.
 `attachment_created` and `attachment_deleted` carry the new count for the same
-reason `comment_created` does. Public boards do **not** publish it: the
-attachment list, its bytes and its count are all members-only.
+reason `comment_created` does, and an image mutation now publishes both its
+`image_*` event and the matching `attachment_*` one so a browser holding either
+vocabulary stays current.
+
+**Public boards publish attachments too**, all three kinds, with an
+`attachments[]` array alongside `comments[]` and `checklist_items[]` and an
+`attachment_count` on every card. Publishing a board publishes what is on its
+cards; leaving files out would have meant an image on a public card was readable
+by anyone while a PDF beside it was not — one list, two rules.
+
+That makes `GET /api/attachments/:id/download` the first route with *optional*
+auth rather than none or all: it reads a token when one is offered, serves a
+stranger only when the board is published, and still answers 404 to an account
+with no membership on one that is not. A missing token on a private board is a
+401 rather than a 404, because a token might have earned access and 404 would be
+an answer the caller could not act on. `optionalAuth` is pinned by
+`assertPublicRoutes` the same way `skipAuth` is, and for the same reason: the
+marker is one line and its effect is invisible until someone reaches the
+resource without credentials.
 
 **Links.** `POST /api/attachments/links` stores the URL and answers 201
 immediately with `unfurl_state: "pending"`; adding never waits on the network.
@@ -1989,14 +2027,15 @@ The default response is `application/zip`, streamed, with
 ```
 project.json          the manifest below
 tasks.csv             one row per task, for spreadsheets
-images/<image-id>.png the real bytes of every attached image, archived
-                      cards included
+attachments/<id>.<ext> the real bytes of every attached file and image,
+                      archived cards included
 ```
 
-Images ship as files, not URLs, so the archive keeps working after the account
-or the storage bucket goes away. `?format=json` returns `project.json` alone —
-no image bytes; fetch those from `GET /api/images/:id`, one per
-`tasks[].images[].id`.
+Images and files ship as bytes, not URLs, so the archive keeps working after the
+account or the storage bucket goes away. `?format=json` returns `project.json`
+alone — no bytes; fetch an image from `GET /api/images/:id` and a file from
+`GET /api/attachments/:id/download`, one per `tasks[].attachments[]` entry whose
+`path` is not null.
 
 `project.json` is the stable, documented interchange format the importer reads
 back:
@@ -2004,7 +2043,7 @@ back:
 ```jsonc
 {
   "format": "critical-path-project-export",
-  "version": 3,
+  "version": 4,
   "exported_at": "2026-07-26T12:00:00.000Z",
   "project": { "id", "name", "description", "archived_at", "created_at",
                "created_by", "member_ids", "is_public", "color" },
@@ -2018,8 +2057,9 @@ back:
     "archived_at": "<ISO timestamp if the card is archived, else null>",
     "cover_image_url": "<'/api/images/:id' for the cover image, or null>",
     "label_ids": [], "assignee_ids": [], "blocker_ids": [],
-    "images": [ { "id", "path", "filename", "content_type", "size_bytes",
-                  "created_at" } ],
+    "attachments": [ { "id", "kind", "is_cover", "path", "title", "description",
+                       "filename", "content_type", "size_bytes", "url",
+                       "unfurl_state", "created_at" } ],
     "checklist_items": [ { "id", "text", "checked", "position" } ]
   } ]
 }
@@ -2032,10 +2072,13 @@ back:
   added without a bump: a reader of a `3` export keeps parsing, since an absent
   key and an empty checklist mean the same thing. `attachments` was added the
   same way, and for the same reason.
-- `tasks[].attachments[]` lists both kinds. A `file` entry carries `path`
-  (`attachments/<id>.<ext>`, derived from the id, never from `filename`) and its
-  bytes ride in the zip; a `link` entry carries `url` and `unfurl_state` and has
-  `path: null`. Fetched preview and favicon bytes are **not** archived — they
+- `tasks[].attachments[]` lists all three kinds. A `file` or `image` entry
+  carries `path` (`attachments/<id>.<ext>`, derived from the id, never from
+  `filename`) and its bytes ride in the zip; a `link` entry carries `url` and
+  `unfurl_state` and has `path: null`. An `image` entry also carries `is_cover`.
+  Version `4` is this merge: a reader of a `3` export found images under a
+  separate `tasks[].images[]`, so one that kept looking there would silently
+  lose every picture. Fetched preview and favicon bytes are **not** archived — they
   are a cache of someone else's image, not the user's content — so a re-import
   keeps the link and its text and re-unfurls its pictures.
 - Archived cards are exported. Each carries the `archived_at` that marks it and
@@ -2052,19 +2095,20 @@ back:
   kept the position they were archived at, which a live card may since have
   taken.
 - `description` is stored verbatim, so its embedded `/api/images/<uuid>`
-  sources resolve by image id against the flattened `tasks[].images[]` — build
-  the id map across the whole export, not per task, and tolerate a source that
-  resolves to nothing (the image may have been deleted).
-- `cover_image_url` takes the same `/api/images/<uuid>` form and resolves by
-  image id against that task's own `images[]`. An importer restores it with
-  `PUT /api/tasks/:id/cover` once the images are uploaded.
-- `path` is derived from the image id and its content type, never from
-  `filename`, so an archive can never carry a traversal path or a name
+  sources resolve by id against the `kind: "image"` entries of the flattened
+  `tasks[].attachments[]` — build the id map across the whole export, not per
+  task, and tolerate a source that resolves to nothing (the image may have been
+  deleted).
+- `cover_image_url` takes the same `/api/images/<uuid>` form and resolves by id
+  against that task's own attachments; the same entry carries `is_cover: true`.
+  An importer restores it with `PUT /api/tasks/:id/cover` once the images are
+  uploaded.
+- `path` is derived from the id and, for an image, its content type — never from
+  `filename` — so an archive can never carry a traversal path or a name
   collision. It is emitted in both formats, though with `?format=json` it names
   a file that response does not contain.
-- `images[]` lists every stored image row. If the storage object has gone
-  missing the manifest still lists it, the file is left out of the archive, and
-  a warning is logged.
+- Every stored row is listed. If a storage object has gone missing the manifest
+  still lists it, the file is left out of the archive, and a warning is logged.
 - Comments exist (see Task comments) but nothing about them is exported yet.
   Adding them is a version bump, and it has to answer what a mention node
   carrying another person's name and id means in a file the exporter keeps.

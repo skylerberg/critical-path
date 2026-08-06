@@ -16,7 +16,7 @@ import {
 import {
   attachmentStorageKeys,
   fetchTaskAttachments,
-  MIRRORED_IMAGE_KIND,
+  IMAGE_KIND,
 } from '../services/attachments/index';
 import { setTaskCoverImage } from '../services/attachments/images';
 import { assertColumnInProject } from '../services/boardColumns';
@@ -445,7 +445,7 @@ router.get(
         'task_attachment.created_at',
       ])
       .where('task_attachment.task_id', '=', id)
-      .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+      .where('task_attachment.kind', '=', IMAGE_KIND)
       .orderBy('task_attachment.created_at')
       .orderBy('task_attachment.id')
       .execute();
@@ -1196,7 +1196,7 @@ router.put(
         .selectFrom('task_attachment')
         .select('task_attachment.task_id')
         .where('task_attachment.id', '=', image_id)
-        .where('task_attachment.kind', '=', MIRRORED_IMAGE_KIND)
+        .where('task_attachment.kind', '=', IMAGE_KIND)
         .executeTakeFirst();
       if (!image || image.task_id !== id) {
         throw new AppError(422, 'image_id must reference an image on this task');

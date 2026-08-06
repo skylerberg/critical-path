@@ -169,7 +169,8 @@ describe('GET /api/openapi.json', () => {
       'users',
       'version',
     ]);
-    expect(Object.keys(manifest.properties.tasks.items.properties)).toContain('images');
+    expect(Object.keys(manifest.properties.tasks.items.properties)).toContain('attachments');
+    expect(Object.keys(manifest.properties.tasks.items.properties)).not.toContain('images');
     expect(Object.keys(manifest.properties.tasks.items.properties)).not.toContain('image_count');
   });
 

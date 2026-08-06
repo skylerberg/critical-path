@@ -3,7 +3,7 @@ import type { MiddlewareHandler } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql } from 'kysely';
 import { env } from '../config/env';
-import { skipAuth } from '../middleware/auth';
+import { optionalAuth, skipAuth } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { enforceLinkAttachmentRateLimit } from '../middleware/rateLimit';
@@ -17,17 +17,16 @@ import { logger } from '../utils/logger';
 import {
   MAX_ATTACHMENTS_PER_TASK,
   ATTACHMENT_NOT_FOUND,
-  assertAttachmentAccess,
+  assertAttachmentReadable,
   assertAttachmentWrite,
   countTaskAttachments,
   fetchAttachmentRow,
   toAttachmentResponse,
-  MIRRORED_IMAGE_KIND,
 } from '../services/attachments/index';
 import { assertProjectStorageQuota, projectStorageAllowance } from '../services/attachments/quota';
 import {
   discardStoredUpload,
-  storeUploadStream,
+  storeSniffedUpload,
   UploadCapExceededError,
 } from '../services/attachments/upload';
 import {
@@ -37,6 +36,7 @@ import {
   DEFAULT_CONTENT_TYPE,
 } from '../services/attachments/serve';
 import { ATTACHMENT_UNFURL_KIND } from '../services/attachments/unfurl';
+import { IMAGE_MAX_BYTES } from '../services/attachments/images';
 import {
   idSchema,
   attachmentSchema,
@@ -132,18 +132,22 @@ router.post(
     }
 
     const maxBytes = env.attachmentMaxBytes;
-    const tooLarge = (): AppError =>
-      new AppError(413, `File exceeds the ${String(maxBytes)} byte limit`);
+    const tooLarge = (limit: number): AppError =>
+      new AppError(413, `File exceeds the ${String(limit)} byte limit`);
 
     const allowance = await projectStorageAllowance(db, project.id);
     // Whichever bound bites first is where the stream is cut, so an upload that
     // could never be stored stops arriving rather than being measured after.
-    const cap = Math.min(maxBytes, allowance.remaining);
+    // Which byte cap applies is not known until the sniff, so the pre-flight
+    // check below can only use the larger of the two.
     const capIsQuota = allowance.remaining < maxBytes;
 
     const declaredLength = Number(c.req.header('content-length'));
-    if (Number.isFinite(declaredLength) && declaredLength > cap) {
-      throw capIsQuota ? allowance.exceeded() : tooLarge();
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > Math.min(maxBytes, allowance.remaining)
+    ) {
+      throw capIsQuota ? allowance.exceeded() : tooLarge(maxBytes);
     }
 
     const body = c.req.raw.body;
@@ -153,13 +157,21 @@ router.post(
 
     let upload;
     try {
-      upload = await storeUploadStream(body, cap, DEFAULT_CONTENT_TYPE);
+      upload = await storeSniffedUpload(
+        body,
+        {
+          image: Math.min(IMAGE_MAX_BYTES, allowance.remaining),
+          file: Math.min(maxBytes, allowance.remaining),
+        },
+        DEFAULT_CONTENT_TYPE
+      );
     } catch (err) {
       if (err instanceof UploadCapExceededError) {
-        throw capIsQuota ? allowance.exceeded() : tooLarge();
+        throw capIsQuota ? allowance.exceeded() : tooLarge(maxBytes);
       }
       throw err;
     }
+    const isImage = upload.imageContentType !== null;
 
     if (upload.size === 0) {
       await discardStoredUpload(upload.storageKey);
@@ -182,11 +194,17 @@ router.post(
         .values({
           id: attachmentId,
           task_id: taskId,
-          kind: 'file',
+          kind: isImage ? 'image' : 'file',
           filename: sanitizeUploadFilename(filename || 'attachment'),
-          content_type: sanitizeDeclaredContentType(declaredType ?? ''),
           size_bytes: upload.size,
-          storage_key: upload.storageKey,
+          // The two shapes are exclusive, and which columns are filled is what
+          // decides how the bytes may later be served.
+          ...(isImage
+            ? { image_storage_key: upload.storageKey, image_content_type: upload.imageContentType }
+            : {
+                storage_key: upload.storageKey,
+                content_type: sanitizeDeclaredContentType(declaredType ?? ''),
+              }),
         })
         .returningAll()
         .executeTakeFirstOrThrow();
@@ -375,7 +393,6 @@ router.delete(
     const deleted = await db
       .deleteFrom('task_attachment')
       .where('task_attachment.id', '=', id)
-      .where('task_attachment.kind', '<>', MIRRORED_IMAGE_KIND)
       .returning([
         'task_attachment.task_id',
         'task_attachment.storage_key',
@@ -407,15 +424,18 @@ router.delete(
   }
 );
 
+// Optional auth, not public: on a private board this still answers only to a
+// member, and only a published one serves a stranger.
 router.get(
   '/:id/download',
   describeRoute({
     tags: ['Attachments'],
     summary: 'Download a file attachment',
     description:
-      'Serve the stored bytes. Unlike image URLs this route is authenticated and answers 404 to ' +
+      'Serve the stored bytes. On a private board this route is authenticated and answers 404 to ' +
       'anyone without project access, so a spec or a contract stops being readable the moment ' +
-      'someone is removed from the project. The response is always application/octet-stream with ' +
+      'someone is removed from the project. On a published board it serves anyone, because a ' +
+      'public board publishes its attachments. The response is always application/octet-stream with ' +
       'an attachment Content-Disposition, nosniff and a sandbox CSP, whatever the file is — no ' +
       'user-supplied bytes are ever served with a renderable content type. A link attachment ' +
       'answers 404.',
@@ -431,12 +451,13 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
+  optionalAuth,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
-    await assertAttachmentAccess(db, c.get('user').id, id);
+    await assertAttachmentReadable(db, c.get('user') as { id: string } | undefined, id);
 
     const row = await db
       .selectFrom('task_attachment')

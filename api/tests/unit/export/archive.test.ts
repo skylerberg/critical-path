@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { exportFilename, projectExportArchive } from '../../../src/services/export/archive';
-import type { ExportAttachmentRow, ExportImageRow } from '../../../src/services/export/payload';
+import type { ExportAttachmentRow } from '../../../src/services/export/payload';
 import { ZIP_MAX_ENTRIES } from '../../../src/services/export/zip';
 import { AppError } from '../../../src/utils/errors';
 import type { ProjectExport } from '../../../src/schemas/index';
@@ -29,18 +29,6 @@ const EXPORT: ProjectExport = {
   tasks: [],
 };
 
-function imageRows(count: number, sizeBytes = 0): ExportImageRow[] {
-  return Array.from({ length: count }, (_unused, index) => ({
-    id: `i${index}`,
-    task_id: 't1',
-    storage_key: `k${index}`,
-    filename: `${index}.png`,
-    content_type: 'image/png',
-    size_bytes: sizeBytes,
-    created_at: NOW,
-  }));
-}
-
 describe('exportFilename', () => {
   it('slugifies the name and appends the export date', () => {
     expect(exportFilename('My Project! 🎉', NOW)).toBe('my-project-2026-07-26.zip');
@@ -66,19 +54,21 @@ describe('exportFilename', () => {
   });
 });
 
-function attachmentRows(count: number, sizeBytes = 0): ExportAttachmentRow[] {
+// Images and files are the same row now, so one builder covers both; the prefix
+// only keeps their generated paths distinct.
+function attachmentRows(count: number, sizeBytes = 0, prefix = 'a'): ExportAttachmentRow[] {
   return Array.from({ length: count }, (_unused, index) => ({
-    id: `a${index}`,
+    id: `${prefix}${index}`,
     task_id: 't1',
-    storage_key: `ak${index}`,
-    filename: `${index}.pdf`,
+    storage_key: `${prefix}k${index}`,
+    path: `attachments/${prefix}${index}.pdf`,
     size_bytes: sizeBytes,
   }));
 }
 
-function refusal(images: ExportImageRow[], attachments: ExportAttachmentRow[] = []): AppError {
+function refusal(attachments: ExportAttachmentRow[]): AppError {
   try {
-    projectExportArchive(EXPORT, images, attachments, NOW);
+    projectExportArchive(EXPORT, attachments, NOW);
   } catch (error) {
     return error as AppError;
   }
@@ -88,42 +78,40 @@ function refusal(images: ExportImageRow[], attachments: ExportAttachmentRow[] = 
 describe('projectExportArchive', () => {
   it('accepts an entry count that exactly fills the 16-bit count field', () => {
     // The manifest and the csv take two of the slots.
-    expect(projectExportArchive(EXPORT, imageRows(ZIP_MAX_ENTRIES - 2), [], NOW)).toBeInstanceOf(
+    expect(projectExportArchive(EXPORT, attachmentRows(ZIP_MAX_ENTRIES - 2), NOW)).toBeInstanceOf(
       ReadableStream
     );
   });
 
   it('refuses one entry beyond the 16-bit count field', () => {
-    const error = refusal(imageRows(ZIP_MAX_ENTRIES - 1));
+    const error = refusal(attachmentRows(ZIP_MAX_ENTRIES - 1));
     expect(error).toBeInstanceOf(AppError);
     expect(error.statusCode).toBe(413);
   });
 
   it('refuses an archive whose bytes would overflow the 32-bit size fields', () => {
-    const error = refusal(imageRows(3, 2_000_000_000));
+    const error = refusal(attachmentRows(3, 2_000_000_000));
     expect(error).toBeInstanceOf(AppError);
     expect(error.statusCode).toBe(413);
   });
 
   it('points the refusal at the json format and at the endpoints serving bytes', () => {
-    const error = refusal(imageRows(3, 2_000_000_000));
+    const error = refusal(attachmentRows(3, 2_000_000_000));
     expect(error.message).toContain('format=json');
     expect(error.message).toContain('/api/images/');
     expect(error.message).toContain('/api/attachments/');
   });
 
-  it('counts attachments toward the 16-bit entry count alongside images', () => {
+  it('counts every kind toward the 16-bit entry count', () => {
     expect(
-      projectExportArchive(EXPORT, imageRows(10), attachmentRows(ZIP_MAX_ENTRIES - 12), NOW)
+      projectExportArchive(
+        EXPORT,
+        [...attachmentRows(10, 0, 'i'), ...attachmentRows(ZIP_MAX_ENTRIES - 12)],
+        NOW
+      )
     ).toBeInstanceOf(ReadableStream);
 
-    const error = refusal(imageRows(10), attachmentRows(ZIP_MAX_ENTRIES - 11));
-    expect(error).toBeInstanceOf(AppError);
-    expect(error.statusCode).toBe(413);
-  });
-
-  it('counts attachment bytes toward the 32-bit size bound', () => {
-    const error = refusal([], attachmentRows(3, 2_000_000_000));
+    const error = refusal([...attachmentRows(10, 0, 'i'), ...attachmentRows(ZIP_MAX_ENTRIES - 11)]);
     expect(error).toBeInstanceOf(AppError);
     expect(error.statusCode).toBe(413);
   });
