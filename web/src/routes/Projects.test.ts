@@ -282,6 +282,25 @@ describe('Projects', () => {
     expect(body.name).toBe('Alpha copy');
   });
 
+  it('keeps the modal open with the typed name and the reason when create is rejected', async () => {
+    mockApi((request) =>
+      request.method === 'POST'
+        ? jsonResponse(422, { error: 'Name must be 80 characters or fewer' })
+        : jsonResponse(200, { projects: [activeProject] })
+    );
+    render(Projects);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New project' }));
+    await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'A name too long' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Create project' }));
+
+    expect(await screen.findByText('Name must be 80 characters or fewer')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'New project' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveValue('A name too long');
+    expect(screen.getByRole('button', { name: 'Create project' })).toBeEnabled();
+    expect(router.path).toBe('/');
+  });
+
   it('rails a coloured card and leaves an uncoloured one bare', async () => {
     const coloured = project({ id: testUuid('p-hue'), name: 'Hued', color: 'fuchsia' });
     fetchMock.mockImplementation(async () =>

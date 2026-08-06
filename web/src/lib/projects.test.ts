@@ -152,7 +152,7 @@ describe('projects store', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('toasts and refetches when create fails', async () => {
+  it('refetches and rethrows when create fails so the form can report it', async () => {
     const existing = project();
     fetchMock.mockImplementation(async (input) => {
       if ((input as Request).method === 'POST') {
@@ -161,10 +161,9 @@ describe('projects store', () => {
       return jsonResponse(200, { projects: [existing] });
     });
 
-    const id = await projects.create('Doomed');
+    await expect(projects.create('Doomed')).rejects.toThrow('Duplicate id');
 
-    expect(id).toBeNull();
-    expect(toasts.toasts.map((t) => t.message)).toEqual(['Duplicate id']);
+    expect(toasts.toasts).toEqual([]);
     expect(projects.projects).toEqual([existing]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
