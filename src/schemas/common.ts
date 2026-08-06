@@ -123,7 +123,6 @@ export const idSchema = type({
 // same shape collide in the OpenAPI schema-name registry.
 export const duplicateSchema = type({
   id: uuid,
-  position: finiteNumber,
   'sort_key?': sortKey,
 });
 

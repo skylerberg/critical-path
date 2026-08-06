@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { db, waitForLockWaiters } from '../../helpers/database';
-import { newId, uniqueEmail } from '../../helpers/fixtures';
+import { newId, uniqueEmail, rankKey } from '../../helpers/fixtures';
 import { appendPositions } from '../../../src/services/boardColumns';
-import { reconcileSortKeys } from '../../../src/services/sortKeyAssignment';
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -33,8 +32,8 @@ describe('concurrent moves into one column', () => {
     await db
       .insertInto('board_column')
       .values([
-        { id: targetColumnId, project_id: projectId, name: 'Target', position: 1000 },
-        { id: sourceColumnId, project_id: projectId, name: 'Source', position: 2000 },
+        { id: targetColumnId, project_id: projectId, name: 'Target', sort_key: rankKey(1000) },
+        { id: sourceColumnId, project_id: projectId, name: 'Source', sort_key: rankKey(2000) },
       ])
       .execute();
     await db
@@ -45,7 +44,7 @@ describe('concurrent moves into one column', () => {
           project_id: projectId,
           column_id: targetColumnId,
           title: 'already here',
-          position: 1000,
+          sort_key: rankKey(1000),
           sort_key: 'V0',
         },
         {
@@ -53,14 +52,14 @@ describe('concurrent moves into one column', () => {
           project_id: projectId,
           column_id: sourceColumnId,
           title: 'a',
-          position: 1000,
+          sort_key: rankKey(1000),
         },
         {
           id: movedB,
           project_id: projectId,
           column_id: sourceColumnId,
           title: 'b',
-          position: 2000,
+          sort_key: rankKey(2000),
         },
       ])
       .execute();
@@ -74,7 +73,7 @@ describe('concurrent moves into one column', () => {
   // Each transaction does what relocateTasks does: probe the column's tail, then
   // write. The second is released only once the first has committed, so an
   // unserialised probe reads a stale max and stamps a duplicate.
-  it('gives each mover its own position and sort key', async () => {
+  it('gives each mover its own sort key', async () => {
     const firstHasProbed = deferred();
     const secondHasProbed = deferred();
 
@@ -91,11 +90,10 @@ describe('concurrent moves into one column', () => {
         if (release) await release;
         await trx
           .updateTable('task')
-          .set({ column_id: targetColumnId, position: moved!.position })
+          .set({ column_id: targetColumnId, sort_key: moved!.sort_key })
           .where('id', '=', taskId)
           .execute();
-        await reconcileSortKeys(trx, 'task', targetColumnId);
-        return moved!.position;
+        return moved!.sort_key;
       });
     }
 
@@ -113,8 +111,8 @@ describe('concurrent moves into one column', () => {
     ]);
     secondReachedProbe.resolve();
 
-    const positions = await Promise.all([first, second]);
-    expect([...positions].sort((a, b) => a - b)).toEqual([2000, 3000]);
+    const keys = await Promise.all([first, second]);
+    expect(new Set(keys).size).toBe(2);
 
     const rows = await db
       .selectFrom('task')

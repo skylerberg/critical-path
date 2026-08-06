@@ -11,6 +11,7 @@ import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { newId } from '../../../tests/helpers/fixtures';
 import { waitFor } from '../../../tests/e2e/projects/helpers';
 import { createCliHarness, type CliHarness, type CliRunHandle, type CliRunResult } from './helpers';
+import { rankKey } from '../../../tests/helpers/fixtures';
 
 interface EventLine {
   type: string;
@@ -73,7 +74,7 @@ describe('watch command', () => {
       project_id: project.id,
       column_id: project.columnId,
       title,
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(201);
   }

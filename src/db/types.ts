@@ -46,17 +46,15 @@ export interface BoardColumn {
   id: string;
   is_done: Generated<boolean>;
   name: string;
-  position: number;
   project_id: string;
-  sort_key: string | null;
+  sort_key: string;
 }
 
 export interface ChecklistItem {
   checked: Generated<boolean>;
   created_at: Generated<Timestamp>;
   id: string;
-  position: number;
-  sort_key: string | null;
+  sort_key: string;
   task_id: string;
   text: string;
   updated_at: Generated<Timestamp>;
@@ -138,9 +136,8 @@ export interface ProjectMember {
 
 export interface ProjectUserPosition {
   created_at: Generated<Timestamp>;
-  position: number;
   project_id: string;
-  sort_key: string | null;
+  sort_key: string;
   user_id: string;
 }
 
@@ -178,12 +175,11 @@ export interface Task {
   description: Json | null;
   due_date: Timestamp | null;
   id: string;
-  position: number;
   project_id: string;
   search_vector: Generated<string | null>;
   series_id: string | null;
   series_occurrence_date: Timestamp | null;
-  sort_key: string | null;
+  sort_key: string;
   title: string;
   updated_at: Generated<Timestamp>;
 }
@@ -276,9 +272,8 @@ export interface TaskSeriesAssignee {
 
 export interface TaskSeriesChecklistItem {
   id: string;
-  position: number;
   series_id: string;
-  sort_key: string | null;
+  sort_key: string;
   text: string;
 }
 

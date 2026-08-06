@@ -1,5 +1,5 @@
 import { type } from 'arktype';
-import { finiteNumber, sortKey, stringWithLength, uuid } from './common';
+import { sortKey, stringWithLength, uuid } from './common';
 
 // Must stay equal to the task title maximum: promoting an item writes its text
 // into a title by direct insert, past that schema, and the column has no length
@@ -17,7 +17,6 @@ export const createChecklistItemSchema = type({
   id: uuid,
   task_id: uuid,
   text: checklistItemText,
-  position: finiteNumber,
   'sort_key?': sortKey,
   'checked?': 'boolean',
 });
@@ -25,7 +24,6 @@ export const createChecklistItemSchema = type({
 export const patchChecklistItemSchema = type({
   'text?': checklistItemText,
   'checked?': 'boolean',
-  'position?': finiteNumber,
   'sort_key?': sortKey,
 });
 
@@ -34,8 +32,7 @@ export const checklistItemSchema = type({
   task_id: 'string',
   text: 'string',
   checked: 'boolean',
-  position: finiteNumber,
-  sort_key: 'string | null',
+  sort_key: 'string',
   created_at: 'string',
   updated_at: 'string',
 });

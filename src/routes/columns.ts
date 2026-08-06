@@ -14,8 +14,7 @@ import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
 import { copyTasks } from '../services/projectCopy';
-import { keysBetween } from '../services/sortKey';
-import { sortKeyForPosition } from '../services/sortKeyAssignment';
+import { appendKeys, resolveSortKey } from '../services/sortKey';
 import { publishSeriesUpdatedByIds } from '../services/taskSeries/index';
 import {
   idSchema,
@@ -45,22 +44,13 @@ import type { ColumnResponse, MovedTask } from '../schemas/index';
 
 const router: AppHono = new Hono();
 
-const COLUMN_COLUMNS = [
-  'id',
-  'project_id',
-  'name',
-  'position',
-  'sort_key',
-  'is_done',
-  'created_at',
-] as const;
+const COLUMN_COLUMNS = ['id', 'project_id', 'name', 'sort_key', 'is_done', 'created_at'] as const;
 
 function serializeColumn(row: {
   id: string;
   project_id: string;
   name: string;
-  position: number;
-  sort_key: string | null;
+  sort_key: string;
   is_done: boolean;
   created_at: Date;
 }): ColumnResponse {
@@ -99,14 +89,11 @@ async function relocateTasks(
   await sql`
     update task
     set column_id = ${target.id}::uuid,
-        position = v.position,
         sort_key = v.sort_key,
         column_since = now()
     from (values ${sql.join(
-      movedTasks.map(
-        (task) => sql`(${task.id}::uuid, ${task.position}::float8, ${task.sort_key}::text)`
-      )
-    )}) as v(id, position, sort_key)
+      movedTasks.map((task) => sql`(${task.id}::uuid, ${task.sort_key}::text)`)
+    )}) as v(id, sort_key)
     where task.id = v.id
   `.execute(db);
 
@@ -148,9 +135,10 @@ async function reorderTasks(
     throw new AppError(422, 'task_ids must reference unarchived tasks in this column');
   }
 
-  // A one-shot sort re-stamps the whole column, so the keys are generated as one
-  // evenly spread run rather than derived from what was there.
-  const keys = keysBetween(null, null, taskIds.length);
+  // Allocated after the column's tail rather than from scratch: the unique index
+  // spans archived rows, and a run starting at the first key would collide with
+  // whatever an archived card is still holding.
+  const keys = await appendKeys(db, 'task', column.id, taskIds.length);
 
   // The check above is a read, so a card can still leave the column before the
   // write lands; without the predicates below its position would be stamped into
@@ -158,18 +146,15 @@ async function reorderTasks(
   const movedTasks = taskIds.map((taskId, index) => ({
     id: taskId,
     column_id: column.id,
-    position: (index + 1) * 1000,
     sort_key: keys[index]!,
   }));
 
   await sql`
     update task
-    set position = v.position, sort_key = v.sort_key
+    set sort_key = v.sort_key
     from (values ${sql.join(
-      movedTasks.map(
-        (task) => sql`(${task.id}::uuid, ${task.position}::float8, ${task.sort_key}::text)`
-      )
-    )}) as v(id, position, sort_key)
+      movedTasks.map((task) => sql`(${task.id}::uuid, ${task.sort_key}::text)`)
+    )}) as v(id, sort_key)
     where task.id = v.id
       and task.column_id = ${column.id}
       and task.archived_at is null
@@ -206,7 +191,7 @@ router.post(
   }),
   jsonValidator(createColumnSchema),
   async (c) => {
-    const { id, project_id, name, position, sort_key, is_done } = c.req.valid('json');
+    const { id, project_id, name, sort_key, is_done } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
 
@@ -219,9 +204,10 @@ router.post(
           id,
           project_id,
           name,
-          position,
           sort_key:
-            sort_key ?? (await sortKeyForPosition(db, 'board_column', project_id, position, id)),
+            sort_key === undefined
+              ? (await appendKeys(db, 'board_column', project_id))[0]!
+              : await resolveSortKey(db, 'board_column', project_id, sort_key),
           is_done: is_done ?? false,
         })
         .returning(COLUMN_COLUMNS)
@@ -297,7 +283,7 @@ router.post(
           id: body.id,
           project_id: source.project_id,
           name: source.name,
-          position: body.position,
+          sort_key: body.sort_key ?? (await appendKeys(db, 'board_column', source.project_id))[0]!,
           is_done: source.is_done,
         })
         .returning(COLUMN_COLUMNS)
@@ -363,7 +349,7 @@ router.patch(
   jsonValidator(patchColumnSchema),
   async (c) => {
     const { id } = c.req.valid('param');
-    const { name, position, sort_key, is_done } = c.req.valid('json');
+    const { name, sort_key, is_done } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
 
@@ -377,24 +363,9 @@ router.patch(
     }
     await assertProjectWrite(db, user.id, existing.project_id, 'Column not found');
 
-    const updates: Partial<{
-      name: string;
-      position: number;
-      sort_key: string;
-      is_done: boolean;
-    }> = {};
+    const updates: Partial<{ name: string; sort_key: string; is_done: boolean }> = {};
     if (name !== undefined) updates.name = name;
-    if (position !== undefined) updates.position = position;
     if (sort_key !== undefined) updates.sort_key = sort_key;
-    else if (position !== undefined) {
-      updates.sort_key = await sortKeyForPosition(
-        db,
-        'board_column',
-        existing.project_id,
-        position,
-        id
-      );
-    }
     if (is_done !== undefined) updates.is_done = is_done;
 
     const column =

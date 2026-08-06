@@ -1,5 +1,5 @@
 import { type } from 'arktype';
-import { boundedUuidArray, calendarDate, finiteNumber, stringWithLength, uuid } from './common';
+import { boundedUuidArray, calendarDate, stringWithLength, uuid } from './common';
 import { nullableTiptapDocSchema } from './tiptap';
 
 export const MAX_SERIES_PER_PROJECT = 50;
@@ -17,7 +17,6 @@ const seriesTitle = stringWithLength(1, SERIES_TITLE_MAX_LENGTH);
 const checklistItemInputs = (max: number) =>
   type({
     text: stringWithLength(1, SERIES_TITLE_MAX_LENGTH),
-    position: finiteNumber,
   })
     .array()
     .pipe((items, ctx) => {
@@ -68,7 +67,6 @@ export const patchTaskSeriesSchema = type({
 export const taskSeriesChecklistItemSchema = type({
   id: 'string',
   text: 'string',
-  position: finiteNumber,
 });
 
 export const taskSeriesSchema = type({

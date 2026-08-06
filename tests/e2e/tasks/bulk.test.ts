@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
 import { subscribeBus, type BusEntry } from '../../../src/services/realtime/bus';
 import { notificationDelivery } from '../../../src/services/notifications';
@@ -9,7 +9,7 @@ import { notificationDelivery } from '../../../src/services/notifications';
 interface MovedTask {
   id: string;
   column_id: string;
-  position: number;
+  sort_key: string;
 }
 
 interface Relations {
@@ -21,7 +21,7 @@ interface Relations {
 
 interface TaskRow {
   column_id: string;
-  position: number;
+  sort_key: string;
   title: string;
   archived_at: Date | null;
   column_since: Date;
@@ -51,8 +51,8 @@ describe('Bulk actions on a selection', () => {
       .insertInto('project_member')
       .values({ project_id: projectId, user_id: viewer.id, role: 'viewer' })
       .execute();
-    todo = await fixtures.createColumn(projectId, { name: 'Todo', position: 1000 });
-    doing = await fixtures.createColumn(projectId, { name: 'Doing', position: 2000 });
+    todo = await fixtures.createColumn(projectId, { name: 'Todo', sort_key: rankKey(1000) });
+    doing = await fixtures.createColumn(projectId, { name: 'Doing', sort_key: rankKey(2000) });
     labelId = await fixtures.createLabel(projectId, 'art');
     otherProjectId = await fixtures.createProject('bulk other project', { createdBy: outsider.id });
     otherColumnId = await fixtures.createColumn(otherProjectId, { name: 'Elsewhere' });
@@ -82,7 +82,7 @@ describe('Bulk actions on a selection', () => {
   async function taskRow(taskId: string): Promise<TaskRow | undefined> {
     return db
       .selectFrom('task')
-      .select(['column_id', 'position', 'title', 'archived_at', 'column_since'])
+      .select(['column_id', 'title', 'archived_at', 'column_since', 'sort_key'])
       .where('id', '=', taskId)
       .executeTakeFirst();
   }
@@ -260,8 +260,9 @@ describe('Bulk actions on a selection', () => {
   describe('bulk-move', () => {
     it('appends in request order above the target’s max, archived rows included', async () => {
       const ids = await seed(3);
+      const parkedKey = rankKey(99_000);
       const parked = await fixtures.createTaskRow(projectId, doing, 'archived squatter', {
-        position: 99_000,
+        sortKey: parkedKey,
         archivedAt: new Date(),
       });
       const requested = [ids[2]!, ids[0]!, ids[1]!];
@@ -276,10 +277,11 @@ describe('Bulk actions on a selection', () => {
       const body = (await res.json()) as { moved_tasks: MovedTask[]; skipped_task_ids: string[] };
       expect(body.moved_tasks.map((task) => task.id)).toEqual(requested);
       expect(body.skipped_task_ids).toEqual([]);
-      const positions = body.moved_tasks.map((task) => task.position);
-      expect(positions).toEqual([...positions].sort((a, b) => a - b));
-      expect(Math.min(...positions)).toBeGreaterThan(99_000);
-      expect((await taskRow(parked))?.position).toBe(99_000);
+      const keys = body.moved_tasks.map((task) => task.sort_key);
+      expect(keys).toEqual([...keys].sort());
+      // Above the archived card parked at the column's tail.
+      expect(keys[0]! > parkedKey).toBe(true);
+      expect((await taskRow(parked))?.sort_key).toBe(parkedKey);
     });
 
     it('skips archived ids and moves the rest', async () => {
@@ -327,7 +329,7 @@ describe('Bulk actions on a selection', () => {
     it('re-stamps a card already in the target without moving or logging it', async () => {
       const [mover] = await seed(1);
       const resident = await fixtures.createTaskRow(projectId, doing, 'already there', {
-        position: 500,
+        sort_key: rankKey(500),
       });
       const before = await taskRow(resident);
 
@@ -341,7 +343,7 @@ describe('Bulk actions on a selection', () => {
       const body = (await res.json()) as { moved_tasks: MovedTask[] };
       expect(body.moved_tasks.map((task) => task.id)).toEqual([mover, resident]);
       const after = await taskRow(resident);
-      expect(after?.position).toBeGreaterThan(before!.position);
+      expect(after!.sort_key > before!.sort_key).toBe(true);
       expect(after?.column_since.getTime()).toBe(before!.column_since.getTime());
       expect(await activityOf(resident)).toEqual([]);
       expect(await activityOf(mover!)).toEqual([
@@ -351,7 +353,10 @@ describe('Bulk actions on a selection', () => {
 
     it('names each card’s own source column across a multi-column selection', async () => {
       const [fromTodo] = await seed(1);
-      const third = await fixtures.createColumn(projectId, { name: 'Blocked', position: 3000 });
+      const third = await fixtures.createColumn(projectId, {
+        name: 'Blocked',
+        sort_key: rankKey(3000),
+      });
       const fromBlocked = await fixtures.createTaskRow(projectId, third, 'blocked one');
 
       const res = await post('bulk-move', {

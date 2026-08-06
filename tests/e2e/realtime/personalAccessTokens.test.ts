@@ -8,7 +8,7 @@ import type { RealtimeHandle } from '../../../src/services/realtime/index';
 import { PERSONAL_ACCESS_TOKEN_PREFIX } from '../../../src/services/personalAccessTokens';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
 import { RtClient, settle } from './helpers';
 
@@ -89,7 +89,7 @@ describe('Realtime with personal access tokens', () => {
       project_id: projectId,
       column_id: columnId,
       title: 'pat',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(201);
 

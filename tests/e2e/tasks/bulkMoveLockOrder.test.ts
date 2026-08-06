@@ -4,6 +4,7 @@ import { db, waitForLockWaiters } from '../../helpers/database';
 import { lockColumnTail } from '../../../src/services/boardColumns';
 import { ProjectFixtures } from './taskFixtures';
 
+import { rankKey } from '../../helpers/fixtures';
 // `POST /api/columns/:id/move-tasks` and `DELETE /api/columns/:id?move_tasks_to=`
 // take the destination's tail lock and only then reach the task rows, through
 // the write that follows. A bulk move that locked its rows first and asked for
@@ -21,8 +22,8 @@ describe('Lock order of a bulk move', () => {
   beforeAll(async () => {
     owner = await ctx.createUser('bulk-lock-order');
     projectId = await fixtures.createProject('bulk lock order', { createdBy: owner.id });
-    source = await fixtures.createColumn(projectId, { name: 'Source', position: 1000 });
-    target = await fixtures.createColumn(projectId, { name: 'Target', position: 2000 });
+    source = await fixtures.createColumn(projectId, { name: 'Source', sort_key: rankKey(1000) });
+    target = await fixtures.createColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
     taskId = await fixtures.createTaskRow(projectId, source, 'contended');
   });
 

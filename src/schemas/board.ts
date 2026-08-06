@@ -1,12 +1,10 @@
 import { type } from 'arktype';
 import { nullableTiptapDocSchema } from './tiptap';
-import { finiteNumber } from './common';
 
 export const boardColumnSchema = type({
   id: 'string',
   name: 'string',
-  position: finiteNumber,
-  sort_key: 'string | null',
+  sort_key: 'string',
   is_done: 'boolean',
 });
 
@@ -25,8 +23,7 @@ export const boardTaskSchema = type({
   column_id: 'string',
   title: 'string',
   description: nullableTiptapDocSchema,
-  position: finiteNumber,
-  sort_key: 'string | null',
+  sort_key: 'string',
   due_date: 'string | null',
   created_at: 'string',
   updated_at: 'string',

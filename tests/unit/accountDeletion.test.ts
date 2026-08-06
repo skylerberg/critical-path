@@ -9,6 +9,7 @@ import {
   memberProjectIds,
   storageKeysOwnedBy,
 } from '../../src/services/accountDeletion';
+import { rankKey } from '../helpers/fixtures';
 
 const userIds: string[] = [];
 
@@ -40,12 +41,18 @@ async function createTask(projectId: string, title: string): Promise<string> {
   const columnId = newId();
   await db
     .insertInto('board_column')
-    .values({ id: columnId, project_id: projectId, name: 'Todo', position: 1000 })
+    .values({ id: columnId, project_id: projectId, name: 'Todo', sort_key: rankKey(1000) })
     .execute();
   const taskId = newId();
   await db
     .insertInto('task')
-    .values({ id: taskId, project_id: projectId, column_id: columnId, title, position: 1000 })
+    .values({
+      id: taskId,
+      project_id: projectId,
+      column_id: columnId,
+      title,
+      sort_key: rankKey(1000),
+    })
     .execute();
   return taskId;
 }

@@ -3,13 +3,14 @@ import { TestContext, TestUser } from '../../setup/testContext';
 import { newId } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
 import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
+import { rankKey } from '../../helpers/fixtures';
 
 interface BatchTask {
   id: string;
   column_id: string;
   title: string;
   description: unknown;
-  position: number;
+  sort_key: string;
   due_date: string | null;
   created_at: string;
   updated_at: string;
@@ -38,8 +39,8 @@ describe('POST /api/tasks/batch', () => {
     await ctx.cleanup();
   });
 
-  function item(title: string, position: number, id = newId()) {
-    return { id, title, position };
+  function item(title: string, rank: number, id = newId()) {
+    return { id, title, sort_key: rankKey(rank) };
   }
 
   function batchBody(tasks: { id: string; title: string; position: number }[], overrides = {}) {
@@ -66,7 +67,9 @@ describe('POST /api/tasks/batch', () => {
     const { tasks } = (await res.json()) as { tasks: BatchTask[] };
     expect(tasks.map((task) => task.id)).toEqual(sent.map((task) => task.id));
     expect(tasks.map((task) => task.title)).toEqual(['First', 'Second', 'Third']);
-    expect(tasks.map((task) => task.position)).toEqual([9000, 10000, 11000]);
+    expect(tasks.map((task) => task.sort_key)).toEqual(
+      [...tasks.map((task) => task.sort_key)].sort()
+    );
     for (const task of tasks) {
       expect(task).toMatchObject({
         column_id: columnId,

@@ -4,6 +4,7 @@ import { createCliHarness, type CliHarness } from './helpers';
 import { decodeId, encodeId } from '../../src/short-links';
 import type { components } from '../../src/api/api.generated';
 
+import { rankKey } from '../../../tests/helpers/fixtures';
 type BoardPayload = components['schemas']['BoardResponse'];
 type Project = components['schemas']['Project'];
 type ProjectListItem = components['schemas']['ProjectListItem'];
@@ -41,12 +42,9 @@ describe('project commands', () => {
   it('create makes a project with the default columns and list/show find it', async () => {
     const board = await createProject('Proj Alpha', ['--description', 'First project']);
     expect(board.project.description).toBe('First project');
-    expect([...board.columns].sort((a, b) => a.position - b.position).map((c) => c.name)).toEqual([
-      'Backlog',
-      'To Do',
-      'In Progress',
-      'Done',
-    ]);
+    expect(
+      [...board.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1)).map((c) => c.name)
+    ).toEqual(['Backlog', 'To Do', 'In Progress', 'Done']);
 
     const list = await h.runCli(['project', 'list', '--json']);
     expect(list.exitCode).toBe(0);
@@ -64,13 +62,13 @@ describe('project commands', () => {
 
   it('create --from deep-copies the source project including tasks', async () => {
     const source = await createProject('Copy Source');
-    const backlog = [...source.columns].sort((a, b) => a.position - b.position)[0];
+    const backlog = [...source.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1))[0];
     const taskRes = await tc.request(user.token).post('/api/tasks', {
       id: crypto.randomUUID(),
       project_id: source.project.id,
       column_id: backlog.id,
       title: 'Copied task',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(taskRes.status).toBe(201);
 

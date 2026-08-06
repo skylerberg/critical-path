@@ -3,7 +3,7 @@ import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { storage } from '../../../src/services/storage/index';
 import { getPublicBoard } from '../../../src/services/boardPayload';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import {
   BoardColumnPayload,
   BoardPayloadBody,
@@ -33,7 +33,7 @@ interface PublicBoardBody {
     column_id: string;
     title: string;
     description: unknown;
-    position: number;
+    sort_key: string;
     due_date: string | null;
     label_ids: string[];
     assignee_ids: string[];
@@ -61,7 +61,7 @@ interface PublicBoardBody {
     task_id: string;
     text: string;
     checked: boolean;
-    position: number;
+    sort_key: string;
   }>;
 }
 
@@ -134,7 +134,7 @@ describe('GET /api/public/projects/:id/board', () => {
       projectId,
       columnId: done.id,
       title: 'Blocker',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     const uploadRes = await ctx
       .request(owner.token)
@@ -150,7 +150,7 @@ describe('GET /api/public/projects/:id/board', () => {
       projectId,
       columnId: backlog.id,
       title: 'Main',
-      position: 2000,
+      sort_key: rankKey(2000),
       dueDate: '2026-08-03',
       description: {
         type: 'doc',
@@ -339,7 +339,7 @@ describe('GET /api/public/projects/:id/board', () => {
         title: task.title,
         description: task.description,
         sort_key: task.sort_key,
-        position: task.position,
+        sort_key: task.sort_key,
         due_date: task.due_date,
         label_ids: task.label_ids,
         assignee_ids: task.assignee_ids,
@@ -413,20 +413,12 @@ describe('GET /api/public/projects/:id/board', () => {
         'id',
         'image_count',
         'label_ids',
-        'position',
         'sort_key',
         'title',
       ]);
     }
     for (const item of payload.checklist_items) {
-      expect(Object.keys(item).sort()).toEqual([
-        'checked',
-        'id',
-        'position',
-        'sort_key',
-        'task_id',
-        'text',
-      ]);
+      expect(Object.keys(item).sort()).toEqual(['checked', 'id', 'sort_key', 'task_id', 'text']);
     }
     for (const comment of payload.comments) {
       expect(Object.keys(comment).sort()).toEqual([

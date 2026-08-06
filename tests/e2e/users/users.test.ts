@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 
 describe('GET /api/users', () => {
   const ctx = new TestContext();
@@ -201,11 +201,12 @@ describe('GET /api/users', () => {
       expect(missing.status).toBe(404);
     });
 
+    const key1000 = rankKey(1000);
     it('returns creator, members, and still-assigned users', async () => {
       const columnId = newId();
       await db
         .insertInto('board_column')
-        .values({ id: columnId, project_id: sharedProjectId, name: 'col', position: 1000 })
+        .values({ id: columnId, project_id: sharedProjectId, name: 'col', sort_key: key1000 })
         .execute();
       const taskId = newId();
       await db
@@ -215,7 +216,7 @@ describe('GET /api/users', () => {
           project_id: sharedProjectId,
           column_id: columnId,
           title: 't',
-          position: 1000,
+          sort_key: key1000,
         })
         .execute();
       await db
@@ -236,7 +237,12 @@ describe('GET /api/users', () => {
       const columnId = newId();
       await db
         .insertInto('board_column')
-        .values({ id: columnId, project_id: sharedProjectId, name: 'comment col', position: 2000 })
+        .values({
+          id: columnId,
+          project_id: sharedProjectId,
+          name: 'comment col',
+          sort_key: rankKey(2000),
+        })
         .execute();
       const taskId = newId();
       await db
@@ -246,7 +252,7 @@ describe('GET /api/users', () => {
           project_id: sharedProjectId,
           column_id: columnId,
           title: 'commented',
-          position: 1000,
+          sort_key: rankKey(1000),
         })
         .execute();
       const commentId = newId();

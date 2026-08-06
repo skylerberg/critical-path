@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { Hono } from 'hono';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId, uniqueEmail } from '../../helpers/fixtures';
+import { newId, uniqueEmail, rankKey } from '../../helpers/fixtures';
 import { ProjectFixtures, validDescription } from './taskFixtures';
 import { errorHandler } from '../../../src/middleware/errorHandler';
 import { transactionMiddleware } from '../../../src/middleware/transaction';
@@ -44,7 +44,10 @@ describe('Task activity', () => {
       memberIds: [member.id],
     });
     columnId = await fixtures.createColumn(projectId, { name: 'Backlog' });
-    otherColumnId = await fixtures.createColumn(projectId, { name: 'In Progress', position: 2000 });
+    otherColumnId = await fixtures.createColumn(projectId, {
+      name: 'In Progress',
+      sort_key: rankKey(2000),
+    });
   });
 
   afterAll(async () => {
@@ -69,7 +72,7 @@ describe('Task activity', () => {
       project_id: projectId,
       column_id: columnId,
       title,
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(201);
     return id;
@@ -227,17 +230,18 @@ describe('Task activity', () => {
         (
           await ctx
             .request(user.token)
-            .patch(`/api/tasks/${taskId}`, { column_id: otherColumnId, position: 2000 })
+            .patch(`/api/tasks/${taskId}`, { column_id: otherColumnId, sort_key: rankKey(2000) })
         ).status
       ).toBe(200);
       expect(
-        (await ctx.request(user.token).patch(`/api/tasks/${taskId}`, { position: 3000 })).status
+        (await ctx.request(user.token).patch(`/api/tasks/${taskId}`, { sort_key: rankKey(3000) }))
+          .status
       ).toBe(200);
       expect(
         (
           await ctx
             .request(user.token)
-            .patch(`/api/tasks/${taskId}`, { column_id: otherColumnId, position: 4000 })
+            .patch(`/api/tasks/${taskId}`, { column_id: otherColumnId, sort_key: rankKey(4000) })
         ).status
       ).toBe(200);
 
@@ -256,7 +260,7 @@ describe('Task activity', () => {
         title: 'renamed',
         description: validDescription('and described'),
         column_id: otherColumnId,
-        position: 2000,
+        sort_key: rankKey(2000),
       });
       expect(res.status).toBe(200);
 
@@ -417,7 +421,7 @@ describe('Task activity', () => {
       await ctx.request(user.token).patch(`/api/tasks/${taskId}`, { title: 'renamed' });
       await ctx
         .request(user.token)
-        .patch(`/api/tasks/${taskId}`, { column_id: otherColumnId, position: 2000 });
+        .patch(`/api/tasks/${taskId}`, { column_id: otherColumnId, sort_key: rankKey(2000) });
 
       const entries = await activity(taskId);
       expect(entries.map((entry) => entry.kind)).toEqual([

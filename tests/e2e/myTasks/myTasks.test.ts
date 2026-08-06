@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects, insertTask } from '../projects/helpers';
 
 interface MyTaskLinkBody {
@@ -389,20 +389,20 @@ describe('GET /api/my-tasks', () => {
       projectId: alpha.id,
       columnId: alpha.todo.id,
       title: 'Lower in the column',
-      position: 2000,
+      sort_key: rankKey(2000),
     });
     const alphaEarlier = await insertTask({
       projectId: alpha.id,
       columnId: alpha.todo.id,
       title: 'Top of the column',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     // A high position in a leftward column still outranks the whole next column.
     const alphaBacklog = await insertTask({
       projectId: alpha.id,
       columnId: alpha.backlog.id,
       title: 'Leftmost column',
-      position: 9000,
+      sort_key: rankKey(9000),
     });
     for (const taskId of [zuluTask, alphaLater, alphaEarlier, alphaBacklog]) {
       await assign(taskId, alice.id);

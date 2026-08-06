@@ -15,6 +15,7 @@ import {
   storedKeyExists,
   uploadPath,
 } from './helpers';
+import { rankKey } from '../../helpers/fixtures';
 
 const PDF = Buffer.from('%PDF-1.4\nbody\n%%EOF\n');
 
@@ -170,7 +171,7 @@ describe('Attachment lifecycle', () => {
       const copyId = newId();
       const res = await ctx
         .request(user.token)
-        .post(`/api/tasks/${taskId}/duplicate`, { id: copyId, position: 2000 });
+        .post(`/api/tasks/${taskId}/duplicate`, { id: copyId, sort_key: rankKey(2000) });
       expect(res.status).toBe(201);
 
       await assertCopied(taskId, copyId);
@@ -186,7 +187,7 @@ describe('Attachment lifecycle', () => {
 
       const res = await ctx
         .request(user.token)
-        .post(`/api/columns/${columnId}/duplicate`, { id: newId(), position: 5000 });
+        .post(`/api/columns/${columnId}/duplicate`, { id: newId(), sort_key: rankKey(5000) });
       expect(res.status).toBe(201);
 
       const copies = await res.json();
@@ -234,7 +235,7 @@ describe('Attachment lifecycle', () => {
       const copyId = newId();
       const res = await ctx
         .request(user.token)
-        .post(`/api/tasks/${taskId}/duplicate`, { id: copyId, position: 3000 });
+        .post(`/api/tasks/${taskId}/duplicate`, { id: copyId, sort_key: rankKey(3000) });
       expect(res.status).toBe(201);
 
       const copy = await db

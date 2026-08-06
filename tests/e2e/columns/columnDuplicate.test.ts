@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import {
   type BoardColumnPayload,
@@ -47,7 +47,7 @@ describe('POST /api/columns/:id/duplicate', () => {
         id,
         project_id: projectId,
         name: opts.name ?? 'Backlog',
-        position: opts.position ?? 1000,
+        sort_key: rankKey(opts.position ?? 1000),
         is_done: opts.isDone ?? false,
       })
       .execute();
@@ -78,45 +78,49 @@ describe('POST /api/columns/:id/duplicate', () => {
   it('requires auth', async () => {
     const res = await ctx
       .request()
-      .post(`/api/columns/${newId()}/duplicate`, { id: newId(), position: 1500 });
+      .post(`/api/columns/${newId()}/duplicate`, { id: newId(), sort_key: rankKey(1500) });
     expect(res.status).toBe(401);
   });
 
+  const key1500 = rankKey(1500);
   it('copies the column, its live cards and only the edges inside it', async () => {
     const projectId = await createProject();
     const sourceColumnId = await createColumn(projectId, { name: 'Doing', isDone: true });
-    const otherColumnId = await createColumn(projectId, { name: 'Elsewhere', position: 3000 });
+    const otherColumnId = await createColumn(projectId, {
+      name: 'Elsewhere',
+      sort_key: rankKey(3000),
+    });
     const labelId = await insertLabel({ projectId, name: 'art', color: '#123abc' });
 
     const aId = await insertTask({
       projectId,
       columnId: sourceColumnId,
       title: 'A',
-      position: 100,
+      sort_key: rankKey(100),
     });
     const bId = await insertTask({
       projectId,
       columnId: sourceColumnId,
       title: 'B',
-      position: 200,
+      sort_key: rankKey(200),
     });
     const cId = await insertTask({
       projectId,
       columnId: sourceColumnId,
       title: 'C',
-      position: 300,
+      sort_key: rankKey(300),
     });
     const shelvedId = await insertTask({
       projectId,
       columnId: sourceColumnId,
       title: 'Shelved',
-      position: 400,
+      sort_key: rankKey(400),
     });
     const outsideId = await insertTask({
       projectId,
       columnId: otherColumnId,
       title: 'Outside',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
 
     const cover = await insertTaskImage({ taskId: aId, filename: 'cover.png', isCover: true });
@@ -137,7 +141,7 @@ describe('POST /api/columns/:id/duplicate', () => {
     const newColumnId = newId();
     const res = await ctx
       .request(owner.token)
-      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: newColumnId, position: 1500 });
+      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: newColumnId, sort_key: key1500 });
     expect(res.status).toBe(201);
     const body = (await res.json()) as DuplicatedColumn;
 
@@ -145,12 +149,14 @@ describe('POST /api/columns/:id/duplicate', () => {
       id: newColumnId,
       project_id: projectId,
       name: 'Doing',
-      position: 1500,
+      sort_key: expect.any(String),
       is_done: true,
     });
 
     expect(body.tasks.map((task) => task.title)).toEqual(['A', 'B', 'C']);
-    expect(body.tasks.map((task) => task.position)).toEqual([100, 200, 300]);
+    expect(body.tasks.map((task) => task.sort_key)).toEqual(
+      [...body.tasks.map((task) => task.sort_key)].sort()
+    );
     expect(body.tasks.every((task) => task.column_id === newColumnId)).toBe(true);
     const sourceIds = new Set([aId, bId, cId, shelvedId]);
     expect(body.tasks.some((task) => sourceIds.has(task.id))).toBe(false);
@@ -191,44 +197,45 @@ describe('POST /api/columns/:id/duplicate', () => {
     const sourceColumnId = await createColumn(projectId, { name: 'Empty' });
 
     const newColumnId = newId();
-    const res = await ctx
-      .request(owner.token)
-      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: newColumnId, position: 2500 });
+    const res = await ctx.request(owner.token).post(`/api/columns/${sourceColumnId}/duplicate`, {
+      id: newColumnId,
+      sort_key: rankKey(2500),
+    });
     expect(res.status).toBe(201);
     const body = (await res.json()) as DuplicatedColumn;
     expect(body.tasks).toEqual([]);
 
     const row = await db
       .selectFrom('board_column')
-      .select(['id', 'name', 'position'])
+      .select(['id', 'name'])
       .where('id', '=', newColumnId)
       .executeTakeFirstOrThrow();
-    expect(row).toMatchObject({ name: 'Empty', position: 2500 });
+    expect(row).toMatchObject({ name: 'Empty' });
   });
 
   it('returns 409 for a duplicate column id', async () => {
     const projectId = await createProject('column duplicate conflict');
     const sourceColumnId = await createColumn(projectId);
 
-    const res = await ctx
-      .request(owner.token)
-      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: sourceColumnId, position: 1500 });
+    const res = await ctx.request(owner.token).post(`/api/columns/${sourceColumnId}/duplicate`, {
+      id: sourceColumnId,
+      sort_key: rankKey(1500),
+    });
     expect(res.status).toBe(409);
   });
-
   it('returns 404 for an unknown column and for another user’s column', async () => {
     const projectId = await createProject('column duplicate access');
     const sourceColumnId = await createColumn(projectId);
 
     const unknown = await ctx
       .request(owner.token)
-      .post(`/api/columns/${newId()}/duplicate`, { id: newId(), position: 1500 });
+      .post(`/api/columns/${newId()}/duplicate`, { id: newId(), sort_key: key1500 });
     expect(unknown.status).toBe(404);
 
     const foreignColumnId = newId();
     const foreign = await ctx
       .request(outsider.token)
-      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: foreignColumnId, position: 1500 });
+      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: foreignColumnId, sort_key: key1500 });
     expect(foreign.status).toBe(404);
 
     const columns = await db
@@ -240,18 +247,18 @@ describe('POST /api/columns/:id/duplicate', () => {
     expect(columns.map((row) => row.id)).not.toContain(foreignColumnId);
   });
 
-  it('returns 400 for a non-uuid path param and 422 for a missing position', async () => {
+  it('returns 400 for a non-uuid path param and 422 for a malformed key', async () => {
     const projectId = await createProject('column duplicate validation');
     const sourceColumnId = await createColumn(projectId);
 
     const badParam = await ctx
       .request(owner.token)
-      .post('/api/columns/not-a-uuid/duplicate', { id: newId(), position: 1500 });
+      .post('/api/columns/not-a-uuid/duplicate', { id: newId(), sort_key: rankKey(1500) });
     expect(badParam.status).toBe(400);
 
     const badBody = await ctx
       .request(owner.token)
-      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: newId() });
+      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: newId(), sort_key: 'V00' });
     expect(badBody.status).toBe(422);
   });
 
@@ -262,14 +269,15 @@ describe('POST /api/columns/:id/duplicate', () => {
       projectId,
       columnId: sourceColumnId,
       title: 'Task with missing image object',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     await insertTaskImage({ taskId });
 
     const newColumnId = newId();
-    const res = await ctx
-      .request(owner.token)
-      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: newColumnId, position: 1500 });
+    const res = await ctx.request(owner.token).post(`/api/columns/${sourceColumnId}/duplicate`, {
+      id: newColumnId,
+      sort_key: rankKey(1500),
+    });
     expect(res.status).toBe(500);
 
     const column = await db
@@ -287,13 +295,13 @@ describe('POST /api/columns/:id/duplicate', () => {
       projectId,
       columnId: sourceColumnId,
       title: 'First',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     const secondTaskId = await insertTask({
       projectId,
       columnId: sourceColumnId,
       title: 'Second',
-      position: 2000,
+      sort_key: rankKey(2000),
     });
     const first = await insertTaskImage({ taskId: firstTaskId });
     const second = await insertTaskImage({ taskId: secondTaskId });
@@ -314,9 +322,10 @@ describe('POST /api/columns/:id/duplicate', () => {
 
     const newColumnId = newId();
     try {
-      const res = await ctx
-        .request(owner.token)
-        .post(`/api/columns/${sourceColumnId}/duplicate`, { id: newColumnId, position: 1500 });
+      const res = await ctx.request(owner.token).post(`/api/columns/${sourceColumnId}/duplicate`, {
+        id: newColumnId,
+        sort_key: rankKey(1500),
+      });
       expect(res.status).toBe(500);
     } finally {
       copySpy.mockRestore();

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects, insertTask, insertTaskImage } from './helpers';
 
 const PNG_1X1 = Buffer.from(
@@ -116,7 +116,7 @@ describe('project access control', () => {
           id: newId(),
           project_id: projectId,
           name: 'intruder',
-          position: 9000,
+          sort_key: rankKey(9000),
         }),
         b.patch(`/api/columns/${columnId}`, { name: 'renamed' }),
         b.delete(`/api/columns/${columnId}`),
@@ -125,7 +125,7 @@ describe('project access control', () => {
           project_id: projectId,
           column_id: columnId,
           title: 'intruder task',
-          position: 1000,
+          sort_key: rankKey(1000),
         }),
         b.get(`/api/tasks/${taskId}`),
         b.patch(`/api/tasks/${taskId}`, { title: 'stolen task' }),
@@ -310,7 +310,7 @@ describe('project access control', () => {
         project_id: projectId,
         column_id: columnId,
         title: 'with intruder assignee',
-        position: 1000,
+        sort_key: rankKey(1000),
         assignee_ids: [bob.id],
       });
       expect(createRes.status).toBe(422);

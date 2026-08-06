@@ -4,7 +4,7 @@ import { app } from '../../../src/index';
 import { attachRealtime, type RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { RtClient } from '../realtime/helpers';
 import { CHECKLIST_ITEM_TEXT_MAX_LENGTH } from '../../../src/schemas/checklists';
 import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
@@ -14,7 +14,7 @@ interface ChecklistItemBody {
   task_id: string;
   text: string;
   checked: boolean;
-  position: number;
+  sort_key: string;
   created_at: string;
   updated_at: string;
 }
@@ -62,7 +62,7 @@ describe('Checklists API', () => {
       project_id: projectId,
       column_id: columnId,
       title,
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(201);
     return id;
@@ -76,7 +76,7 @@ describe('Checklists API', () => {
   ): Promise<ChecklistItemBody> {
     const res = await ctx
       .request(owner.token)
-      .post('/api/checklist-items', { id, task_id: taskId, text, position });
+      .post('/api/checklist-items', { id, task_id: taskId, text, sort_key: rankKey(position) });
     expect(res.status).toBe(201);
     return (await res.json()) as ChecklistItemBody;
   }
@@ -164,9 +164,12 @@ describe('Checklists API', () => {
       const taskId = await createTask();
       const id = newId();
       await addItem(taskId, 'first', 1000, id);
-      const again = await ctx
-        .request(owner.token)
-        .post('/api/checklist-items', { id, task_id: taskId, text: 'again', position: 2000 });
+      const again = await ctx.request(owner.token).post('/api/checklist-items', {
+        id,
+        task_id: taskId,
+        text: 'again',
+        sort_key: rankKey(2000),
+      });
       expect(again.status).toBe(409);
       expect(await again.json()).toEqual({ error: 'Checklist item id already in use' });
     });
@@ -178,9 +181,12 @@ describe('Checklists API', () => {
       expect(accepted.text).toBe(atLimit);
 
       for (const text of ['x'.repeat(CHECKLIST_ITEM_TEXT_MAX_LENGTH + 1), '   ', '']) {
-        const res = await ctx
-          .request(owner.token)
-          .post('/api/checklist-items', { id: newId(), task_id: taskId, text, position: 2000 });
+        const res = await ctx.request(owner.token).post('/api/checklist-items', {
+          id: newId(),
+          task_id: taskId,
+          text,
+          sort_key: rankKey(2000),
+        });
         expect(res.status).toBe(422);
       }
     });
@@ -191,7 +197,7 @@ describe('Checklists API', () => {
         id: newId(),
         task_id: taskId,
         text: 'already done',
-        position: 1000,
+        sort_key: rankKey(1000),
         checked: true,
       });
       expect(res.status).toBe(201);
@@ -212,7 +218,7 @@ describe('Checklists API', () => {
           id: newId(),
           task_id: target,
           text: 'nope',
-          position: 1000,
+          sort_key: rankKey(1000),
         });
         expect(res.status).toBe(404);
         expect(await res.json()).toEqual({ error: 'Task not found' });
@@ -221,19 +227,17 @@ describe('Checklists API', () => {
   });
 
   describe('GET /api/tasks/:id', () => {
-    it('embeds the checklist in position order, breaking ties on id', async () => {
+    // Keys are unique per task, so there is no tie left to break -- the order is
+    // the keys' own, whatever order the rows were written in.
+    it('embeds the checklist in key order, not insertion order', async () => {
       const taskId = await createTask();
-      // Inserted after the higher id so nothing but the tie-break can order them.
-      const [lowerId, higherId] = [newId(), newId()].sort();
       await addItem(taskId, 'third', 3000);
-      await addItem(taskId, 'tie-b', 2000, higherId);
-      await addItem(taskId, 'tie-a', 2000, lowerId);
+      await addItem(taskId, 'second', 2000);
       await addItem(taskId, 'first', 1000);
 
       expect((await detail(taskId)).checklist_items.map((item) => item.text)).toEqual([
         'first',
-        'tie-a',
-        'tie-b',
+        'second',
         'third',
       ]);
     });
@@ -296,12 +300,14 @@ describe('Checklists API', () => {
       const first = await addItem(taskId, 'a', 1000);
       await addItem(taskId, 'b', 2000);
 
+      const movedKey = rankKey(3000);
+
       const res = await ctx
         .request(owner.token)
-        .patch(`/api/checklist-items/${first.id}`, { position: 3000 });
+        .patch(`/api/checklist-items/${first.id}`, { sort_key: movedKey });
       expect(res.status).toBe(200);
       expect((await res.json()) as ChecklistItemBody).toMatchObject({
-        position: 3000,
+        sort_key: movedKey,
         updated_at: first.updated_at,
       });
       expect((await detail(taskId)).checklist_items.map((item) => item.text)).toEqual(['b', 'a']);
@@ -346,7 +352,11 @@ describe('Checklists API', () => {
 
       const item = await addItem(taskId, 'one');
       const second = await addItem(taskId, 'two', 2000);
-      for (const body of [{ checked: true }, { text: 'renamed item' }, { position: 5000 }]) {
+      for (const body of [
+        { checked: true },
+        { text: 'renamed item' },
+        { sort_key: rankKey(5000) },
+      ]) {
         expect(
           (await ctx.request(owner.token).patch(`/api/checklist-items/${item.id}`, body)).status
         ).toBe(200);
@@ -403,9 +413,10 @@ describe('Checklists API', () => {
       const item = await addItem(taskId, 'becomes a card');
 
       const newTaskId = newId();
-      const res = await ctx
-        .request(owner.token)
-        .post(`/api/checklist-items/${item.id}/promote`, { id: newTaskId, position: 1500 });
+      const res = await ctx.request(owner.token).post(`/api/checklist-items/${item.id}/promote`, {
+        id: newTaskId,
+        sort_key: rankKey(1500),
+      });
       expect(res.status).toBe(201);
       const created = (await res.json()) as BoardTaskBody & {
         label_ids: string[];
@@ -435,12 +446,12 @@ describe('Checklists API', () => {
 
       const first = await ctx
         .request(owner.token)
-        .post(`/api/checklist-items/${item.id}/promote`, { id: newId(), position: 1500 });
+        .post(`/api/checklist-items/${item.id}/promote`, { id: newId(), sort_key: rankKey(1500) });
       expect(first.status).toBe(201);
 
       const second = await ctx
         .request(owner.token)
-        .post(`/api/checklist-items/${item.id}/promote`, { id: newId(), position: 1600 });
+        .post(`/api/checklist-items/${item.id}/promote`, { id: newId(), sort_key: rankKey(1600) });
       expect(second.status).toBe(404);
 
       const cards = await db
@@ -462,9 +473,10 @@ describe('Checklists API', () => {
         const item = await addItem(taskId, title);
 
         const promote = (): Promise<Response> =>
-          ctx
-            .request(owner.token)
-            .post(`/api/checklist-items/${item.id}/promote`, { id: newId(), position: 1500 });
+          ctx.request(owner.token).post(`/api/checklist-items/${item.id}/promote`, {
+            id: newId(),
+            sort_key: rankKey(1500),
+          });
         const statuses = (await Promise.all([promote(), promote()]))
           .map((res) => res.status)
           .sort((a, b) => a - b);
@@ -486,7 +498,7 @@ describe('Checklists API', () => {
 
       const res = await ctx
         .request(owner.token)
-        .post(`/api/checklist-items/${item.id}/promote`, { id: taskId, position: 1500 });
+        .post(`/api/checklist-items/${item.id}/promote`, { id: taskId, sort_key: rankKey(1500) });
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: 'Task id already in use' });
       expect((await detail(taskId)).checklist_items.map((i) => i.id)).toEqual([item.id]);
@@ -512,7 +524,7 @@ describe('Checklists API', () => {
         (
           await ctx.request(owner.token).post(`/api/checklist-items/${promoted.id}/promote`, {
             id: promotedTaskId,
-            position: 4000,
+            sort_key: rankKey(4000),
           })
         ).status
       ).toBe(201);
@@ -542,7 +554,7 @@ describe('Checklists API', () => {
       const item = await addItem(taskId, 'quiet');
       const before = (await activity(taskId)).length;
 
-      for (const body of [{ position: 9000 }, { checked: false }, { text: 'quiet' }]) {
+      for (const body of [{ sort_key: rankKey(9000) }, { checked: false }, { text: 'quiet' }]) {
         expect(
           (await ctx.request(owner.token).patch(`/api/checklist-items/${item.id}`, body)).status
         ).toBe(200);
@@ -572,7 +584,7 @@ describe('Checklists API', () => {
       const copyId = newId();
       const res = await ctx
         .request(owner.token)
-        .post(`/api/tasks/${taskId}/duplicate`, { id: copyId, position: 5000 });
+        .post(`/api/tasks/${taskId}/duplicate`, { id: copyId, sort_key: rankKey(5000) });
       expect(res.status).toBe(201);
       expect((await res.json()) as BoardTaskBody).toMatchObject({
         checklist_item_count: 3,
@@ -600,7 +612,7 @@ describe('Checklists API', () => {
 
       const columnCopy = await ctx
         .request(owner.token)
-        .post(`/api/columns/${columnId}/duplicate`, { id: newId(), position: 9000 });
+        .post(`/api/columns/${columnId}/duplicate`, { id: newId(), sort_key: rankKey(9000) });
       expect(columnCopy.status).toBe(201);
       const copiedTasks = ((await columnCopy.json()) as { tasks: BoardTaskBody[] }).tasks;
       const copiedCard = copiedTasks.find((t) => t.title === 'column source');
@@ -695,7 +707,7 @@ describe('Checklists API', () => {
           (
             await ctx.request(owner.token).post(`/api/checklist-items/${item.id}/promote`, {
               id: newTaskId,
-              position: 1500,
+              sort_key: rankKey(1500),
             })
           ).status
         ).toBe(201);
@@ -780,6 +792,7 @@ describe('Checklists API', () => {
   });
 
   describe('export', () => {
+    const key1000 = rankKey(1000);
     it('carries the items, on live and archived cards alike', async () => {
       const exportProjectId = newId();
       projectIds.push(exportProjectId);
@@ -803,7 +816,7 @@ describe('Checklists API', () => {
               project_id: exportProjectId,
               column_id: exportColumnId,
               title,
-              position: 1000,
+              sort_key: rankKey(1000),
             })
           ).status
         ).toBe(201);
@@ -813,7 +826,7 @@ describe('Checklists API', () => {
               id: newId(),
               task_id: id,
               text: `${title} item`,
-              position: 1000,
+              sort_key: key1000,
             })
           ).status
         ).toBe(201);
@@ -844,7 +857,6 @@ describe('Checklists API', () => {
       expect(Object.keys(byId.get(liveId)?.checklist_items[0] ?? {}).sort()).toEqual([
         'checked',
         'id',
-        'position',
         'sort_key',
         'text',
       ]);

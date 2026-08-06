@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 
 interface CommentBody {
   id: string;
@@ -51,7 +51,7 @@ describe('Comments API', () => {
       .execute();
     await db
       .insertInto('board_column')
-      .values({ id: columnId, project_id: projectId, name: 'To Do', position: 1000 })
+      .values({ id: columnId, project_id: projectId, name: 'To Do', sort_key: rankKey(1000) })
       .execute();
     await db
       .insertInto('task')
@@ -60,7 +60,7 @@ describe('Comments API', () => {
         project_id: projectId,
         column_id: columnId,
         title: 't',
-        position: 1000,
+        sort_key: rankKey(1000),
       })
       .execute();
     projectIds.push(projectId);
