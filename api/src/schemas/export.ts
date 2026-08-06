@@ -19,6 +19,7 @@ const exportChecklistItemSchema = type({
   text: 'string',
   checked: 'boolean',
   position: 'number',
+  sort_key: 'string | null',
 });
 
 // path is null for a link: only file bytes ride in the archive.
