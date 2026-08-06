@@ -845,6 +845,7 @@ describe('Checklists API', () => {
         'checked',
         'id',
         'position',
+        'sort_key',
         'text',
       ]);
       // Both counts ship, following comment_count rather than image_count: an

@@ -333,6 +333,7 @@ describe('GET /api/public/projects/:id/board', () => {
         column_id: task.column_id,
         title: task.title,
         description: task.description,
+        sort_key: task.sort_key,
         position: task.position,
         due_date: task.due_date,
         label_ids: task.label_ids,
@@ -405,11 +406,19 @@ describe('GET /api/public/projects/:id/board', () => {
         'image_count',
         'label_ids',
         'position',
+        'sort_key',
         'title',
       ]);
     }
     for (const item of payload.checklist_items) {
-      expect(Object.keys(item).sort()).toEqual(['checked', 'id', 'position', 'task_id', 'text']);
+      expect(Object.keys(item).sort()).toEqual([
+        'checked',
+        'id',
+        'position',
+        'sort_key',
+        'task_id',
+        'text',
+      ]);
     }
     for (const comment of payload.comments) {
       expect(Object.keys(comment).sort()).toEqual([
