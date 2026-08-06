@@ -1,5 +1,43 @@
+import crypto from 'crypto';
 import { describe, it, expect } from 'vitest';
 import { deduplicateOpenAPISpec } from '../../src/utils/openapi-dedupe';
+
+type Json = Record<string, unknown>;
+
+function specWithRepeatedSchema(schema: Json, paths = ['/a', '/b']): Json {
+  return {
+    openapi: '3.0.0',
+    paths: Object.fromEntries(
+      paths.map((p) => [
+        p,
+        {
+          get: {
+            responses: {
+              '200': { content: { 'application/json': { schema: structuredClone(schema) } } },
+            },
+          },
+        },
+      ])
+    ),
+  };
+}
+
+function schemaAt(result: Json, path: string): Json {
+  const paths = result.paths as Record<string, Json>;
+  const get = paths[path].get as Json;
+  const responses = get.responses as Record<string, Json>;
+  const content = responses['200'].content as Record<string, Json>;
+  return content['application/json'].schema as Json;
+}
+
+function liftedNames(result: Json): string[] {
+  const components = (result.components ?? {}) as Json;
+  return Object.keys((components.schemas ?? {}) as Json);
+}
+
+function hashOf(schema: Json): string {
+  return crypto.createHash('md5').update(JSON.stringify(schema)).digest('hex');
+}
 
 describe('deduplicateOpenAPISpec', () => {
   it('returns spec unchanged when no duplicate schemas', () => {
@@ -140,6 +178,94 @@ describe('deduplicateOpenAPISpec', () => {
     const spec = { openapi: '3.0.0' };
     const result = deduplicateOpenAPISpec(spec);
     expect(result.openapi).toBe('3.0.0');
+  });
+
+  describe('unions of bare scalars', () => {
+    const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] };
+
+    it('leaves a repeated nullable string inline instead of naming it after a path', () => {
+      const result = deduplicateOpenAPISpec(specWithRepeatedSchema(nullableString));
+
+      expect(liftedNames(result)).toEqual([]);
+      expect(schemaAt(result, '/a')).toEqual(nullableString);
+      expect(schemaAt(result, '/b')).toEqual(nullableString);
+    });
+
+    it('leaves a repeated nullable scalar inline even when it carries a format', () => {
+      const nullableUuid = { anyOf: [{ type: 'string', format: 'uuid' }, { type: 'null' }] };
+      const result = deduplicateOpenAPISpec(specWithRepeatedSchema(nullableUuid));
+
+      expect(liftedNames(result)).toEqual([]);
+      expect(schemaAt(result, '/a')).toEqual(nullableUuid);
+    });
+
+    it('inlines them inside a lifted object rather than cross-referencing', () => {
+      const wrapper = {
+        type: 'object',
+        properties: { avatar_url: structuredClone(nullableString) },
+      };
+      const result = deduplicateOpenAPISpec(specWithRepeatedSchema(wrapper));
+
+      const names = liftedNames(result);
+      expect(names).toHaveLength(1);
+      const lifted = ((result.components as Json).schemas as Json)[names[0]] as Json;
+      expect((lifted.properties as Json).avatar_url).toEqual(nullableString);
+    });
+
+    it('still lifts a repeated union whose members are constants', () => {
+      const enumUnion = {
+        anyOf: [{ const: 'ok' }, { const: 'failed' }, { type: 'null' }],
+      };
+      const result = deduplicateOpenAPISpec(specWithRepeatedSchema(enumUnion));
+
+      expect(liftedNames(result)).toHaveLength(1);
+      expect(schemaAt(result, '/a').$ref).toMatch(/^#\/components\/schemas\//);
+    });
+
+    it('still lifts a repeated union that references a named schema', () => {
+      const refUnion = {
+        anyOf: [{ $ref: '#/components/schemas/TiptapDoc' }, { type: 'null' }],
+      };
+      const result = deduplicateOpenAPISpec(specWithRepeatedSchema(refUnion));
+
+      expect(liftedNames(result)).toHaveLength(1);
+      expect(schemaAt(result, '/a').$ref).toMatch(/^#\/components\/schemas\//);
+    });
+
+    it('still lifts an object schema that also carries a scalar union', () => {
+      const objectWithUnion = {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        anyOf: [{ type: 'string' }, { type: 'null' }],
+      };
+      const result = deduplicateOpenAPISpec(specWithRepeatedSchema(objectWithUnion));
+
+      expect(liftedNames(result)).toHaveLength(1);
+      expect(schemaAt(result, '/a').$ref).toMatch(/^#\/components\/schemas\//);
+    });
+
+    it('lifts one under its registered name, since that name is deliberate', () => {
+      const registry = new Map([[hashOf(nullableString), 'NullableString']]);
+      const result = deduplicateOpenAPISpec(specWithRepeatedSchema(nullableString), registry);
+
+      expect(liftedNames(result)).toEqual(['NullableString']);
+      expect(schemaAt(result, '/a')).toEqual({ $ref: '#/components/schemas/NullableString' });
+    });
+
+    it('lifts a registered one even where it is used once', () => {
+      const registry = new Map([[hashOf(nullableString), 'NullableString']]);
+      const single = specWithRepeatedSchema(nullableString, ['/a']);
+      const result = deduplicateOpenAPISpec(single, registry);
+
+      expect(liftedNames(result)).toEqual(['NullableString']);
+    });
+
+    it('leaves an unregistered one used once inline', () => {
+      const result = deduplicateOpenAPISpec(specWithRepeatedSchema(nullableString, ['/a']));
+
+      expect(liftedNames(result)).toEqual([]);
+      expect(schemaAt(result, '/a')).toEqual(nullableString);
+    });
   });
 
   it('does not mutate the original spec', () => {

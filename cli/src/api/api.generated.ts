@@ -1756,13 +1756,12 @@ export interface components {
       user: components['schemas']['Me'];
     };
     Me: {
-      avatar_url: components['schemas']['UserAvatarurl'];
+      avatar_url: string | null;
       email: string;
       email_verified: boolean;
       id: string;
       name: string;
     };
-    UserAvatarurl: string | null;
     SignupRequest: {
       email: string;
       /** Format: uuid */
@@ -1809,7 +1808,7 @@ export interface components {
     };
     PersonalAccessToken: {
       created_at: string;
-      expires_at: components['schemas']['UserAvatarurl'];
+      expires_at: string | null;
       id: string;
       name: string;
     };
@@ -1817,7 +1816,7 @@ export interface components {
       /** Format: uuid */
       id: string;
       name: string;
-      expires_at?: components['schemas']['UserAvatarurl'];
+      expires_at?: string | null;
     };
     PersonalAccessTokensResponse: {
       personal_access_tokens: components['schemas']['PersonalAccessToken'][];
@@ -1830,7 +1829,7 @@ export interface components {
       expires_at: string;
       id: string;
       is_current: boolean;
-      user_agent: components['schemas']['UserAvatarurl'];
+      user_agent: string | null;
     };
     ChangePassword: {
       current_password: string;
@@ -1838,10 +1837,10 @@ export interface components {
     };
     AccountExport: {
       account: {
-        avatar_url: components['schemas']['UserAvatarurl'];
+        avatar_url: string | null;
         created_at: string;
         email: string;
-        email_verified_at: components['schemas']['UserAvatarurl'];
+        email_verified_at: string | null;
         id: string;
         name: string;
         notification_settings: components['schemas']['NotificationSettings'];
@@ -1851,7 +1850,7 @@ export interface components {
         created_at: string;
         id: string;
         message: string;
-        page_path: components['schemas']['UserAvatarurl'];
+        page_path: string | null;
       }[];
       /** @constant */
       format: 'critical-path-account-export';
@@ -1867,7 +1866,7 @@ export interface components {
         created_at: string;
         expires_at: string;
         id: string;
-        user_agent: components['schemas']['UserAvatarurl'];
+        user_agent: string | null;
       }[];
       version: number;
     };
@@ -1880,7 +1879,7 @@ export interface components {
       users: components['schemas']['User'][];
     };
     User: {
-      avatar_url: components['schemas']['UserAvatarurl'];
+      avatar_url: string | null;
       id: string;
       name: string;
     };
@@ -1888,22 +1887,22 @@ export interface components {
       projects: components['schemas']['ProjectListItem'][];
     };
     ProjectListItem: {
-      archived_at: components['schemas']['UserAvatarurl'];
+      archived_at: string | null;
       color: components['schemas']['NullableProjectAccent'];
       created_at: string;
-      created_by: components['schemas']['UserAvatarurl'];
+      created_by: string | null;
       description: string;
       done_task_count: number;
       has_unseen_changes: boolean;
       id: string;
       is_public: boolean;
-      last_seen_at: components['schemas']['UserAvatarurl'];
+      last_seen_at: string | null;
       member_ids: string[];
       members: components['schemas']['ProjectMember'][];
       name: string;
       open_task_count: number;
       position: number | null;
-      sort_key: components['schemas']['UserAvatarurl'];
+      sort_key: string | null;
     };
     NullableProjectAccent:
       | 'amber'
@@ -1933,7 +1932,7 @@ export interface components {
       name: string;
       /** @description a finite number */
       position: number;
-      sort_key: components['schemas']['UserAvatarurl'];
+      sort_key: string | null;
     };
     BoardLabel: {
       color: string;
@@ -1941,10 +1940,10 @@ export interface components {
       name: string;
     };
     Project: {
-      archived_at: components['schemas']['UserAvatarurl'];
+      archived_at: string | null;
       color: components['schemas']['NullableProjectAccent'];
       created_at: string;
-      created_by: components['schemas']['UserAvatarurl'];
+      created_by: string | null;
       description: string;
       id: string;
       is_public: boolean;
@@ -1961,16 +1960,16 @@ export interface components {
       column_id: string;
       column_since: string;
       comment_count: number;
-      cover_image_url: components['schemas']['UserAvatarurl'];
+      cover_image_url: string | null;
       created_at: string;
       description: components['schemas']['NullableTiptapDoc'];
-      due_date: components['schemas']['UserAvatarurl'];
+      due_date: string | null;
       id: string;
       image_count: number;
       label_ids: string[];
       /** @description a finite number */
       position: number;
-      sort_key: components['schemas']['UserAvatarurl'];
+      sort_key: string | null;
       title: string;
       updated_at: string;
     };
@@ -1989,7 +1988,7 @@ export interface components {
       source_project_id?: string;
     };
     PatchProject: {
-      archived_at?: components['schemas']['UserAvatarurl'];
+      archived_at?: string | null;
       color?: components['schemas']['NullableProjectAccent'];
       description?: string;
       is_public?: boolean;
@@ -2008,16 +2007,16 @@ export interface components {
       column_id: string;
       column_since: string;
       comment_count: number;
-      cover_image_url: components['schemas']['UserAvatarurl'];
+      cover_image_url: string | null;
       created_at: string;
       description: components['schemas']['NullableTiptapDoc'];
-      due_date: components['schemas']['UserAvatarurl'];
+      due_date: string | null;
       id: string;
       image_count: number;
       label_ids: string[];
       /** @description a finite number */
       position: number;
-      sort_key: components['schemas']['UserAvatarurl'];
+      sort_key: string | null;
       title: string;
       updated_at: string;
     };
@@ -2029,22 +2028,22 @@ export interface components {
       labels: components['schemas']['BoardLabel'][];
       project: components['schemas']['Project'];
       tasks: {
-        archived_at: components['schemas']['UserAvatarurl'];
+        archived_at: string | null;
         assignee_ids: string[];
         attachment_count: number;
         attachments: {
-          content_type: components['schemas']['UserAvatarurl'];
+          content_type: string | null;
           created_at: string;
-          description: components['schemas']['UserAvatarurl'];
-          filename: components['schemas']['UserAvatarurl'];
+          description: string | null;
+          filename: string | null;
           id: string;
           /** @enum {unknown} */
           kind: 'file' | 'link';
-          path: components['schemas']['UserAvatarurl'];
-          size_bytes: components['schemas']['AttachmentsSizebytes'];
-          title: components['schemas']['UserAvatarurl'];
+          path: string | null;
+          size_bytes: number | null;
+          title: string | null;
           unfurl_state: components['schemas']['AttachmentsUnfurlstate'];
-          url: components['schemas']['UserAvatarurl'];
+          url: string | null;
         }[];
         blocker_ids: string[];
         checklist_done_count: number;
@@ -2053,16 +2052,16 @@ export interface components {
           checked: boolean;
           id: string;
           position: number;
-          sort_key: components['schemas']['UserAvatarurl'];
+          sort_key: string | null;
           text: string;
         }[];
         column_id: string;
         column_since: string;
         comment_count: number;
-        cover_image_url: components['schemas']['UserAvatarurl'];
+        cover_image_url: string | null;
         created_at: string;
         description: components['schemas']['NullableTiptapDoc'];
-        due_date: components['schemas']['UserAvatarurl'];
+        due_date: string | null;
         id: string;
         images: {
           content_type: string;
@@ -2075,14 +2074,13 @@ export interface components {
         label_ids: string[];
         /** @description a finite number */
         position: number;
-        sort_key: components['schemas']['UserAvatarurl'];
+        sort_key: string | null;
         title: string;
         updated_at: string;
       }[];
       users: components['schemas']['NamedRef'][];
       version: number;
     };
-    AttachmentsSizebytes: number | null;
     AttachmentsUnfurlstate: 'failed' | 'ok' | 'pending' | null;
     SetProjectPosition: {
       /** @description a finite number */
@@ -2146,7 +2144,7 @@ export interface components {
       /** @description a finite number */
       position: number;
       project_id: string;
-      sort_key: components['schemas']['UserAvatarurl'];
+      sort_key: string | null;
     };
     CreateColumn: {
       /** Format: uuid */
@@ -2188,7 +2186,7 @@ export interface components {
       id: string;
       /** @description a finite number */
       position: number;
-      sort_key: components['schemas']['UserAvatarurl'];
+      sort_key: string | null;
     };
     MoveColumnTasks: {
       /** Format: uuid */
@@ -2209,7 +2207,7 @@ export interface components {
       title: string;
       assignee_ids?: string[];
       description?: components['schemas']['NullableTiptapDoc'];
-      due_date?: components['schemas']['UserAvatarurl'];
+      due_date?: string | null;
       label_ids?: string[];
       /** @description a sort key */
       sort_key?: string;
@@ -2234,7 +2232,7 @@ export interface components {
       sort_key?: string;
     };
     TaskDetailResponse: {
-      archived_at: components['schemas']['UserAvatarurl'];
+      archived_at: string | null;
       assignee_ids: string[];
       attachment_count: number;
       attachments: components['schemas']['Attachment'][];
@@ -2246,10 +2244,10 @@ export interface components {
       column_since: string;
       comment_count: number;
       comments: components['schemas']['Comment'][];
-      cover_image_url: components['schemas']['UserAvatarurl'];
+      cover_image_url: string | null;
       created_at: string;
       description: components['schemas']['NullableTiptapDoc'];
-      due_date: components['schemas']['UserAvatarurl'];
+      due_date: string | null;
       id: string;
       image_count: number;
       images: components['schemas']['ImageResponse'][];
@@ -2257,27 +2255,27 @@ export interface components {
       /** @description a finite number */
       position: number;
       project_id: string;
-      series_summary: components['schemas']['UserAvatarurl'];
-      sort_key: components['schemas']['UserAvatarurl'];
+      series_summary: string | null;
+      sort_key: string | null;
       title: string;
       updated_at: string;
     };
     Attachment: {
-      content_type: components['schemas']['UserAvatarurl'];
+      content_type: string | null;
       created_at: string;
-      description: components['schemas']['UserAvatarurl'];
-      favicon_url: components['schemas']['UserAvatarurl'];
-      filename: components['schemas']['UserAvatarurl'];
+      description: string | null;
+      favicon_url: string | null;
+      filename: string | null;
       id: string;
       /** @enum {unknown} */
       kind: 'file' | 'link';
-      preview_url: components['schemas']['UserAvatarurl'];
-      size_bytes: components['schemas']['AttachmentsSizebytes'];
+      preview_url: string | null;
+      size_bytes: number | null;
       task_id: string;
-      title: components['schemas']['UserAvatarurl'];
+      title: string | null;
       unfurl_state: components['schemas']['AttachmentsUnfurlstate'];
       updated_at: string;
-      url: components['schemas']['UserAvatarurl'];
+      url: string | null;
     };
     ChecklistItem: {
       checked: boolean;
@@ -2285,7 +2283,7 @@ export interface components {
       id: string;
       /** @description a finite number */
       position: number;
-      sort_key: components['schemas']['UserAvatarurl'];
+      sort_key: string | null;
       task_id: string;
       text: string;
       updated_at: string;
@@ -2310,7 +2308,7 @@ export interface components {
       /** Format: uuid */
       column_id?: string;
       description?: components['schemas']['NullableTiptapDoc'];
-      due_date?: components['schemas']['UserAvatarurl'];
+      due_date?: string | null;
       expected_updated_at?: string;
       /** @description a finite number */
       position?: number;
@@ -2447,7 +2445,7 @@ export interface components {
     };
     MyTaskPersonGroup: {
       tasks: components['schemas']['MyTaskLink'][];
-      user_id: components['schemas']['UserAvatarurl'];
+      user_id: string | null;
     };
     SearchResponse: {
       results: components['schemas']['SearchResult'][];
@@ -2514,11 +2512,11 @@ export interface components {
       /** Format: uuid */
       task_id: string;
       url: string;
-      title?: components['schemas']['UserAvatarurl'];
+      title?: string | null;
     };
     PatchAttachment: {
-      description?: components['schemas']['UserAvatarurl'];
-      title?: components['schemas']['UserAvatarurl'];
+      description?: string | null;
+      title?: string | null;
     };
     FeedbackResponse: {
       created_at: string;
@@ -2528,12 +2526,12 @@ export interface components {
       /** Format: uuid */
       id: string;
       message: string;
-      page_path?: components['schemas']['UserAvatarurl'];
+      page_path?: string | null;
     };
     Webhook: {
       consecutive_failures: number;
       created_at: string;
-      disabled_at: components['schemas']['UserAvatarurl'];
+      disabled_at: string | null;
       id: string;
       project_id: string;
       url: string;
@@ -2550,7 +2548,7 @@ export interface components {
       webhooks: components['schemas']['Webhook'][];
     };
     PatchWebhook: {
-      disabled_at?: components['schemas']['UserAvatarurl'];
+      disabled_at?: string | null;
       url?: string;
     };
     WebhookDeliveriesResponse: {
@@ -2561,10 +2559,10 @@ export interface components {
       created_at: string;
       event_type: string;
       id: string;
-      last_attempt_at: components['schemas']['UserAvatarurl'];
-      last_error: components['schemas']['UserAvatarurl'];
-      last_status_code: components['schemas']['AttachmentsSizebytes'];
-      next_attempt_at: components['schemas']['UserAvatarurl'];
+      last_attempt_at: string | null;
+      last_error: string | null;
+      last_status_code: number | null;
+      next_attempt_at: string | null;
       payload: unknown;
       redelivery_count: number;
       status: string;
@@ -2576,21 +2574,21 @@ export interface components {
     TaskSeries: {
       assignee_ids: string[];
       checklist_items: components['schemas']['TaskSeriesChecklistItem'][];
-      column_id: components['schemas']['UserAvatarurl'];
+      column_id: string | null;
       created_at: string;
-      created_by: components['schemas']['UserAvatarurl'];
+      created_by: string | null;
       description: components['schemas']['NullableTiptapDoc'];
-      due_date: components['schemas']['UserAvatarurl'];
-      ended_at: components['schemas']['UserAvatarurl'];
+      due_date: string | null;
+      ended_at: string | null;
       id: string;
       label_ids: string[];
-      last_error: components['schemas']['UserAvatarurl'];
-      last_missed_date: components['schemas']['UserAvatarurl'];
-      last_occurrence_date: components['schemas']['UserAvatarurl'];
+      last_error: string | null;
+      last_missed_date: string | null;
+      last_occurrence_date: string | null;
       missed_occurrence_count: number;
-      next_occurrence_date: components['schemas']['UserAvatarurl'];
+      next_occurrence_date: string | null;
       open_occurrence_count: number;
-      preset: components['schemas']['UserAvatarurl'];
+      preset: string | null;
       project_id: string;
       rrule: string;
       start_date: string;
@@ -2609,22 +2607,22 @@ export interface components {
     TaskSeriesCreateResponse: {
       assignee_ids: string[];
       checklist_items: components['schemas']['TaskSeriesChecklistItem'][];
-      column_id: components['schemas']['UserAvatarurl'];
+      column_id: string | null;
       created_at: string;
-      created_by: components['schemas']['UserAvatarurl'];
+      created_by: string | null;
       description: components['schemas']['NullableTiptapDoc'];
       dropped_image_count: number;
-      due_date: components['schemas']['UserAvatarurl'];
-      ended_at: components['schemas']['UserAvatarurl'];
+      due_date: string | null;
+      ended_at: string | null;
       id: string;
       label_ids: string[];
-      last_error: components['schemas']['UserAvatarurl'];
-      last_missed_date: components['schemas']['UserAvatarurl'];
-      last_occurrence_date: components['schemas']['UserAvatarurl'];
+      last_error: string | null;
+      last_missed_date: string | null;
+      last_occurrence_date: string | null;
       missed_occurrence_count: number;
-      next_occurrence_date: components['schemas']['UserAvatarurl'];
+      next_occurrence_date: string | null;
       open_occurrence_count: number;
-      preset: components['schemas']['UserAvatarurl'];
+      preset: string | null;
       project_id: string;
       rrule: string;
       start_date: string;
@@ -2647,7 +2645,7 @@ export interface components {
       assignee_ids?: string[];
       checklist_items?: components['schemas']['RequestBodyChecklistitems'][];
       description?: components['schemas']['NullableTiptapDoc'];
-      due_date?: components['schemas']['UserAvatarurl'];
+      due_date?: string | null;
       label_ids?: string[];
       /** @enum {unknown} */
       preset?: 'daily' | 'monthly_date' | 'monthly_weekday' | 'weekdays' | 'weekly' | 'yearly';
@@ -2665,7 +2663,7 @@ export interface components {
       /** Format: uuid */
       column_id?: string;
       description?: components['schemas']['NullableTiptapDoc'];
-      due_date?: components['schemas']['UserAvatarurl'];
+      due_date?: string | null;
       label_ids?: string[];
       /** @enum {unknown} */
       preset?: 'daily' | 'monthly_date' | 'monthly_weekday' | 'weekdays' | 'weekly' | 'yearly';
@@ -2690,7 +2688,7 @@ export interface components {
       id: string;
       /** @description a finite number */
       position: number;
-      sort_key: components['schemas']['UserAvatarurl'];
+      sort_key: string | null;
       task_id: string;
       text: string;
     };
@@ -2706,15 +2704,15 @@ export interface components {
       checklist_item_count: number;
       column_id: string;
       comment_count: number;
-      cover_image_url: components['schemas']['UserAvatarurl'];
+      cover_image_url: string | null;
       description: components['schemas']['NullableTiptapDoc'];
-      due_date: components['schemas']['UserAvatarurl'];
+      due_date: string | null;
       id: string;
       image_count: number;
       label_ids: string[];
       /** @description a finite number */
       position: number;
-      sort_key: components['schemas']['UserAvatarurl'];
+      sort_key: string | null;
       title: string;
     };
   };

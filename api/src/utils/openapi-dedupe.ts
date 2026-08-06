@@ -18,6 +18,34 @@ export function isInlineSchema(obj: SchemaObject): boolean {
   );
 }
 
+const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'null']);
+
+const IDENTITY_KEYWORDS = [
+  '$ref',
+  'const',
+  'enum',
+  'properties',
+  'items',
+  'allOf',
+  'anyOf',
+  'oneOf',
+  'not',
+  'additionalProperties',
+];
+
+function isScalarMember(member: unknown): boolean {
+  if (!member || typeof member !== 'object' || Array.isArray(member)) return false;
+  const obj = member as SchemaObject;
+  if (typeof obj.type !== 'string' || !SCALAR_TYPES.has(obj.type)) return false;
+  return IDENTITY_KEYWORDS.every((keyword) => obj[keyword] === undefined);
+}
+
+export function isAnonymousScalarUnion(obj: SchemaObject): boolean {
+  if (obj.properties !== undefined || obj.allOf !== undefined) return false;
+  const members = [obj.anyOf, obj.oneOf].filter(Array.isArray).flat();
+  return members.length > 0 && members.every(isScalarMember);
+}
+
 export function deduplicateOpenAPISpec(
   spec: SchemaObject,
   nameRegistry: Map<string, string> = new Map()
@@ -102,7 +130,12 @@ export function deduplicateOpenAPISpec(
     // Registered schemas are always lifted so consumers can import them by
     // name. Unregistered schemas only get lifted when used in 2+ places,
     // matching the original dedup behavior.
-    return entry.registered || entry.count > 1;
+    if (entry.registered) return true;
+    if (entry.count <= 1) return false;
+    // A union of bare scalars is a shape, not a concept: every `string | null`
+    // in the spec hashes alike, so lifting one hands 85 unrelated fields a name
+    // inferred from whichever path happened to be walked first.
+    return !isAnonymousScalarUnion(entry.schema);
   }
 
   function replaceWithRefs(obj: unknown): unknown {
