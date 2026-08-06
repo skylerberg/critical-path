@@ -1548,8 +1548,9 @@ server logs until SES is enabled; the stored row is the source of truth either
 way.
 
 `PASSWORD_RESET_SECRET` signs reset tokens and is required in production
-(development falls back to a fixed dev-only secret). `RESET_URL_BASE` sets the
-link target (default `http://localhost:5173/reset-password`).
+(development falls back to a fixed dev-only secret). The link target is
+`APP_URL_BASE` plus `/reset-password`, built in `src/services/webLinks.ts` with
+every other link the server mails; no environment variable moves it.
 
 ### Email verification
 

@@ -72,8 +72,6 @@ spec:
               value: critical-path-uploads-prod
             - name: CORS_ORIGINS
               value: https://criticalpath.skylerberg.com
-            - name: RESET_URL_BASE
-              value: https://criticalpath.skylerberg.com/reset-password
             - name: APP_URL_BASE
               value: https://criticalpath.skylerberg.com
             - name: TRUST_PROXY
