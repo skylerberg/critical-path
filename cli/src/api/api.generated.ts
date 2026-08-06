@@ -2037,8 +2037,9 @@ export interface components {
           description: string | null;
           filename: string | null;
           id: string;
+          is_cover: boolean;
           /** @enum {unknown} */
-          kind: 'file' | 'link';
+          kind: 'file' | 'image' | 'link';
           path: string | null;
           size_bytes: number | null;
           title: string | null;
@@ -2063,14 +2064,6 @@ export interface components {
         description: components['schemas']['NullableTiptapDoc'];
         due_date: string | null;
         id: string;
-        images: {
-          content_type: string;
-          created_at: string;
-          filename: string;
-          id: string;
-          path: string;
-          size_bytes: number;
-        }[];
         label_ids: string[];
         /** @description a finite number */
         position: number;

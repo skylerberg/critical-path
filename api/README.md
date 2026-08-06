@@ -2018,14 +2018,15 @@ The default response is `application/zip`, streamed, with
 ```
 project.json          the manifest below
 tasks.csv             one row per task, for spreadsheets
-images/<image-id>.png the real bytes of every attached image, archived
-                      cards included
+attachments/<id>.<ext> the real bytes of every attached file and image,
+                      archived cards included
 ```
 
-Images ship as files, not URLs, so the archive keeps working after the account
-or the storage bucket goes away. `?format=json` returns `project.json` alone —
-no image bytes; fetch those from `GET /api/images/:id`, one per
-`tasks[].images[].id`.
+Images and files ship as bytes, not URLs, so the archive keeps working after the
+account or the storage bucket goes away. `?format=json` returns `project.json`
+alone — no bytes; fetch an image from `GET /api/images/:id` and a file from
+`GET /api/attachments/:id/download`, one per `tasks[].attachments[]` entry whose
+`path` is not null.
 
 `project.json` is the stable, documented interchange format the importer reads
 back:
@@ -2033,7 +2034,7 @@ back:
 ```jsonc
 {
   "format": "critical-path-project-export",
-  "version": 3,
+  "version": 4,
   "exported_at": "2026-07-26T12:00:00.000Z",
   "project": { "id", "name", "description", "archived_at", "created_at",
                "created_by", "member_ids", "is_public", "color" },
@@ -2047,8 +2048,9 @@ back:
     "archived_at": "<ISO timestamp if the card is archived, else null>",
     "cover_image_url": "<'/api/images/:id' for the cover image, or null>",
     "label_ids": [], "assignee_ids": [], "blocker_ids": [],
-    "images": [ { "id", "path", "filename", "content_type", "size_bytes",
-                  "created_at" } ],
+    "attachments": [ { "id", "kind", "is_cover", "path", "title", "description",
+                       "filename", "content_type", "size_bytes", "url",
+                       "unfurl_state", "created_at" } ],
     "checklist_items": [ { "id", "text", "checked", "position" } ]
   } ]
 }
@@ -2061,10 +2063,13 @@ back:
   added without a bump: a reader of a `3` export keeps parsing, since an absent
   key and an empty checklist mean the same thing. `attachments` was added the
   same way, and for the same reason.
-- `tasks[].attachments[]` lists both kinds. A `file` entry carries `path`
-  (`attachments/<id>.<ext>`, derived from the id, never from `filename`) and its
-  bytes ride in the zip; a `link` entry carries `url` and `unfurl_state` and has
-  `path: null`. Fetched preview and favicon bytes are **not** archived — they
+- `tasks[].attachments[]` lists all three kinds. A `file` or `image` entry
+  carries `path` (`attachments/<id>.<ext>`, derived from the id, never from
+  `filename`) and its bytes ride in the zip; a `link` entry carries `url` and
+  `unfurl_state` and has `path: null`. An `image` entry also carries `is_cover`.
+  Version `4` is this merge: a reader of a `3` export found images under a
+  separate `tasks[].images[]`, so one that kept looking there would silently
+  lose every picture. Fetched preview and favicon bytes are **not** archived — they
   are a cache of someone else's image, not the user's content — so a re-import
   keeps the link and its text and re-unfurls its pictures.
 - Archived cards are exported. Each carries the `archived_at` that marks it and
@@ -2081,19 +2086,20 @@ back:
   kept the position they were archived at, which a live card may since have
   taken.
 - `description` is stored verbatim, so its embedded `/api/images/<uuid>`
-  sources resolve by image id against the flattened `tasks[].images[]` — build
-  the id map across the whole export, not per task, and tolerate a source that
-  resolves to nothing (the image may have been deleted).
-- `cover_image_url` takes the same `/api/images/<uuid>` form and resolves by
-  image id against that task's own `images[]`. An importer restores it with
-  `PUT /api/tasks/:id/cover` once the images are uploaded.
-- `path` is derived from the image id and its content type, never from
-  `filename`, so an archive can never carry a traversal path or a name
+  sources resolve by id against the `kind: "image"` entries of the flattened
+  `tasks[].attachments[]` — build the id map across the whole export, not per
+  task, and tolerate a source that resolves to nothing (the image may have been
+  deleted).
+- `cover_image_url` takes the same `/api/images/<uuid>` form and resolves by id
+  against that task's own attachments; the same entry carries `is_cover: true`.
+  An importer restores it with `PUT /api/tasks/:id/cover` once the images are
+  uploaded.
+- `path` is derived from the id and, for an image, its content type — never from
+  `filename` — so an archive can never carry a traversal path or a name
   collision. It is emitted in both formats, though with `?format=json` it names
   a file that response does not contain.
-- `images[]` lists every stored image row. If the storage object has gone
-  missing the manifest still lists it, the file is left out of the archive, and
-  a warning is logged.
+- Every stored row is listed. If a storage object has gone missing the manifest
+  still lists it, the file is left out of the archive, and a warning is logged.
 - Comments exist (see Task comments) but nothing about them is exported yet.
   Adding them is a version bump, and it has to answer what a mention node
   carrying another person's name and id means in a file the exporter keeps.

@@ -241,20 +241,25 @@ describe('tasksCsv', () => {
             label_ids: ['l1'],
             assignee_ids: ['u1'],
             blocker_ids: ['t1'],
-            images: [
+            attachments: [
               {
                 id: 'i1',
-                path: 'images/i1.png',
+                kind: 'image',
+                is_cover: false,
+                path: 'attachments/i1.png',
+                title: null,
+                description: null,
                 filename: 'a.png',
                 content_type: 'image/png',
                 size_bytes: 4,
+                url: null,
+                unfurl_state: null,
                 created_at: '2026-07-04T00:00:00.000Z',
               },
-            ],
-            attachments: [
               {
                 id: 'a1',
                 kind: 'file',
+                is_cover: false,
                 path: 'attachments/a1.pdf',
                 title: null,
                 description: null,
@@ -276,7 +281,7 @@ describe('tasksCsv', () => {
       't1,Blocker task,Done,true,1000,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[2]).toBe(
-      't2,Blocked task,To Do,false,2000,2026-08-03,bug,Owner,Blocker task,1,1,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
+      't2,Blocked task,To Do,false,2000,2026-08-03,bug,Owner,Blocker task,1,2,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[3]).toBe('');
   });

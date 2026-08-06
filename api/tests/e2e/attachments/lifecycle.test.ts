@@ -353,7 +353,7 @@ describe('Attachment lifecycle', () => {
     const json = await ctx.request(user.token).get(`/api/projects/${projectId}/export?format=json`);
     expect(json.status).toBe(200);
     const manifest = await json.json();
-    expect(manifest.version).toBe(3);
+    expect(manifest.version).toBe(4);
 
     const attachments = manifest.tasks.flatMap(
       (task: { attachments: unknown[] }) => task.attachments

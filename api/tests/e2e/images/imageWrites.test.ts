@@ -21,10 +21,11 @@ function imageForm(filename: string, id?: string): FormData {
   return form;
 }
 
-// Covers services/attachments/images.ts, the only writer of kind='image' rows.
-// The second property is the one worth holding on to past this release: an image
-// is a task_attachment row, and it still must not surface as an attachment —
-// not in attachments[], not in attachment_count, and not twice in the quota.
+// Covers services/attachments/images.ts, the only writer of kind='image' rows:
+// what an upload, a delete, a cover change and a card copy each leave behind,
+// and that an image reaches every attachment surface exactly once — one row in
+// attachments[], one in the count, one in the export, one set of bytes in the
+// quota.
 describe('image writes', () => {
   const ctx = new TestContext();
   const createdProjectIds: string[] = [];
@@ -216,7 +217,7 @@ describe('image writes', () => {
     expect(copies[0]!.image_storage_key).not.toBe(sourceKey.storage_key);
   });
 
-  it('surfaces as an attachment everywhere except the export, which keeps both arrays', async () => {
+  it('surfaces as an attachment in the detail, the board count and the export', async () => {
     const { projectId, taskId } = await createTaskFixture(user.id);
 
     await ctx
@@ -242,15 +243,19 @@ describe('image writes', () => {
     expect(card?.image_count).toBe(1);
     expect(card?.attachment_count).toBe(1);
 
-    // project.json is a documented interchange format with its own version, so
-    // it keeps listing images under images[] and leaves attachments[] to the
-    // other two kinds. Merging them there would be a breaking format change.
+    // project.json merged its two arrays as well, at version 4: one model
+    // everywhere, including the interchange format that describes it.
     const exported = (await (
       await ctx.request(user.token).get(`/api/projects/${projectId}/export?format=json`)
-    ).json()) as { tasks: { id: string; images: unknown[]; attachments: unknown[] }[] };
+    ).json()) as {
+      version: number;
+      tasks: { id: string; attachments: { kind: string; path: string }[] }[];
+    };
+    expect(exported.version).toBe(4);
     const exportedTask = exported.tasks.find((task) => task.id === taskId);
-    expect(exportedTask?.images).toHaveLength(1);
-    expect(exportedTask?.attachments).toEqual([]);
+    expect(exportedTask?.attachments).toHaveLength(1);
+    expect(exportedTask?.attachments[0]).toMatchObject({ kind: 'image' });
+    expect(exportedTask?.attachments[0]?.path).toMatch(/^attachments\//);
 
     // Counted once, from the one table.
     const allowance = await projectStorageAllowance(db, projectId);
