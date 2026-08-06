@@ -35,7 +35,6 @@ import { truncateTitle } from './titles';
 import { toasts } from './toasts.svelte';
 import { users, type User } from './users.svelte';
 
-export type TaskImage = components['schemas']['ImageResponse'];
 export type TaskAttachment = components['schemas']['Attachment'];
 export type TaskComment = components['schemas']['Comment'];
 export type CommentBody = TaskComment['body'];
@@ -478,7 +477,6 @@ class BoardStore {
     // #seenArmed is deliberately not cleared: load() resets before the arriving
     // project's capture has happened, and swallowing the flag here would leave a
     // return visit to a board with no highlights at all.
-    this.taskImages = {};
     this.taskComments = {};
     this.taskChecklists = {};
     this.taskSeriesSummaries = {};
@@ -1366,9 +1364,16 @@ class BoardStore {
 
   // Takes the image rather than its id so the store never rebuilds the URL the
   // server owns.
-  async setTaskCover(taskId: string, image: TaskImage | null): Promise<void> {
+  // Takes the attachment rather than its id so the store never rebuilds the URL
+  // the server owns, and flips is_cover on the list it just moved the flag on.
+  async setTaskCover(taskId: string, image: TaskAttachment | null): Promise<void> {
     this.tasks = this.tasks.map((task) =>
-      task.id === taskId ? { ...task, cover_image_url: image?.url ?? null } : task
+      task.id === taskId ? { ...task, cover_image_url: image?.image_url ?? null } : task
+    );
+    this.#replaceAttachments(taskId, (attachments) =>
+      attachments.map((entry) =>
+        entry.kind === 'image' ? { ...entry, is_cover: entry.id === image?.id } : entry
+      )
     );
     try {
       assertOk(
@@ -1598,7 +1603,6 @@ class BoardStore {
       .length;
   }
 
-  taskImages = $state<Record<string, TaskImage[]>>({});
   taskComments = $state<Record<string, TaskComment[]>>({});
   taskChecklists = $state<Record<string, ChecklistItem[]>>({});
   taskSeriesSummaries = $state<Record<string, string | null>>({});
@@ -1607,7 +1611,6 @@ class BoardStore {
   async loadTaskDetail(taskId: string): Promise<void> {
     try {
       const data = assertOk(await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } }));
-      this.taskImages = { ...this.taskImages, [taskId]: data.images };
       this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
       this.taskChecklists = { ...this.taskChecklists, [taskId]: data.checklist_items ?? [] };
       this.taskSeriesSummaries = {
@@ -1632,59 +1635,6 @@ class BoardStore {
       );
     } catch (error) {
       toasts.error(error instanceof ApiError ? error.message : 'Failed to load task details');
-    }
-  }
-
-  async uploadTaskImage(taskId: string, file: File): Promise<TaskImage | null> {
-    try {
-      const image = assertOk(
-        await api.POST('/api/tasks/{id}/images', {
-          params: { path: { id: taskId } },
-          body: { file: file as unknown as string },
-          bodySerializer: () => {
-            const form = new FormData();
-            form.append('file', file);
-            return form;
-          },
-        })
-      );
-      // The realtime echo can land before this response does, and it appends the
-      // row and sets the authoritative count itself; appending again would show
-      // the thumbnail twice and leave the count one too high.
-      const cached = this.taskImages[taskId] ?? [];
-      if (!cached.some((existing) => existing.id === image.id)) {
-        this.taskImages = { ...this.taskImages, [taskId]: [...cached, image] };
-        this.tasks = this.tasks.map((task) =>
-          task.id === taskId ? { ...task, image_count: task.image_count + 1 } : task
-        );
-      }
-      return image;
-    } catch (error) {
-      toasts.error(error instanceof ApiError ? error.message : 'Image upload failed');
-      return null;
-    }
-  }
-
-  async deleteTaskImage(taskId: string, imageId: string): Promise<void> {
-    const removed = (this.taskImages[taskId] ?? []).find((image) => image.id === imageId);
-    this.taskImages = {
-      ...this.taskImages,
-      [taskId]: (this.taskImages[taskId] ?? []).filter((image) => image.id !== imageId),
-    };
-    this.tasks = this.tasks.map((task) =>
-      task.id === taskId
-        ? {
-            ...task,
-            image_count: Math.max(0, task.image_count - 1),
-            cover_image_url: task.cover_image_url === removed?.url ? null : task.cover_image_url,
-          }
-        : task
-    );
-    try {
-      assertOk(await api.DELETE('/api/images/{id}', { params: { path: { id: imageId } } }));
-    } catch (error) {
-      await this.#mutationFailed(error);
-      await this.loadTaskDetail(taskId);
     }
   }
 
@@ -1720,7 +1670,7 @@ class BoardStore {
           headers: { 'Content-Type': 'application/octet-stream' },
         })
       );
-      // Same echo race as uploadTaskImage: the event may already have appended it.
+      // The realtime echo can land before this response does and append it already.
       const cached = this.taskAttachments[taskId] ?? [];
       if (!cached.some((existing) => existing.id === attachment.id)) {
         this.taskAttachments = { ...this.taskAttachments, [taskId]: [...cached, attachment] };
@@ -1797,6 +1747,14 @@ class BoardStore {
   }
 
   async deleteAttachment(taskId: string, id: string): Promise<void> {
+    // The cover lives on the row, so removing that row takes the cover with it;
+    // the card would otherwise keep pointing at bytes that are gone.
+    const removed = (this.taskAttachments[taskId] ?? []).find((entry) => entry.id === id);
+    if (removed?.is_cover === true) {
+      this.tasks = this.tasks.map((task) =>
+        task.id === taskId ? { ...task, cover_image_url: null } : task
+      );
+    }
     this.#replaceAttachments(taskId, (attachments) =>
       attachments.filter((attachment) => attachment.id !== id)
     );
@@ -2308,47 +2266,6 @@ class BoardStore {
         });
         break;
       }
-      case 'image_created': {
-        const d = event.data as TaskImage & { task_id: string; image_count: number };
-        this.tasks = this.tasks.map((t) =>
-          t.id === d.task_id ? { ...t, image_count: d.image_count } : t
-        );
-        const cached = this.taskImages[d.task_id];
-        // Append to an open grid, skipping the uploader's own echo (already added
-        // optimistically) so it does not show a duplicate thumbnail.
-        if (cached !== undefined && !cached.some((img) => img.id === d.id)) {
-          const image: TaskImage = {
-            id: d.id,
-            url: d.url,
-            filename: d.filename,
-            content_type: d.content_type,
-            size_bytes: d.size_bytes,
-            created_at: d.created_at,
-          };
-          this.taskImages = { ...this.taskImages, [d.task_id]: [...cached, image] };
-        }
-        break;
-      }
-      case 'image_deleted': {
-        // An API pod that predates covers omits cover_image_url; coalescing keeps
-        // undefined out of a `string | null` field.
-        const d = event.data as {
-          task_id: string;
-          image_count: number;
-          cover_image_url?: string | null;
-        };
-        this.tasks = this.tasks.map((t) =>
-          t.id === d.task_id
-            ? { ...t, image_count: d.image_count, cover_image_url: d.cover_image_url ?? null }
-            : t
-        );
-        // The event carries no image id, so re-fetch the grid; clearing the cache
-        // entry instead would strand an open detail view on its loading spinner.
-        if (this.taskImages[d.task_id] !== undefined) {
-          void this.loadTaskDetail(d.task_id);
-        }
-        break;
-      }
       case 'attachment_created': {
         const d = event.data as TaskAttachment & { attachment_count: number };
         this.#setAttachmentCount(d.task_id, () => d.attachment_count);
@@ -2362,6 +2279,17 @@ class BoardStore {
         const d = event.data as TaskAttachment;
         this.#replaceAttachments(d.task_id, (attachments) =>
           attachments.map((a) => (a.id === d.id ? d : a))
+        );
+        break;
+      }
+      // Kept only for cover_image_url: attachment_deleted carries no cover, so
+      // without this a viewer watching someone else delete a cover image would
+      // hold a dead thumbnail until the next detail fetch. Its counts are
+      // ignored — attachment_deleted owns those.
+      case 'image_deleted': {
+        const d = event.data as { task_id: string; cover_image_url?: string | null };
+        this.tasks = this.tasks.map((t) =>
+          t.id === d.task_id ? { ...t, cover_image_url: d.cover_image_url ?? null } : t
         );
         break;
       }

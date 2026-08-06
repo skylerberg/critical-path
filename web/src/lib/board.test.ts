@@ -2884,19 +2884,34 @@ describe('applyRealtime project_updated', () => {
 });
 
 describe('board store cover images', () => {
-  const cover = {
+  const cover: TaskAttachment = {
     id: 'img1',
-    url: '/api/images/img1',
+    task_id: 't1',
+    kind: 'image',
+    image_url: '/api/images/img1',
+    is_cover: false,
+    title: null,
+    description: null,
     filename: 'shot.png',
     content_type: 'image/png',
     size_bytes: 4,
+    url: null,
+    preview_url: null,
+    favicon_url: null,
+    unfurl_state: null,
     created_at: SERVER_CREATED_AT,
+    updated_at: SERVER_CREATED_AT,
   };
-  const other = { ...cover, id: 'img2', url: '/api/images/img2', filename: 'other.png' };
+  const other: TaskAttachment = {
+    ...cover,
+    id: 'img2',
+    image_url: '/api/images/img2',
+    filename: 'other.png',
+  };
 
   beforeEach(async () => {
     await board.load('p1');
-    board.taskImages = { t1: [cover, other] };
+    board.taskAttachments = { t1: [cover, other] };
     fetchMock.mockClear();
   });
 
@@ -2945,42 +2960,21 @@ describe('board store cover images', () => {
     expect(board.tasks.find((t) => t.title === 'New task')?.cover_image_url).toBeNull();
   });
 
-  it('uploadTaskImage adds nothing twice when the realtime echo beat the response', async () => {
-    const fresh = { ...cover, id: 'img3', url: '/api/images/img3', filename: 'fresh.png' };
-    board.taskImages = { t1: [] };
-    mockRoutes((request, url) =>
-      request.method === 'POST' && url.pathname === '/api/tasks/t1/images'
-        ? jsonResponse(201, fresh)
-        : undefined
-    );
-
-    const upload = board.uploadTaskImage('t1', new File(['x'], 'fresh.png', { type: 'image/png' }));
-    board.applyRealtime({
-      type: 'image_created',
-      project_id: 'p1',
-      data: { ...fresh, task_id: 't1', image_count: 1 },
-    });
-    await upload;
-
-    expect(board.taskImages.t1!.map((i) => i.id)).toEqual(['img3']);
-    expect(board.tasks.find((t) => t.id === 't1')!.image_count).toBe(1);
-  });
-
-  it('deleteTaskImage clears the cover it just removed, without waiting for a refetch', async () => {
+  it('deleting the cover attachment clears the cover without waiting for a refetch', async () => {
     await board.setTaskCover('t1', cover);
     fetchMock.mockClear();
 
-    const pending = board.deleteTaskImage('t1', 'img1');
+    const pending = board.deleteAttachment('t1', 'img1');
 
     expect(coverOf('t1')).toBeNull();
     await pending;
   });
 
-  it('deleteTaskImage leaves a cover that is not the deleted image', async () => {
+  it('deleting another attachment leaves the cover in place', async () => {
     await board.setTaskCover('t1', cover);
     fetchMock.mockClear();
 
-    await board.deleteTaskImage('t1', 'img2');
+    await board.deleteAttachment('t1', 'img2');
 
     expect(coverOf('t1')).toBe('/api/images/img1');
   });

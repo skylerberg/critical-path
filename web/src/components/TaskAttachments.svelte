@@ -1,7 +1,6 @@
 <script lang="ts">
   import { announcer } from '../lib/announcer.svelte';
   import { board, type TaskAttachment } from '../lib/board.svelte';
-  import { uploadsAsImage } from '../lib/uploads';
   import Button from './ui/Button.svelte';
   import Spinner from './ui/Spinner.svelte';
 
@@ -16,11 +15,13 @@
   const URL_MAX_LENGTH = 2048;
   const URL_HINT = 'Enter a link starting with http:// or https://';
 
-  const attachments = $derived(board.taskAttachments[taskId]);
+  const loaded = $derived(board.taskAttachments[taskId]);
   const task = $derived(board.tasks.find((candidate) => candidate.id === taskId));
-  const loadedImages = $derived(board.taskImages[taskId]);
-  const images = $derived(loadedImages ?? []);
-  const imagesLoading = $derived(loadedImages === undefined && (task?.image_count ?? 0) > 0);
+  // One list from the server, split here only for layout: pictures read better as
+  // a grid of thumbnails, documents and links as rows.
+  const images = $derived((loaded ?? []).filter((entry) => entry.kind === 'image'));
+  const attachments = $derived(loaded?.filter((entry) => entry.kind !== 'image'));
+  const stillLoading = $derived(loaded === undefined && (task?.attachment_count ?? 0) > 0);
 
   let fileInput = $state<HTMLInputElement>();
   let addingLink = $state(false);
@@ -113,10 +114,9 @@
       const key = `${String(Date.now())}-${file.name}-${String(Math.random())}`;
       pending = [...pending, { key, name: file.name }];
       void announcer.announce(`Uploading ${file.name}`);
-      const upload = uploadsAsImage(file)
-        ? board.uploadTaskImage(taskId, file)
-        : board.uploadTaskAttachment(taskId, file);
-      void upload.finally(() => {
+      // The server reads the leading bytes and decides whether this is an image;
+      // nothing here has to know the rule.
+      void board.uploadTaskAttachment(taskId, file).finally(() => {
         pending = pending.filter((entry) => entry.key !== key);
       });
     }
@@ -272,15 +272,15 @@
     </ul>
   {/if}
 
-  {#if imagesLoading}
-    <Spinner size="sm" label="Loading images" />
+  {#if stillLoading}
+    <Spinner size="sm" label="Loading attachments" />
   {:else if images.length > 0}
     <ul class="grid grid-cols-3 gap-2 sm:grid-cols-4">
       {#each images as image (image.id)}
-        {@const isCover = task?.cover_image_url === image.url}
+        {@const isCover = image.is_cover}
         <li class="relative flex flex-col gap-1">
           <img
-            src={image.url}
+            src={image.image_url ?? ''}
             alt={image.filename}
             loading="lazy"
             class="aspect-square w-full rounded-md border border-edge object-cover"
@@ -300,7 +300,7 @@
             <button
               type="button"
               aria-label="Delete image {image.filename}"
-              onclick={() => void board.deleteTaskImage(taskId, image.id)}
+              onclick={() => void board.deleteAttachment(taskId, image.id)}
               class="absolute top-1 right-1 flex size-8 cursor-pointer items-center justify-center rounded-full bg-black/60 text-sm text-white hover:bg-danger"
             >
               ✕
@@ -312,7 +312,7 @@
   {/if}
 
   {#if attachments !== undefined}
-    {#if nothingAttached && !imagesLoading}
+    {#if nothingAttached && !stillLoading}
       <p class="text-sm text-muted">
         {readonly ? 'No attachments.' : 'Nothing attached yet. Drop a file here, or add a link.'}
       </p>

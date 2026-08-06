@@ -2,7 +2,7 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import TaskAttachments from './TaskAttachments.svelte';
-import { board, type TaskAttachment, type TaskImage } from '../lib/board.svelte';
+import { board, type TaskAttachment } from '../lib/board.svelte';
 import { testUuid } from '../lib/test-ids';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -69,16 +69,15 @@ function link(id: string, overrides: Partial<TaskAttachment> = {}): TaskAttachme
   });
 }
 
-function image(id: string, overrides: Partial<TaskImage> = {}): TaskImage {
-  return {
-    id: testUuid(id),
-    url: `/api/images/${testUuid(id)}`,
+function image(id: string, overrides: Partial<TaskAttachment> = {}): TaskAttachment {
+  return attachment(id, {
+    kind: 'image',
+    image_url: `/api/images/${testUuid(id)}`,
     filename: 'mock.png',
     content_type: 'image/png',
     size_bytes: 2048,
-    created_at: '2026-07-15T00:00:00Z',
     ...overrides,
-  };
+  });
 }
 
 function renderSection(props: { taskId?: string; readonly?: boolean } = {}) {
@@ -419,7 +418,7 @@ describe('TaskAttachments uploads', () => {
     expect(await requestBody(0)).toMatchObject({ url: 'https://example.com/dragged' });
   });
 
-  it('sends a picked PNG to the image endpoint and a PDF to the attachment endpoint', async () => {
+  it('sends every picked file to the one endpoint, whatever its type', async () => {
     fetchMock.mockImplementation(async (input) =>
       String((input as Request).url).includes('/images')
         ? jsonResponse(201, image('i1'))
@@ -436,12 +435,14 @@ describe('TaskAttachments uploads', () => {
     });
     await fireEvent.change(input);
 
+    // Which kind each becomes is the server's call, read from the bytes; the
+    // component no longer carries a copy of that rule.
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(requestAt(0).url).toContain(`/api/tasks/${T1}/images`);
+    expect(requestAt(0).url).toContain('/api/attachments/files');
     expect(requestAt(1).url).toContain('/api/attachments/files');
   });
 
-  it('sends a dropped SVG down the attachment path, which the image endpoint would refuse', async () => {
+  it('sends a dropped SVG to the same endpoint as everything else', async () => {
     fetchMock.mockImplementation(async () => jsonResponse(201, attachment('a1')));
     const { container } = renderSection();
     const zone = container.querySelector('div') as HTMLElement;
@@ -460,12 +461,12 @@ describe('TaskAttachments uploads', () => {
 
 describe('TaskAttachments images', () => {
   beforeEach(() => {
-    board.tasks = [task(T1, { image_count: 1 })];
-    board.taskImages = { [T1]: [image('i1')] };
+    board.tasks = [task(T1, { attachment_count: 1 })];
+    board.taskAttachments = { [T1]: [image('i1')] };
   });
 
   it('shows images in the same section as files and links, with their own controls', () => {
-    board.taskAttachments = { [T1]: [attachment('a1')] };
+    board.taskAttachments = { [T1]: [image('i1'), attachment('a1')] };
     renderSection();
 
     expect(screen.getByAltText('mock.png')).toHaveAttribute('src', `/api/images/${testUuid('i1')}`);
@@ -513,20 +514,20 @@ describe('TaskAttachments images', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Delete image mock.png' }));
 
-    await waitFor(() => expect(requestAt(0).url).toContain(`/api/images/${testUuid('i1')}`));
+    await waitFor(() => expect(requestAt(0).url).toContain(`/api/attachments/${testUuid('i1')}`));
     expect(requestAt(0).method).toBe('DELETE');
     expect(screen.queryByAltText('mock.png')).not.toBeInTheDocument();
   });
 
-  it('spins only while a task known to hold images is still loading them', () => {
-    board.taskImages = {};
+  it('spins only while a task known to hold attachments is still loading them', () => {
+    board.taskAttachments = {};
     const { unmount } = renderSection();
-    expect(screen.getByRole('status', { name: 'Loading images' })).toBeVisible();
+    expect(screen.getByRole('status', { name: 'Loading attachments' })).toBeVisible();
     unmount();
 
-    board.tasks = [task(T1, { image_count: 0 })];
+    board.tasks = [task(T1, { attachment_count: 0 })];
     renderSection();
-    expect(screen.queryByRole('status', { name: 'Loading images' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading attachments' })).not.toBeInTheDocument();
   });
 });
 

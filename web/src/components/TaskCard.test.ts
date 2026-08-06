@@ -37,7 +37,7 @@ const task: BoardTask = {
   comment_count: 0,
   checklist_item_count: 0,
   checklist_done_count: 0,
-  attachment_count: 0,
+  attachment_count: 3,
 };
 
 beforeEach(() => {
@@ -73,7 +73,7 @@ function pill(): HTMLElement {
 }
 
 describe('TaskCard', () => {
-  it('renders title, label chips, assignee avatar, blocked and image badges, and the link', () => {
+  it('renders title, label chips, assignee avatar, blocked and attachment badges, and the link', () => {
     render(TaskCard, {
       task,
       projectId: PROJECT_ID,
@@ -85,13 +85,20 @@ describe('TaskCard', () => {
     expect(screen.getByText('art')).toBeInTheDocument();
     expect(screen.getByTitle('Ada Lovelace')).toHaveTextContent('AL');
     expect(screen.getByTitle('Blocked by 2 open tasks')).toHaveTextContent('2');
-    expect(screen.getByTitle('3 images')).toHaveTextContent('3');
+    expect(screen.getByTitle('3 attachments')).toHaveTextContent('3');
     expect(screen.getByRole('link')).toHaveAttribute('href', taskHref(TASK_ID, 'Design cards'));
   });
 
   it('omits badges and chips when there is nothing to show', () => {
     render(TaskCard, {
-      task: { ...task, label_ids: [], assignee_ids: [], blocker_ids: [], image_count: 0 },
+      task: {
+        ...task,
+        label_ids: [],
+        assignee_ids: [],
+        blocker_ids: [],
+        image_count: 0,
+        attachment_count: 0,
+      },
       projectId: PROJECT_ID,
     });
 
@@ -122,6 +129,7 @@ describe('TaskCard', () => {
         assignee_ids: [],
         blocker_ids: [],
         image_count: 0,
+        attachment_count: 0,
         comment_count: 2,
       },
       projectId: PROJECT_ID,
@@ -169,6 +177,7 @@ describe('TaskCard', () => {
         assignee_ids: [],
         blocker_ids: [],
         image_count: 0,
+        attachment_count: 0,
         checklist_item_count: 1,
         checklist_done_count: 0,
       },
@@ -207,10 +216,11 @@ describe('TaskCard', () => {
   });
 
   it('renders no attachment badge for none, nor for a payload that predates the count', () => {
-    const { rerender } = render(TaskCard, { task, projectId: PROJECT_ID });
+    const bare = { ...task, attachment_count: 0 };
+    const { rerender } = render(TaskCard, { task: bare, projectId: PROJECT_ID });
     expect(screen.queryByTitle(/attachment/)).not.toBeInTheDocument();
 
-    const legacy: Partial<BoardTask> = { ...task };
+    const legacy: Partial<BoardTask> = { ...bare };
     delete legacy.attachment_count;
     void rerender({ task: legacy as BoardTask, projectId: PROJECT_ID });
 
@@ -228,7 +238,7 @@ describe('TaskCard', () => {
   });
 
   describe('cover image', () => {
-    it('renders the cover above the title, alongside the image badge', () => {
+    it('renders the cover above the title, alongside the attachment badge', () => {
       render(TaskCard, {
         task: { ...task, cover_image_url: '/api/images/img1' },
         projectId: PROJECT_ID,
@@ -240,7 +250,7 @@ describe('TaskCard', () => {
       expect(cover).toHaveAttribute('alt', '');
       const title = screen.getByText('Design cards');
       expect(cover?.compareDocumentPosition(title)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-      expect(screen.getByTitle('3 images')).toBeInTheDocument();
+      expect(screen.getByTitle('3 attachments')).toBeInTheDocument();
     });
 
     it('renders no image at all without a cover', () => {
@@ -303,7 +313,7 @@ describe('TaskCard', () => {
     expect(screen.getByText('art')).toBeInTheDocument();
     expect(screen.getByTitle('Ada Lovelace')).toHaveTextContent('AL');
     expect(screen.getByTitle('Blocked by 2 open tasks')).toHaveTextContent('2');
-    expect(screen.getByTitle('3 images')).toHaveTextContent('3');
+    expect(screen.getByTitle('3 attachments')).toHaveTextContent('3');
   });
 
   it('dims the card when filtered out', () => {
@@ -317,7 +327,7 @@ describe('TaskCard', () => {
   it('raises the badge row above the overlay link', () => {
     render(TaskCard, { task, projectId: PROJECT_ID });
 
-    const row = screen.getByTitle('3 images').parentElement;
+    const row = screen.getByTitle('3 attachments').parentElement;
     expect(row?.className).toContain('relative');
     expect(row?.className).toContain('z-10');
   });
@@ -327,8 +337,10 @@ describe('TaskCard', () => {
   it('leaves the gaps between badges to the overlay link', () => {
     render(TaskCard, { task, projectId: PROJECT_ID, blockedCount: 2 });
 
-    expect(screen.getByTitle('3 images').parentElement?.className).toContain('pointer-events-none');
-    for (const badge of ['3 images', 'Blocked by 2 open tasks']) {
+    expect(screen.getByTitle('3 attachments').parentElement?.className).toContain(
+      'pointer-events-none'
+    );
+    for (const badge of ['3 attachments', 'Blocked by 2 open tasks']) {
       expect(screen.getByTitle(badge).className).toContain('pointer-events-auto');
     }
     expect(screen.getByTitle('Ada Lovelace').parentElement?.className).toContain(
@@ -607,7 +619,14 @@ describe('TaskCard', () => {
 
     it('adds no badge row to an otherwise bare undated card', () => {
       render(TaskCard, {
-        task: { ...task, label_ids: [], assignee_ids: [], blocker_ids: [], image_count: 0 },
+        task: {
+          ...task,
+          label_ids: [],
+          assignee_ids: [],
+          blocker_ids: [],
+          image_count: 0,
+          attachment_count: 0,
+        },
         projectId: PROJECT_ID,
       });
 
@@ -700,7 +719,7 @@ describe('TaskCard', () => {
       expect(() => render(TaskCard, { task: placeholder, projectId: PROJECT_ID })).not.toThrow();
 
       expect(screen.getByText('Design cards')).toBeInTheDocument();
-      expect(screen.getByTitle('3 images')).toBeInTheDocument();
+      expect(screen.getByTitle('3 attachments')).toBeInTheDocument();
       expect(screen.queryByRole('link')).not.toBeInTheDocument();
     });
 
