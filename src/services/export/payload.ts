@@ -165,7 +165,7 @@ export async function buildProjectExport(
   }
 
   const exportTask = (
-    { image_count: _imageCount, ...task }: BoardTask,
+    task: BoardTask,
     archived_at: string | null
   ): ProjectExport['tasks'][number] => ({
     ...task,

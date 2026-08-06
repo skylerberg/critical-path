@@ -46,12 +46,6 @@ function boardTasksQuery(db: Kysely<DB>) {
     unarchivedBlockerIds(eb).as('blocker_rows'),
     eb
       .selectFrom('task_attachment')
-      .select((ib) => ib.fn.countAll<string>().as('image_count'))
-      .whereRef('task_attachment.task_id', '=', 'task.id')
-      .where('task_attachment.kind', '=', IMAGE_KIND)
-      .as('image_count'),
-    eb
-      .selectFrom('task_attachment')
       .select('task_attachment.id')
       .whereRef('task_attachment.task_id', '=', 'task.id')
       .where('task_attachment.kind', '=', IMAGE_KIND)
@@ -106,7 +100,6 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
     label_ids: task.label_rows.map((row) => row.label_id),
     assignee_ids: task.assignee_rows.map((row) => row.user_id),
     blocker_ids: task.blocker_rows.map((row) => row.blocker_task_id),
-    image_count: Number(task.image_count),
     cover_image_url: task.cover_image_id == null ? null : `/api/images/${task.cover_image_id}`,
     comment_count: Number(task.comment_count),
     checklist_item_count: Number(task.checklist_item_count),
@@ -345,7 +338,6 @@ export function toPublicBoard(
       label_ids: task.label_ids,
       assignee_ids: task.assignee_ids,
       blocker_ids: task.blocker_ids,
-      image_count: task.image_count,
       cover_image_url: task.cover_image_url,
       attachment_count: task.attachment_count,
       comment_count: task.comment_count,

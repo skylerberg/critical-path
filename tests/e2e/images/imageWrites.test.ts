@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
 import { projectStorageAllowance } from '../../../src/services/attachments/quota';
@@ -11,15 +11,6 @@ const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64'
 );
-
-function imageForm(filename: string, id?: string): FormData {
-  const form = new FormData();
-  form.append('file', new File([new Uint8Array(PNG_1X1)], filename, { type: 'image/png' }));
-  if (id !== undefined) {
-    form.append('id', id);
-  }
-  return form;
-}
 
 // Covers services/attachments/images.ts, the only writer of kind='image' rows:
 // what an upload, a delete, a cover change and a card copy each leave behind,
@@ -111,7 +102,7 @@ describe('image writes', () => {
 
     const res = await ctx
       .request(user.token)
-      .postMultipart(`/api/tasks/${taskId}/images`, imageForm('pixel.png', imageId));
+      .postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
     expect(res.status).toBe(201);
 
     const rows = await imageRows(taskId);
@@ -148,12 +139,10 @@ describe('image writes', () => {
     const { taskId } = await createTaskFixture(user.id);
     const imageId = newId();
 
-    await ctx
-      .request(user.token)
-      .postMultipart(`/api/tasks/${taskId}/images`, imageForm('pixel.png', imageId));
+    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
     expect(await imageRows(taskId)).toHaveLength(1);
 
-    const res = await ctx.request(user.token).delete(`/api/images/${imageId}`);
+    const res = await ctx.request(user.token).delete(`/api/attachments/${imageId}`);
     expect(res.status).toBe(204);
     expect(await imageRows(taskId)).toHaveLength(0);
   });
@@ -163,12 +152,8 @@ describe('image writes', () => {
     const first = newId();
     const second = newId();
 
-    await ctx
-      .request(user.token)
-      .postMultipart(`/api/tasks/${taskId}/images`, imageForm('one.png', first));
-    await ctx
-      .request(user.token)
-      .postMultipart(`/api/tasks/${taskId}/images`, imageForm('two.png', second));
+    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'one.png', first), PNG_1X1);
+    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'two.png', second), PNG_1X1);
 
     await ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id: first });
     expect((await imageRows(taskId)).filter((row) => row.is_cover).map((row) => row.id)).toEqual([
@@ -190,9 +175,7 @@ describe('image writes', () => {
     const { taskId } = await createTaskFixture(user.id);
     const imageId = newId();
 
-    await ctx
-      .request(user.token)
-      .postMultipart(`/api/tasks/${taskId}/images`, imageForm('pixel.png', imageId));
+    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
     await ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id: imageId });
 
     const copyId = newId();
@@ -220,27 +203,19 @@ describe('image writes', () => {
   it('surfaces as an attachment in the detail, the board count and the export', async () => {
     const { projectId, taskId } = await createTaskFixture(user.id);
 
-    await ctx
-      .request(user.token)
-      .postMultipart(`/api/tasks/${taskId}/images`, imageForm('pixel.png'));
+    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'pixel.png'), PNG_1X1);
 
     const detail = (await (await ctx.request(user.token).get(`/api/tasks/${taskId}`)).json()) as {
-      images: unknown[];
       attachments: { kind: string; image_url: string; is_cover: boolean }[];
       image_count: number;
     };
-    // images[] is still populated this release so a client that has not reloaded
-    // keeps rendering; the next one removes it.
-    expect(detail.images).toHaveLength(1);
     expect(detail.attachments).toHaveLength(1);
     expect(detail.attachments[0]).toMatchObject({ kind: 'image', is_cover: false });
-    expect(detail.image_count).toBe(1);
 
     const board = (await (
       await ctx.request(user.token).get(`/api/projects/${projectId}`)
     ).json()) as { tasks: { id: string; image_count: number; attachment_count: number }[] };
     const card = board.tasks.find((task) => task.id === taskId);
-    expect(card?.image_count).toBe(1);
     expect(card?.attachment_count).toBe(1);
 
     // project.json merged its two arrays as well, at version 4: one model

@@ -3,7 +3,7 @@ import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { storage } from '../../../src/services/storage/index';
 import { getPublicBoard } from '../../../src/services/boardPayload';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import {
   BoardColumnPayload,
   BoardPayloadBody,
@@ -18,12 +18,6 @@ const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64'
 );
-
-function imageForm(): FormData {
-  const form = new FormData();
-  form.append('file', new File([new Uint8Array(PNG_1X1)], 'pixel.png', { type: 'image/png' }));
-  return form;
-}
 
 interface PublicBoardBody {
   project: { id: string; name: string; description: string };
@@ -138,7 +132,7 @@ describe('GET /api/public/projects/:id/board', () => {
     });
     const uploadRes = await ctx
       .request(owner.token)
-      .postMultipart(`/api/tasks/${blockerTaskId}/images`, imageForm());
+      .postBytes(imageUploadPath(blockerTaskId), PNG_1X1);
     expect(uploadRes.status).toBe(201);
     const { id: imageId } = (await uploadRes.json()) as { id: string };
     const coverRes = await ctx
@@ -285,7 +279,6 @@ describe('GET /api/public/projects/:id/board', () => {
       label_ids: [seeded.labelId],
       assignee_ids: [assignee.id],
       blocker_ids: [seeded.blockerTaskId],
-      image_count: 0,
       cover_image_url: null,
       comment_count: 2,
     });
@@ -344,7 +337,6 @@ describe('GET /api/public/projects/:id/board', () => {
         label_ids: task.label_ids,
         assignee_ids: task.assignee_ids,
         blocker_ids: task.blocker_ids,
-        image_count: task.image_count,
         attachment_count: task.attachment_count,
         cover_image_url: task.cover_image_url,
         comment_count: task.comment_count,
@@ -411,7 +403,6 @@ describe('GET /api/public/projects/:id/board', () => {
         'description',
         'due_date',
         'id',
-        'image_count',
         'label_ids',
         'sort_key',
         'title',
@@ -692,8 +683,6 @@ describe('GET /api/public/projects/:id/board', () => {
       await ctx.request().get(`/api/public/projects/${project.id}/board`)
     ).json()) as PublicBoardBody;
     const task = payload.tasks.find((candidate) => candidate.id === taskId)!;
-
-    expect(task.image_count).toBe(1);
     expect(task.attachment_count).toBe(3);
     expect(payload.attachments.map((a) => a.kind).sort()).toEqual(['file', 'image', 'link']);
 

@@ -145,7 +145,6 @@ describe('POST /api/projects with source_project_id', () => {
       due_date: '2026-08-03',
       label_ids: [copy.labels[0].id],
       assignee_ids: [],
-      image_count: 1,
       comment_count: 0,
     });
     expect(copiedBlocked).toMatchObject({
@@ -375,7 +374,6 @@ describe('POST /api/projects with source_project_id', () => {
     const copiedBlocked = copy.tasks.find((t) => t.title === 'Blocked by both')!;
     expect(copiedBlocked.blocker_ids).toEqual([copiedKept.id]);
     expect(copy.tasks.every((t) => t.label_ids.length === 0)).toBe(true);
-    expect(copy.tasks.every((t) => t.image_count === 0)).toBe(true);
 
     const archivedInCopy = await ctx
       .request(user.token)

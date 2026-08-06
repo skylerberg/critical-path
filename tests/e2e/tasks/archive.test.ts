@@ -94,7 +94,6 @@ describe('Task archive and restore', () => {
         label_ids: [],
         assignee_ids: [],
         blocker_ids: [],
-        image_count: 0,
         comment_count: 0,
       });
       expect(typeof body.created_at).toBe('string');
@@ -402,7 +401,6 @@ describe('Task archive and restore', () => {
         label_ids: [],
         assignee_ids: [],
         blocker_ids: [],
-        image_count: 0,
         comment_count: 0,
       });
       expect(typeof rows[0]!.archived_at).toBe('string');

@@ -3,7 +3,7 @@ import path from 'path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { unzipSync } from 'fflate';
 import { TestContext, type TestUser } from '../../setup/testContext';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { insertTaskImage } from './helpers';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
@@ -24,13 +24,6 @@ const CSV_HEADER =
 
 const ctx = new TestContext();
 const createdProjectIds: string[] = [];
-
-function imageForm(bytes: Buffer, filename: string, mimeType: string, id: string): FormData {
-  const form = new FormData();
-  form.append('file', new File([new Uint8Array(bytes)], filename, { type: mimeType }));
-  form.append('id', id);
-  return form;
-}
 
 async function createProject(user: TestUser, name: string): Promise<string> {
   const id = newId();
@@ -219,14 +212,13 @@ async function reimport(
     for (const image of imagesOf(task)) {
       const bytes = files[image.path];
       expect(bytes).toBeDefined();
-      const res = await client.postMultipart(
-        `/api/tasks/${idMap.get(task.id)}/images`,
-        imageForm(
-          Buffer.from(bytes),
-          image.filename,
-          image.content_type,
+      const res = await client.postBytes(
+        imageUploadPath(
+          idMap.get(task.id) as string,
+          image.filename ?? 'image.png',
           idMap.get(image.id) as string
-        )
+        ),
+        Buffer.from(bytes)
       );
       expect(res.status).toBe(201);
     }
@@ -349,20 +341,11 @@ describe('GET /api/projects/:id/export', () => {
     pngImageId = newId();
     jpegImageId = newId();
     expect(
-      (
-        await client.postMultipart(
-          `/api/tasks/${mainTaskId}/images`,
-          imageForm(PNG_1X1, 'pixel.png', 'image/png', pngImageId)
-        )
-      ).status
+      (await client.postBytes(imageUploadPath(mainTaskId, 'pixel.png', pngImageId), PNG_1X1)).status
     ).toBe(201);
     expect(
-      (
-        await client.postMultipart(
-          `/api/tasks/${mainTaskId}/images`,
-          imageForm(JPEG_1X1, 'photo.jpg', 'image/jpeg', jpegImageId)
-        )
-      ).status
+      (await client.postBytes(imageUploadPath(mainTaskId, 'photo.jpg', jpegImageId), JPEG_1X1))
+        .status
     ).toBe(201);
     // The jpeg: a cover no description embeds is only restorable from cover_image_url.
     expect(
@@ -711,18 +694,14 @@ describe('GET /api/projects/:id/export', () => {
       liveImageId = newId();
       archivedImageId = newId();
       expect(
-        (
-          await client.postMultipart(
-            `/api/tasks/${liveTaskId}/images`,
-            imageForm(PNG_1X1, 'live.png', 'image/png', liveImageId)
-          )
-        ).status
+        (await client.postBytes(imageUploadPath(liveTaskId, 'live.png', liveImageId), PNG_1X1))
+          .status
       ).toBe(201);
       expect(
         (
-          await client.postMultipart(
-            `/api/tasks/${archivedTaskId}/images`,
-            imageForm(JPEG_1X1, 'shelved.jpg', 'image/jpeg', archivedImageId)
+          await client.postBytes(
+            imageUploadPath(archivedTaskId, 'shelved.jpg', archivedImageId),
+            JPEG_1X1
           )
         ).status
       ).toBe(201);

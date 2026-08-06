@@ -54,11 +54,10 @@ import tasksRouter from './routes/tasks';
 import taskBulkRouter from './routes/taskBulk';
 import myTasksRouter from './routes/myTasks';
 import searchRouter from './routes/search';
-import imageUploadRouter from './routes/imageUpload';
 import labelsRouter from './routes/labels';
 import commentsRouter from './routes/comments';
 import checklistItemsRouter from './routes/checklistItems';
-import imagesRouter, { publicImagesRouter } from './routes/images';
+import { publicImagesRouter } from './routes/images';
 import attachmentsRouter, { publicAttachmentsRouter } from './routes/attachments';
 import feedbackRouter from './routes/feedback';
 import publicBoardsRouter from './routes/publicBoards';
@@ -73,7 +72,6 @@ app.use('*', secureHeaders());
 app.use('*', corsMiddleware);
 app.use('*', compress());
 
-const IMAGE_UPLOAD_PATH = /^\/api\/tasks\/[^/]+\/images$/;
 const AVATAR_UPLOAD_PATH = '/api/auth/me/avatar';
 const ATTACHMENT_UPLOAD_PATH = '/api/attachments/files';
 const globalBodyLimit = bodyLimit({
@@ -85,9 +83,7 @@ const globalBodyLimit = bodyLimit({
 app.use('*', (c, next) => {
   if (
     c.req.method === 'POST' &&
-    (IMAGE_UPLOAD_PATH.test(c.req.path) ||
-      c.req.path === AVATAR_UPLOAD_PATH ||
-      c.req.path === ATTACHMENT_UPLOAD_PATH)
+    (c.req.path === AVATAR_UPLOAD_PATH || c.req.path === ATTACHMENT_UPLOAD_PATH)
   ) {
     return next();
   }
@@ -192,7 +188,6 @@ app.route('/api/invitations', invitationsRouter);
 app.route('/api/columns', columnsRouter);
 app.route('/api/tasks', tasksRouter);
 // Second router on the same prefix: POST /:id/images needs its own bodyLimit.
-app.route('/api/tasks', imageUploadRouter);
 // Third: every path it adds is single-segment, so mount order cannot shadow it.
 app.route('/api/tasks', taskBulkRouter);
 app.route('/api/my-tasks', myTasksRouter);
@@ -201,7 +196,6 @@ app.route('/api/labels', labelsRouter);
 app.route('/api/comments', commentsRouter);
 app.route('/api/checklist-items', checklistItemsRouter);
 app.route('/api/images', publicImagesRouter);
-app.route('/api/images', imagesRouter);
 app.route('/api/attachments', publicAttachmentsRouter);
 app.route('/api/attachments', attachmentsRouter);
 app.route('/api/avatars', avatarsRouter);

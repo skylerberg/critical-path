@@ -69,7 +69,6 @@ describe('Tasks CRUD', () => {
         description: validDescription(),
         sort_key: expect.any(String),
         blocker_ids: [],
-        image_count: 0,
         cover_image_url: null,
         comment_count: 0,
       });
@@ -208,7 +207,7 @@ describe('Tasks CRUD', () => {
       expect(body.success).toBeUndefined();
     });
 
-    it('returns task detail with project_id and an images array', async () => {
+    it('returns task detail with project_id and an attachments array', async () => {
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       expect(created.status).toBe(201);
       const { id } = await created.json();
@@ -217,8 +216,7 @@ describe('Tasks CRUD', () => {
       expect(empty.status).toBe(200);
       const emptyBody = await empty.json();
       expect(emptyBody.project_id).toBe(projectId);
-      expect(emptyBody.images).toEqual([]);
-      expect(emptyBody.image_count).toBe(0);
+      expect(emptyBody.attachments).toEqual([]);
       expect(emptyBody.cover_image_url).toBeNull();
       expect(emptyBody.comments).toEqual([]);
       expect(emptyBody.comment_count).toBe(0);
@@ -227,16 +225,17 @@ describe('Tasks CRUD', () => {
       const res = await ctx.request(user.token).get(`/api/tasks/${id}`);
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.image_count).toBe(1);
-      expect(body.images).toHaveLength(1);
-      expect(body.images[0]).toMatchObject({
+      expect(body.attachments).toHaveLength(1);
+      expect(body.attachments[0]).toMatchObject({
         id: imageId,
-        url: `/api/images/${imageId}`,
+        kind: 'image',
+        image_url: `/api/images/${imageId}`,
         filename: 'shot.png',
         content_type: 'image/png',
         size_bytes: 4,
+        is_cover: false,
       });
-      expect(typeof body.images[0].created_at).toBe('string');
+      expect(typeof body.attachments[0].created_at).toBe('string');
     });
   });
 
