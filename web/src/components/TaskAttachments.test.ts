@@ -40,6 +40,8 @@ function attachment(id: string, overrides: Partial<TaskAttachment> = {}): TaskAt
     id: testUuid(id),
     task_id: T1,
     kind: 'file',
+    image_url: null,
+    is_cover: false,
     title: null,
     description: null,
     filename: 'spec.pdf',

@@ -1740,6 +1740,9 @@ class BoardStore {
       id,
       task_id: taskId,
       kind: 'link',
+      // A link is neither an image nor a cover.
+      image_url: null,
+      is_cover: false,
       title: null,
       description: null,
       filename: null,
