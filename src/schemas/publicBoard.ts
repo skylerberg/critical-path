@@ -2,6 +2,7 @@ import { type } from 'arktype';
 import { finiteNumber } from './common';
 import { boardColumnSchema, boardLabelSchema } from './board';
 import { nullableTiptapDocSchema, tiptapDocSchema } from './tiptap';
+import { attachmentSchema } from './attachments';
 
 export const publicBoardProjectSchema = type({
   id: 'string',
@@ -33,6 +34,7 @@ export const publicBoardTaskSchema = type({
   blocker_ids: 'string[]',
   image_count: 'number',
   cover_image_url: 'string | null',
+  attachment_count: 'number',
   comment_count: 'number',
   checklist_item_count: 'number',
   checklist_done_count: 'number',
@@ -67,6 +69,7 @@ export const publicBoardSchema = type({
   users: publicBoardUserSchema.array(),
   comments: publicBoardCommentSchema.array(),
   checklist_items: publicBoardChecklistItemSchema.array(),
+  attachments: attachmentSchema.array(),
 });
 
 export type PublicBoard = typeof publicBoardSchema.infer;

@@ -25,14 +25,28 @@ export const skipAuth: MiddlewareHandler = async (_c, next) => {
   await next();
 };
 
+// Reads a token if one is offered and serves without one if it is not, which
+// skipAuth cannot do: it never looks, so a member presenting a valid token would
+// arrive anonymous. For a resource whose audience depends on the row — an
+// attachment on a board that may or may not be published — the handler needs to
+// know who is asking before it can decide. A token that is present and bad is
+// still refused; only its absence is tolerated.
+export const optionalAuth: MiddlewareHandler = async (_c, next) => {
+  await next();
+};
+
 export async function authMiddleware(c: PublicContext, next: Next) {
-  if (matchedRoutes(c).some((route) => route.handler === skipAuth)) {
+  const matched = matchedRoutes(c);
+  if (matched.some((route) => route.handler === skipAuth)) {
     return await next();
   }
 
   const token = bearerToken(c);
 
   if (token === null) {
+    if (matched.some((route) => route.handler === optionalAuth)) {
+      return await next();
+    }
     throw new AppError(401, 'No token provided');
   }
 

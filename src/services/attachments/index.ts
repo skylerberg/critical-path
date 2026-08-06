@@ -105,6 +105,25 @@ export async function fetchTaskAttachments(
   return rows.map(toAttachmentResponse);
 }
 
+// One query for a screen-sized set of tasks, the same shape the comment and
+// checklist readers use.
+export async function fetchAttachmentsForTasks(
+  db: Kysely<DB>,
+  taskIds: readonly string[]
+): Promise<AttachmentResponse[]> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+  const rows = await db
+    .selectFrom('task_attachment')
+    .select(ATTACHMENT_COLUMNS)
+    .where('task_attachment.task_id', 'in', [...taskIds])
+    .orderBy('task_attachment.created_at')
+    .orderBy('task_attachment.id')
+    .execute();
+  return rows.map(toAttachmentResponse);
+}
+
 export async function countTaskAttachments(db: Kysely<DB>, taskId: string): Promise<number> {
   const { count } = await db
     .selectFrom('task_attachment')
@@ -145,6 +164,34 @@ export async function assertAttachmentAccess(
 ): Promise<Selectable<Project>> {
   const projectId = await attachmentProjectId(db, attachmentId);
   return await assertProjectAccess(db, userId, projectId, ATTACHMENT_NOT_FOUND);
+}
+
+// A published board publishes its attachments, so this is the one read that a
+// caller with no identity can pass. Anonymity is only enough for a public
+// project: on a private one the answer is still 401, because a token might have
+// earned access and saying 404 would be a lie the caller could not act on.
+export async function assertAttachmentReadable(
+  db: Kysely<DB>,
+  user: { id: string } | undefined,
+  attachmentId: string
+): Promise<void> {
+  const row = await db
+    .selectFrom('task_attachment')
+    .innerJoin('task', 'task.id', 'task_attachment.task_id')
+    .innerJoin('project', 'project.id', 'task.project_id')
+    .select(['project.id as project_id', 'project.is_public'])
+    .where('task_attachment.id', '=', attachmentId)
+    .executeTakeFirst();
+  if (!row) {
+    throw new AppError(user === undefined ? 401 : 404, ATTACHMENT_NOT_FOUND);
+  }
+  if (row.is_public) {
+    return;
+  }
+  if (user === undefined) {
+    throw new AppError(401, 'Authentication required');
+  }
+  await assertProjectAccess(db, user.id, row.project_id, ATTACHMENT_NOT_FOUND);
 }
 
 export type AttachmentScope =
