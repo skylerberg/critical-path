@@ -334,37 +334,44 @@ describe('board event application', () => {
     expect(board.filterLabelIds).toEqual([]);
   });
 
-  it('adopts the cover an image_deleted reports, which attachment_deleted omits', () => {
+  it('clears the cover when attachment_deleted reports it is gone', () => {
     board.tasks = [{ ...task('t1'), cover_image_url: '/api/images/img2' }];
 
     board.applyRealtime({
-      type: 'image_deleted',
+      type: 'attachment_deleted',
       project_id: 'p1',
-      data: { task_id: 't1', image_count: 1, cover_image_url: null },
+      data: { id: 'img2', task_id: 't1', attachment_count: 1, cover_image_url: null },
     });
 
     expect(board.tasks[0]!.cover_image_url).toBeNull();
   });
 
-  it('keeps a cover that survives someone else deleting another image', () => {
-    board.tasks = [{ ...task('t1'), image_count: 2, cover_image_url: '/api/images/img1' }];
+  it('keeps a cover that survives someone else deleting another attachment', () => {
+    board.tasks = [{ ...task('t1'), cover_image_url: '/api/images/img1' }];
 
     board.applyRealtime({
-      type: 'image_deleted',
+      type: 'attachment_deleted',
       project_id: 'p1',
-      data: { task_id: 't1', image_count: 1, cover_image_url: '/api/images/img1' },
+      data: {
+        id: 'img2',
+        task_id: 't1',
+        attachment_count: 1,
+        cover_image_url: '/api/images/img1',
+      },
     });
 
     expect(board.tasks[0]!.cover_image_url).toBe('/api/images/img1');
   });
 
-  it('reads an image_deleted that predates covers as no cover, never undefined', () => {
-    board.tasks = [{ ...task('t1'), image_count: 2, cover_image_url: '/api/images/img1' }];
+  // A pod that predates the field omits it; absent has to read as "no cover"
+  // rather than leaving undefined on the card.
+  it('reads an attachment_deleted without the field as no cover, never undefined', () => {
+    board.tasks = [{ ...task('t1'), cover_image_url: '/api/images/img1' }];
 
     board.applyRealtime({
-      type: 'image_deleted',
+      type: 'attachment_deleted',
       project_id: 'p1',
-      data: { task_id: 't1', image_count: 1 },
+      data: { id: 'img2', task_id: 't1', attachment_count: 1 },
     });
 
     expect(board.tasks[0]!.cover_image_url).toBeNull();
