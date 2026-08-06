@@ -14,7 +14,6 @@ const TASK_ID = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
 
 afterEach(() => {
   delete process.env.APP_URL_BASE;
-  delete process.env.RESET_URL_BASE;
 });
 
 function withBase(base: string): void {
@@ -22,8 +21,9 @@ function withBase(base: string): void {
 }
 
 // Literal paths, not `${env.appUrlBase}/...` interpolated back. The password
-// reset assertion used to compare the link against env.resetUrlBase, which held
+// reset assertion used to compare the link against RESET_URL_BASE, which held
 // the path, so it passed whatever the path was — the one link nothing checked.
+// Every path is now built here, so there is no environment that can move one.
 describe('web link paths', () => {
   it('builds every emailed link from one origin', () => {
     withBase('https://app.test');
@@ -49,14 +49,5 @@ describe('web link paths', () => {
     expect(unsubscribeOneClickUrl('abc')).toBe(
       'https://app.test/api/auth/unsubscribe/one-click?token=abc'
     );
-  });
-
-  // Until no deployment sets RESET_URL_BASE this path can still be moved from a
-  // manifest, where neither repo's tests can see it. Asserted so the override is
-  // a deliberate thing someone reads about rather than a surprise.
-  it('lets RESET_URL_BASE override the reset origin and path', () => {
-    withBase('https://app.test');
-    process.env.RESET_URL_BASE = 'https://legacy.test/password/new';
-    expect(passwordResetLink('abc')).toBe('https://legacy.test/password/new?token=abc');
   });
 });
