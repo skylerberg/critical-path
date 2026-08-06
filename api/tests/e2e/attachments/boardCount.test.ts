@@ -74,6 +74,7 @@ describe('attachment_count on the board', () => {
     expect(events[1].data).toEqual({
       id: attachmentId,
       task_id: taskId,
+      cover_image_url: null,
       attachment_count: 0,
     });
   });

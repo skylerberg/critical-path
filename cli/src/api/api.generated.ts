@@ -1067,26 +1067,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/tasks/{id}/images': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Upload task image
-     * @description Attach an image to a task via multipart form data. The stored content type is determined solely by magic-byte sniffing (PNG, JPEG, GIF, or WebP); the client-declared MIME type is ignored. Maximum file size 10 MB. An optional `id` field supplies the image id (server-generated when omitted).
-     */
-    post: operations['postApiTasksByIdImages'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   '/api/tasks/bulk-move': {
     parameters: {
       query?: never;
@@ -1373,11 +1353,7 @@ export interface paths {
     get: operations['getApiImagesById'];
     put?: never;
     post?: never;
-    /**
-     * Delete image
-     * @description Delete an image row; the stored object is removed after the transaction commits.
-     */
-    delete: operations['deleteApiImagesById'];
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -1962,7 +1938,6 @@ export interface components {
       description: components['schemas']['NullableTiptapDoc'];
       due_date: string | null;
       id: string;
-      image_count: number;
       label_ids: string[];
       sort_key: string;
       title: string;
@@ -2007,7 +1982,6 @@ export interface components {
       description: components['schemas']['NullableTiptapDoc'];
       due_date: string | null;
       id: string;
-      image_count: number;
       label_ids: string[];
       sort_key: string;
       title: string;
@@ -2216,7 +2190,6 @@ export interface components {
       description: components['schemas']['NullableTiptapDoc'];
       due_date: string | null;
       id: string;
-      image_count: number;
       images: components['schemas']['ImageResponse'][];
       label_ids: string[];
       project_id: string;
@@ -2663,7 +2636,6 @@ export interface components {
       description: components['schemas']['NullableTiptapDoc'];
       due_date: string | null;
       id: string;
-      image_count: number;
       label_ids: string[];
       sort_key: string;
       title: string;
@@ -6570,112 +6542,6 @@ export interface operations {
       };
     };
   };
-  postApiTasksByIdImages: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'multipart/form-data': {
-          /** Format: binary */
-          file: string;
-          /**
-           * Format: uuid
-           * @description Optional client-supplied image id
-           */
-          id?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Image uploaded */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ImageResponse'];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Authentication required or failed */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Forbidden - insufficient permissions */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Conflict - resource already exists */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Payload Too Large */
-      413: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Unprocessable request */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
   postApiTasksBulkMove: {
     parameters: {
       query?: never;
@@ -7837,71 +7703,6 @@ export interface operations {
       };
       /** @description Bad Request */
       400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-    };
-  };
-  deleteApiImagesById: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Image deleted */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Authentication required or failed */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Error'];
-        };
-      };
-      /** @description Forbidden - insufficient permissions */
-      403: {
         headers: {
           [name: string]: unknown;
         };

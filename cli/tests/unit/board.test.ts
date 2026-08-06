@@ -18,7 +18,6 @@ function task(id: string, columnId: string, rank: number, blockerIds: string[] =
     label_ids: [],
     assignee_ids: [],
     blocker_ids: blockerIds,
-    image_count: 0,
     cover_image_url: null,
     comment_count: 0,
     checklist_item_count: 0,

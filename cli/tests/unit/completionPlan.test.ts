@@ -162,7 +162,7 @@ describe('planCompletion: entity values', () => {
 
 describe('planCompletion: paths and dead ends', () => {
   it('asks for file completion on a path positional', () => {
-    expect(plan(['cpath', 'image', 'upload', 'Ship it', ''])).toEqual({ kind: 'files' });
+    expect(plan(['cpath', 'attachment', 'upload', 'Ship it', ''])).toEqual({ kind: 'files' });
   });
 
   it('asks for file completion on a path option', () => {

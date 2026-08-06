@@ -415,10 +415,19 @@ router.delete(
       });
     }
 
+    // The cover lives on the row, so deleting one can clear it. Reported here
+    // because this is now the only event that says an attachment went away.
+    const cover = await db
+      .selectFrom('task_attachment')
+      .select('task_attachment.id')
+      .where('task_attachment.task_id', '=', deleted.task_id)
+      .where('task_attachment.is_cover', '=', true)
+      .executeTakeFirst();
     publishAfterCommit(c, 'attachment_deleted', project.id, {
       id,
       task_id: deleted.task_id,
       attachment_count: await countTaskAttachments(db, deleted.task_id),
+      cover_image_url: cover === undefined ? null : `/api/images/${cover.id}`,
     });
     return c.body(null, 204);
   }

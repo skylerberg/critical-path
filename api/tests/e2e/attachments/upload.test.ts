@@ -411,17 +411,7 @@ describe('POST /api/attachments/files', () => {
       const previous = process.env.PROJECT_STORAGE_QUOTA_BYTES;
       process.env.PROJECT_STORAGE_QUOTA_BYTES = String(PNG_1X1.length + 10);
       try {
-        const image = await ctx.request(user.token).postMultipart(
-          `/api/tasks/${taskId}/images`,
-          (() => {
-            const form = new FormData();
-            form.append(
-              'file',
-              new File([new Uint8Array(PNG_1X1)], 'p.png', { type: 'image/png' })
-            );
-            return form;
-          })()
-        );
+        const image = await ctx.request(user.token).postBytes(uploadPath(taskId, 'p.png'), PNG_1X1);
         expect(image.status).toBe(201);
 
         const attachment = await ctx
@@ -429,17 +419,9 @@ describe('POST /api/attachments/files', () => {
           .postBytes(uploadPath(taskId, 'over.bin'), Buffer.alloc(64, 5));
         expect(attachment.status).toBe(413);
 
-        const secondImage = await ctx.request(user.token).postMultipart(
-          `/api/tasks/${taskId}/images`,
-          (() => {
-            const form = new FormData();
-            form.append(
-              'file',
-              new File([new Uint8Array(PNG_1X1)], 'q.png', { type: 'image/png' })
-            );
-            return form;
-          })()
-        );
+        const secondImage = await ctx
+          .request(user.token)
+          .postBytes(uploadPath(taskId, 'q.png'), PNG_1X1);
         expect(secondImage.status).toBe(413);
       } finally {
         if (previous === undefined) delete process.env.PROJECT_STORAGE_QUOTA_BYTES;

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects, insertTask, insertTaskImage } from './helpers';
 
 const PNG_1X1 = Buffer.from(
@@ -100,9 +100,6 @@ describe('project access control', () => {
 
     it('returns 404 on every project-scoped route for a non-creator', async () => {
       const b = ctx.request(bob.token);
-      const form = new FormData();
-      form.append('file', new File([new Uint8Array(PNG_1X1)], 'p.png', { type: 'image/png' }));
-
       const attempts: Array<Promise<Response>> = [
         b.get(`/api/projects/${projectId}`),
         b.patch(`/api/projects/${projectId}`, { name: 'stolen' }),
@@ -142,8 +139,8 @@ describe('project access control', () => {
         }),
         b.patch(`/api/labels/${labelId}`, { name: 'stolen label' }),
         b.delete(`/api/labels/${labelId}`),
-        b.postMultipart(`/api/tasks/${taskId}/images`, form),
-        b.delete(`/api/images/${imageId}`),
+        b.postBytes(imageUploadPath(taskId, 'p.png'), PNG_1X1),
+        b.delete(`/api/attachments/${imageId}`),
       ];
 
       for (const res of await Promise.all(attempts)) {
