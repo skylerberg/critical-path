@@ -6,8 +6,39 @@ on:
   pull_request:
 
 jobs:
-  ci:
+  # Fast, DB-free checks. Runs in parallel with the test shards below, so a
+  # lint or type error doesn't wait on the suite — and the suite doesn't wait
+  # on them either.
+  checks:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm ci --prefix cli
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run type-check
+      # The root scripts cover src/ and tests/ only, and npm test runs the CLI
+      # suites through tsx, which strips types without checking them.
+      - run: npm run --prefix cli check
+
+  # The suite runs with vitest fileParallelism:false: files within a run share
+  # one database, so running them concurrently would collide. That leaves the
+  # suite single-core and ~4 min — by far the slowest part of CI. Sharding
+  # keeps the rule rather than breaking it: each shard gets its own isolated
+  # Postgres + Redis, so files stay serial within a shard while the shards run
+  # in parallel. Test files are independent (unique-id fixtures, per-file
+  # afterAll cleanup, no shared seed), so any file split is safe.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     services:
       postgres:
         image: postgres:18
@@ -40,6 +71,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      # The suite includes cli/tests/**, whose imports (commander,
+      # openapi-fetch, mdast-*) resolve from cli/node_modules.
       - run: npm ci --prefix cli
       # Node's --env-file hard-errors when the file is missing, so write it.
       - name: Write .env.test
@@ -54,13 +87,7 @@ jobs:
           ENVIRONMENT=test
           REDIS_TEST_URL=redis://127.0.0.1:6379/15
           EOF
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run type-check
-      # The root scripts cover src/ and tests/ only, and npm test runs the CLI
-      # suites through tsx, which strips types without checking them.
-      - run: npm run --prefix cli check
-      - run: npm test
+      - run: npm test -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   preview-edge:
     runs-on: ubuntu-latest
