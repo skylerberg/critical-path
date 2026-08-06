@@ -90,11 +90,11 @@ class ProjectsStore {
     this.#stampedSinceLoad.clear();
   }
 
-  async create(name: string): Promise<string | null> {
+  async create(name: string): Promise<string> {
     return this.#create({ id: newId(), name });
   }
 
-  async copy(sourceProjectId: string, name: string): Promise<string | null> {
+  async copy(sourceProjectId: string, name: string): Promise<string> {
     return this.#create({ id: newId(), name, source_project_id: sourceProjectId });
   }
 
@@ -370,7 +370,7 @@ class ProjectsStore {
     }
   }
 
-  async #create(body: CreateProject): Promise<string | null> {
+  async #create(body: CreateProject): Promise<string> {
     const optimistic: Project = {
       id: body.id,
       name: body.name,
@@ -394,8 +394,9 @@ class ProjectsStore {
       this.#applyPayload(payload);
       return body.id;
     } catch (error) {
-      await this.#mutationFailed(error, 'Failed to create project');
-      return null;
+      // Rethrown after the resync so the form can surface the rejection inline.
+      await this.load();
+      throw error;
     }
   }
 

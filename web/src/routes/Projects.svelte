@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { ApiError } from '../api/client';
   import { accentVar } from '../lib/accents';
   import { isProjectOwner, projects, type Project } from '../lib/projects.svelte';
   import { link, router } from '../lib/router.svelte';
@@ -60,12 +61,21 @@
     }
     createError = '';
     creating = true;
-    const id =
-      copySource === null ? await projects.create(name) : await projects.copy(copySource.id, name);
-    creating = false;
-    createOpen = false;
-    if (id !== null) {
+    try {
+      const id =
+        copySource === null
+          ? await projects.create(name)
+          : await projects.copy(copySource.id, name);
+      createOpen = false;
       router.navigate(projectHref(id, name));
+    } catch (error) {
+      const fallback =
+        copySource === null
+          ? 'Could not create the project. Try again.'
+          : 'Could not copy the project. Try again.';
+      createError = error instanceof ApiError ? error.message : fallback;
+    } finally {
+      creating = false;
     }
   }
 
