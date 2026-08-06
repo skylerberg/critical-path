@@ -104,14 +104,6 @@ export const env = {
     return process.env.EMAIL_TOKEN_SECRET || env.passwordResetSecret;
   },
 
-  // Derived rather than a second hardcoded origin, so the reset path lives in
-  // webLinks with the others instead of only in a deployment manifest. The
-  // override stays until no environment sets RESET_URL_BASE; see
-  // `passwordResetLink`.
-  get resetUrlBase(): string {
-    return process.env.RESET_URL_BASE || `${env.appUrlBase}/reset-password`;
-  },
-
   get appUrlBase(): string {
     return process.env.APP_URL_BASE || 'http://localhost:5173';
   },

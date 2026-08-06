@@ -113,8 +113,12 @@ for the frontend's conventions.
 - Password-reset emails go through `src/services/email` (`EMAIL_DRIVER`:
   `console` default, `ses` loads the AWS SDK on first send). Reset tokens are
   stateless HMAC (`PASSWORD_RESET_SECRET`, required in production), 15-minute
-  TTL, links built from `RESET_URL_BASE`. `POST /api/auth/forgot-password`
-  always answers 204 and enqueues the send as a post-commit hook.
+  TTL. Every link the server mails is built in `src/services/webLinks.ts` from
+  `APP_URL_BASE`, never in the service that sends it: the paths are pinned there
+  and again in the web app's `src/lib/router.test.ts`, which is what keeps a
+  route rename from quietly turning mail into a not-found page. `POST
+  /api/auth/forgot-password` always answers 204 and enqueues the send as a
+  post-commit hook.
 
 # CLI
 
