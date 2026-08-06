@@ -1901,7 +1901,6 @@ export interface components {
       members: components['schemas']['ProjectMember'][];
       name: string;
       open_task_count: number;
-      position: number | null;
       sort_key: string | null;
     };
     NullableProjectAccent:
@@ -1930,9 +1929,7 @@ export interface components {
       id: string;
       is_done: boolean;
       name: string;
-      /** @description a finite number */
-      position: number;
-      sort_key: string | null;
+      sort_key: string;
     };
     BoardLabel: {
       color: string;
@@ -1967,9 +1964,7 @@ export interface components {
       id: string;
       image_count: number;
       label_ids: string[];
-      /** @description a finite number */
-      position: number;
-      sort_key: string | null;
+      sort_key: string;
       title: string;
       updated_at: string;
     };
@@ -2014,9 +2009,7 @@ export interface components {
       id: string;
       image_count: number;
       label_ids: string[];
-      /** @description a finite number */
-      position: number;
-      sort_key: string | null;
+      sort_key: string;
       title: string;
       updated_at: string;
     };
@@ -2052,8 +2045,7 @@ export interface components {
         checklist_items: {
           checked: boolean;
           id: string;
-          position: number;
-          sort_key: string | null;
+          sort_key: string;
           text: string;
         }[];
         column_id: string;
@@ -2065,9 +2057,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
-        /** @description a finite number */
-        position: number;
-        sort_key: string | null;
+        sort_key: string;
         title: string;
         updated_at: string;
       }[];
@@ -2076,10 +2066,8 @@ export interface components {
     };
     AttachmentsUnfurlstate: 'failed' | 'ok' | 'pending' | null;
     SetProjectPosition: {
-      /** @description a finite number */
-      position: number;
       /** @description a sort key */
-      sort_key?: string;
+      sort_key: string;
     };
     SetProjectMembers: {
       roles?: components['schemas']['ProjectMemberRoleEntry'][];
@@ -2134,17 +2122,13 @@ export interface components {
       id: string;
       is_done: boolean;
       name: string;
-      /** @description a finite number */
-      position: number;
       project_id: string;
-      sort_key: string | null;
+      sort_key: string;
     };
     CreateColumn: {
       /** Format: uuid */
       id: string;
       name: string;
-      /** @description a finite number */
-      position: number;
       /** Format: uuid */
       project_id: string;
       is_done?: boolean;
@@ -2158,16 +2142,12 @@ export interface components {
     Duplicate: {
       /** Format: uuid */
       id: string;
-      /** @description a finite number */
-      position: number;
       /** @description a sort key */
       sort_key?: string;
     };
     PatchColumn: {
       is_done?: boolean;
       name?: string;
-      /** @description a finite number */
-      position?: number;
       /** @description a sort key */
       sort_key?: string;
     };
@@ -2177,9 +2157,7 @@ export interface components {
     MovedTask: {
       column_id: string;
       id: string;
-      /** @description a finite number */
-      position: number;
-      sort_key: string | null;
+      sort_key: string;
     };
     MoveColumnTasks: {
       /** Format: uuid */
@@ -2193,8 +2171,6 @@ export interface components {
       column_id: string;
       /** Format: uuid */
       id: string;
-      /** @description a finite number */
-      position: number;
       /** Format: uuid */
       project_id: string;
       title: string;
@@ -2218,8 +2194,6 @@ export interface components {
     CreateTasksBatchItem: {
       /** Format: uuid */
       id: string;
-      /** @description a finite number */
-      position: number;
       title: string;
       /** @description a sort key */
       sort_key?: string;
@@ -2245,11 +2219,9 @@ export interface components {
       image_count: number;
       images: components['schemas']['ImageResponse'][];
       label_ids: string[];
-      /** @description a finite number */
-      position: number;
       project_id: string;
       series_summary: string | null;
-      sort_key: string | null;
+      sort_key: string;
       title: string;
       updated_at: string;
     };
@@ -2276,9 +2248,7 @@ export interface components {
       checked: boolean;
       created_at: string;
       id: string;
-      /** @description a finite number */
-      position: number;
-      sort_key: string | null;
+      sort_key: string;
       task_id: string;
       text: string;
       updated_at: string;
@@ -2305,8 +2275,6 @@ export interface components {
       description?: components['schemas']['NullableTiptapDoc'];
       due_date?: string | null;
       expected_updated_at?: string;
-      /** @description a finite number */
-      position?: number;
       /** @description a sort key */
       sort_key?: string;
       title?: string;
@@ -2484,8 +2452,6 @@ export interface components {
     CreateChecklistItem: {
       /** Format: uuid */
       id: string;
-      /** @description a finite number */
-      position: number;
       /** Format: uuid */
       task_id: string;
       text: string;
@@ -2495,8 +2461,6 @@ export interface components {
     };
     PatchChecklistItem: {
       checked?: boolean;
-      /** @description a finite number */
-      position?: number;
       /** @description a sort key */
       sort_key?: string;
       text?: string;
@@ -2595,8 +2559,6 @@ export interface components {
     };
     TaskSeriesChecklistItem: {
       id: string;
-      /** @description a finite number */
-      position: number;
       text: string;
     };
     TaskSeriesCreateResponse: {
@@ -2647,8 +2609,6 @@ export interface components {
       rrule?: string;
     };
     RequestBodyChecklistitems: {
-      /** @description a finite number */
-      position: number;
       text: string;
     };
     PatchTaskSeries: {
@@ -2682,9 +2642,7 @@ export interface components {
     PublicBoardChecklistItem: {
       checked: boolean;
       id: string;
-      /** @description a finite number */
-      position: number;
-      sort_key: string | null;
+      sort_key: string;
       task_id: string;
       text: string;
     };
@@ -2707,9 +2665,7 @@ export interface components {
       id: string;
       image_count: number;
       label_ids: string[];
-      /** @description a finite number */
-      position: number;
-      sort_key: string | null;
+      sort_key: string;
       title: string;
     };
   };

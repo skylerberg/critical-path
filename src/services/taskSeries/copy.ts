@@ -1,7 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import { projectAccessIdsAmong, type ProjectAccessFields } from '../authorization';
-import { reconcileSortKeys } from '../sortKeyAssignment';
 import { scheduleFrom, todayIn } from './write';
 
 export interface CopySeriesInput {
@@ -110,7 +109,7 @@ export async function copySeries(db: Kysely<DB>, input: CopySeriesInput): Promis
     .select([
       'task_series_checklist_item.series_id',
       'task_series_checklist_item.text',
-      'task_series_checklist_item.position',
+      'task_series_checklist_item.sort_key',
     ])
     .where('task_series_checklist_item.series_id', 'in', sourceIds)
     .execute();
@@ -122,17 +121,9 @@ export async function copySeries(db: Kysely<DB>, input: CopySeriesInput): Promis
           id: crypto.randomUUID(),
           series_id: seriesIdMap.get(row.series_id) as string,
           text: row.text,
-          position: row.position,
+          sort_key: row.sort_key,
         }))
       )
       .execute();
-
-    for (const sourceSeriesId of new Set(checklistItems.map((row) => row.series_id))) {
-      await reconcileSortKeys(
-        db,
-        'task_series_checklist_item',
-        seriesIdMap.get(sourceSeriesId) as string
-      );
-    }
   }
 }

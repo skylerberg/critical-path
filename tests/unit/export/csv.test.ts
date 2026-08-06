@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { toCsv, tasksCsv, tiptapToPlainText } from '../../../src/services/export/csv';
 import type { ProjectExport, TiptapDoc } from '../../../src/schemas/index';
+import { rankKey } from '../../helpers/fixtures';
 
 describe('toCsv', () => {
   it('leaves plain fields unquoted and terminates every row with CRLF', () => {
@@ -171,8 +172,8 @@ function exportFixture(overrides: Partial<ProjectExport> = {}): ProjectExport {
     },
     users: [{ id: 'u1', name: 'Owner' }],
     columns: [
-      { id: 'c1', name: 'To Do', position: 1000, is_done: false },
-      { id: 'c2', name: 'Done', position: 2000, is_done: true },
+      { id: 'c1', name: 'To Do', sort_key: rankKey(1000), is_done: false },
+      { id: 'c2', name: 'Done', sort_key: rankKey(2000), is_done: true },
     ],
     labels: [{ id: 'l1', name: 'bug', color: '#ff0000' }],
     tasks: [],
@@ -188,7 +189,7 @@ function taskFixture(
     column_id: 'c1',
     title: 'Task',
     description: null,
-    position: 1000,
+    sort_key: rankKey(1000),
     due_date: null,
     created_at: '2026-07-02T00:00:00.000Z',
     updated_at: '2026-07-03T00:00:00.000Z',
@@ -218,8 +219,8 @@ describe('tasksCsv', () => {
         tasks: [
           taskFixture({
             checklist_items: [
-              { id: 'k1', text: 'first', checked: true, position: 1000 },
-              { id: 'k2', text: 'second', checked: false, position: 2000 },
+              { id: 'k1', text: 'first', checked: true, sort_key: rankKey(1000) },
+              { id: 'k2', text: 'second', checked: false, sort_key: rankKey(2000) },
             ],
           }),
         ],
@@ -236,7 +237,7 @@ describe('tasksCsv', () => {
           taskFixture({
             id: 't2',
             title: 'Blocked task',
-            position: 2000,
+            sort_key: rankKey(2000),
             due_date: '2026-08-03',
             label_ids: ['l1'],
             assignee_ids: ['u1'],
@@ -278,10 +279,10 @@ describe('tasksCsv', () => {
 
     const lines = csv.split('\r\n');
     expect(lines[1]).toBe(
-      't1,Blocker task,Done,true,1000,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
+      't1,Blocker task,Done,true,1,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[2]).toBe(
-      't2,Blocked task,To Do,false,2000,2026-08-03,bug,Owner,Blocker task,1,2,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
+      't2,Blocked task,To Do,false,2,2026-08-03,bug,Owner,Blocker task,1,2,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[3]).toBe('');
   });
@@ -299,11 +300,11 @@ describe('tasksCsv', () => {
         ],
         tasks: [
           taskFixture({ id: 't1', title: 'One' }),
-          taskFixture({ id: 't2', title: 'Two', position: 2000 }),
+          taskFixture({ id: 't2', title: 'Two', sort_key: rankKey(2000) }),
           taskFixture({
             id: 't3',
             title: 'Three',
-            position: 3000,
+            sort_key: rankKey(3000),
             label_ids: ['l1', 'l2'],
             assignee_ids: ['u1', 'u2'],
             blocker_ids: ['t1', 't2'],
@@ -313,7 +314,7 @@ describe('tasksCsv', () => {
     );
 
     expect(csv.split('\r\n')[3]).toBe(
-      't3,Three,To Do,false,3000,,bug; ui,Owner; Dev,One; Two,0,0,' +
+      't3,Three,To Do,false,3,,bug; ui,Owner; Dev,One; Two,0,0,' +
         '2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
   });
@@ -331,11 +332,11 @@ describe('tasksCsv', () => {
         ],
         tasks: [
           taskFixture({ id: 't1', title: 'First' }),
-          taskFixture({ id: 't2', title: 'Second', position: 2000 }),
+          taskFixture({ id: 't2', title: 'Second', sort_key: rankKey(2000) }),
           taskFixture({
             id: 't3',
             title: 'Third',
-            position: 3000,
+            sort_key: rankKey(3000),
             label_ids: ['l1', 'l2'],
             assignee_ids: ['u1', 'u2'],
             blocker_ids: ['t2', 't1'],
@@ -364,7 +365,7 @@ describe('tasksCsv', () => {
     );
 
     expect(csv.split('\r\n')[1]).toBe(
-      't1,Task,To Do,false,1000,,bug,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
+      't1,Task,To Do,false,1,,bug,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
   });
 
@@ -376,7 +377,7 @@ describe('tasksCsv', () => {
           taskFixture({
             id: 't2',
             title: 'Shelved',
-            position: 2000,
+            sort_key: rankKey(2000),
             archived_at: '2026-07-05T00:00:00.000Z',
           }),
         ],
@@ -385,10 +386,10 @@ describe('tasksCsv', () => {
 
     const lines = csv.split('\r\n');
     expect(lines[1]).toBe(
-      't1,Live,To Do,false,1000,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
+      't1,Live,To Do,false,1,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,,,'
     );
     expect(lines[2]).toBe(
-      't2,Shelved,To Do,false,2000,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,' +
+      't2,Shelved,To Do,false,2,,,,,0,0,2026-07-02T00:00:00.000Z,2026-07-03T00:00:00.000Z,' +
         '2026-07-05T00:00:00.000Z,,'
     );
   });

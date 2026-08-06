@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 
 export function uploadPath(
   taskId: string,
@@ -49,7 +49,7 @@ export async function createTaskFixture(
   await db.insertInto('project').values({ id: projectId, name, created_by: ownerId }).execute();
   await db
     .insertInto('board_column')
-    .values({ id: columnId, project_id: projectId, name: 'To Do', position: 1000 })
+    .values({ id: columnId, project_id: projectId, name: 'To Do', sort_key: rankKey(1000) })
     .execute();
   await db
     .insertInto('task')
@@ -58,7 +58,7 @@ export async function createTaskFixture(
       project_id: projectId,
       column_id: columnId,
       title: 'task',
-      position: 1000,
+      sort_key: rankKey(1000),
     })
     .execute();
 

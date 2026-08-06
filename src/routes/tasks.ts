@@ -20,12 +20,12 @@ import {
 } from '../services/attachments/index';
 import { setTaskCoverImage } from '../services/attachments/images';
 import { assertColumnInProject } from '../services/boardColumns';
+import { appendKeys, resolveSortKey } from '../services/sortKey';
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
 import { dueDateText } from '../services/dueDate';
 import { notifyMentions } from '../services/mentions';
 import { notify } from '../services/notifications';
 import { copyTasks } from '../services/projectCopy';
-import { reconcileSortKeys } from '../services/sortKeyAssignment';
 import { storage } from '../services/storage/index';
 import {
   findDependencyCyclePath,
@@ -163,6 +163,10 @@ router.post(
     await assertAssigneesHaveProjectAccess(db, assigneeIds, project);
 
     try {
+      const sortKey =
+        body.sort_key === undefined
+          ? (await appendKeys(db, 'task', body.column_id))[0]!
+          : await resolveSortKey(db, 'task', body.column_id, body.sort_key);
       await db
         .insertInto('task')
         .values({
@@ -171,8 +175,7 @@ router.post(
           column_id: body.column_id,
           title: body.title,
           description: serializeDescription(body.description),
-          position: body.position,
-          sort_key: body.sort_key ?? null,
+          sort_key: sortKey,
           due_date: body.due_date ?? null,
         })
         .execute();
@@ -181,10 +184,6 @@ router.post(
         throw new AppError(409, 'Task id already in use');
       }
       throw err;
-    }
-
-    if (body.sort_key === undefined) {
-      await reconcileSortKeys(db, 'task', body.column_id);
     }
 
     if (labelIds.length > 0) {
@@ -272,16 +271,32 @@ router.post(
 
     const project = await assertTaskWrite(db, actorId, id);
 
-    try {
+    // The caller ranks the copy against the cards it can see, which excludes the
+    // archived ones still holding keys in that column, so a collision here is
+    // ordinary rather than a duplicate id.
+    const copy = async (sortKey: string | undefined): Promise<void> => {
       await copyTasks(db, {
         sourceTaskIds: [id],
         projectId: project.id,
         actorUserId: actorId,
         columnIdFor: (columnId) => columnId,
-        positionFor: () => body.position,
+        sortKeyFor: () => sortKey,
         newIdFor: () => body.id,
         copyAssignees: true,
       });
+    };
+
+    try {
+      if (body.sort_key === undefined) {
+        await copy(undefined);
+      } else {
+        const source = await db
+          .selectFrom('task')
+          .select('task.column_id')
+          .where('task.id', '=', id)
+          .executeTakeFirstOrThrow();
+        await copy(await resolveSortKey(db, 'task', source.column_id, body.sort_key));
+      }
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new AppError(409, 'Task id already in use');
@@ -342,16 +357,16 @@ router.post(
     await assertColumnInProject(db, body.column_id, body.project_id);
 
     try {
+      const appended = await appendKeys(db, 'task', body.column_id, body.tasks.length);
       await db
         .insertInto('task')
         .values(
-          body.tasks.map((task) => ({
+          body.tasks.map((task, index) => ({
             id: task.id,
             project_id: body.project_id,
             column_id: body.column_id,
             title: task.title,
-            position: task.position,
-            sort_key: task.sort_key ?? null,
+            sort_key: task.sort_key ?? appended[index]!,
           }))
         )
         .execute();
@@ -360,10 +375,6 @@ router.post(
         throw new AppError(409, 'Task id already in use');
       }
       throw err;
-    }
-
-    if (body.tasks.some((task) => task.sort_key === undefined)) {
-      await reconcileSortKeys(db, 'task', body.column_id);
     }
 
     await recordTaskActivity(
@@ -499,7 +510,7 @@ router.get(
       task_id: item.task_id,
       text: item.text,
       checked: item.checked,
-      position: item.position,
+      sort_key: item.sort_key,
       created_at: item.created_at.toISOString(),
       updated_at: item.updated_at.toISOString(),
     }));
@@ -663,12 +674,21 @@ router.patch(
     const columnChanged =
       body.column_id !== undefined && before !== null && body.column_id !== before.column_id;
 
+    // A key only ranks a card against its own column's, so a move that does not
+    // carry one has to be re-ranked into the destination rather than keeping a
+    // key that means nothing there -- and that the column may already hold.
+    const movedWithoutKey =
+      body.sort_key === undefined && body.column_id !== undefined && columnChanged;
+    const relocatedKey = movedWithoutKey
+      ? (await appendKeys(db, 'task', body.column_id as string))[0]!
+      : undefined;
+
     const changes = {
       ...(body.title !== undefined ? { title: body.title } : {}),
       ...('description' in body ? { description: nextDescription } : {}),
       ...(body.column_id !== undefined ? { column_id: body.column_id } : {}),
-      ...(body.position !== undefined ? { position: body.position } : {}),
       ...(body.sort_key !== undefined ? { sort_key: body.sort_key } : {}),
+      ...(relocatedKey !== undefined ? { sort_key: relocatedKey } : {}),
       ...('due_date' in body ? { due_date: body.due_date ?? null } : {}),
       ...(guardsContent ? { updated_at: sql<Date>`now()` } : {}),
       ...(columnChanged ? { column_since: sql<Date>`now()` } : {}),
@@ -678,25 +698,6 @@ router.patch(
     // `{}` patch would compile to an UPDATE with an empty SET list.
     if (Object.keys(changes).length > 0) {
       await db.updateTable('task').set(changes).where('task.id', '=', id).execute();
-    }
-
-    // Only the destination: taking a row out of a column leaves the keys behind
-    // it in order. A position-only patch skips the `before` read above, and
-    // widening that read would take its row lock on every drag.
-    if (body.sort_key === undefined && (body.position !== undefined || columnChanged)) {
-      const destination =
-        body.column_id ??
-        before?.column_id ??
-        (
-          await db
-            .selectFrom('task')
-            .select('task.column_id')
-            .where('task.id', '=', id)
-            .executeTakeFirst()
-        )?.column_id;
-      if (destination !== undefined) {
-        await reconcileSortKeys(db, 'task', destination);
-      }
     }
 
     if (before !== null) {

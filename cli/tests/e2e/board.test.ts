@@ -31,7 +31,7 @@ describe('board and ready views', () => {
     });
     expect(create.status).toBe(201);
     board = (await create.json()) as BoardPayload;
-    const columns = [...board.columns].sort((a, b) => a.position - b.position);
+    const columns = [...board.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1));
     todo = columns[1].id;
     done = columns.find((c) => c.is_done)!.id;
 

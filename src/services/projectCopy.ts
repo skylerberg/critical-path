@@ -6,7 +6,7 @@ import { storage } from './storage/index';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { dueDateText } from './dueDate';
-import { reconcileSortKeys } from './sortKeyAssignment';
+import { appendKeys } from './sortKey';
 import { recordTaskActivity } from './taskActivity';
 import { copySeries } from './taskSeries/copy';
 import type { TiptapDoc, TiptapNode } from '../schemas/index';
@@ -52,7 +52,7 @@ export interface CopyTasksInput {
   actorUserId: string;
   columnIdFor: (sourceColumnId: string) => string;
   labelIdFor?: (sourceLabelId: string) => string;
-  positionFor?: (source: { position: number }) => number;
+  sortKeyFor?: (source: { sort_key: string }) => string | undefined;
   newIdFor?: () => string;
   copyAssignees: boolean;
 }
@@ -68,8 +68,7 @@ export async function copyTasks(
   }
   const newIdFor = input.newIdFor ?? ((): string => crypto.randomUUID());
   const labelIdFor = input.labelIdFor ?? ((labelId: string): string => labelId);
-  const positionFor =
-    input.positionFor ?? ((source: { position: number }): number => source.position);
+  const sortKeyFor = input.sortKeyFor;
 
   const tasks = await db
     .selectFrom('task')
@@ -78,7 +77,7 @@ export async function copyTasks(
       'task.column_id',
       'task.title',
       'task.description',
-      'task.position',
+      'task.sort_key',
       dueDateText.as('due_date'),
     ])
     .where('task.id', 'in', input.sourceTaskIds)
@@ -96,6 +95,29 @@ export async function copyTasks(
     .execute();
   const imageIdMap = new Map(imageIds.map((row) => [row.id, crypto.randomUUID()]));
 
+  // A copy into the column it came from cannot keep the source's key -- they
+  // are unique per column. Only a copy into a fresh column can, and that is what
+  // keeps a duplicated column's cards in the order they were in.
+  const destinationKeys = new Map<string, string>();
+  const appendedBy = new Map<string, string[]>();
+  for (const task of tasks) {
+    const destination = input.columnIdFor(task.column_id);
+    const explicit = sortKeyFor?.(task);
+    if (explicit !== undefined) {
+      destinationKeys.set(task.id, explicit);
+    } else if (destination === task.column_id) {
+      const queued = appendedBy.get(destination) ?? [];
+      queued.push(task.id);
+      appendedBy.set(destination, queued);
+    } else {
+      destinationKeys.set(task.id, task.sort_key);
+    }
+  }
+  for (const [destination, taskIds] of appendedBy) {
+    const fresh = await appendKeys(db, 'task', destination, taskIds.length);
+    taskIds.forEach((taskId, index) => destinationKeys.set(taskId, fresh[index]!));
+  }
+
   if (tasks.length > 0) {
     await db
       .insertInto('task')
@@ -111,15 +133,11 @@ export async function copyTasks(
               : JSON.stringify(
                   rewriteDescriptionImageIds(task.description as unknown as TiptapDoc, imageIdMap)
                 ),
-          position: positionFor(task),
+          sort_key: destinationKeys.get(task.id) as string,
           due_date: task.due_date,
         }))
       )
       .execute();
-
-    for (const columnId of new Set(tasks.map((task) => input.columnIdFor(task.column_id)))) {
-      await reconcileSortKeys(db, 'task', columnId);
-    }
 
     // The copies are new cards whose history starts here.
     await recordTaskActivity(
@@ -198,7 +216,7 @@ export async function copyTasks(
       'checklist_item.task_id',
       'checklist_item.text',
       'checklist_item.checked',
-      'checklist_item.position',
+      'checklist_item.sort_key',
     ])
     .where('checklist_item.task_id', 'in', input.sourceTaskIds)
     .execute();
@@ -215,14 +233,10 @@ export async function copyTasks(
           task_id: taskIdMap.get(row.task_id) as string,
           text: row.text,
           checked: row.checked,
-          position: row.position,
+          sort_key: row.sort_key,
         }))
       )
       .execute();
-  }
-
-  for (const sourceTaskId of new Set(checklistItems.map((row) => row.task_id))) {
-    await reconcileSortKeys(db, 'checklist_item', taskIdMap.get(sourceTaskId) as string);
   }
 
   // One routine copies all three kinds now, images included.
@@ -282,7 +296,7 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
 
   const columns = await db
     .selectFrom('board_column')
-    .select(['id', 'name', 'position', 'is_done'])
+    .select(['id', 'name', 'sort_key', 'is_done'])
     .where('project_id', '=', input.sourceProjectId)
     .execute();
   const columnIdMap = new Map(columns.map((column) => [column.id, crypto.randomUUID()]));
@@ -295,13 +309,11 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
           id: columnIdMap.get(column.id) as string,
           project_id: input.id,
           name: column.name,
-          position: column.position,
+          sort_key: column.sort_key,
           is_done: column.is_done,
         }))
       )
       .execute();
-
-    await reconcileSortKeys(db, 'board_column', input.id);
   }
 
   const labels = await db

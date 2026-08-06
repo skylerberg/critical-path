@@ -5,7 +5,7 @@ import { app } from '../../../src/index';
 import { attachRealtime, type RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { RtClient, settle } from '../realtime/helpers';
 import { MAX_SERIES_PER_PROJECT } from '../../../src/schemas/taskSeries';
 
@@ -34,7 +34,7 @@ interface SeriesBody {
   updated_at: string;
   label_ids: string[];
   assignee_ids: string[];
-  checklist_items: { id: string; text: string; position: number }[];
+  checklist_items: { id: string; text: string; sort_key: string }[];
 }
 
 const SERIES_KEYS = [
@@ -309,10 +309,7 @@ describe('Recurring series API', () => {
       const created = await create({
         label_ids: [labelId],
         assignee_ids: [editor.id],
-        checklist_items: [
-          { text: 'second', position: 2000 },
-          { text: 'first', position: 1000 },
-        ],
+        checklist_items: [{ text: 'first' }, { text: 'second' }],
       });
       expect(created.label_ids).toEqual([labelId]);
       expect(created.assignee_ids).toEqual([editor.id]);
@@ -432,14 +429,11 @@ describe('Recurring series API', () => {
       const created = await create({
         label_ids: [labelId],
         assignee_ids: [editor.id],
-        checklist_items: [{ text: 'one', position: 1000 }],
+        checklist_items: [{ text: 'one' }],
       });
 
       const res = await ctx.request(owner.token).patch(`/api/task-series/${created.id}`, {
-        checklist_items: [
-          { text: 'two', position: 1000 },
-          { text: 'three', position: 2000 },
-        ],
+        checklist_items: [{ text: 'two' }, { text: 'three' }],
       });
       expect(res.status).toBe(200);
       const updated = (await res.json()) as SeriesBody;
@@ -467,7 +461,7 @@ describe('Recurring series API', () => {
           project_id: projectId,
           column_id: columnId,
           title: 'materialised',
-          position: 1000,
+          sort_key: rankKey(1000),
           series_id: created.id,
           series_occurrence_date: '2026-02-02',
         })
@@ -561,7 +555,7 @@ describe('Recurring series API', () => {
           project_id: projectId,
           column_id: columnId,
           title: 'already created',
-          position: 1000,
+          sort_key: rankKey(1000),
           series_id: created.id,
           series_occurrence_date: '2026-02-03',
         })

@@ -5,6 +5,7 @@ import { newId } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { BoardPayloadBody, deleteProjects, insertTask, insertTaskImage, waitFor } from './helpers';
 
+import { rankKey } from '../../helpers/fixtures';
 describe('projects CRUD', () => {
   const ctx = new TestContext();
   const projectIds: string[] = [];
@@ -62,7 +63,9 @@ describe('projects CRUD', () => {
       expect(body.labels).toEqual([]);
 
       expect(body.columns.map((c) => c.name)).toEqual(['Backlog', 'To Do', 'In Progress', 'Done']);
-      expect(body.columns.map((c) => c.position)).toEqual([1000, 2000, 3000, 4000]);
+      expect(body.columns.map((c) => c.sort_key)).toEqual(
+        [...body.columns.map((c) => c.sort_key)].sort()
+      );
       expect(body.columns.map((c) => c.is_done)).toEqual([false, false, false, true]);
       for (const column of body.columns) {
         expect(column.id).toMatch(/^[0-9a-f-]{36}$/);
@@ -116,6 +119,7 @@ describe('projects CRUD', () => {
       expect(typeof project.done_task_count).toBe('number');
     });
 
+    const key1000 = rankKey(1000);
     it('splits counts into open and done by column is_done', async () => {
       const id = newId();
       const createRes = await createProject({ id, name: 'Counted' });
@@ -123,9 +127,9 @@ describe('projects CRUD', () => {
       const toDo = board.columns.find((c) => c.name === 'To Do')!;
       const done = board.columns.find((c) => c.name === 'Done')!;
 
-      await insertTask({ projectId: id, columnId: toDo.id, position: 1000 });
-      await insertTask({ projectId: id, columnId: toDo.id, position: 2000 });
-      await insertTask({ projectId: id, columnId: done.id, position: 1000 });
+      await insertTask({ projectId: id, columnId: toDo.id, sort_key: key1000 });
+      await insertTask({ projectId: id, columnId: toDo.id, sort_key: rankKey(2000) });
+      await insertTask({ projectId: id, columnId: done.id, sort_key: key1000 });
 
       const res = await ctx.request(user.token).get('/api/projects');
       const body = await res.json();

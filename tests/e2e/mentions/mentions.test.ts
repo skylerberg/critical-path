@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { Hono } from 'hono';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db, waitForLockWaiters } from '../../helpers/database';
-import { newId, uniqueEmail } from '../../helpers/fixtures';
+import { newId, uniqueEmail, rankKey } from '../../helpers/fixtures';
 import { errorHandler } from '../../../src/middleware/errorHandler';
 import { transactionMiddleware } from '../../../src/middleware/transaction';
 import {
@@ -73,7 +73,7 @@ describe('Mentions', () => {
       project_id: projectId,
       column_id: columnId,
       title: 'mention task',
-      position: 1000,
+      sort_key: rankKey(1000),
       description,
     });
     expect(res.status).toBe(201);
@@ -277,7 +277,7 @@ describe('Mentions', () => {
 
       const res = await ctx
         .request(owner.token)
-        .post(`/api/tasks/${task.id}/duplicate`, { id: newId(), position: 2000 });
+        .post(`/api/tasks/${task.id}/duplicate`, { id: newId(), sort_key: rankKey(2000) });
       expect(res.status).toBe(201);
       expect(delivered).toEqual([]);
     });

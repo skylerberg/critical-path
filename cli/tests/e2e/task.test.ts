@@ -41,7 +41,7 @@ describe('task commands', () => {
     expect(create.status).toBe(201);
     const board = (await create.json()) as BoardPayload;
     projectId = board.project.id;
-    const columns = [...board.columns].sort((a, b) => a.position - b.position);
+    const columns = [...board.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1));
     backlogId = columns[0].id;
     todoId = columns[1].id;
     doneId = columns.find((c) => c.is_done)!.id;
@@ -57,11 +57,11 @@ describe('task commands', () => {
     expect(a.exitCode).toBe(0);
     alpha = a.json<BoardTask>();
     expect(alpha.column_id).toBe(backlogId);
-    expect(alpha.position).toBe(1000);
+    expect(alpha.sort_key).toBeTruthy();
 
     const b = await h.runCli(['task', 'create', 'Beta task', '--project', projectId, '--json']);
     beta = b.json<BoardTask>();
-    expect(beta.position).toBe(2000);
+    expect(beta.sort_key > alpha.sort_key).toBe(true);
 
     const c = await h.runCli([
       'task',
@@ -73,7 +73,7 @@ describe('task commands', () => {
       '--json',
     ]);
     gamma = c.json<BoardTask>();
-    expect(gamma.position).toBe(0);
+    expect(gamma.sort_key < alpha.sort_key).toBe(true);
 
     const d = await h.runCli([
       'task',
@@ -86,7 +86,7 @@ describe('task commands', () => {
       '--json',
     ]);
     delta = d.json<BoardTask>();
-    expect(delta.position).toBe(1500);
+    expect(delta.sort_key > alpha.sort_key && delta.sort_key < beta.sort_key).toBe(true);
 
     const e = await h.runCli([
       'task',
@@ -99,7 +99,7 @@ describe('task commands', () => {
       '--json',
     ]);
     epsilon = e.json<BoardTask>();
-    expect(epsilon.position).toBe(500);
+    expect(epsilon.sort_key > gamma.sort_key && epsilon.sort_key < alpha.sort_key).toBe(true);
 
     const list = await h.runCli([
       'task',
@@ -291,7 +291,7 @@ describe('task commands', () => {
     expect(top.exitCode).toBe(0);
     const movedTop = top.json<BoardTask>();
     expect(movedTop.column_id).toBe(todoId);
-    expect(movedTop.position).toBe(0);
+    expect(movedTop.sort_key < alpha.sort_key).toBe(true);
 
     const between = await h.runCli([
       'task',
@@ -308,7 +308,9 @@ describe('task commands', () => {
     expect(between.exitCode).toBe(0);
     const movedBetween = between.json<BoardTask>();
     expect(movedBetween.column_id).toBe(todoId);
-    expect(movedBetween.position).toBe(1500);
+    expect(movedBetween.sort_key > alpha.sort_key && movedBetween.sort_key < beta.sort_key).toBe(
+      true
+    );
   });
 
   it('done moves the task to the bottom of the last done column', async () => {
@@ -316,7 +318,7 @@ describe('task commands', () => {
     expect(res.exitCode).toBe(0);
     const moved = res.json<BoardTask>();
     expect(moved.column_id).toBe(doneId);
-    expect(moved.position).toBe(2000);
+    expect(moved.sort_key).toBeTruthy();
   });
 
   it('refuses to delete a task that is still on the board', async () => {
@@ -542,7 +544,7 @@ describe('task commands', () => {
         '--json',
       ]);
       expect(before.exitCode).toBe(0);
-      expect(before.json<BoardTask>().position).toBeLessThan(anchor.position);
+      expect(before.json<BoardTask>().sort_key < anchor.sort_key).toBe(true);
 
       const after = await h.runCli([
         'task',
@@ -555,7 +557,7 @@ describe('task commands', () => {
         '--json',
       ]);
       expect(after.exitCode).toBe(0);
-      expect(after.json<BoardTask>().position).toBeGreaterThan(anchor.position);
+      expect(after.json<BoardTask>().sort_key > anchor.sort_key).toBe(true);
 
       const moved = await h.runCli([
         'task',
@@ -568,7 +570,7 @@ describe('task commands', () => {
         '--json',
       ]);
       expect(moved.exitCode).toBe(0);
-      expect(moved.json<BoardTask>().position).toBeLessThan(anchor.position);
+      expect(moved.json<BoardTask>().sort_key < anchor.sort_key).toBe(true);
     } finally {
       await tc.request(user.token).delete(`/api/projects/${anchorProjectId}`);
     }
@@ -946,7 +948,7 @@ describe('task create - (one title per stdin line)', () => {
     expect(create.status).toBe(201);
     const board = (await create.json()) as BoardPayload;
     projectId = board.project.id;
-    const columns = [...board.columns].sort((a, b) => a.position - b.position);
+    const columns = [...board.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1));
     backlogId = columns[0].id;
     todoId = columns[1].id;
   });
@@ -968,8 +970,8 @@ describe('task create - (one title per stdin line)', () => {
     const created = res.json<BoardTask[]>();
     expect(created.map((t) => t.title)).toEqual(['One', 'Two', 'Three']);
     expect(created.every((t) => t.column_id === backlogId)).toBe(true);
-    expect(created.every((t, i) => i === 0 || t.position > created[i - 1].position)).toBe(true);
-    expect(created[0].position).toBeGreaterThan(seeded.position);
+    expect(created.every((t, i) => i === 0 || t.sort_key > created[i - 1].sort_key)).toBe(true);
+    expect(created[0].sort_key > seeded.sort_key).toBe(true);
 
     const list = await h.runCli([
       'task',
@@ -1023,8 +1025,8 @@ describe('task create - (one title per stdin line)', () => {
     const created = res.json<BoardTask[]>();
     expect(created.map((t) => t.title)).toEqual(['Top one', 'Top two', 'Top three']);
     expect(created.every((t) => t.column_id === todoId)).toBe(true);
-    expect(created.every((t, i) => i === 0 || t.position > created[i - 1].position)).toBe(true);
-    expect(created[2].position).toBeLessThan(anchor.position);
+    expect(created.every((t, i) => i === 0 || t.sort_key > created[i - 1].sort_key)).toBe(true);
+    expect(created[2].sort_key < anchor.sort_key).toBe(true);
 
     const list = await h.runCli([
       'task',
@@ -1129,7 +1131,7 @@ describe('task duplicate', () => {
     expect(create.status).toBe(201);
     const board = (await create.json()) as BoardPayload;
     projectId = board.project.id;
-    columnId = [...board.columns].sort((a, b) => a.position - b.position)[0].id;
+    columnId = [...board.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1))[0].id;
   });
 
   afterAll(async () => {
@@ -1169,8 +1171,8 @@ describe('task duplicate', () => {
     expect(copy.id).not.toBe(first.id);
     expect(copy.title).toBe('Duplicate me');
     expect(copy.column_id).toBe(columnId);
-    expect(copy.position).toBeGreaterThan(first.position);
-    expect(copy.position).toBeLessThan(second.position);
+    expect(copy.sort_key > first.sort_key).toBe(true);
+    expect(copy.sort_key < second.sort_key).toBe(true);
 
     const list = await h.runCli([
       'task',
@@ -1201,7 +1203,7 @@ describe('task duplicate', () => {
     ]);
     expect(res.exitCode).toBe(0);
     const copy = res.json<BoardTask>();
-    expect(copy.position).toBeGreaterThan(last.position);
+    expect(copy.sort_key > last.sort_key).toBe(true);
     expect(copy.title).toBe('Last card');
   });
 

@@ -53,7 +53,7 @@ describe('task blockers', () => {
     expect(create.status).toBe(201);
     const board = (await create.json()) as BoardPayload;
     projectId = board.project.id;
-    const column = [...board.columns].sort((a, b) => a.position - b.position)[0];
+    const column = [...board.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1))[0];
     for (const [id, title, position] of [
       [planId, 'Plan the API', 1000],
       [buildId, 'Build the API', 2000],

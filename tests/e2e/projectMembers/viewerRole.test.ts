@@ -4,6 +4,7 @@ import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects, insertTask } from '../projects/helpers';
 
+import { rankKey } from '../../helpers/fixtures';
 interface MemberEntry {
   user_id: string;
   role: string;
@@ -60,7 +61,7 @@ describe('Viewer role on the member endpoints', () => {
     const id = newId();
     await db
       .insertInto('board_column')
-      .values({ id, project_id: projectId, name: 'vr col', position: 1000 })
+      .values({ id, project_id: projectId, name: 'vr col', sort_key: rankKey(1000) })
       .execute();
     return { id };
   }

@@ -1,13 +1,12 @@
+import { byRank } from './positions';
 import type { BoardColumn, BoardPayload, BoardTask } from './resolve';
 
 export function sortedColumns(board: BoardPayload): BoardColumn[] {
-  return [...board.columns].sort((a, b) => a.position - b.position);
+  return [...board.columns].sort(byRank);
 }
 
 export function sortedTasksIn(board: BoardPayload, columnId: string): BoardTask[] {
-  return board.tasks
-    .filter((task) => task.column_id === columnId)
-    .sort((a, b) => a.position - b.position);
+  return board.tasks.filter((task) => task.column_id === columnId).sort(byRank);
 }
 
 export function doneColumnIds(board: BoardPayload): Set<string> {

@@ -38,7 +38,7 @@ describe('mine', () => {
     const create = await client.post('/api/projects', { id: projectId, name: 'CLI Mine Fixture' });
     expect(create.status).toBe(201);
     const board = (await create.json()) as BoardPayload;
-    const todo = [...board.columns].sort((a, b) => a.position - b.position)[1].id;
+    const todo = [...board.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1))[1].id;
 
     const members = await client.put(`/api/projects/${projectId}/members`, {
       user_ids: [mate.id],

@@ -103,14 +103,14 @@ export function tasksCsv(exportPayload: ProjectExport): string {
   const taskTitles = nameIndex(exportPayload.tasks.map(({ id, title }) => ({ id, name: title })));
 
   const rows = [TASKS_CSV_HEADER];
-  for (const task of exportPayload.tasks) {
+  for (const [index, task] of exportPayload.tasks.entries()) {
     const column = columns.get(task.column_id);
     rows.push([
       task.id,
       task.title,
       column?.name ?? '',
       column === undefined ? '' : String(column.is_done),
-      String(task.position),
+      String(index + 1),
       task.due_date ?? '',
       resolveNames(task.label_ids, labelNames),
       resolveNames(task.assignee_ids, userNames),

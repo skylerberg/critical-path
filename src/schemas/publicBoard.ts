@@ -1,5 +1,4 @@
 import { type } from 'arktype';
-import { finiteNumber } from './common';
 import { boardColumnSchema, boardLabelSchema } from './board';
 import { nullableTiptapDocSchema, tiptapDocSchema } from './tiptap';
 import { attachmentSchema } from './attachments';
@@ -26,8 +25,7 @@ export const publicBoardTaskSchema = type({
   column_id: 'string',
   title: 'string',
   description: nullableTiptapDocSchema,
-  position: finiteNumber,
-  sort_key: 'string | null',
+  sort_key: 'string',
   due_date: 'string | null',
   label_ids: 'string[]',
   assignee_ids: 'string[]',
@@ -57,8 +55,7 @@ export const publicBoardChecklistItemSchema = type({
   task_id: 'string',
   text: 'string',
   checked: 'boolean',
-  position: finiteNumber,
-  sort_key: 'string | null',
+  sort_key: 'string',
 });
 
 export const publicBoardSchema = type({

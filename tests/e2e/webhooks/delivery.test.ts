@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import type { Selectable } from 'kysely';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
 import { settle } from '../realtime/helpers';
 import type { WebhookDelivery } from '../../../src/db/types';
@@ -119,7 +119,7 @@ describe('Webhook delivery', () => {
       project_id: projectId,
       column_id: columnId,
       title,
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(201);
     return id;
@@ -350,7 +350,7 @@ describe('Webhook delivery', () => {
       (
         await ctx
           .request(user.token)
-          .put(`/api/projects/${project.id}/position`, { position: 5000 })
+          .put(`/api/projects/${project.id}/position`, { sort_key: rankKey(5000) })
       ).status
     ).toBe(204);
     expect(

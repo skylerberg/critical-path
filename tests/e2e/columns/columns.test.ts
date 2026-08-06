@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../../src/db/index';
-import { reconcileSortKeys } from '../../../src/services/sortKeyAssignment';
-import { newId, rawJsonWithPosition } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
+
+const key2000 = rankKey(2000);
 
 const ctx = new TestContext();
 let token: string;
@@ -30,11 +31,10 @@ async function insertColumn(
       id,
       project_id: projectId,
       name: opts.name ?? 'Column',
-      position: opts.position ?? 1000,
+      sort_key: rankKey(opts.position ?? 1000),
       is_done: opts.is_done ?? false,
     })
     .execute();
-  await reconcileSortKeys(db, 'board_column', projectId);
   return id;
 }
 
@@ -42,9 +42,14 @@ async function insertTask(projectId: string, columnId: string, position: number)
   const id = newId();
   await db
     .insertInto('task')
-    .values({ id, project_id: projectId, column_id: columnId, title: 'Task', position })
+    .values({
+      id,
+      project_id: projectId,
+      column_id: columnId,
+      title: 'Task',
+      sort_key: rankKey(position),
+    })
     .execute();
-  await reconcileSortKeys(db, 'task', columnId);
   return id;
 }
 
@@ -66,9 +71,9 @@ async function updatedAt(taskId: string): Promise<string> {
 function tasksInColumn(columnId: string) {
   return db
     .selectFrom('task')
-    .select(['id', 'column_id', 'position', 'sort_key'])
+    .select(['id', 'column_id', 'sort_key'])
     .where('column_id', '=', columnId)
-    .orderBy('position')
+    .orderBy('sort_key')
     .execute();
 }
 
@@ -91,11 +96,12 @@ describe('POST /api/columns', () => {
       id: newId(),
       project_id: newId(),
       name: 'Unauthorized',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(401);
   });
 
+  const key2500 = rankKey(2500);
   it('creates a column with is_done defaulting to false', async () => {
     const projectId = await createProject();
     const id = newId();
@@ -104,7 +110,7 @@ describe('POST /api/columns', () => {
       id,
       project_id: projectId,
       name: 'Review',
-      position: 2500,
+      sort_key: key2500,
     });
     expect(res.status).toBe(201);
 
@@ -113,7 +119,7 @@ describe('POST /api/columns', () => {
       id,
       project_id: projectId,
       name: 'Review',
-      position: 2500,
+      sort_key: key2500,
       sort_key: expect.any(String),
       is_done: false,
       created_at: expect.any(String),
@@ -129,7 +135,7 @@ describe('POST /api/columns', () => {
       id,
       project_id: projectId,
       name: 'Shipped',
-      position: 9000,
+      sort_key: rankKey(9000),
       is_done: true,
     });
     expect(res.status).toBe(201);
@@ -146,7 +152,7 @@ describe('POST /api/columns', () => {
       id,
       project_id: projectId,
       name: 'Duplicate',
-      position: 3000,
+      sort_key: rankKey(3000),
     });
     expect(res.status).toBe(409);
   });
@@ -156,7 +162,7 @@ describe('POST /api/columns', () => {
       id: newId(),
       project_id: newId(),
       name: 'Orphan',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(404);
 
@@ -170,7 +176,7 @@ describe('POST /api/columns', () => {
     const res = await ctx.request(token).post('/api/columns', {
       id: newId(),
       project_id: projectId,
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(422);
 
@@ -179,20 +185,20 @@ describe('POST /api/columns', () => {
     expect(Array.isArray(body.details)).toBe(true);
   });
 
-  it('returns 422 for a non-finite position', async () => {
+  it('returns 422 for a malformed sort key', async () => {
     const projectId = await createProject();
-
-    for (const literal of ['1e999', '-1e999']) {
-      const raw = rawJsonWithPosition(
-        { id: newId(), project_id: projectId, name: 'Non-finite' },
-        literal
-      );
-      const res = await ctx.request(token).sendRawJson('POST', '/api/columns', raw);
-      expect(res.status, literal).toBe(422);
+    for (const bad of ['', 'not a key', 'V0!', 'V00']) {
+      const res = await ctx.request(token).post('/api/columns', {
+        id: newId(),
+        project_id: projectId,
+        name: 'Bad key',
+        sort_key: bad,
+      });
+      expect(res.status, bad).toBe(422);
 
       const body = await res.json();
       expect(body.error).toBe('Validation failed');
-      expect(body.details.some((d: { path: string }) => d.path === 'position')).toBe(true);
+      expect(body.details.some((d: { path: string }) => d.path === 'sort_key')).toBe(true);
     }
   });
 });
@@ -217,13 +223,14 @@ describe('PATCH /api/columns/:id', () => {
 
   it('repositions a column', async () => {
     const projectId = await createProject();
-    const columnId = await insertColumn(projectId, { position: 1000 });
+    const columnId = await insertColumn(projectId, { sort_key: rankKey(1000) });
 
-    const res = await ctx.request(token).patch(`/api/columns/${columnId}`, { position: 500 });
+    const moved = rankKey(500);
+    const res = await ctx.request(token).patch(`/api/columns/${columnId}`, { sort_key: moved });
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.position).toBe(500);
+    expect(body.sort_key).toBe(moved);
   });
 
   it('toggles is_done', async () => {
@@ -248,16 +255,20 @@ describe('PATCH /api/columns/:id', () => {
     expect(body.error).toBe('Validation failed');
   });
 
-  it('returns 422 for a non-finite position', async () => {
+  it('returns 422 for a malformed sort key', async () => {
     const projectId = await createProject();
-    const columnId = await insertColumn(projectId);
+    for (const bad of ['', 'not a key', 'V0!', 'V00']) {
+      const res = await ctx.request(token).post('/api/columns', {
+        id: newId(),
+        project_id: projectId,
+        name: 'Bad key',
+        sort_key: bad,
+      });
+      expect(res.status, bad).toBe(422);
 
-    for (const literal of ['1e999', '-1e999']) {
-      const res = await ctx
-        .request(token)
-        .sendRawJson('PATCH', `/api/columns/${columnId}`, rawJsonWithPosition({}, literal));
-      expect(res.status, literal).toBe(422);
-      expect((await res.json()).error).toBe('Validation failed');
+      const body = await res.json();
+      expect(body.error).toBe('Validation failed');
+      expect(body.details.some((d: { path: string }) => d.path === 'sort_key')).toBe(true);
     }
   });
 
@@ -368,8 +379,8 @@ describe('DELETE /api/columns/:id', () => {
 
   it('moves tasks after the target tasks, preserving relative order', async () => {
     const projectId = await createProject();
-    const sourceId = await insertColumn(projectId, { name: 'Source', position: 1000 });
-    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const sourceId = await insertColumn(projectId, { name: 'Source', sort_key: rankKey(1000) });
+    const targetId = await insertColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
 
     // Insert out of position order to prove ordering follows position, not creation.
     const third = await insertTask(projectId, sourceId, 3000);
@@ -385,9 +396,9 @@ describe('DELETE /api/columns/:id', () => {
     const body = await res.json();
     expect(body).toEqual({
       moved_tasks: [
-        { id: first, column_id: targetId, position: 6000, sort_key: expect.any(String) },
-        { id: second, column_id: targetId, position: 7000, sort_key: expect.any(String) },
-        { id: third, column_id: targetId, position: 8000, sort_key: expect.any(String) },
+        { id: first, column_id: targetId, sort_key: expect.any(String) },
+        { id: second, column_id: targetId, sort_key: expect.any(String) },
+        { id: third, column_id: targetId, sort_key: expect.any(String) },
       ],
     });
 
@@ -400,17 +411,22 @@ describe('DELETE /api/columns/:id', () => {
 
     const targetTasks = await tasksInColumn(targetId);
     expect(targetTasks).toEqual([
-      { id: existingTarget, column_id: targetId, position: 5000, sort_key: expect.any(String) },
-      { id: first, column_id: targetId, position: 6000, sort_key: expect.any(String) },
-      { id: second, column_id: targetId, position: 7000, sort_key: expect.any(String) },
-      { id: third, column_id: targetId, position: 8000, sort_key: expect.any(String) },
+      {
+        id: existingTarget,
+        column_id: targetId,
+        sort_key: rankKey(5000),
+        sort_key: expect.any(String),
+      },
+      { id: first, column_id: targetId, sort_key: expect.any(String) },
+      { id: second, column_id: targetId, sort_key: expect.any(String) },
+      { id: third, column_id: targetId, sort_key: expect.any(String) },
     ]);
   });
 
   it('counts and relocates archived tasks instead of cascade-deleting them', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Only archived' });
-    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const targetId = await insertColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
     const taskId = await insertTask(projectId, sourceId, 1000);
     expect((await ctx.request(token).post(`/api/tasks/${taskId}/archive`)).status).toBe(200);
 
@@ -422,7 +438,7 @@ describe('DELETE /api/columns/:id', () => {
       .delete(`/api/columns/${sourceId}?move_tasks_to=${targetId}`);
     expect(res.status).toBe(200);
     expect((await res.json()).moved_tasks).toEqual([
-      { id: taskId, column_id: targetId, position: 1000, sort_key: expect.any(String) },
+      { id: taskId, column_id: targetId, sort_key: expect.any(String) },
     ]);
 
     const archived = await ctx.request(token).get(`/api/projects/${projectId}/archived-tasks`);
@@ -433,11 +449,14 @@ describe('DELETE /api/columns/:id', () => {
 
   it('logs a column change on each moved task, naming the column it lost', async () => {
     const projectId = await createProject();
-    const sourceId = await insertColumn(projectId, { name: 'Vanishing', position: 1000 });
-    const targetId = await insertColumn(projectId, { name: 'Survivor', position: 2000 });
+    const sourceId = await insertColumn(projectId, { name: 'Vanishing', sort_key: rankKey(1000) });
+    const targetId = await insertColumn(projectId, { name: 'Survivor', sort_key: rankKey(2000) });
     const taskId = await insertTask(projectId, sourceId, 1000);
     const settled = await insertTask(projectId, targetId, 500);
-    const emptyId = await insertColumn(projectId, { name: 'Nothing here', position: 3000 });
+    const emptyId = await insertColumn(projectId, {
+      name: 'Nothing here',
+      sort_key: rankKey(3000),
+    });
 
     expect(
       (await ctx.request(token).delete(`/api/columns/${emptyId}?move_tasks_to=${targetId}`)).status
@@ -463,7 +482,7 @@ describe('DELETE /api/columns/:id', () => {
   it('starts positions at 1000 when the target column is empty', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });
-    const targetId = await insertColumn(projectId, { name: 'Empty target', position: 2000 });
+    const targetId = await insertColumn(projectId, { name: 'Empty target', sort_key: key2000 });
 
     const a = await insertTask(projectId, sourceId, 1000);
     const b = await insertTask(projectId, sourceId, 2000);
@@ -475,8 +494,8 @@ describe('DELETE /api/columns/:id', () => {
 
     const body = await res.json();
     expect(body.moved_tasks).toEqual([
-      { id: a, column_id: targetId, position: 1000, sort_key: expect.any(String) },
-      { id: b, column_id: targetId, position: 2000, sort_key: expect.any(String) },
+      { id: a, column_id: targetId, sort_key: expect.any(String) },
+      { id: b, column_id: targetId, sort_key: expect.any(String) },
     ]);
   });
 });
@@ -575,11 +594,10 @@ describe('POST /api/columns/:id/move-tasks', () => {
     expect(malformed.status).toBe(422);
     expect((await malformed.json()).error).toBe('Validation failed');
   });
-
   it('appends the tasks after the target’s own, preserving relative order', async () => {
     const projectId = await createProject();
-    const sourceId = await insertColumn(projectId, { name: 'Source', position: 1000 });
-    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const sourceId = await insertColumn(projectId, { name: 'Source', sort_key: rankKey(1000) });
+    const targetId = await insertColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
 
     const second = await insertTask(projectId, sourceId, 2000);
     const first = await insertTask(projectId, sourceId, 1000);
@@ -591,22 +609,27 @@ describe('POST /api/columns/:id/move-tasks', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       moved_tasks: [
-        { id: first, column_id: targetId, position: 6000, sort_key: expect.any(String) },
-        { id: second, column_id: targetId, position: 7000, sort_key: expect.any(String) },
+        { id: first, column_id: targetId, sort_key: expect.any(String) },
+        { id: second, column_id: targetId, sort_key: expect.any(String) },
       ],
     });
 
     expect(await tasksInColumn(targetId)).toEqual([
-      { id: existingTarget, column_id: targetId, position: 5000, sort_key: expect.any(String) },
-      { id: first, column_id: targetId, position: 6000, sort_key: expect.any(String) },
-      { id: second, column_id: targetId, position: 7000, sort_key: expect.any(String) },
+      {
+        id: existingTarget,
+        column_id: targetId,
+        sort_key: rankKey(5000),
+        sort_key: expect.any(String),
+      },
+      { id: first, column_id: targetId, sort_key: expect.any(String) },
+      { id: second, column_id: targetId, sort_key: expect.any(String) },
     ]);
   });
 
   it('bumps column_since on each moved task', async () => {
     const projectId = await createProject();
-    const sourceId = await insertColumn(projectId, { name: 'Source', position: 1000 });
-    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const sourceId = await insertColumn(projectId, { name: 'Source', sort_key: rankKey(1000) });
+    const targetId = await insertColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
     const taskId = await insertTask(projectId, sourceId, 1000);
 
     const before = await db
@@ -632,7 +655,7 @@ describe('POST /api/columns/:id/move-tasks', () => {
   it('keeps the source column, now empty', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });
-    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const targetId = await insertColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
     await insertTask(projectId, sourceId, 1000);
 
     const res = await ctx
@@ -651,8 +674,8 @@ describe('POST /api/columns/:id/move-tasks', () => {
 
   it('logs a column change on each moved task', async () => {
     const projectId = await createProject();
-    const sourceId = await insertColumn(projectId, { name: 'Leaving', position: 1000 });
-    const targetId = await insertColumn(projectId, { name: 'Arriving', position: 2000 });
+    const sourceId = await insertColumn(projectId, { name: 'Leaving', sort_key: rankKey(1000) });
+    const targetId = await insertColumn(projectId, { name: 'Arriving', sort_key: rankKey(2000) });
     const taskId = await insertTask(projectId, sourceId, 1000);
     const settled = await insertTask(projectId, targetId, 500);
 
@@ -678,7 +701,7 @@ describe('POST /api/columns/:id/move-tasks', () => {
   it('returns an empty moved_tasks for an empty source column and leaves the target alone', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Nothing' });
-    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const targetId = await insertColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
     const settled = await insertTask(projectId, targetId, 1000);
 
     const res = await ctx
@@ -688,14 +711,13 @@ describe('POST /api/columns/:id/move-tasks', () => {
     expect(await res.json()).toEqual({ moved_tasks: [] });
 
     expect(await tasksInColumn(targetId)).toEqual([
-      { id: settled, column_id: targetId, position: 1000, sort_key: expect.any(String) },
+      { id: settled, column_id: targetId, sort_key: expect.any(String) },
     ]);
   });
-
   it('starts positions at 1000 when the target column is empty', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });
-    const targetId = await insertColumn(projectId, { name: 'Empty target', position: 2000 });
+    const targetId = await insertColumn(projectId, { name: 'Empty target', sort_key: key2000 });
     const a = await insertTask(projectId, sourceId, 1000);
     const b = await insertTask(projectId, sourceId, 2000);
 
@@ -704,15 +726,15 @@ describe('POST /api/columns/:id/move-tasks', () => {
       .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
     expect(res.status).toBe(200);
     expect((await res.json()).moved_tasks).toEqual([
-      { id: a, column_id: targetId, position: 1000, sort_key: expect.any(String) },
-      { id: b, column_id: targetId, position: 2000, sort_key: expect.any(String) },
+      { id: a, column_id: targetId, sort_key: expect.any(String) },
+      { id: b, column_id: targetId, sort_key: expect.any(String) },
     ]);
   });
 
   it('leaves archived tasks in the source column', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });
-    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const targetId = await insertColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
     const archivedId = await insertTask(projectId, sourceId, 1000);
     const liveId = await insertTask(projectId, sourceId, 2000);
     expect((await ctx.request(token).post(`/api/tasks/${archivedId}/archive`)).status).toBe(200);
@@ -722,11 +744,11 @@ describe('POST /api/columns/:id/move-tasks', () => {
       .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
     expect(res.status).toBe(200);
     expect((await res.json()).moved_tasks).toEqual([
-      { id: liveId, column_id: targetId, position: 1000, sort_key: expect.any(String) },
+      { id: liveId, column_id: targetId, sort_key: expect.any(String) },
     ]);
 
     expect(await tasksInColumn(sourceId)).toEqual([
-      { id: archivedId, column_id: sourceId, position: 1000, sort_key: expect.any(String) },
+      { id: archivedId, column_id: sourceId, sort_key: expect.any(String) },
     ]);
     const archived = await ctx.request(token).get(`/api/projects/${projectId}/archived-tasks`);
     expect(((await archived.json()) as { tasks: Array<Record<string, unknown>> }).tasks).toEqual([
@@ -737,7 +759,7 @@ describe('POST /api/columns/:id/move-tasks', () => {
   it('leaves updated_at untouched on the tasks it moves', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });
-    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const targetId = await insertColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
     const taskId = await insertTask(projectId, sourceId, 1000);
     const before = await updatedAt(taskId);
 
@@ -751,7 +773,7 @@ describe('POST /api/columns/:id/move-tasks', () => {
   it('appends past an archived task holding the highest position in the target', async () => {
     const projectId = await createProject();
     const sourceId = await insertColumn(projectId, { name: 'Source' });
-    const targetId = await insertColumn(projectId, { name: 'Target', position: 2000 });
+    const targetId = await insertColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
     const highArchived = await insertTask(projectId, targetId, 9000);
     expect((await ctx.request(token).post(`/api/tasks/${highArchived}/archive`)).status).toBe(200);
     const moving = await insertTask(projectId, sourceId, 1000);
@@ -761,7 +783,7 @@ describe('POST /api/columns/:id/move-tasks', () => {
       .post(`/api/columns/${sourceId}/move-tasks`, { target_column_id: targetId });
     expect(res.status).toBe(200);
     expect((await res.json()).moved_tasks).toEqual([
-      { id: moving, column_id: targetId, position: 10000, sort_key: expect.any(String) },
+      { id: moving, column_id: targetId, sort_key: expect.any(String) },
     ]);
   });
 });
@@ -805,7 +827,7 @@ describe('POST /api/columns/:id/archive-tasks', () => {
   it('archives every live task, keeps the column, and logs one entry per card', async () => {
     const projectId = await createProject();
     const columnId = await insertColumn(projectId, { name: 'Done' });
-    const otherId = await insertColumn(projectId, { name: 'Todo', position: 2000 });
+    const otherId = await insertColumn(projectId, { name: 'Todo', sort_key: rankKey(2000) });
     const a = await insertTask(projectId, columnId, 1000);
     const b = await insertTask(projectId, columnId, 2000);
     const untouched = await insertTask(projectId, otherId, 1000);
@@ -910,7 +932,7 @@ describe('POST /api/columns/:id/archive-tasks', () => {
   it('takes the archived cards out of the blocker lists of the tasks they blocked', async () => {
     const projectId = await createProject();
     const doneId = await insertColumn(projectId, { name: 'Done' });
-    const todoId = await insertColumn(projectId, { name: 'Todo', position: 2000 });
+    const todoId = await insertColumn(projectId, { name: 'Todo', sort_key: rankKey(2000) });
     const blockerId = await insertTask(projectId, doneId, 1000);
     const blockedId = await insertTask(projectId, todoId, 1000);
     expect(
@@ -990,7 +1012,7 @@ describe('POST /api/columns/:id/reorder', () => {
   it('leaves a card that moved to another column mid-reorder alone', async () => {
     const projectId = await createProject();
     const source = await insertColumn(projectId);
-    const destination = await insertColumn(projectId, { position: 2000 });
+    const destination = await insertColumn(projectId, { sort_key: rankKey(2000) });
     const stays = await insertTask(projectId, source, 1000);
     const leaves = await insertTask(projectId, source, 2000);
 
@@ -1003,7 +1025,7 @@ describe('POST /api/columns/:id/reorder', () => {
       await held;
       await trx
         .updateTable('task')
-        .set({ column_id: destination, position: 7000 })
+        .set({ column_id: destination, sort_key: rankKey(7000) })
         .where('id', '=', leaves)
         .execute();
     });
@@ -1019,13 +1041,12 @@ describe('POST /api/columns/:id/reorder', () => {
 
     const moved = await db
       .selectFrom('task')
-      .select(['column_id', 'position'])
+      .select(['column_id', 'sort_key'])
       .where('id', '=', leaves)
       .executeTakeFirstOrThrow();
     expect(moved.column_id).toBe(destination);
-    expect(moved.position).toBe(7000);
+    expect(moved.sort_key).toBeTruthy();
   });
-
   it('re-stamps evenly spaced positions in the given order', async () => {
     const projectId = await createProject();
     const columnId = await insertColumn(projectId);
@@ -1039,16 +1060,16 @@ describe('POST /api/columns/:id/reorder', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       moved_tasks: [
-        { id: first, column_id: columnId, position: 1000, sort_key: expect.any(String) },
-        { id: second, column_id: columnId, position: 2000, sort_key: expect.any(String) },
-        { id: third, column_id: columnId, position: 3000, sort_key: expect.any(String) },
+        { id: first, column_id: columnId, sort_key: expect.any(String) },
+        { id: second, column_id: columnId, sort_key: expect.any(String) },
+        { id: third, column_id: columnId, sort_key: expect.any(String) },
       ],
     });
 
     expect(await tasksInColumn(columnId)).toEqual([
-      { id: first, column_id: columnId, position: 1000, sort_key: expect.any(String) },
-      { id: second, column_id: columnId, position: 2000, sort_key: expect.any(String) },
-      { id: third, column_id: columnId, position: 3000, sort_key: expect.any(String) },
+      { id: first, column_id: columnId, sort_key: expect.any(String) },
+      { id: second, column_id: columnId, sort_key: expect.any(String) },
+      { id: third, column_id: columnId, sort_key: expect.any(String) },
     ]);
   });
 
@@ -1085,7 +1106,7 @@ describe('POST /api/columns/:id/reorder', () => {
   it('returns 422 when a task id is not an unarchived task in the column', async () => {
     const projectId = await createProject();
     const columnId = await insertColumn(projectId);
-    const otherColumnId = await insertColumn(projectId, { position: 2000 });
+    const otherColumnId = await insertColumn(projectId, { sort_key: rankKey(2000) });
     const inColumn = await insertTask(projectId, columnId, 1000);
     const elsewhere = await insertTask(projectId, otherColumnId, 1000);
 

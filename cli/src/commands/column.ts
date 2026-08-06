@@ -4,7 +4,7 @@ import { CliError, EXIT, assertOk } from '../api/errors';
 import { confirmOrAbort } from '../prompt';
 import { resolveBoard, resolveColumn, type BoardPayload } from '../resolve';
 import { sortedColumns, sortedTasksIn } from '../board';
-import { positionForPlacement, positionsForIndex, type Placement } from '../positions';
+import { keyForPlacement, keysForIndex, type Placement } from '../positions';
 import type { CliDeps, RuntimeContext } from '../context';
 import type { components } from '../api/api.generated';
 
@@ -91,7 +91,7 @@ export function registerColumn(program: Command, deps: CliDeps): void {
     ).action(
       withCtx(deps, async (ctx, opts, name) => {
         const board = await resolveBoard(ctx, opts.project as string | undefined);
-        const position = positionForPlacement(
+        const sortKey = keyForPlacement(
           placementFrom(opts),
           sortedColumns(board),
           columnAnchorResolver(board)
@@ -102,7 +102,7 @@ export function registerColumn(program: Command, deps: CliDeps): void {
               id: crypto.randomUUID(),
               project_id: board.project.id,
               name,
-              position,
+              sort_key: sortKey,
               is_done: opts.done === true ? true : undefined,
             },
           })
@@ -160,15 +160,11 @@ export function registerColumn(program: Command, deps: CliDeps): void {
         const board = await resolveBoard(ctx, opts.project as string | undefined);
         const target = resolveColumn(board, ref);
         const others = sortedColumns(board).filter((c) => c.id !== target.id);
-        const position = positionForPlacement(
-          placement,
-          others,
-          columnAnchorResolver(board, target.id)
-        );
+        const sortKey = keyForPlacement(placement, others, columnAnchorResolver(board, target.id));
         const updated = assertOk(
           await ctx.api.PATCH('/api/columns/{id}', {
             params: { path: { id: target.id } },
-            body: { position },
+            body: { sort_key: sortKey },
           })
         );
         printColumn(ctx, 'Moved', updated);
@@ -187,16 +183,11 @@ export function registerColumn(program: Command, deps: CliDeps): void {
           const target = resolveColumn(board, ref);
           const columns = sortedColumns(board);
           const index = columns.findIndex((c) => c.id === target.id);
-          const position = positionsForIndex(
-            columns.map((c) => c.position),
-            index + 1,
-            1,
-            'move a column to make room'
-          )[0];
+          const sortKey = keysForIndex(columns, index + 1, 1)[0]!;
           const result = assertOk(
             await ctx.api.POST('/api/columns/{id}/duplicate', {
               params: { path: { id: target.id } },
-              body: { id: crypto.randomUUID(), position },
+              body: { id: crypto.randomUUID(), sort_key: sortKey },
             })
           );
           ctx.out.data(result, () => {

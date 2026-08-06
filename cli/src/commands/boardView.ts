@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { byRank } from '../positions';
 import { leaf, withCtx } from '../kit';
 import { resolveBoard } from '../resolve';
 import { sortedColumns, sortedTasksIn, taskState } from '../board';
@@ -55,7 +56,7 @@ export function registerBoardViews(program: Command, deps: CliDeps): void {
           const columnName = new Map(board.columns.map((c) => [c.id, c.name]));
           const ready = board.tasks
             .filter((task) => taskState(task, board) === 'ready')
-            .sort((a, b) => a.position - b.position);
+            .sort(byRank);
           ctx.out.data(ready, () => {
             if (ready.length === 0) {
               ctx.out.line('No ready tasks');

@@ -4,19 +4,13 @@ import type { BoardPayload, BoardTask } from '../../src/resolve';
 
 const TS = '2026-01-01T00:00:00.000Z';
 
-function task(
-  id: string,
-  columnId: string,
-  position: number,
-  blockerIds: string[] = []
-): BoardTask {
+function task(id: string, columnId: string, rank: number, blockerIds: string[] = []): BoardTask {
   return {
     id,
     column_id: columnId,
     title: `Task ${id}`,
     description: null,
-    position,
-    sort_key: `V${position}`,
+    sort_key: `V0${String(rank).padStart(6, '0')}1`,
     due_date: null,
     created_at: TS,
     updated_at: TS,
@@ -48,8 +42,8 @@ function board(tasks: BoardTask[]): BoardPayload {
       color: null,
     },
     columns: [
-      { id: 'todo', name: 'Todo', position: 1000, sort_key: 'V0', is_done: false },
-      { id: 'done', name: 'Done', position: 2000, sort_key: 'V1', is_done: true },
+      { id: 'todo', name: 'Todo', sort_key: 'V0', is_done: false },
+      { id: 'done', name: 'Done', sort_key: 'V1', is_done: true },
     ],
     labels: [],
     tasks,

@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
 import { projectStorageAllowance } from '../../../src/services/attachments/quota';
@@ -53,7 +53,7 @@ describe('image writes', () => {
       .execute();
     await db
       .insertInto('board_column')
-      .values({ id: columnId, project_id: projectId, name: 'To Do', position: 1000 })
+      .values({ id: columnId, project_id: projectId, name: 'To Do', sort_key: rankKey(1000) })
       .execute();
     await db
       .insertInto('task')
@@ -62,7 +62,7 @@ describe('image writes', () => {
         project_id: projectId,
         column_id: columnId,
         title: 'task',
-        position: 1000,
+        sort_key: rankKey(1000),
       })
       .execute();
 
@@ -198,7 +198,7 @@ describe('image writes', () => {
     const copyId = newId();
     const res = await ctx
       .request(user.token)
-      .post(`/api/tasks/${taskId}/duplicate`, { id: copyId, position: 2000 });
+      .post(`/api/tasks/${taskId}/duplicate`, { id: copyId, sort_key: rankKey(2000) });
     expect(res.status).toBe(201);
 
     const copies = await imageRows(copyId);

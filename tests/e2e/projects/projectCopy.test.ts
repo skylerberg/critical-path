@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import {
   BoardPayloadBody,
@@ -42,6 +42,8 @@ describe('POST /api/projects with source_project_id', () => {
     await ctx.cleanup();
   });
 
+  const key1500 = rankKey(1500);
+  const key2500 = rankKey(2500);
   it('deep-copies structure with remapped ids, rewritten image srcs, and no assignees', async () => {
     const sourceId = newId();
     projectIds.push(sourceId);
@@ -73,7 +75,7 @@ describe('POST /api/projects with source_project_id', () => {
       projectId: sourceId,
       columnId: backlog.id,
       title: 'Draw art',
-      position: 1500,
+      sort_key: key1500,
       description,
       dueDate: '2026-08-03',
     });
@@ -81,7 +83,7 @@ describe('POST /api/projects with source_project_id', () => {
       projectId: sourceId,
       columnId: done.id,
       title: 'Print cards',
-      position: 2500,
+      sort_key: key2500,
     });
 
     const { storageKey } = await insertTaskImage({ taskId: blockerTaskId, imageId, isCover: true });
@@ -117,10 +119,8 @@ describe('POST /api/projects with source_project_id', () => {
       archived_at: null,
     });
 
-    expect(
-      copy.columns.map((c) => ({ name: c.name, position: c.position, is_done: c.is_done }))
-    ).toEqual(
-      source.columns.map((c) => ({ name: c.name, position: c.position, is_done: c.is_done }))
+    expect(copy.columns.map((c) => ({ name: c.name, is_done: c.is_done }))).toEqual(
+      source.columns.map((c) => ({ name: c.name, is_done: c.is_done }))
     );
     const sourceColumnIds = new Set(source.columns.map((c) => c.id));
     for (const column of copy.columns) {
@@ -141,7 +141,7 @@ describe('POST /api/projects with source_project_id', () => {
     const copiedDone = copy.columns.find((c) => c.name === 'Done')!;
     expect(copiedBlocker).toMatchObject({
       column_id: copiedBacklog.id,
-      position: 1500,
+      sort_key: expect.any(String),
       due_date: '2026-08-03',
       label_ids: [copy.labels[0].id],
       assignee_ids: [],
@@ -150,7 +150,7 @@ describe('POST /api/projects with source_project_id', () => {
     });
     expect(copiedBlocked).toMatchObject({
       column_id: copiedDone.id,
-      position: 2500,
+      sort_key: expect.any(String),
       due_date: null,
       blocker_ids: [copiedBlocker.id],
       assignee_ids: [],
@@ -236,7 +236,7 @@ describe('POST /api/projects with source_project_id', () => {
           project_id: sourceId,
           column_id: source.columns[0]!.id,
           title: 'Original',
-          position: 1000,
+          sort_key: rankKey(1000),
         })
       ).status
     ).toBe(201);
@@ -334,19 +334,19 @@ describe('POST /api/projects with source_project_id', () => {
       projectId: sourceId,
       columnId: backlog.id,
       title: 'Kept',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     const shelvedId = await insertTask({
       projectId: sourceId,
       columnId: backlog.id,
       title: 'Shelved',
-      position: 2000,
+      sort_key: rankKey(2000),
     });
     const blockedId = await insertTask({
       projectId: sourceId,
       columnId: backlog.id,
       title: 'Blocked by both',
-      position: 3000,
+      sort_key: rankKey(3000),
     });
     await db.insertInto('task_label').values({ task_id: shelvedId, label_id: labelId }).execute();
     await insertTaskImage({ taskId: shelvedId });
