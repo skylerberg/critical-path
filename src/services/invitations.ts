@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { Kysely, Selectable } from 'kysely';
 import { APP_NAME } from '../config/constants';
 import { env } from '../config/env';
+import { inviteLink } from './webLinks';
 import type { DB, ProjectInvitation } from '../db/types';
 import { getEmailSender } from './email/index';
 import { normalizeProjectRole, type ProjectRole } from './authorization';
@@ -83,7 +84,7 @@ export function enqueueInvitationEmail(
   projectName: string,
   inviterName: string
 ): void {
-  const link = `${env.appUrlBase}/invite?token=${encodeURIComponent(invitationToken(invitation.id))}`;
+  const link = inviteLink(invitationToken(invitation.id));
   const to = invitation.email;
 
   c.get('postCommitHooks').push(() =>

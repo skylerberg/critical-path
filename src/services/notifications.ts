@@ -1,5 +1,5 @@
 import { APP_NAME } from '../config/constants';
-import { env } from '../config/env';
+import { projectLink, taskLink, unsubscribeLink, unsubscribeOneClickUrl } from './webLinks';
 import { db } from '../db/index';
 import { withNotificationBudget } from '../middleware/rateLimit';
 import { logger } from '../utils/logger';
@@ -53,8 +53,8 @@ export function unsubscribeLinks(
   // what a mail client has to post back to.
   const token = encodeURIComponent(createUnsubscribeToken(recipient.id, recipient.email, kind));
   return {
-    page: `${env.appUrlBase}/unsubscribe?token=${token}`,
-    oneClick: `${env.appUrlBase}/api/auth/unsubscribe/one-click?token=${token}`,
+    page: unsubscribeLink(token),
+    oneClick: unsubscribeOneClickUrl(token),
   };
 }
 
@@ -67,10 +67,10 @@ function messageFor(notification: Notification, recipient: Recipient): EmailMess
   const body =
     notification.task === undefined
       ? `${notification.actor.name} added you to the board "${notification.project.name}" on ${APP_NAME}.\n\n` +
-        `Open it here: ${env.appUrlBase}/projects/${notification.project.id}`
+        `Open it here: ${projectLink(notification.project.id)}`
       : `${notification.actor.name} assigned you "${notification.task.title}" on the board ` +
         `"${notification.project.name}".\n\n` +
-        `Open it here: ${env.appUrlBase}/projects/${notification.project.id}/tasks/${notification.task.id}`;
+        `Open it here: ${taskLink(notification.project.id, notification.task.id)}`;
 
   return {
     to: recipient.email,
