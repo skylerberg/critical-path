@@ -30,7 +30,6 @@ export const publicBoardTaskSchema = type({
   label_ids: 'string[]',
   assignee_ids: 'string[]',
   blocker_ids: 'string[]',
-  image_count: 'number',
   cover_image_url: 'string | null',
   attachment_count: 'number',
   comment_count: 'number',

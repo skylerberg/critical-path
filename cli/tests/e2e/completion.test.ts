@@ -202,7 +202,7 @@ describe('completion commands', () => {
       '__complete',
       '--',
       'cpath',
-      'image',
+      'attachment',
       'upload',
       'Alpha task',
       '--project',

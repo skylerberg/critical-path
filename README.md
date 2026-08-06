@@ -679,11 +679,16 @@ the same `/api/images/:id` a description's embedded `src` uses, so one URL
 serves the list thumbnail and the inline picture. `PATCH /api/attachments/:id`
 renames an image like any other, and `DELETE` removes one.
 
-`images[]` and `image_count` are still sent alongside, unchanged, so a browser
-that has not reloaded keeps rendering; a later release removes them. The
-`images/` export folder and `project.json`'s separate `images[]` stay as they
-are — that is a documented, versioned interchange format, and merging its two
-arrays would be a breaking change to it.
+There is no separate image surface left. `images[]`, `image_count`, the
+`image_created` and `image_deleted` events and `POST /api/tasks/:id/images` are
+all gone; a picture is uploaded, listed, renamed and deleted exactly like a
+document. `GET /api/images/:id` is the one image-shaped thing that survives,
+because `/api/images/<uuid>` is embedded in every description and comment body
+that holds a picture and those URLs have to keep resolving.
+
+`attachment_deleted` carries `cover_image_url`. The cover lives on the row, so
+deleting one can clear it, and this is now the only event that says an
+attachment went away.
 
 **Which kind an upload becomes is the server's decision.**
 `POST /api/attachments/files` reads the first twelve bytes: PNG, JPEG, GIF or
@@ -1208,11 +1213,9 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `bulk_tasks_relations_set`            | `{ tasks }`, each `{ task_id, label_ids, assignee_ids, blocker_ids }`                              |
 | `label_created` / `label_updated`     | label row                                                                                          |
 | `label_deleted`                       | `{ id }`                                                                                           |
-| `image_created`                       | image response plus `{ task_id, image_count }`                                                     |
-| `image_deleted`                       | `{ task_id, image_count, cover_image_url }`                                                        |
 | `attachment_created`                  | attachment response plus `{ attachment_count }`                                                    |
 | `attachment_updated`                  | attachment response shape                                                                          |
-| `attachment_deleted`                  | `{ id, task_id, attachment_count }`                                                                |
+| `attachment_deleted`                  | `{ id, task_id, attachment_count, cover_image_url }`                                                                |
 | `comment_created`                     | comment row plus `{ comment_count }`                                                               |
 | `comment_updated`                     | comment row                                                                                        |
 | `comment_deleted`                     | `{ id, task_id, comment_count }`                                                                   |
@@ -1403,7 +1406,7 @@ delivery cannot be replayed under a fresh one.
 **Delivered types.** `task_created`, `task_updated`, `task_deleted`,
 `task_archived`, `task_restored`, `task_relations_set`, `column_created`,
 `column_updated`, `column_deleted`, `label_created`, `label_updated`,
-`label_deleted`, `image_created`, `image_deleted`, `comment_created`,
+`label_deleted`, `comment_created`,
 `comment_updated`, `comment_deleted`, `checklist_item_created`,
 `checklist_item_updated`, `checklist_item_deleted` and `project_updated` —
 which is also the event for publishing or unpublishing a board's public link.

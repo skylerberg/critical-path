@@ -4,7 +4,7 @@ import { app } from '../../../src/index';
 import { attachRealtime, projectSockets } from '../../../src/services/realtime/index';
 import type { RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, type TestUser } from '../../setup/testContext';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
 import { PNG_1X1, RtClient, settle } from './helpers';
 
@@ -106,7 +106,6 @@ describe('Realtime end to end', () => {
       label_ids: [],
       assignee_ids: [],
       blocker_ids: [],
-      image_count: 0,
       cover_image_url: null,
       comment_count: 0,
     });
@@ -503,27 +502,25 @@ describe('Realtime end to end', () => {
     });
   });
 
-  it('delivers image_created and image_deleted with image counts', async () => {
+  it('delivers an uploaded image as an attachment, and its cover change', async () => {
     const imageId = newId();
-    const form = new FormData();
-    form.append('file', new File([new Uint8Array(PNG_1X1)], 'pixel.png', { type: 'image/png' }));
-    form.append('id', imageId);
     const uploadRes = await ctx
       .request(userA.token)
-      .postMultipart(`/api/tasks/${taskId}/images`, form);
+      .postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
     expect(uploadRes.status).toBe(201);
 
     const createdEvent = await clientB.waitForEvent(
-      (e) => e.type === 'image_created' && e.data.id === imageId
+      (e) => e.type === 'attachment_created' && e.data.id === imageId
     );
     expect(createdEvent.project_id).toBe(projectId);
     expect(createdEvent.data).toMatchObject({
       id: imageId,
-      url: `/api/images/${imageId}`,
+      kind: 'image',
+      image_url: `/api/images/${imageId}`,
       filename: 'pixel.png',
       content_type: 'image/png',
       task_id: taskId,
-      image_count: 1,
+      attachment_count: 1,
     });
 
     const beforeCover = clientB.events.length;
@@ -537,28 +534,30 @@ describe('Realtime end to end', () => {
     );
     expect(coveredEvent.data).toMatchObject({ cover_image_url: `/api/images/${imageId}` });
 
-    const deleteRes = await ctx.request(userA.token).delete(`/api/images/${imageId}`);
+    const deleteRes = await ctx.request(userA.token).delete(`/api/attachments/${imageId}`);
     expect(deleteRes.status).toBe(204);
-    const deletedEvent = await clientB.waitForEvent((e) => e.type === 'image_deleted');
+    const deletedEvent = await clientB.waitForEvent((e) => e.type === 'attachment_deleted');
     expect(deletedEvent.project_id).toBe(projectId);
     expect(deletedEvent.data).toEqual({
+      id: imageId,
       task_id: taskId,
-      image_count: 0,
+      attachment_count: 0,
       cover_image_url: null,
     });
   });
 
-  it('delivers image_deleted with the cover that survived the delete', async () => {
+  // attachment_deleted is the only event that reports a cover now, so it has to
+  // name the one that survived rather than only the one that went.
+  it('delivers the cover that survived a delete on attachment_deleted', async () => {
     const coverId = newId();
     const otherId = newId();
     for (const [id, filename] of [
       [coverId, 'cover.png'],
       [otherId, 'other.png'],
     ] as const) {
-      const form = new FormData();
-      form.append('file', new File([new Uint8Array(PNG_1X1)], filename, { type: 'image/png' }));
-      form.append('id', id);
-      const res = await ctx.request(userA.token).postMultipart(`/api/tasks/${taskId}/images`, form);
+      const res = await ctx
+        .request(userA.token)
+        .postBytes(imageUploadPath(taskId, filename, id), PNG_1X1);
       expect(res.status).toBe(201);
     }
     const coverRes = await ctx
@@ -567,13 +566,16 @@ describe('Realtime end to end', () => {
     expect(coverRes.status).toBe(204);
 
     const from = clientB.events.length;
-    const deleteRes = await ctx.request(userA.token).delete(`/api/images/${otherId}`);
+    const deleteRes = await ctx.request(userA.token).delete(`/api/attachments/${otherId}`);
     expect(deleteRes.status).toBe(204);
 
-    const deletedEvent = await clientB.waitForEvent((e) => e.type === 'image_deleted', { from });
+    const deletedEvent = await clientB.waitForEvent((e) => e.type === 'attachment_deleted', {
+      from,
+    });
     expect(deletedEvent.data).toEqual({
+      id: otherId,
       task_id: taskId,
-      image_count: 1,
+      attachment_count: 1,
       cover_image_url: `/api/images/${coverId}`,
     });
   });

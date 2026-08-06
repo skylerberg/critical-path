@@ -843,7 +843,6 @@ describe('POST /api/columns/:id/archive-tasks', () => {
       expect(typeof task.archived_at).toBe('string');
       expect(task).toHaveProperty('label_ids');
       expect(task).toHaveProperty('blocker_ids');
-      expect(task).toHaveProperty('image_count');
     }
 
     const column = await db

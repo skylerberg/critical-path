@@ -252,8 +252,6 @@ describe('webhook event catalogue', () => {
       'label_created',
       'label_updated',
       'label_deleted',
-      'image_created',
-      'image_deleted',
       'comment_created',
       'comment_updated',
       'comment_deleted',
@@ -267,7 +265,7 @@ describe('webhook event catalogue', () => {
     ]) {
       expect(isWebhookEvent(type)).toBe(true);
     }
-    expect(WEBHOOK_EVENT_TYPES.size).toBe(24);
+    expect(WEBHOOK_EVENT_TYPES.size).toBe(22);
   });
 
   it('excludes events that cannot or must not be delivered', () => {

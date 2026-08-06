@@ -78,7 +78,6 @@ describe('POST /api/tasks/batch', () => {
         label_ids: [],
         assignee_ids: [],
         blocker_ids: [],
-        image_count: 0,
         comment_count: 0,
       });
       expect(typeof task.created_at).toBe('string');

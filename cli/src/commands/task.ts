@@ -708,10 +708,12 @@ export function registerTask(program: Command, deps: CliDeps): void {
                 ctx.out.line(`  ${checklistLine(item)}`);
               }
             }
-            if (detail.images.length > 0) {
-              ctx.out.line('Images:');
-              for (const image of detail.images) {
-                ctx.out.line(`  ${image.id}  ${image.filename}`);
+            const attachments = detail.attachments ?? [];
+            if (attachments.length > 0) {
+              ctx.out.line('Attachments:');
+              for (const entry of attachments) {
+                const name = entry.title ?? entry.filename ?? entry.url ?? '';
+                ctx.out.line(`  ${entry.id}  ${entry.kind.padEnd(5)}  ${name}`);
               }
             }
             if (detail.description != null) {

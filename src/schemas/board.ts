@@ -31,7 +31,6 @@ export const boardTaskSchema = type({
   label_ids: 'string[]',
   assignee_ids: 'string[]',
   blocker_ids: 'string[]',
-  image_count: 'number',
   cover_image_url: 'string | null',
   comment_count: 'number',
   checklist_item_count: 'number',

@@ -204,7 +204,7 @@ describe('PUT /api/tasks/:id/cover', () => {
     const { imageId: cover } = await insertTaskImage({ taskId, isCover: true });
     await insertTaskImage({ taskId });
 
-    const res = await ctx.request(user.token).delete(`/api/images/${cover}`);
+    const res = await ctx.request(user.token).delete(`/api/attachments/${cover}`);
     expect(res.status).toBe(204);
 
     expect(await coverRows(taskId)).toEqual([]);
@@ -212,7 +212,6 @@ describe('PUT /api/tasks/:id/cover', () => {
 
     const detail = await ctx.request(user.token).get(`/api/tasks/${taskId}`);
     expect(detail.status).toBe(200);
-    expect((await detail.json()).image_count).toBe(1);
   });
 
   it('deleting a non-cover image leaves the cover in place', async () => {
@@ -220,7 +219,7 @@ describe('PUT /api/tasks/:id/cover', () => {
     const { imageId: cover } = await insertTaskImage({ taskId, isCover: true });
     const { imageId: other } = await insertTaskImage({ taskId });
 
-    expect((await ctx.request(user.token).delete(`/api/images/${other}`)).status).toBe(204);
+    expect((await ctx.request(user.token).delete(`/api/attachments/${other}`)).status).toBe(204);
 
     expect(await coverRows(taskId)).toEqual([cover]);
     expect(await boardCover(taskId)).toBe(`/api/images/${cover}`);
