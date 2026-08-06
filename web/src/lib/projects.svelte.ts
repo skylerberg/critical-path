@@ -3,7 +3,7 @@ import type { components } from '../api/api.generated';
 import type { ProjectAccent } from './accents';
 import { newId } from './ids';
 import { invitations } from './invitations.svelte';
-import { reorderPositionUpdates } from './positions';
+import { reorderRankUpdates } from './positions';
 import type { RealtimeEvent } from './realtime-types';
 import { canEditProject, type ProjectRole } from './roles';
 import { session } from './session.svelte';
@@ -24,16 +24,21 @@ function byCreation(a: Project, b: Project): number {
   return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
 }
 
+// A project the caller has never reordered has neither key nor position, and
+// sorts after every one that does. `position` still decides between two rows
+// that predate the key, so a board ordered by the old scheme keeps its order
+// until the next drag re-ranks it.
 function byPosition(a: Project, b: Project): number {
+  if (a.sort_key !== null && b.sort_key !== null) {
+    return a.sort_key < b.sort_key ? -1 : a.sort_key > b.sort_key ? 1 : byCreation(a, b);
+  }
+  if (a.sort_key !== null) return -1;
+  if (b.sort_key !== null) return 1;
   if (a.position !== null && b.position !== null) {
     return a.position - b.position || byCreation(a, b);
   }
-  if (a.position !== null) {
-    return -1;
-  }
-  if (b.position !== null) {
-    return 1;
-  }
+  if (a.position !== null) return -1;
+  if (b.position !== null) return 1;
   return byCreation(a, b);
 }
 
@@ -284,13 +289,13 @@ class ProjectsStore {
     }
   }
 
-  async setPosition(id: string, position: number): Promise<void> {
-    this.#update(id, (p) => ({ ...p, position }));
+  async setPosition(id: string, position: number, sortKey: string): Promise<void> {
+    this.#update(id, (p) => ({ ...p, position, sort_key: sortKey }));
     try {
       assertOk(
         await api.PUT('/api/projects/{id}/position', {
           params: { path: { id } },
-          body: { position },
+          body: { position, sort_key: sortKey },
         })
       );
     } catch (error) {
@@ -301,8 +306,10 @@ class ProjectsStore {
   async reorder(movedId: string, orderedIds: string[]): Promise<void> {
     const byId = new Map(this.projects.map((p) => [p.id, p]));
     const ordered = orderedIds.flatMap((id) => byId.get(id) ?? []);
-    const updates = reorderPositionUpdates(ordered, movedId);
-    await Promise.all(updates.map(({ id, position }) => this.setPosition(id, position)));
+    const updates = reorderRankUpdates(ordered, movedId);
+    await Promise.all(
+      updates.map(({ id, position, sort_key }) => this.setPosition(id, position, sort_key))
+    );
   }
 
   // No toast and no resync on failure, unlike every other write here: nobody
@@ -360,6 +367,7 @@ class ProjectsStore {
         open_task_count: 0,
         done_task_count: 0,
         position: null,
+        sort_key: null,
         last_seen_at: null,
         has_unseen_changes: false,
       };
@@ -385,6 +393,7 @@ class ProjectsStore {
       open_task_count: 0,
       done_task_count: 0,
       position: null,
+      sort_key: null,
       last_seen_at: null,
       has_unseen_changes: false,
     };
@@ -426,6 +435,7 @@ class ProjectsStore {
       open_task_count: payload.tasks.length - doneCount,
       done_task_count: doneCount,
       position: existing?.position ?? null,
+      sort_key: existing?.sort_key ?? null,
       last_seen_at: existing?.last_seen_at ?? null,
       has_unseen_changes: false,
     };

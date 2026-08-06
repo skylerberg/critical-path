@@ -18,7 +18,7 @@ const payload = {
     archived_at: null,
     created_at: '2026-01-01T00:00:00Z',
   },
-  columns: [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }],
+  columns: [{ id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false }],
   tasks: [],
   labels: [],
 };

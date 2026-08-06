@@ -8,7 +8,7 @@ import { users } from './users.svelte';
 
 function project(overrides: Partial<Project> = {}): Project {
   const memberIds = overrides.member_ids ?? [];
-  return {
+  const base: Project = {
     id: 'p-1',
     name: 'Alpha',
     description: '',
@@ -22,17 +22,29 @@ function project(overrides: Partial<Project> = {}): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
     ...overrides,
   };
+  // A positioned project is a ranked one; leaving the key off would send every
+  // reorder down the re-stamp branch.
+  if (base.sort_key === null && base.position !== null) {
+    base.sort_key = `V0${String(base.position).padStart(8, '0')}1`;
+  }
+  return base;
 }
 
 function projectRow(
   item: Project
 ): Omit<
   Project,
-  'open_task_count' | 'done_task_count' | 'position' | 'last_seen_at' | 'has_unseen_changes'
+  | 'open_task_count'
+  | 'done_task_count'
+  | 'position'
+  | 'sort_key'
+  | 'last_seen_at'
+  | 'has_unseen_changes'
 > {
   return {
     id: item.id,
@@ -63,8 +75,8 @@ function boardPayload(id: string, name: string, tasksInColumns: string[] = []): 
       created_at: '2026-03-01T00:00:00.000Z',
     },
     columns: [
-      { id: 'col-open', name: 'To Do', position: 1000, is_done: false },
-      { id: 'col-done', name: 'Done', position: 2000, is_done: true },
+      { id: 'col-open', name: 'To Do', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'col-done', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
     ],
     tasks: tasksInColumns.map((columnId, index) => ({ id: `t-${index}`, column_id: columnId })),
     labels: [],
@@ -638,11 +650,13 @@ describe('projects store', () => {
     const second = project({
       id: 'p-second',
       position: 2000,
+      sort_key: 'V0000020001',
       created_at: '2026-01-01T00:00:00.000Z',
     });
     const first = project({
       id: 'p-first',
       position: 1000,
+      sort_key: 'V0000010001',
       created_at: '2026-01-09T00:00:00.000Z',
     });
     const legacyA = project({ id: 'p-legacy-a', created_at: '2026-01-05T00:00:00.000Z' });
@@ -661,14 +675,14 @@ describe('projects store', () => {
     await loadWith([project()]);
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
-    const pending = projects.setPosition('p-1', 1500);
+    const pending = projects.setPosition('p-1', 1500, 'V3');
     expect(projects.projects[0]!.position).toBe(1500);
 
     await pending;
 
     expect(requestAt(1).method).toBe('PUT');
     expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/position');
-    expect(await bodyOf(requestAt(1))).toEqual({ position: 1500 });
+    expect(await bodyOf(requestAt(1))).toEqual({ position: 1500, sort_key: expect.any(String) });
     expect(toasts.toasts).toEqual([]);
   });
 
@@ -682,7 +696,7 @@ describe('projects store', () => {
       return jsonResponse(200, { projects: [item] });
     });
 
-    await projects.setPosition('p-1', 1500);
+    await projects.setPosition('p-1', 1500, 'V3');
 
     expect(projects.projects[0]!.position).toBeNull();
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
@@ -700,7 +714,7 @@ describe('projects store', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(requestAt(1).method).toBe('PUT');
     expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-c/position');
-    expect(await bodyOf(requestAt(1))).toEqual({ position: 1500 });
+    expect(await bodyOf(requestAt(1))).toEqual({ position: 1500, sort_key: expect.any(String) });
     expect(projects.active.map((p) => p.id)).toEqual(['p-a', 'p-c', 'p-b']);
   });
 
@@ -721,9 +735,9 @@ describe('projects store', () => {
     }
     expect(puts).toEqual(
       new Map<string, unknown>([
-        ['/api/projects/p-a/position', { position: 1000 }],
-        ['/api/projects/p-c/position', { position: 2000 }],
-        ['/api/projects/p-b/position', { position: 3000 }],
+        ['/api/projects/p-a/position', { position: 1000, sort_key: expect.any(String) }],
+        ['/api/projects/p-c/position', { position: 2000, sort_key: expect.any(String) }],
+        ['/api/projects/p-b/position', { position: 3000, sort_key: expect.any(String) }],
       ])
     );
     expect(projects.active.map((p) => p.id)).toEqual(['p-a', 'p-c', 'p-b']);
@@ -755,7 +769,7 @@ describe('projects store', () => {
   });
 
   it('keeps the caller position when a PATCH response lacks it', async () => {
-    const item = project({ position: 500, name: 'Old' });
+    const item = project({ position: 500, sort_key: 'V0000005001', name: 'Old' });
     await loadWith([item]);
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, { ...projectRow(item), name: 'New' })

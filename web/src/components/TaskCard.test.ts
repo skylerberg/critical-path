@@ -24,6 +24,7 @@ const task: BoardTask = {
   title: 'Design cards',
   description: null,
   position: 1000,
+  sort_key: 'V0000010001',
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
   column_since: '2026-01-01T00:00:00Z',
@@ -640,8 +641,8 @@ describe('TaskCard', () => {
 
     it('marks the task done on click, without navigating', () => {
       board.columns = [
-        { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-        { id: 'c2', name: 'Done', position: 2000, is_done: true },
+        { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+        { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
       ];
       const markTaskDone = vi.spyOn(board, 'markTaskDone').mockReturnValue(true);
       const navigate = vi.spyOn(router, 'navigate');
@@ -654,7 +655,9 @@ describe('TaskCard', () => {
     });
 
     it('is inert once the task is done, and reads as complete', () => {
-      board.columns = [{ id: 'c2', name: 'Done', position: 2000, is_done: true }];
+      board.columns = [
+        { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
+      ];
       render(TaskCard, { task: dueIn(-2), projectId: PROJECT_ID, done: true });
 
       expect(pill().className).toContain('text-success');
@@ -662,14 +665,18 @@ describe('TaskCard', () => {
     });
 
     it('is inert with no done column to move the task into', () => {
-      board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+      board.columns = [
+        { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      ];
       render(TaskCard, { task: dueIn(-2), projectId: PROJECT_ID });
 
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
     });
 
     it('is inert on a read-only board', () => {
-      board.columns = [{ id: 'c2', name: 'Done', position: 2000, is_done: true }];
+      board.columns = [
+        { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
+      ];
       render(TaskCard, { task: dueIn(-2), projectId: PROJECT_ID, readonly: true });
 
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -760,7 +767,9 @@ describe('TaskCard selection', () => {
       color: null,
       created_at: '2026-01-01T00:00:00Z',
     };
-    board.columns = [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }];
+    board.columns = [
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+    ];
     board.tasks = [task, second];
   }
 

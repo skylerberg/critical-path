@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { board, positionAfterDrop, type TaskAttachment } from './board.svelte';
+import { board, placementAfterDrop, type TaskAttachment } from './board.svelte';
 import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
@@ -48,7 +48,8 @@ function serverChecklistItem(
   text = 'resynced item',
   id = 'ci-srv',
   position = 1000,
-  checked = false
+  checked = false,
+  sortKey?: string
 ) {
   return {
     id,
@@ -56,6 +57,7 @@ function serverChecklistItem(
     text,
     checked,
     position,
+    sort_key: sortKey ?? `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: SERVER_CREATED_AT,
     updated_at: SERVER_CREATED_AT,
   };
@@ -68,6 +70,7 @@ function task(id: string, columnId: string, position: number, title: string) {
     title,
     description: null,
     position,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
@@ -99,9 +102,9 @@ function payload(): BoardPayload {
       created_at: '2026-01-01T00:00:00Z',
     },
     columns: [
-      { id: 'c2', name: 'Done', position: 2000, is_done: true },
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
-      { id: 'c3', name: 'Empty', position: 3000, is_done: false },
+      { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c3', name: 'Empty', position: 3000, sort_key: 'V0000030001', is_done: false },
     ],
     tasks: [task('t2', 'c1', 2000, 'B'), task('t1', 'c1', 1000, 'A'), task('t3', 'c2', 1000, 'C')],
     labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
@@ -173,6 +176,7 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
         ...source,
         id: body.id,
         position: body.position,
+        sort_key: `V0${String(Math.round(body.position)).padStart(8, '0')}1`,
         blocker_ids: [],
         comment_count: 0,
         created_at: SERVER_CREATED_AT,
@@ -192,6 +196,7 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
           project_id: 'p1',
           name: source.name,
           position: body.position,
+          sort_key: `V0${String(Math.round(body.position)).padStart(8, '0')}1`,
           is_done: source.is_done,
           created_at: SERVER_CREATED_AT,
         },
@@ -209,6 +214,7 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
           id,
           column_id: columnId,
           position: (index + 1) * 1000,
+          sort_key: `V0${String((index + 1) * 1000).padStart(8, '0')}1`,
         })),
       });
     }
@@ -458,8 +464,8 @@ describe('board store readonly mode', () => {
   const publicPayload = {
     project: { id: 'p1', name: 'Public Game', description: 'shared' },
     columns: [
-      { id: 'c2', name: 'Done', position: 2000, is_done: true },
-      { id: 'c1', name: 'Todo', position: 1000, is_done: false },
+      { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
+      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
     ],
     tasks: [
       {
@@ -468,6 +474,7 @@ describe('board store readonly mode', () => {
         title: 'A',
         description: null,
         position: 1000,
+        sort_key: 'V0000010001',
         label_ids: ['l1'],
         assignee_ids: ['u-ada'],
         blocker_ids: [],
@@ -484,6 +491,7 @@ describe('board store readonly mode', () => {
         title: 'B',
         description: null,
         position: 2000,
+        sort_key: 'V0000020001',
         label_ids: [],
         assignee_ids: [],
         blocker_ids: [],
@@ -723,7 +731,7 @@ describe('board store mutations', () => {
   });
 
   it('moveTask applies optimistically and sends exactly one PATCH', async () => {
-    await board.moveTask('t1', 'c2', 3000);
+    await board.moveTask('t1', 'c2', { position: 3000, sort_key: 'V3000' });
 
     const moved = board.tasks.find((t) => t.id === 't1');
     expect(moved?.column_id).toBe('c2');
@@ -732,7 +740,11 @@ describe('board store mutations', () => {
     const request = requestAt(0);
     expect(request.method).toBe('PATCH');
     expect(new URL(request.url).pathname).toBe('/api/tasks/t1');
-    expect(await request.json()).toEqual({ column_id: 'c2', position: 3000 });
+    expect(await request.json()).toEqual({
+      column_id: 'c2',
+      position: 3000,
+      sort_key: expect.any(String),
+    });
   });
 
   it('moveTask failure toasts the error and refetches the board', async () => {
@@ -740,7 +752,7 @@ describe('board store mutations', () => {
       request.method === 'PATCH' ? jsonResponse(422, { error: 'nope' }) : undefined
     );
 
-    await board.moveTask('t1', 'c2', 3000);
+    await board.moveTask('t1', 'c2', { position: 3000, sort_key: 'V3000' });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(requestAt(1).method).toBe('GET');
@@ -765,6 +777,7 @@ describe('board store mutations', () => {
       column_id: 'c1',
       title: 'New task',
       position: 3000,
+      sort_key: expect.any(String),
     });
   });
 
@@ -796,8 +809,8 @@ describe('board store mutations', () => {
       project_id: 'p1',
       column_id: 'c1',
       tasks: [
-        { id: ids![0], title: 'X', position: 3000 },
-        { id: ids![1], title: 'Y', position: 4000 },
+        { id: ids![0], title: 'X', position: 3000, sort_key: expect.any(String) },
+        { id: ids![1], title: 'Y', position: 4000, sort_key: expect.any(String) },
       ],
     });
   });
@@ -964,7 +977,7 @@ describe('board store mutations', () => {
     const request = requestAt(0);
     expect(request.method).toBe('POST');
     expect(new URL(request.url).pathname).toBe('/api/tasks/t1/duplicate');
-    expect(await request.json()).toEqual({ id, position: 1500 });
+    expect(await request.json()).toEqual({ id, position: 1500, sort_key: expect.any(String) });
   });
 
   it('duplicateTask appends when the source is the last card in its column', async () => {
@@ -1061,7 +1074,11 @@ describe('board store mutations', () => {
     const request = requestAt(0);
     expect(request.method).toBe('POST');
     expect(new URL(request.url).pathname).toBe('/api/columns/c1/duplicate');
-    expect(await request.json()).toEqual({ id: copyId, position: 1500 });
+    expect(await request.json()).toEqual({
+      id: copyId,
+      position: 1500,
+      sort_key: expect.any(String),
+    });
   });
 
   it('duplicateColumn does not re-add a card a realtime echo already delivered', async () => {
@@ -1108,8 +1125,8 @@ describe('board store mutations', () => {
       request.method === 'DELETE' && url.pathname === '/api/columns/c1'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 4000 },
-              { id: 't2', column_id: 'c2', position: 5000 },
+              { id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' },
+              { id: 't2', column_id: 'c2', position: 5000, sort_key: 'V0000050001' },
             ],
           })
         : undefined
@@ -2075,9 +2092,9 @@ describe('archive', () => {
       request.method === 'DELETE' && url.pathname === '/api/columns/c1'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 4000 },
-              { id: 't9', column_id: 'c2', position: 5000 },
-              { id: 't2', column_id: 'c2', position: 6000 },
+              { id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' },
+              { id: 't9', column_id: 'c2', position: 5000, sort_key: 'V0000050001' },
+              { id: 't2', column_id: 'c2', position: 6000, sort_key: 'V0000060001' },
             ],
           })
         : undefined
@@ -2127,10 +2144,18 @@ describe('archive', () => {
     board.applyRealtime({
       type: 'column_deleted',
       project_id: 'p1',
-      data: { id: 'c1', moved_tasks: [{ id: 't9', column_id: 'c2', position: 7000 }] },
+      data: {
+        id: 'c1',
+        moved_tasks: [{ id: 't9', column_id: 'c2', position: 7000, sort_key: 'V0000070001' }],
+      },
     });
     expect(board.archivedTasks).toEqual([
-      expect.objectContaining({ id: 't9', column_id: 'c2', position: 7000 }),
+      expect.objectContaining({
+        id: 't9',
+        column_id: 'c2',
+        position: 7000,
+        sort_key: 'V0000070001',
+      }),
     ]);
 
     board.archivedTasks = [archivedTask('t7', 'c2')];
@@ -2183,8 +2208,8 @@ describe('column bulk actions', () => {
       request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 2000 },
-              { id: 't2', column_id: 'c2', position: 3000 },
+              { id: 't1', column_id: 'c2', position: 2000, sort_key: 'V0000020001' },
+              { id: 't2', column_id: 'c2', position: 3000, sort_key: 'V0000030001' },
             ],
           })
         : undefined
@@ -2215,8 +2240,8 @@ describe('column bulk actions', () => {
       request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 8000 },
-              { id: 't2', column_id: 'c2', position: 9000 },
+              { id: 't1', column_id: 'c2', position: 8000, sort_key: 'V0000080001' },
+              { id: 't2', column_id: 'c2', position: 9000, sort_key: 'V0000090001' },
             ],
           })
         : undefined
@@ -2235,7 +2260,9 @@ describe('column bulk actions', () => {
   it('moveTasksToColumn resyncs when the server moved fewer cards than we did', async () => {
     mockRoutes((request, url) =>
       request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
-        ? jsonResponse(200, { moved_tasks: [{ id: 't1', column_id: 'c2', position: 8000 }] })
+        ? jsonResponse(200, {
+            moved_tasks: [{ id: 't1', column_id: 'c2', position: 8000, sort_key: 'V0000080001' }],
+          })
         : undefined
     );
 
@@ -2250,8 +2277,8 @@ describe('column bulk actions', () => {
       request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 8000 },
-              { id: 't9', column_id: 'c2', position: 9000 },
+              { id: 't1', column_id: 'c2', position: 8000, sort_key: 'V0000080001' },
+              { id: 't9', column_id: 'c2', position: 9000, sort_key: 'V0000090001' },
             ],
           })
         : undefined
@@ -2372,8 +2399,8 @@ describe('column bulk actions', () => {
         column_id: 'c1',
         target_column_id: 'c2',
         moved_tasks: [
-          { id: 't1', column_id: 'c2', position: 4000 },
-          { id: 't2', column_id: 'c2', position: 5000 },
+          { id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' },
+          { id: 't2', column_id: 'c2', position: 5000, sort_key: 'V0000050001' },
         ],
       },
     });
@@ -2414,7 +2441,7 @@ describe('column bulk actions', () => {
       data: {
         column_id: 'c1',
         target_column_id: 'c2',
-        moved_tasks: [{ id: 't1', column_id: 'c2', position: 4000 }],
+        moved_tasks: [{ id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' }],
       },
     });
     board.applyRealtime({
@@ -2473,8 +2500,8 @@ describe('selection bulk actions', () => {
     it('appends in the order it was given and adopts the server positions', async () => {
       answer('/api/tasks/bulk-move', {
         moved_tasks: [
-          { id: 't2', column_id: 'c2', position: 7000 },
-          { id: 't1', column_id: 'c2', position: 8000 },
+          { id: 't2', column_id: 'c2', position: 7000, sort_key: 'V0000070001' },
+          { id: 't1', column_id: 'c2', position: 8000, sort_key: 'V0000080001' },
         ],
         skipped_task_ids: [],
       });
@@ -2504,7 +2531,7 @@ describe('selection bulk actions', () => {
 
     it('names the counts and resyncs when the server skipped a card', async () => {
       answer('/api/tasks/bulk-move', {
-        moved_tasks: [{ id: 't1', column_id: 'c2', position: 7000 }],
+        moved_tasks: [{ id: 't1', column_id: 'c2', position: 7000, sort_key: 'V0000070001' }],
         skipped_task_ids: ['t2'],
       });
 
@@ -2519,8 +2546,8 @@ describe('selection bulk actions', () => {
     it('resyncs when the server moved a card we did not send', async () => {
       answer('/api/tasks/bulk-move', {
         moved_tasks: [
-          { id: 't1', column_id: 'c2', position: 7000 },
-          { id: 't9', column_id: 'c2', position: 8000 },
+          { id: 't1', column_id: 'c2', position: 7000, sort_key: 'V0000070001' },
+          { id: 't9', column_id: 'c2', position: 8000, sort_key: 'V0000080001' },
         ],
         skipped_task_ids: [],
       });
@@ -2711,7 +2738,9 @@ describe('selection bulk actions', () => {
       board.applyRealtime({
         type: 'bulk_tasks_moved',
         project_id: 'p1',
-        data: { moved_tasks: [{ id: 't1', column_id: 'c2', position: 4000 }] },
+        data: {
+          moved_tasks: [{ id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' }],
+        },
       });
 
       expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1']);
@@ -3176,7 +3205,9 @@ describe('board store checklists', () => {
 
   it('addChecklistItem re-inserts the server row when a detail fetch replaces the list mid-flight', async () => {
     const pending = board.addChecklistItem('t1', 'mine');
-    board.taskChecklists = { t1: [serverChecklistItem('landed first', 'ci0', 500)] };
+    // 'U…' ranks below anything the generator hands out from an empty list,
+    // which is what the optimistic row was ranked against.
+    board.taskChecklists = { t1: [serverChecklistItem('landed first', 'ci0', 500, false, 'U0')] };
 
     await pending;
 
@@ -3239,7 +3270,7 @@ describe('board store checklists', () => {
       vi.advanceTimersByTime(1000);
       fetchMock.mockClear();
 
-      await board.moveChecklistItem('t1', 'ci1', 3000);
+      await board.moveChecklistItem('t1', 'ci1', { position: 3000, sort_key: 'V3' });
       await vi.runAllTimersAsync();
 
       expect(board.taskChecklists.t1!.map((i) => i.text)).toEqual(['b', 'a']);
@@ -3438,7 +3469,7 @@ describe('board store activity refresh', () => {
   it('refetches after a move, an archive and a blocker change', async () => {
     await openLog();
 
-    await board.moveTask('t1', 'c2', 3000);
+    await board.moveTask('t1', 'c2', { position: 3000, sort_key: 'V3000' });
     vi.advanceTimersByTime(1000);
     await board.removeBlocker('t1', 't2');
     vi.advanceTimersByTime(1000);
@@ -3487,83 +3518,89 @@ describe('board store activity refresh', () => {
   });
 });
 
-describe('positionAfterDrop', () => {
+describe('placementAfterDrop', () => {
   it('drops into an empty zone at the base position', () => {
-    expect(positionAfterDrop([{ id: 'm', position: 500 }], 'm')).toBe(1000);
+    expect(placementAfterDrop([{ id: 'm', position: 500, sort_key: 'V1' }], 'm').position).toBe(
+      1000
+    );
   });
 
   it('drops between two tasks at their midpoint', () => {
     const items = [
-      { id: 'a', position: 1000 },
-      { id: 'm', position: 9999 },
-      { id: 'b', position: 2000 },
+      { id: 'a', position: 1000, sort_key: 'V2' },
+      { id: 'm', position: 9999, sort_key: 'V9' },
+      { id: 'b', position: 2000, sort_key: 'V3' },
     ];
-    expect(positionAfterDrop(items, 'm')).toBe(1500);
+    expect(placementAfterDrop(items, 'm').position).toBe(1500);
   });
 
   it('drops at the start before the first task', () => {
     const items = [
-      { id: 'm', position: 9999 },
-      { id: 'a', position: 1000 },
-      { id: 'b', position: 2000 },
+      { id: 'm', position: 9999, sort_key: 'V9' },
+      { id: 'a', position: 1000, sort_key: 'V2' },
+      { id: 'b', position: 2000, sort_key: 'V3' },
     ];
-    expect(positionAfterDrop(items, 'm')).toBe(0);
+    expect(placementAfterDrop(items, 'm').position).toBe(0);
   });
 
   it('drops at the end after the last task', () => {
     const items = [
-      { id: 'a', position: 1000 },
-      { id: 'b', position: 2000 },
-      { id: 'm', position: 500 },
+      { id: 'a', position: 1000, sort_key: 'V2' },
+      { id: 'b', position: 2000, sort_key: 'V3' },
+      { id: 'm', position: 500, sort_key: 'V1' },
     ];
-    expect(positionAfterDrop(items, 'm')).toBe(3000);
+    expect(placementAfterDrop(items, 'm').position).toBe(3000);
   });
 
   it('appends when the moved id is not in the items', () => {
     const items = [
-      { id: 'a', position: 1000 },
-      { id: 'b', position: 2000 },
+      { id: 'a', position: 1000, sort_key: 'V2' },
+      { id: 'b', position: 2000, sort_key: 'V3' },
     ];
-    expect(positionAfterDrop(items, 'missing')).toBe(3000);
+    expect(placementAfterDrop(items, 'missing').position).toBe(3000);
   });
 
   it('lands between the card above and the next real position in an unsorted display array', () => {
     const items = [
-      { id: 'match', position: 1000 },
-      { id: 'm', position: 9999 },
-      { id: 'dim1', position: 3000 },
-      { id: 'dim2', position: 2000 },
+      { id: 'match', position: 1000, sort_key: 'V2' },
+      { id: 'm', position: 9999, sort_key: 'V9' },
+      { id: 'dim1', position: 3000, sort_key: 'V4' },
+      { id: 'dim2', position: 2000, sort_key: 'V3' },
     ];
-    expect(positionAfterDrop(items, 'm')).toBe(1500);
+    expect(placementAfterDrop(items, 'm').position).toBe(1500);
   });
 
   it('prepends over all positions when dropped at the display top of an unsorted array', () => {
     const items = [
-      { id: 'm', position: 9999 },
-      { id: 'match', position: 5000 },
-      { id: 'dim', position: 2000 },
+      { id: 'm', position: 9999, sort_key: 'V9' },
+      { id: 'match', position: 5000, sort_key: 'V5' },
+      { id: 'dim', position: 2000, sort_key: 'V3' },
     ];
-    expect(positionAfterDrop(items, 'm')).toBe(1000);
+    expect(placementAfterDrop(items, 'm').position).toBe(1000);
   });
 
   it('appends after the max-position card even when it is not displayed last', () => {
     const items = [
-      { id: 'match', position: 5000 },
-      { id: 'm', position: 9999 },
-      { id: 'dim1', position: 2000 },
-      { id: 'dim2', position: 3000 },
+      { id: 'match', position: 5000, sort_key: 'V5' },
+      { id: 'm', position: 9999, sort_key: 'V9' },
+      { id: 'dim1', position: 2000, sort_key: 'V3' },
+      { id: 'dim2', position: 3000, sort_key: 'V4' },
     ];
-    expect(positionAfterDrop(items, 'm')).toBe(6000);
+    expect(placementAfterDrop(items, 'm').position).toBe(6000);
   });
 
-  it('skips a duplicate neighbor position to the next strictly greater one', () => {
+  // Two rows can share a key until the unique index lands. The drop still has
+  // to rank strictly between the card above it and the next one along.
+  it('ranks between the neighbours when two of them share a key', () => {
     const items = [
-      { id: 'a', position: 1000 },
-      { id: 'm', position: 9999 },
-      { id: 'b', position: 1000 },
-      { id: 'c', position: 2000 },
+      { id: 'a', position: 1000, sort_key: 'V2' },
+      { id: 'm', position: 9999, sort_key: 'V9' },
+      { id: 'b', position: 1000, sort_key: 'V2' },
+      { id: 'c', position: 2000, sort_key: 'V3' },
     ];
-    expect(positionAfterDrop(items, 'm')).toBe(1500);
+    const placed = placementAfterDrop(items, 'm');
+    expect(placed.sort_key > 'V2').toBe(true);
+    expect(placed.sort_key < 'V3').toBe(true);
   });
 });
 
@@ -3704,7 +3741,7 @@ describe('board store canEdit', () => {
       return undefined;
     });
 
-    await board.moveTask('t1', 'c2', 1000);
+    await board.moveTask('t1', 'c2', { position: 1000, sort_key: 'V1000' });
 
     expect(toasts.toasts.map((t) => t.message)).toContain('Read-only access to this project');
     expect(board.canEdit).toBe(false);
@@ -3838,7 +3875,9 @@ describe('what changed since you last looked', () => {
       return url.pathname === '/api/public/projects/p1/board'
         ? jsonResponse(200, {
             project: { id: 'p1', name: 'Public Game', description: '' },
-            columns: [{ id: 'c1', name: 'Todo', position: 1000, is_done: false }],
+            columns: [
+              { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+            ],
             tasks: [
               {
                 id: 't1',
@@ -3846,6 +3885,7 @@ describe('what changed since you last looked', () => {
                 title: 'A',
                 description: null,
                 position: 1000,
+                sort_key: 'V0000010001',
                 label_ids: [],
                 assignee_ids: [],
                 blocker_ids: [],

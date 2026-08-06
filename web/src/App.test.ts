@@ -51,7 +51,9 @@ const TASK_ID = testUuid('t1');
 function publicBoard() {
   return {
     project: { id: PROJECT_ID, name: 'Roadmap', description: '' },
-    columns: [{ id: 'todo', name: 'To Do', position: 1000, is_done: false }],
+    columns: [
+      { id: 'todo', name: 'To Do', position: 1000, sort_key: 'V0000010001', is_done: false },
+    ],
     tasks: [],
     labels: [],
     users: [],

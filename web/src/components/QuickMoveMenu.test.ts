@@ -14,6 +14,7 @@ function task(id: string, columnId: string, title: string, position: number): Bo
     title,
     description: null,
     position,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
@@ -38,9 +39,9 @@ beforeEach(() => {
   announcer.clear();
   board.currentProjectId = 'p1';
   board.columns = [
-    { id: 'todo', name: 'Todo', position: 1000, is_done: false },
-    { id: 'doing', name: 'Doing', position: 2000, is_done: false },
-    { id: 'done', name: 'Done', position: 3000, is_done: true },
+    { id: 'todo', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+    { id: 'doing', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
+    { id: 'done', name: 'Done', position: 3000, sort_key: 'V0000030001', is_done: true },
   ];
   board.tasks = [
     task('t1', 'todo', 'Design cards', 1000),
@@ -144,7 +145,10 @@ describe('QuickMoveMenu', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: row }));
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', position);
+    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
+      position: position,
+      sort_key: expect.any(String),
+    });
   });
 
   it('skips the position step for a destination with no other cards', async () => {
@@ -152,7 +156,10 @@ describe('QuickMoveMenu', () => {
 
     await chooseColumn('Done');
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'done', 1000);
+    expect(moveTask).toHaveBeenCalledWith('t1', 'done', {
+      position: 1000,
+      sort_key: expect.any(String),
+    });
     expect(onclose).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText('Search positions')).toBeNull();
   });
@@ -176,7 +183,10 @@ describe('QuickMoveMenu', () => {
     await fireEvent.keyDown(input, { key: 'ArrowDown' });
     await fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', 1500);
+    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
+      position: 1500,
+      sort_key: expect.any(String),
+    });
   });
 
   it('re-resolves the anchor at commit time, so a card inserted meanwhile does not shift the slot', async () => {
@@ -203,7 +213,10 @@ describe('QuickMoveMenu', () => {
 
     await fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', 1500);
+    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
+      position: 1500,
+      sort_key: expect.any(String),
+    });
     await waitFor(() => {
       expect(announcer.message).toBe('Moved "Design cards" to Doing, position 3 of 4');
     });
@@ -219,7 +232,10 @@ describe('QuickMoveMenu', () => {
     board.tasks = board.tasks.filter((t) => t.id !== 't3');
     anchorRow.click();
 
-    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', 2000);
+    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
+      position: 2000,
+      sort_key: expect.any(String),
+    });
   });
 
   it('unwinds the query first and the step second on Escape', async () => {

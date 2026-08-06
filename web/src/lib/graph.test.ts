@@ -17,7 +17,7 @@ import {
 } from './graph';
 
 function column(id: string, name: string, isDone = false): BoardColumn {
-  return { id, name, position: 1000, is_done: isDone };
+  return { id, name, position: 1000, sort_key: 'V0000010001', is_done: isDone };
 }
 
 function task(id: string, columnId: string, blockerIds: string[] = []): BoardTask {
@@ -27,6 +27,7 @@ function task(id: string, columnId: string, blockerIds: string[] = []): BoardTas
     title: `Task ${id}`,
     description: null,
     position: 1000,
+    sort_key: 'V0000010001',
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
     column_since: '2026-07-15T00:00:00Z',

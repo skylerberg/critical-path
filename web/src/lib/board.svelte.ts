@@ -17,7 +17,15 @@ import { saveBlob } from './export';
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import type { RealtimeEvent } from './realtime-types';
-import { append, between, positionForIndex, prepend } from './positions';
+import {
+  append,
+  appendRun,
+  between,
+  byRank,
+  placeAtIndex,
+  type Placement,
+  type Ranked,
+} from './positions';
 import { canEditProject } from './roles';
 import { router, splitPath } from './router.svelte';
 import { projects } from './projects.svelte';
@@ -47,26 +55,32 @@ export type TaskUpdateOutcome =
 
 // Anchors on the visual neighbor above the drop, so it stays correct when the
 // display order is a filtered partition rather than pure position order.
-export function positionAfterDrop(
-  items: readonly { id: string; position: number }[],
-  movedId: string
-): number {
+export function placementAfterDrop(items: readonly Ranked[], movedId: string): Placement {
   const index = items.findIndex((item) => item.id === movedId);
-  const others = items.filter((item) => item.id !== movedId).map((item) => item.position);
+  const others = items.filter((item) => item.id !== movedId);
   if (index === -1) {
     return append(others);
   }
   if (index === 0) {
-    return prepend(others);
+    return placeAtIndex(others, 0);
   }
-  const prev = items[index - 1]!.position;
-  let next: number | null = null;
-  for (const position of others) {
-    if (position > prev && (next === null || position < next)) {
-      next = position;
+  // Anchors on the visual neighbour above the drop, then takes the lowest-ranked
+  // sibling above it, so the placement stays right when the display is a
+  // filtered partition rather than the whole column.
+  const previous = items[index - 1]!;
+  // Strictly greater by key, not by rank: a sibling that merely ties on key and
+  // loses the id tiebreak is not something to squeeze in front of.
+  const above = (candidate: Ranked): boolean =>
+    previous.sort_key === null
+      ? candidate.sort_key !== null
+      : candidate.sort_key !== null && candidate.sort_key > previous.sort_key;
+  let next: Ranked | null = null;
+  for (const item of others) {
+    if (above(item) && (next === null || byRank(item, next) < 0)) {
+      next = item;
     }
   }
-  return next === null ? append(others) : between(prev, next);
+  return next === null ? append(others) : between(previous, next);
 }
 
 const CYCLE_PATH_MS = 5000;
@@ -75,16 +89,21 @@ const MAX_CYCLE_TITLE_CHARS = 40;
 // Mirrors the batch endpoint's own limit, so an oversized paste is refused
 // before any card is drawn.
 const MAX_BATCH_TASKS = 100;
-const BATCH_POSITION_GAP = 1000;
 
-function optimisticTask(id: string, columnId: string, title: string, position: number): BoardTask {
+function optimisticTask(
+  id: string,
+  columnId: string,
+  title: string,
+  placement: Placement
+): BoardTask {
   const now = new Date().toISOString();
   return {
     id,
     column_id: columnId,
     title,
     description: null,
-    position,
+    position: placement.position,
+    sort_key: placement.sort_key,
     due_date: null,
     created_at: now,
     updated_at: now,
@@ -153,7 +172,7 @@ function chronological(a: TaskComment, b: TaskComment): number {
 }
 
 function byPosition(a: ChecklistItem, b: ChecklistItem): number {
-  return a.position - b.position || a.id.localeCompare(b.id);
+  return byRank(a, b);
 }
 
 class BoardStore {
@@ -290,7 +309,7 @@ class BoardStore {
       }
       this.project = data.project;
       projects.adoptMembership(data.project);
-      this.columns = [...data.columns].sort((a, b) => a.position - b.position);
+      this.columns = [...data.columns].sort(byRank);
       this.tasks = data.tasks;
       this.labels = data.labels;
       this.error = null;
@@ -495,9 +514,7 @@ class BoardStore {
   }
 
   tasksInColumn(columnId: string): BoardTask[] {
-    return this.tasks
-      .filter((task) => task.column_id === columnId)
-      .sort((a, b) => a.position - b.position);
+    return this.tasks.filter((task) => task.column_id === columnId).sort(byRank);
   }
 
   async createTask(columnId: string, title: string): Promise<string | null> {
@@ -506,12 +523,12 @@ class BoardStore {
       return null;
     }
     const id = newId();
-    const position = append(this.tasksInColumn(columnId).map((task) => task.position));
-    this.tasks = [...this.tasks, optimisticTask(id, columnId, title, position)];
+    const placement = append(this.tasksInColumn(columnId));
+    this.tasks = [...this.tasks, optimisticTask(id, columnId, title, placement)];
     try {
       const created = assertOk(
         await api.POST('/api/tasks', {
-          body: { id, project_id: projectId, column_id: columnId, title, position },
+          body: { id, project_id: projectId, column_id: columnId, title, ...placement },
         })
       );
       this.#adoptTimestamps(id, {
@@ -534,9 +551,9 @@ class BoardStore {
       toasts.error(`Add at most ${MAX_BATCH_TASKS} tasks at a time (got ${titles.length})`);
       return null;
     }
-    const start = append(this.tasksInColumn(columnId).map((task) => task.position));
+    const placements = appendRun(this.tasksInColumn(columnId), titles.length);
     const created = titles.map((title, index) =>
-      optimisticTask(newId(), columnId, title, start + index * BATCH_POSITION_GAP)
+      optimisticTask(newId(), columnId, title, placements[index]!)
     );
     this.tasks = [...this.tasks, ...created];
     try {
@@ -549,6 +566,7 @@ class BoardStore {
               id: task.id,
               title: task.title,
               position: task.position,
+              sort_key: task.sort_key ?? undefined,
             })),
           },
         })
@@ -567,10 +585,7 @@ class BoardStore {
       return null;
     }
     const siblings = this.tasksInColumn(source.column_id);
-    const position = positionForIndex(
-      siblings.map((task) => task.position),
-      siblings.findIndex((task) => task.id === taskId) + 1
-    );
+    const placement = placeAtIndex(siblings, siblings.findIndex((task) => task.id === taskId) + 1);
     const id = newId();
     const now = new Date().toISOString();
     // Labels, assignees and image_count come along because the server copies them.
@@ -578,7 +593,7 @@ class BoardStore {
     const optimistic: BoardTask = {
       ...source,
       id,
-      position,
+      ...placement,
       blocker_ids: [],
       comment_count: 0,
       attachment_count: 0,
@@ -591,7 +606,7 @@ class BoardStore {
       const created = assertOk(
         await api.POST('/api/tasks/{id}/duplicate', {
           params: { path: { id: taskId } },
-          body: { id, position },
+          body: { id, ...placement },
         })
       );
       this.tasks = this.tasks.map((task) =>
@@ -630,15 +645,15 @@ class BoardStore {
     return id;
   }
 
-  async moveTask(taskId: string, columnId: string, position: number): Promise<void> {
+  async moveTask(taskId: string, columnId: string, placement: Placement): Promise<void> {
     this.tasks = this.tasks.map((task) =>
-      task.id === taskId ? { ...task, column_id: columnId, position } : task
+      task.id === taskId ? { ...task, column_id: columnId, ...placement } : task
     );
     try {
       assertOk(
         await api.PATCH('/api/tasks/{id}', {
           params: { path: { id: taskId } },
-          body: { column_id: columnId, position },
+          body: { column_id: columnId, ...placement },
         })
       );
     } catch (error) {
@@ -657,11 +672,7 @@ class BoardStore {
     if (doneColumn === undefined) {
       return false;
     }
-    void this.moveTask(
-      taskId,
-      doneColumn.id,
-      append(this.tasksInColumn(doneColumn.id).map((task) => task.position))
-    );
+    void this.moveTask(taskId, doneColumn.id, append(this.tasksInColumn(doneColumn.id)));
     return true;
   }
 
@@ -799,11 +810,11 @@ class BoardStore {
       return;
     }
     const id = newId();
-    const position = append(this.columns.map((column) => column.position));
-    this.columns = [...this.columns, { id, name, position, is_done: false }];
+    const placement = append(this.columns);
+    this.columns = [...this.columns, { id, name, ...placement, is_done: false }];
     try {
       assertOk(
-        await api.POST('/api/columns', { body: { id, project_id: projectId, name, position } })
+        await api.POST('/api/columns', { body: { id, project_id: projectId, name, ...placement } })
       );
     } catch (error) {
       await this.#mutationFailed(error);
@@ -823,15 +834,15 @@ class BoardStore {
     }
   }
 
-  async moveColumn(columnId: string, position: number): Promise<void> {
+  async moveColumn(columnId: string, placement: Placement): Promise<void> {
     this.columns = this.columns
-      .map((column) => (column.id === columnId ? { ...column, position } : column))
-      .sort((a, b) => a.position - b.position);
+      .map((column) => (column.id === columnId ? { ...column, ...placement } : column))
+      .sort(byRank);
     try {
       assertOk(
         await api.PATCH('/api/columns/{id}', {
           params: { path: { id: columnId } },
-          body: { position },
+          body: { ...placement },
         })
       );
     } catch (error) {
@@ -863,8 +874,8 @@ class BoardStore {
     if (source === undefined) {
       return;
     }
-    const position = positionForIndex(
-      this.columns.map((column) => column.position),
+    const placement = placeAtIndex(
+      this.columns,
       this.columns.findIndex((column) => column.id === columnId) + 1
     );
     const id = newId();
@@ -873,13 +884,13 @@ class BoardStore {
     // the empty column can, so it appears beside the original straight away.
     this.columns = [
       ...this.columns,
-      { id, name: source.name, position, is_done: source.is_done },
-    ].sort((a, b) => a.position - b.position);
+      { id, name: source.name, ...placement, is_done: source.is_done },
+    ].sort(byRank);
     try {
       const data = assertOk(
         await api.POST('/api/columns/{id}/duplicate', {
           params: { path: { id: columnId } },
-          body: { id, position },
+          body: { id, ...placement },
         })
       );
       // Other mutations key off an id already on the board, so a late response is a
@@ -893,6 +904,7 @@ class BoardStore {
               id: data.column.id,
               name: data.column.name,
               position: data.column.position,
+              sort_key: data.column.sort_key,
               is_done: data.column.is_done,
             }
           : column
@@ -913,20 +925,19 @@ class BoardStore {
     const movedArchived = this.archivedTasks.filter((task) => task.column_id === columnId);
     this.columns = this.columns.filter((column) => column.id !== columnId);
     if (moveTasksTo !== undefined && movedLive.length + movedArchived.length > 0) {
-      const targetPositions = this.tasksInColumn(moveTasksTo).map((task) => task.position);
-      const base = targetPositions.length > 0 ? Math.max(...targetPositions) : 0;
-      // Position then id, the order the server relocates in.
+      // Rank then id, the order the server relocates in.
       const relocating = [...movedLive, ...movedArchived].sort(
-        (a, b) => a.position - b.position || a.id.localeCompare(b.id)
+        (a, b) => byRank(a, b) || a.id.localeCompare(b.id)
       );
-      const movedPositions = new Map(
-        relocating.map((task, index) => [task.id, base + (index + 1) * 1000])
-      );
-      const place = <T extends { id: string; column_id: string; position: number }>(task: T): T => {
-        const newPosition = movedPositions.get(task.id);
-        return newPosition === undefined
-          ? task
-          : { ...task, column_id: moveTasksTo, position: newPosition };
+      const run = appendRun(this.tasksInColumn(moveTasksTo), relocating.length);
+      const movedPositions = new Map(relocating.map((task, index) => [task.id, run[index]!]));
+      const place = <
+        T extends { id: string; column_id: string; position: number; sort_key: string | null },
+      >(
+        task: T
+      ): T => {
+        const placement = movedPositions.get(task.id);
+        return placement === undefined ? task : { ...task, column_id: moveTasksTo, ...placement };
       };
       this.tasks = this.tasks.map(place);
       this.archivedTasks = this.archivedTasks.map(place);
@@ -945,13 +956,20 @@ class BoardStore {
       );
       if (data !== undefined) {
         const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
-        const apply = <T extends { id: string; column_id: string; position: number }>(
+        const apply = <
+          T extends { id: string; column_id: string; position: number; sort_key: string | null },
+        >(
           task: T
         ): T => {
           const movedTask = byId.get(task.id);
           return movedTask === undefined
             ? task
-            : { ...task, column_id: movedTask.column_id, position: movedTask.position };
+            : {
+                ...task,
+                column_id: movedTask.column_id,
+                position: movedTask.position,
+                sort_key: movedTask.sort_key,
+              };
         };
         this.tasks = this.tasks.map(apply);
         this.archivedTasks = this.archivedTasks.map(apply);
@@ -972,14 +990,11 @@ class BoardStore {
     if (this.currentProjectId === null || moved.length === 0) {
       return;
     }
-    const targetPositions = this.tasksInColumn(targetColumnId).map((task) => task.position);
-    const base = targetPositions.length > 0 ? Math.max(...targetPositions) : 0;
-    const optimistic = new Map(
-      moved.map((task, index) => [task.id, base + (index + 1) * 1000] as const)
-    );
+    const run = appendRun(this.tasksInColumn(targetColumnId), moved.length);
+    const optimistic = new Map(moved.map((task, index) => [task.id, run[index]!] as const));
     this.tasks = this.tasks.map((task) => {
-      const position = optimistic.get(task.id);
-      return position === undefined ? task : { ...task, column_id: targetColumnId, position };
+      const placement = optimistic.get(task.id);
+      return placement === undefined ? task : { ...task, column_id: targetColumnId, ...placement };
     });
     try {
       const data = assertOk(
@@ -993,7 +1008,12 @@ class BoardStore {
         const movedTask = byId.get(task.id);
         return movedTask === undefined
           ? task
-          : { ...task, column_id: movedTask.column_id, position: movedTask.position };
+          : {
+              ...task,
+              column_id: movedTask.column_id,
+              position: movedTask.position,
+              sort_key: movedTask.sort_key,
+            };
       });
       // The reconcile leaves an unlisted task alone, so one the server refused to
       // move — already archived, per an event we have not seen — would otherwise
@@ -1037,7 +1057,9 @@ class BoardStore {
       const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
       this.tasks = this.tasks.map((task) => {
         const movedTask = byId.get(task.id);
-        return movedTask === undefined ? task : { ...task, position: movedTask.position };
+        return movedTask === undefined
+          ? task
+          : { ...task, position: movedTask.position, sort_key: movedTask.sort_key };
       });
     } catch (error) {
       await this.#mutationFailed(error);
@@ -1087,12 +1109,11 @@ class BoardStore {
     if (projectId === null || taskIds.length === 0) {
       return;
     }
-    const positions = this.tasksInColumn(columnId).map((task) => task.position);
-    const base = positions.length > 0 ? Math.max(...positions) : 0;
-    const optimistic = new Map(taskIds.map((id, index) => [id, base + (index + 1) * 1000]));
+    const run = appendRun(this.tasksInColumn(columnId), taskIds.length);
+    const optimistic = new Map(taskIds.map((id, index) => [id, run[index]!]));
     this.tasks = this.tasks.map((task) => {
-      const position = optimistic.get(task.id);
-      return position === undefined ? task : { ...task, column_id: columnId, position };
+      const placement = optimistic.get(task.id);
+      return placement === undefined ? task : { ...task, column_id: columnId, ...placement };
     });
     try {
       const data = assertOk(
@@ -1929,13 +1950,13 @@ class BoardStore {
   async addChecklistItem(taskId: string, text: string): Promise<void> {
     const id = newId();
     const now = new Date().toISOString();
-    const position = append((this.taskChecklists[taskId] ?? []).map((item) => item.position));
+    const placement = append(this.taskChecklists[taskId] ?? []);
     const optimistic: ChecklistItem = {
       id,
       task_id: taskId,
       text,
       checked: false,
-      position,
+      ...placement,
       created_at: now,
       updated_at: now,
     };
@@ -1943,7 +1964,9 @@ class BoardStore {
     this.#setChecklistCounts(taskId, ({ total, done }) => ({ total: total + 1, done }));
     try {
       const created = assertOk(
-        await api.POST('/api/checklist-items', { body: { id, task_id: taskId, text, position } })
+        await api.POST('/api/checklist-items', {
+          body: { id, task_id: taskId, text, ...placement },
+        })
       );
       // A detail fetch landing mid-flight replaces the whole list, so the optimistic
       // row may be gone and the server row has to be re-inserted.
@@ -1989,11 +2012,11 @@ class BoardStore {
 
   // The only checklist write the server records no activity for, so the only one
   // that must not refetch the log.
-  async moveChecklistItem(taskId: string, itemId: string, position: number): Promise<void> {
+  async moveChecklistItem(taskId: string, itemId: string, placement: Placement): Promise<void> {
     this.#replaceChecklist(taskId, (items) =>
-      items.map((item) => (item.id === itemId ? { ...item, position } : item)).sort(byPosition)
+      items.map((item) => (item.id === itemId ? { ...item, ...placement } : item)).sort(byPosition)
     );
-    await this.#patchChecklistItem(taskId, itemId, { position }, false);
+    await this.#patchChecklistItem(taskId, itemId, { ...placement }, false);
   }
 
   async #patchChecklistItem(
@@ -2045,10 +2068,7 @@ class BoardStore {
       return null;
     }
     const siblings = this.tasksInColumn(parent.column_id);
-    const position = positionForIndex(
-      siblings.map((task) => task.position),
-      siblings.findIndex((task) => task.id === taskId) + 1
-    );
+    const placement = placeAtIndex(siblings, siblings.findIndex((task) => task.id === taskId) + 1);
     const id = newId();
     this.#replaceChecklist(taskId, (items) => items.filter((entry) => entry.id !== itemId));
     this.#setChecklistCounts(taskId, ({ total, done }) => ({
@@ -2059,7 +2079,7 @@ class BoardStore {
       const created = assertOk(
         await api.POST('/api/checklist-items/{id}/promote', {
           params: { path: { id: itemId } },
-          body: { id, position },
+          body: { id, ...placement },
         })
       );
       this.tasks = this.tasks.some((task) => task.id === id)
@@ -2165,21 +2185,30 @@ class BoardStore {
           this.columns.some((c) => c.id === column.id)
             ? this.columns.map((c) => (c.id === column.id ? column : c))
             : [...this.columns, column]
-        ).sort((a, b) => a.position - b.position);
+        ).sort(byRank);
         break;
       }
       case 'column_deleted': {
         const d = event.data as {
           id: string;
-          moved_tasks: { id: string; column_id: string; position: number }[];
+          moved_tasks: {
+            id: string;
+            column_id: string;
+            position: number;
+            sort_key: string | null;
+          }[];
         };
         this.columns = this.columns.filter((c) => c.id !== d.id);
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
-        const relocate = <T extends { id: string; column_id: string; position: number }>(
+        const relocate = <
+          T extends { id: string; column_id: string; position: number; sort_key: string | null },
+        >(
           task: T
         ): T => {
           const m = moved.get(task.id);
-          return m === undefined ? task : { ...task, column_id: m.column_id, position: m.position };
+          return m === undefined
+            ? task
+            : { ...task, column_id: m.column_id, position: m.position, sort_key: m.sort_key };
         };
         this.tasks = this.tasks.map(relocate).filter((t) => t.column_id !== d.id);
         this.archivedTasks = this.archivedTasks.map(relocate).filter((t) => t.column_id !== d.id);
@@ -2191,12 +2220,19 @@ class BoardStore {
       case 'column_tasks_moved':
       case 'bulk_tasks_moved': {
         const d = event.data as {
-          moved_tasks: { id: string; column_id: string; position: number }[];
+          moved_tasks: {
+            id: string;
+            column_id: string;
+            position: number;
+            sort_key: string | null;
+          }[];
         };
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         this.tasks = this.tasks.map((t) => {
           const m = moved.get(t.id);
-          return m === undefined ? t : { ...t, column_id: m.column_id, position: m.position };
+          return m === undefined
+            ? t
+            : { ...t, column_id: m.column_id, position: m.position, sort_key: m.sort_key };
         });
         for (const movedTask of d.moved_tasks) {
           taskActivity.invalidate(movedTask.id);
@@ -2205,11 +2241,13 @@ class BoardStore {
       }
       case 'column_tasks_reordered': {
         // No column change, so only positions move; no activity to invalidate.
-        const d = event.data as { moved_tasks: { id: string; position: number }[] };
+        const d = event.data as {
+          moved_tasks: { id: string; position: number; sort_key: string | null }[];
+        };
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         this.tasks = this.tasks.map((t) => {
           const m = moved.get(t.id);
-          return m === undefined ? t : { ...t, position: m.position };
+          return m === undefined ? t : { ...t, position: m.position, sort_key: m.sort_key };
         });
         break;
       }
@@ -2379,6 +2417,7 @@ class BoardStore {
           text: d.text,
           checked: d.checked,
           position: d.position,
+          sort_key: d.sort_key,
           created_at: d.created_at,
           updated_at: d.updated_at,
         };

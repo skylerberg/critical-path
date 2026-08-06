@@ -3,7 +3,7 @@
   import { announcer } from '../lib/announcer.svelte';
   import type { BoardContext } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
-  import { positionForIndex } from '../lib/positions';
+  import { placeAtIndex } from '../lib/positions';
   import { truncateTitle } from '../lib/titles';
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';
@@ -139,14 +139,7 @@
     committed = true;
     const rest = ctx.tasksInColumn(column.id).filter((t) => t.id !== taskId);
     const index = placeIndex(target, rest);
-    void ctx.moveTask(
-      taskId,
-      column.id,
-      positionForIndex(
-        rest.map((t) => t.position),
-        index
-      )
-    );
+    void ctx.moveTask(taskId, column.id, placeAtIndex(rest, index));
     // Close before announcing: this modal keeps the shell's live region inert.
     onclose();
     void announcer.announce(

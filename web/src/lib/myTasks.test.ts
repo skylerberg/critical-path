@@ -18,6 +18,7 @@ function project(overrides: Partial<Project> = {}): Project {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
     ...overrides,
@@ -162,6 +163,7 @@ describe('myTasks store', () => {
         id: 'p-3',
         name: 'Charlie',
         position: 50,
+        sort_key: 'V0000000501',
         archived_at: '2026-01-02T00:00:00.000Z',
       }),
     ];

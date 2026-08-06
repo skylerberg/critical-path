@@ -41,6 +41,7 @@ function task(id: string, columnId: string, title: string, position = 1000): Boa
     title,
     description: null,
     position,
+    sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
     column_since: '2026-07-15T00:00:00Z',
@@ -72,8 +73,8 @@ function payload(projectId: string, name: string, tasks: BoardTask[]): BoardPayl
       created_at: '2026-07-15T00:00:00Z',
     },
     columns: [
-      { id: `${projectId}-todo`, name: 'To Do', position: 1000, is_done: false },
-      { id: `${projectId}-done`, name: 'Done', position: 2000, is_done: true },
+      { id: `${projectId}-todo`, name: 'To Do', position: 1000, sort_key: 'V0', is_done: false },
+      { id: `${projectId}-done`, name: 'Done', position: 2000, sort_key: 'V1', is_done: true },
     ],
     tasks,
     labels: [{ id: `${projectId}-lab`, name: 'Urgent', color: '#ef4444' }],
@@ -96,6 +97,7 @@ function projectRow(id: string, name: string) {
     open_task_count: 0,
     done_task_count: 0,
     position: null,
+    sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
   };
@@ -269,7 +271,10 @@ describe('quick menus on a project route', () => {
     await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
     await fireEvent.click(within(menu).getByRole('button', { name: /^Bottom/ }));
 
-    expect(moveTask).toHaveBeenCalledWith(T1, `${OPEN_PROJECT}-done`, 3000);
+    expect(moveTask).toHaveBeenCalledWith(T1, `${OPEN_PROJECT}-done`, {
+      position: 3000,
+      sort_key: expect.any(String),
+    });
     expect(shortcuts.moveMenu).toBeNull();
     await waitFor(() => {
       expect(screen.getAllByRole('status').map((region) => region.textContent)).toContain(
@@ -367,7 +372,10 @@ describe('quick menus for a card outside the open board', () => {
     const menu = heading.closest('dialog')!;
     await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
 
-    expect(moveTask).toHaveBeenCalledWith(AWAY_TASK, `${AWAY_PROJECT}-done`, expect.any(Number));
+    expect(moveTask).toHaveBeenCalledWith(AWAY_TASK, `${AWAY_PROJECT}-done`, {
+      position: expect.any(Number),
+      sort_key: expect.any(String),
+    });
   });
 
   it('lists the target project members rather than the open board members', async () => {

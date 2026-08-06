@@ -209,11 +209,7 @@
   function changeColumn(event: Event & { currentTarget: EventTarget & HTMLSelectElement }): void {
     const columnId = event.currentTarget.value;
     if (task === undefined || columnId === task.column_id) return;
-    void board.moveTask(
-      taskId,
-      columnId,
-      append(board.tasksInColumn(columnId).map((t) => t.position))
-    );
+    void board.moveTask(taskId, columnId, append(board.tasksInColumn(columnId)));
   }
 
   // Queued behind the title and description writes, so the server copies the text the

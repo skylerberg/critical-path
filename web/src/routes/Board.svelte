@@ -10,7 +10,7 @@
     type DndEvent,
   } from 'svelte-dnd-action';
   import { focusIf, scrollToTopOn } from '../lib/actions';
-  import { board, positionAfterDrop } from '../lib/board.svelte';
+  import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu } from '../lib/card-menu.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
@@ -336,7 +336,7 @@
       if (event.detail.info.source === SOURCES.POINTER) {
         centeringTarget = event.detail.info.id;
       }
-      void board.moveColumn(event.detail.info.id, positionAfterDrop(items, event.detail.info.id));
+      void board.moveColumn(event.detail.info.id, placementAfterDrop(items, event.detail.info.id));
     }
   }
 
@@ -379,7 +379,7 @@
       void board.moveTask(
         event.detail.info.id,
         columnId,
-        positionAfterDrop(items, event.detail.info.id)
+        placementAfterDrop(items, event.detail.info.id)
       );
     }
   }

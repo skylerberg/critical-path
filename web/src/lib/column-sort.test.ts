@@ -9,6 +9,7 @@ function makeTask(partial: Partial<BoardTask> & Pick<BoardTask, 'id'>): BoardTas
     title: partial.title ?? partial.id,
     description: null,
     position: partial.position ?? 0,
+    sort_key: null,
     created_at: partial.created_at ?? '2026-01-01T00:00:00Z',
     updated_at: partial.updated_at ?? '2026-01-01T00:00:00Z',
     column_since: partial.column_since ?? '2026-01-01T00:00:00Z',
@@ -26,9 +27,27 @@ function makeTask(partial: Partial<BoardTask> & Pick<BoardTask, 'id'>): BoardTas
 }
 
 const tasks: BoardTask[] = [
-  makeTask({ id: 'b', title: 'Banana', position: 3000, created_at: '2026-03-01T00:00:00Z' }),
-  makeTask({ id: 'a', title: 'apple', position: 1000, created_at: '2026-01-01T00:00:00Z' }),
-  makeTask({ id: 'c', title: 'Cherry', position: 2000, created_at: '2026-02-01T00:00:00Z' }),
+  makeTask({
+    id: 'b',
+    title: 'Banana',
+    position: 3000,
+    sort_key: 'V0000030001',
+    created_at: '2026-03-01T00:00:00Z',
+  }),
+  makeTask({
+    id: 'a',
+    title: 'apple',
+    position: 1000,
+    sort_key: 'V0000010001',
+    created_at: '2026-01-01T00:00:00Z',
+  }),
+  makeTask({
+    id: 'c',
+    title: 'Cherry',
+    position: 2000,
+    sort_key: 'V0000020001',
+    created_at: '2026-02-01T00:00:00Z',
+  }),
 ];
 
 describe('sortTasks', () => {
@@ -46,8 +65,18 @@ describe('sortTasks', () => {
 
   it('sorts updated newest and oldest first', () => {
     const withUpdates = [
-      makeTask({ id: 'x', position: 1, updated_at: '2026-05-01T00:00:00Z' }),
-      makeTask({ id: 'y', position: 2, updated_at: '2026-01-01T00:00:00Z' }),
+      makeTask({
+        id: 'x',
+        position: 1,
+        sort_key: 'V0000000011',
+        updated_at: '2026-05-01T00:00:00Z',
+      }),
+      makeTask({
+        id: 'y',
+        position: 2,
+        sort_key: 'V0000000021',
+        updated_at: '2026-01-01T00:00:00Z',
+      }),
     ];
     expect(sortTasks(withUpdates, 'updated-desc').map((t) => t.id)).toEqual(['x', 'y']);
     expect(sortTasks(withUpdates, 'updated-asc').map((t) => t.id)).toEqual(['y', 'x']);
@@ -55,8 +84,18 @@ describe('sortTasks', () => {
 
   it('sorts added-to-column newest and oldest first', () => {
     const added = [
-      makeTask({ id: 'old', position: 1, column_since: '2026-01-01T00:00:00Z' }),
-      makeTask({ id: 'new', position: 2, column_since: '2026-09-01T00:00:00Z' }),
+      makeTask({
+        id: 'old',
+        position: 1,
+        sort_key: 'V0000000011',
+        column_since: '2026-01-01T00:00:00Z',
+      }),
+      makeTask({
+        id: 'new',
+        position: 2,
+        sort_key: 'V0000000021',
+        column_since: '2026-09-01T00:00:00Z',
+      }),
     ];
     expect(sortTasks(added, 'column_since-desc').map((t) => t.id)).toEqual(['new', 'old']);
     expect(sortTasks(added, 'column_since-asc').map((t) => t.id)).toEqual(['old', 'new']);
@@ -64,8 +103,18 @@ describe('sortTasks', () => {
 
   it('breaks timestamp ties by position (manual order)', () => {
     const tied = [
-      makeTask({ id: 'second', position: 2000, created_at: '2026-01-01T00:00:00Z' }),
-      makeTask({ id: 'first', position: 1000, created_at: '2026-01-01T00:00:00Z' }),
+      makeTask({
+        id: 'second',
+        position: 2000,
+        sort_key: 'V0000020001',
+        created_at: '2026-01-01T00:00:00Z',
+      }),
+      makeTask({
+        id: 'first',
+        position: 1000,
+        sort_key: 'V0000010001',
+        created_at: '2026-01-01T00:00:00Z',
+      }),
     ];
     expect(sortTasks(tied, 'created-desc').map((t) => t.id)).toEqual(['first', 'second']);
   });

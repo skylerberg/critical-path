@@ -34,6 +34,7 @@ function task(key: string, columnId: string, blockerKeys: string[] = []): BoardT
     title: `Task ${key}`,
     description: null,
     position: 1000,
+    sort_key: 'V0000010001',
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
     column_since: '2026-07-15T00:00:00Z',
@@ -68,8 +69,8 @@ function payload(projectId: string, tasks: BoardTask[]): BoardPayload & { users:
       created_at: '2026-07-15T00:00:00Z',
     },
     columns: [
-      { id: 'todo', name: 'To Do', position: 1000, is_done: false },
-      { id: 'done', name: 'Done', position: 2000, is_done: true },
+      { id: 'todo', name: 'To Do', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'done', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
     ],
     tasks,
     labels: [],
@@ -1065,8 +1066,8 @@ describe('Graph done-task visibility', () => {
     const payloadWithDoneFirst = {
       ...payload(projectId, [task('a', 'todo')]),
       columns: [
-        { id: 'done', name: 'Done', position: 1000, is_done: true },
-        { id: 'todo', name: 'To Do', position: 2000, is_done: false },
+        { id: 'done', name: 'Done', position: 1000, sort_key: 'V0000010001', is_done: true },
+        { id: 'todo', name: 'To Do', position: 2000, sort_key: 'V0000020001', is_done: false },
       ],
     };
     fetchMock.mockImplementation(async (input) => {
