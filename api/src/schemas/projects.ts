@@ -1,5 +1,5 @@
 import { type } from 'arktype';
-import { uuid, email, stringWithLength, isoDateString, finiteNumber, sortKey } from './common';
+import { uuid, email, stringWithLength, isoDateString, sortKey } from './common';
 import { boardColumnSchema, boardLabelSchema, boardTaskSchema } from './board';
 import { userSchema } from './users';
 
@@ -40,7 +40,6 @@ export type ProjectResponse = typeof projectSchema.infer;
 export const projectListItemSchema = projectSchema.merge({
   open_task_count: 'number',
   done_task_count: 'number',
-  position: finiteNumber.or('null'),
   sort_key: 'string | null',
   last_seen_at: 'string | null',
   has_unseen_changes: 'boolean',
@@ -87,8 +86,7 @@ export const setProjectOwnerSchema = type({
 });
 
 export const setProjectPositionSchema = type({
-  position: finiteNumber,
-  'sort_key?': sortKey,
+  sort_key: sortKey,
 });
 
 export const addProjectMemberByEmailSchema = type({

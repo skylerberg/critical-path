@@ -1,55 +1,33 @@
+import { generateNKeysBetween, BASE_62_DIGITS } from 'fractional-indexing';
 import { CliError, EXIT } from './api/errors';
 
-const GAP = 1000;
-
-const PLACEMENT_FLAG_REMEDY = 'use --top or --bottom instead';
-
-// Spread as one block rather than repeatedly bisecting: bisecting per item
-// halves the remaining gap each time and runs out of float precision after a
-// few dozen items.
-export function spreadBetween(
-  a: number,
-  b: number,
-  count: number,
-  remedy: string = PLACEMENT_FLAG_REMEDY
-): number[] {
-  const step = (b - a) / (count + 1);
-  const positions = Array.from({ length: count }, (_, i) => a + step * (i + 1));
-  let previous = a;
-  for (const position of positions) {
-    if (!(position > previous && position < b)) {
-      throw new CliError(`No room between the neighboring positions; ${remedy}`, EXIT.failure);
-    }
-    previous = position;
-  }
-  return positions;
+export interface Ranked {
+  id: string;
+  sort_key: string;
 }
 
-export function append(positions: readonly number[]): number {
-  if (positions.length === 0) return GAP;
-  return Math.max(...positions) + GAP;
+export function byRank(a: Ranked, b: Ranked): number {
+  return a.sort_key < b.sort_key ? -1 : a.sort_key > b.sort_key ? 1 : a.id.localeCompare(b.id);
 }
 
-export function prepend(positions: readonly number[]): number {
-  if (positions.length === 0) return GAP;
-  return Math.min(...positions) - GAP;
+function keys(a: string | null, b: string | null, count: number): string[] {
+  return generateNKeysBetween(a, b, count, BASE_62_DIGITS);
 }
 
-export function positionsForIndex(
-  sortedPositions: readonly number[],
-  index: number,
-  count: number,
-  remedy?: string
-): number[] {
-  if (sortedPositions.length === 0 || index >= sortedPositions.length) {
-    const first = append(sortedPositions);
-    return Array.from({ length: count }, (_, i) => first + i * GAP);
+// A run between two neighbours never runs out: the keys grow a character rather
+// than exhausting a gap, which is what the float scheme did after a few dozen.
+export function spreadBetween(a: string | null, b: string | null, count: number): string[] {
+  return keys(a, b, count);
+}
+
+export function keysForIndex(sorted: readonly Ranked[], index: number, count: number): string[] {
+  if (sorted.length === 0 || index >= sorted.length) {
+    return keys(sorted.length === 0 ? null : sorted[sorted.length - 1]!.sort_key, null, count);
   }
   if (index <= 0) {
-    const last = prepend(sortedPositions);
-    return Array.from({ length: count }, (_, i) => last - (count - 1 - i) * GAP);
+    return keys(null, sorted[0]!.sort_key, count);
   }
-  return spreadBetween(sortedPositions[index - 1], sortedPositions[index], count, remedy);
+  return keys(sorted[index - 1]!.sort_key, sorted[index]!.sort_key, count);
 }
 
 export interface Placement {
@@ -80,28 +58,24 @@ export function placementIndex(
   return sortedIds.length;
 }
 
-export function positionsForPlacement(
+export function keysForPlacement(
   placement: Placement,
-  sorted: readonly { id: string; position: number }[],
+  sorted: readonly Ranked[],
   resolveAnchor: (ref: string) => string,
   count: number
-): number[] {
+): string[] {
   const index = placementIndex(
     placement,
     sorted.map((item) => item.id),
     resolveAnchor
   );
-  return positionsForIndex(
-    sorted.map((item) => item.position),
-    index,
-    count
-  );
+  return keysForIndex(sorted, index, count);
 }
 
-export function positionForPlacement(
+export function keyForPlacement(
   placement: Placement,
-  sorted: readonly { id: string; position: number }[],
+  sorted: readonly Ranked[],
   resolveAnchor: (ref: string) => string
-): number {
-  return positionsForPlacement(placement, sorted, resolveAnchor, 1)[0];
+): string {
+  return keysForPlacement(placement, sorted, resolveAnchor, 1)[0]!;
 }

@@ -4,7 +4,7 @@ import { app } from '../../../src/index';
 import { attachRealtime, projectSockets } from '../../../src/services/realtime/index';
 import type { RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, type TestUser } from '../../setup/testContext';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
 import { PNG_1X1, RtClient, settle } from './helpers';
 
@@ -81,6 +81,7 @@ describe('Realtime end to end', () => {
     await ctx.cleanup();
   });
 
+  const key1000 = rankKey(1000);
   it('delivers task_created to subscribed members with the board task shape', async () => {
     taskId = newId();
     const res = await ctx.request(userA.token).post('/api/tasks', {
@@ -88,7 +89,7 @@ describe('Realtime end to end', () => {
       project_id: projectId,
       column_id: columnId,
       title: 'First task',
-      position: 1000,
+      sort_key: key1000,
     });
     expect(res.status).toBe(201);
 
@@ -101,7 +102,7 @@ describe('Realtime end to end', () => {
       id: taskId,
       column_id: columnId,
       title: 'First task',
-      position: 1000,
+      sort_key: expect.any(String),
       label_ids: [],
       assignee_ids: [],
       blocker_ids: [],
@@ -125,7 +126,7 @@ describe('Realtime end to end', () => {
         tasks: ids.map((id, index) => ({
           id,
           title: `Batch ${index}`,
-          position: 4000 + index * 1000,
+          sort_key: rankKey(4000 + index * 1000),
         })),
       });
       expect(res.status).toBe(201);
@@ -238,7 +239,7 @@ describe('Realtime end to end', () => {
       project_id: projectId,
       column_id: columnId,
       title: 'Blocker task',
-      position: 2000,
+      sort_key: rankKey(2000),
     });
     expect(taskRes.status).toBe(201);
 
@@ -266,13 +267,14 @@ describe('Realtime end to end', () => {
     );
   });
 
+  const key9000 = rankKey(9000);
   it('delivers column lifecycle events including moved tasks on delete', async () => {
     const newColumnId = newId();
     const createRes = await ctx.request(userA.token).post('/api/columns', {
       id: newColumnId,
       project_id: projectId,
       name: 'Temp column',
-      position: 9000,
+      sort_key: key9000,
     });
     expect(createRes.status).toBe(201);
     const createdEvent = await clientB.waitForEvent(
@@ -281,7 +283,7 @@ describe('Realtime end to end', () => {
     expect(createdEvent.project_id).toBe(projectId);
     expect(createdEvent.data).toMatchObject({
       name: 'Temp column',
-      position: 9000,
+      sort_key: expect.any(String),
       is_done: false,
     });
 
@@ -295,7 +297,7 @@ describe('Realtime end to end', () => {
 
     const moveRes = await ctx
       .request(userA.token)
-      .patch(`/api/tasks/${task2Id}`, { column_id: newColumnId, position: 1000 });
+      .patch(`/api/tasks/${task2Id}`, { column_id: newColumnId, sort_key: rankKey(1000) });
     expect(moveRes.status).toBe(200);
 
     const deleteRes = await ctx
@@ -334,7 +336,7 @@ describe('Realtime end to end', () => {
         project_id: projectId,
         column_id: columnId_,
         title: `bulk ${position}`,
-        position,
+        sort_key: rankKey(position),
       });
       expect(res.status).toBe(201);
       bulkTasks.push(id);
@@ -436,6 +438,7 @@ describe('Realtime end to end', () => {
       expect(clientB.events.slice(from)).toEqual([]);
     });
 
+    const key1500 = rankKey(1500);
     it('delivers one task_created when a task is duplicated', async () => {
       const duplicateColumnId = await makeColumn('Duplicate a card');
       const sourceId = await makeTask(duplicateColumnId, 1000);
@@ -448,7 +451,7 @@ describe('Realtime end to end', () => {
       const from = clientB.events.length;
       const res = await ctx
         .request(userA.token)
-        .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, position: 1500 });
+        .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, sort_key: key1500 });
       expect(res.status).toBe(201);
 
       const event = await clientB.waitForEvent(
@@ -456,7 +459,10 @@ describe('Realtime end to end', () => {
         { from }
       );
       expect(event.project_id).toBe(projectId);
-      expect(event.data).toMatchObject({ column_id: duplicateColumnId, position: 1500 });
+      expect(event.data).toMatchObject({
+        column_id: duplicateColumnId,
+        sort_key: expect.any(String),
+      });
 
       await settle();
       expect(clientB.events.slice(from).filter((e) => e.type === 'task_created')).toHaveLength(1);
@@ -983,7 +989,7 @@ describe('Realtime end to end', () => {
       project_id: projectId,
       column_id: columnId,
       title: 'After removal',
-      position: 3000,
+      sort_key: rankKey(3000),
     });
     expect(taskRes.status).toBe(201);
     await clientA.waitForEvent((e) => e.type === 'task_created' && e.data.id === newTaskId);
@@ -1022,7 +1028,7 @@ describe('Realtime end to end', () => {
       project_id: sharedId,
       column_id: sharedColumnId,
       title: 'shared work',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     await ctx
       .request(host.token)

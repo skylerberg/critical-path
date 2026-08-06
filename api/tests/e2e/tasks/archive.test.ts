@@ -7,7 +7,7 @@ interface ArchivedTaskBody {
   id: string;
   column_id: string;
   title: string;
-  position: number;
+  sort_key: string;
   created_at: string;
   updated_at: string;
   label_ids: string[];
@@ -19,7 +19,7 @@ interface ArchivedTaskBody {
 }
 
 interface BoardBody {
-  tasks: Array<{ id: string; column_id: string; position: number; blocker_ids: string[] }>;
+  tasks: Array<{ id: string; column_id: string; sort_key: string; blocker_ids: string[] }>;
 }
 
 describe('Task archive and restore', () => {
@@ -90,7 +90,7 @@ describe('Task archive and restore', () => {
         id: taskId,
         column_id: columnId,
         title: 'shape check',
-        position: 1000,
+        sort_key: expect.any(String),
         label_ids: [],
         assignee_ids: [],
         blocker_ids: [],
@@ -247,7 +247,7 @@ describe('Task archive and restore', () => {
       expect(restored).toMatchObject({
         id: blockedId,
         column_id: restoreColumnId,
-        position: 1000,
+        sort_key: expect.any(String),
         blocker_ids: [blockerId],
       });
       expect(restored.archived_at).toBeUndefined();

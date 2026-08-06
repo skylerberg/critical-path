@@ -3,7 +3,7 @@ import path from 'path';
 import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { env } from '../../../src/config/env';
 import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
 
@@ -57,7 +57,7 @@ describe('DELETE /api/auth/me', () => {
       project_id: projectId,
       column_id: firstColumnIds.get(projectId),
       title,
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(201);
     return id;

@@ -23,7 +23,7 @@ import {
 } from '../../../src/services/taskSeries/index';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { RtClient, settle } from '../realtime/helpers';
 
 const BOARD_TASK_KEYS = [
@@ -31,7 +31,6 @@ const BOARD_TASK_KEYS = [
   'column_id',
   'title',
   'description',
-  'position',
   'sort_key',
   'due_date',
   'created_at',
@@ -69,7 +68,7 @@ interface TaskRow {
   id: string;
   title: string;
   column_id: string;
-  position: number;
+  sort_key: string;
   due_date: string | null;
   series_occurrence_date: string | null;
 }
@@ -138,7 +137,7 @@ describe('Recurring series materialisation', () => {
         'task.id',
         'task.title',
         'task.column_id',
-        'task.position',
+        'task.sort_key',
         sql<string | null>`to_char(task.due_date, 'YYYY-MM-DD')`.as('due_date'),
         sql<string | null>`to_char(task.series_occurrence_date, 'YYYY-MM-DD')`.as(
           'series_occurrence_date'
@@ -215,6 +214,7 @@ describe('Recurring series materialisation', () => {
       .post('/api/labels', { id: labelId, project_id: projectId, name: 'ops', color: '#ff0000' });
 
     const existing = newId();
+    const tailKey = rankKey(4000);
     await db
       .insertInto('task')
       .values({
@@ -222,7 +222,7 @@ describe('Recurring series materialisation', () => {
         project_id: projectId,
         column_id: columnId,
         title: 'already here',
-        position: 4000,
+        sort_key: tailKey,
       })
       .execute();
 
@@ -234,10 +234,7 @@ describe('Recurring series materialisation', () => {
       },
       label_ids: [labelId],
       assignee_ids: [member.id],
-      checklist_items: [
-        { text: 'second', position: 2000 },
-        { text: 'first', position: 1000 },
-      ],
+      checklist_items: [{ text: 'first' }, { text: 'second' }],
     });
 
     expect(await runSeriesSweep()).toBe(1);
@@ -250,7 +247,8 @@ describe('Recurring series materialisation', () => {
       due_date: null,
       series_occurrence_date: today,
     });
-    expect(cards[0].position).toBeGreaterThan(4000);
+    // Materialised after the tail, so it ranks above everything already there.
+    expect(cards[0].sort_key > tailKey).toBe(true);
 
     const detail = await ctx.request(owner.token).get(`/api/tasks/${cards[0].id}`);
     expect(detail.status).toBe(200);
@@ -351,7 +349,7 @@ describe('Recurring series materialisation', () => {
       title: 'Weekly standup',
       label_ids: [labelId],
       assignee_ids: [owner.id, member.id],
-      checklist_items: [{ text: 'agenda', position: 1000 }],
+      checklist_items: [{ text: 'agenda' }],
     });
     // A schedule the source itself has already fallen behind on: the copy must
     // not inherit the stale day and fire it on arrival.
@@ -439,7 +437,7 @@ describe('Recurring series materialisation', () => {
         project_id: projectId,
         column_id: columnId,
         title: 'ordinary',
-        position: 9000,
+        sort_key: rankKey(9000),
       })
       .execute();
     const plain = await ctx.request(owner.token).get(`/api/tasks/${plainId}`);

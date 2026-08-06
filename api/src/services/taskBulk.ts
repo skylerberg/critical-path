@@ -2,7 +2,6 @@ import { sql, type Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import type { MovedTask } from '../schemas/index';
 import { appendPositions, type ColumnInProject } from './boardColumns';
-import { reconcileSortKeys } from './sortKeyAssignment';
 import { recordTaskActivity } from './taskActivity';
 
 export interface BulkTaskRow {
@@ -91,20 +90,18 @@ export async function relocateSelectedTasks(
   await sql`
     update task
     set column_id = ${target.id}::uuid,
-        position = v.position,
+        sort_key = v.sort_key,
         column_since = case
           when task.column_id = ${target.id}::uuid then task.column_since
           else now()
         end
     from (values ${sql.join(
-      movedTasks.map((task) => sql`(${task.id}::uuid, ${task.position}::float8)`)
-    )}) as v(id, position)
+      movedTasks.map((task) => sql`(${task.id}::uuid, ${task.sort_key}::text)`)
+    )}) as v(id, sort_key)
     where task.id = v.id
       and task.project_id = ${projectId}::uuid
       and task.archived_at is null
   `.execute(db);
-
-  await reconcileSortKeys(db, 'task', target.id);
 
   const relocated = rows.filter((row) => row.column_id !== target.id);
   if (relocated.length === 0) {

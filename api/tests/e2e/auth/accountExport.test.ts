@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 
 interface ExportedSession {
   id: string;
@@ -413,6 +413,7 @@ describe('GET /api/auth/me/export', () => {
     }
   });
 
+  const key1000 = rankKey(1000);
   it('names no other person even when accounts are entangled', async () => {
     const owner = await ctx.createUser('export-owner');
     const other = await ctx.createUser('export-other');
@@ -427,7 +428,7 @@ describe('GET /api/auth/me/export', () => {
       .execute();
     await db
       .insertInto('board_column')
-      .values({ id: columnId, project_id: projectId, name: 'Doing', position: 1000 })
+      .values({ id: columnId, project_id: projectId, name: 'Doing', sort_key: key1000 })
       .execute();
     await db
       .insertInto('task')
@@ -436,7 +437,7 @@ describe('GET /api/auth/me/export', () => {
         project_id: projectId,
         column_id: columnId,
         title: 'x',
-        position: 1000,
+        sort_key: key1000,
       })
       .execute();
     await db

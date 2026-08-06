@@ -1,11 +1,11 @@
 import { db } from '../../helpers/database';
 import { insertTaskImages } from '../../../src/services/attachments/images';
-import { reconcileSortKeys } from '../../../src/services/sortKeyAssignment';
+import { rankKey } from '../../helpers/fixtures';
 
 export interface BoardColumnPayload {
   id: string;
   name: string;
-  position: number;
+  sort_key: string;
   is_done: boolean;
 }
 
@@ -14,7 +14,7 @@ export interface BoardTaskPayload {
   column_id: string;
   title: string;
   description: unknown;
-  position: number;
+  sort_key: string;
   due_date: string | null;
   created_at: string;
   updated_at: string;
@@ -62,6 +62,7 @@ export async function insertTask(options: {
   columnId: string;
   title?: string;
   position?: number;
+  sort_key?: string;
   description?: unknown;
   dueDate?: string;
 }): Promise<string> {
@@ -73,12 +74,11 @@ export async function insertTask(options: {
       project_id: options.projectId,
       column_id: options.columnId,
       title: options.title ?? 'Test task',
-      position: options.position ?? 1000,
+      sort_key: options.sort_key ?? rankKey(options.position ?? 1000),
       description: options.description === undefined ? null : JSON.stringify(options.description),
       due_date: options.dueDate ?? null,
     })
     .execute();
-  await reconcileSortKeys(db, 'task', options.columnId);
   return id;
 }
 

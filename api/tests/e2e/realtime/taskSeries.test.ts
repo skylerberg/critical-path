@@ -4,7 +4,7 @@ import { app } from '../../../src/index';
 import { attachRealtime, projectSockets } from '../../../src/services/realtime/index';
 import type { RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, type TestUser } from '../../setup/testContext';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
 import { RtClient, settle, type Envelope } from './helpers';
 
@@ -293,7 +293,7 @@ describe('Recurring series realtime events', () => {
       id: spareColumn,
       project_id: projectId,
       name: 'spare',
-      position: 9000,
+      sort_key: rankKey(9000),
     });
     expect(column.status).toBe(201);
     const id = await createSeries({ title: 'orphaned', column_id: spareColumn });

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import {
   type BoardTaskPayload,
@@ -65,11 +65,12 @@ describe('POST /api/tasks/:id/duplicate', () => {
   it('requires auth', async () => {
     const res = await ctx.request().post(`/api/tasks/${newId()}/duplicate`, {
       id: newId(),
-      position: 1500,
+      sort_key: rankKey(1500),
     });
     expect(res.status).toBe(401);
   });
 
+  const key1500 = rankKey(1500);
   it('copies title, description, due date, labels, assignees and images but no edges', async () => {
     const { projectId, columnId } = await createProject();
     const labelId = await insertLabel({ projectId, name: 'art', color: '#123abc' });
@@ -86,16 +87,21 @@ describe('POST /api/tasks/:id/duplicate', () => {
       projectId,
       columnId,
       title: 'Draw art',
-      position: 1000,
+      sort_key: rankKey(1000),
       description,
       dueDate: '2026-08-03',
     });
-    const blockerId = await insertTask({ projectId, columnId, title: 'Buy pens', position: 500 });
+    const blockerId = await insertTask({
+      projectId,
+      columnId,
+      title: 'Buy pens',
+      sort_key: rankKey(500),
+    });
     const dependentId = await insertTask({
       projectId,
       columnId,
       title: 'Print cards',
-      position: 2000,
+      sort_key: rankKey(2000),
     });
 
     const { storageKey } = await insertTaskImage({ taskId: sourceId, imageId });
@@ -122,7 +128,7 @@ describe('POST /api/tasks/:id/duplicate', () => {
     const copyId = newId();
     const res = await ctx
       .request(owner.token)
-      .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, position: 1500 });
+      .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, sort_key: key1500 });
     expect(res.status).toBe(201);
     const copy = (await res.json()) as BoardTaskPayload;
 
@@ -130,7 +136,7 @@ describe('POST /api/tasks/:id/duplicate', () => {
       id: copyId,
       column_id: columnId,
       title: 'Draw art',
-      position: 1500,
+      sort_key: expect.any(String),
       due_date: '2026-08-03',
       label_ids: [labelId],
       image_count: 1,
@@ -177,7 +183,7 @@ describe('POST /api/tasks/:id/duplicate', () => {
       projectId,
       columnId,
       title: 'Has a cover',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     const plain = await insertTaskImage({ taskId: sourceId, filename: 'plain.png' });
     const cover = await insertTaskImage({
@@ -191,7 +197,7 @@ describe('POST /api/tasks/:id/duplicate', () => {
     const copyId = newId();
     const res = await ctx
       .request(owner.token)
-      .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, position: 2000 });
+      .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, sort_key: rankKey(2000) });
     expect(res.status).toBe(201);
     const copy = (await res.json()) as BoardTaskPayload;
 
@@ -227,7 +233,7 @@ describe('POST /api/tasks/:id/duplicate', () => {
           project_id: projectId,
           column_id: columnId,
           title: 'Original',
-          position: 1000,
+          sort_key: rankKey(1000),
         })
       ).status
     ).toBe(201);
@@ -240,7 +246,7 @@ describe('POST /api/tasks/:id/duplicate', () => {
       (
         await ctx
           .request(member.token)
-          .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, position: 1500 })
+          .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, sort_key: rankKey(1500) })
       ).status
     ).toBe(201);
 
@@ -260,7 +266,12 @@ describe('POST /api/tasks/:id/duplicate', () => {
 
   it('duplicates an archived task as a live card', async () => {
     const { projectId, columnId } = await createProject('duplicate archived');
-    const sourceId = await insertTask({ projectId, columnId, title: 'Shelved', position: 1000 });
+    const sourceId = await insertTask({
+      projectId,
+      columnId,
+      title: 'Shelved',
+      sort_key: rankKey(1000),
+    });
     expect((await ctx.request(owner.token).post(`/api/tasks/${sourceId}/archive`)).status).toBe(
       200
     );
@@ -268,7 +279,7 @@ describe('POST /api/tasks/:id/duplicate', () => {
     const copyId = newId();
     const res = await ctx
       .request(owner.token)
-      .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, position: 2000 });
+      .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, sort_key: rankKey(2000) });
     expect(res.status).toBe(201);
 
     const detail = await ctx.request(owner.token).get(`/api/tasks/${copyId}`);
@@ -281,26 +292,35 @@ describe('POST /api/tasks/:id/duplicate', () => {
 
   it('returns 409 when the supplied id is already in use', async () => {
     const { projectId, columnId } = await createProject('duplicate conflict');
-    const sourceId = await insertTask({ projectId, columnId, title: 'Source', position: 1000 });
+    const sourceId = await insertTask({
+      projectId,
+      columnId,
+      title: 'Source',
+      sort_key: rankKey(1000),
+    });
 
     const res = await ctx
       .request(owner.token)
-      .post(`/api/tasks/${sourceId}/duplicate`, { id: sourceId, position: 1500 });
+      .post(`/api/tasks/${sourceId}/duplicate`, { id: sourceId, sort_key: rankKey(1500) });
     expect(res.status).toBe(409);
   });
-
   it('returns 404 for an unknown task and for another user’s task', async () => {
     const { projectId, columnId } = await createProject('duplicate access');
-    const sourceId = await insertTask({ projectId, columnId, title: 'Private', position: 1000 });
+    const sourceId = await insertTask({
+      projectId,
+      columnId,
+      title: 'Private',
+      sort_key: rankKey(1000),
+    });
 
     const unknown = await ctx
       .request(owner.token)
-      .post(`/api/tasks/${newId()}/duplicate`, { id: newId(), position: 1500 });
+      .post(`/api/tasks/${newId()}/duplicate`, { id: newId(), sort_key: key1500 });
     expect(unknown.status).toBe(404);
 
     const foreign = await ctx
       .request(outsider.token)
-      .post(`/api/tasks/${sourceId}/duplicate`, { id: newId(), position: 1500 });
+      .post(`/api/tasks/${sourceId}/duplicate`, { id: newId(), sort_key: key1500 });
     expect(foreign.status).toBe(404);
 
     const copied = await db
@@ -311,18 +331,23 @@ describe('POST /api/tasks/:id/duplicate', () => {
     expect(copied.map((row) => row.id)).toEqual([sourceId]);
   });
 
-  it('returns 400 for a non-uuid path param and 422 for a missing position', async () => {
+  it('returns 400 for a non-uuid path param and 422 for a malformed key', async () => {
     const { projectId, columnId } = await createProject('duplicate validation');
-    const sourceId = await insertTask({ projectId, columnId, title: 'Source', position: 1000 });
+    const sourceId = await insertTask({
+      projectId,
+      columnId,
+      title: 'Source',
+      sort_key: rankKey(1000),
+    });
 
     const badParam = await ctx
       .request(owner.token)
-      .post('/api/tasks/not-a-uuid/duplicate', { id: newId(), position: 1500 });
+      .post('/api/tasks/not-a-uuid/duplicate', { id: newId(), sort_key: rankKey(1500) });
     expect(badParam.status).toBe(400);
 
     const badBody = await ctx
       .request(owner.token)
-      .post(`/api/tasks/${sourceId}/duplicate`, { id: newId() });
+      .post(`/api/tasks/${sourceId}/duplicate`, { id: newId(), sort_key: 'V00' });
     expect(badBody.status).toBe(422);
   });
 
@@ -332,14 +357,14 @@ describe('POST /api/tasks/:id/duplicate', () => {
       projectId,
       columnId,
       title: 'Task with missing image object',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     await insertTaskImage({ taskId: sourceId });
 
     const copyId = newId();
     const res = await ctx
       .request(owner.token)
-      .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, position: 1500 });
+      .post(`/api/tasks/${sourceId}/duplicate`, { id: copyId, sort_key: rankKey(1500) });
     expect(res.status).toBe(500);
 
     const copied = await db

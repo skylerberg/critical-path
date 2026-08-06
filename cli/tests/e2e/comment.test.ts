@@ -3,6 +3,7 @@ import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import type { components } from '../../src/api/api.generated';
 
+import { rankKey } from '../../../tests/helpers/fixtures';
 type Comment = components['schemas']['Comment'];
 
 describe('comment commands', () => {
@@ -34,7 +35,7 @@ describe('comment commands', () => {
       project_id: projectId,
       column_id: board.columns[0].id,
       title: 'Task with comments',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(task.status).toBe(201);
   });

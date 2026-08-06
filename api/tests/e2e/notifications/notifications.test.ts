@@ -13,7 +13,7 @@ import { app } from '../../../src/index';
 import authRouter, { publicAuthRouter } from '../../../src/routes/auth';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { errorHandler } from '../../../src/middleware/errorHandler';
 import { transactionMiddleware } from '../../../src/middleware/transaction';
 import {
@@ -111,7 +111,7 @@ describe('Notifications', () => {
       project_id: projectId,
       column_id: columnId,
       title: 'Ship the thing',
-      position: 1000,
+      sort_key: rankKey(1000),
       ...body,
     });
     expect(res.status).toBe(201);
@@ -257,7 +257,7 @@ describe('Notifications', () => {
         project_id: projectId,
         column_id: columnId,
         title: 'first',
-        position: 2000,
+        sort_key: rankKey(2000),
       });
       expect(first.status).toBe(201);
 
@@ -266,7 +266,7 @@ describe('Notifications', () => {
         project_id: projectId,
         column_id: columnId,
         title: 'clash',
-        position: 3000,
+        sort_key: rankKey(3000),
         assignee_ids: [member.id],
       });
       expect(clash.status).toBe(409);
@@ -326,7 +326,7 @@ describe('Notifications', () => {
       const copyId = newId();
       const res = await ctx
         .request(owner.token)
-        .post(`/api/tasks/${task.id}/duplicate`, { id: copyId, position: 5000 });
+        .post(`/api/tasks/${task.id}/duplicate`, { id: copyId, sort_key: rankKey(5000) });
       expect(res.status).toBe(201);
       await settle();
 
@@ -991,7 +991,7 @@ describe('Notifications', () => {
         project_id: real.project.id,
         column_id: real.columns[0].id,
         title: 'Ship the release',
-        position: 1000,
+        sort_key: rankKey(1000),
         assignee_ids: [victim.id],
       });
       expect(created.status).toBe(201);

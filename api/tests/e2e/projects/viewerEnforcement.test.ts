@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { BoardPayloadBody, deleteProjects, insertLabel, insertTaskImage } from './helpers';
 
@@ -64,7 +64,7 @@ describe('Viewer enforcement across every mutating route', () => {
         project_id: projectId,
         column_id: columnId,
         title,
-        position: 1000,
+        sort_key: rankKey(1000),
       });
       expect(res.status).toBe(201);
     }
@@ -95,7 +95,7 @@ describe('Viewer enforcement across every mutating route', () => {
       id: checklistItemId,
       task_id: taskId,
       text: 've checklist item',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(item.status).toBe(201);
 
@@ -168,7 +168,7 @@ describe('Viewer enforcement across every mutating route', () => {
             project_id: projectId,
             column_id: columnId,
             title: 'nope',
-            position: 5000,
+            sort_key: rankKey(5000),
           }),
       },
       {
@@ -177,13 +177,15 @@ describe('Viewer enforcement across every mutating route', () => {
           ctx.request(t).post('/api/tasks/batch', {
             project_id: projectId,
             column_id: columnId,
-            tasks: [{ id: newId(), title: 'nope', position: 6000 }],
+            tasks: [{ id: newId(), title: 'nope', sort_key: rankKey(6000) }],
           }),
       },
       {
         name: 'POST /api/tasks/:id/duplicate',
         send: (t) =>
-          ctx.request(t).post(`/api/tasks/${taskId}/duplicate`, { id: newId(), position: 7000 }),
+          ctx
+            .request(t)
+            .post(`/api/tasks/${taskId}/duplicate`, { id: newId(), sort_key: rankKey(7000) }),
       },
       {
         name: 'PATCH /api/tasks/:id',
@@ -192,7 +194,9 @@ describe('Viewer enforcement across every mutating route', () => {
       {
         name: 'PATCH /api/tasks/:id (move)',
         send: (t) =>
-          ctx.request(t).patch(`/api/tasks/${taskId}`, { column_id: doneColumnId, position: 9000 }),
+          ctx
+            .request(t)
+            .patch(`/api/tasks/${taskId}`, { column_id: doneColumnId, sort_key: rankKey(9000) }),
       },
       {
         name: 'PATCH /api/tasks/:id (due date)',
@@ -252,7 +256,7 @@ describe('Viewer enforcement across every mutating route', () => {
             id: newId(),
             task_id: taskId,
             text: 'nope',
-            position: 1000,
+            sort_key: rankKey(1000),
           }),
       },
       {
@@ -269,7 +273,7 @@ describe('Viewer enforcement across every mutating route', () => {
         send: (t) =>
           ctx.request(t).post(`/api/checklist-items/${checklistItemId}/promote`, {
             id: newId(),
-            position: 9900,
+            sort_key: rankKey(9900),
           }),
       },
       {
@@ -279,7 +283,7 @@ describe('Viewer enforcement across every mutating route', () => {
             id: newId(),
             project_id: projectId,
             name: 'nope',
-            position: 9000,
+            sort_key: rankKey(9000),
           }),
       },
       {
@@ -287,7 +291,7 @@ describe('Viewer enforcement across every mutating route', () => {
         send: (t) =>
           ctx
             .request(t)
-            .post(`/api/columns/${columnId}/duplicate`, { id: newId(), position: 9500 }),
+            .post(`/api/columns/${columnId}/duplicate`, { id: newId(), sort_key: rankKey(9500) }),
       },
       {
         name: 'PATCH /api/columns/:id',
@@ -488,7 +492,7 @@ describe('Viewer enforcement across every mutating route', () => {
     it('orders their own project list', async () => {
       const res = await ctx
         .request(viewer.token)
-        .put(`/api/projects/${projectId}/position`, { position: 500 });
+        .put(`/api/projects/${projectId}/position`, { sort_key: rankKey(500) });
       expect(res.status).toBe(204);
     });
 
@@ -540,7 +544,7 @@ describe('Viewer enforcement across every mutating route', () => {
 
       const move = await ctx
         .request(viewer.token)
-        .patch(`/api/tasks/${taskId}`, { column_id: doneColumnId, position: 1500 });
+        .patch(`/api/tasks/${taskId}`, { column_id: doneColumnId, sort_key: rankKey(1500) });
       expect(move.status).toBe(403);
 
       await ctx.request(owner.token).put(`/api/tasks/${taskId}/assignees`, { user_ids: [] });
@@ -587,7 +591,7 @@ describe('Viewer enforcement across every mutating route', () => {
         project_id: projectId,
         column_id: columnId,
         title: 'editor task',
-        position: 8000,
+        sort_key: rankKey(8000),
       });
       expect(created.status).toBe(201);
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
 
 describe('Task label and assignee sets', () => {
@@ -27,7 +27,7 @@ describe('Task label and assignee sets', () => {
       project_id: projectId,
       column_id: columnId,
       title: 'set target',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(201);
     const body = await res.json();
@@ -118,7 +118,7 @@ describe('Task label and assignee sets', () => {
         project_id: sharedProjectId,
         column_id: sharedColumnId,
         title: 'assignee diff target',
-        position: 1000,
+        sort_key: rankKey(1000),
       });
       expect(createRes.status).toBe(201);
       const taskId = ((await createRes.json()) as { id: string }).id;

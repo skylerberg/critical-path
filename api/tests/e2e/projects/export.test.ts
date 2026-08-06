@@ -3,7 +3,7 @@ import path from 'path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { unzipSync } from 'fflate';
 import { TestContext, type TestUser } from '../../setup/testContext';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { insertTaskImage } from './helpers';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
@@ -114,7 +114,7 @@ function canonicalize(exportPayload: ProjectExport): unknown {
       column_id: task.column_id,
       title: task.title,
       description: task.description,
-      position: task.position,
+      sort_key: task.sort_key,
       due_date: task.due_date,
       archived_at: task.archived_at,
       label_ids: [...task.label_ids].sort(),
@@ -174,7 +174,7 @@ async function reimport(
       id: idMap.get(column.id),
       project_id: projectId,
       name: column.name,
-      position: column.position,
+      sort_key: column.sort_key,
       is_done: column.is_done,
     });
     expect(res.status).toBe(201);
@@ -207,7 +207,7 @@ async function reimport(
       column_id: idMap.get(task.column_id),
       title: task.title,
       description: task.description === null ? null : remapIds(task.description, idMap),
-      position: task.position,
+      sort_key: task.sort_key,
       due_date: task.due_date,
       label_ids: task.label_ids.map((labelId) => idMap.get(labelId)),
       assignee_ids: task.assignee_ids,
@@ -308,7 +308,7 @@ describe('GET /api/projects/:id/export', () => {
           project_id: projectId,
           column_id: backlogId,
           title: 'Blocker task',
-          position: 1000,
+          sort_key: rankKey(1000),
         })
       ).status
     ).toBe(201);
@@ -319,7 +319,7 @@ describe('GET /api/projects/:id/export', () => {
           project_id: projectId,
           column_id: backlogId,
           title: 'He said "hi", then\nleft',
-          position: 2000,
+          sort_key: rankKey(2000),
           due_date: '2026-08-03',
           label_ids: [bugLabelId, uiLabelId],
           assignee_ids: [owner.id, member.id],
@@ -333,7 +333,7 @@ describe('GET /api/projects/:id/export', () => {
           project_id: projectId,
           column_id: doneId,
           title: 'Finished',
-          position: 3000,
+          sort_key: rankKey(3000),
           assignee_ids: [exMember.id],
         })
       ).status
@@ -431,7 +431,9 @@ describe('GET /api/projects/:id/export', () => {
       expect(exportPayload.project.color).toBe('violet');
       expect(exportPayload.columns).toEqual(board.columns);
       expect(exportPayload.labels.map((label) => label.name)).toEqual(['bug', 'ui']);
-      expect(exportPayload.tasks.map((task) => task.position)).toEqual([1000, 2000, 3000]);
+      expect(exportPayload.tasks.map((task) => task.sort_key)).toEqual(
+        [...exportPayload.tasks.map((task) => task.sort_key)].sort()
+      );
 
       const main = exportPayload.tasks[1];
       expect(main.due_date).toBe('2026-08-03');
@@ -578,18 +580,18 @@ describe('GET /api/projects/:id/export', () => {
 
       const [blocker, main, done] = exportPayload.tasks;
       expect(rows[1]).toBe(
-        `${blocker.id},Blocker task,Backlog,false,1000,,,,,0,0,` +
+        `${blocker.id},Blocker task,Backlog,false,1,,,,,0,0,` +
           `${blocker.created_at},${blocker.updated_at},,,`
       );
       // Assignee names follow the users[] order, which is by name, so
       // "export-member user" precedes "export-owner user".
       expect(rows[2]).toBe(
-        `${main.id},"He said ""hi"", then\nleft",Backlog,false,2000,2026-08-03,bug; ui,` +
+        `${main.id},"He said ""hi"", then\nleft",Backlog,false,2,2026-08-03,bug; ui,` +
           `${member.name}; ${owner.name},Blocker task,2,2,` +
           `${main.created_at},${main.updated_at},,,"Notes\nA paragraph.\none\ntwo"`
       );
       expect(rows[3]).toBe(
-        `${done.id},Finished,Done,true,3000,,,${exMember.name},,0,0,` +
+        `${done.id},Finished,Done,true,3,,,${exMember.name},,0,0,` +
           `${done.created_at},${done.updated_at},,,`
       );
     });
@@ -605,7 +607,7 @@ describe('GET /api/projects/:id/export', () => {
             project_id: orphanProjectId,
             column_id: columns[0].id,
             title: 'Task with a lost image',
-            position: 1000,
+            sort_key: rankKey(1000),
           })
         ).status
       ).toBe(201);
@@ -642,7 +644,7 @@ describe('GET /api/projects/:id/export', () => {
             project_id: hugeProjectId,
             column_id: columns[0].id,
             title: 'Enormous',
-            position: 1000,
+            sort_key: rankKey(1000),
           })
         ).status
       ).toBe(201);
@@ -700,7 +702,7 @@ describe('GET /api/projects/:id/export', () => {
               project_id: archiveProjectId,
               column_id: archiveColumnId,
               title,
-              position,
+              sort_key: rankKey(position),
             })
           ).status
         ).toBe(201);

@@ -336,7 +336,7 @@ describe('task checklist commands', () => {
     const tasks = board
       .json<BoardResponse>()
       .tasks.filter((task) => task.column_id === created.column_id)
-      .sort((a, b) => a.position - b.position)
+      .sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1))
       .map((task) => task.title);
     expect(tasks.indexOf(created.title)).toBe(tasks.indexOf('Promote parent') + 1);
     expect(tasks).toContain('Already below');

@@ -3,6 +3,7 @@ import { TestContext, type TestUser } from '../../../tests/setup/testContext';
 import { createCliHarness, type CliHarness } from './helpers';
 import type { components } from '../../src/api/api.generated';
 
+import { rankKey } from '../../../tests/helpers/fixtures';
 type BoardPayload = components['schemas']['BoardResponse'];
 type BoardTask = components['schemas']['BoardTask'];
 type Column = components['schemas']['Column'];
@@ -332,7 +333,7 @@ describe('column commands', () => {
       project_id: projectId,
       column_id: todo.id,
       title: 'Stranded task',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(taskRes.status).toBe(201);
 
@@ -447,8 +448,8 @@ describe('column duplicate', () => {
     const result = res.json<{ column: Column; tasks: BoardTask[] }>();
     expect(result.column.name).toBe('Backlog');
     expect(result.column.id).not.toBe(source.id);
-    expect(result.column.position).toBeGreaterThan(source.position);
-    expect(result.column.position).toBeLessThan(next.position);
+    expect(result.column.sort_key > source.sort_key).toBe(true);
+    expect(result.column.sort_key < next.sort_key).toBe(true);
     expect(result.tasks.map((t) => t.title)).toEqual(['One', 'Two']);
     expect(result.tasks.every((t) => t.column_id === result.column.id)).toBe(true);
 

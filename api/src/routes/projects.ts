@@ -52,7 +52,7 @@ import {
 } from '../services/projectListItem';
 import { changedTaskIds, hasUnseenChanges } from '../services/projectSeen';
 import { publishAfterCommit } from '../services/realtime/index';
-import { reconcileSortKeys } from '../services/sortKeyAssignment';
+import { keysBetween } from '../services/sortKey';
 import { recordAssigneeChanges } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import { storage } from '../services/storage/index';
@@ -180,7 +180,6 @@ router.get(
         'project.created_by',
         'project.is_public',
         'project.color',
-        'project_user_position.position',
         'project_user_position.sort_key',
         'project_user_seen.last_seen_at',
         hasUnseenChanges(user.id).as('has_unseen_changes'),
@@ -207,12 +206,7 @@ router.get(
           .as('done_task_count'),
       ])
       .where(accessibleProjectsFilter(user.id))
-      .groupBy([
-        'project.id',
-        'project_user_position.position',
-        'project_user_position.sort_key',
-        'project_user_seen.last_seen_at',
-      ])
+      .groupBy(['project.id', 'project_user_position.sort_key', 'project_user_seen.last_seen_at'])
       .orderBy('project_user_position.sort_key', (ob) => ob.asc().nullsLast())
       .orderBy('project.created_at')
       .orderBy('project.id')
@@ -224,7 +218,6 @@ router.get(
           ...toProjectResponse(row, toMemberEntries(row.member_rows)),
           open_task_count: Number(row.open_task_count),
           done_task_count: Number(row.done_task_count),
-          position: row.position,
           sort_key: row.sort_key,
           last_seen_at: row.last_seen_at?.toISOString() ?? null,
           has_unseen_changes: row.has_unseen_changes,
@@ -302,6 +295,7 @@ router.post(
           })
           .execute();
 
+        const columnKeys = keysBetween(null, null, DEFAULT_COLUMNS.length);
         await db
           .insertInto('board_column')
           .values(
@@ -309,12 +303,11 @@ router.post(
               id: crypto.randomUUID(),
               project_id: body.id,
               name: column.name,
-              position: (index + 1) * 1000,
+              sort_key: columnKeys[index]!,
               is_done: column.is_done,
             }))
           )
           .execute();
-        await reconcileSortKeys(db, 'board_column', body.id);
       }
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -668,7 +661,7 @@ router.put(
   jsonValidator(setProjectPositionSchema),
   async (c) => {
     const { id } = c.req.valid('param');
-    const { position, sort_key } = c.req.valid('json');
+    const { sort_key } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
 
@@ -676,17 +669,9 @@ router.put(
 
     await db
       .insertInto('project_user_position')
-      .values({ user_id: user.id, project_id: id, position, sort_key: sort_key ?? null })
-      .onConflict((oc) =>
-        oc
-          .columns(['user_id', 'project_id'])
-          .doUpdateSet(sort_key === undefined ? { position } : { position, sort_key })
-      )
+      .values({ user_id: user.id, project_id: id, sort_key })
+      .onConflict((oc) => oc.columns(['user_id', 'project_id']).doUpdateSet({ sort_key }))
       .execute();
-
-    if (sort_key === undefined) {
-      await reconcileSortKeys(db, 'project_user_position', user.id);
-    }
 
     // Per-user data: exact recipients sync the caller's other devices without
     // reshuffling anything for other members.
@@ -694,7 +679,7 @@ router.put(
       c,
       'project_position_updated',
       id,
-      { id, position },
+      { id, sort_key },
       { recipientUserIds: [user.id] }
     );
     return c.body(null, 204);

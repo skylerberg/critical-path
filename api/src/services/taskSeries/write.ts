@@ -9,7 +9,7 @@ import type {
 import { AppError } from '../../utils/errors';
 import { projectAccessIdsAmong, type ProjectAccessFields } from '../authorization';
 import { assertColumnInProject } from '../boardColumns';
-import { reconcileSortKeys } from '../sortKeyAssignment';
+import { keysBetween } from '../sortKey';
 import {
   assertUsableRrule,
   firstOccurrenceOnOrAfter,
@@ -157,7 +157,7 @@ export function scheduleFrom(
 interface ChildCollections {
   label_ids?: string[];
   assignee_ids?: string[];
-  checklist_items?: { text: string; position: number }[];
+  checklist_items?: { text: string }[];
 }
 
 async function writeChildren(
@@ -201,18 +201,18 @@ async function writeChildren(
       await db.deleteFrom('task_series_checklist_item').where('series_id', '=', seriesId).execute();
     }
     if (body.checklist_items.length > 0) {
+      const templateKeys = keysBetween(null, null, body.checklist_items.length);
       await db
         .insertInto('task_series_checklist_item')
         .values(
-          body.checklist_items.map((item) => ({
+          body.checklist_items.map((item, index) => ({
             id: crypto.randomUUID(),
             series_id: seriesId,
             text: item.text,
-            position: item.position,
+            sort_key: templateKeys[index]!,
           }))
         )
         .execute();
-      await reconcileSortKeys(db, 'task_series_checklist_item', seriesId);
     }
   }
 }

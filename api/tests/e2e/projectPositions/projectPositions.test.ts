@@ -6,21 +6,21 @@ import { attachRealtime, projectSockets } from '../../../src/services/realtime/i
 import type { RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { deleteProjects, waitFor } from '../projects/helpers';
 
 interface ListedProject {
   id: string;
-  position: number | null;
+  sort_key: string | null;
 }
 
 async function positionRow(
   userId: string,
   projectId: string
-): Promise<{ position: number } | undefined> {
+): Promise<{ sort_key: string } | undefined> {
   return await db
     .selectFrom('project_user_position')
-    .select('position')
+    .select('sort_key')
     .where('user_id', '=', userId)
     .where('project_id', '=', projectId)
     .executeTakeFirst();
@@ -71,89 +71,109 @@ describe('project positions', () => {
   });
 
   it('rejects unauthenticated requests', async () => {
-    const res = await ctx.request().put(`/api/projects/${first}/position`, { position: 1000 });
+    const res = await ctx
+      .request()
+      .put(`/api/projects/${first}/position`, { sort_key: rankKey(1000) });
     expect(res.status).toBe(401);
   });
 
   it('lists null positions in created_at order before any positioning', async () => {
     const projects = await listProjects(userA);
     expect(projects.map((p) => p.id)).toEqual([first, second, third]);
-    expect(projects.map((p) => p.position)).toEqual([null, null, null]);
+    expect(projects.map((p) => (p.sort_key === null ? null : 'ranked'))).toEqual([
+      null,
+      null,
+      null,
+    ]);
   });
 
   it('sets a position and orders that project before null positions', async () => {
     const res = await ctx
       .request(userA.token)
-      .put(`/api/projects/${third}/position`, { position: 1000 });
+      .put(`/api/projects/${third}/position`, { sort_key: rankKey(1000) });
     expect(res.status).toBe(204);
 
     const projects = await listProjects(userA);
     expect(projects.map((p) => p.id)).toEqual([third, first, second]);
-    expect(projects.map((p) => p.position)).toEqual([1000, null, null]);
+    expect(projects.map((p) => (p.sort_key === null ? null : 'ranked'))).toEqual([
+      'ranked',
+      null,
+      null,
+    ]);
   });
 
   it('orders multiple positioned projects by position', async () => {
     const res = await ctx
       .request(userA.token)
-      .put(`/api/projects/${first}/position`, { position: 500 });
+      .put(`/api/projects/${first}/position`, { sort_key: rankKey(500) });
     expect(res.status).toBe(204);
 
     const projects = await listProjects(userA);
     expect(projects.map((p) => p.id)).toEqual([first, third, second]);
-    expect(projects.map((p) => p.position)).toEqual([500, 1000, null]);
+    expect(projects.map((p) => (p.sort_key === null ? null : 'ranked'))).toEqual([
+      'ranked',
+      'ranked',
+      null,
+    ]);
   });
 
   it('upserts on a repeat PUT for the same project', async () => {
+    const thirdKey = rankKey(250);
     const res = await ctx
       .request(userA.token)
-      .put(`/api/projects/${third}/position`, { position: 250 });
+      .put(`/api/projects/${third}/position`, { sort_key: thirdKey });
     expect(res.status).toBe(204);
 
     const projects = await listProjects(userA);
     expect(projects.map((p) => p.id)).toEqual([third, first, second]);
-    expect(projects.map((p) => p.position)).toEqual([250, 500, null]);
+    expect(projects.map((p) => (p.sort_key === null ? null : 'ranked'))).toEqual([
+      'ranked',
+      'ranked',
+      null,
+    ]);
 
     const rows = await db
       .selectFrom('project_user_position')
-      .select('position')
+      .select('sort_key')
       .where('user_id', '=', userA.id)
       .where('project_id', '=', third)
       .execute();
-    expect(rows).toEqual([{ position: 250 }]);
+    expect(rows).toEqual([{ sort_key: thirdKey }]);
   });
 
+  const key9999 = rankKey(9999);
   it('keeps positions isolated per user', async () => {
     const before = await listProjects(userB);
-    expect(before.map((p) => ({ id: p.id, position: p.position }))).toEqual([
-      { id: first, position: null },
+    expect(before.map((p) => ({ id: p.id, ranked: p.sort_key !== null }))).toEqual([
+      { id: first, ranked: false },
     ]);
 
     const res = await ctx
       .request(userB.token)
-      .put(`/api/projects/${first}/position`, { position: 9999 });
+      .put(`/api/projects/${first}/position`, { sort_key: key9999 });
     expect(res.status).toBe(204);
 
     const bProjects = await listProjects(userB);
-    expect(bProjects.map((p) => ({ id: p.id, position: p.position }))).toEqual([
-      { id: first, position: 9999 },
+    expect(bProjects.map((p) => ({ id: p.id, sort_key: p.sort_key }))).toEqual([
+      { id: first, sort_key: key9999 },
     ]);
 
     const aProjects = await listProjects(userA);
     expect(aProjects.map((p) => p.id)).toEqual([third, first, second]);
-    expect(aProjects.map((p) => p.position)).toEqual([250, 500, null]);
+    expect(aProjects.map((p) => p.sort_key)).toEqual([...aProjects.map((p) => p.sort_key)].sort());
   });
 
   it('returns 404 for a project the caller cannot access', async () => {
     const res = await ctx
       .request(userB.token)
-      .put(`/api/projects/${second}/position`, { position: 1 });
+      .put(`/api/projects/${second}/position`, { sort_key: rankKey(1) });
     expect(res.status).toBe(404);
     expect(await positionRow(userB.id, second)).toBeUndefined();
   });
 
   it('returns 404 for an unknown project', async () => {
     const res = await ctx.request(userA.token).put(`/api/projects/${newId()}/position`, {
-      position: 1,
+      sort_key: rankKey(1),
     });
     expect(res.status).toBe(404);
   });
@@ -184,13 +204,14 @@ describe('project positions', () => {
     }
   });
 
+  const key42 = rankKey(42);
   it('deletes position rows when the project is deleted', async () => {
     const doomed = await createProject(userA, 'Doomed', '2026-01-01T00:00:04.000Z');
     const putRes = await ctx
       .request(userA.token)
-      .put(`/api/projects/${doomed}/position`, { position: 42 });
+      .put(`/api/projects/${doomed}/position`, { sort_key: key42 });
     expect(putRes.status).toBe(204);
-    expect(await positionRow(userA.id, doomed)).toEqual({ position: 42 });
+    expect(await positionRow(userA.id, doomed)).toEqual({ sort_key: key42 });
 
     const deleteRes = await ctx.request(userA.token).delete(`/api/projects/${doomed}`);
     expect(deleteRes.status).toBe(204);
@@ -326,10 +347,11 @@ describe('project position realtime', () => {
     await ctx.cleanup();
   });
 
+  const key1500 = rankKey(1500);
   it('delivers project_position_updated to every socket of the caller and nobody else', async () => {
     const res = await ctx
       .request(userA.token)
-      .put(`/api/projects/${projectId}/position`, { position: 1500 });
+      .put(`/api/projects/${projectId}/position`, { sort_key: key1500 });
     expect(res.status).toBe(204);
 
     const event = await clientA1.waitForEvent(
@@ -338,7 +360,7 @@ describe('project position realtime', () => {
     expect(event).toEqual({
       type: 'project_position_updated',
       project_id: projectId,
-      data: { id: projectId, position: 1500 },
+      data: { id: projectId, sort_key: key1500 },
     });
     await clientA2.waitForEvent(
       (e) => e.type === 'project_position_updated' && e.data.id === projectId
