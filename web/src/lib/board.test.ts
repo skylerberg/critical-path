@@ -3920,6 +3920,8 @@ describe('board store attachments', () => {
       id: A1,
       task_id: 't1',
       kind: 'file',
+      image_url: null,
+      is_cover: false,
       title: null,
       description: null,
       filename: 'spec.pdf',
