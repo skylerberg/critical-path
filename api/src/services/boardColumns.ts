@@ -55,21 +55,16 @@ export async function appendPositions(
 ): Promise<MovedTask[]> {
   await lockColumnTail(db, targetColumnId);
 
-  const { max, maxKey } = await db
+  const { maxKey } = await db
     .selectFrom('task')
-    .select((eb) => [
-      eb.fn.max<number | null>('position').as('max'),
-      eb.fn.max<string | null>('sort_key').as('maxKey'),
-    ])
+    .select((eb) => eb.fn.max<string | null>('sort_key').as('maxKey'))
     .where('column_id', '=', targetColumnId)
     .executeTakeFirstOrThrow();
-  const base = max ?? 0;
   const keys = keysBetween(maxKey, null, taskIds.length);
 
   return taskIds.map((taskId, index) => ({
     id: taskId,
     column_id: targetColumnId,
-    position: base + (index + 1) * 1000,
     sort_key: keys[index]!,
   }));
 }

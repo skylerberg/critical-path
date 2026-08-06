@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
 
 describe('Task blockers', () => {
@@ -27,7 +27,7 @@ describe('Task blockers', () => {
       project_id: targetProjectId,
       column_id: targetColumnId,
       title,
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(res.status).toBe(201);
     const body = await res.json();

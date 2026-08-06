@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { ProjectFixtures, validDescription } from '../tasks/taskFixtures';
 
 interface SearchResultBody {
@@ -354,7 +354,7 @@ describe('GET /api/search', () => {
       project_id: projectId,
       column_id: columnId,
       title: 'Pelican onboarding',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     expect(post.status).toBe(201);
     expect((await search(caller, 'pelican')).results.map((row) => row.task_id)).toEqual([taskId]);

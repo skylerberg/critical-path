@@ -8,6 +8,7 @@ import { newId } from '../../helpers/fixtures';
 import { deleteProjects, insertTask, waitFor } from '../projects/helpers';
 import { RtClient, settle } from './helpers';
 
+import { rankKey } from '../../helpers/fixtures';
 describe('Realtime for the unseen-changes dot', () => {
   const ctx = new TestContext();
   let server: ServerType;
@@ -94,7 +95,7 @@ describe('Realtime for the unseen-changes dot', () => {
       (e) => e.type === 'project_updated' && e.data.id === projectId
     );
     expect(event.data).toMatchObject({ name: 'Renamed for readers' });
-    for (const key of ['has_unseen_changes', 'last_seen_at', 'position']) {
+    for (const key of ['has_unseen_changes', 'last_seen_at', 'sort_key']) {
       expect(Object.keys(event.data)).not.toContain(key);
     }
   });
@@ -138,7 +139,11 @@ describe('Realtime for the unseen-changes dot', () => {
     const res = await ctx.request(owner.token).post('/api/tasks/batch', {
       project_id: projectId,
       column_id: columnId,
-      tasks: ids.map((id, index) => ({ id, title: `Batch ${index}`, position: 5000 + index })),
+      tasks: ids.map((id, index) => ({
+        id,
+        title: `Batch ${index}`,
+        sort_key: rankKey(5000 + index),
+      })),
     });
     expect(res.status).toBe(201);
 

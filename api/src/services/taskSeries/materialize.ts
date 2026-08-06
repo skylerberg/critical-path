@@ -4,9 +4,9 @@ import type { BoardTask, TaskSeriesResponse } from '../../schemas/index';
 import { logger } from '../../utils/logger';
 import { projectAccessIdsAmong } from '../authorization';
 import { lockColumnTail } from '../boardColumns';
+import { keysBetween } from '../sortKey';
 import { fetchBoardTaskRows } from '../boardPayload';
 import { PROJECT_CHANGED, publish } from '../realtime/bus';
-import { reconcileSortKeys } from '../sortKeyAssignment';
 import { recordTaskActivity } from '../taskActivity';
 import { enqueueDeliveries } from '../webhooks/queue';
 import type { WebhookEvent } from '../webhooks/events';
@@ -23,7 +23,6 @@ export const SWEEP_BUDGET_MS = 10_000;
 export const MAX_CATCHUP_SCAN = 500;
 export const MAX_CONSECUTIVE_FAILURES = 5;
 
-const POSITION_GAP = 1000;
 const CHECKLIST_INSERT_CHUNK = 5000;
 const MAX_ERROR_CHARS = 2000;
 
@@ -345,16 +344,18 @@ async function createOccurrences(
 
   const tail = await trx
     .selectFrom('task')
-    .select((eb) => eb.fn.max('task.position').as('max_position'))
+    .select((eb) => eb.fn.max('task.sort_key').as('max_key'))
     .where('task.column_id', '=', columnId)
     .executeTakeFirst();
-  let position = Number(tail?.max_position ?? 0);
+  // One run for the whole sweep: a per-occurrence probe would re-read a tail the
+  // previous insert just moved.
+  const occurrenceKeys = keysBetween(tail?.max_key ?? null, null, due.length);
 
+  const checklistKeys = keysBetween(null, null, checklistRows.length);
   const description = series.description === null ? null : JSON.stringify(series.description);
   const createdIds: string[] = [];
 
-  for (const occurrence of due) {
-    position += POSITION_GAP;
+  for (const [occurrenceIndex, occurrence] of due.entries()) {
     // do-nothing rather than a caught 23505: a raised unique violation aborts
     // the transaction, and the schedule advance below still has to run.
     const inserted = await trx
@@ -365,7 +366,7 @@ async function createOccurrences(
         column_id: columnId,
         title: series.title,
         description,
-        position,
+        sort_key: occurrenceKeys[occurrenceIndex]!,
         due_date: series.due_date_text,
         series_id: series.id,
         series_occurrence_date: occurrence,
@@ -403,13 +404,10 @@ async function createOccurrences(
             id: crypto.randomUUID(),
             task_id: taskId,
             text: row.text,
-            position: (start + index + 1) * POSITION_GAP,
+            sort_key: checklistKeys[start + index]!,
           }))
         )
         .execute();
-    }
-    if (checklistRows.length > 0) {
-      await reconcileSortKeys(trx, 'checklist_item', taskId);
     }
 
     // An activity row needs a real person and there is no system user, so an
@@ -419,10 +417,6 @@ async function createOccurrences(
         { taskId, kind: 'created', newValue: { text: series.title } },
       ]);
     }
-  }
-
-  if (createdIds.length > 0) {
-    await reconcileSortKeys(trx, 'task', columnId);
   }
 
   return createdIds;

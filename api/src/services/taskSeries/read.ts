@@ -67,7 +67,7 @@ export async function fetchSeries(
           .select([
             'task_series_checklist_item.id',
             'task_series_checklist_item.text',
-            'task_series_checklist_item.position',
+            'task_series_checklist_item.sort_key',
           ])
           .whereRef('task_series_checklist_item.series_id', '=', 'task_series.id')
           .orderBy('task_series_checklist_item.sort_key')

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { ProjectFixtures } from './taskFixtures';
 
 interface PgError {
@@ -43,7 +43,7 @@ describe('Cross-project (project_id, column_id) pairs, written straight to the d
         project_id: project,
         column_id: columnId,
         title: 'written past the routes',
-        position: 1000,
+        sort_key: rankKey(1000),
       })
       .execute();
   }

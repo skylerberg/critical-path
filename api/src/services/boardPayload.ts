@@ -23,7 +23,6 @@ function boardTasksQuery(db: Kysely<DB>) {
     'task.column_id',
     'task.title',
     'task.description',
-    'task.position',
     'task.sort_key',
     dueDateText.as('due_date'),
     'task.created_at',
@@ -99,7 +98,6 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
     column_id: task.column_id,
     title: task.title,
     description: task.description as TiptapDoc | null,
-    position: task.position,
     sort_key: task.sort_key,
     due_date: task.due_date,
     created_at: task.created_at.toISOString(),
@@ -212,7 +210,7 @@ export async function getBoardPayload(
 
   const columns = await db
     .selectFrom('board_column')
-    .select(['id', 'name', 'position', 'sort_key', 'is_done'])
+    .select(['id', 'name', 'sort_key', 'is_done'])
     .where('project_id', '=', projectId)
     .orderBy('sort_key')
     .orderBy('id')
@@ -291,8 +289,7 @@ interface PublicChecklistItemRow {
   task_id: string;
   text: string;
   checked: boolean;
-  position: number;
-  sort_key: string | null;
+  sort_key: string;
 }
 
 async function fetchChecklistItemsForTasks(
@@ -309,7 +306,6 @@ async function fetchChecklistItemsForTasks(
       'checklist_item.task_id',
       'checklist_item.text',
       'checklist_item.checked',
-      'checklist_item.position',
       'checklist_item.sort_key',
     ])
     .where('checklist_item.task_id', 'in', [...taskIds])
@@ -336,7 +332,6 @@ export function toPublicBoard(
     columns: payload.columns.map((column) => ({
       id: column.id,
       name: column.name,
-      position: column.position,
       sort_key: column.sort_key,
       is_done: column.is_done,
     })),
@@ -346,7 +341,6 @@ export function toPublicBoard(
       title: task.title,
       description: task.description,
       sort_key: task.sort_key,
-      position: task.position,
       due_date: task.due_date,
       label_ids: task.label_ids,
       assignee_ids: task.assignee_ids,
@@ -382,7 +376,6 @@ export function toPublicBoard(
       text: item.text,
       checked: item.checked,
       sort_key: item.sort_key,
-      position: item.position,
     })),
     attachments,
   };

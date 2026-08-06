@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "commander": "15.0.0",
+    "fractional-indexing": "^4.0.0",
     "mdast-util-from-markdown": "2.0.3",
     "mdast-util-gfm-strikethrough": "2.0.0",
     "mdast-util-to-markdown": "2.1.2",

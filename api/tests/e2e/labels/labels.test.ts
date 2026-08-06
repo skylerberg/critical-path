@@ -3,6 +3,7 @@ import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 
+import { rankKey } from '../../helpers/fixtures';
 describe('Labels API', () => {
   const ctx = new TestContext();
   const projectIds: string[] = [];
@@ -32,7 +33,7 @@ describe('Labels API', () => {
     const id = newId();
     await db
       .insertInto('board_column')
-      .values({ id, project_id: projectId, name: 'To Do', position: 1000 })
+      .values({ id, project_id: projectId, name: 'To Do', sort_key: rankKey(1000) })
       .execute();
     return id;
   }
@@ -45,7 +46,13 @@ describe('Labels API', () => {
     const id = newId();
     await db
       .insertInto('task')
-      .values({ id, project_id: projectId, column_id: columnId, title: 'Labeled task', position })
+      .values({
+        id,
+        project_id: projectId,
+        column_id: columnId,
+        title: 'Labeled task',
+        sort_key: rankKey(position),
+      })
       .execute();
     return id;
   }

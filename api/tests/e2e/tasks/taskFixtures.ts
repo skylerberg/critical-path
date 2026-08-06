@@ -1,7 +1,6 @@
 import { db } from '../../helpers/database';
-import { newId, uniqueEmail } from '../../helpers/fixtures';
+import { newId, uniqueEmail, rankKey } from '../../helpers/fixtures';
 import { insertTaskImages } from '../../../src/services/attachments/images';
-import { reconcileSortKeys } from '../../../src/services/sortKeyAssignment';
 
 export class ProjectFixtures {
   private projectIds: string[] = [];
@@ -54,11 +53,10 @@ export class ProjectFixtures {
         id,
         project_id: projectId,
         name: opts.name ?? 'Column',
-        position: opts.position ?? 1000,
+        sort_key: rankKey(opts.position ?? 1000),
         is_done: opts.isDone ?? false,
       })
       .execute();
-    await reconcileSortKeys(db, 'board_column', projectId);
     return id;
   }
 
@@ -72,7 +70,7 @@ export class ProjectFixtures {
     projectId: string,
     columnId: string,
     title = 'seeded task',
-    opts: { description?: unknown; archivedAt?: Date; position?: number } = {}
+    opts: { description?: unknown; archivedAt?: Date; position?: number; sortKey?: string } = {}
   ): Promise<string> {
     const id = newId();
     await db
@@ -82,12 +80,11 @@ export class ProjectFixtures {
         project_id: projectId,
         column_id: columnId,
         title,
-        position: opts.position ?? 1000,
+        sort_key: opts.sortKey ?? rankKey(opts.position ?? 1000),
         description: opts.description === undefined ? null : JSON.stringify(opts.description),
         archived_at: opts.archivedAt ?? null,
       })
       .execute();
-    await reconcileSortKeys(db, 'task', columnId);
     return id;
   }
 

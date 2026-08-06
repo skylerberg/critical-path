@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db, waitForLockWaiters } from '../../helpers/database';
-import { newId, rawJsonWithPosition } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { ProjectFixtures, validDescription, descriptionWithLink } from './taskFixtures';
 import { TASK_TITLE_MAX_LENGTH } from '../../../src/schemas/tasks';
@@ -30,7 +30,7 @@ describe('Tasks CRUD', () => {
       project_id: projectId,
       column_id: columnId,
       title: 'A task',
-      position: 1000,
+      sort_key: rankKey(1000),
       ...overrides,
     };
   }
@@ -67,7 +67,7 @@ describe('Tasks CRUD', () => {
         column_id: sharedColumnId,
         title: 'A task',
         description: validDescription(),
-        position: 1000,
+        sort_key: expect.any(String),
         blocker_ids: [],
         image_count: 0,
         cover_image_url: null,
@@ -123,15 +123,13 @@ describe('Tasks CRUD', () => {
       expect(res.status).toBe(422);
     });
 
-    it('rejects a non-finite position with 422', async () => {
-      for (const literal of ['1e999', '-1e999']) {
-        const res = await ctx
-          .request(user.token)
-          .sendRawJson('POST', '/api/tasks', rawJsonWithPosition(taskBody(), literal));
-        expect(res.status, literal).toBe(422);
+    it('rejects a malformed sort key with 422', async () => {
+      for (const bad of ['', 'not a key', 'V0!', 'V00']) {
+        const res = await ctx.request(user.token).post('/api/tasks', taskBody({ sort_key: bad }));
+        expect(res.status, bad).toBe(422);
         const body = await res.json();
         expect(body.error).toBe('Validation failed');
-        expect(body.details.some((d: { path: string }) => d.path === 'position')).toBe(true);
+        expect(body.details.some((d: { path: string }) => d.path === 'sort_key')).toBe(true);
       }
     });
 
@@ -323,29 +321,29 @@ describe('Tasks CRUD', () => {
     });
 
     it('moves a task with column_id and position', async () => {
-      const targetColumn = await fixtures.createColumn(projectId, { name: 'Done', position: 2000 });
+      const targetColumn = await fixtures.createColumn(projectId, {
+        name: 'Done',
+        sort_key: rankKey(2000),
+      });
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const { id } = await created.json();
 
       const res = await ctx
         .request(user.token)
-        .patch(`/api/tasks/${id}`, { column_id: targetColumn, position: 500 });
+        .patch(`/api/tasks/${id}`, { column_id: targetColumn, sort_key: rankKey(500) });
       expect(res.status).toBe(200);
       const updated = await res.json();
       expect(updated.column_id).toBe(targetColumn);
-      expect(updated.position).toBe(500);
+      expect(updated.sort_key).toBeTruthy();
     });
 
     it('rejects a non-finite position with 422', async () => {
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const { id } = await created.json();
 
-      for (const literal of ['1e999', '-1e999']) {
-        const res = await ctx
-          .request(user.token)
-          .sendRawJson('PATCH', `/api/tasks/${id}`, rawJsonWithPosition({}, literal));
-        expect(res.status, literal).toBe(422);
-        expect((await res.json()).error).toBe('Validation failed');
+      for (const bad of ['', 'not a key', 'V0!', 'V00']) {
+        const res = await ctx.request(user.token).patch(`/api/tasks/${id}`, { sort_key: bad });
+        expect(res.status, bad).toBe(422);
       }
     });
 
@@ -359,7 +357,7 @@ describe('Tasks CRUD', () => {
 
       const res = await ctx
         .request(user.token)
-        .patch(`/api/tasks/${id}`, { column_id: otherColumn, position: 500 });
+        .patch(`/api/tasks/${id}`, { column_id: otherColumn, sort_key: rankKey(500) });
       expect(res.status).toBe(422);
       expect((await res.json()).error).toContain('column_id');
     });
@@ -455,7 +453,7 @@ describe('Tasks CRUD', () => {
     it('ignores expected_updated_at on a pure move', async () => {
       const targetColumn = await fixtures.createColumn(projectId, {
         name: 'Moved',
-        position: 3000,
+        sort_key: rankKey(3000),
       });
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const original = await created.json();
@@ -467,7 +465,7 @@ describe('Tasks CRUD', () => {
 
       const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {
         column_id: targetColumn,
-        position: 500,
+        sort_key: rankKey(500),
         expected_updated_at: original.updated_at,
       });
       expect(res.status).toBe(200);
@@ -477,7 +475,7 @@ describe('Tasks CRUD', () => {
     it('leaves updated_at untouched on a pure move but bumps column_since', async () => {
       const targetColumn = await fixtures.createColumn(projectId, {
         name: 'Move no bump',
-        position: 4000,
+        sort_key: rankKey(4000),
       });
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const original = await created.json();
@@ -485,7 +483,7 @@ describe('Tasks CRUD', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       const res = await ctx
         .request(user.token)
-        .patch(`/api/tasks/${original.id}`, { column_id: targetColumn, position: 500 });
+        .patch(`/api/tasks/${original.id}`, { column_id: targetColumn, sort_key: rankKey(500) });
       expect(res.status).toBe(200);
       const moved = await res.json();
       expect(moved.column_id).toBe(targetColumn);
@@ -510,7 +508,7 @@ describe('Tasks CRUD', () => {
     it('keeps an open editor saveable after someone else moves the task', async () => {
       const targetColumn = await fixtures.createColumn(projectId, {
         name: 'Move then edit',
-        position: 5000,
+        sort_key: rankKey(5000),
       });
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const original = await created.json();
@@ -518,7 +516,7 @@ describe('Tasks CRUD', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       const move = await ctx
         .request(user.token)
-        .patch(`/api/tasks/${original.id}`, { column_id: targetColumn, position: 500 });
+        .patch(`/api/tasks/${original.id}`, { column_id: targetColumn, sort_key: rankKey(500) });
       expect(move.status).toBe(200);
 
       const res = await ctx.request(user.token).patch(`/api/tasks/${original.id}`, {

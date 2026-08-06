@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { db } from '../helpers/database';
-import { newId, uniqueEmail } from '../helpers/fixtures';
+import { newId, uniqueEmail, rankKey } from '../helpers/fixtures';
 import {
   canAccessProject,
   assertProjectAccess,
@@ -16,6 +16,8 @@ import {
   usersWithProjectAccess,
 } from '../../src/services/authorization';
 import { AppError } from '../../src/utils/errors';
+
+const key1000 = rankKey(1000);
 
 const userIds: string[] = [];
 
@@ -67,7 +69,12 @@ beforeAll(async () => {
   sharedTaskId = newId();
   await db
     .insertInto('board_column')
-    .values({ id: columnId, project_id: sharedProjectId, name: 'authz col', position: 1000 })
+    .values({
+      id: columnId,
+      project_id: sharedProjectId,
+      name: 'authz col',
+      sort_key: rankKey(1000),
+    })
     .execute();
   await db
     .insertInto('task')
@@ -76,7 +83,7 @@ beforeAll(async () => {
       project_id: sharedProjectId,
       column_id: columnId,
       title: 'authz task',
-      position: 1000,
+      sort_key: rankKey(1000),
     })
     .execute();
 });
@@ -360,7 +367,7 @@ describe('projectAccessIdsAmong', () => {
     const taskId = newId();
     await db
       .insertInto('board_column')
-      .values({ id: columnId, project_id: sharedProjectId, name: 'col', position: 1000 })
+      .values({ id: columnId, project_id: sharedProjectId, name: 'col', sort_key: key1000 })
       .execute();
     await db
       .insertInto('task')
@@ -369,7 +376,7 @@ describe('projectAccessIdsAmong', () => {
         project_id: sharedProjectId,
         column_id: columnId,
         title: 'task',
-        position: 1000,
+        sort_key: key1000,
       })
       .execute();
     await db.insertInto('task_assignee').values({ task_id: taskId, user_id: outsider }).execute();
@@ -404,13 +411,12 @@ describe('usersWithProjectAccess', () => {
       expect(typeof user.name).toBe('string');
     }
   });
-
   it('includes users still referenced by a task_assignee row', async () => {
     const columnId = newId();
     const taskId = newId();
     await db
       .insertInto('board_column')
-      .values({ id: columnId, project_id: sharedProjectId, name: 'col', position: 1000 })
+      .values({ id: columnId, project_id: sharedProjectId, name: 'col', sort_key: key1000 })
       .execute();
     await db
       .insertInto('task')
@@ -419,7 +425,7 @@ describe('usersWithProjectAccess', () => {
         project_id: sharedProjectId,
         column_id: columnId,
         title: 'task',
-        position: 1000,
+        sort_key: key1000,
       })
       .execute();
     await db.insertInto('task_assignee').values({ task_id: taskId, user_id: outsider }).execute();

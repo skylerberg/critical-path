@@ -39,10 +39,10 @@ import {
   type TaskState,
 } from '../board';
 import {
-  append,
-  positionForPlacement,
-  positionsForIndex,
-  positionsForPlacement,
+  byRank,
+  keyForPlacement,
+  keysForIndex,
+  keysForPlacement,
   type Placement,
 } from '../positions';
 import { markdownToTiptap, tiptapToMarkdown, type TiptapDoc } from '../markdown';
@@ -334,7 +334,7 @@ async function createOneTask(ctx: RuntimeContext, opts: Opts, title: string): Pr
   const due = dueFrom(opts, false);
   const board = await resolveBoard(ctx, opts.project as string | undefined);
   const column = targetColumn(board, opts);
-  const position = positionForPlacement(
+  const sortKey = keyForPlacement(
     placementFrom(opts),
     sortedTasksIn(board, column.id),
     columnAnchorResolver(board, column)
@@ -348,7 +348,7 @@ async function createOneTask(ctx: RuntimeContext, opts: Opts, title: string): Pr
         project_id: board.project.id,
         column_id: column.id,
         title,
-        position,
+        sort_key: sortKey,
         ...(description !== undefined ? { description } : {}),
         ...(due !== undefined ? { due_date: due } : {}),
         ...(labelIds.length > 0 ? { label_ids: labelIds } : {}),
@@ -404,7 +404,7 @@ async function createManyTasks(ctx: RuntimeContext, opts: Opts): Promise<void> {
 
   const board = await resolveBoard(ctx, opts.project as string | undefined);
   const column = targetColumn(board, opts);
-  const positions = positionsForPlacement(
+  const sortKeys = keysForPlacement(
     placementFrom(opts),
     sortedTasksIn(board, column.id),
     columnAnchorResolver(board, column),
@@ -418,7 +418,7 @@ async function createManyTasks(ctx: RuntimeContext, opts: Opts): Promise<void> {
         tasks: titles.map((title, index) => ({
           id: crypto.randomUUID(),
           title,
-          position: positions[index],
+          sort_key: sortKeys[index],
         })),
       },
     })
@@ -451,7 +451,7 @@ async function resolveChecklist(
 }
 
 function sortedChecklist(items: readonly ChecklistItem[]): ChecklistItem[] {
-  return [...items].sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+  return [...items].sort(byRank);
 }
 
 function resolveChecklistItem(items: readonly ChecklistItem[], ref: string): ChecklistItem {
@@ -487,7 +487,7 @@ async function addChecklistItems(
   entries: { text: string; checked: boolean }[]
 ): Promise<void> {
   const { taskId, items } = await resolveChecklist(ctx, ref, opts.project as string | undefined);
-  const positions = positionsForPlacement(
+  const sortKeys = keysForPlacement(
     placementFrom(opts),
     items,
     (anchor) => resolveChecklistItem(items, anchor).id,
@@ -502,7 +502,7 @@ async function addChecklistItems(
             id: crypto.randomUUID(),
             task_id: taskId,
             text: entry.text,
-            position: positions[index],
+            sort_key: sortKeys[index],
             ...(entry.checked ? { checked: true } : {}),
           },
         })
@@ -633,7 +633,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
             .sort(
               (a, b) =>
                 (columnOrder.get(a.column_id) ?? 0) - (columnOrder.get(b.column_id) ?? 0) ||
-                a.position - b.position
+                byRank(a, b)
             )
             .map((t) => ({ ...t, state: taskState(t, board) }));
           ctx.out.data(tasks, () => {
@@ -825,7 +825,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
             ? resolveColumn(board, opts.column)
             : resolveColumn(board, target.column_id);
         const others = sortedTasksIn(board, column.id).filter((t) => t.id !== target.id);
-        const position = positionForPlacement(
+        const sortKey = keyForPlacement(
           placementFrom(opts),
           others,
           columnAnchorResolver(board, column)
@@ -833,7 +833,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
         const moved = assertOk(
           await ctx.api.PATCH('/api/tasks/{id}', {
             params: { path: { id: target.id } },
-            body: { column_id: column.id, position },
+            body: { column_id: column.id, sort_key: sortKey },
           })
         );
         ctx.out.data(moved, () =>
@@ -860,11 +860,11 @@ export function registerTask(program: Command, deps: CliDeps): void {
           }
           const column = doneColumns[doneColumns.length - 1];
           const others = sortedTasksIn(board, column.id).filter((t) => t.id !== target.id);
-          const position = append(others.map((t) => t.position));
+          const sortKey = keysForIndex(others, others.length, 1)[0]!;
           const moved = assertOk(
             await ctx.api.PATCH('/api/tasks/{id}', {
               params: { path: { id: target.id } },
-              body: { column_id: column.id, position },
+              body: { column_id: column.id, sort_key: sortKey },
             })
           );
           ctx.out.data(moved, () =>
@@ -890,16 +890,11 @@ export function registerTask(program: Command, deps: CliDeps): void {
           const index = siblings.findIndex((t) => t.id === target.id);
           // An archived source is off the board, so there is no card to sit below.
           const insertAt = index === -1 ? siblings.length : index + 1;
-          const position = positionsForIndex(
-            siblings.map((t) => t.position),
-            insertAt,
-            1,
-            'move a card in this column to make room'
-          )[0];
+          const sortKey = keysForIndex(siblings, insertAt, 1)[0]!;
           const created = assertOk(
             await ctx.api.POST('/api/tasks/{id}/duplicate', {
               params: { path: { id: target.id } },
-              body: { id: crypto.randomUUID(), position },
+              body: { id: crypto.randomUUID(), sort_key: sortKey },
             })
           );
           ctx.out.data(created, () =>
@@ -1182,7 +1177,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
             const { items } = await resolveChecklist(ctx, ref, opts.project as string | undefined);
             const target = resolveChecklistItem(items, itemRef);
             const others = items.filter((item) => item.id !== target.id);
-            const position = positionForPlacement(
+            const sortKey = keyForPlacement(
               placementFrom(opts),
               others,
               (anchor) => resolveChecklistItem(items, anchor).id
@@ -1190,7 +1185,7 @@ export function registerTask(program: Command, deps: CliDeps): void {
             const updated = assertOk(
               await ctx.api.PATCH('/api/checklist-items/{id}', {
                 params: { path: { id: target.id } },
-                body: { position },
+                body: { sort_key: sortKey },
               })
             );
             ctx.out.data(updated, () => ctx.out.line(`Moved ${checklistLine(updated)}`));
@@ -1247,15 +1242,15 @@ export function registerTask(program: Command, deps: CliDeps): void {
             itemRef
           );
           const siblings = sortedTasksIn(board, parent.column_id);
-          const position = positionsForIndex(
-            siblings.map((t) => t.position),
+          const sortKey = keysForIndex(
+            siblings,
             siblings.findIndex((t) => t.id === parent.id) + 1,
             1
           )[0];
           const created = assertOk(
             await ctx.api.POST('/api/checklist-items/{id}/promote', {
               params: { path: { id: target.id } },
-              body: { id: crypto.randomUUID(), position },
+              body: { id: crypto.randomUUID(), sort_key: sortKey },
             })
           );
           ctx.out.data(created, () =>

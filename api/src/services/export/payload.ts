@@ -75,7 +75,6 @@ export async function buildProjectExport(
         'checklist_item.task_id',
         'checklist_item.text',
         'checklist_item.checked',
-        'checklist_item.position',
         'checklist_item.sort_key',
       ])
       .where('task.project_id', '=', projectId)
@@ -115,7 +114,6 @@ export async function buildProjectExport(
       id: item.id,
       text: item.text,
       checked: item.checked,
-      position: item.position,
       sort_key: item.sort_key,
     });
     checklistByTask.set(item.task_id, items);

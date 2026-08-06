@@ -1,3 +1,5 @@
+import { sql, type Kysely } from 'kysely';
+import type { DB } from '../db/types';
 import { generateKeyBetween, generateNKeysBetween, BASE_62_DIGITS } from 'fractional-indexing';
 
 // Inserting repeatedly against the same neighbour lengthens each successive key
@@ -40,4 +42,54 @@ function structurallyValid(key: string): boolean {
     }
   }
   return false;
+}
+
+// Ordering scopes, and the column that groups each one.
+const SCOPES = {
+  task: 'column_id',
+  board_column: 'project_id',
+  checklist_item: 'task_id',
+  project_user_position: 'user_id',
+  task_series_checklist_item: 'series_id',
+} as const;
+
+export type SortKeyTable = keyof typeof SCOPES;
+
+// The default rank for a row created without one: the end of its scope. The
+// probe spans archived rows too, so an appended card never lands on the key an
+// archived one is still holding.
+export async function appendKeys(
+  db: Kysely<DB>,
+  table: SortKeyTable,
+  group: string,
+  count = 1
+): Promise<string[]> {
+  const { rows } = await sql<{ max: string | null }>`
+    select max(sort_key) as max from ${sql.ref(table)}
+    where ${sql.ref(SCOPES[table])} = ${group}
+  `.execute(db);
+  return keysBetween(rows[0]?.max ?? null, null, count);
+}
+
+// A client ranks a card against what it can see, which excludes the archived
+// rows still holding keys in that column. Resolving before the write rather than
+// retrying after one: every mutation runs in a transaction, and a failed
+// statement aborts it, so there is nothing left to retry on.
+export async function resolveSortKey(
+  db: Kysely<DB>,
+  table: SortKeyTable,
+  group: string,
+  requested: string
+): Promise<string> {
+  const { rows } = await sql<{ sort_key: string }>`
+    select sort_key from ${sql.ref(table)}
+    where ${sql.ref(SCOPES[table])} = ${group} and sort_key >= ${requested}
+    order by sort_key
+    limit 2
+  `.execute(db);
+  if (rows[0]?.sort_key !== requested) {
+    return requested;
+  }
+  // Taken: rank immediately after it, bounded by whatever sits above.
+  return keysBetween(requested, rows[1]?.sort_key ?? null, 1)[0]!;
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId } from '../../helpers/fixtures';
+import { newId, rankKey } from '../../helpers/fixtures';
 import {
   BoardPayloadBody,
   deleteProjects,
@@ -25,6 +25,7 @@ describe('GET /api/projects/:id board payload', () => {
     await ctx.cleanup();
   });
 
+  const key2000 = rankKey(2000);
   it('returns project, columns, tasks with relation ids and image/comment counts, and labels', async () => {
     const projectId = newId();
     projectIds.push(projectId);
@@ -47,13 +48,13 @@ describe('GET /api/projects/:id board payload', () => {
       projectId,
       columnId: backlog.id,
       title: 'Blocker',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     const mainTaskId = await insertTask({
       projectId,
       columnId: toDo.id,
       title: 'Main',
-      position: 2000,
+      sort_key: key2000,
       description,
       dueDate: '2026-08-03',
     });
@@ -96,7 +97,7 @@ describe('GET /api/projects/:id board payload', () => {
     expect(mainTask).toMatchObject({
       column_id: toDo.id,
       title: 'Main',
-      position: 2000,
+      sort_key: expect.any(String),
       due_date: '2026-08-03',
       label_ids: [usedLabelId],
       assignee_ids: [user.id],
@@ -142,13 +143,13 @@ describe('GET /api/projects/:id board payload', () => {
       projectId,
       columnId: backlog.id,
       title: 'Archived',
-      position: 1000,
+      sort_key: rankKey(1000),
     });
     const liveId = await insertTask({
       projectId,
       columnId: backlog.id,
       title: 'Live',
-      position: 2000,
+      sort_key: rankKey(2000),
     });
     await db
       .insertInto('task_dependency')

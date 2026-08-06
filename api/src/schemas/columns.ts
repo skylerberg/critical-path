@@ -1,19 +1,17 @@
 import { type } from 'arktype';
-import { uuid, stringWithLength, finiteNumber, sortKey } from './common';
+import { uuid, stringWithLength, sortKey } from './common';
 import { boardTaskSchema } from './board';
 
 export const createColumnSchema = type({
   id: uuid,
   project_id: uuid,
   name: stringWithLength(1, 200),
-  position: finiteNumber,
   'sort_key?': sortKey,
   'is_done?': 'boolean',
 });
 
 export const patchColumnSchema = type({
   'name?': stringWithLength(1, 200),
-  'position?': finiteNumber,
   'sort_key?': sortKey,
   'is_done?': 'boolean',
 });
@@ -22,8 +20,7 @@ export const columnSchema = type({
   id: 'string',
   project_id: 'string',
   name: 'string',
-  position: finiteNumber,
-  sort_key: 'string | null',
+  sort_key: 'string',
   is_done: 'boolean',
   created_at: 'string',
 });
@@ -39,8 +36,8 @@ export const moveColumnTasksSchema = type({
 });
 
 // The full ordered id list of a column's unarchived tasks, in their new order;
-// the server re-stamps evenly spaced positions so a one-shot sort commits to
-// manual order rather than acting as a persistent view mode.
+// the server re-stamps evenly spread keys so a one-shot sort commits to manual
+// order rather than acting as a persistent view mode.
 export const reorderColumnTasksSchema = type({
   task_ids: uuid.array().atLeastLength(1),
 });
@@ -48,8 +45,7 @@ export const reorderColumnTasksSchema = type({
 export const movedTaskSchema = type({
   id: 'string',
   column_id: 'string',
-  position: finiteNumber,
-  sort_key: 'string | null',
+  sort_key: 'string',
 });
 
 export type MovedTask = typeof movedTaskSchema.infer;
