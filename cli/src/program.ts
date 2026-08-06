@@ -6,6 +6,7 @@ import { registerColumn } from './commands/column';
 import { registerComment } from './commands/comment';
 import { registerCompletion } from './commands/completion';
 import { registerConfig } from './commands/config';
+import { registerAttachment } from './commands/attachment';
 import { registerImage } from './commands/image';
 import { registerLabel } from './commands/label';
 import { registerMine } from './commands/mine';
@@ -26,6 +27,7 @@ export function buildProgram(deps: CliDeps): Command {
   registerTask(program, deps);
   registerLabel(program, deps);
   registerUser(program, deps);
+  registerAttachment(program, deps);
   registerImage(program, deps);
   registerComment(program, deps);
   registerBoardViews(program, deps);
