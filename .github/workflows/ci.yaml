@@ -26,15 +26,13 @@ jobs:
       # suites through tsx, which strips types without checking them.
       - run: npm run --prefix cli check
 
-  # The suite runs with vitest fileParallelism:false: test files share one DB
-  # per checkout, so running them concurrently would collide. That rule exists
-  # for agents in parallel local worktrees off a single .env.test, not for CI,
-  # but it leaves the suite single-core and ~4 min — by far the slowest part of
-  # CI. Shard it instead: each shard gets its own isolated Postgres + Redis, so
-  # files stay serial within a shard while the shards run in parallel. Test
-  # files are independent (unique-id fixtures, per-file afterAll cleanup, no
-  # shared seed), so any file split is safe. Keep the matrix list and the `/N`
-  # below in sync.
+  # The suite runs with vitest fileParallelism:false: files within a run share
+  # one database, so running them concurrently would collide. That leaves the
+  # suite single-core and ~4 min — by far the slowest part of CI. Sharding
+  # keeps the rule rather than breaking it: each shard gets its own isolated
+  # Postgres + Redis, so files stay serial within a shard while the shards run
+  # in parallel. Test files are independent (unique-id fixtures, per-file
+  # afterAll cleanup, no shared seed), so any file split is safe.
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -89,7 +87,7 @@ jobs:
           ENVIRONMENT=test
           REDIS_TEST_URL=redis://127.0.0.1:6379/15
           EOF
-      - run: npm test -- --shard=${{ matrix.shard }}/4
+      - run: npm test -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   preview-edge:
     runs-on: ubuntu-latest
