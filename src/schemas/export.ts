@@ -5,15 +5,6 @@ import { projectSchema } from './projects';
 
 // Nested pieces stay module-private: the OpenAPI schema-name registry reads the
 // barrel and throws when two exports produce identical JSON Schema.
-const exportImageSchema = type({
-  id: 'string',
-  path: 'string',
-  filename: 'string',
-  content_type: 'string',
-  size_bytes: 'number',
-  created_at: 'string',
-});
-
 const exportChecklistItemSchema = type({
   id: 'string',
   text: 'string',
@@ -22,10 +13,12 @@ const exportChecklistItemSchema = type({
   sort_key: 'string | null',
 });
 
-// path is null for a link: only file bytes ride in the archive.
+// path is null for a link: only stored bytes ride in the archive, and a link has
+// none of its own. is_cover is meaningful on an image and false elsewhere.
 const exportAttachmentSchema = type({
   id: 'string',
-  kind: "'file' | 'link'",
+  kind: "'file' | 'link' | 'image'",
+  is_cover: 'boolean',
   path: 'string | null',
   title: 'string | null',
   description: 'string | null',
@@ -39,7 +32,6 @@ const exportAttachmentSchema = type({
 
 const exportTaskSchema = boardTaskSchema.omit('image_count').merge({
   archived_at: 'string | null',
-  images: exportImageSchema.array(),
   checklist_items: exportChecklistItemSchema.array(),
   attachments: exportAttachmentSchema.array(),
 });

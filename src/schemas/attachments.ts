@@ -74,7 +74,7 @@ export const patchAttachmentSchema = type({
 export const attachmentSchema = type({
   id: 'string',
   task_id: 'string',
-  kind: "'file' | 'link'",
+  kind: "'file' | 'link' | 'image'",
   title: 'string | null',
   description: 'string | null',
   filename: 'string | null',
@@ -84,6 +84,11 @@ export const attachmentSchema = type({
   preview_url: 'string | null',
   favicon_url: 'string | null',
   unfurl_state: "'pending' | 'ok' | 'failed' | null",
+  // Images only. image_url is the same `/api/images/:id` that a description's
+  // embedded src uses, so a client renders the list thumbnail and the inline
+  // picture from one URL.
+  image_url: 'string | null',
+  is_cover: 'boolean',
   created_at: 'string',
   updated_at: 'string',
 });

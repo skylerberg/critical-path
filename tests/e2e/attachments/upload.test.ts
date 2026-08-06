@@ -41,7 +41,6 @@ describe('POST /api/attachments/files', () => {
     ['a file with no extension', Buffer.from('data'), 'LICENSE', '', 'application/octet-stream'],
     ['an SVG with a script', SVG, 'evil.svg', 'image/svg+xml', 'image/svg+xml'],
     ['an HTML file', HTML, 'evil.html', 'text/html', 'text/html'],
-    ['a GIF/HTML polyglot', POLYGLOT, 'evil.gif', 'image/gif', 'image/gif'],
   ])('accepts %s', async (_label, bytes, filename, declared, storedType) => {
     const user = await ctx.createUser('att-up');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
@@ -63,6 +62,53 @@ describe('POST /api/attachments/files', () => {
       favicon_url: null,
       unfurl_state: null,
     });
+  });
+
+  // The server decides the kind from the leading bytes, so a real image sent to
+  // this endpoint becomes an image however it was declared or named.
+  it('stores a sniffed image as kind image, ignoring the declared type', async () => {
+    const user = await ctx.createUser('att-sniff');
+    const { taskId } = await createTaskFixture(user.id, createdProjectIds);
+
+    const res = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, 'shot.bin', 'application/octet-stream'), PNG_1X1);
+    expect(res.status).toBe(201);
+
+    const body = await res.json();
+    expect(body).toMatchObject({
+      kind: 'image',
+      filename: 'shot.bin',
+      content_type: 'image/png',
+      is_cover: false,
+    });
+    expect(body.image_url).toBe(`/api/images/${body.id}`);
+    // Image columns only: a file's are what the download route reads, and this
+    // row must stay unreachable through it.
+    expect(body.url).toBeNull();
+    expect((await ctx.request(user.token).get(`/api/attachments/${body.id}/download`)).status).toBe(
+      404
+    );
+  });
+
+  // A file can be a valid GIF and valid HTML at once. Sniffing sends it down the
+  // image path, so what protects the origin is the response header rather than
+  // which route stored it.
+  it('serves a GIF/HTML polyglot as an image, with sniffing disabled', async () => {
+    const user = await ctx.createUser('att-poly');
+    const { taskId } = await createTaskFixture(user.id, createdProjectIds);
+
+    const res = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, 'evil.gif', 'image/gif'), POLYGLOT);
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.kind).toBe('image');
+
+    const served = await ctx.request().get(`/api/images/${body.id}`);
+    expect(served.status).toBe(200);
+    expect(served.headers.get('content-type')).toBe('image/gif');
+    expect(served.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
   // Without the upload path in the global body-limit exemption every real upload

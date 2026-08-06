@@ -58,11 +58,17 @@ function decode(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('utf8');
 }
 
+function imagesOf(task: ProjectExport['tasks'][number]) {
+  return task.attachments.filter((attachment) => attachment.kind === 'image');
+}
+
 // A manifest entry with no file names bytes the archive does not carry; a file
 // with no entry is bytes nothing in the manifest can attribute.
-function expectImagesAgree(manifest: ProjectExport, files: Record<string, Uint8Array>): void {
-  const listed = manifest.tasks.flatMap((task) => task.images.map((image) => image.path));
-  const packed = Object.keys(files).filter((name) => name.startsWith('images/'));
+function expectBytesAgree(manifest: ProjectExport, files: Record<string, Uint8Array>): void {
+  const listed = manifest.tasks.flatMap((task) =>
+    task.attachments.flatMap((attachment) => (attachment.path === null ? [] : [attachment.path]))
+  );
+  const packed = Object.keys(files).filter((name) => name.startsWith('attachments/'));
   expect(listed.sort()).toEqual(packed.sort());
 }
 
@@ -115,7 +121,7 @@ function canonicalize(exportPayload: ProjectExport): unknown {
       assignee_ids: [...task.assignee_ids].sort(),
       blocker_ids: [...task.blocker_ids].sort(),
       cover_image_url: task.cover_image_url,
-      images: [...task.images]
+      images: [...imagesOf(task)]
         .sort((a, b) => a.id.localeCompare(b.id))
         .map((image) => ({
           id: image.id,
@@ -188,7 +194,7 @@ async function reimport(
   // Image ids are minted before the tasks so descriptions can be rewritten to
   // point at the images this import is about to upload.
   for (const task of exportPayload.tasks) {
-    for (const image of task.images) {
+    for (const image of imagesOf(task)) {
       idMap.set(image.id, newId());
     }
     idMap.set(task.id, newId());
@@ -210,7 +216,7 @@ async function reimport(
   }
 
   for (const task of exportPayload.tasks) {
-    for (const image of task.images) {
+    for (const image of imagesOf(task)) {
       const bytes = files[image.path];
       expect(bytes).toBeDefined();
       const res = await client.postMultipart(
@@ -224,7 +230,7 @@ async function reimport(
       );
       expect(res.status).toBe(201);
     }
-    const cover = task.images.find((image) => task.cover_image_url?.endsWith(image.id));
+    const cover = imagesOf(task).find((image) => task.cover_image_url?.endsWith(image.id));
     if (cover) {
       const res = await client.put(`/api/tasks/${idMap.get(task.id)}/cover`, {
         image_id: idMap.get(cover.id),
@@ -417,7 +423,7 @@ describe('GET /api/projects/:id/export', () => {
       const exportPayload = await exportJson(projectId, owner.token);
 
       expect(exportPayload.format).toBe('critical-path-project-export');
-      expect(exportPayload.version).toBe(3);
+      expect(exportPayload.version).toBe(4);
       expect(Number.isNaN(Date.parse(exportPayload.exported_at))).toBe(false);
 
       const board = await (await ctx.request(owner.token).get(`/api/projects/${projectId}`)).json();
@@ -434,7 +440,7 @@ describe('GET /api/projects/:id/export', () => {
       expect(main.assignee_ids).toEqual([owner.id, member.id].sort());
       expect(main.blocker_ids).toEqual([blockerTaskId]);
       expect(main.cover_image_url).toBe(`/api/images/${jpegImageId}`);
-      expect(main.images.map((image) => image.id)).toContain(jpegImageId);
+      expect(imagesOf(main).map((image) => image.id)).toContain(jpegImageId);
       expect(exportPayload.tasks[0].cover_image_url).toBeNull();
       expect(main).not.toHaveProperty('image_count');
     });
@@ -446,20 +452,26 @@ describe('GET /api/projects/:id/export', () => {
       const body = await res.text();
       const exportPayload: ProjectExport = JSON.parse(body);
 
-      const images = exportPayload.tasks.flatMap((task) => task.images);
+      const images = exportPayload.tasks.flatMap((task) => imagesOf(task));
       expect(images).toHaveLength(2);
       expect(images.find((image) => image.id === pngImageId)).toEqual({
         id: pngImageId,
-        path: `images/${pngImageId}.png`,
+        kind: 'image',
+        is_cover: false,
+        path: `attachments/${pngImageId}.png`,
+        title: null,
+        description: null,
         filename: 'pixel.png',
         content_type: 'image/png',
         size_bytes: PNG_1X1.length,
+        url: null,
+        unfurl_state: null,
         created_at: expect.any(String),
       });
       expect(images.find((image) => image.id === jpegImageId)?.path).toBe(
-        `images/${jpegImageId}.jpg`
+        `attachments/${jpegImageId}.jpg`
       );
-      expect(exportPayload.tasks[0].images).toEqual([]);
+      expect(imagesOf(exportPayload.tasks[0])).toEqual([]);
 
       const storageKeys = await db
         .selectFrom('task_attachment')
@@ -507,7 +519,7 @@ describe('GET /api/projects/:id/export', () => {
 
       expect(main.description).toEqual(description);
       expect(JSON.stringify(main.description)).toContain(`/api/images/${pngImageId}`);
-      expect(main.images.some((image) => image.id === pngImageId)).toBe(true);
+      expect(imagesOf(main).some((image) => image.id === pngImageId)).toBe(true);
     });
   });
 
@@ -532,13 +544,13 @@ describe('GET /api/projects/:id/export', () => {
         [
           'project.json',
           'tasks.csv',
-          `images/${pngImageId}.png`,
-          `images/${jpegImageId}.jpg`,
+          `attachments/${pngImageId}.png`,
+          `attachments/${jpegImageId}.jpg`,
         ].sort()
       );
-      expect(Buffer.from(files[`images/${pngImageId}.png`])).toEqual(PNG_1X1);
-      expect(Buffer.from(files[`images/${jpegImageId}.jpg`])).toEqual(JPEG_1X1);
-      expectImagesAgree(await exportJson(projectId, owner.token), files);
+      expect(Buffer.from(files[`attachments/${pngImageId}.png`])).toEqual(PNG_1X1);
+      expect(Buffer.from(files[`attachments/${jpegImageId}.jpg`])).toEqual(JPEG_1X1);
+      expectBytesAgree(await exportJson(projectId, owner.token), files);
     });
 
     it('packages the same manifest the json format returns', async () => {
@@ -573,7 +585,7 @@ describe('GET /api/projects/:id/export', () => {
       // "export-member user" precedes "export-owner user".
       expect(rows[2]).toBe(
         `${main.id},"He said ""hi"", then\nleft",Backlog,false,2000,2026-08-03,bug; ui,` +
-          `${member.name}; ${owner.name},Blocker task,2,0,` +
+          `${member.name}; ${owner.name},Blocker task,2,2,` +
           `${main.created_at},${main.updated_at},,,"Notes\nA paragraph.\none\ntwo"`
       );
       expect(rows[3]).toBe(
@@ -602,7 +614,7 @@ describe('GET /api/projects/:id/export', () => {
       const { files } = await exportZip(orphanProjectId, owner.token);
       const manifest = JSON.parse(decode(files['project.json'])) as ProjectExport;
 
-      expect(manifest.tasks[0].images.map((image) => image.id)).toEqual([imageId]);
+      expect(imagesOf(manifest.tasks[0]).map((image) => image.id)).toEqual([imageId]);
       expect(Object.keys(files).sort()).toEqual(['project.json', 'tasks.csv']);
     });
 
@@ -740,8 +752,8 @@ describe('GET /api/projects/:id/export', () => {
       const manifest = await exportJson(archiveProjectId, owner.token);
       const { files } = await exportZip(archiveProjectId, owner.token);
 
-      expectImagesAgree(manifest, files);
-      expect(manifest.tasks.flatMap((task) => task.images.map((image) => image.id))).toEqual([
+      expectBytesAgree(manifest, files);
+      expect(manifest.tasks.flatMap((task) => imagesOf(task).map((image) => image.id))).toEqual([
         liveImageId,
         archivedImageId,
       ]);
@@ -749,11 +761,11 @@ describe('GET /api/projects/:id/export', () => {
         [
           'project.json',
           'tasks.csv',
-          `images/${liveImageId}.png`,
-          `images/${archivedImageId}.jpg`,
+          `attachments/${liveImageId}.png`,
+          `attachments/${archivedImageId}.jpg`,
         ].sort()
       );
-      expect(Buffer.from(files[`images/${archivedImageId}.jpg`])).toEqual(JPEG_1X1);
+      expect(Buffer.from(files[`attachments/${archivedImageId}.jpg`])).toEqual(JPEG_1X1);
     });
 
     it('writes the archived card into the csv with its timestamp', async () => {
@@ -795,7 +807,7 @@ describe('GET /api/projects/:id/export', () => {
       expect(copy.tasks.flatMap((task) => task.assignee_ids)).toHaveLength(3);
       expect(copy.tasks.flatMap((task) => task.label_ids)).toHaveLength(2);
 
-      const copiedImages = copy.tasks.flatMap((task) => task.images);
+      const copiedImages = copy.tasks.flatMap((task) => imagesOf(task));
       expect(copiedImages).toHaveLength(2);
       expect(JSON.stringify(copy.tasks[1].description)).toContain(
         `/api/images/${copiedImages.find((image) => image.content_type === 'image/png')?.id}`

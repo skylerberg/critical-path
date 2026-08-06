@@ -115,7 +115,7 @@ export function tasksCsv(exportPayload: ProjectExport): string {
       resolveNames(task.label_ids, labelNames),
       resolveNames(task.assignee_ids, userNames),
       resolveNames(task.blocker_ids, taskTitles),
-      String(task.images.length),
+      String(task.attachments.filter((a) => a.kind === 'image').length),
       String(task.attachments.length),
       task.created_at,
       task.updated_at,
