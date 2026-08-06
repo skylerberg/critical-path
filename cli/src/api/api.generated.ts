@@ -1496,7 +1496,7 @@ export interface paths {
     };
     /**
      * Download a file attachment
-     * @description Serve the stored bytes. Unlike image URLs this route is authenticated and answers 404 to anyone without project access, so a spec or a contract stops being readable the moment someone is removed from the project. The response is always application/octet-stream with an attachment Content-Disposition, nosniff and a sandbox CSP, whatever the file is — no user-supplied bytes are ever served with a renderable content type. A link attachment answers 404.
+     * @description Serve the stored bytes. On a private board this route is authenticated and answers 404 to anyone without project access, so a spec or a contract stops being readable the moment someone is removed from the project. On a published board it serves anyone, because a public board publishes its attachments. The response is always application/octet-stream with an attachment Content-Disposition, nosniff and a sandbox CSP, whatever the file is — no user-supplied bytes are ever served with a renderable content type. A link attachment answers 404.
      */
     get: operations['getApiAttachmentsByIdDownload'];
     put?: never;
@@ -2670,6 +2670,7 @@ export interface components {
       title?: string;
     };
     PublicBoard: {
+      attachments: components['schemas']['Attachment'][];
       checklist_items: components['schemas']['PublicBoardChecklistItem'][];
       columns: components['schemas']['BoardColumn'][];
       comments: components['schemas']['Comment'][];
@@ -2694,6 +2695,7 @@ export interface components {
     };
     PublicBoardTask: {
       assignee_ids: string[];
+      attachment_count: number;
       blocker_ids: string[];
       checklist_done_count: number;
       checklist_item_count: number;

@@ -3,7 +3,7 @@ import type { MiddlewareHandler } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql } from 'kysely';
 import { env } from '../config/env';
-import { skipAuth } from '../middleware/auth';
+import { optionalAuth, skipAuth } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { enforceLinkAttachmentRateLimit } from '../middleware/rateLimit';
@@ -17,7 +17,7 @@ import { logger } from '../utils/logger';
 import {
   MAX_ATTACHMENTS_PER_TASK,
   ATTACHMENT_NOT_FOUND,
-  assertAttachmentAccess,
+  assertAttachmentReadable,
   assertAttachmentWrite,
   countTaskAttachments,
   fetchAttachmentRow,
@@ -424,15 +424,18 @@ router.delete(
   }
 );
 
+// Optional auth, not public: on a private board this still answers only to a
+// member, and only a published one serves a stranger.
 router.get(
   '/:id/download',
   describeRoute({
     tags: ['Attachments'],
     summary: 'Download a file attachment',
     description:
-      'Serve the stored bytes. Unlike image URLs this route is authenticated and answers 404 to ' +
+      'Serve the stored bytes. On a private board this route is authenticated and answers 404 to ' +
       'anyone without project access, so a spec or a contract stops being readable the moment ' +
-      'someone is removed from the project. The response is always application/octet-stream with ' +
+      'someone is removed from the project. On a published board it serves anyone, because a ' +
+      'public board publishes its attachments. The response is always application/octet-stream with ' +
       'an attachment Content-Disposition, nosniff and a sandbox CSP, whatever the file is — no ' +
       'user-supplied bytes are ever served with a renderable content type. A link attachment ' +
       'answers 404.',
@@ -448,12 +451,13 @@ router.get(
       ...internalServerErrorResponse,
     },
   }),
+  optionalAuth,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
-    await assertAttachmentAccess(db, c.get('user').id, id);
+    await assertAttachmentReadable(db, c.get('user') as { id: string } | undefined, id);
 
     const row = await db
       .selectFrom('task_attachment')

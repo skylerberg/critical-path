@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
+import { storage } from '../../../src/services/storage/index';
 import { getPublicBoard } from '../../../src/services/boardPayload';
 import { newId } from '../../helpers/fixtures';
 import {
@@ -12,6 +13,7 @@ import {
   insertTaskImage,
 } from '../projects/helpers';
 
+const PDF = Buffer.from('%PDF-1.4\nbody\n%%EOF\n');
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64'
@@ -38,11 +40,13 @@ interface PublicBoardBody {
     blocker_ids: string[];
     image_count: number;
     cover_image_url: string | null;
+    attachment_count: number;
     comment_count: number;
     checklist_item_count: number;
     checklist_done_count: number;
   }>;
   labels: Array<{ id: string; name: string; color: string }>;
+  attachments: Array<{ id: string; task_id: string; kind: string }>;
   users: Array<{ id: string; name: string; avatar_url: string | null }>;
   comments: Array<{
     id: string;
@@ -341,6 +345,7 @@ describe('GET /api/public/projects/:id/board', () => {
         assignee_ids: task.assignee_ids,
         blocker_ids: task.blocker_ids,
         image_count: task.image_count,
+        attachment_count: task.attachment_count,
         cover_image_url: task.cover_image_url,
         comment_count: task.comment_count,
         checklist_item_count: task.checklist_item_count,
@@ -383,6 +388,7 @@ describe('GET /api/public/projects/:id/board', () => {
     const payload = (await res.json()) as PublicBoardBody;
 
     expect(Object.keys(payload).sort()).toEqual([
+      'attachments',
       'checklist_items',
       'columns',
       'comments',
@@ -395,6 +401,7 @@ describe('GET /api/public/projects/:id/board', () => {
     for (const task of payload.tasks) {
       expect(Object.keys(task).sort()).toEqual([
         'assignee_ids',
+        'attachment_count',
         'blocker_ids',
         'checklist_done_count',
         'checklist_item_count',
@@ -653,11 +660,10 @@ describe('GET /api/public/projects/:id/board', () => {
     expect(secondPayload.tasks.map((task) => task.id)).toEqual([secondTaskId]);
   });
 
-  // Images and documents share one table and one count everywhere else. Here they
-  // must not: a public board shows pictures but no attachment list, so a count
-  // that included files and links would publish how many private documents a
-  // card holds to anyone with the link.
-  it('counts only images on a public board, never files or links', async () => {
+  // Publishing a board publishes what is on its cards, attachments included.
+  // Leaving files out would have meant an image on a public card was readable by
+  // anyone while a PDF beside it was not — one list, two rules.
+  it('publishes every attachment kind and serves their bytes to a stranger', async () => {
     const { project, columns } = await createProject('Counting');
     const taskId = await insertTask({
       projectId: project.id,
@@ -665,6 +671,8 @@ describe('GET /api/public/projects/:id/board', () => {
       title: 'Mixed',
     });
     await insertTaskImage({ taskId });
+    const fileKey = newId();
+    await storage.put(fileKey, PDF, 'application/pdf');
     await db
       .insertInto('task_attachment')
       .values([
@@ -672,10 +680,10 @@ describe('GET /api/public/projects/:id/board', () => {
           id: newId(),
           task_id: taskId,
           kind: 'file',
-          filename: 'secret.pdf',
+          filename: 'spec.pdf',
           content_type: 'application/pdf',
-          size_bytes: 10,
-          storage_key: newId(),
+          size_bytes: PDF.length,
+          storage_key: fileKey,
         },
         {
           id: newId(),
@@ -694,8 +702,44 @@ describe('GET /api/public/projects/:id/board', () => {
     const task = payload.tasks.find((candidate) => candidate.id === taskId)!;
 
     expect(task.image_count).toBe(1);
-    expect(Object.keys(task)).not.toContain('attachment_count');
-    expect(JSON.stringify(payload)).not.toContain('secret.pdf');
-    expect(JSON.stringify(payload)).not.toContain('example.com/private');
+    expect(task.attachment_count).toBe(3);
+    expect(payload.attachments.map((a) => a.kind).sort()).toEqual(['file', 'image', 'link']);
+
+    // The bytes too, or the list would name documents nobody could open.
+    const file = payload.attachments.find((a) => a.kind === 'file')!;
+    const download = await ctx.request().get(`/api/attachments/${file.id}/download`);
+    expect(download.status).toBe(200);
+    expect(download.headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(Buffer.from(await download.arrayBuffer()).equals(PDF)).toBe(true);
+  });
+
+  it('keeps a private board’s attachments unreadable to a stranger', async () => {
+    const { project, columns } = await createProject('Still private');
+    const taskId = await insertTask({
+      projectId: project.id,
+      columnId: columns[0].id,
+      title: 'Private',
+    });
+    const fileId = newId();
+    await db
+      .insertInto('task_attachment')
+      .values({
+        id: fileId,
+        task_id: taskId,
+        kind: 'file',
+        filename: 'secret.pdf',
+        content_type: 'application/pdf',
+        size_bytes: 10,
+        storage_key: newId(),
+      })
+      .execute();
+
+    // No token at all is 401 rather than 404: a token might have earned access,
+    // and 404 would be an answer the caller could not act on.
+    expect((await ctx.request().get(`/api/attachments/${fileId}/download`)).status).toBe(401);
+    // A real account with no membership is the 404 case.
+    expect(
+      (await ctx.request(outsider.token).get(`/api/attachments/${fileId}/download`)).status
+    ).toBe(404);
   });
 });

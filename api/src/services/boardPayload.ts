@@ -10,7 +10,8 @@ import type {
   TiptapDoc,
 } from '../schemas/index';
 import { assertPublicProject, usersWithProjectAccess } from './authorization';
-import { IMAGE_KIND } from './attachments/index';
+import { fetchAttachmentsForTasks, IMAGE_KIND } from './attachments/index';
+import type { AttachmentResponse } from '../schemas/index';
 import { normalizeProjectAccent, toMemberEntries } from './projectListItem';
 import { dueDateText } from './dueDate';
 import { unarchivedBlockerIds } from './taskRelations';
@@ -323,7 +324,8 @@ export function toPublicBoard(
   payload: BoardPayload,
   users: PublicBoardUser[],
   comments: PublicCommentRow[],
-  checklistItems: PublicChecklistItemRow[]
+  checklistItems: PublicChecklistItemRow[],
+  attachments: AttachmentResponse[]
 ): PublicBoard {
   return {
     project: {
@@ -351,6 +353,7 @@ export function toPublicBoard(
       blocker_ids: task.blocker_ids,
       image_count: task.image_count,
       cover_image_url: task.cover_image_url,
+      attachment_count: task.attachment_count,
       comment_count: task.comment_count,
       checklist_item_count: task.checklist_item_count,
       checklist_done_count: task.checklist_done_count,
@@ -381,6 +384,7 @@ export function toPublicBoard(
       sort_key: item.sort_key,
       position: item.position,
     })),
+    attachments,
   };
 }
 
@@ -413,6 +417,7 @@ export async function getPublicBoard(
   const publishedTaskIds = payload.tasks.map((task) => task.id);
   const comments = await fetchCommentsForTasks(db, publishedTaskIds);
   const checklistItems = await fetchChecklistItemsForTasks(db, publishedTaskIds);
+  const attachments = await fetchAttachmentsForTasks(db, publishedTaskIds);
 
   // A member who is neither assigned nor quoted stays unnamed.
   const namedIds = new Set([
@@ -426,5 +431,5 @@ export async function getPublicBoard(
           .filter((user) => namedIds.has(user.id))
           .map(({ id, name, avatar_url }) => ({ id, name, avatar_url }));
 
-  return toPublicBoard(payload, users, comments, checklistItems);
+  return toPublicBoard(payload, users, comments, checklistItems, attachments);
 }

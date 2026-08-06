@@ -764,12 +764,21 @@ reason `comment_created` does, and an image mutation now publishes both its
 `image_*` event and the matching `attachment_*` one so a browser holding either
 vocabulary stays current.
 
-Public boards do **not** publish `attachment_count`, and this is the one place
-the merge has to stay undone: the attachment list, its bytes and its count are
-members-only, while images are public — a public board carries `image_count` and
-`cover_image_url` and renders inline pictures. A single count there would leak
-how many documents a private card holds, so the public payload keeps counting
-`kind = 'image'` alone.
+**Public boards publish attachments too**, all three kinds, with an
+`attachments[]` array alongside `comments[]` and `checklist_items[]` and an
+`attachment_count` on every card. Publishing a board publishes what is on its
+cards; leaving files out would have meant an image on a public card was readable
+by anyone while a PDF beside it was not — one list, two rules.
+
+That makes `GET /api/attachments/:id/download` the first route with *optional*
+auth rather than none or all: it reads a token when one is offered, serves a
+stranger only when the board is published, and still answers 404 to an account
+with no membership on one that is not. A missing token on a private board is a
+401 rather than a 404, because a token might have earned access and 404 would be
+an answer the caller could not act on. `optionalAuth` is pinned by
+`assertPublicRoutes` the same way `skipAuth` is, and for the same reason: the
+marker is one line and its effect is invisible until someone reaches the
+resource without credentials.
 
 **Links.** `POST /api/attachments/links` stores the URL and answers 201
 immediately with `unfurl_state: "pending"`; adding never waits on the network.
