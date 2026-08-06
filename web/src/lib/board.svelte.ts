@@ -186,6 +186,12 @@ class BoardStore {
   // the field holding it, so reassigning would leave the template subscribed to
   // the set it read at mount.
   readonly changedTaskIds = new SvelteSet<string>();
+  // The cards whose details were opened during this visit, remembered rather than
+  // only dropped from the set above: the visit's capture can land after an overlay
+  // is already up — a link straight to a card on a board still in the cache serves
+  // it from there and only revalidates behind the scenes — and would otherwise
+  // tint the very card being read.
+  readonly #lookedAtTaskIds = new Set<string>();
 
   // Monotonic tokens rather than project-id checks: ids cannot tell a stale
   // request apart from a fresh one across a P1->P2->P1 flip.
@@ -238,6 +244,15 @@ class BoardStore {
   // switch — must not replace it with the empty set the stamp has since made true.
   armSeen(): void {
     this.#seenArmed = true;
+    this.#lookedAtTaskIds.clear();
+  }
+
+  // Reading a card's details is looking at it, so that card's tint goes even though
+  // the rest of the visit's capture stays. Local only: the board's marker was
+  // already stamped on entry, so there is nothing left for the server to record.
+  clearChanged(taskId: string): void {
+    this.#lookedAtTaskIds.add(taskId);
+    this.changedTaskIds.delete(taskId);
   }
 
   // `quiet` suppresses the error page for reads that merely supplement an action
@@ -292,7 +307,9 @@ class BoardStore {
           // Coalesced despite the type: an API pod that predates the marker omits
           // the key, and the feature has to degrade to invisible rather than throw.
           for (const id of data.changed_task_ids ?? []) {
-            this.changedTaskIds.add(id);
+            if (!this.#lookedAtTaskIds.has(id)) {
+              this.changedTaskIds.add(id);
+            }
           }
           void projects.markSeen(projectId);
         }
@@ -438,6 +455,7 @@ class BoardStore {
     this.archivedLoaded = false;
     this.archivedError = null;
     this.changedTaskIds.clear();
+    this.#lookedAtTaskIds.clear();
     // #seenArmed is deliberately not cleared: load() resets before the arriving
     // project's capture has happened, and swallowing the flag here would leave a
     // return visit to a board with no highlights at all.
