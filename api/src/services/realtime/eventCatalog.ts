@@ -64,9 +64,6 @@ const EVENTS = {
   label_updated: { scope: 'project', webhook: true, raisesUnseenDot: false },
   label_deleted: { scope: 'project', webhook: true, raisesUnseenDot: true },
 
-  image_created: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  image_deleted: { scope: 'project', webhook: true, raisesUnseenDot: false },
-
   attachment_created: { scope: 'project', webhook: true, raisesUnseenDot: false },
   attachment_updated: { scope: 'project', webhook: true, raisesUnseenDot: false },
   attachment_deleted: { scope: 'project', webhook: true, raisesUnseenDot: false },

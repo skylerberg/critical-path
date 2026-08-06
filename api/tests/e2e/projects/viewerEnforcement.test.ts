@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { BoardPayloadBody, deleteProjects, insertLabel, insertTaskImage } from './helpers';
 
@@ -238,16 +238,14 @@ describe('Viewer enforcement across every mutating route', () => {
         send: (t) => ctx.request(t).delete(`/api/tasks/${taskId}/blockers/${blockerTaskId}`),
       },
       {
-        name: 'POST /api/tasks/:id/images',
+        name: 'POST /api/attachments/files',
         send: (t) => {
-          const form = new FormData();
-          form.append('file', new Blob([new Uint8Array([1, 2, 3])]), 'x.png');
-          return ctx.request(t).postMultipart(`/api/tasks/${taskId}/images`, form);
+          return ctx.request(t).postBytes(imageUploadPath(taskId, 'x.png'), Buffer.from([1, 2, 3]));
         },
       },
       {
         name: 'DELETE /api/images/:id',
-        send: (t) => ctx.request(t).delete(`/api/images/${imageId}`),
+        send: (t) => ctx.request(t).delete(`/api/attachments/${imageId}`),
       },
       {
         name: 'POST /api/checklist-items',

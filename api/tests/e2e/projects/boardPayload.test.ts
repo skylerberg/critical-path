@@ -102,7 +102,6 @@ describe('GET /api/projects/:id board payload', () => {
       label_ids: [usedLabelId],
       assignee_ids: [user.id],
       blocker_ids: [blockerTaskId],
-      image_count: 2,
       cover_image_url: `/api/images/${coverImageId}`,
       comment_count: 3,
     });
@@ -118,7 +117,6 @@ describe('GET /api/projects/:id board payload', () => {
       label_ids: [],
       assignee_ids: [],
       blocker_ids: [],
-      image_count: 0,
       cover_image_url: null,
       comment_count: 0,
     });

@@ -3,7 +3,7 @@ import path from 'path';
 import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { env } from '../../../src/config/env';
 import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
 
@@ -11,12 +11,6 @@ const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64'
 );
-
-function imageForm(): FormData {
-  const form = new FormData();
-  form.append('file', new File([new Uint8Array(PNG_1X1)], 'shot.png', { type: 'image/png' }));
-  return form;
-}
 
 async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
   const seen: BusEntry[] = [];
@@ -64,9 +58,7 @@ describe('DELETE /api/auth/me', () => {
   }
 
   async function uploadTaskImage(user: TestUser, taskId: string): Promise<string> {
-    const res = await ctx
-      .request(user.token)
-      .postMultipart(`/api/tasks/${taskId}/images`, imageForm());
+    const res = await ctx.request(user.token).postBytes(imageUploadPath(taskId), PNG_1X1);
     expect(res.status).toBe(201);
     const imageId = (await res.json()).id;
     const row = await db
@@ -319,7 +311,6 @@ describe('DELETE /api/auth/me', () => {
     const payload = await board.json();
     expect(payload.tasks[0].id).toBe(taskId);
     expect(payload.tasks[0].assignee_ids).toEqual([]);
-    expect(payload.tasks[0].image_count).toBe(1);
 
     const members = await db
       .selectFrom('project_member')

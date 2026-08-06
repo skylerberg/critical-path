@@ -3,28 +3,21 @@ import { describeRoute } from 'hono-openapi';
 import { skipAuth } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
-import { assertProjectWrite } from '../services/authorization';
-import { publishAfterCommit } from '../services/realtime/index';
-import { deleteTaskImage } from '../services/attachments/images';
-import { countTaskAttachments } from '../services/attachments/index';
 import { storage } from '../services/storage/index';
 import { storedObjectResponse } from '../services/storage/response';
 import { logger } from '../utils/logger';
 import {
   idSchema,
   badRequestErrorResponse,
-  unauthorizedErrorResponse,
-  forbiddenErrorResponse,
   notFoundErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
-import { AppHono, PublicHono } from '../types/index';
+import { PublicHono } from '../types/index';
 
-const router: AppHono = new Hono();
-
-// Serving bytes is unauthenticated, deleting is not, and the two cannot share a
-// router: one Hono instance carries one context type, and the GET handler must
-// not be told a user is present.
+// Only serving is left here: uploading goes through POST /api/attachments/files
+// and deleting through DELETE /api/attachments/:id. This route survives them
+// because /api/images/<uuid> is embedded in every description and comment body
+// that holds a picture, so the URL has to keep resolving.
 export const publicImagesRouter: PublicHono = new Hono();
 
 publicImagesRouter.get(
@@ -88,72 +81,3 @@ publicImagesRouter.get(
     return storedObjectResponse(c, object);
   }
 );
-
-router.delete(
-  '/:id',
-  describeRoute({
-    tags: ['Images'],
-    summary: 'Delete image',
-    description: 'Delete an image row; the stored object is removed after the transaction commits.',
-    security: [{ bearerAuth: [] }],
-    responses: {
-      204: {
-        description: 'Image deleted',
-      },
-      ...badRequestErrorResponse,
-      ...unauthorizedErrorResponse,
-      ...forbiddenErrorResponse,
-      ...notFoundErrorResponse,
-      ...internalServerErrorResponse,
-    },
-  }),
-  paramValidator(idSchema),
-  async (c) => {
-    const db = c.get('db');
-    const { id } = c.req.valid('param');
-
-    const row = await db
-      .selectFrom('task_attachment')
-      .innerJoin('task', 'task.id', 'task_attachment.task_id')
-      .select(['task_attachment.image_storage_key', 'task_attachment.task_id', 'task.project_id'])
-      .where('task_attachment.id', '=', id)
-      .where('task_attachment.kind', '=', 'image')
-      .executeTakeFirst();
-    if (!row || row.image_storage_key === null) {
-      throw new AppError(404, 'Image not found');
-    }
-    const storageKey = row.image_storage_key;
-    await assertProjectWrite(db, c.get('user').id, row.project_id, 'Image not found');
-
-    await deleteTaskImage(db, id);
-    c.get('postCommitHooks').push(() => storage.delete(storageKey));
-
-    const { count } = await db
-      .selectFrom('task_attachment')
-      .select((eb) => eb.fn.countAll<string>().as('count'))
-      .where('task_id', '=', row.task_id)
-      .where('kind', '=', 'image')
-      .executeTakeFirstOrThrow();
-    const cover = await db
-      .selectFrom('task_attachment')
-      .select('task_attachment.id')
-      .where('task_attachment.task_id', '=', row.task_id)
-      .where('task_attachment.kind', '=', 'image')
-      .where('task_attachment.is_cover', '=', true)
-      .executeTakeFirst();
-    publishAfterCommit(c, 'image_deleted', row.project_id, {
-      task_id: row.task_id,
-      image_count: Number(count),
-      cover_image_url: cover === undefined ? null : `/api/images/${cover.id}`,
-    });
-    publishAfterCommit(c, 'attachment_deleted', row.project_id, {
-      id,
-      task_id: row.task_id,
-      attachment_count: await countTaskAttachments(db, row.task_id),
-    });
-
-    return c.body(null, 204);
-  }
-);
-
-export default router;

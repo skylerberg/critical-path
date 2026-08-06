@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
-import { newId } from '../../helpers/fixtures';
+import { imageUploadPath, newId } from '../../helpers/fixtures';
 import { cleanupProjects, createTaskFixture, uploadPath } from '../attachments/helpers';
 
 const PNG_1X1 = Buffer.from(
@@ -28,10 +28,9 @@ describe('image and file attachment isolation', () => {
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
 
     imageId = newId();
-    const form = new FormData();
-    form.append('file', new File([new Uint8Array(PNG_1X1)], 'pixel.png', { type: 'image/png' }));
-    form.append('id', imageId);
-    const image = await ctx.request(user.token).postMultipart(`/api/tasks/${taskId}/images`, form);
+    const image = await ctx
+      .request(user.token)
+      .postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
     expect(image.status).toBe(201);
 
     const upload = await ctx.request(user.token).postBytes(uploadPath(taskId, 'spec.pdf'), PDF);

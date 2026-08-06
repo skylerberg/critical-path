@@ -139,7 +139,6 @@ describe('POST /api/tasks/:id/duplicate', () => {
       sort_key: expect.any(String),
       due_date: '2026-08-03',
       label_ids: [labelId],
-      image_count: 1,
       comment_count: 0,
       blocker_ids: [],
     });

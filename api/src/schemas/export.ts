@@ -29,7 +29,7 @@ const exportAttachmentSchema = type({
   created_at: 'string',
 });
 
-const exportTaskSchema = boardTaskSchema.omit('image_count').merge({
+const exportTaskSchema = boardTaskSchema.merge({
   archived_at: 'string | null',
   checklist_items: exportChecklistItemSchema.array(),
   attachments: exportAttachmentSchema.array(),

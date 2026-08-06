@@ -446,33 +446,6 @@ router.get(
     }
     await assertProjectAccess(db, user.id, result.project_id, 'Task not found');
 
-    const imageRows = await db
-      .selectFrom('task_attachment')
-      .select([
-        'task_attachment.id',
-        'task_attachment.filename',
-        'task_attachment.image_content_type',
-        'task_attachment.size_bytes',
-        'task_attachment.created_at',
-      ])
-      .where('task_attachment.task_id', '=', id)
-      .where('task_attachment.kind', '=', IMAGE_KIND)
-      .orderBy('task_attachment.created_at')
-      .orderBy('task_attachment.id')
-      .execute();
-
-    // The image shape CHECK makes every one of these non-null on a kind='image'
-    // row; the fallbacks only satisfy the compiler, which sees the column types
-    // the file and link kinds need.
-    const images = imageRows.map((image) => ({
-      id: image.id,
-      url: `/api/images/${image.id}`,
-      filename: image.filename ?? '',
-      content_type: image.image_content_type ?? '',
-      size_bytes: image.size_bytes ?? 0,
-      created_at: image.created_at.toISOString(),
-    }));
-
     const commentRows = await db
       .selectFrom('task_comment')
       .select([
@@ -523,7 +496,6 @@ router.get(
         project_id: result.project_id,
         archived_at: result.archived_at,
         series_summary: await seriesSummaryForTask(db, id),
-        images,
         comments,
         checklist_items,
         attachments,
