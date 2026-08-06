@@ -2282,22 +2282,21 @@ class BoardStore {
         );
         break;
       }
-      // Kept only for cover_image_url: attachment_deleted carries no cover, so
-      // without this a viewer watching someone else delete a cover image would
-      // hold a dead thumbnail until the next detail fetch. Its counts are
-      // ignored — attachment_deleted owns those.
-      case 'image_deleted': {
-        const d = event.data as { task_id: string; cover_image_url?: string | null };
-        this.tasks = this.tasks.map((t) =>
-          t.id === d.task_id ? { ...t, cover_image_url: d.cover_image_url ?? null } : t
-        );
-        break;
-      }
       case 'attachment_deleted': {
-        const d = event.data as { id: string; task_id: string; attachment_count: number };
+        const d = event.data as {
+          id: string;
+          task_id: string;
+          attachment_count: number;
+          cover_image_url?: string | null;
+        };
         this.#setAttachmentCount(d.task_id, () => d.attachment_count);
         this.#replaceAttachments(d.task_id, (attachments) =>
           attachments.filter((a) => a.id !== d.id)
+        );
+        // The cover lives on the row, so a delete can clear it. This is the only
+        // event that reports one now.
+        this.tasks = this.tasks.map((t) =>
+          t.id === d.task_id ? { ...t, cover_image_url: d.cover_image_url ?? null } : t
         );
         break;
       }
