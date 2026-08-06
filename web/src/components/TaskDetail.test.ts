@@ -78,11 +78,21 @@ function task(
 
 const image = {
   id: 'img1',
-  url: '/api/images/img1',
+  task_id: T1,
+  kind: 'image' as const,
+  image_url: '/api/images/img1',
+  is_cover: false,
+  title: null,
+  description: null,
   filename: 'mock.png',
   content_type: 'image/png',
   size_bytes: 123,
+  url: null,
+  preview_url: null,
+  favicon_url: null,
+  unfurl_state: null,
   created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
 };
 
 const comment = {
@@ -121,7 +131,7 @@ afterEach(() => {
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
-  board.taskImages = {};
+  board.taskAttachments = {};
   board.taskComments = {};
   taskActivity.reset();
   shortcuts.reset();
@@ -181,7 +191,7 @@ function mockRoutes(
       return jsonResponse(200, {
         ...board.tasks[0],
         project_id: PROJECT_ID,
-        images: [image],
+        attachments: [image],
         comments: [comment],
       });
     }
@@ -333,7 +343,7 @@ describe('TaskDetail', () => {
 
     expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
     await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
-    expect(board.taskImages[T1]).toEqual([image]);
+    expect(board.taskAttachments[T1]).toEqual([image]);
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
   });
 
@@ -358,7 +368,7 @@ describe('TaskDetail', () => {
     it('says nothing for a card that came from no series', async () => {
       renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-      await waitFor(() => expect(board.taskImages[T1]).toEqual([image]));
+      await waitFor(() => expect(board.taskAttachments[T1]).toEqual([image]));
       expect(screen.queryByText(/^Repeats:/)).not.toBeInTheDocument();
     });
   });
@@ -432,6 +442,18 @@ describe('TaskDetail', () => {
     });
 
     it('clears the cover when the current one is toggled off', async () => {
+      // The flag lives on the attachment row, which is what the server sends and
+      // what the toggle reflects; the card's cover_image_url follows from it.
+      mockRoutes((request, url) =>
+        request.method === 'GET' && url.pathname === `/api/tasks/${T1}`
+          ? jsonResponse(200, {
+              ...board.tasks[0],
+              project_id: PROJECT_ID,
+              attachments: [{ ...image, is_cover: true }],
+              comments: [],
+            })
+          : undefined
+      );
       board.tasks = board.tasks.map((t) =>
         t.id === T1 ? { ...t, cover_image_url: '/api/images/img1' } : t
       );
@@ -446,6 +468,16 @@ describe('TaskDetail', () => {
     });
 
     it('clears the card cover when the cover image is deleted', async () => {
+      mockRoutes((request, url) =>
+        request.method === 'GET' && url.pathname === `/api/tasks/${T1}`
+          ? jsonResponse(200, {
+              ...board.tasks[0],
+              project_id: PROJECT_ID,
+              attachments: [{ ...image, is_cover: true }],
+              comments: [],
+            })
+          : undefined
+      );
       board.tasks = board.tasks.map((t) =>
         t.id === T1 ? { ...t, cover_image_url: '/api/images/img1' } : t
       );

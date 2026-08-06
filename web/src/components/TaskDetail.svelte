@@ -201,9 +201,12 @@
     editorRef?.replaceContent(task.description);
   }
 
+  // Pasting into the editor goes through the one upload path too; what comes
+  // back is an image only if the bytes were one, and its url is what the
+  // document embeds.
   async function uploadImage(file: File): Promise<string | null> {
-    const image = await board.uploadTaskImage(taskId, file);
-    return image?.url ?? null;
+    const uploaded = await board.uploadTaskAttachment(taskId, file);
+    return uploaded?.image_url ?? null;
   }
 
   function changeColumn(event: Event & { currentTarget: EventTarget & HTMLSelectElement }): void {

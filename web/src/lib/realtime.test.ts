@@ -82,17 +82,6 @@ function task(id: string, columnId = 'c1', position = 1000) {
   };
 }
 
-function image(id: string) {
-  return {
-    id,
-    url: `/api/images/${id}`,
-    filename: `${id}.png`,
-    content_type: 'image/png',
-    size_bytes: 10,
-    created_at: '2026-01-01T00:00:00Z',
-  };
-}
-
 function comment(id: string, text: string) {
   return {
     id,
@@ -345,59 +334,16 @@ describe('board event application', () => {
     expect(board.filterLabelIds).toEqual([]);
   });
 
-  it('sets image_count from image_created/deleted events', () => {
-    board.tasks = [task('t1')];
-    board.applyRealtime({
-      type: 'image_created',
-      project_id: 'p1',
-      data: { task_id: 't1', image_count: 3 },
-    });
-    expect(board.tasks[0]!.image_count).toBe(3);
-    board.applyRealtime({
-      type: 'image_deleted',
-      project_id: 'p1',
-      data: { task_id: 't1', image_count: 2 },
-    });
-    expect(board.tasks[0]!.image_count).toBe(2);
-  });
-
-  it('appends the image row to an open grid on image_created and dedups the echo', () => {
-    board.tasks = [task('t1')];
-    board.taskImages = { t1: [image('img1')] };
-    const created = { ...image('img2'), task_id: 't1', image_count: 2 };
-
-    board.applyRealtime({ type: 'image_created', project_id: 'p1', data: created });
-    expect(board.taskImages['t1']!.map((i) => i.id)).toEqual(['img1', 'img2']);
-    expect(board.tasks[0]!.image_count).toBe(2);
-
-    board.applyRealtime({ type: 'image_created', project_id: 'p1', data: created });
-    expect(board.taskImages['t1']!.map((i) => i.id)).toEqual(['img1', 'img2']);
-  });
-
-  it('leaves an uncached grid untouched on image_created', () => {
-    board.tasks = [task('t1')];
-    board.applyRealtime({
-      type: 'image_created',
-      project_id: 'p1',
-      data: { ...image('imgX'), task_id: 't1', image_count: 1 },
-    });
-    expect(board.taskImages['t1']).toBeUndefined();
-    expect(board.tasks[0]!.image_count).toBe(1);
-  });
-
-  it('refetches an open grid on image_deleted and adopts the surviving cover', async () => {
-    board.tasks = [{ ...task('t1'), image_count: 2, cover_image_url: '/api/images/img2' }];
-    board.taskImages = { t1: [image('img1'), image('img2')] };
-    fetchMock.mockImplementation(async () => jsonResponse(200, { images: [image('img1')] }));
+  it('adopts the cover an image_deleted reports, which attachment_deleted omits', () => {
+    board.tasks = [{ ...task('t1'), cover_image_url: '/api/images/img2' }];
 
     board.applyRealtime({
       type: 'image_deleted',
       project_id: 'p1',
       data: { task_id: 't1', image_count: 1, cover_image_url: null },
     });
-    expect(board.tasks[0]!.image_count).toBe(1);
+
     expect(board.tasks[0]!.cover_image_url).toBeNull();
-    await vi.waitFor(() => expect(board.taskImages['t1']!.map((i) => i.id)).toEqual(['img1']));
   });
 
   it('keeps a cover that survives someone else deleting another image', () => {

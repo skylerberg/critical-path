@@ -267,7 +267,7 @@
   {:else}
     <p class="text-sm font-medium break-words">{shownTitle}</p>
   {/if}
-  {#if dated || blockedCount > 0 || task.image_count > 0 || commentCount > 0 || attachmentCount > 0 || checklistTotal > 0 || assignees.length > 0}
+  {#if dated || blockedCount > 0 || commentCount > 0 || attachmentCount > 0 || checklistTotal > 0 || assignees.length > 0}
     <!-- Raised above the overlay link so the badges keep their hover tooltips and
          the pill stays clickable; with no offsets it moves nothing. The row itself
          stays transparent to the pointer and each child opts back in, so the blank
@@ -292,28 +292,6 @@
             <line x1="5.6" y1="5.6" x2="18.4" y2="18.4" />
           </svg>
           {blockedCount}
-        </span>
-      {/if}
-      {#if task.image_count > 0}
-        <span
-          class="pointer-events-auto inline-flex items-center gap-1 text-xs text-muted"
-          title="{task.image_count} image{task.image_count === 1 ? '' : 's'}"
-        >
-          <svg
-            class="size-3.5"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <circle cx="9" cy="9" r="2" />
-            <path d="m21 15-3.5-3.5L6 23" />
-          </svg>
-          {task.image_count}
         </span>
       {/if}
       {#if commentCount > 0}
