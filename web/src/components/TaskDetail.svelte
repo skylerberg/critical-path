@@ -84,6 +84,7 @@
       conflicted = false;
       pendingWrite = Promise.resolve();
       if (authed) {
+        board.clearChanged(id);
         void board.loadTaskDetail(id);
         void taskActivity.load(id);
       }

@@ -3768,6 +3768,58 @@ describe('what changed since you last looked', () => {
     expect(stampedPaths()).toEqual(['/api/projects/p1/seen', '/api/projects/p1/seen']);
   });
 
+  it('drops a card from the capture once its details have been opened', async () => {
+    boardServing(['t1', 't3']);
+
+    board.armSeen();
+    await board.load('p1');
+    board.clearChanged('t1');
+
+    expect([...board.changedTaskIds]).toEqual(['t3']);
+    // Reading a card is not a second stamp: the board's marker moved on entry.
+    expect(stampedPaths()).toEqual(['/api/projects/p1/seen']);
+  });
+
+  it('keeps a card out of a capture that lands after its details opened', async () => {
+    boardServing(['t1', 't3']);
+
+    board.armSeen();
+    const loaded = board.load('p1');
+    board.clearChanged('t1');
+    await loaded;
+
+    expect([...board.changedTaskIds]).toEqual(['t3']);
+  });
+
+  it('tints a card read on the last visit that has changed again since', async () => {
+    boardServing(['t1']);
+    board.armSeen();
+    await board.load('p1');
+    board.clearChanged('t1');
+
+    board.reset();
+    boardServing(['t1']);
+    board.armSeen();
+    await board.load('p1');
+
+    expect([...board.changedTaskIds]).toEqual(['t1']);
+  });
+
+  it('tints it again on a re-entry that is served from the cache', async () => {
+    boardServing(['t1']);
+    board.armSeen();
+    await board.load('p1');
+    board.clearChanged('t1');
+
+    // Stepping out to My Tasks and back: the same board, so it is served from the
+    // cache and revalidated behind the scenes rather than reset and refetched.
+    boardServing(['t1']);
+    board.armSeen();
+    await board.load('p1');
+
+    await vi.waitFor(() => expect([...board.changedTaskIds]).toEqual(['t1']));
+  });
+
   it('shows no highlights and raises nothing when the API does not name the changed cards', async () => {
     boardServing(undefined);
 

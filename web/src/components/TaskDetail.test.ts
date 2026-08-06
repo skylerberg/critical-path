@@ -1104,6 +1104,29 @@ describe('TaskDetail', () => {
   });
 });
 
+describe('TaskDetail and what changed since you last looked', () => {
+  it('takes the card it opens out of the capture, and the next one when it switches', async () => {
+    board.changedTaskIds.add(T1);
+    board.changedTaskIds.add(T2);
+
+    const { rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await tick();
+    expect([...board.changedTaskIds]).toEqual([T2]);
+
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
+    expect([...board.changedTaskIds]).toEqual([]);
+  });
+
+  it('takes it out for a viewer, who is shown the tint too', async () => {
+    board.changedTaskIds.add(T1);
+
+    renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
+    await tick();
+
+    expect([...board.changedTaskIds]).toEqual([]);
+  });
+});
+
 describe('TaskDetail on a public board', () => {
   beforeEach(() => {
     session.user = null;
