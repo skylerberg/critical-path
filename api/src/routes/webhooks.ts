@@ -85,8 +85,9 @@ router.post(
       'Register an HTTP(S) endpoint that receives a signed POST for every board event in a ' +
       `project. The client supplies the webhook id. A project may hold at most ${String(MAX_WEBHOOKS_PER_PROJECT)} ` +
       'registrations, and a URL may be registered once per project. The generated signing ' +
-      'secret is in the response and stays readable by everyone who can access the project, ' +
-      'viewers included. Registering, changing, deleting, rotating and re-sending are editors ' +
+      'secret is in the response and stays readable by editors of that project; a viewer ' +
+      'listing registrations never receives it, since holding it is enough to forge a ' +
+      'delivery. Registering, changing, deleting, rotating and re-sending are editors ' +
       'only: a viewer gets 403. Returns 404 when the project is unknown or inaccessible.',
     security: [{ bearerAuth: [] }],
     responses: {
@@ -158,7 +159,8 @@ router.get(
     tags: ['Webhooks'],
     summary: 'List webhooks',
     description:
-      "List a project's webhook registrations, oldest first, including their signing secrets.",
+      "List a project's webhook registrations, oldest first. Each carries its signing secret " +
+      'for an editor; the secret is omitted for a viewer.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {

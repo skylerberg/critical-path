@@ -1303,7 +1303,7 @@ there is no second event language.
 | Method   | Path                                                 | Purpose                                                                       |
 | -------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `POST`   | `/api/webhooks`                                      | Register `{ id, project_id, url }`; the response carries the generated secret |
-| `GET`    | `/api/webhooks?project_id=`                          | List a project's registrations with their secrets                             |
+| `GET`    | `/api/webhooks?project_id=`                          | List a project's registrations, with their secrets for an editor              |
 | `PATCH`  | `/api/webhooks/:id`                                  | Change `url`, or disable / re-enable with `disabled_at`                       |
 | `DELETE` | `/api/webhooks/:id`                                  | Remove a registration and its delivery log                                    |
 | `POST`   | `/api/webhooks/:id/rotate-secret`                    | Replace the signing secret                                                    |
@@ -1405,9 +1405,11 @@ assignments sends 200 requests per registration; a 100-task bulk create sends
 100 `task_created`. Size receivers accordingly.
 
 **Secrets.** The secret is stored and returned in plaintext — the server signs
-with it, so it cannot be hashed like a session token. Everyone who can access
-the project can read it, which means sharing a board also shares every webhook
-secret on it. Rotation has a window: a delivery a worker already claimed signs
+with it, so it cannot be hashed like a session token. Every editor of the
+project can read it, which means handing someone edit rights also hands them
+every webhook secret on the board; the list route omits it for a viewer, since
+holding it is enough to forge a delivery. Rotation has a window: a delivery a
+worker already claimed signs
 with the secret it read, so accept the previous secret briefly or tolerate one
 rejected delivery that then retries under the new one.
 
@@ -2424,10 +2426,11 @@ npm run openapi:dump && npm run --prefix cli generate-api
   another editor, or themselves, to viewer; only the owner can transfer
   ownership or delete it. A project can never end up with no editor, since the
   creator is always one.
-- A viewer can read a project's webhook registrations, signing secrets
-  included, because webhook reads are gated on access rather than role. They
-  cannot register, change, delete, rotate or re-send anything, but the secret
-  they can read is enough to forge a delivery to that receiver.
+- A viewer can read a project's webhook registrations and their delivery log,
+  because webhook reads are gated on access rather than role. The signing
+  secret is the exception: the list route omits it for anyone whose role is not
+  editor, since holding it is enough to forge a delivery to that receiver.
+  Registering, changing, deleting, rotating and re-sending are editors only.
 - `GET /api/images/:id` and `GET /api/avatars/:key` are unauthenticated
   capability URLs (unguessable UUIDs) so `<img>` tags work without auth
   headers.
