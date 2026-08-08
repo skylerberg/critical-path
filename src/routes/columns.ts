@@ -10,8 +10,10 @@ import {
   appendPositions,
   assertColumnInProject,
   assertColumnWrite,
+  lockColumnTail,
   type ColumnInProject,
 } from '../services/boardColumns';
+import { syncCrossProjectBlockers } from '../services/crossProjectBlockers';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
@@ -354,6 +356,16 @@ router.patch(
 
     const existing = await assertColumnWrite(db, user.id, id);
 
+    // Flipping is_done completes or uncompletes every card in the column at
+    // once, so the recount below reads the membership. Held first, and for the
+    // same reason every appender holds it: without it a card moved in
+    // concurrently lands in neither transaction's recount and leaves a remote
+    // count stale.
+    const doneFlipped = is_done !== undefined && is_done !== existing.is_done;
+    if (doneFlipped) {
+      await lockColumnTail(db, id);
+    }
+
     const updates: Partial<{ name: string; sort_key: string; is_done: boolean }> = {};
     if (name !== undefined) updates.name = name;
     if (sort_key !== undefined) {
@@ -379,6 +391,10 @@ router.patch(
 
     if (!column) {
       throw new AppError(404, COLUMN_NOT_FOUND);
+    }
+
+    if (doneFlipped) {
+      await syncCrossProjectBlockers(c, db, { columnId: id });
     }
 
     publishAfterCommit(c, 'column_updated', column.project_id, serializeColumn(column));
@@ -472,6 +488,10 @@ router.delete(
       await db.deleteFrom('board_column').where('id', '=', id).execute();
       await publishSeriesUpdatedByIds(c, db, orphanedSeriesIds);
 
+      if (column.is_done !== target.is_done) {
+        await syncCrossProjectBlockers(c, db, { taskIds: movedTasks.map((task) => task.id) });
+      }
+
       publishAfterCommit(c, 'column_deleted', column.project_id, { id, moved_tasks: movedTasks });
       return c.json({ moved_tasks: movedTasks }, 200);
     }
@@ -550,6 +570,9 @@ router.post(
     );
 
     if (movedTasks.length > 0) {
+      if (column.is_done !== target.is_done) {
+        await syncCrossProjectBlockers(c, db, { taskIds: movedTasks.map((task) => task.id) });
+      }
       publishAfterCommit(c, 'column_tasks_moved', column.project_id, {
         column_id: id,
         target_column_id: target.id,
@@ -668,6 +691,8 @@ router.post(
       user.id,
       taskIds.map((taskId) => ({ taskId, kind: 'archived' as const }))
     );
+
+    await syncCrossProjectBlockers(c, db, { taskIds });
 
     const tasks = await getArchivedTasksByIds(db, column.project_id, taskIds);
     publishAfterCommit(c, 'column_tasks_archived', column.project_id, { column_id: id, tasks });

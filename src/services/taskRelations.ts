@@ -6,6 +6,11 @@ import { publishAfterCommit } from './realtime/index';
 
 // An archived blocker leaves the list entirely rather than reading as satisfied,
 // unlike a done one, which stays and merely stops counting as open.
+//
+// Same-project only, which is what lets every client resolve an id here against
+// the board payload it already holds. A blocker in another project is not named
+// at all; it reaches the card as one increment of
+// open_cross_project_blocker_count and nothing else.
 export function unarchivedBlockerIds(eb: ExpressionBuilder<DB, 'task'>) {
   return jsonArrayFrom(
     eb
@@ -13,6 +18,7 @@ export function unarchivedBlockerIds(eb: ExpressionBuilder<DB, 'task'>) {
       .innerJoin('task as blocker', 'blocker.id', 'task_dependency.blocker_task_id')
       .select('task_dependency.blocker_task_id')
       .whereRef('task_dependency.blocked_task_id', '=', 'task.id')
+      .whereRef('blocker.project_id', '=', 'task.project_id')
       .where('blocker.archived_at', 'is', null)
       .orderBy('task_dependency.blocker_task_id')
   );
@@ -24,6 +30,7 @@ export interface TaskRelations {
   label_ids: string[];
   assignee_ids: string[];
   blocker_ids: string[];
+  open_cross_project_blocker_count: number;
 }
 
 export async function fetchTaskRelations(
@@ -38,6 +45,7 @@ export async function fetchTaskRelations(
     .select((eb) => [
       'task.id',
       'task.project_id',
+      'task.open_cross_project_blocker_count',
       jsonArrayFrom(
         eb
           .selectFrom('task_label')
@@ -70,6 +78,7 @@ export async function fetchTaskRelations(
     label_ids: row.labels.map((label) => label.label_id),
     assignee_ids: row.assignees.map((assignee) => assignee.user_id),
     blocker_ids: row.blockers.map((blocker) => blocker.blocker_task_id),
+    open_cross_project_blocker_count: row.open_cross_project_blocker_count,
   }));
 }
 
@@ -83,6 +92,7 @@ export function publishTaskRelationsSet(
       label_ids: relation.label_ids,
       assignee_ids: relation.assignee_ids,
       blocker_ids: relation.blocker_ids,
+      open_cross_project_blocker_count: relation.open_cross_project_blocker_count,
     });
   }
 }

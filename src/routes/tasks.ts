@@ -6,6 +6,7 @@ import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
+  accessibleProjectsFilter,
   assertProjectAccess,
   assertProjectWrite,
   assertTaskAccess,
@@ -29,9 +30,16 @@ import { copyTasks } from '../services/projectCopy';
 import { storage } from '../services/storage/index';
 import {
   findDependencyCyclePath,
-  lockProjectDependencies,
+  lockDependencyProjects,
   wouldCreateDependencyCycle,
 } from '../services/dependencies';
+import {
+  crossProjectDependentsOf,
+  getCrossProjectDependencies,
+  publishCrossProjectBlockerCounts,
+  refreshCrossProjectBlockerCounts,
+  syncCrossProjectBlockers,
+} from '../services/crossProjectBlockers';
 import { publishAfterCommit } from '../services/realtime/index';
 import {
   fetchTaskActivity,
@@ -55,6 +63,7 @@ import {
   setTaskCoverSchema,
   taskBlockerParamsSchema,
   taskActivityResponseSchema,
+  crossProjectDependenciesResponseSchema,
   boardTaskSchema,
   duplicateSchema,
   badRequestErrorResponse,
@@ -73,6 +82,11 @@ import {
 import { AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
+
+// One message for a blocker that does not exist and one the caller may not see,
+// so the route cannot be used to test whether a task id is real — the same rule
+// the bulk skip lists follow.
+const BLOCKER_UNREACHABLE = 'blocker_task_id must reference a task in a project you can access';
 
 async function fetchBoardTask(db: Kysely<DB>, taskId: string): Promise<BoardTaskRow | undefined> {
   return (await fetchBoardTaskRows(db, [taskId]))[0];
@@ -548,6 +562,50 @@ router.get(
   }
 );
 
+router.get(
+  '/:id/cross-project-dependencies',
+  describeRoute({
+    tags: ['Tasks'],
+    summary: 'Get a task’s dependencies in other projects',
+    description:
+      'The task’s dependency edges whose other end lives in a different project, fetched ' +
+      'separately from the board because the board payload deliberately carries no identity ' +
+      'for the remote side — only `open_cross_project_blocker_count`. `blocked_by` names the ' +
+      'tasks blocking this one and `blocking` the tasks it blocks; both carry the remote ' +
+      'title, project and done state, and both omit archived remote tasks exactly as ' +
+      '`blocker_ids` does. An edge whose other end is in a project the caller cannot access ' +
+      'is never listed: it is added to `hidden_blocked_by_count` or `hidden_blocking_count` ' +
+      'instead, and only while it is open, so the counts reconcile with ' +
+      '`open_cross_project_blocker_count` and never reveal that an unreadable task is done. ' +
+      'A task the caller cannot read is 404.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Cross-project dependencies in both directions, plus the hidden counts',
+        content: {
+          'application/json': {
+            schema: resolver(crossProjectDependenciesResponseSchema),
+          },
+        },
+      },
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...notFoundErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  paramValidator(idSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const db = c.get('db');
+    const userId = c.get('user').id;
+
+    await assertTaskAccess(db, userId, id);
+
+    return c.json(await getCrossProjectDependencies(db, userId, id), 200);
+  }
+);
+
 router.patch(
   '/:id',
   describeRoute({
@@ -623,6 +681,7 @@ router.patch(
               'task.column_id',
               'task.updated_at',
               'board_column.name as column_name',
+              'board_column.is_done as column_is_done',
               dueDateText.as('due_date'),
               // Postgres normalizes jsonb key order on storage, so only jsonb
               // equality tells an unchanged description from a re-serialized one.
@@ -754,6 +813,18 @@ router.patch(
       });
     }
 
+    // Only crossing the done boundary can change what this task contributes to a
+    // remote count, so an ordinary drag between two unfinished columns pays
+    // nothing.
+    if (
+      columnChanged &&
+      before !== null &&
+      newColumn !== null &&
+      before.column_is_done !== newColumn.is_done
+    ) {
+      await syncCrossProjectBlockers(c, db, { taskIds: [id] });
+    }
+
     const updated = await fetchBoardTask(db, id);
     if (!updated) {
       throw new AppError(500, 'Failed to load updated task');
@@ -817,6 +888,8 @@ router.delete(
       .select('task_dependency.blocked_task_id')
       .where('task_dependency.blocker_task_id', '=', id)
       .execute();
+    const remoteDependents = await crossProjectDependentsOf(db, { taskIds: [id] });
+    const remoteDependentIds = new Set(remoteDependents.map((dependent) => dependent.task_id));
 
     const deleted = await db
       .deleteFrom('task')
@@ -829,14 +902,25 @@ router.delete(
 
     // This card's own log dies with it; the cards it was blocking outlive it and
     // would otherwise show a blocker that vanished with nothing to explain it.
+    // A dependent in another project gets the entry without the title: its
+    // readers need no relation to this project.
     await recordTaskActivity(
       db,
       actorId,
       dependents.map((dependent) => ({
         taskId: dependent.blocked_task_id,
         kind: 'blocker_removed' as const,
-        oldValue: { id, name: deleted.title },
+        oldValue: {
+          id,
+          name: remoteDependentIds.has(dependent.blocked_task_id) ? '' : deleted.title,
+        },
       }))
+    );
+
+    // The edges are gone by cascade, so this recomputes to the new lower value.
+    publishCrossProjectBlockerCounts(
+      c,
+      await refreshCrossProjectBlockerCounts(db, [...remoteDependentIds])
     );
 
     const keys = attachmentKeys;
@@ -893,6 +977,10 @@ router.post(
       .where('task.archived_at', 'is', null)
       .returning('task.id')
       .executeTakeFirst();
+
+    if (archived) {
+      await syncCrossProjectBlockers(c, db, { taskIds: [id] });
+    }
 
     const row = await fetchBoardTask(db, id);
     if (!row || row.archived_at === null) {
@@ -957,13 +1045,16 @@ router.post(
       await recordTaskActivity(db, c.get('user').id, [{ taskId: id, kind: 'restored' }]);
       publishAfterCommit(c, 'task_restored', project.id, row.task);
       // The dependents' side of each edge is not derivable from the restored
-      // task alone, so their blocker_ids have to be republished.
+      // task alone, so their blocker_ids have to be republished. Same-project
+      // only, because that is all blocker_ids holds; the dependents in other
+      // projects learn about this through their recount instead.
       const dependents = await db
         .selectFrom('task_dependency')
         .innerJoin('task', 'task.id', 'task_dependency.blocked_task_id')
         .select('task_dependency.blocked_task_id')
         .where('task_dependency.blocker_task_id', '=', id)
         .where('task.archived_at', 'is', null)
+        .where('task.project_id', '=', project.id)
         .execute();
       publishTaskRelationsSet(
         c,
@@ -972,6 +1063,7 @@ router.post(
           dependents.map((dependent) => dependent.blocked_task_id)
         )
       );
+      await syncCrossProjectBlockers(c, db, { taskIds: [id] });
     }
 
     return c.json(row.task, 200);
@@ -1259,23 +1351,32 @@ router.post(
       throw new AppError(422, 'A task cannot block itself');
     }
 
+    // The access filter rides in the same query as the lookup, so "no such task"
+    // and "not yours to see" are one absent row rather than two branches someone
+    // could later give two different answers. Read access is enough: the edge
+    // mutates the blocked task, not this one.
     const blocker = await db
       .selectFrom('task')
+      .innerJoin('project', 'project.id', 'task.project_id')
       .select(['task.project_id', 'task.archived_at', 'task.title'])
       .where('task.id', '=', blocker_task_id)
+      .where(accessibleProjectsFilter(actorId))
       .executeTakeFirst();
-    if (!blocker || blocker.project_id !== project.id) {
-      throw new AppError(422, 'blocker_task_id must reference a task in the same project');
+    if (!blocker) {
+      throw new AppError(422, BLOCKER_UNREACHABLE);
     }
+    // Ordered after the access check, so this narrower answer only ever reaches
+    // someone who can already read the card.
+    //
     // Board reads hide archived blockers, so allowing this would hand the task
     // an edge no client could ever display or remove.
     if (blocker.archived_at !== null) {
       throw new AppError(422, 'blocker_task_id must not reference an archived task');
     }
 
-    await lockProjectDependencies(db, project.id);
+    await lockDependencyProjects(db, [project.id, blocker.project_id]);
     if (await wouldCreateDependencyCycle(db, id, blocker_task_id)) {
-      const cycle = await findDependencyCyclePath(db, project.id, id, blocker_task_id);
+      const cycle = await findDependencyCyclePath(db, actorId, id, blocker_task_id);
       throw new AppError(409, 'Adding this blocker would create a dependency cycle', { cycle });
     }
 
@@ -1291,11 +1392,18 @@ router.post(
         {
           taskId: id,
           kind: 'blocker_added',
-          newValue: { id: blocker_task_id, name: blocker.title },
+          newValue: {
+            id: blocker_task_id,
+            // This entry is read by everyone who can see the blocked task, who
+            // need no relation to the blocker's project. A blank name is what
+            // the activity feed renders as "a task in another project".
+            name: blocker.project_id === project.id ? blocker.title : '',
+          },
         },
       ]);
     }
 
+    await refreshCrossProjectBlockerCounts(db, [id]);
     publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);
   }
@@ -1325,7 +1433,9 @@ router.delete(
     const db = c.get('db');
 
     const actorId = c.get('user').id;
-    await assertTaskWrite(db, actorId, id);
+    // Write on the blocked side only, deliberately: an edge whose far end has
+    // become inaccessible must still be detachable by the side that carries it.
+    const project = await assertTaskWrite(db, actorId, id);
 
     const removed = await db
       .deleteFrom('task_dependency')
@@ -1333,7 +1443,7 @@ router.delete(
       .whereRef('task.id', '=', 'task_dependency.blocker_task_id')
       .where('task_dependency.blocked_task_id', '=', id)
       .where('task_dependency.blocker_task_id', '=', blockerTaskId)
-      .returning(['task_dependency.blocker_task_id', 'task.title'])
+      .returning(['task_dependency.blocker_task_id', 'task.title', 'task.project_id'])
       .executeTakeFirst();
 
     if (removed) {
@@ -1341,11 +1451,15 @@ router.delete(
         {
           taskId: id,
           kind: 'blocker_removed',
-          oldValue: { id: removed.blocker_task_id, name: removed.title },
+          oldValue: {
+            id: removed.blocker_task_id,
+            name: removed.project_id === project.id ? removed.title : '',
+          },
         },
       ]);
     }
 
+    await refreshCrossProjectBlockerCounts(db, [id]);
     publishTaskRelationsSet(c, await fetchTaskRelations(db, [id]));
     return c.body(null, 204);
   }

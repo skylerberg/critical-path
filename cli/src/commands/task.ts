@@ -26,6 +26,7 @@ import {
   type BoardPayload,
   type BoardTask,
   type ChecklistItem,
+  type CrossProjectDependency,
 } from '../resolve';
 import {
   blockerTree,
@@ -127,6 +128,36 @@ function renderDependencySection(
   ctx.out.line(`${label}:`);
   for (const task of tasks) {
     ctx.out.line(dependencyLine(ctx, task, taskState(task, board), 1));
+  }
+}
+
+// A remote task has no board here to derive a state from, so its done flag
+// carries it. The trailing count stands for edges into projects the caller
+// cannot read, which are never named.
+function renderCrossProjectSection(
+  ctx: RuntimeContext,
+  label: string,
+  edges: CrossProjectDependency[],
+  hiddenCount: number
+): void {
+  if (edges.length === 0 && hiddenCount === 0) {
+    return;
+  }
+  ctx.out.line(`${label}:`);
+  for (const edge of edges) {
+    const mark = edge.is_done
+      ? ctx.out.style(['dim'], '[done]   ')
+      : ctx.out.style(['yellow'], '[open]   ');
+    ctx.out.line(
+      `  ${edge.task_id.slice(0, 8)}  ${mark}  ${displayTitle(edge.title)}  (${edge.project_name})`
+    );
+  }
+  if (hiddenCount > 0) {
+    ctx.out.line(
+      `  ${hiddenCount} ${hiddenCount === 1 ? 'task' : 'tasks'} in ${
+        hiddenCount === 1 ? 'another project' : 'other projects'
+      } you cannot see`
+    );
   }
 }
 
@@ -1315,14 +1346,22 @@ export function registerTask(program: Command, deps: CliDeps): void {
       .description('Record that another task blocks this one')
       .argument('<task>', 'task id or title')
       .requiredOption('--by <task>', 'the blocking task (id or title)')
+      .option('--by-project <project>', 'the project to match --by in, when it is a title')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
-          const { board, task: target } = await resolveTaskContext(
+          const { task: target } = await resolveTaskContext(
             ctx,
             ref,
             opts.project as string | undefined
           );
-          const blocker = resolveTaskInBoard(board, opts.by as string);
+          // Resolved as its own task rather than looked up in the target's
+          // board: a blocker may now live in another project, where an id or an
+          // alias finds it outright and a title needs --by-project.
+          const { task: blocker } = await resolveTaskContext(
+            ctx,
+            opts.by as string,
+            (opts.byProject as string | undefined) ?? (opts.project as string | undefined)
+          );
           assertOk(
             await ctx.api.POST('/api/tasks/{id}/blockers', {
               params: { path: { id: target.id } },
@@ -1343,14 +1382,28 @@ export function registerTask(program: Command, deps: CliDeps): void {
       .description('Remove a blocker from a task')
       .argument('<task>', 'task id or title')
       .requiredOption('--by <task>', 'the blocking task (id or title)')
+      .option('--by-project <project>', 'the project to match --by in, when it is a title')
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
-          const { board, task: target } = await resolveTaskContext(
+          const { task: target } = await resolveTaskContext(
             ctx,
             ref,
             opts.project as string | undefined
           );
-          const blocker = resolveTaskInBoard(board, opts.by as string);
+          const by = opts.by as string;
+          // A bare uuid is passed straight through without being resolved. The
+          // far end of a cross-project edge can become unreadable, and detaching
+          // it needs write on this side only — so looking it up first would be
+          // the one thing standing between the user and their own board.
+          const blocker = UUID_RE.test(by)
+            ? { id: by, title: by }
+            : (
+                await resolveTaskContext(
+                  ctx,
+                  by,
+                  (opts.byProject as string | undefined) ?? (opts.project as string | undefined)
+                )
+              ).task;
           assertOk(
             await ctx.api.DELETE('/api/tasks/{id}/blockers/{blockerTaskId}', {
               params: { path: { id: target.id, blockerTaskId: blocker.id } },
@@ -1397,15 +1450,44 @@ export function registerTask(program: Command, deps: CliDeps): void {
           }
           const blockedBy = blockedByTasks(board, target.blocker_ids);
           const blocks = dependents(board, target.id);
+          // Fetched unconditionally: the board payload hints at incoming
+          // cross-project edges through its count, but nothing on it suggests
+          // this card blocks work on another board.
+          const across = assertOk(
+            await ctx.api.GET('/api/tasks/{id}/cross-project-dependencies', {
+              params: { path: { id: target.id } },
+            })
+          );
           ctx.out.data(
-            { blocked_by: withState(board, blockedBy), blocks: withState(board, blocks) },
+            {
+              blocked_by: withState(board, blockedBy),
+              blocks: withState(board, blocks),
+              cross_project: across,
+            },
             () => {
-              if (blockedBy.length === 0 && blocks.length === 0) {
+              const nothingAcross =
+                across.blocked_by.length === 0 &&
+                across.blocking.length === 0 &&
+                across.hidden_blocked_by_count === 0 &&
+                across.hidden_blocking_count === 0;
+              if (blockedBy.length === 0 && blocks.length === 0 && nothingAcross) {
                 ctx.out.line('Nothing blocks this task');
                 return;
               }
               renderDependencySection(ctx, board, 'Blocked by', blockedBy);
               renderDependencySection(ctx, board, 'Blocks', blocks);
+              renderCrossProjectSection(
+                ctx,
+                'Blocked by (other projects)',
+                across.blocked_by,
+                across.hidden_blocked_by_count
+              );
+              renderCrossProjectSection(
+                ctx,
+                'Blocks (other projects)',
+                across.blocking,
+                across.hidden_blocking_count
+              );
             }
           );
         })

@@ -5,9 +5,12 @@ export const errorSchema = type({
   error: 'string',
 });
 
+// Null on both fields for a step the caller cannot read — a loop can now leave
+// the project and come back, and the shape has to survive being reported to
+// someone who may see only part of it.
 export const cycleTaskSchema = type({
-  id: 'string',
-  title: 'string',
+  id: 'string | null',
+  title: 'string | null',
 });
 
 export type CycleTask = typeof cycleTaskSchema.infer;

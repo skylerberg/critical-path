@@ -56,6 +56,13 @@ const EVENTS = {
   task_deleted: { scope: 'project', webhook: true, raisesUnseenDot: false },
   task_archived: { scope: 'project', webhook: true, raisesUnseenDot: false },
 
+  // Reaches a project the actor need not belong to, carrying a recount caused by
+  // a card they cannot see. No webhook, because nothing in this project changed
+  // that a registration could describe; no dot, because the change writes no
+  // activity or comment row here, so a board read reports nothing and the dot
+  // could never be cleared.
+  cross_project_blockers_changed: { scope: 'project', webhook: false, raisesUnseenDot: false },
+
   bulk_tasks_moved: { scope: 'project', webhook: false, raisesUnseenDot: true },
   bulk_tasks_relations_set: { scope: 'project', webhook: false, raisesUnseenDot: true },
   bulk_tasks_archived: { scope: 'project', webhook: false, raisesUnseenDot: false },

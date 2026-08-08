@@ -2,12 +2,26 @@ import { sql, type Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import type { CycleTask } from '../schemas/index';
 import { AdvisoryLock, takeAdvisoryLock } from './advisoryLock';
+import { accessibleProjectsFilter } from './authorization';
 
 // Serializes concurrent dependency writes within a project; without it two
 // transactions could each pass the cycle check and commit a cycle under
 // READ COMMITTED. Must run inside the request transaction.
 export async function lockProjectDependencies(db: Kysely<DB>, projectId: string): Promise<void> {
   await takeAdvisoryLock(db, AdvisoryLock.projectDependencies, projectId);
+}
+
+// A cross-project edge has to serialize against writers in both projects, and
+// ascending id is the order every such writer uses: two edges created in
+// opposite directions between the same pair would deadlock on any other rule.
+// Same reasoning as inProjectLockOrder, one lock lower down.
+export async function lockDependencyProjects(
+  db: Kysely<DB>,
+  projectIds: readonly string[]
+): Promise<void> {
+  for (const projectId of [...new Set(projectIds)].sort()) {
+    await lockProjectDependencies(db, projectId);
+  }
 }
 
 // UNION (not UNION ALL) deduplicates rows, so the walk terminates even if
@@ -80,18 +94,34 @@ export function cyclePathIds(
   return [];
 }
 
+// The edges reachable downstream of the blocked task, which is exactly the set
+// cyclePathIds' BFS explores. Scoped by reachability rather than by project: a
+// loop that leaves the project and comes back is invisible to a project filter,
+// and fetching the whole table to find it would be worse. UNION, not UNION ALL,
+// so it terminates on data that already contains a cycle.
+async function downstreamEdges(db: Kysely<DB>, blockedTaskId: string) {
+  const result = await sql<DependencyEdge>`
+    with recursive downstream(blocker_task_id, blocked_task_id) as (
+      select d.blocker_task_id, d.blocked_task_id
+      from task_dependency d
+      where d.blocker_task_id = ${blockedTaskId}::uuid
+      union
+      select d.blocker_task_id, d.blocked_task_id
+      from task_dependency d
+      join downstream on d.blocker_task_id = downstream.blocked_task_id
+    )
+    select blocker_task_id, blocked_task_id from downstream
+  `.execute(db);
+  return result.rows;
+}
+
 export async function findDependencyCyclePath(
   db: Kysely<DB>,
-  projectId: string,
+  actorUserId: string,
   blockedTaskId: string,
   blockerTaskId: string
 ): Promise<CycleTask[]> {
-  const edges = await db
-    .selectFrom('task_dependency')
-    .innerJoin('task', 'task.id', 'task_dependency.blocked_task_id')
-    .select(['task_dependency.blocker_task_id', 'task_dependency.blocked_task_id'])
-    .where('task.project_id', '=', projectId)
-    .execute();
+  const edges = await downstreamEdges(db, blockedTaskId);
 
   const path = cyclePathIds(edges, blockedTaskId, blockerTaskId);
   if (path.length === 0) {
@@ -100,21 +130,21 @@ export async function findDependencyCyclePath(
 
   const rows = await db
     .selectFrom('task')
+    .innerJoin('project', 'project.id', 'task.project_id')
     .select(['task.id', 'task.title'])
     .where('task.id', 'in', [...new Set(path)])
+    .where(accessibleProjectsFilter(actorUserId))
     .execute();
   const titles = new Map(rows.map((row) => [row.id, row.title]));
 
   const steps: CycleTask[] = [];
   for (const id of path) {
     const title = titles.get(id);
-    // READ COMMITTED gives this statement a newer snapshot than the edge fetch,
-    // so a concurrently deleted task has no row; report no path rather than a
-    // step with a blank name.
-    if (title === undefined) {
-      return [];
-    }
-    steps.push({ id, title });
+    // Absent means either concurrently deleted or in a project the caller
+    // cannot read. Both are reported the same way: the loop keeps its length
+    // and shape, so it still reads as a closed loop, but the hidden hops name
+    // nothing at all.
+    steps.push(title === undefined ? { id: null, title: null } : { id, title });
   }
   return steps;
 }

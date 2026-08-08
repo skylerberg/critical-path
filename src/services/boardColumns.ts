@@ -10,6 +10,7 @@ export interface ColumnInProject {
   id: string;
   project_id: string;
   name: string;
+  is_done: boolean;
 }
 
 const CROSS_PROJECT_MESSAGE = 'column_id must reference a column in the project';
@@ -27,7 +28,12 @@ export async function assertColumnInProject(
 ): Promise<ColumnInProject> {
   const column = await db
     .selectFrom('board_column')
-    .select(['board_column.id', 'board_column.project_id', 'board_column.name'])
+    .select([
+      'board_column.id',
+      'board_column.project_id',
+      'board_column.name',
+      'board_column.is_done',
+    ])
     .where('board_column.id', '=', columnId)
     .executeTakeFirst();
   if (!column) {

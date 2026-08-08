@@ -24,6 +24,12 @@ export function taskState(task: BoardTask, board: BoardPayload): TaskState {
   if (done.has(task.column_id)) {
     return 'done';
   }
+  // The board payload names no blocker outside this project, so the count is
+  // the only thing that can speak for them. Without this, work waiting on
+  // another board reads as ready.
+  if (task.open_cross_project_blocker_count > 0) {
+    return 'blocked';
+  }
   const tasks = taskById(board);
   const blockedBy = task.blocker_ids.filter((id) => {
     const blocker = tasks.get(id);

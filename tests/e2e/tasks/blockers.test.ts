@@ -82,7 +82,7 @@ describe('Task blockers', () => {
       expect(res.status).toBe(422);
     });
 
-    it('rejects a blocker from another project with 422', async () => {
+    it('accepts a blocker from another project the caller can read', async () => {
       const task = await createTask('cross project blocked');
       const otherProject = await fixtures.createProject('blockers other project', {
         createdBy: user.id,
@@ -93,7 +93,14 @@ describe('Task blockers', () => {
       const res = await ctx
         .request(user.token)
         .post(`/api/tasks/${task}/blockers`, { blocker_task_id: foreignTask });
-      expect(res.status).toBe(422);
+      expect(res.status).toBe(204);
+
+      // Named nowhere: blocker_ids resolves against the board payload, which
+      // holds one project. The edge reaches the card as a count instead.
+      const detail = await ctx.request(user.token).get(`/api/tasks/${task}`);
+      const body = await detail.json();
+      expect(body.blocker_ids).toEqual([]);
+      expect(body.open_cross_project_blocker_count).toBe(1);
     });
 
     it('rejects an unknown blocker task with 422', async () => {
@@ -102,6 +109,37 @@ describe('Task blockers', () => {
         .request(user.token)
         .post(`/api/tasks/${task}/blockers`, { blocker_task_id: newId() });
       expect(res.status).toBe(422);
+    });
+
+    it('answers an inaccessible blocker exactly as it answers a nonexistent one', async () => {
+      const task = await createTask('oracle target');
+      const stranger = await ctx.createUser('blockers-stranger');
+      const theirProject = await fixtures.createProject('unreachable project', {
+        createdBy: stranger.id,
+      });
+      const theirColumn = await fixtures.createColumn(theirProject);
+      const theirTask = await ctx.request(stranger.token).post('/api/tasks', {
+        id: newId(),
+        project_id: theirProject,
+        column_id: theirColumn,
+        title: 'unreachable',
+        sort_key: rankKey(1000),
+      });
+      expect(theirTask.status).toBe(201);
+      const theirTaskId = (await theirTask.json()).id as string;
+
+      const hidden = await ctx
+        .request(user.token)
+        .post(`/api/tasks/${task}/blockers`, { blocker_task_id: theirTaskId });
+      const missing = await ctx
+        .request(user.token)
+        .post(`/api/tasks/${task}/blockers`, { blocker_task_id: newId() });
+
+      // Byte-identical, so the route cannot be used to test whether an id names
+      // a real task.
+      expect(hidden.status).toBe(422);
+      expect(missing.status).toBe(422);
+      expect(await hidden.json()).toEqual(await missing.json());
     });
 
     it('rejects a direct cycle (A <-> B) with 409 naming the loop', async () => {

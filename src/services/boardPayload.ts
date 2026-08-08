@@ -29,6 +29,7 @@ function boardTasksQuery(db: Kysely<DB>) {
     'task.updated_at',
     'task.column_since',
     'task.archived_at',
+    'task.open_cross_project_blocker_count',
     jsonArrayFrom(
       eb
         .selectFrom('task_label')
@@ -100,6 +101,7 @@ function toBoardTask(task: ProjectTaskRow): BoardTask {
     label_ids: task.label_rows.map((row) => row.label_id),
     assignee_ids: task.assignee_rows.map((row) => row.user_id),
     blocker_ids: task.blocker_rows.map((row) => row.blocker_task_id),
+    open_cross_project_blocker_count: task.open_cross_project_blocker_count,
     cover_image_url: task.cover_image_id == null ? null : `/api/images/${task.cover_image_id}`,
     comment_count: Number(task.comment_count),
     checklist_item_count: Number(task.checklist_item_count),

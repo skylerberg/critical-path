@@ -83,7 +83,14 @@ hand-written casts.
     and `PUT /api/projects/:id/members`, which asserts access and then gates
     on the caller's role itself, because a viewer may use it to remove
     themselves and nothing else. Roles are normalized fail-closed — anything
-    that is not exactly `editor` reads as `viewer`.
+    that is not exactly `editor` reads as `viewer`. A `task_dependency` edge is
+    the one thing that spans two projects: creating one asserts write on the
+    blocked side and **read** on the blocker's, and removing one asserts write
+    on the blocked side alone, so an edge whose far end became unreadable stays
+    detachable. Anything that reads the far side of such an edge either filters
+    on access and reports a bare count for what it dropped, or reports nothing
+    at all — see `src/services/crossProjectBlockers.ts` and the
+    cross-project-dependencies section of the README.
 13. Every mutation emits a realtime event via `publishAfterCommit` from
     `src/services/realtime` (runs as a post-commit hook, so nothing is
     published on rollback). Events about rows or access that are gone

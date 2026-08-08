@@ -39,6 +39,7 @@ export const bulkTaskRelationsSchema = type({
   label_ids: 'string[]',
   assignee_ids: 'string[]',
   blocker_ids: 'string[]',
+  open_cross_project_blocker_count: 'number',
 });
 
 export type BulkTaskRelations = typeof bulkTaskRelationsSchema.infer;

@@ -25,6 +25,11 @@ import {
   storageKeysOwnedBy,
 } from '../services/accountDeletion';
 import { avatarUrl } from '../services/avatars';
+import {
+  crossProjectDependentsOf,
+  publishCrossProjectBlockerCounts,
+  refreshCrossProjectBlockerCounts,
+} from '../services/crossProjectBlockers';
 import { getEmailSender } from '../services/email/index';
 import { hashPassword, verifyPassword, verifyDummyPassword } from '../services/passwords';
 import { PROJECT_COLUMNS, fetchMembers, publishProjectListItem } from '../services/projectListItem';
@@ -582,6 +587,12 @@ router.delete(
       .where('personal_access_token.user_id', '=', user.id)
       .execute();
 
+    // Read before the cascade, for the same reason project delete does: the
+    // tasks these blocked survive in projects this account never owned.
+    const remoteDependents = await crossProjectDependentsOf(db, {
+      projectIds: owned.map((project) => project.id),
+    });
+
     // project.created_by is ON DELETE RESTRICT, so the owned projects have to go
     // explicitly and first; everything else cascades off these two statements.
     await deleteUnsharedProjects(
@@ -589,6 +600,17 @@ router.delete(
       owned.map((project) => project.id)
     );
     await db.deleteFrom('app_user').where('id', '=', user.id).execute();
+
+    // Absolute rather than deltaed, so a dependent whose project turned out to
+    // be shared and survived simply recomputes to the value it already had and
+    // the change filter drops it.
+    publishCrossProjectBlockerCounts(
+      c,
+      await refreshCrossProjectBlockerCounts(
+        db,
+        remoteDependents.map((dependent) => dependent.task_id)
+      )
+    );
 
     const survivingProjects =
       affectedProjectIds.length === 0
