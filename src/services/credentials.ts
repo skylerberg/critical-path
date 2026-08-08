@@ -1,6 +1,10 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/types';
-import { isPersonalAccessToken } from './personalAccessTokens';
+import {
+  isPersonalAccessToken,
+  personalAccessTokenUseIsStale,
+  recordPersonalAccessTokenUse,
+} from './personalAccessTokens';
 import { hashBearerToken } from './sessions';
 
 export type CredentialKind = 'session' | 'personal_access_token';
@@ -27,6 +31,7 @@ async function authenticatePersonalAccessToken(
     .select([
       'personal_access_token.id as credential_id',
       'personal_access_token.expires_at',
+      'personal_access_token.last_used_at',
       'app_user.id as user_id',
       'app_user.email',
       'app_user.name',
@@ -38,6 +43,10 @@ async function authenticatePersonalAccessToken(
 
   if (!row || (row.expires_at !== null && row.expires_at.getTime() <= Date.now())) {
     return null;
+  }
+
+  if (personalAccessTokenUseIsStale(row.last_used_at)) {
+    await recordPersonalAccessTokenUse(row.credential_id);
   }
 
   return {

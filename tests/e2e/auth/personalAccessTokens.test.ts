@@ -6,6 +6,7 @@ import { newId } from '../../helpers/fixtures';
 import { createResetToken } from '../../../src/services/resetToken';
 import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
 import {
+  LAST_USED_THROTTLE_MS,
   MAX_PERSONAL_ACCESS_TOKENS_PER_USER,
   PERSONAL_ACCESS_TOKEN_PREFIX,
 } from '../../../src/services/personalAccessTokens';
@@ -15,10 +16,28 @@ interface TokenMetadata {
   name: string;
   created_at: string;
   expires_at: string | null;
+  last_used_at: string | null;
 }
 
 function sha256Hex(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+async function lastUsedAt(id: string): Promise<Date | null> {
+  const row = await db
+    .selectFrom('personal_access_token')
+    .select('personal_access_token.last_used_at')
+    .where('personal_access_token.id', '=', id)
+    .executeTakeFirstOrThrow();
+  return row.last_used_at;
+}
+
+async function backdateLastUsed(id: string, at: Date): Promise<void> {
+  await db
+    .updateTable('personal_access_token')
+    .set({ last_used_at: at })
+    .where('id', '=', id)
+    .execute();
 }
 
 async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
@@ -72,6 +91,7 @@ describe('Personal access tokens', () => {
         name: 'CI runner',
         created_at: expect.any(String),
         expires_at: null,
+        last_used_at: null,
       });
 
       const row = await db
@@ -225,6 +245,7 @@ describe('Personal access tokens', () => {
         'created_at',
         'expires_at',
         'id',
+        'last_used_at',
         'name',
       ]);
     });
@@ -284,6 +305,63 @@ describe('Personal access tokens', () => {
 
       const listed = await listTokens(user.token);
       expect(listed.map((token) => token.id)).toContain(id);
+      expect(await lastUsedAt(id)).toBeNull();
+    });
+  });
+
+  describe('last_used_at', () => {
+    it('stays null until the token authenticates, then reports the use', async () => {
+      const user = await ctx.createUser('pat-last-used');
+      const created = await createToken(user, { name: 'worker' });
+      const id = created.personal_access_token.id;
+
+      expect(created.personal_access_token.last_used_at).toBeNull();
+      expect((await listTokens(user.token))[0].last_used_at).toBeNull();
+      expect(await lastUsedAt(id)).toBeNull();
+
+      const before = Date.now();
+      expect((await ctx.request(created.token).get('/api/auth/me')).status).toBe(200);
+
+      const stamped = await lastUsedAt(id);
+      expect(stamped).not.toBeNull();
+      expect(stamped?.getTime()).toBeGreaterThanOrEqual(before - 1000);
+
+      const listed = (await listTokens(user.token)).find((token) => token.id === id);
+      expect(listed?.last_used_at).toBe(stamped?.toISOString());
+    });
+
+    it('writes at most once per throttle window', async () => {
+      const user = await ctx.createUser('pat-last-used-throttle');
+      const { token, personal_access_token: created } = await createToken(user, { name: 'busy' });
+
+      await ctx.request(token).get('/api/auth/me');
+      const first = await lastUsedAt(created.id);
+      await ctx.request(token).get('/api/auth/me');
+      expect(await lastUsedAt(created.id)).toEqual(first);
+
+      await backdateLastUsed(created.id, new Date(Date.now() - LAST_USED_THROTTLE_MS - 60_000));
+      await ctx.request(token).get('/api/auth/me');
+      const refreshed = await lastUsedAt(created.id);
+      expect(refreshed?.getTime()).toBeGreaterThan(first?.getTime() ?? 0);
+    });
+
+    it('survives a request whose transaction rolls back', async () => {
+      const user = await ctx.createUser('pat-last-used-rollback');
+      const { token, personal_access_token: created } = await createToken(user, { name: 'rolled' });
+
+      const res = await ctx.request(token).delete(`/api/auth/tokens/${newId()}`);
+      expect(res.status).toBe(404);
+
+      expect(await lastUsedAt(created.id)).not.toBeNull();
+    });
+
+    it('is untouched by a request made with a session token', async () => {
+      const user = await ctx.createUser('pat-last-used-session');
+      const { personal_access_token: created } = await createToken(user, { name: 'idle' });
+
+      expect((await ctx.request(user.token).get('/api/auth/me')).status).toBe(200);
+
+      expect(await lastUsedAt(created.id)).toBeNull();
     });
   });
 
