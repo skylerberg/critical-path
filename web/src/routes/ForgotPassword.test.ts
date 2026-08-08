@@ -2,6 +2,9 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import ForgotPassword from './ForgotPassword.svelte';
+import Login from './Login.svelte';
+import Signup from './Signup.svelte';
+import { authForm } from '../lib/authForm.svelte';
 
 async function submitEmail(email: string): Promise<void> {
   await fireEvent.input(screen.getByLabelText('Email'), { target: { value: email } });
@@ -10,6 +13,7 @@ async function submitEmail(email: string): Promise<void> {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  authForm.clear();
 });
 
 describe('ForgotPassword', () => {
@@ -75,5 +79,44 @@ describe('ForgotPassword', () => {
 
     expect(await screen.findByText('Email is required')).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('starts from the address typed on the login screen', async () => {
+    const login = render(Login);
+    await fireEvent.input(screen.getByLabelText('Email'), {
+      target: { value: 'ada@example.com' },
+    });
+    login.unmount();
+
+    render(ForgotPassword);
+
+    expect(screen.getByLabelText('Email')).toHaveValue('ada@example.com');
+  });
+
+  it('starts from the address typed on the signup screen', async () => {
+    const signup = render(Signup);
+    await fireEvent.input(screen.getByLabelText('Email'), {
+      target: { value: 'ada@example.com' },
+    });
+    signup.unmount();
+
+    render(ForgotPassword);
+
+    expect(screen.getByLabelText('Email')).toHaveValue('ada@example.com');
+  });
+
+  // The screen this one offers a way out to on a 404, so the address that turned
+  // out to have no account is the one the new account should start from.
+  it('hands the address on to signup when no account exists', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(404, { error: 'No account' }));
+    const forgot = render(ForgotPassword);
+
+    await submitEmail('ghost@example.com');
+    await screen.findByRole('alert');
+    forgot.unmount();
+
+    render(Signup);
+
+    expect(screen.getByLabelText('Email')).toHaveValue('ghost@example.com');
   });
 });

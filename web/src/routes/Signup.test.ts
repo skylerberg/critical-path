@@ -1,7 +1,9 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import Login from './Login.svelte';
 import Signup from './Signup.svelte';
+import { authForm } from '../lib/authForm.svelte';
 import { session } from '../lib/session.svelte';
 import { toasts } from '../lib/toasts.svelte';
 
@@ -27,6 +29,7 @@ beforeEach(async () => {
   fetchMock.mockReset();
   localStorage.clear();
   sessionStorage.clear();
+  authForm.clear();
   for (const toast of toasts.toasts) {
     toasts.dismiss(toast.id);
   }
@@ -86,5 +89,36 @@ describe('Signup', () => {
 
     await screen.findByRole('alert');
     expect(toasts.toasts).toEqual([]);
+  });
+
+  it('starts from what was typed on the login screen', async () => {
+    const login = render(Login);
+    await fireEvent.input(screen.getByLabelText('Email'), {
+      target: { value: 'ada@example.com' },
+    });
+    await fireEvent.input(screen.getByLabelText('Password'), {
+      target: { value: 'password123' },
+    });
+    login.unmount();
+
+    render(Signup);
+
+    expect(screen.getByLabelText('Email')).toHaveValue('ada@example.com');
+    expect(screen.getByLabelText('Password')).toHaveValue('password123');
+  });
+
+  it('leaves nothing behind for the next person once the account exists', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { token: 'tok-new', user }));
+    render(Signup);
+
+    await fillForm();
+    await fireEvent.click(screen.getByRole('button', { name: 'Sign up' }));
+
+    await waitFor(() => {
+      expect(session.status).toBe('authed');
+    });
+    expect(authForm.name).toBe('');
+    expect(authForm.email).toBe('');
+    expect(authForm.password).toBe('');
   });
 });

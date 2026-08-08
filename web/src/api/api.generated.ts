@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM critical-path-api/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/.worktrees/critical-path-api/reset-password-session/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -74,7 +74,7 @@ export interface paths {
         put?: never;
         /**
          * Reset password
-         * @description Set a new password using a token from a password-reset email. On success every outstanding reset token is invalidated. Existing sessions stay signed in; revoke them individually from GET /api/auth/sessions.
+         * @description Set a new password using a token from a password-reset email, and start a session on it. On success every outstanding reset token is invalidated. Redeeming the link proves control of the address, which is the same proof signup takes, so the caller is signed in rather than sent back to a login form to retype the password they just chose. Other existing sessions stay signed in; revoke them individually from GET /api/auth/sessions.
          */
         post: operations["postApiAuthResetPassword"];
         delete?: never;
@@ -2847,11 +2847,13 @@ export interface operations {
         };
         responses: {
             /** @description Password reset */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
             };
             /** @description Validation error or domain-rule violation */
             422: {

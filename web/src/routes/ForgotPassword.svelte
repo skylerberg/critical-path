@@ -1,12 +1,12 @@
 <script lang="ts">
   import { api, ApiError, assertOk } from '../api/client';
   import { apiMessage } from '../lib/apiMessages';
+  import { authForm } from '../lib/authForm.svelte';
   import { APP_NAME } from '../lib/constants';
   import { link } from '../lib/router.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
 
-  let email = $state('');
   let emailError = $state('');
   let formError = $state('');
   let noAccount = $state(false);
@@ -15,7 +15,7 @@
 
   async function handleSubmit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
-    if (email.trim() === '') {
+    if (authForm.email.trim() === '') {
       emailError = 'Email is required';
       return;
     }
@@ -23,7 +23,7 @@
     formError = '';
     noAccount = false;
     submitting = true;
-    const address = email.trim();
+    const address = authForm.email.trim();
     try {
       assertOk(await api.POST('/api/auth/forgot-password', { body: { email: address } }));
       sentTo = address;
@@ -62,7 +62,7 @@
           type="email"
           name="email"
           autocomplete="email"
-          bind:value={email}
+          bind:value={authForm.email}
           error={emailError}
         />
         {#if formError !== ''}

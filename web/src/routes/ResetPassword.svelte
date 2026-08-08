@@ -1,8 +1,10 @@
 <script lang="ts">
   import { api, ApiError, assertOk } from '../api/client';
   import { apiMessage } from '../lib/apiMessages';
+  import { authForm } from '../lib/authForm.svelte';
   import { APP_NAME } from '../lib/constants';
   import { link, router } from '../lib/router.svelte';
+  import { consumeIntendedPath, session } from '../lib/session.svelte';
   import { toasts } from '../lib/toasts.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
@@ -36,11 +38,13 @@
     error = '';
     submitting = true;
     try {
-      assertOk(
+      const data = assertOk(
         await api.POST('/api/auth/reset-password', { body: { token, new_password: newPassword } })
       );
-      toasts.success('Password reset. Please log in.');
-      router.redirect('/login');
+      session.adopt(data.token, data.user);
+      authForm.clear();
+      toasts.success('Password reset.');
+      router.redirect(consumeIntendedPath());
     } catch (err) {
       if (err instanceof ApiError && err.status === 422) {
         invalidToken = true;
