@@ -6,6 +6,7 @@ import { AppError } from '../utils/errors';
 import { db } from '../db/index';
 import { avatarUrl } from '../services/avatars';
 import { authenticateBearerToken } from '../services/credentials';
+import { sessionCookieToken, setSessionCookie } from '../services/sessionCookie';
 
 const BEARER_PREFIX = 'Bearer ';
 
@@ -55,6 +56,18 @@ export async function authMiddleware(c: PublicContext, next: Next) {
 
   if (!credential) {
     throw new AppError(401, 'Invalid or expired token');
+  }
+
+  // Backfills the cookie onto a session that predates it, so an already
+  // signed-in browser gains one on its next read rather than at its next login.
+  // Two constraints on when: session credentials only, because a personal access
+  // token is the CLI's and a cookie would make it an ambient browser one; and
+  // safe methods only, because logout manages this cookie itself and a backfill
+  // would leave the response carrying two conflicting Set-Cookie headers for the
+  // same name.
+  const safeMethod = c.req.method === 'GET' || c.req.method === 'HEAD';
+  if (safeMethod && credential.kind === 'session' && sessionCookieToken(c) === null) {
+    setSessionCookie(c, token);
   }
 
   c.set('user', {

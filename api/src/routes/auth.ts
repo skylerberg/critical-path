@@ -46,6 +46,7 @@ import {
   generatePersonalAccessToken,
 } from '../services/personalAccessTokens';
 import { createSession, deleteSessionByTokenHash, hashBearerToken } from '../services/sessions';
+import { clearSessionCookie, setSessionCookie } from '../services/sessionCookie';
 import { accountExportFilename, buildAccountExport } from '../services/export/account';
 import {
   accountExportSchema,
@@ -273,6 +274,7 @@ publicAuthRouter.post(
     }
 
     const { token } = await createSession(c, id);
+    setSessionCookie(c, token);
     enqueueVerificationEmail(c, { id, email });
     await claimInvitationsForNewAccount(c, db, id, email);
 
@@ -329,6 +331,7 @@ publicAuthRouter.post(
     }
 
     const { token } = await createSession(c, user.id);
+    setSessionCookie(c, token);
 
     return c.json(
       {
@@ -366,6 +369,7 @@ router.post(
     if (hash !== null) {
       await deleteSessionByTokenHash(c.get('db'), hash);
     }
+    clearSessionCookie(c);
     return c.body(null, 204);
   }
 );
