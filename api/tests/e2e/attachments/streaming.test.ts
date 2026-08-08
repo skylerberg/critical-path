@@ -60,7 +60,7 @@ describe('upload over a real socket', () => {
 
   it('stores 8 MB sent as chunks with no declared length', async () => {
     const res = await upload(
-      uploadPath(taskId, 'big.bin'),
+      uploadPath(taskId, { filename: 'big.bin' }),
       chunked(Buffer.alloc(1024 * 1024, 0x41), 8)
     );
 
@@ -82,7 +82,7 @@ describe('upload over a real socket', () => {
     try {
       const before = await listStorageKeys();
       const res = await upload(
-        uploadPath(taskId, 'toobig.bin'),
+        uploadPath(taskId, { filename: 'toobig.bin' }),
         chunked(Buffer.alloc(256 * 1024, 0x42), 64)
       );
 

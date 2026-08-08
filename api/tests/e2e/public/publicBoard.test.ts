@@ -3,7 +3,7 @@ import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { storage } from '../../../src/services/storage/index';
 import { getPublicBoard } from '../../../src/services/boardPayload';
-import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { uploadPath, newId, rankKey } from '../../helpers/fixtures';
 import {
   BoardColumnPayload,
   BoardPayloadBody,
@@ -132,7 +132,7 @@ describe('GET /api/public/projects/:id/board', () => {
     });
     const uploadRes = await ctx
       .request(owner.token)
-      .postBytes(imageUploadPath(blockerTaskId), PNG_1X1);
+      .postBytes(uploadPath(blockerTaskId, { filename: 'pixel.png' }), PNG_1X1);
     expect(uploadRes.status).toBe(201);
     const { id: imageId } = (await uploadRes.json()) as { id: string };
     const coverRes = await ctx

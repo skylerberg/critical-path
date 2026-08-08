@@ -26,6 +26,7 @@ export type BusSubscriber = (entry: BusEntry) => void;
 
 export const SESSIONS_REVOKED = 'sessions_revoked';
 export const USER_UPDATED = 'user_updated';
+export const ACCOUNT_UPDATED = 'account_updated';
 export const PROJECT_CHANGED = 'project_changed';
 export const INVITATIONS_CHANGED = 'invitations_changed';
 
@@ -52,8 +53,6 @@ export function parseBusEntry(raw: unknown): BusEntry | null {
   const scope = eventScope(type);
   if (scope === null) return null;
   if (scope === 'account' ? projectId !== null : typeof projectId !== 'string') return null;
-  // Every payload in the table is an object, so this is the shape check that
-  // costs nothing; the fields inside it are what go unverified.
   if (typeof data !== 'object' || data === null) return null;
   return raw as BusEntry;
 }

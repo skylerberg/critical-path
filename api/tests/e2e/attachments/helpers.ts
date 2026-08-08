@@ -4,18 +4,7 @@ import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
 import { newId, rankKey } from '../../helpers/fixtures';
 
-export function uploadPath(
-  taskId: string,
-  filename?: string,
-  mimeType?: string,
-  id?: string
-): string {
-  const params = new URLSearchParams({ task_id: taskId });
-  if (filename) params.set('filename', filename);
-  if (mimeType) params.set('content_type', mimeType);
-  if (id !== undefined) params.set('id', id);
-  return `/api/attachments/files?${params.toString()}`;
-}
+export { uploadPath } from '../../helpers/fixtures';
 
 export function streamOf(chunk: Buffer, times: number): ReadableStream<Uint8Array> {
   let sent = 0;
