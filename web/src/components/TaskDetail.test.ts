@@ -4,7 +4,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import { tick } from 'svelte';
 import type { Editor } from '@tiptap/core';
 import TaskDetail from './TaskDetail.svelte';
+import TaskDetailRouteHost from './TaskDetailRouteHost.svelte';
 import { board } from '../lib/board.svelte';
+import { conflictDrafts } from '../lib/conflictDrafts.svelte';
 import { drafts } from '../lib/drafts.svelte';
 import { projects } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
@@ -143,6 +145,7 @@ beforeEach(() => {
   };
   shortcuts.reset();
   drafts.clearAll();
+  conflictDrafts.clearAll();
   projects.reset();
   users.reset();
   session.user = me;
@@ -265,13 +268,28 @@ function teammateVersion(): BoardTask {
   });
 }
 
+// The API writes task.updated_at and the activity row's created_at from one
+// transaction timestamp, which is what lets the overlay name who won.
+const teammateEdit = {
+  id: 'ac2',
+  kind: 'title_changed' as const,
+  actor_user_id: 'u2',
+  old_value: { text: 'Design cards' },
+  new_value: { text: 'Their title' },
+  created_at: '2026-05-05T00:00:00Z',
+};
+
 function mockConflict(
   patchResponse: () => Response | Promise<Response> = () =>
-    jsonResponse(409, { error: 'This task changed since you loaded it' })
+    jsonResponse(409, { error: 'This task changed since you loaded it' }),
+  activity: unknown[] = [activityEntry, teammateEdit]
 ): void {
   mockRoutes((request, url) => {
     if (request.method === 'PATCH' && url.pathname === `/api/tasks/${T1}`) {
       return patchResponse();
+    }
+    if (request.method === 'GET' && url.pathname === `/api/tasks/${T1}/activity`) {
+      return jsonResponse(200, { activity });
     }
     if (request.method === 'GET' && url.pathname === `/api/projects/${PROJECT_ID}`) {
       return jsonResponse(200, {
@@ -283,6 +301,11 @@ function mockConflict(
     }
     return undefined;
   });
+}
+
+async function openReview(): Promise<void> {
+  await fireEvent.click(await screen.findByRole('button', { name: 'Review changes…' }));
+  await screen.findByRole('heading', { name: 'Review conflicting changes' });
 }
 
 async function editTitle(value: string): Promise<void> {
@@ -996,30 +1019,112 @@ describe('TaskDetail', () => {
     expect(taskPatches()).toHaveLength(sent);
   });
 
-  it('reloads the server title and description and clears the banner', async () => {
+  it('names the teammate whose edit the stored version came from', async () => {
+    users.users = [...users.users, { id: 'u2', name: 'Grace Hopper', avatar_url: null }];
+    mockConflict();
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/Grace Hopper changed this task/)
+    );
+  });
+
+  it('names nobody when no logged change matches the stored version', async () => {
+    users.users = [...users.users, { id: 'u2', name: 'Grace Hopper', avatar_url: null }];
+    // A patch that rewrote a field with the value it already held bumps
+    // updated_at without writing a row, so nothing lines up with it.
+    mockConflict(undefined, [activityEntry]);
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/This task changed somewhere else/);
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Grace Hopper');
+  });
+
+  it('keeps mine against the stored version’s updated_at and clears the banner', async () => {
     mockConflict();
     const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
-    await screen.findByRole('alert');
-    expect(container.querySelector('.tiptap')?.textContent).not.toContain('Their description');
+    await openReview();
     const sent = taskPatches().length;
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
-
-    expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.getByLabelText('Task title')).toHaveValue('Their title');
-    expect(container.querySelector('.tiptap')?.textContent).toContain('Their description');
-    expect(taskPatches()).toHaveLength(sent);
-
     mockRoutes();
-    await editTitle('Their title v2');
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
 
     await waitFor(() => expect(taskPatches()).toHaveLength(sent + 1));
     expect(await taskPatches()[sent]!.json()).toEqual({
-      title: 'Their title v2',
+      title: 'Design cards v2',
+      // Untouched by this user, so the teammate's copy carries through rather
+      // than being offered as a choice nobody made.
+      description: teammateVersion().description,
       expected_updated_at: '2026-05-05T00:00:00Z',
     });
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards v2');
+    expect(container.querySelector('.tiptap')?.textContent).toContain('Their description');
+  });
+
+  it('takes two clicks to discard mine, then writes nothing', async () => {
+    mockConflict();
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+    await openReview();
+    const sent = taskPatches().length;
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep theirs' }));
+    expect(screen.queryByRole('button', { name: 'Keep theirs' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Discard my version' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    // The stored version is already what the server holds, so adopting it is not
+    // a write — and does not bump updated_at under every other open editor.
+    expect(taskPatches()).toHaveLength(sent);
+    expect(screen.getByLabelText('Task title')).toHaveValue('Their title');
+    expect(container.querySelector('.tiptap')?.textContent).toContain('Their description');
+  });
+
+  it('brings the typed text and the banner back when the card is reopened', async () => {
+    mockConflict();
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+    await screen.findByRole('alert');
+    first.unmount();
+
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards v2');
+    expect(container.querySelector('.tiptap')?.textContent).not.toContain('Their description');
+  });
+
+  it('re-presents a newer stored version when the resolve conflicts again', async () => {
+    mockConflict();
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+    await openReview();
+    const sent = taskPatches().length;
+
+    // The card moved a second time while the resolver was open.
+    mockConflict(undefined, [activityEntry]);
+    board.tasks = [
+      task(T1, 'c1', 'Newer title', { updated_at: '2026-06-06T00:00:00Z' }),
+      ...board.tasks.filter((t) => t.id !== T1),
+    ];
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
+
+    await waitFor(() => expect(taskPatches()).toHaveLength(sent + 1));
+    expect(await screen.findByText(/changed again while you were reviewing/)).toBeInTheDocument();
+    // Still open, still holding the user's text, and no second attempt fired.
+    expect(screen.getByRole('heading', { name: 'Review conflicting changes' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(taskPatches()).toHaveLength(sent + 1);
   });
 
   it('offers the project’s people in the description editor and saves the mention', async () => {
@@ -1121,6 +1226,29 @@ describe('TaskDetail', () => {
 
     board.applyRealtime({ type: 'task_updated', project_id: PROJECT_ID, data: teammateVersion() });
     await tick();
+    await editTitle('Design cards v2');
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(await taskPatches()[0]!.json()).toEqual({
+      title: 'Design cards v2',
+      expected_updated_at: '2026-01-02T00:00:00Z',
+    });
+  });
+
+  it('keeps its precondition when the route object is replaced but the card is not', async () => {
+    // A rename anywhere rewrites the URL, because the path carries the title slug.
+    // Reading taskId straight into the reset effect would make that re-run and drop
+    // the baseline, and the capture below it would then quietly adopt the version
+    // that arrived — handing the next save a precondition it never loaded.
+    mockConflict();
+    const { rerender } = render(TaskDetailRouteHost, {
+      route: { taskId: T1 },
+      closePath: BOARD_PATH,
+      taskPath: (id: string) => overlayTaskPath(id),
+    });
+
+    board.applyRealtime({ type: 'task_updated', project_id: PROJECT_ID, data: teammateVersion() });
+    await rerender({ route: { taskId: T1 } });
     await editTitle('Design cards v2');
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();

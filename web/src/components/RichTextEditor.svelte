@@ -57,6 +57,14 @@
     return editor;
   }
 
+  // The document as it stands, which is not the same as the one the last save
+  // carried: a save that failed is a keystroke or two behind by the time anyone
+  // asks what the user has.
+  export function getContent(): TiptapDoc | null {
+    const e = editor;
+    return e === null || e.isDestroyed ? null : currentDoc(e);
+  }
+
   // The caller is discarding the user's text for the server's, so a save already
   // scheduled for it has to be dropped rather than flushed.
   export function replaceContent(doc: TiptapDoc | null): void {
