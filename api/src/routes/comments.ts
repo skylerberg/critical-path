@@ -123,9 +123,8 @@ router.post(
       throw err;
     }
 
-    // Notifies nobody today: no mention deliverer is registered.
     await notifyMentions(c, {
-      actorUserId: user.id,
+      actor: user,
       project,
       taskId: task_id,
       source: 'comment',
@@ -185,9 +184,8 @@ router.patch(
       throw new AppError(404, COMMENT_NOT_FOUND);
     }
 
-    // Notifies nobody today: no mention deliverer is registered.
     await notifyMentions(c, {
-      actorUserId: user.id,
+      actor: user,
       project,
       taskId: task_id,
       source: 'comment',

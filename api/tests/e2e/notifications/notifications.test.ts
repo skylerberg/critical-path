@@ -27,8 +27,11 @@ import { logger } from '../../../src/utils/logger';
 import {
   notificationDelivery,
   notify,
+  NOTIFY_COLUMNS,
+  toNotificationSettings,
   type Notification,
 } from '../../../src/services/notifications';
+import type { NotificationSettings } from '../../../src/schemas/index';
 import { createUnsubscribeToken, verifyUnsubscribeToken } from '../../../src/services/emailToken';
 import { MemoryEmailSender, sentEmails, clearSentEmails } from '../../../src/services/email/index';
 import type { EmailMessage } from '../../../src/services/email/types';
@@ -39,23 +42,27 @@ interface BoardPayload {
   columns: Array<{ id: string }>;
 }
 
-interface SettingsBody {
-  task_assigned: boolean;
-  added_to_project: boolean;
-  bulk_task_assigned: boolean;
-}
+const ALL_ON = {
+  task_assigned: true,
+  added_to_project: true,
+  bulk_task_assigned: true,
+  mentioned: true,
+};
 
-async function settingsOf(userId: string): Promise<SettingsBody> {
+const ALL_OFF = {
+  task_assigned: false,
+  added_to_project: false,
+  bulk_task_assigned: false,
+  mentioned: false,
+};
+
+async function settingsOf(userId: string): Promise<NotificationSettings> {
   const row = await db
     .selectFrom('app_user')
-    .select(['notify_task_assigned', 'notify_added_to_project', 'notify_bulk_task_assigned'])
+    .select(NOTIFY_COLUMNS)
     .where('id', '=', userId)
     .executeTakeFirstOrThrow();
-  return {
-    task_assigned: row.notify_task_assigned,
-    added_to_project: row.notify_added_to_project,
-    bulk_task_assigned: row.notify_bulk_task_assigned,
-  };
+  return toNotificationSettings(row);
 }
 
 describe('Notifications', () => {
@@ -181,6 +188,7 @@ describe('Notifications', () => {
         notify_task_assigned: true,
         notify_added_to_project: true,
         notify_bulk_task_assigned: true,
+        notify_mentioned: true,
       })
       .where('id', 'in', [owner.id, member.id, member2.id, unverified.id])
       .execute();
@@ -435,6 +443,100 @@ describe('Notifications', () => {
     });
   });
 
+  describe('mentioned', () => {
+    function mentionDoc(userId: string): Record<string, unknown> {
+      return {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'mention', attrs: { id: userId, label: 'Someone' } }],
+          },
+        ],
+      };
+    }
+
+    async function comment(taskId: string, body: Record<string, unknown>): Promise<void> {
+      const res = await ctx
+        .request(owner.token)
+        .post('/api/comments', { id: newId(), task_id: taskId, body });
+      expect(res.status).toBe(201);
+      await settle();
+    }
+
+    it('mails the person a card description names, with a link to the card', async () => {
+      await grantAccess([member.id]);
+      const task = await createTask(owner.token, { description: mentionDoc(member.id) });
+      await settle();
+
+      const emails = sentEmails();
+      expect(emails).toHaveLength(1);
+      expect(emails[0].to).toBe(member.email);
+      expect(emails[0].subject).toContain('Ship the thing');
+      expect(emails[0].text).toContain('in the description of');
+      expect(emails[0].text).toContain(`${env.appUrlBase}/projects/${projectId}/tasks/${task.id}`);
+    });
+
+    // The card is the finest thing the mail can link to, so the sentence is the
+    // only thing that says a comment is where to look.
+    it('says a comment is where the mention was', async () => {
+      await grantAccess([member.id]);
+      const task = await createTask(owner.token);
+      await comment(task.id, mentionDoc(member.id));
+
+      const emails = sentEmails();
+      expect(emails).toHaveLength(1);
+      expect(emails[0].to).toBe(member.email);
+      expect(emails[0].text).toContain('in a comment on');
+      expect(emails[0].text).toContain(`${env.appUrlBase}/projects/${projectId}/tasks/${task.id}`);
+    });
+
+    it('sends nothing to someone who has switched mentions off', async () => {
+      await grantAccess([member.id]);
+      const off = await ctx
+        .request(member.token)
+        .put('/api/auth/me/notification-settings', { mentioned: false });
+      expect(off.status).toBe(200);
+
+      await createTask(owner.token, { description: mentionDoc(member.id) });
+      await settle();
+
+      expect(sentEmails()).toEqual([]);
+    });
+
+    it('sends nothing to a mentioned person who cannot reach the board', async () => {
+      await createTask(owner.token, { description: mentionDoc(member.id) });
+      await settle();
+
+      expect(sentEmails()).toEqual([]);
+    });
+
+    // A thread that names the same person on the same card all afternoon is one
+    // interruption, not one per message.
+    it('mails once however often one card names the same person', async () => {
+      await grantAccess([member.id]);
+      const task = await createTask(owner.token, { description: mentionDoc(member.id) });
+      await settle();
+      expect(sentEmails()).toHaveLength(1);
+      clearSentEmails();
+
+      await comment(task.id, mentionDoc(member.id));
+      expect(sentEmails()).toEqual([]);
+    });
+
+    it('carries an unsubscribe link that switches mentions off and nothing else', async () => {
+      await grantAccess([member.id]);
+      await createTask(owner.token, { description: mentionDoc(member.id) });
+      await settle();
+
+      const token = unsubscribeTokenIn(sentEmails()[0]);
+      const res = await ctx.request().post('/api/auth/unsubscribe', { token });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ kind: 'mentioned' });
+      expect(await settingsOf(member.id)).toEqual({ ...ALL_ON, mentioned: false });
+    });
+  });
+
   describe('the verified gate', () => {
     it('sends nothing to an unverified recipient but still performs the write', async () => {
       const res = await ctx
@@ -468,48 +570,64 @@ describe('Notifications', () => {
     it('defaults every kind on and round-trips a change', async () => {
       const initial = await ctx.request(member.token).get('/api/auth/me/notification-settings');
       expect(initial.status).toBe(200);
-      expect(await initial.json()).toEqual({
-        task_assigned: true,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await initial.json()).toEqual(ALL_ON);
 
-      const saved = await ctx.request(member.token).put('/api/auth/me/notification-settings', {
-        task_assigned: false,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      const saved = await ctx
+        .request(member.token)
+        .put('/api/auth/me/notification-settings', { ...ALL_ON, task_assigned: false });
       expect(saved.status).toBe(200);
-      expect(await saved.json()).toEqual({
+      expect(await saved.json()).toEqual({ ...ALL_ON, task_assigned: false });
+      expect(await settingsOf(member.id)).toEqual({ ...ALL_ON, task_assigned: false });
+    });
+
+    // A client that predates a kind sends every key it knows and none it does
+    // not, which has to keep working through the release that adds one.
+    it('changes only the keys the body names and returns the whole set', async () => {
+      const saved = await ctx
+        .request(member.token)
+        .put('/api/auth/me/notification-settings', { mentioned: false });
+      expect(saved.status).toBe(200);
+      expect(await saved.json()).toEqual({ ...ALL_ON, mentioned: false });
+
+      const again = await ctx
+        .request(member.token)
+        .put('/api/auth/me/notification-settings', { task_assigned: false });
+      expect(again.status).toBe(200);
+      expect(await again.json()).toEqual({
+        ...ALL_ON,
+        mentioned: false,
         task_assigned: false,
-        added_to_project: true,
-        bulk_task_assigned: true,
       });
       expect(await settingsOf(member.id)).toEqual({
+        ...ALL_ON,
+        mentioned: false,
         task_assigned: false,
-        added_to_project: true,
-        bulk_task_assigned: true,
       });
+    });
+
+    it('treats a body that names nothing as a read', async () => {
+      await ctx
+        .request(member.token)
+        .put('/api/auth/me/notification-settings', { added_to_project: false });
+
+      const empty = await ctx.request(member.token).put('/api/auth/me/notification-settings', {});
+      expect(empty.status).toBe(200);
+      expect(await empty.json()).toEqual({ ...ALL_ON, added_to_project: false });
+      expect(await settingsOf(member.id)).toEqual({ ...ALL_ON, added_to_project: false });
     });
 
     it('requires a bearer token, so no unauthenticated request can switch one on', async () => {
       const read = await ctx.request().get('/api/auth/me/notification-settings');
       expect(read.status).toBe(401);
 
-      const write = await ctx.request().put('/api/auth/me/notification-settings', {
-        task_assigned: true,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      const write = await ctx.request().put('/api/auth/me/notification-settings', ALL_ON);
       expect(write.status).toBe(401);
     });
 
     it('gates each kind independently', async () => {
-      await ctx.request(member.token).put('/api/auth/me/notification-settings', {
-        task_assigned: false,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      await ctx
+        .request(member.token)
+        .put('/api/auth/me/notification-settings', { task_assigned: false });
 
       const add = await ctx
         .request(owner.token)
@@ -536,19 +654,11 @@ describe('Notifications', () => {
       const first = await ctx.request().post('/api/auth/unsubscribe', { token });
       expect(first.status).toBe(200);
       expect(await first.json()).toEqual({ kind: 'task_assigned' });
-      expect(await settingsOf(member.id)).toEqual({
-        task_assigned: false,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(member.id)).toEqual({ ...ALL_ON, task_assigned: false });
 
       const second = await ctx.request().post('/api/auth/unsubscribe', { token });
       expect(second.status).toBe(200);
-      expect(await settingsOf(member.id)).toEqual({
-        task_assigned: false,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(member.id)).toEqual({ ...ALL_ON, task_assigned: false });
     });
 
     it('switches everything off through the all form', async () => {
@@ -556,11 +666,7 @@ describe('Notifications', () => {
 
       const res = await ctx.request().post('/api/auth/unsubscribe/all', { token });
       expect(res.status).toBe(204);
-      expect(await settingsOf(member.id)).toEqual({
-        task_assigned: false,
-        added_to_project: false,
-        bulk_task_assigned: false,
-      });
+      expect(await settingsOf(member.id)).toEqual(ALL_OFF);
     });
 
     it('accepts the form-encoded one-click post a mail client sends', async () => {
@@ -575,11 +681,7 @@ describe('Notifications', () => {
         }
       );
       expect(res.status).toBe(204);
-      expect(await settingsOf(member.id)).toEqual({
-        task_assigned: true,
-        added_to_project: false,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(member.id)).toEqual({ ...ALL_ON, added_to_project: false });
     });
 
     it('answers 422 for a tampered, foreign or missing token without touching anything', async () => {
@@ -595,11 +697,7 @@ describe('Notifications', () => {
       const oneClick = await app.request('/api/auth/unsubscribe/one-click', { method: 'POST' });
       expect(oneClick.status).toBe(422);
 
-      expect(await settingsOf(member.id)).toEqual({
-        task_assigned: true,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(member.id)).toEqual(ALL_ON);
     });
 
     it('never authenticates a session', async () => {
@@ -611,7 +709,7 @@ describe('Notifications', () => {
       // passing for some unrelated reason.
       expect((await ctx.request(member.token).get('/api/auth/me')).status).toBe(200);
 
-      const body = { task_assigned: true, added_to_project: true, bulk_task_assigned: true };
+      const body = ALL_ON;
       expect(
         (await ctx.request(token).put('/api/auth/me/notification-settings', body)).status
       ).toBe(401);
@@ -626,16 +724,8 @@ describe('Notifications', () => {
       const res = await ctx.request().post('/api/auth/unsubscribe/all', { token });
       expect(res.status).toBe(204);
 
-      expect(await settingsOf(member.id)).toEqual({
-        task_assigned: false,
-        added_to_project: false,
-        bulk_task_assigned: false,
-      });
-      expect(await settingsOf(owner.id)).toEqual({
-        task_assigned: true,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(member.id)).toEqual(ALL_OFF);
+      expect(await settingsOf(owner.id)).toEqual(ALL_ON);
     });
 
     // The clause under test only bites on a change that commits between the read
@@ -691,11 +781,7 @@ describe('Notifications', () => {
         db.updateTable('app_user').set({ name: 'Still here' }).where('id', '=', mover.id).execute()
       );
       expect(stayed.status).toBe(200);
-      expect(await settingsOf(mover.id)).toEqual({
-        task_assigned: false,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(mover.id)).toEqual({ ...ALL_ON, task_assigned: false });
 
       await db
         .updateTable('app_user')
@@ -711,11 +797,7 @@ describe('Notifications', () => {
           .execute()
       );
       expect(moved.status).toBe(200);
-      expect(await settingsOf(mover.id)).toEqual({
-        task_assigned: true,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(mover.id)).toEqual(ALL_ON);
     });
 
     it('stops working once the account moves to a different address', async () => {
@@ -734,11 +816,7 @@ describe('Notifications', () => {
       expect(await single.json()).toEqual({ kind: 'task_assigned' });
       const all = await ctx.request().post('/api/auth/unsubscribe/all', { token: stale });
       expect(all.status).toBe(204);
-      expect(await settingsOf(mover.id)).toEqual({
-        task_assigned: true,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(mover.id)).toEqual(ALL_ON);
 
       // The same call with a link naming the address the account is on now, so
       // the no-ops above cannot be passing for an unrelated reason.
@@ -746,11 +824,7 @@ describe('Notifications', () => {
       expect((await ctx.request().post('/api/auth/unsubscribe', { token: fresh })).status).toBe(
         200
       );
-      expect(await settingsOf(mover.id)).toEqual({
-        task_assigned: false,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(mover.id)).toEqual({ ...ALL_ON, task_assigned: false });
     });
   });
 
@@ -796,16 +870,8 @@ describe('Notifications', () => {
         .post('/api/auth/unsubscribe', { token: unsubscribeTokenIn(mine[0]) });
       expect(redeemed.status).toBe(200);
 
-      expect(await settingsOf(member2.id)).toEqual({
-        task_assigned: true,
-        added_to_project: false,
-        bulk_task_assigned: true,
-      });
-      expect(await settingsOf(member.id)).toEqual({
-        task_assigned: true,
-        added_to_project: true,
-        bulk_task_assigned: true,
-      });
+      expect(await settingsOf(member2.id)).toEqual({ ...ALL_ON, added_to_project: false });
+      expect(await settingsOf(member.id)).toEqual(ALL_ON);
     });
   });
 
