@@ -402,7 +402,7 @@ describe('a session that cannot be checked', () => {
   });
 
   // A token stored by a build that predates the cached account has nothing to
-  // carry on as, and guessing would be worse than the old behaviour.
+  // carry on as, and guessing would be worse than the old behavior.
   it('falls back to signed out when there is no remembered account', async () => {
     localStorage.setItem('cp.token', 'tok-stored');
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));

@@ -4,7 +4,7 @@
   // Shown on the surfaces the outbox deliberately does not queue. Stated rather
   // than enforced by disabling every control: reachability is deduced from
   // whether requests get answers, so a brief outage can read as offline, and a
-  // wrong guess that greys out the page is worse than one that warns about it.
+  // wrong guess that grays out the page is worse than one that warns about it.
 </script>
 
 {#if !connectivity.reachable}

@@ -161,7 +161,7 @@
       return;
     }
     // The overlay link ignores modifier clicks and hands them to the browser,
-    // which runs the default action after the whole dispatch — so cancelling it
+    // which runs the default action after the whole dispatch — so canceling it
     // here is what reclaims the gesture.
     if (event.metaKey || event.ctrlKey) {
       event.preventDefault();

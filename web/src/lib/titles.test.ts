@@ -37,7 +37,7 @@ describe('truncateTitle', () => {
     expect(truncateTitle(title)).toBe(title);
   });
 
-  it('honours a caller-supplied limit', () => {
+  it('honors a caller-supplied limit', () => {
     expect(truncateTitle('abcdef', 3)).toBe('abc…');
   });
 });

@@ -301,10 +301,10 @@ describe('Projects', () => {
     expect(router.path).toBe('/');
   });
 
-  it('rails a coloured card and leaves an uncoloured one bare', async () => {
-    const coloured = project({ id: testUuid('p-hue'), name: 'Hued', color: 'fuchsia' });
+  it('rails a colored card and leaves an uncolored one bare', async () => {
+    const colored = project({ id: testUuid('p-hue'), name: 'Hued', color: 'fuchsia' });
     fetchMock.mockImplementation(async () =>
-      jsonResponse(200, { projects: [activeProject, coloured] })
+      jsonResponse(200, { projects: [activeProject, colored] })
     );
     render(Projects);
 
@@ -315,7 +315,7 @@ describe('Projects', () => {
     ).toBeNull();
   });
 
-  it('sets a colour from the card menu and rails the card without a refetch', async () => {
+  it('sets a color from the card menu and rails the card without a refetch', async () => {
     mockApi((request) =>
       request.method === 'PATCH'
         ? jsonResponse(200, { ...activeProject, color: 'lime' })
@@ -324,7 +324,7 @@ describe('Projects', () => {
     render(Projects);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Alpha' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Board colour' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Board color' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Lime' }));
 
     const patch = await waitFor(() => {
@@ -366,7 +366,7 @@ describe('Projects', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Ada Game' }));
 
     expect(screen.queryByRole('menuitem', { name: 'Delete' })).toBeNull();
-    for (const name of ['Rename', 'Board colour', 'Copy', 'Share', 'Archive']) {
+    for (const name of ['Rename', 'Board color', 'Copy', 'Share', 'Archive']) {
       expect(screen.getByRole('menuitem', { name })).toBeInTheDocument();
     }
   });
@@ -491,7 +491,7 @@ describe('Projects card menu for a viewer', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for Ada Game' }));
 
-    for (const name of ['Rename', 'Board colour', 'Archive', 'Delete']) {
+    for (const name of ['Rename', 'Board color', 'Archive', 'Delete']) {
       expect(screen.queryByRole('menuitem', { name })).toBeNull();
     }
     for (const name of ['Copy', 'Share']) {

@@ -153,7 +153,7 @@ describe('CardMenu', () => {
     expect(hintFor('Archive')).toBeNull();
   });
 
-  // Greying a row out would still leave it in the tab order for a viewer to land on.
+  // Graying a row out would still leave it in the tab order for a viewer to land on.
   it('leaves a viewer only what a viewer can do', () => {
     open(false);
 

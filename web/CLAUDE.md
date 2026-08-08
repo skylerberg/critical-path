@@ -43,7 +43,7 @@ absolute path of the api worktree holding the change:
 API_REPO_DIR=~/.worktrees/critical-path-api/<branch> npm run generate:api
 ```
 
-It is a lookup path only — generated headers are always labelled
+It is a lookup path only — generated headers are always labeled
 `critical-path-api/<file>`, so an override cannot record one machine's checkout
 in a committed file. Expect it to refuse until that worktree is itself current
 with `origin/main`. `RealtimeEvent` in

@@ -19,7 +19,7 @@ function open(onclose = vi.fn()): {
 }
 
 describe('Popover', () => {
-  it('renders a labelled panel holding its body', () => {
+  it('renders a labeled panel holding its body', () => {
     const { panel } = open();
     expect(panel).toContainElement(screen.getByLabelText('Filter'));
   });

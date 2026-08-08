@@ -27,7 +27,7 @@ describe('presetLabel', () => {
     );
   });
 
-  it('counts the weekday ordinal and recognises the last one', () => {
+  it('counts the weekday ordinal and recognizes the last one', () => {
     expect(presetLabel('monthly_weekday', '2026-01-06')).toBe('Monthly on the 1st Tuesday');
     expect(presetLabel('monthly_weekday', '2026-01-13')).toBe('Monthly on the 2nd Tuesday');
     expect(presetLabel('monthly_weekday', '2026-01-20')).toBe('Monthly on the 3rd Tuesday');

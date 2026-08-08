@@ -124,7 +124,7 @@
 {#snippet action(kind: BulkMenu, label: string, icon: Snippet)}
   <button type="button" onclick={() => (shortcuts.bulkMenu = kind)} class={buttonClass}>
     {@render icon()}
-    <!-- Named on every size, drawn only where four labelled buttons and the count
+    <!-- Named on every size, drawn only where four labeled buttons and the count
          fit on one row. -->
     <span class="sr-only sm:not-sr-only">{label}</span>
   </button>

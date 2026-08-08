@@ -30,7 +30,7 @@ describe('project accent palette', () => {
     }
   });
 
-  // The accent is fill only — never a text colour and never drawn on — so 3:1 is
+  // The accent is fill only — never a text color and never drawn on — so 3:1 is
   // the whole bar. Several entries fall under the 4.5:1 text threshold, which is
   // why nothing may be written on top of one.
   it('clears 3:1 against every background it is drawn on, in both themes', () => {
@@ -56,7 +56,7 @@ describe('project accent palette', () => {
   });
 
   // Undefined is the drag placeholder, null is every board that has never been
-  // coloured, and an unknown key is a newer release's palette entry.
+  // colored, and an unknown key is a newer release's palette entry.
   it('resolves undefined, null and an unknown key to nothing', () => {
     expect(accentVar(undefined)).toBeNull();
     expect(accentVar(null)).toBeNull();

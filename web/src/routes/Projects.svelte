@@ -167,7 +167,7 @@
             class={menuItemClass}
             onclick={() => openColor(project)}
           >
-            Board colour
+            Board color
           </button>
         {/if}
         <!-- A copy is a read of the source plus a new project of the caller's own,

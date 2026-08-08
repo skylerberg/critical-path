@@ -253,7 +253,7 @@ describe('matchRoute', () => {
   // went alias-only and every assignment email started landing on not-found.
   //
   // A path removed here without being removed there is dead mail. Deleting a
-  // case is a decision to stop honouring a link that is already in inboxes.
+  // case is a decision to stop honoring a link that is already in inboxes.
   it('routes every path the API puts in an email', () => {
     const emailed = [
       ['project', `/projects/${PROJECT_ID}`, ''],

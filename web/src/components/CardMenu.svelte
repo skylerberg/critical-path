@@ -215,7 +215,7 @@
       case 'Escape':
         cardMenu.close({ restoreFocus: true });
         break;
-      // Anchors have no Space activation of their own, and cancelling the key is
+      // Anchors have no Space activation of their own, and canceling the key is
       // what keeps a button from firing a second time on keyup. Clicking rather
       // than calling the action: a link row does its work through its anchor.
       case ' ':

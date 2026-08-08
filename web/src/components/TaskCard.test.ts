@@ -52,7 +52,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// Relative to the real today, so the colour bands stay meaningful as time passes.
+// Relative to the real today, so the color bands stay meaningful as time passes.
 function dueIn(days: number): BoardTask {
   const date = new Date();
   date.setDate(date.getDate() + days);
@@ -632,13 +632,13 @@ describe('TaskCard', () => {
       expect(document.querySelector('.z-10')).toBeNull();
     });
 
-    it('colours a past date as overdue', () => {
+    it('colors a past date as overdue', () => {
       render(TaskCard, { task: dueIn(-2), projectId: PROJECT_ID });
 
       expect(pill().className).toContain('text-danger');
     });
 
-    it('colours today and tomorrow as due soon, with relative wording', () => {
+    it('colors today and tomorrow as due soon, with relative wording', () => {
       const { unmount } = render(TaskCard, { task: dueIn(0), projectId: PROJECT_ID });
       expect(pill()).toHaveTextContent('Today');
       expect(pill().className).toContain('text-warning');

@@ -61,7 +61,7 @@
       if (err instanceof ApiError && err.status === 401) {
         // Two different 401s land here — a wrong password and a dead session —
         // and this route is exempt from the global logout handler, so an
-        // unrecognised message must clear the session or it never can.
+        // unrecognized message must clear the session or it never can.
         if (err.message === 'Password is incorrect') {
           error = 'Incorrect password';
         } else {

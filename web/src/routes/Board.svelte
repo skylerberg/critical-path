@@ -116,7 +116,7 @@
   // svelte-dnd-action drives a keyboard drag by focusing the moved element after
   // every arrow press, so the board already follows it. Dropping snap for one
   // only means re-arming it afterwards wherever that focus left the scroll, which
-  // a mandatory-snap container resolves with a jump to a neighbouring column.
+  // a mandatory-snap container resolves with a jump to a neighboring column.
   let keyboardDragging = $state(false);
   let dragOrigin: { columnId: string; index: number } | null = null;
   let columnDragOrigin: number | null = null;
@@ -404,7 +404,7 @@
       // The shortcut can name a column nowhere near the viewport, so something has
       // to reveal it — but not focus(), which scrolls to wherever the input sits
       // and leaves a mandatory-snap board between two snap points, free to resolve
-      // onto a neighbour. This is the slide a pointer drop uses: it lands on the
+      // onto a neighbor. This is the slide a pointer drop uses: it lands on the
       // snap position and is a no-op for a column already fully visible.
       centeringTarget = columnId;
       const host = document.querySelector(`[data-quick-add="${CSS.escape(columnId)}"]`);

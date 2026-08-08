@@ -251,7 +251,7 @@ describe('projects store', () => {
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
   });
 
-  it('sets a colour optimistically and PATCHes the key', async () => {
+  it('sets a color optimistically and PATCHes the key', async () => {
     const item = project();
     await loadWith([item]);
     fetchMock.mockImplementation(async () =>
@@ -269,7 +269,7 @@ describe('projects store', () => {
     expect(projects.projects[0]!.color).toBe('sky');
   });
 
-  it('clears a colour by sending an explicit null', async () => {
+  it('clears a color by sending an explicit null', async () => {
     const item = project({ color: 'sky' });
     await loadWith([item]);
     fetchMock.mockImplementation(async () =>
@@ -285,7 +285,7 @@ describe('projects store', () => {
     expect(projects.projects[0]!.color).toBeNull();
   });
 
-  it('toasts and refetches when a colour change fails', async () => {
+  it('toasts and refetches when a color change fails', async () => {
     const item = project({ color: 'sky' });
     await loadWith([item]);
     fetchMock.mockImplementation(async (input) => {
@@ -316,7 +316,7 @@ describe('projects store', () => {
     await projects.setColor('p-1', 'rose');
 
     expect(projects.projects[0]!.color).toBeNull();
-    expect(toasts.toasts.map((t) => t.message)).toEqual(['Failed to update board colour']);
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['Failed to update board color']);
   });
 
   it('removes optimistically and sends the DELETE', async () => {

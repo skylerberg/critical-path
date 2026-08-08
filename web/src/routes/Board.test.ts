@@ -351,7 +351,7 @@ describe('Board readonly', () => {
 
 describe('Board snapping', () => {
   // Centered on phones so a swipe leaves the column you landed on between two
-  // peeking neighbours; start-aligned from md up, where the columns are capped at
+  // peeking neighbors; start-aligned from md up, where the columns are capped at
   // 288px and centering one would strand it in a field of padding.
   //
   // Centering only works because the track carries side padding of half the
@@ -1066,7 +1066,7 @@ describe('Board column drops', () => {
 // layout change, or a second swipe chained onto the first.
 describe('Board swipe pagination', () => {
   // `centered` is the snap-target index sitting under the board's midpoint; moving
-  // it and firing scrollend is how a settled scroll is modelled without any layout.
+  // it and firing scrollend is how a settled scroll is modeled without any layout.
   let centered = 0;
 
   function stubGeometry(): void {
@@ -1101,7 +1101,7 @@ describe('Board swipe pagination', () => {
 
   // jsdom applies no stylesheet, so it computes `scroll-snap-type: none` for
   // everything — which is exactly what the guardrail treats as "desktop, leave it
-  // alone". Every case has to say which of the two it is modelling.
+  // alone". Every case has to say which of the two it is modeling.
   function setSnapType(value: string): void {
     const real = window.getComputedStyle;
     vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) =>
@@ -1245,7 +1245,7 @@ describe('Board swipe pagination', () => {
 // The shortcut can name a column nowhere near the viewport, so something must
 // reveal it — but not focus(), which scrolls to wherever the input happens to sit
 // and leaves a mandatory-snap board between two snap points, free to resolve onto
-// a neighbour. The reveal goes through the same snap-aware slide a pointer drop uses.
+// a neighbor. The reveal goes through the same snap-aware slide a pointer drop uses.
 describe('Board quick-add shortcut', () => {
   afterEach(() => {
     shortcuts.quickAddColumn = null;

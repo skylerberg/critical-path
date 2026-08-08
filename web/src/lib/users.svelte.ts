@@ -112,13 +112,13 @@ class UsersStore {
   }
 
   loadWithRetry(onFirstError: () => void): () => void {
-    let cancelled = false;
+    let canceled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let delay = 2000;
     let errored = false;
     const attempt = (): void => {
       void this.load().catch(() => {
-        if (cancelled) {
+        if (canceled) {
           return;
         }
         if (!errored) {
@@ -131,7 +131,7 @@ class UsersStore {
     };
     attempt();
     return () => {
-      cancelled = true;
+      canceled = true;
       clearTimeout(timer);
     };
   }

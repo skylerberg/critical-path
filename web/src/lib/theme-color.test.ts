@@ -96,7 +96,7 @@ describe('ThemeColor', () => {
     }
   });
 
-  it('hands the app accent back once a board colour is cleared', () => {
+  it('hands the app accent back once a board color is cleared', () => {
     const themeColor = start();
 
     themeColor.set('amber');
@@ -107,7 +107,7 @@ describe('ThemeColor', () => {
   });
 
   // Undefined is the drag placeholder; an unknown key is a newer release's palette.
-  it('falls back to the app accent for a colour it has no token for', () => {
+  it('falls back to the app accent for a color it has no token for', () => {
     const themeColor = start();
 
     themeColor.set('chartreuse');
@@ -146,7 +146,7 @@ describe('ThemeColor', () => {
     expect(removed).toHaveLength(0);
   });
 
-  it('keeps one listener across a change of colour', () => {
+  it('keeps one listener across a change of color', () => {
     const themeColor = start();
 
     themeColor.set('sky');
@@ -178,7 +178,7 @@ describe('ThemeColor', () => {
     expect(meta!.content).toBe('#123456');
   });
 
-  it("keeps the document's own colour when a token resolves to nothing", () => {
+  it("keeps the document's own color when a token resolves to nothing", () => {
     vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '' }));
 
     start().set('amber');
@@ -203,9 +203,9 @@ describe('ThemeColor', () => {
 });
 
 // The manifest is precached by the service worker and read at install time, so
-// its colour cannot follow a board or a scheme the way the meta tag does. Both
+// its color cannot follow a board or a scheme the way the meta tag does. Both
 // duplicate app.css by hand instead; these pin the copies to the source.
-describe('the chrome colours shipped ahead of the stylesheet', () => {
+describe('the chrome colors shipped ahead of the stylesheet', () => {
   const root = resolve(import.meta.dirname, '../..');
   const indexHtml = readFileSync(resolve(root, 'index.html'), 'utf8');
   const viteConfig = readFileSync(resolve(root, 'vite.config.ts'), 'utf8');

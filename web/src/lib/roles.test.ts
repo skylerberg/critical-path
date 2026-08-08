@@ -35,7 +35,7 @@ describe('roleFor', () => {
     expect(canEditProject(item, 'u-other')).toBe(true);
   });
 
-  it('treats an unrecognised role as a viewer', () => {
+  it('treats an unrecognized role as a viewer', () => {
     const item = project({
       created_by: 'u-owner',
       member_ids: ['u-me'],

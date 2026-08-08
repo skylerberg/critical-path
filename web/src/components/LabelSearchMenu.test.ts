@@ -71,7 +71,7 @@ describe('LabelSearchMenu', () => {
 
     const created = board.labels.find((label) => label.name === 'shaders');
     expect(created).toBeDefined();
-    // Auto color cycles the 10-colour palette by existing-label count (2 => index 2).
+    // Auto color cycles the 10-color palette by existing-label count (2 => index 2).
     expect(created?.color).toBe('#eab308');
     await waitFor(() => {
       expect(board.tasks.find((t) => t.id === 't1')?.label_ids).toContain(created!.id);

@@ -82,7 +82,7 @@
     return highlightedKey === null ? 0 : rows.findIndex((row) => row.key === highlightedKey);
   });
 
-  // Two people sharing a name render identically down to the avatar colour, and
+  // Two people sharing a name render identically down to the avatar color, and
   // picking the wrong one grants board access to a stranger. Scoped to every
   // visible row, not to one group: a colleague and a stranger sharing a name is
   // the case the group headings disguise rather than resolve.

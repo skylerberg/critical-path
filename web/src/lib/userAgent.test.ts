@@ -67,7 +67,7 @@ describe('describeDevice', () => {
     ).toBe('Chrome on Android');
   });
 
-  it('names whichever half it recognises when it cannot recognise both', () => {
+  it('names whichever half it recognizes when it cannot recognize both', () => {
     expect(describeDevice('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')).toBe('Windows');
     expect(describeDevice('Chrome/124.0.0.0')).toBe('Chrome');
   });

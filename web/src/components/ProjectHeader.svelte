@@ -59,7 +59,7 @@
   // payload's copy only refreshes on a board fetch, so it is the fallback.
   const isPublic = $derived(listed?.is_public ?? board.project?.is_public ?? false);
 
-  // Not `??` off the list entry: null is a colour the user can choose, and
+  // Not `??` off the list entry: null is a color the user can choose, and
   // coalescing it would fall through to a stale board payload and never clear.
   const accent: ProjectAccent | null = $derived(
     listed !== undefined ? listed.color : (board.project?.color ?? null)
@@ -71,7 +71,7 @@
   });
 
   // Not the effect's own teardown, which also runs before every re-run: moving
-  // between two colours would repaint the default in between.
+  // between two colors would repaint the default in between.
   onDestroy(() => themeColor.reset());
 
   const menuItemClass =
@@ -204,7 +204,7 @@
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
               </svg>
-              Board colour
+              Board color
             </button>
           {/if}
           <button

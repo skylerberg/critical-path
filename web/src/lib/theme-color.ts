@@ -2,7 +2,7 @@ import { accentProperty } from './accents';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
-// The chrome colour with no board open. A token rather than a literal, so the
+// The chrome color with no board open. A token rather than a literal, so the
 // address bar follows the scheme the way every other surface does.
 const DEFAULT_PROPERTY = '--cp-accent';
 

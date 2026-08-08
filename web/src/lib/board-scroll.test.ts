@@ -137,7 +137,7 @@ describe('snapScrollLeft (center-aligned)', () => {
 });
 
 // Every guard here exists to make the fallback refuse. It has no true positives on
-// any engine that also has `scrollend` — Safari honoured scroll-snap-stop from 15,
+// any engine that also has `scrollend` — Safari honored scroll-snap-stop from 15,
 // and only got scrollend in 26.2 — so refusing costs nothing and every correction
 // it makes on a scroll it did not fully witness is a false positive.
 describe('overshootTarget', () => {

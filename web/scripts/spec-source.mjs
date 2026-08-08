@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-// The api repo's name, and what generated output is labelled with. A constant
+// The api repo's name, and what generated output is labeled with. A constant
 // rather than whatever directory supplied the document: a worktree's directory is
 // named for its branch and an API_REPO_DIR override is one machine's path, and
 // neither belongs in the header of a committed file.
@@ -159,7 +159,7 @@ async function assertIsFresh(path, { redumped }) {
  * network whenever one is present.
  */
 export async function loadDocument({ filename, urlPath, path, url }) {
-  // Labelled by repo-relative name rather than the path it was read from, so the
+  // Labeled by repo-relative name rather than the path it was read from, so the
   // header of a committed generated file does not record one machine's checkout.
   const label = `${API_REPO_NAME}/${filename}`;
   if (path) {

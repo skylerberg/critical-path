@@ -143,7 +143,7 @@ describe('Nav sidebar', () => {
     expect(screen.queryByRole('link', { name: 'Archived' })).toBeNull();
   });
 
-  it('dots a coloured board and leaves an uncoloured one bare', () => {
+  it('dots a colored board and leaves an uncolored one bare', () => {
     projects.projects = [
       project({ id: SOLO_ID, name: 'Solo Game', color: 'rose' }),
       project({ id: TEAM_ID, name: 'Team Game', created_at: '2026-01-02T00:00:00.000Z' }),
@@ -162,7 +162,7 @@ describe('Nav sidebar', () => {
 
   // Worst case for the placeholder: an item carrying nothing but an id, which is
   // what an indexed palette lookup dies on — and the death lands mid-drag.
-  it('survives a drag placeholder that carries no colour at all', async () => {
+  it('survives a drag placeholder that carries no color at all', async () => {
     projects.projects = [
       project({ id: A_ID, name: 'A', sort_key: 'V0000010001', color: 'sky' }),
       project({ id: B_ID, name: 'B', rank: 2000 }),

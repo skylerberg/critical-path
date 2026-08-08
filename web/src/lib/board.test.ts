@@ -2798,19 +2798,19 @@ describe('applyRealtime project_updated', () => {
     expect(board.project?.members).toEqual([{ user_id: 'u-me', role: 'viewer' }]);
   });
 
-  it("adopts a teammate's colour change", () => {
+  it("adopts a teammate's color change", () => {
     board.applyRealtime(realtimeEvent('project_updated', { id: 'p1', color: 'sky' }, 'p1'));
 
     expect(board.project?.color).toBe('sky');
   });
 
-  it('clears the colour when the event carries an explicit null', () => {
+  it('clears the color when the event carries an explicit null', () => {
     board.applyRealtime(realtimeEvent('project_updated', { id: 'p1', color: null }, 'p1'));
 
     expect(board.project?.color).toBeNull();
   });
 
-  it('keeps the colour when the event has no colour at all', () => {
+  it('keeps the color when the event has no color at all', () => {
     board.applyRealtime(realtimeEvent('project_updated', { id: 'p1', name: 'Renamed' }, 'p1'));
 
     expect(board.project?.color).toBe('amber');
@@ -3534,7 +3534,7 @@ describe('placementAfterDrop', () => {
 
   // Two rows can share a key until the unique index lands. The drop still has
   // to rank strictly between the card above it and the next one along.
-  it('ranks between the neighbours when two of them share a key', () => {
+  it('ranks between the neighbors when two of them share a key', () => {
     const items = [
       { id: 'a', sort_key: 'V2' },
       { id: 'm', sort_key: 'V9' },
