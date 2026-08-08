@@ -5,7 +5,7 @@ import { logger } from '../../utils/logger';
 import { enqueueDeliveries } from '../webhooks/queue';
 import { carriesActor, eventScope, raisesUnseenDot } from './eventCatalog';
 import type {
-  DispatchedEventType,
+  AutoDispatchedEventType,
   NamedRecipientEventType,
   ProjectEventType,
   RealtimeEventType,
@@ -118,11 +118,11 @@ export function resetBus(): void {
 // the event type so `data` is checked against that type's row in
 // REALTIME_PAYLOAD_SCHEMAS rather than accepted as unknown.
 //
-// The account half is split again by the catalogue's delivery column, because
+// The account half is split again by the catalogue's dispatch column, because
 // the two kinds have opposite requirements and the failure is silent either
 // way: a namedRecipients type published without a recipient list falls through
-// to deliverProjectScoped and is dropped on the null project id, while a
-// dispatched type published *with* one would take the exact-recipient shortcut
+// to deliverProjectScoped and is dropped on the null project id, while an
+// auto-dispatched type published *with* one would take the exact-recipient shortcut
 // and bypass the branch that is supposed to decide its audience.
 export function publishAfterCommit<T extends NamedRecipientEventType>(
   c: Pick<PublicContext, 'get'>,
@@ -131,7 +131,7 @@ export function publishAfterCommit<T extends NamedRecipientEventType>(
   data: CallerPayload<T>,
   opts: NamedRecipientOptions
 ): void;
-export function publishAfterCommit<T extends DispatchedEventType>(
+export function publishAfterCommit<T extends AutoDispatchedEventType>(
   c: Pick<PublicContext, 'get'>,
   type: T,
   projectId: null,

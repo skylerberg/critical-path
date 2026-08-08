@@ -17,9 +17,13 @@
 // whose audience the publish site knows, and publishAfterCommit's overloads
 // require exactly that kind to carry `recipientUserIds`; the other two are
 // answered by a dedicated branch and take no publish options at all.
+//
+// Named for which branch claims the entry rather than for delivery, because
+// `intercepted` is precisely the value that is never delivered: handleBusEntry
+// takes it before deliver() is reached.
 type AccountEvent = {
   scope: 'account';
-  delivery:
+  dispatch:
     | 'namedRecipients' // deliver() → the exact-recipient shortcut
     | 'projectSharers' // deliver() → deliverUserUpdated
     | 'intercepted'; // handleBusEntry closes sockets; never delivered
@@ -205,11 +209,11 @@ const EVENTS = {
   series_updated: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },
   series_deleted: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },
 
-  sessions_revoked: { scope: 'account', delivery: 'intercepted' },
-  user_updated: { scope: 'account', delivery: 'projectSharers' },
+  sessions_revoked: { scope: 'account', dispatch: 'intercepted' },
+  user_updated: { scope: 'account', dispatch: 'projectSharers' },
   // Self-only: the payload is the subject's own record, address included, so
   // every publisher has to name them.
-  account_updated: { scope: 'account', delivery: 'namedRecipients' },
+  account_updated: { scope: 'account', dispatch: 'namedRecipients' },
 } as const satisfies Record<string, AccountEvent | ProjectEvent>;
 
 export type RealtimeEventType = keyof typeof EVENTS;
@@ -221,25 +225,25 @@ type OfScope<S extends 'account' | 'project'> = {
 export type AccountEventType = OfScope<'account'>;
 export type ProjectEventType = OfScope<'project'>;
 
-type OfDelivery<D extends AccountEvent['delivery']> = {
-  [K in AccountEventType]: (typeof EVENTS)[K] extends { delivery: D } ? K : never;
+type OfDispatch<D extends AccountEvent['dispatch']> = {
+  [K in AccountEventType]: (typeof EVENTS)[K] extends { dispatch: D } ? K : never;
 }[AccountEventType];
 
 // The account types whose audience only the publish site knows. Split out so
 // publishAfterCommit can demand `recipientUserIds` from exactly these and
 // refuse it from the rest, rather than accepting a publish that would reach
 // nobody.
-export type NamedRecipientEventType = OfDelivery<'namedRecipients'>;
+export type NamedRecipientEventType = OfDispatch<'namedRecipients'>;
 
 // The rest, whose audience a branch decides, so their publish sites pass no
 // options at all. Spelled as the union of the two values rather than as
 // `Exclude<AccountEventType, NamedRecipientEventType>`: an Exclude sweeps in
-// whatever it does not recognise, so a fourth delivery value would land here
+// whatever it does not recognise, so a fourth dispatch value would land here
 // silently and be allowed to publish with no audience — the exact fail-open
 // this column exists to prevent, one level up. Listed by value, a new value
 // matches neither overload and its publish sites do not compile until someone
 // says which kind it is.
-export type DispatchedEventType = OfDelivery<'projectSharers' | 'intercepted'>;
+export type AutoDispatchedEventType = OfDispatch<'projectSharers' | 'intercepted'>;
 
 export type WebhookEventType = {
   [K in ProjectEventType]: (typeof EVENTS)[K] extends { webhook: true } ? K : never;
