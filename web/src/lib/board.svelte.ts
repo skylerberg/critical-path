@@ -31,6 +31,7 @@ import { canEditProject } from './roles';
 import { router, splitPath } from './router.svelte';
 import { projects } from './projects.svelte';
 import { session } from './session.svelte';
+import { crossProjectDeps } from './crossProjectDeps.svelte';
 import { taskActivity } from './taskActivity.svelte';
 import { truncateTitle } from './titles';
 import { toasts } from './toasts.svelte';
@@ -1259,7 +1260,7 @@ class BoardStore {
               label_ids: relations.label_ids,
               assignee_ids: relations.assignee_ids,
               blocker_ids: relations.blocker_ids,
-              open_cross_project_blocker_count: 0,
+              open_cross_project_blocker_count: relations.open_cross_project_blocker_count,
             };
       });
       // Only the cards that actually changed come back, so a short list is
@@ -1415,7 +1416,10 @@ class BoardStore {
     const { nodes, edges } = buildGraph(next, this.columns);
     const onCycle = cycleNodeIds(nodes, edges);
     if (onCycle.size > 0) {
-      const titleById = new Map(nodes.map((node) => [node.id, node.title]));
+      // Only local cards can be on a loop this check sees: the default expansion
+      // emits no cross-project nodes, and they carry no outgoing edge anyway.
+      const taskNodes = nodes.filter((node) => node.kind === 'task');
+      const titleById = new Map(taskNodes.map((node) => [node.id, node.title]));
       const steps = cyclePathIds(edges, taskId, blockerTaskId).map((id) => ({
         id,
         title: titleById.get(id) ?? '',
@@ -1423,11 +1427,11 @@ class BoardStore {
       // A done task on the loop is one the graph may not be drawing, so the edge
       // that makes this a cycle can be nowhere on screen. `onCycle` also holds
       // everything downstream of the loop, so it only answers when nothing named it.
-      const doneIds = new Set(nodes.filter((node) => node.isDone).map((node) => node.id));
+      const doneIds = new Set(taskNodes.filter((node) => node.isDone).map((node) => node.id));
       const throughDone =
         steps.length > 0
           ? steps.some((step) => doneIds.has(step.id))
-          : nodes.some((node) => onCycle.has(node.id) && node.isDone);
+          : taskNodes.some((node) => onCycle.has(node.id) && node.isDone);
       if (steps.length > 0) {
         this.#showCyclePath(steps);
       }
@@ -2148,11 +2152,28 @@ class BoardStore {
                 label_ids: d.label_ids,
                 assignee_ids: d.assignee_ids,
                 blocker_ids: d.blocker_ids,
-                open_cross_project_blocker_count: 0,
+                open_cross_project_blocker_count: d.open_cross_project_blocker_count,
               }
             : t
         );
         taskActivity.invalidate(d.task_id);
+        crossProjectDeps.invalidate(d.task_id);
+        break;
+      }
+      // The far side of an edge changing done state reaches this board as a
+      // recount and nothing else — it names no card here, and the card it is
+      // about may be one this viewer cannot see.
+      case 'cross_project_blockers_changed': {
+        const incoming = new Map(
+          event.data.tasks.map((t) => [t.task_id, t.open_cross_project_blocker_count])
+        );
+        this.tasks = this.tasks.map((t) => {
+          const count = incoming.get(t.id);
+          return count === undefined ? t : { ...t, open_cross_project_blocker_count: count };
+        });
+        for (const task of event.data.tasks) {
+          crossProjectDeps.invalidate(task.task_id);
+        }
         break;
       }
       case 'column_created':
@@ -2232,11 +2253,12 @@ class BoardStore {
                 label_ids: relations.label_ids,
                 assignee_ids: relations.assignee_ids,
                 blocker_ids: relations.blocker_ids,
-                open_cross_project_blocker_count: 0,
+                open_cross_project_blocker_count: relations.open_cross_project_blocker_count,
               };
         });
         for (const task of d.tasks) {
           taskActivity.invalidate(task.task_id);
+          crossProjectDeps.invalidate(task.task_id);
         }
         break;
       }

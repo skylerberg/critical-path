@@ -7,9 +7,11 @@
   import { append } from '../lib/positions';
   import { router } from '../lib/router.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
+  import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
   import { taskActivity } from '../lib/taskActivity.svelte';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
   import AssigneePicker from './AssigneePicker.svelte';
+  import DependencyList from './DependencyList.svelte';
   import DependencyPicker from './DependencyPicker.svelte';
   import DueDatePicker from './DueDatePicker.svelte';
   import LabelPicker from './LabelPicker.svelte';
@@ -18,6 +20,7 @@
   import TaskAttachments from './TaskAttachments.svelte';
   import TaskChecklist from './TaskChecklist.svelte';
   import Announcer from './ui/Announcer.svelte';
+  import { announcer } from '../lib/announcer.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
 
@@ -39,9 +42,11 @@
   const doneColumnIds = $derived(board.doneColumnIds);
   const blockers = $derived((task?.blocker_ids ?? []).flatMap((id) => taskById.get(id) ?? []));
   const openBlockerCount = $derived(
-    blockers.filter((blocker) => !doneColumnIds.has(blocker.column_id)).length
+    blockers.filter((blocker) => !doneColumnIds.has(blocker.column_id)).length +
+      (task?.open_cross_project_blocker_count ?? 0)
   );
   const dependents = $derived(board.tasks.filter((t) => t.blocker_ids.includes(taskId)));
+
   const columnName = $derived(board.columns.find((c) => c.id === task?.column_id)?.name ?? '');
   const seriesSummary = $derived(board.taskSeriesSummaries[taskId] ?? null);
   const mentionUsers = $derived(currentProjectMentionCandidates());
@@ -49,6 +54,23 @@
   // stream, the history and the timestamps; a public reader has none of that and
   // is served a payload whose identity and timestamp fields are placeholders.
   const anonymous = $derived(board.readonly);
+
+  const crossEntry = $derived(crossProjectDeps.get(taskId));
+  const cross = $derived(crossEntry?.deps ?? null);
+  // The same idiom as TaskAttachments: the card already knows how many rows are
+  // coming, so the list can reserve them before the fetch answers. The count is
+  // of open blocked-by edges only, so a task whose cross-project edges are all
+  // done, or all outgoing, reserves nothing and simply fills in — which is why
+  // the fetch itself is never gated on it.
+  const crossPending = $derived(cross === null && !anonymous);
+  const crossSkeletons = $derived(crossPending ? (task?.open_cross_project_blocker_count ?? 0) : 0);
+  const crossBlockedByCount = $derived(
+    cross === null ? crossSkeletons : cross.blocked_by.length + cross.hidden_blocked_by_count
+  );
+  const crossBlockingCount = $derived(
+    cross === null ? 0 : cross.blocking.length + cross.hidden_blocking_count
+  );
+  const crossTotal = $derived(crossBlockedByCount + crossBlockingCount);
 
   let dialog = $state<HTMLDialogElement>();
   let removing = $state(false);
@@ -87,7 +109,31 @@
         board.clearChanged(id);
         void board.loadTaskDetail(id);
         void taskActivity.load(id);
+        // refresh, not ensure: a remote task changes on its own project's
+        // channel, which this client does not subscribe to, so reopening the
+        // panel is the moment to revalidate. Cached rows stay painted while it
+        // runs, so the skeleton only ever shows on a cold open.
+        crossProjectDeps.refresh(id);
+        announcedCrossFor = null;
       }
+    });
+  });
+
+  // Rows swapping in for skeletons is a silent change otherwise. Announced once
+  // per open and from here rather than from either list, so the two sections
+  // cannot race for the announcer's single message.
+  let announcedCrossFor = $state<string | null>(null);
+  $effect(() => {
+    const id = taskId;
+    const ready = cross !== null;
+    const total = crossTotal;
+    untrack(() => {
+      if (!ready || announcedCrossFor === id) return;
+      announcedCrossFor = id;
+      if (total === 0) return;
+      void announcer.announce(
+        `${total} ${total === 1 ? 'dependency' : 'dependencies'} in other projects loaded`
+      );
     });
   });
 
@@ -383,7 +429,7 @@
         </section>
       {/if}
 
-      {#if !readonly || blockers.length > 0}
+      {#if !readonly || blockers.length > 0 || crossBlockedByCount > 0}
         <section class="flex flex-col gap-2">
           <div class="flex items-center gap-2">
             <h3 class="text-sm font-semibold text-muted">Blocked by</h3>
@@ -393,30 +439,28 @@
               </Badge>
             {/if}
           </div>
-          {#if blockers.length > 0}
-            <ul class="flex flex-col">
-              {#each blockers as blocker (blocker.id)}
-                <li class="flex min-h-11 items-center gap-2">
-                  <span
-                    class="min-w-0 flex-1 truncate text-sm {doneColumnIds.has(blocker.column_id)
-                      ? 'text-muted line-through'
-                      : ''}"
-                  >
-                    {truncateTitle(blocker.title)}
-                  </span>
-                  {#if !readonly}
-                    <button
-                      type="button"
-                      aria-label="Remove blocking task {truncateTitle(blocker.title)}"
-                      onclick={() => void board.removeBlocker(taskId, blocker.id)}
-                      class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
-                    >
-                      Remove
-                    </button>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
+          <DependencyList
+            {taskId}
+            direction="blocker"
+            local={blockers}
+            remote={cross?.blocked_by ?? []}
+            hiddenCount={cross?.hidden_blocked_by_count ?? 0}
+            skeletonCount={crossSkeletons}
+            loading={crossPending}
+            {doneColumnIds}
+            {readonly}
+          />
+          {#if crossEntry?.error === true}
+            <p class="text-sm text-muted">
+              Dependencies in other projects could not be loaded.
+              <button
+                type="button"
+                onclick={() => crossProjectDeps.refresh(taskId)}
+                class="cursor-pointer underline focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                Try again
+              </button>
+            </p>
           {/if}
           {#if !readonly}
             <DependencyPicker {taskId} direction="blocker" />
@@ -424,34 +468,20 @@
         </section>
       {/if}
 
-      {#if !readonly || dependents.length > 0}
+      {#if !readonly || dependents.length > 0 || crossBlockingCount > 0}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Blocks</h3>
-          {#if dependents.length > 0}
-            <ul class="flex flex-col">
-              {#each dependents as dependent (dependent.id)}
-                <li class="flex min-h-11 items-center gap-2">
-                  <span
-                    class="min-w-0 flex-1 truncate text-sm {doneColumnIds.has(dependent.column_id)
-                      ? 'text-muted line-through'
-                      : ''}"
-                  >
-                    {truncateTitle(dependent.title)}
-                  </span>
-                  {#if !readonly}
-                    <button
-                      type="button"
-                      aria-label="Remove blocked task {truncateTitle(dependent.title)}"
-                      onclick={() => void board.removeBlocker(dependent.id, taskId)}
-                      class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
-                    >
-                      Remove
-                    </button>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
+          <DependencyList
+            {taskId}
+            direction="blocked"
+            local={dependents}
+            remote={cross?.blocking ?? []}
+            hiddenCount={cross?.hidden_blocking_count ?? 0}
+            skeletonCount={0}
+            loading={crossPending}
+            {doneColumnIds}
+            {readonly}
+          />
           {#if !readonly}
             <DependencyPicker {taskId} direction="blocked" />
           {/if}

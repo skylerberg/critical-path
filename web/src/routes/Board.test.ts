@@ -1264,3 +1264,47 @@ describe('Board card menu', () => {
     ).toEqual(['Open', 'Open in new tab', 'Copy link']);
   });
 });
+
+describe('Board blocked-by badge', () => {
+  it('adds remote blockers to the count of open local ones', async () => {
+    board.tasks = [
+      task(T1, 'c1', 1000, 'blocker one'),
+      {
+        ...task(T2, 'c1', 2000, 'blocked'),
+        blocker_ids: [T1],
+        open_cross_project_blocker_count: 2,
+      },
+    ];
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('blocked');
+
+    expect(screen.getByTitle('Blocked by 3 open tasks')).toHaveTextContent('3');
+  });
+
+  it('shows a card blocked only from another board as blocked', async () => {
+    board.tasks = [{ ...task(T1, 'c1', 1000, 'blocked'), open_cross_project_blocker_count: 1 }];
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('blocked');
+
+    expect(screen.getByTitle('Blocked by 1 open task')).toHaveTextContent('1');
+  });
+
+  it('ignores a done local blocker but still counts the remote ones', async () => {
+    board.columns = [
+      { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Done', sort_key: 'V0000020001', is_done: true },
+    ];
+    board.tasks = [
+      task(T1, 'c2', 1000, 'finished'),
+      {
+        ...task(T2, 'c1', 2000, 'blocked'),
+        blocker_ids: [T1],
+        open_cross_project_blocker_count: 1,
+      },
+    ];
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('blocked');
+
+    expect(screen.getByTitle('Blocked by 1 open task')).toHaveTextContent('1');
+  });
+});

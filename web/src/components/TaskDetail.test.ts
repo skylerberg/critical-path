@@ -17,6 +17,7 @@ import {
   type ProjectView,
 } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
+import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
 import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
@@ -133,6 +134,13 @@ beforeEach(() => {
   board.taskAttachments = {};
   board.taskComments = {};
   taskActivity.reset();
+  crossProjectDeps.reset();
+  crossProjectResponse = {
+    blocked_by: [],
+    blocking: [],
+    hidden_blocked_by_count: 0,
+    hidden_blocking_count: 0,
+  };
   shortcuts.reset();
   drafts.clearAll();
   projects.reset();
@@ -176,6 +184,13 @@ beforeEach(() => {
 
 const SERVER_UPDATED_AT = '2026-03-01T00:00:00Z';
 
+let crossProjectResponse = {
+  blocked_by: [] as unknown[],
+  blocking: [] as unknown[],
+  hidden_blocked_by_count: 0,
+  hidden_blocking_count: 0,
+};
+
 function mockRoutes(
   override?: (request: Request, url: URL) => Response | Promise<Response> | undefined
 ): void {
@@ -198,6 +213,9 @@ function mockRoutes(
       return jsonResponse(200, {
         activity: url.pathname === `/api/tasks/${T1}/activity` ? [activityEntry] : [],
       });
+    }
+    if (request.method === 'GET' && url.pathname.endsWith('/cross-project-dependencies')) {
+      return jsonResponse(200, crossProjectResponse);
     }
     if (request.method === 'GET' && url.pathname === '/api/users') {
       return jsonResponse(200, { users: users.users });
@@ -1135,6 +1153,127 @@ describe('TaskDetail', () => {
     await fireEvent.click(remove);
 
     expect(spy).toHaveBeenCalledWith(T4, T1);
+  });
+});
+
+describe('TaskDetail cross-project dependencies', () => {
+  const FAR = testUuid('far1');
+
+  function farEdge(overrides: Record<string, unknown> = {}) {
+    return {
+      task_id: FAR,
+      project_id: testUuid('p2'),
+      project_name: 'Engineering',
+      title: 'Ship the API',
+      is_done: false,
+      ...overrides,
+    };
+  }
+
+  it('counts remote blockers in the open-task badge', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === T1 ? { ...t, blocker_ids: [T2], open_cross_project_blocker_count: 2 } : t
+    );
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    // One open local blocker plus two remote ones.
+    expect(await screen.findByText('3 open tasks')).toBeInTheDocument();
+  });
+
+  it('holds a skeleton row per known remote blocker, then fills it in', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === T1 ? { ...t, blocker_ids: [], open_cross_project_blocker_count: 1 } : t
+    );
+    crossProjectResponse = { ...crossProjectResponse, blocked_by: [farEdge()] };
+
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const list = screen.getByRole('list', { name: 'Blocked by' });
+    expect(list).toHaveAttribute('aria-busy', 'true');
+
+    await waitFor(() => expect(list).toHaveAttribute('aria-busy', 'false'));
+    expect(within(list).getByRole('link', { name: 'Ship the API' })).toHaveAttribute(
+      'href',
+      taskHref(FAR, 'Ship the API')
+    );
+    expect(within(list).getByText('Engineering')).toBeInTheDocument();
+  });
+
+  it('never names an edge into a project the viewer cannot read', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === T1 ? { ...t, blocker_ids: [], open_cross_project_blocker_count: 1 } : t
+    );
+    crossProjectResponse = { ...crossProjectResponse, hidden_blocked_by_count: 1 };
+
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const list = screen.getByRole('list', { name: 'Blocked by' });
+    expect(await within(list).findByText('1 task in another project')).toBeInTheDocument();
+    expect(within(list).queryAllByRole('link')).toEqual([]);
+  });
+
+  it('pluralises the unreadable row without claiming they share a project', async () => {
+    crossProjectResponse = { ...crossProjectResponse, hidden_blocked_by_count: 3 };
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    expect(await screen.findByText('3 tasks in other projects')).toBeInTheDocument();
+  });
+
+  it('shows remote dependents, which no board payload hints at', async () => {
+    crossProjectResponse = {
+      ...crossProjectResponse,
+      blocking: [farEdge({ title: 'Write the docs' })],
+    };
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const list = await screen.findByRole('list', { name: 'Blocks' });
+    expect(await within(list).findByRole('link', { name: 'Write the docs' })).toBeInTheDocument();
+  });
+
+  it('offers no Remove on a remote row', async () => {
+    crossProjectResponse = { ...crossProjectResponse, blocked_by: [farEdge()] };
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const list = screen.getByRole('list', { name: 'Blocked by' });
+    await within(list).findByRole('link', { name: 'Ship the API' });
+    const remoteRow = within(list).getByRole('link', { name: 'Ship the API' }).closest('li');
+    expect(within(remoteRow as HTMLElement).queryByRole('button')).toBeNull();
+  });
+
+  it('strikes through a remote blocker that is already done', async () => {
+    crossProjectResponse = {
+      ...crossProjectResponse,
+      blocked_by: [farEdge({ is_done: true })],
+    };
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const remoteLink = await screen.findByRole('link', { name: 'Ship the API' });
+    expect(remoteLink.className).toContain('line-through');
+  });
+
+  it('offers a retry when the fetch fails', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname.endsWith('/cross-project-dependencies')
+        ? jsonResponse(500, { error: 'boom' })
+        : undefined
+    );
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    mockRoutes();
+    await fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull());
+  });
+
+  it('asks for nothing on a public board', async () => {
+    board.readonly = true;
+    renderDetail({ taskId: T1, ...publicView });
+    await tick();
+
+    const asked = fetchMock.mock.calls
+      .map((call) => new URL((call[0] as Request).url).pathname)
+      .filter((path) => path.endsWith('/cross-project-dependencies'));
+    expect(asked).toEqual([]);
   });
 });
 

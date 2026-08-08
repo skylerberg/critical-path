@@ -11,6 +11,7 @@ import { projectHref, taskHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
 import { toasts } from '../lib/toasts.svelte';
+import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
 
 const me = {
@@ -120,6 +121,7 @@ function parseClosingPath(d: string): { start: Point; c1: Point; c2: Point; end:
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  crossProjectDeps.reset();
   drafts.clearAll();
   session.user = me;
   for (const toast of [...toasts.toasts]) {
@@ -1148,5 +1150,112 @@ describe('Graph for a viewer', () => {
 
     expect(await screen.findByText('No tasks to graph')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'board' })).toBeNull();
+  });
+});
+
+describe('Graph cross-project placeholders', () => {
+  const FAR = testUuid('far');
+
+  function crossPayload(projectId: string) {
+    return payload(projectId, [{ ...task('a', 'todo'), open_cross_project_blocker_count: 2 }]);
+  }
+
+  function routes(projectId: string, deps: Record<string, unknown>) {
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname.endsWith('/cross-project-dependencies')) {
+        return jsonResponse(200, deps);
+      }
+      return jsonResponse(200, crossPayload(projectId));
+    });
+  }
+
+  const empty = {
+    blocked_by: [],
+    blocking: [],
+    hidden_blocked_by_count: 0,
+    hidden_blocking_count: 0,
+  };
+
+  it('draws one placeholder node and asks for nothing until it is clicked', async () => {
+    const projectId = testUuid('p-graph-cross');
+    routes(projectId, empty);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-kind="placeholder"]')).not.toBeNull();
+    });
+
+    expect(
+      screen.getByRole('button', { name: 'Show 2 blocking tasks in other projects' })
+    ).toBeInTheDocument();
+    // Bounded until asked: the graph never pulls another board on its own.
+    expect(
+      fetchMock.mock.calls.filter((call) =>
+        new URL((call[0] as Request).url).pathname.endsWith('/cross-project-dependencies')
+      )
+    ).toHaveLength(0);
+  });
+
+  it('expands into the readable remote tasks when clicked', async () => {
+    const projectId = testUuid('p-graph-expand');
+    routes(projectId, {
+      ...empty,
+      blocked_by: [
+        {
+          task_id: FAR,
+          project_id: testUuid('p-far'),
+          project_name: 'Engineering',
+          title: 'Ship it',
+          is_done: false,
+        },
+      ],
+    });
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    const trigger = await screen.findByRole('button', {
+      name: 'Show 2 blocking tasks in other projects',
+    });
+    await fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-kind="remote"]')).not.toBeNull();
+    });
+    expect(container.querySelector('[data-node-kind="placeholder"]')).toBeNull();
+    // Links to its own board, not deeper into this graph.
+    expect(screen.getByRole('link', { name: 'Open task Ship it in Engineering' })).toHaveAttribute(
+      'href',
+      taskHref(FAR, 'Ship it')
+    );
+  });
+
+  it('expands an unreadable remainder into a node that names nothing', async () => {
+    const projectId = testUuid('p-graph-hidden');
+    routes(projectId, { ...empty, hidden_blocked_by_count: 2 });
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Show 2 blocking tasks in other projects' })
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-kind="hidden"]')).not.toBeNull();
+    });
+    const hidden = container.querySelector('[data-node-kind="hidden"]') as HTMLElement;
+    expect(hidden.textContent).toContain('2 tasks in other projects');
+    expect(hidden.querySelector('a')).toBeNull();
+  });
+
+  it('gives a placeholder no connect handles', async () => {
+    const projectId = testUuid('p-graph-handles');
+    routes(projectId, empty);
+
+    const { container } = render(Project, { props: { projectId, view: 'graph' } });
+    await waitFor(() => {
+      expect(container.querySelector('[data-node-kind="placeholder"]')).not.toBeNull();
+    });
+
+    const placeholder = container.querySelector('[data-node-kind="placeholder"]') as HTMLElement;
+    expect(placeholder.querySelector('[data-connect-handle]')).toBeNull();
   });
 });
