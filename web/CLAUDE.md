@@ -18,15 +18,35 @@ generators look for a sibling API checkout and fall back to the deployed API —
 never a dev server, whose age nothing here can determine.
 
 **Neither needs a dump first.** When a sibling checkout is there, the generator
-re-dumps it before reading (it prints `Re-dumped critical-path-api/…`, since
-that writes into the other repo). Both dumps are pure functions of the API's
+re-dumps it before reading. Both dumps are pure functions of the API's
 source — no database, under two seconds — so producing one on the spot is
 cheaper than deciding whether the old one is stale, and it is the only answer
 that cannot be a false alarm in either direction. A checkout that cannot run
 the dump (no `node_modules`, no `.env`) falls back to a freshness check on
 whatever dump is already there. A checkout that is behind `origin/main` is
 still refused: dumping it would produce a confidently wrong document rather
-than an obviously old one. `RealtimeEvent` in
+than an obviously old one.
+
+**Read the path it prints.** Every local run logs the absolute file it read
+(`Re-dumped /…/openapi.json`, or `Reading existing /…` when the dump could not
+be re-run). That line is the only thing that distinguishes the checkout you
+meant from the one it found, and the difference is otherwise silent: the
+generator walks up from the script and then looks beside the *main* checkout,
+so from a worktree it lands on `~/Code/critical-path-api` — which is on `main`,
+not on the branch carrying the schema change. It then succeeds, prints a
+re-dump, and writes a client with no diff.
+
+**A change spanning both repos therefore needs `API_REPO_DIR`**, set to the
+absolute path of the api worktree holding the change:
+
+```sh
+API_REPO_DIR=~/.worktrees/critical-path-api/<branch> npm run generate:api
+```
+
+It is a lookup path only — generated headers are always labelled
+`critical-path-api/<file>`, so an override cannot record one machine's checkout
+in a committed file. Expect it to refuse until that worktree is itself current
+with `origin/main`. `RealtimeEvent` in
 `src/lib/realtime-types.ts` is the envelope union it produces: narrowing on
 `event.type` yields that event's payload, so an apply site never asserts a
 shape. The one assertion is in `realtime.svelte.ts` where a frame arrives, and

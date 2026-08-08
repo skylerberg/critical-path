@@ -8,7 +8,17 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-const API_REPO_DIR = process.env.API_REPO_DIR || 'critical-path-api';
+// The api repo's name, and what generated output is labelled with. A constant
+// rather than whatever directory supplied the document: a worktree's directory is
+// named for its branch and an API_REPO_DIR override is one machine's path, and
+// neither belongs in the header of a committed file.
+const API_REPO_NAME = 'critical-path-api';
+
+// Where to look for that repo on disk, and nothing more. A bare name is resolved
+// against every ancestor of this script and against the main checkout; an
+// absolute path is taken as given, which is how a change spanning both repos
+// points at an api worktree instead of the main checkout sitting beside it.
+const API_REPO_DIR = process.env.API_REPO_DIR || API_REPO_NAME;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // The deployed API, not a dev server: a dev server is whatever build someone last
@@ -73,13 +83,19 @@ function redump(apiRoot, filename) {
       stdio: 'pipe',
       timeout: 120_000,
     });
-    // Writing into a sibling checkout is a side effect worth naming, even though
-    // the file is gitignored there.
-    console.log(`Re-dumped ${API_REPO_DIR}/${filename}`);
     return true;
   } catch {
     return false;
   }
+}
+
+// Absolute, and printed on every local read: which checkout answered is the one
+// thing the output never used to say, and a run that quietly reads the main
+// checkout while the change under test sits in a worktree beside it looks exactly
+// like a run that worked. It also names writing into another checkout, which is a
+// side effect worth reporting even though the file is gitignored there.
+function announce(dumpPath, redumped) {
+  console.log(`${redumped ? 'Re-dumped' : 'Reading existing'} ${dumpPath}`);
 }
 
 // A stale document silently drops whole endpoints from the client, and the result
@@ -145,9 +161,11 @@ async function assertIsFresh(path, { redumped }) {
 export async function loadDocument({ filename, urlPath, path, url }) {
   // Labelled by repo-relative name rather than the path it was read from, so the
   // header of a committed generated file does not record one machine's checkout.
-  const label = `${API_REPO_DIR}/${filename}`;
+  const label = `${API_REPO_NAME}/${filename}`;
   if (path) {
-    await assertIsFresh(path, { redumped: redump(dirname(path), filename) });
+    const redumped = redump(dirname(path), filename);
+    announce(path, redumped);
+    await assertIsFresh(path, { redumped });
     return { doc: JSON.parse(await readFile(path, 'utf8')), source: label };
   }
   if (!url) {
@@ -158,6 +176,7 @@ export async function loadDocument({ filename, urlPath, path, url }) {
       // A repo that has never been dumped and could not be dumped now has
       // nothing to read, so fall through to the network rather than failing.
       if (redumped || existsSync(dumped)) {
+        announce(dumped, redumped);
         await assertIsFresh(dumped, { redumped });
         return { doc: JSON.parse(await readFile(dumped, 'utf8')), source: label };
       }
