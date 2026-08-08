@@ -1,8 +1,9 @@
 import { beforeAll } from 'vitest';
 
-// Test files share a worker, and with it the in-process limiter. Without this
-// a file's remaining budget would depend on which files ran before it, so a
-// file that grew past a cap would fail in whichever file happened to follow.
+// Pins each file's rate-limit budget to the file rather than to the runner's
+// isolation setting. Today vitest forks a process per file, so the in-process
+// limiter starts empty anyway; with isolate off, files would share a worker
+// and a file that grew past a cap would fail in whichever file followed it.
 //
 // Imported inside the hook, not at the top: a setup file that pulls the
 // limiter in eagerly resolves its dependencies ahead of any vi.mock a test

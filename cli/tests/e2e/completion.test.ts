@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { TestContext, type TestUser } from '../../../tests/setup/testContext';
+import { COMPLETION_TIMEOUT_MS } from '../../src/commands/completion';
 import { completionCachePath } from '../../src/completion/cache';
 import { createCliHarness, type CliHarness } from './helpers';
 import { encodeId } from '../../src/short-links';
@@ -296,23 +297,37 @@ describe('completion commands', () => {
 
   it('exits promptly when the API host never answers', { timeout: 30_000 }, async () => {
     const bin = fileURLToPath(new URL('../../bin/cpath.mjs', import.meta.url));
-    const started = Date.now();
-    const res = await promisify(execFile)(
-      'node',
-      [bin, '__complete', '--', 'cpath', 'task', 'list', '--project', 'foo', '--column', ''],
-      {
+
+    async function timeSpawn(
+      words: string[],
+      apiUrl?: string
+    ): Promise<{ elapsed: number; stdout: string; stderr: string }> {
+      const started = Date.now();
+      const res = await promisify(execFile)('node', [bin, '__complete', '--', 'cpath', ...words], {
         env: {
           ...process.env,
           CRITICAL_PATH_CONFIG_DIR: await freshConfigDir('cpath-blackhole-'),
-          CRITICAL_PATH_API_URL: 'http://10.255.255.1:81',
           CRITICAL_PATH_TOKEN: 'not-a-token',
+          ...(apiUrl === undefined ? {} : { CRITICAL_PATH_API_URL: apiUrl }),
         },
-      }
+      });
+      return { elapsed: Date.now() - started, stdout: res.stdout, stderr: res.stderr };
+    }
+
+    // Booting node, registering tsx and transpiling the CLI dwarfs the deadline
+    // under test and varies with how busy the machine is, so it is measured
+    // rather than budgeted for: completing a subcommand touches no network.
+    const boot = await timeSpawn(['']);
+    expect(candidateValues(boot.stdout)).toContain('task');
+
+    const blackhole = await timeSpawn(
+      ['task', 'list', '--project', 'foo', '--column', ''],
+      'http://10.255.255.1:81'
     );
     // A TCP connect nobody answers outlives the fetch deadline; the process must not.
-    expect(Date.now() - started).toBeLessThan(6_000);
-    expect(res.stdout).toBe('');
-    expect(res.stderr).toBe('');
+    expect(blackhole.elapsed - boot.elapsed).toBeLessThan(COMPLETION_TIMEOUT_MS + 3_000);
+    expect(blackhole.stdout).toBe('');
+    expect(blackhole.stderr).toBe('');
   });
 
   it('serves entity candidates out of the cache instead of refetching', async () => {

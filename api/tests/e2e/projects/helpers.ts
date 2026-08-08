@@ -155,12 +155,22 @@ export async function deleteProjects(projectIds: string[]): Promise<void> {
   }
 }
 
-export async function waitFor(condition: () => Promise<boolean>, timeoutMs = 3000): Promise<void> {
+// A condition that is already true still returns on the next 25ms tick, so the
+// budget only bounds a wait that was going to fail. Ten seconds rather than
+// three because these poll socket handshakes and post-commit work on a machine
+// that may be running another suite in another worktree.
+export async function waitFor(
+  condition: () => Promise<boolean>,
+  label?: string,
+  timeoutMs = 10_000
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (await condition()) return;
     if (Date.now() > deadline) {
-      throw new Error('waitFor condition not met within timeout');
+      throw new Error(
+        `waitFor${label === undefined ? '' : ` (${label})`} not met within ${timeoutMs}ms`
+      );
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
