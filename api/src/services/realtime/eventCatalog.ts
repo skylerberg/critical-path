@@ -221,15 +221,25 @@ type OfScope<S extends 'account' | 'project'> = {
 export type AccountEventType = OfScope<'account'>;
 export type ProjectEventType = OfScope<'project'>;
 
+type OfDelivery<D extends AccountEvent['delivery']> = {
+  [K in AccountEventType]: (typeof EVENTS)[K] extends { delivery: D } ? K : never;
+}[AccountEventType];
+
 // The account types whose audience only the publish site knows. Split out so
 // publishAfterCommit can demand `recipientUserIds` from exactly these and
 // refuse it from the rest, rather than accepting a publish that would reach
 // nobody.
-export type NamedRecipientEventType = {
-  [K in AccountEventType]: (typeof EVENTS)[K] extends { delivery: 'namedRecipients' } ? K : never;
-}[AccountEventType];
+export type NamedRecipientEventType = OfDelivery<'namedRecipients'>;
 
-export type DispatchedEventType = Exclude<AccountEventType, NamedRecipientEventType>;
+// The rest, whose audience a branch decides, so their publish sites pass no
+// options at all. Spelled as the union of the two values rather than as
+// `Exclude<AccountEventType, NamedRecipientEventType>`: an Exclude sweeps in
+// whatever it does not recognise, so a fourth delivery value would land here
+// silently and be allowed to publish with no audience — the exact fail-open
+// this column exists to prevent, one level up. Listed by value, a new value
+// matches neither overload and its publish sites do not compile until someone
+// says which kind it is.
+export type DispatchedEventType = OfDelivery<'projectSharers' | 'intercepted'>;
 
 export type WebhookEventType = {
   [K in ProjectEventType]: (typeof EVENTS)[K] extends { webhook: true } ? K : never;
