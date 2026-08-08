@@ -10,7 +10,7 @@ export const projectMemberSchema = type({
   role: projectMemberRole,
 });
 
-// A key, not a colour: each one resolves in the client to a light and a dark
+// A key, not a color: each one resolves in the client to a light and a dark
 // value, so the rendering can be retuned for contrast without a data migration.
 export const projectAccent = type(
   "'rose' | 'amber' | 'lime' | 'emerald' | 'sky' | 'violet' | 'fuchsia' | 'slate'"

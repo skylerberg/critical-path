@@ -20,7 +20,7 @@ export function taskCapMessage(adding: number): string {
 
 // Deliberately takes no lock on the project row, unlike the webhook and series
 // caps. Those gate a rare operation; this one gates the hottest write in the
-// product, and serialising every card a board creates behind one row lock would
+// product, and serializing every card a board creates behind one row lock would
 // cost far more than the overshoot it prevents. Concurrent creates may therefore
 // land a handful of rows past the ceiling — acceptable, because this is a
 // denial-of-service guard and not an invariant anything reads back.

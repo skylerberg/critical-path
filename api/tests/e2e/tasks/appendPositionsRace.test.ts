@@ -103,7 +103,7 @@ describe('concurrent moves into one column', () => {
 
     // The first mover holds its write back until the second has either finished
     // its probe (unserialised: both read the same stale max) or blocked on the
-    // lock (serialised). Waiting only for the former would deadlock once the
+    // lock (serialized). Waiting only for the former would deadlock once the
     // lock exists; only for the latter would never fire without it.
     await Promise.race([
       secondHasProbed.promise,

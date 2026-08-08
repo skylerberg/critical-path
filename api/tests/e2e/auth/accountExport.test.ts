@@ -222,7 +222,7 @@ describe('GET /api/auth/me/export', () => {
     ]);
   });
 
-  it('never serialises a stored secret', async () => {
+  it('never serializes a stored secret', async () => {
     const user = await ctx.createUser('export-secrets');
     const patToken = await createToken(user, 'secret scan');
 

@@ -22,7 +22,7 @@ describe('keysForIndex', () => {
     expect(keysForIndex(list, 0, 1)[0]! < 'V0').toBe(true);
   });
 
-  it('ranks between neighbours', () => {
+  it('ranks between neighbors', () => {
     const key = keysForIndex(list, 1, 1)[0]!;
     expect(key > 'V0' && key < 'V1').toBe(true);
   });
@@ -38,7 +38,7 @@ describe('keysForIndex', () => {
 
 describe('spreadBetween', () => {
   // The float scheme threw here once a gap ran out; a run of keys never does.
-  it('spreads a run between two neighbours, however many', () => {
+  it('spreads a run between two neighbors, however many', () => {
     for (const count of [1, 5, 500]) {
       const keys = spreadBetween('V0', 'V1', count);
       expect(keys).toHaveLength(count);

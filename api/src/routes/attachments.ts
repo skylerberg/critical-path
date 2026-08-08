@@ -184,7 +184,7 @@ router.post(
       throw new AppError(422, 'File is empty');
     }
 
-    // The exact size exists only now, so the serialised check runs after the
+    // The exact size exists only now, so the serialized check runs after the
     // write rather than before it — still before the row commits.
     try {
       await assertProjectStorageQuota(db, project.id, upload.size);

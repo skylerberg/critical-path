@@ -105,7 +105,7 @@ const router: AppHono = new Hono();
 // Signing up, logging in and acting on an emailed token all happen without a
 // session, so those routes take the context where `user` may be absent. Both
 // routers mount at /api/auth; the marker is per-route precisely so the two can
-// share a prefix without one leaking its auth behaviour onto the other.
+// share a prefix without one leaking its auth behavior onto the other.
 export const publicAuthRouter: PublicHono = new Hono();
 
 const MAX_TOKEN_LIFETIME_MS = 100 * 365 * 24 * 60 * 60 * 1000;

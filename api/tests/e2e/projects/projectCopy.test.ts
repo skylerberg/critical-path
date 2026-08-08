@@ -294,11 +294,11 @@ describe('POST /api/projects with source_project_id', () => {
 
   // A copy lands beside its source in the same sidebar, which is exactly when the
   // two boards must not look alike.
-  it('never inherits the source board’s accent colour', async () => {
+  it('never inherits the source board’s accent color', async () => {
     const sourceId = newId();
     projectIds.push(sourceId);
     expect(
-      (await ctx.request(user.token).post('/api/projects', { id: sourceId, name: 'Coloured' }))
+      (await ctx.request(user.token).post('/api/projects', { id: sourceId, name: 'Colored' }))
         .status
     ).toBe(201);
     expect(

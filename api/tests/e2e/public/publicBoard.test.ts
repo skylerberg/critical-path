@@ -434,8 +434,8 @@ describe('GET /api/public/projects/:id/board', () => {
 
   // A published board is a single board with nothing to be told apart from, so
   // the accent stays behind the login even though it is not private.
-  it('withholds the accent colour from an anonymous reader', async () => {
-    const board = await createProject('Coloured and published');
+  it('withholds the accent color from an anonymous reader', async () => {
+    const board = await createProject('Colored and published');
     const projectId = board.project.id;
     expect(
       (await ctx.request(owner.token).patch(`/api/projects/${projectId}`, { color: 'fuchsia' }))

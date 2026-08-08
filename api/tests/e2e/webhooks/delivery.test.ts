@@ -597,7 +597,7 @@ describe('Webhook delivery', () => {
     expect((await webhookRow(webhookId)).consecutive_failures).toBe(1);
   });
 
-  it('serves the delivery log newest first, honouring limit and carrying the payload', async () => {
+  it('serves the delivery log newest first, honoring limit and carrying the payload', async () => {
     const project = await createProject('wh-log');
     const webhookId = await registerWebhook(project.id);
     const older = await seedDelivery(webhookId, {

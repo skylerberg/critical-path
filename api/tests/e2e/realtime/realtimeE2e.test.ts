@@ -889,16 +889,16 @@ describe('Realtime end to end', () => {
     expect(unpublished.data).toMatchObject({ id: projectId, is_public: false });
   });
 
-  it('delivers project_updated carrying the accent colour, including its removal', async () => {
+  it('delivers project_updated carrying the accent color, including its removal', async () => {
     const beforeSet = clientB2.events.length;
     expect(
       (await ctx.request(userA.token).patch(`/api/projects/${projectId}`, { color: 'sky' })).status
     ).toBe(200);
-    const coloured = await clientB2.waitForEvent(
+    const colored = await clientB2.waitForEvent(
       (e) => e.type === 'project_updated' && e.data.id === projectId,
       { from: beforeSet }
     );
-    expect(coloured.data).toMatchObject({ id: projectId, color: 'sky' });
+    expect(colored.data).toMatchObject({ id: projectId, color: 'sky' });
 
     const beforeClear = clientB2.events.length;
     expect(

@@ -38,7 +38,7 @@ export interface ProjectStorageAllowance {
   exceeded: () => AppError;
 }
 
-// Deliberately unlocked: holding the lock across a transfer would serialise a
+// Deliberately unlocked: holding the lock across a transfer would serialize a
 // project's uploads for its whole duration. The locked check below is what the
 // row commit still depends on.
 export async function projectStorageAllowance(

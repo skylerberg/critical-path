@@ -215,7 +215,7 @@ router.post(
       'Create a project with the default Backlog / To Do / In Progress / Done columns, or ' +
       'deep-copy an existing project by passing source_project_id (copies columns, labels, ' +
       'tasks, task labels, dependencies, images, and recurring series with their templates — ' +
-      'not comments, assignees, members, archived cards, the accent colour, or the archived ' +
+      'not comments, assignees, members, archived cards, the accent color, or the archived ' +
       'state of the project itself; copies start personal). A copied series keeps the ' +
       'source’s status and schedules its next occurrence from today, so it behaves like the ' +
       'original without firing an occurrence the source already missed. ' +
@@ -490,7 +490,7 @@ router.patch(
       'embedded images, labels, blockers, and assignee names and avatars to anyone with the ' +
       'project id and no account. Set it back to false to stop serving it. Set color to one of ' +
       'the fixed accent keys to mark the board across every surface that lists it, or null for ' +
-      'no colour; the choice is shared with everyone who can see the board and rides the ' +
+      'no color; the choice is shared with everyone who can see the board and rides the ' +
       'project_updated realtime and webhook events. The public board never carries it. ' +
       'Editors only: a viewer gets 403 and non-accessors 404.',
     security: [{ bearerAuth: [] }],
@@ -649,7 +649,7 @@ router.put(
 
     // The list the client ranks against carries the projects it has never
     // positioned, which hold no key at all, so a drag routinely re-stamps the
-    // whole list and asks for keys its neighbours are still on.
+    // whole list and asks for keys its neighbors are still on.
     const resolved = await resolveSortKey(db, 'project_user_position', user.id, sort_key);
 
     try {

@@ -285,7 +285,7 @@ describe('Task activity', () => {
 
   describe('PUT /api/tasks/:id/labels', () => {
     it('records added and removed labels by name and ignores an unchanged set', async () => {
-      const taskId = await createTask('labelled');
+      const taskId = await createTask('labeled');
       const alphaName = `alpha-${newId()}`;
       const alpha = await fixtures.createLabel(projectId, alphaName);
       const beta = await fixtures.createLabel(projectId, `beta-${newId()}`);

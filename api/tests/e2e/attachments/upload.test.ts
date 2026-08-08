@@ -252,7 +252,7 @@ describe('POST /api/attachments/files', () => {
     expect((await res.json()).error).toContain('at most 50 attachments');
   });
 
-  it('honours a client-supplied id and answers 409 for a duplicate', async () => {
+  it('honors a client-supplied id and answers 409 for a duplicate', async () => {
     const user = await ctx.createUser('att-id');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
     const id = newId();
