@@ -43,7 +43,7 @@
       aria-live="polite"
       data-testid="sync-status"
       data-state={current}
-      class="fixed top-2 left-1/2 z-30 -translate-x-1/2"
+      class="fixed bottom-[calc(var(--cp-bottom-nav-h)+0.5rem)] left-1/2 z-30 -translate-x-1/2 lg:bottom-4"
     >
       <button
         type="button"
@@ -61,7 +61,7 @@
       role="status"
       data-testid="sync-status"
       data-state={current}
-      class="fixed top-2 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-xs font-medium text-muted shadow-sm"
+      class="fixed bottom-[calc(var(--cp-bottom-nav-h)+0.5rem)] left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-xs font-medium text-muted shadow-sm lg:bottom-4"
     >
       <span class="size-2 shrink-0 animate-pulse rounded-full {dotColor}" aria-hidden="true"></span>
       {message}

@@ -79,6 +79,7 @@ beforeEach(async () => {
   await resetConnectionForTests();
   await login();
   outbox.retryDelayMs = 0;
+  outbox.wakeDelayMs = 60_000;
 });
 
 describe('submitting', () => {
@@ -140,6 +141,26 @@ describe('draining', () => {
       fetchMock.mock.calls.map((call) => (call[0] as Request).clone().text())
     );
     expect(bodies).toHaveLength(2);
+  });
+
+  // Every other trigger is an event that might never happen: `online` only
+  // fires when the interface changes, the reachable hook needs a request to
+  // have already succeeded, and the reconnect heal needs the socket to have
+  // dropped. A server that was down while the socket stayed up fires none of
+  // them, and without this the queue would wait forever.
+  it('retries on its own when nothing else tells it the server is back', async () => {
+    outbox.wakeDelayMs = 5;
+    unreachable();
+    await outbox.submit(edit());
+    expect(outbox.count).toBe(1);
+
+    // No reconnect, no `online` event, no successful request — just the server
+    // quietly starting to answer again.
+    fetchMock.mockReset();
+    alwaysRespond(200);
+    await vi.waitFor(() => {
+      expect(outbox.count).toBe(0);
+    });
   });
 
   it('keeps everything queued when the network is still down', async () => {

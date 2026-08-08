@@ -93,6 +93,19 @@ class OutboxStore {
 
   // Overridable so the retry tests do not spend real seconds asleep.
   retryDelayMs = 1000;
+  /**
+   * How long to wait before trying the queue again on its own.
+   *
+   * Everything else that triggers a drain is an event that might not happen: the
+   * `online` event only fires when the interface changes, `onReachable` needs a
+   * request to have succeeded, and the reconnect heal needs the socket to have
+   * dropped in the first place. A server that was down while the socket stayed
+   * up satisfies none of them, and the queue would sit there indefinitely with
+   * the user told only that it is waiting. So the queue also retries itself.
+   */
+  wakeDelayMs = 15_000;
+  #wakeTimer: ReturnType<typeof setTimeout> | undefined;
+  #wakeAttempts = 0;
 
   constructor() {
     connectivity.onReachable = () => {
@@ -185,6 +198,26 @@ class OutboxStore {
     this.#ops = [...this.#ops, op];
     void writeOp(op);
     this.#enforceBounds();
+    this.#scheduleWake();
+  }
+
+  // Backs off so a long outage is not a request every fifteen seconds forever,
+  // and stops entirely once there is nothing left to send.
+  #scheduleWake(): void {
+    if (this.#wakeTimer !== undefined || this.#ops.length === 0) {
+      return;
+    }
+    const delay = Math.min(this.wakeDelayMs * 2 ** this.#wakeAttempts, 5 * 60_000);
+    this.#wakeAttempts += 1;
+    this.#wakeTimer = setTimeout(() => {
+      this.#wakeTimer = undefined;
+      void this.drain();
+    }, delay);
+  }
+
+  #cancelWake(): void {
+    clearTimeout(this.#wakeTimer);
+    this.#wakeTimer = undefined;
   }
 
   /**
@@ -268,6 +301,9 @@ class OutboxStore {
     this.#seq = Math.max(this.#seq, ...stored.map((op) => op.seq));
     this.#ops = stored;
     this.#enforceBounds();
+    // Work read back from a previous load is owed a send as much as work queued
+    // in this one.
+    void this.drain();
   }
 
   async drain(): Promise<void> {
@@ -281,6 +317,7 @@ class OutboxStore {
     if (this.#ops.length === 0) {
       return;
     }
+    this.#cancelWake();
     this.draining = true;
     let applied = 0;
     try {
@@ -322,8 +359,14 @@ class OutboxStore {
       this.draining = false;
     }
     if (applied > 0) {
+      // Progress means the server is answering, so the next wait starts short
+      // again rather than inheriting the backoff from the outage.
+      this.#wakeAttempts = 0;
       this.onSettled?.();
     }
+    // Anything still queued is waiting on a network that may come back without
+    // announcing itself.
+    this.#scheduleWake();
   }
 
   async #handleHttpFailure(
@@ -471,6 +514,8 @@ class OutboxStore {
   }
 
   reset(): void {
+    this.#cancelWake();
+    this.#wakeAttempts = 0;
     this.#ops = [];
     this.#issues = [];
     this.#seq = 0;
