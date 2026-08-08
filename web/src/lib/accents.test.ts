@@ -1,25 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ACCENTS, ACCENT_KEYS, accentVar } from './accents';
-
-const css = readFileSync(resolve(process.cwd(), 'src/app.css'), 'utf8');
-
-const DARK_MARKER = '@media (prefers-color-scheme: dark)';
-const THEME_MARKER = '@theme inline';
-
-function block(theme: 'light' | 'dark'): Record<string, string> {
-  const darkAt = css.indexOf(DARK_MARKER);
-  const themeAt = css.indexOf(THEME_MARKER);
-  expect(darkAt).toBeGreaterThan(0);
-  expect(themeAt).toBeGreaterThan(darkAt);
-  const source = theme === 'light' ? css.slice(0, darkAt) : css.slice(darkAt, themeAt);
-  const values: Record<string, string> = {};
-  for (const [, name, hex] of source.matchAll(/(--cp-[a-z-]+):\s*(#[0-9a-f]{6})/g)) {
-    values[name] = hex;
-  }
-  return values;
-}
+import { cssTokens } from './app-css-test-source';
 
 function luminance(hex: string): number {
   const channels = [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255);
@@ -40,7 +21,7 @@ const BACKGROUNDS = ['--cp-surface', '--cp-canvas', '--cp-accent-soft'];
 describe('project accent palette', () => {
   it('gives every palette key a value in both themes', () => {
     for (const theme of ['light', 'dark'] as const) {
-      const values = block(theme);
+      const values = cssTokens(theme);
       const defined = ACCENT_KEYS.filter((key) => values[ACCENTS[key].cssVar] !== undefined);
       expect(defined).toEqual(ACCENT_KEYS);
       for (const name of BACKGROUNDS) {
@@ -55,7 +36,7 @@ describe('project accent palette', () => {
   it('clears 3:1 against every background it is drawn on, in both themes', () => {
     const failures: string[] = [];
     for (const theme of ['light', 'dark'] as const) {
-      const values = block(theme);
+      const values = cssTokens(theme);
       for (const key of ACCENT_KEYS) {
         const accent = values[ACCENTS[key].cssVar]!;
         for (const name of BACKGROUNDS) {
