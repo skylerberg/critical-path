@@ -169,7 +169,7 @@ export function registerAuth(program: Command, deps: CliDeps): void {
 
   account.addCommand(
     leaf('change-password')
-      .description('Change the password (revokes all other sessions)')
+      .description('Change the password')
       .option('--password-stdin', 'read current then new password from the first two stdin lines')
       .action(
         withCtx(deps, async (ctx, opts) => {
@@ -182,9 +182,8 @@ export function registerAuth(program: Command, deps: CliDeps): void {
             'New password',
             'Confirm new password'
           );
-          let result;
           try {
-            result = assertOk(
+            assertOk(
               await ctx.api.POST('/api/auth/change-password', {
                 body: { current_password: currentPassword, new_password: newPassword },
               })
@@ -195,11 +194,7 @@ export function registerAuth(program: Command, deps: CliDeps): void {
             }
             throw err;
           }
-          await ctx.credentials.set(ctx.baseUrl, result.token);
-          warnIfEnvToken(ctx);
-          ctx.out.data(result.user, () =>
-            ctx.out.line('Password changed; all other sessions were revoked')
-          );
+          ctx.out.data({ changed: true }, () => ctx.out.line('Password changed'));
         })
       )
   );
@@ -264,7 +259,7 @@ export function registerAuth(program: Command, deps: CliDeps): void {
 
   account.addCommand(
     leaf('reset-password')
-      .description('Reset the password with an emailed token (revokes all sessions)')
+      .description('Reset the password with an emailed token')
       .requiredOption('--token <token>', 'reset token from the email')
       .option('--password-stdin', 'read the new password from the first line of stdin')
       .action(
@@ -282,10 +277,7 @@ export function registerAuth(program: Command, deps: CliDeps): void {
               body: { token: opts.token as string, new_password: newPassword },
             })
           );
-          await ctx.credentials.delete(ctx.baseUrl);
-          ctx.out.data({ reset: true }, () =>
-            ctx.out.line('Password reset; run cpath login with the new password')
-          );
+          ctx.out.data({ reset: true }, () => ctx.out.line('Password reset'));
         })
       )
   );

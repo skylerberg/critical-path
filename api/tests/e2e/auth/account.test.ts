@@ -1,14 +1,18 @@
-import crypto from 'crypto';
 import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { uniqueEmail } from '../../helpers/fixtures';
 import { resetRateLimiter } from '../../../src/middleware/rateLimit';
 import { createResetToken } from '../../../src/services/resetToken';
-import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
+import { subscribeBus, type BusEntry } from '../../../src/services/realtime/bus';
 
-function sha256Hex(value: string): string {
-  return crypto.createHash('sha256').update(value).digest('hex');
+async function sessionCountOf(userId: string): Promise<number> {
+  const { count } = await db
+    .selectFrom('session')
+    .select((eb) => eb.fn.countAll<number>().as('count'))
+    .where('user_id', '=', userId)
+    .executeTakeFirstOrThrow();
+  return Number(count);
 }
 
 async function alternativeIdOf(userId: string): Promise<string> {
@@ -179,46 +183,24 @@ describe('Account management', () => {
       expect(login.status).toBe(200);
     });
 
-    it('changes the password, revokes prior sessions, and returns a fresh session', async () => {
+    it('changes the password and leaves every session signed in', async () => {
       const user = await ctx.createUser('cp-ok');
       const otherLogin = await ctx
         .request()
         .post('/api/auth/login', { email: user.email, password: user.password });
       const otherToken = ((await otherLogin.json()) as { token: string }).token;
 
-      let newToken = '';
       const seen = await collectBusEntries(async () => {
         const res = await ctx.request(user.token).post('/api/auth/change-password', {
           current_password: user.password,
           new_password: 'changed-password-123',
         });
-        expect(res.status).toBe(200);
-        const body = (await res.json()) as { token: string; user: { id: string; email: string } };
-        expect(body.user).toEqual({
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          avatar_url: null,
-          email_verified: false,
-        });
-        newToken = body.token;
+        expect(res.status).toBe(204);
       });
-      const replacement = await db
-        .selectFrom('session')
-        .select('session.id')
-        .where('session.token_hash', '=', sha256Hex(newToken))
-        .executeTakeFirstOrThrow();
-      expect(seen).toEqual([
-        {
-          type: SESSIONS_REVOKED,
-          project_id: null,
-          data: { user_id: user.id, except_session_id: replacement.id },
-        },
-      ]);
+      expect(seen).toEqual([]);
 
-      expect((await ctx.request(user.token).get('/api/auth/me')).status).toBe(401);
-      expect((await ctx.request(otherToken).get('/api/auth/me')).status).toBe(401);
-      expect((await ctx.request(newToken).get('/api/auth/me')).status).toBe(200);
+      expect((await ctx.request(user.token).get('/api/auth/me')).status).toBe(200);
+      expect((await ctx.request(otherToken).get('/api/auth/me')).status).toBe(200);
 
       const oldLogin = await ctx
         .request()
@@ -231,6 +213,19 @@ describe('Account management', () => {
       expect(newLogin.status).toBe(200);
     });
 
+    it('creates no session of its own', async () => {
+      const user = await ctx.createUser('cp-no-session');
+      const before = await sessionCountOf(user.id);
+
+      const res = await ctx.request(user.token).post('/api/auth/change-password', {
+        current_password: user.password,
+        new_password: 'changed-password-123',
+      });
+      expect(res.status).toBe(204);
+
+      expect(await sessionCountOf(user.id)).toBe(before);
+    });
+
     it('rotates alternative_id, invalidating outstanding reset tokens', async () => {
       const user = await ctx.createUser('cp-rotate');
       const before = await alternativeIdOf(user.id);
@@ -240,7 +235,7 @@ describe('Account management', () => {
         current_password: user.password,
         new_password: 'changed-password-123',
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(204);
       expect(await alternativeIdOf(user.id)).not.toBe(before);
 
       const reset = await ctx

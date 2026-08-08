@@ -259,24 +259,14 @@ describe('Sessions', () => {
   });
 
   describe('recording the user agent', () => {
-    it('records it wherever a session is created, not only on login', async () => {
+    it('records it on signup, not only on login', async () => {
       const user = await ctx.createUser('sess-ua-writers', CHROME_UA);
       const loginToken = await logIn(user, CHROME_UA);
-      const signupRecorded = await userAgentOf(user.token);
-      const loginRecorded = await userAgentOf(loginToken);
-
-      const changed = await ctx.request(loginToken, CHROME_UA).post('/api/auth/change-password', {
-        current_password: user.password,
-        new_password: 'test-password-456',
-      });
-      expect(changed.status).toBe(200);
-      const replacementToken = ((await changed.json()) as { token: string }).token;
 
       expect({
-        signup: signupRecorded,
-        login: loginRecorded,
-        passwordChange: await userAgentOf(replacementToken),
-      }).toEqual({ signup: CHROME_UA, login: CHROME_UA, passwordChange: CHROME_UA });
+        signup: await userAgentOf(user.token),
+        login: await userAgentOf(loginToken),
+      }).toEqual({ signup: CHROME_UA, login: CHROME_UA });
     });
 
     it('caps an oversized header instead of storing it whole', async () => {

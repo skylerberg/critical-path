@@ -188,31 +188,20 @@ async function applyUnsubscribe(
   return kind;
 }
 
-// Required rather than defaulted: a reset must revoke everything, so only a
-// caller that means to stay signed in can name the session that survives —
-// otherwise the revocation evicts the one it just issued.
-async function setPasswordAndRevokeSessions(
+// Sessions are deliberately left alone: they are managed from the sessions
+// screen, which can revoke them one at a time. Rotating alternative_id is about
+// reset links, not sessions — it makes the link that got here single-use.
+async function setPassword(
   c: Pick<PublicContext, 'get'>,
   userId: string,
-  newPassword: string,
-  { exceptSessionId }: { exceptSessionId: string | null }
+  newPassword: string
 ): Promise<void> {
-  const db = c.get('db');
-  await db
+  await c
+    .get('db')
     .updateTable('app_user')
     .set({ password_hash: await hashPassword(newPassword), alternative_id: crypto.randomUUID() })
     .where('id', '=', userId)
     .execute();
-
-  const revocation = db.deleteFrom('session').where('user_id', '=', userId);
-  await (
-    exceptSessionId === null ? revocation : revocation.where('id', '!=', exceptSessionId)
-  ).execute();
-
-  publishAfterCommit(c, SESSIONS_REVOKED, null, {
-    user_id: userId,
-    ...(exceptSessionId === null ? {} : { except_session_id: exceptSessionId }),
-  });
 }
 
 function callerTokenHash(c: AppContext): string | null {
@@ -907,18 +896,13 @@ router.post(
     tags: ['Auth'],
     summary: 'Change password',
     description:
-      'Change the password of the authenticated user. Requires the current password; on ' +
-      'success every existing session is revoked and a fresh session token is returned, ' +
-      'keeping this client logged in.',
+      'Change the password of the authenticated user. Requires the current password. ' +
+      'Existing sessions are left signed in, including this one; revoke them individually ' +
+      'from GET /api/auth/sessions.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Password changed, all prior sessions revoked, new session issued',
-        content: {
-          'application/json': {
-            schema: resolver(authResponseSchema),
-          },
-        },
+      204: {
+        description: 'Password changed',
       },
       ...unauthorizedErrorResponse,
       ...validationErrorResponse,
@@ -942,12 +926,9 @@ router.post(
       throw new AppError(401, 'Current password is incorrect');
     }
 
-    const replacement = await createSession(c, user.id);
-    await setPasswordAndRevokeSessions(c, user.id, new_password, {
-      exceptSessionId: replacement.id,
-    });
+    await setPassword(c, user.id, new_password);
 
-    return c.json({ token: replacement.token, user }, 200);
+    return c.body(null, 204);
   }
 );
 
@@ -1006,10 +987,11 @@ publicAuthRouter.post(
     summary: 'Reset password',
     description:
       'Set a new password using a token from a password-reset email. On success every ' +
-      'session is revoked and outstanding reset tokens are invalidated.',
+      'outstanding reset token is invalidated. Existing sessions stay signed in; revoke ' +
+      'them individually from GET /api/auth/sessions.',
     responses: {
       204: {
-        description: 'Password reset and all sessions revoked',
+        description: 'Password reset',
       },
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
@@ -1039,7 +1021,7 @@ publicAuthRouter.post(
       throw new AppError(422, 'Invalid reset token');
     }
 
-    await setPasswordAndRevokeSessions(c, user.id, new_password, { exceptSessionId: null });
+    await setPassword(c, user.id, new_password);
 
     return c.body(null, 204);
   }
