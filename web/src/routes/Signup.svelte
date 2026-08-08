@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ApiError } from '../api/client';
   import { apiMessage } from '../lib/apiMessages';
+  import { authForm } from '../lib/authForm.svelte';
   import { APP_NAME } from '../lib/constants';
   import { link, router } from '../lib/router.svelte';
   import { consumeIntendedPath, session } from '../lib/session.svelte';
@@ -8,9 +9,6 @@
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
 
-  let name = $state('');
-  let email = $state('');
-  let password = $state('');
   let nameError = $state('');
   let emailError = $state('');
   let passwordError = $state('');
@@ -29,16 +27,17 @@
 
   async function handleSubmit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
-    nameError = name.trim() === '' ? 'Name is required' : '';
-    emailError = email.trim() === '' ? 'Email is required' : '';
-    passwordError = validatePassword(password);
+    nameError = authForm.name.trim() === '' ? 'Name is required' : '';
+    emailError = authForm.email.trim() === '' ? 'Email is required' : '';
+    passwordError = validatePassword(authForm.password);
     formError = '';
     if (nameError !== '' || emailError !== '' || passwordError !== '') {
       return;
     }
     submitting = true;
     try {
-      await session.signup(name.trim(), email.trim(), password);
+      await session.signup(authForm.name.trim(), authForm.email.trim(), authForm.password);
+      authForm.clear();
       router.redirect(consumeIntendedPath());
       // A toast rather than something to dismiss on this screen: the account is
       // usable immediately, so nothing should stand between signing up and the app.
@@ -80,7 +79,7 @@
         type="text"
         name="name"
         autocomplete="name"
-        bind:value={name}
+        bind:value={authForm.name}
         error={nameError}
       />
       <Input
@@ -88,7 +87,7 @@
         type="email"
         name="email"
         autocomplete="email"
-        bind:value={email}
+        bind:value={authForm.email}
         error={emailError}
       />
       <Input
@@ -96,7 +95,7 @@
         type="password"
         name="password"
         autocomplete="new-password"
-        bind:value={password}
+        bind:value={authForm.password}
         error={passwordError}
       />
       {#if formError !== ''}

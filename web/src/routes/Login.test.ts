@@ -2,6 +2,8 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import Login from './Login.svelte';
+import Signup from './Signup.svelte';
+import { authForm } from '../lib/authForm.svelte';
 import { session } from '../lib/session.svelte';
 
 const user = {
@@ -21,6 +23,7 @@ beforeEach(async () => {
   fetchMock.mockReset();
   localStorage.clear();
   sessionStorage.clear();
+  authForm.clear();
   window.history.replaceState(null, '', '/login');
   await session.init();
   fetchMock.mockClear();
@@ -71,5 +74,33 @@ describe('Login', () => {
     });
     expect(session.status).toBe('authed');
     expect(localStorage.getItem('cp.token')).toBe('tok-new');
+  });
+
+  it('starts from what was typed on the signup screen', async () => {
+    const signup = render(Signup);
+    await fireEvent.input(screen.getByLabelText('Email'), {
+      target: { value: 'ada@example.com' },
+    });
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'short' } });
+    signup.unmount();
+
+    render(Login);
+
+    expect(screen.getByLabelText('Email')).toHaveValue('ada@example.com');
+    expect(screen.getByLabelText('Password')).toHaveValue('short');
+  });
+
+  it('leaves nothing behind for the next person once the session starts', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { token: 'tok-new', user }));
+    render(Login);
+
+    await fillCredentials('ada@example.com', 'password123');
+    await fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+
+    await waitFor(() => {
+      expect(session.status).toBe('authed');
+    });
+    expect(authForm.email).toBe('');
+    expect(authForm.password).toBe('');
   });
 });
