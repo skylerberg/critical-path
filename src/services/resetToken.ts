@@ -1,47 +1,34 @@
-import crypto from 'crypto';
 import { env } from '../config/env';
+import { decodeSignedToken, encodeSignedToken } from './signedToken';
 
 export const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
+
+const RESET_TYPE = 'reset';
+
+// Reset tokens predate the type claim and used to separate themselves from the
+// email families by carrying none at all. Rolling deploys serve both releases at
+// once, so an untyped token still verifies for now; drop this once no link
+// minted by the previous release can still be inside its 15-minute TTL.
+const ACCEPT_UNTYPED = { acceptUntyped: true };
 
 export type ResetTokenVerification =
   | { status: 'valid'; alternative_id: string }
   | { status: 'expired' }
   | { status: 'invalid' };
 
-function sign(payload: string): Buffer {
-  return crypto.createHmac('sha256', env.passwordResetSecret).update(payload).digest();
-}
-
 export function createResetToken(alternativeId: string, now = Date.now()): string {
-  const payload = Buffer.from(
-    JSON.stringify({ alternative_id: alternativeId, exp: now + RESET_TOKEN_TTL_MS })
-  ).toString('base64url');
-  return `${payload}.${sign(payload).toString('base64url')}`;
+  return encodeSignedToken(env.passwordResetSecret, RESET_TYPE, {
+    alternative_id: alternativeId,
+    exp: now + RESET_TOKEN_TTL_MS,
+  });
 }
 
 export function verifyResetTokenDetailed(token: string, now = Date.now()): ResetTokenVerification {
-  const parts = token.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+  const claims = decodeSignedToken(env.passwordResetSecret, RESET_TYPE, token, ACCEPT_UNTYPED);
+  if (!claims) {
     return { status: 'invalid' };
   }
-  const [payload, signature] = parts;
-
-  const expected = sign(payload);
-  const provided = Buffer.from(signature, 'base64url');
-  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
-    return { status: 'invalid' };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-  } catch {
-    return { status: 'invalid' };
-  }
-  if (typeof parsed !== 'object' || parsed === null) {
-    return { status: 'invalid' };
-  }
-  const { alternative_id, exp } = parsed as { alternative_id?: unknown; exp?: unknown };
+  const { alternative_id, exp } = claims;
   if (typeof alternative_id !== 'string' || typeof exp !== 'number') {
     return { status: 'invalid' };
   }

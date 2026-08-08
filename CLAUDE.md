@@ -117,6 +117,17 @@ for the frontend's conventions.
   route rename from quietly turning mail into a not-found page. `POST
   /api/auth/forgot-password` always answers 204 and enqueues the send as a
   post-commit hook.
+- Every mailed-link token — password reset, email verification, unsubscribe —
+  is one codec, `src/services/signedToken.ts`
+  (`base64url(claims).base64url(hmac)`). The families share a secret
+  (`EMAIL_TOKEN_SECRET` falls back to `PASSWORD_RESET_SECRET`), so separating
+  them is what stops one family's token being spent as another's: the type is a
+  required argument to both `encodeSignedToken` and `decodeSignedToken`, not a
+  claim each caller remembers to check, and it is reserved from the claims
+  object at the type level. A new family is a new type string. Reset tokens
+  additionally pass `acceptUntyped` to stay valid across the rolling deploy
+  that introduced the claim; that flag is transitional and should be dropped in
+  a later release.
 - Neither `change-password` nor `reset-password` revokes anything: both answer
   204 and leave every session and token signed in, so a change-password issues
   no replacement token. Sessions are revoked only from the sessions list
