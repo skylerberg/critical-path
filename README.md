@@ -924,6 +924,72 @@ edges, so a restore can never introduce a cycle. Deleting a column still
 relocates its archived cards along with its visible ones, so archiving never
 turns into an accidental hard delete.
 
+### Cross-project dependencies
+
+A `task_dependency` edge may join tasks in two different projects. Adding one
+needs write access to the **blocked** task's project and read access to the
+blocker's — GitLab's access-to-both rule. A `blocker_task_id` that names no task
+and one that names a task in a project the caller cannot read get the same 422,
+so the route can never be used to test whether an id is real. Removing an edge
+needs write on the blocked side only: the far end can become unreadable, and the
+side that carries the edge must always be able to detach it.
+
+**The board pays for this with one number, not a join.** `blocker_ids` holds
+same-project blockers only, which is what lets any client resolve every id in it
+against the board payload it already has. A blocker in another project is never
+named there. It arrives as one increment of `open_cross_project_blocker_count`,
+a denormalised count of the caller's cross-project blockers that are unarchived
+and not in a done column. A cross-project blocker therefore counts as exactly
+one blocker and is never expanded into whatever is blocking *it*: depth stops at
+the project boundary, and a board read never touches another project's rows.
+
+The count is maintained in application code, in the same transaction as the
+change that moves it — completion, a move into or out of a done column, a column
+having its done flag flipped, archive, restore, delete, edge add and remove, and
+the cascade behind a project or account deletion. That is not a shortcut around
+a database trigger: every one of those sites has to publish
+`cross_project_blockers_changed` into the *other* project so its boards update
+live, so the affected dependents are enumerated in application code regardless.
+The recompute is absolute rather than incremental, so a count that ever drifts
+heals the next time anything touches its blocker.
+
+`cross_project_blockers_changed` is its own event type rather than a
+`task_relations_set` fan-out because it lands on a project whose members may have
+no access to the card that moved: it carries only the recount, reaches no webhook
+registration, and raises no unseen-changes dot, since the change writes no
+activity or comment row there and the dot could never be cleared.
+
+**Identity is fetched separately, or not at all.**
+`GET /api/tasks/:id/cross-project-dependencies` serves the edges themselves,
+lazily, in both directions — `blocked_by` and `blocking`, the latter having no
+other surface anywhere, so nothing else would warn you that finishing a card
+matters to another board. Each entry carries the remote title, project and done
+state. An edge whose other end is in a project the caller cannot read is **not
+listed at all**; it is added to `hidden_blocked_by_count` or
+`hidden_blocking_count` instead. There is no field on the entry shape that could
+hold a redacted value, so no later change can populate one by accident. Those
+counts cover open edges only, which makes them reconcile exactly with
+`open_cross_project_blocker_count` and stops a caller subtracting the two to
+learn that a task they cannot see has been finished.
+
+Public boards deliberately omit the count. It is a live measurement of a project
+that never agreed to be published, and a stranger watching it fall would learn
+that another team finished something; the price is that a card blocked only from
+another project reads there as ready.
+
+A cycle may now leave a project and come back, so cycle detection walks every
+edge regardless of project — it always did — and the 409's `cycle` path walks the
+reachable subgraph rather than one project's slice. A step in a project the
+caller cannot read comes back as `{ id: null, title: null }`: the loop keeps its
+length and shape, so it still reads as a closed loop, while naming nothing.
+
+Project copy still drops an edge whose other end is outside the copied set,
+which now includes another project: a copy stays self-contained rather than
+landing pre-blocked by work it does not own.
+
+There is no UI for creating a cross-project edge yet. The API and `cpath` are the
+only ways in, deliberately, until there is a reason to expose it.
+
 ### Bulk column actions
 
 `POST /api/columns/:id/move-tasks` (`{ target_column_id }`) empties a column
@@ -1113,6 +1179,18 @@ unassigned blocker is real information (nothing is moving it), while an
 unassigned dependent means nobody is waiting. A link assigned only to the
 caller is dropped from both.
 
+Both link arrays are filtered to projects the caller can read, because a link
+carries a title, a project id and its assignees and an edge may now cross into a
+project they have no relation to. What is filtered out is reported as
+`hidden_blocked_by_count` and `hidden_blocking_count`, over open edges only. A
+hidden blocker still files the task as `blocked` — the alternative is calling
+unstartable work ready. A hidden dependent does the opposite and never moves a
+task into `blocking`, which means "someone else is waiting on you" and cannot be
+claimed about a person who may not be named. Hidden links appear in neither
+person group, and in particular never in the `user_id: null` group: that group
+means "unassigned, nothing is moving it", which is a stronger claim than
+"unknown".
+
 Done columns, archived tasks and **archived projects** are all excluded. The
 archived-project rule is the one judgement call: an archived project is still
 accessible everywhere else in the API, but archiving is the user's own "not
@@ -1268,7 +1346,8 @@ a string for every event except the three account-scoped ones, where it is `null
 | `task_deleted`                                      | `{ id }`                                                                                           |
 | `task_archived`                                     | board task shape plus `archived_at`                                                                |
 | `task_restored`                                     | board task shape                                                                                   |
-| `task_relations_set`                                | `{ task_id, label_ids, assignee_ids, blocker_ids }`                                                |
+| `task_relations_set`                                | `{ task_id, label_ids, assignee_ids, blocker_ids, open_cross_project_blocker_count }`              |
+| `cross_project_blockers_changed`                    | `{ tasks }`, each `{ task_id, open_cross_project_blocker_count }`                                   |
 | `column_created` / `column_updated`                 | column response shape                                                                              |
 | `column_deleted`                                    | `{ id, moved_tasks }`                                                                              |
 | `column_tasks_moved`                                | `{ column_id, target_column_id, moved_tasks }`                                                     |
@@ -1276,7 +1355,7 @@ a string for every event except the three account-scoped ones, where it is `null
 | `column_tasks_reordered`                            | `{ column_id, moved_tasks }`                                                                       |
 | `bulk_tasks_moved`                                  | `{ moved_tasks }`                                                                                  |
 | `bulk_tasks_archived`                               | `{ tasks }`                                                                                        |
-| `bulk_tasks_relations_set`                          | `{ tasks }`, each `{ task_id, label_ids, assignee_ids, blocker_ids }`                              |
+| `bulk_tasks_relations_set`                          | `{ tasks }`, each `{ task_id, label_ids, assignee_ids, blocker_ids, open_cross_project_blocker_count }` |
 | `label_created` / `label_updated`                   | label row                                                                                          |
 | `label_deleted`                                     | `{ id }`                                                                                           |
 | `attachment_created`                                | attachment response plus `{ attachment_count }`                                                    |
@@ -2179,9 +2258,13 @@ back:
   omits blockers that are themselves archived, matching every other read.
 - Ids are the original server ids. `created_by`, `member_ids` and
   `assignee_ids` resolve against `users[]`, `label_ids` against `labels[]`,
-  `column_id` against `columns[]`, and `blocker_ids` against `tasks[]`. A
-  `blocker_ids` entry that resolves to nothing is a corrupt cross-project row
-  and should be dropped, exactly as project copy drops it.
+  `column_id` against `columns[]`, and `blocker_ids` against `tasks[]`. Every
+  entry resolves: `blocker_ids` is same-project by construction. A task's
+  dependencies on other projects are **not** in the export — an export is one
+  project, and naming the far side would carry rows out of a board the reader may
+  have no claim to. `open_cross_project_blocker_count` rides along as a bare
+  number, so an importer can tell that such edges existed without learning what
+  they were.
 - Ordering is the board's: columns and live tasks by sort key, labels and users
   by name. Archived cards come after every live one, newest archive first — they
   keep the rank they were archived at, which is why an archived card's slot is
@@ -2377,6 +2460,9 @@ cpath task update "Fix the bug" --project "My Project" --due 2026-08-03   # --cl
 cpath task move "Fix the bug" --project "My Project" --column "In Progress" --top
 cpath task done "Fix the bug" --project "My Project"
 cpath task block "Ship it" --by "Fix the bug" --project "My Project"
+cpath task block "Ship it" --by "Sign off" --by-project "Design" --project "My Project"  # across boards
+cpath task unblock "Ship it" --by 0f0e2d1c-...  # a bare id needs no read access to the far side
+cpath task blockers "Ship it" --project "My Project"   # both directions, both boards
 cpath task duplicate "Fix the bug" --project "My Project"
 cpath task archive "Fix the bug" --project "My Project"
 cpath column duplicate "In Progress" --project "My Project"

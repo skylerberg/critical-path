@@ -24,6 +24,11 @@ import {
   type ProjectRole,
 } from '../services/authorization';
 import { attachmentStorageKeys } from '../services/attachments/index';
+import {
+  crossProjectDependentsOf,
+  publishCrossProjectBlockerCounts,
+  refreshCrossProjectBlockerCounts,
+} from '../services/crossProjectBlockers';
 import { avatarUrl } from '../services/avatars';
 import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
 import { getArchivedTasks, getBoardPayload } from '../services/boardPayload';
@@ -621,10 +626,26 @@ router.delete(
 
     const attachmentKeys = await attachmentStorageKeys(db, { projectId: id });
 
+    // Read before the cascade takes the edges: the tasks these blocked live in
+    // projects that survive, and their counts have to come down with the work
+    // that was blocking them.
+    const remoteDependents = await crossProjectDependentsOf(db, { projectIds: [id] });
+
     const result = await db.deleteFrom('project').where('id', '=', id).executeTakeFirst();
     if (result.numDeletedRows === 0n) {
       throw new AppError(404, 'Project not found');
     }
+
+    // No recipient snapshot, unlike project_deleted: these events land on
+    // projects that still exist, so the delivery layer's live access re-check
+    // is exactly right.
+    publishCrossProjectBlockerCounts(
+      c,
+      await refreshCrossProjectBlockerCounts(
+        db,
+        remoteDependents.map((dependent) => dependent.task_id)
+      )
+    );
 
     const keys = attachmentKeys;
     if (keys.length > 0) {

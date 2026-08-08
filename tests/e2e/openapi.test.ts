@@ -72,8 +72,10 @@ describe('GET /api/openapi.json', () => {
     });
 
     const step = spec.components.schemas.CycleTask;
-    expect(step.properties.id).toMatchObject({ type: 'string' });
-    expect(step.properties.title).toMatchObject({ type: 'string' });
+    // Nullable on both: a loop may now pass through a project the caller
+    // cannot read, and those steps are reported without naming anything.
+    expect(step.properties.id).toMatchObject({ anyOf: [{ type: 'string' }, { type: 'null' }] });
+    expect(step.properties.title).toMatchObject({ anyOf: [{ type: 'string' }, { type: 'null' }] });
   });
 
   it('documents account deletion with a request body and a structured 409', async () => {
