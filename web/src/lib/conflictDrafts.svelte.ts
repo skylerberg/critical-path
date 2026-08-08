@@ -25,6 +25,16 @@ export interface ConflictDraft {
   base: TaskVersion;
 }
 
+// The version a patch would produce: the baseline with the patch laid over it.
+// A description of `null` is a cleared description and must survive the merge,
+// so the check is against `undefined` rather than falsiness.
+export function mergeVersion(base: TaskVersion, patch: Partial<TaskVersion>): TaskVersion {
+  return {
+    title: patch.title ?? base.title,
+    description: patch.description !== undefined ? patch.description : base.description,
+  };
+}
+
 class ConflictDraftStore {
   #drafts = new SvelteMap<string, ConflictDraft>();
 

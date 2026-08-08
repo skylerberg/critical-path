@@ -5,6 +5,7 @@ import { board } from './board.svelte';
 import { boardAnnouncer } from './board-announcer.svelte';
 import { invitations } from './invitations.svelte';
 import type { BoardPayload } from './board-types';
+import { outbox } from './outbox.svelte';
 import { projects, type Project } from './projects.svelte';
 import { realtime } from './realtime.svelte';
 import { session } from './session.svelte';
@@ -945,6 +946,56 @@ describe('reconnect', () => {
     // account_updated is delivered, not replayed, so a reconnect is the only
     // thing that can recover one published while the socket was down.
     expect(paths).toContain('/api/auth/me');
+  });
+
+  // A refetch that ran first would replace the user's unsent changes on screen
+  // with a board that predates them, only for the replay to put them back.
+  it('sends everything waiting before it reads the board back', async () => {
+    // The app launched with no network: the session could not be checked, the
+    // board came from this device, and a change was made anyway. The first
+    // socket to connect is therefore the first read of anything.
+    session.status = 'offline';
+    board.currentProjectId = 'p1';
+
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await outbox.submit({
+      projectId: 'p1',
+      entityId: 't1',
+      label: 'Renamed a card',
+      request: {
+        method: 'PATCH',
+        path: '/api/tasks/{id}',
+        pathParams: { id: 't1' },
+        body: { title: 'mine' },
+      },
+    });
+    expect(outbox.count).toBe(1);
+
+    const order: string[] = [];
+    fetchMock.mockReset();
+    fetchMock.mockImplementation((input) => {
+      const request = input as Request;
+      order.push(`${request.method} ${new URL(request.url).pathname}`);
+      if (new URL(request.url).pathname === '/api/projects') {
+        return Promise.resolve(jsonResponse(200, { projects: [] }));
+      }
+      return Promise.resolve(jsonResponse(200, boardPayload()));
+    });
+
+    realtime.connect();
+    const socket = latestSocket();
+    socket.open();
+    socket.receive({ type: 'auth_ok' });
+
+    for (let i = 0; i < 20; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(outbox.count).toBe(0);
+    const replay = order.indexOf('PATCH /api/tasks/t1');
+    const refetch = order.indexOf('GET /api/projects/p1');
+    expect(replay).toBeGreaterThanOrEqual(0);
+    expect(refetch).toBeGreaterThan(replay);
   });
 
   it('does not refetch on the very first connect', async () => {

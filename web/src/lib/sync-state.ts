@@ -1,0 +1,78 @@
+import { STALE_QUEUE_WARNING_MS } from './outbox.svelte';
+
+export type SyncState =
+  /** Nothing waiting, nothing wrong. The indicator is not shown at all. */
+  | 'clean'
+  /** Reachable, and the queue is going out now. */
+  | 'syncing'
+  /** Unreachable, with the user's work waiting on this device. */
+  | 'offline-pending'
+  /** Unreachable, nothing waiting. Reads are coming from the last snapshot. */
+  | 'offline'
+  /** HTTP works; only the live-updates socket is down. Weakest of the states. */
+  | 'reconnecting'
+  /** Everything that could be sent has been, and some of it did not land. */
+  | 'needs-attention';
+
+export interface SyncInputs {
+  reachable: boolean;
+  pendingCount: number;
+  draining: boolean;
+  socketInterrupted: boolean;
+  unresolvedIssues: number;
+}
+
+/**
+ * One state out of four signals that each know only part of the story, ordered
+ * so the most consequential thing true right now is the thing shown. Unsent work
+ * outranks a dropped socket, because one is the user's writing and the other is
+ * only how fast they see someone else's.
+ */
+export function syncState(inputs: SyncInputs): SyncState {
+  if (inputs.pendingCount > 0) {
+    return inputs.reachable && inputs.draining ? 'syncing' : 'offline-pending';
+  }
+  if (!inputs.reachable) {
+    return 'offline';
+  }
+  if (inputs.unresolvedIssues > 0) {
+    return 'needs-attention';
+  }
+  return inputs.socketInterrupted ? 'reconnecting' : 'clean';
+}
+
+/**
+ * Deliberately plain about what is and is not true.
+ *
+ * "Saved" is never used for something still queued — it is exactly the claim
+ * this feature must not make — and neither is "local-first", which would promise
+ * an app designed to run offline indefinitely rather than one degrading
+ * gracefully until the network returns.
+ */
+export function syncMessage(state: SyncState, pendingCount: number, issues: number): string {
+  const changes = `${String(pendingCount)} ${pendingCount === 1 ? 'change' : 'changes'}`;
+  switch (state) {
+    case 'syncing':
+      return `Sending ${changes}…`;
+    case 'offline-pending':
+      return `Offline — ${changes} waiting on this device`;
+    case 'offline':
+      return 'Offline — showing the last version on this device';
+    case 'reconnecting':
+      return 'Offline — reconnecting';
+    case 'needs-attention':
+      return `${String(issues)} ${issues === 1 ? 'change needs' : 'changes need'} your attention`;
+    case 'clean':
+      return '';
+  }
+}
+
+// Sitting unsent long enough that the user should be told plainly rather than
+// left to infer it from a spinner that has been up since yesterday.
+export function isQueueStale(oldestQueuedAt: string | null, now: number = Date.now()): boolean {
+  if (oldestQueuedAt === null) {
+    return false;
+  }
+  const queuedAt = Date.parse(oldestQueuedAt);
+  return !Number.isNaN(queuedAt) && now - queuedAt >= STALE_QUEUE_WARNING_MS;
+}

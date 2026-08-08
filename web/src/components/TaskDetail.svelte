@@ -265,6 +265,15 @@
   // a rename, and the resolver has to be able to see both sides of both fields.
   // The editor is asked for its live document rather than the one the failed save
   // carried, which the debounce leaves a keystroke or two behind.
+  // The baseline the editor was populated from, handed to every guarded save so a
+  // patch that has to wait for the network still knows what it was written
+  // against. Without it a queued edit that comes back 409 could report the
+  // conflict but not offer the choice, which is the half of the promise that
+  // matters.
+  function currentBase(): TaskVersion {
+    return { title: baseTitle ?? '', description: baseDescription };
+  }
+
   function enterConflict(): void {
     const trimmed = titleDraft?.trim() ?? '';
     conflictDrafts.set(taskId, {
@@ -298,14 +307,24 @@
     void queueWrite(async () => {
       if (conflicted || id !== taskId) return;
       if (trimmed !== baseTitle) {
-        const outcome = await board.updateTask(id, { title: trimmed }, baseUpdatedAt ?? undefined);
+        const outcome = await board.updateTask(
+          id,
+          { title: trimmed },
+          baseUpdatedAt ?? undefined,
+          currentBase()
+        );
         if (outcome.status === 'conflict') {
           enterConflict();
           return;
         }
         if (outcome.status === 'error') return;
-        baseUpdatedAt = outcome.updated_at;
-        baseTitle = trimmed;
+        // Queued: the baseline stays where it is, because the precondition the
+        // waiting patch carries names that same version. Advancing it here would
+        // promise a save the server has not seen.
+        if (outcome.status === 'ok') {
+          baseUpdatedAt = outcome.updated_at;
+          baseTitle = trimmed;
+        }
       }
       if (titleDraft === draft) {
         titleDraft = null;
@@ -322,10 +341,21 @@
       // Re-checked here because the queue can hold this past a delete, a conflict or
       // an in-place task change.
       if (conflicted || removing || id !== taskId) return true;
-      const outcome = await board.updateTask(id, { description: doc }, baseUpdatedAt ?? undefined);
+      const outcome = await board.updateTask(
+        id,
+        { description: doc },
+        baseUpdatedAt ?? undefined,
+        currentBase()
+      );
       if (outcome.status === 'ok') {
         baseUpdatedAt = outcome.updated_at;
         baseDescription = doc;
+        return true;
+      }
+      // Held for the network. Settled as far as the editor is concerned — the
+      // text is safe and the sync indicator owns saying it is not sent yet — but
+      // the baseline stays put so the queued precondition remains true.
+      if (outcome.status === 'queued') {
         return true;
       }
       // Reporting a conflict as a failed save would make the editor retry it on the

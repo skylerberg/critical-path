@@ -1,6 +1,7 @@
 import createClient from 'openapi-fetch';
 import type { Middleware } from 'openapi-fetch';
 import type { paths } from './api.generated';
+import { connectivity } from '../lib/connectivity.svelte';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -50,8 +51,21 @@ const bearerAuth: Middleware = {
   },
 };
 
+// Every request is a reachability probe, so the answer is recorded here rather
+// than guessed at from `navigator.onLine`. A 500 still proves the server is
+// there; only a fetch that never got an answer says otherwise.
+const reachability: Middleware = {
+  onResponse() {
+    connectivity.noteReached();
+  },
+  onError() {
+    connectivity.noteUnreachable();
+  },
+};
+
 export const api = createClient<paths>({ baseUrl: '' });
 api.use(bearerAuth);
+api.use(reachability);
 
 export interface ApiResult<T> {
   data?: T;

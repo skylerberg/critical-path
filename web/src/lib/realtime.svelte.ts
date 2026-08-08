@@ -6,6 +6,7 @@ import { projects } from './projects.svelte';
 import { taskSeries } from './taskSeries.svelte';
 import { users } from './users.svelte';
 import type { RealtimeEvent, RealtimeEventType } from './realtime-types';
+import { outbox } from './outbox.svelte';
 import { session } from './session.svelte';
 
 type RealtimeStatus = 'online' | 'offline' | 'connecting';
@@ -197,29 +198,48 @@ class RealtimeClient {
     this.#syncSubscription(this.#subscriptionTarget);
     // The very first connect follows the initial page load, which already
     // fetched everything; only a reconnect needs to self-heal the missed gap.
-    if (this.#hasSyncedOnce) {
-      // The refetches below replace the board wholesale rather than applying
-      // events, so anything still buffered describes changes about to arrive as
-      // a whole new board.
-      boardAnnouncer.reset();
-      // account_updated is delivered, not replayed: one published while this
-      // socket was down is gone, and nothing else re-reads the account until a
-      // page load. Every other store below heals the same gap the same way.
-      void session.refresh().catch(() => {
-        // Best-effort: a failed read leaves the account as stale as it was.
-      });
-      void projects.load();
-      invitations.resync();
-      taskSeries.resync();
-      if (board.currentProjectId !== null) {
-        if (board.dragBusy) {
-          this.#needsBoardRefetch = true;
-        } else {
-          void board.resync();
-        }
+    // An initial load that could not reach the server is the exception — it
+    // fetched nothing, so it needs the same healing a reconnect does.
+    const needsHeal = this.#hasSyncedOnce || session.status === 'offline';
+    this.#hasSyncedOnce = true;
+    if (!needsHeal) {
+      return;
+    }
+    // Unsent changes go first: they are the one thing the server has never seen,
+    // and a refetch that ran ahead of them would replace them on screen with a
+    // board that predates them, only for the replay to put them back. Nothing to
+    // replay is the ordinary case, and it heals immediately rather than waiting
+    // a turn for an empty queue.
+    if (outbox.count === 0) {
+      this.#healReads();
+      return;
+    }
+    void outbox.drain().then(() => {
+      this.#healReads();
+    });
+  }
+
+  #healReads(): void {
+    // The refetches below replace the board wholesale rather than applying
+    // events, so anything still buffered describes changes about to arrive as
+    // a whole new board.
+    boardAnnouncer.reset();
+    // account_updated is delivered, not replayed: one published while this
+    // socket was down is gone, and nothing else re-reads the account until a
+    // page load. Every other store below heals the same gap the same way.
+    void session.refresh().catch(() => {
+      // Best-effort: a failed read leaves the account as stale as it was.
+    });
+    void projects.load();
+    invitations.resync();
+    taskSeries.resync();
+    if (board.currentProjectId !== null) {
+      if (board.dragBusy) {
+        this.#needsBoardRefetch = true;
+      } else {
+        void board.resync();
       }
     }
-    this.#hasSyncedOnce = true;
   }
 
   #onClose(socket: WebSocket, event: CloseEvent): void {

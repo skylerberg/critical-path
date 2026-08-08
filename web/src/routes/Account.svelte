@@ -15,6 +15,7 @@
   import Avatar from '../components/ui/Avatar.svelte';
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
+  import OfflineNotice from '../components/OfflineNotice.svelte';
 
   type Status = { kind: 'success' | 'error'; message: string } | null;
 
@@ -223,6 +224,8 @@
     }
   }
 </script>
+
+<OfflineNotice />
 
 {#snippet status(value: Status)}
   {#if value !== null}

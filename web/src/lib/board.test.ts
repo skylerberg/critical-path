@@ -4,6 +4,7 @@ import { board, placementAfterDrop, type TaskAttachment } from './board.svelte';
 import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
+import { clearOfflineCache } from './offline-cache';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
@@ -4197,5 +4198,61 @@ describe('board store attachments', () => {
     board.reset();
 
     expect(board.taskAttachments).toEqual({});
+  });
+});
+
+describe('a board read that cannot reach the server', () => {
+  const ADA = { id: testUuid('ada'), name: 'Ada', email: 'ada@example.com', avatar_url: null };
+
+  beforeEach(async () => {
+    session.user = ADA as never;
+    await clearOfflineCache(ADA.id);
+  });
+
+  afterEach(async () => {
+    await clearOfflineCache(ADA.id);
+    session.user = null;
+  });
+
+  async function loadOnce(): Promise<void> {
+    fetchMock.mockResolvedValue(jsonResponse(200, payload()));
+    await board.load('p1', noFilters());
+    await board.persistSnapshot();
+    fetchMock.mockReset();
+  }
+
+  // The alternative — an error page over data this device is holding — is the
+  // blank-window failure the whole feature exists to avoid.
+  it('shows the last version this device saw rather than an error', async () => {
+    await loadOnce();
+    board.reset();
+
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await board.load('p1', noFilters());
+
+    expect(board.error).toBeNull();
+    expect(board.tasks.map((t) => t.id).sort()).toEqual(['t1', 't2', 't3']);
+    // And can say how old it is rather than implying it is current.
+    expect(board.syncedAt).not.toBeNull();
+  });
+
+  // A server that answered and refused is a real error, and hiding it behind a
+  // stale board would be the dishonest kind of graceful.
+  it('still reports a refusal as the error it is', async () => {
+    await loadOnce();
+    board.reset();
+
+    fetchMock.mockResolvedValue(jsonResponse(403, { error: 'Not a member' }));
+    await board.load('p1', noFilters());
+
+    expect(board.error).toBe('Not a member');
+    expect(board.errorStatus).toBe(403);
+  });
+
+  it('has nothing to fall back on for a project this device never loaded', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await board.load('p-never-seen', noFilters());
+
+    expect(board.error).toBe('Failed to load board');
   });
 });

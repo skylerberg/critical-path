@@ -6,6 +6,7 @@
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';
   import Modal from './ui/Modal.svelte';
+  import OfflineNotice from './OfflineNotice.svelte';
 
   interface Props {
     projectId: string;
@@ -92,6 +93,8 @@
     return new Date(value).toLocaleString();
   }
 </script>
+
+<OfflineNotice />
 
 <Modal open title="Webhooks" {onclose}>
   <div class="flex flex-col gap-5">

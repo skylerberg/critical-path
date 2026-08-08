@@ -13,12 +13,12 @@
   import { motion } from '../lib/motion.svelte';
   import { paletteChordHint } from '../lib/palette';
   import { projects, type Project } from '../lib/projects.svelte';
-  import { realtime } from '../lib/realtime.svelte';
   import { link, router } from '../lib/router.svelte';
   import { isDragPlaceholder, projectHref } from '../lib/short-links';
   import { currentProjectId } from '../lib/task-route.svelte';
   import { session } from '../lib/session.svelte';
   import FeedbackDialog from './FeedbackDialog.svelte';
+  import SyncStatus from './SyncStatus.svelte';
   import Avatar from './ui/Avatar.svelte';
   import ColorDot from './ui/ColorDot.svelte';
 
@@ -31,8 +31,6 @@
   const myTasksActive = $derived(router.current.name === 'my-tasks');
   const searchActive = $derived(router.current.name === 'search');
   const activeProjectId = $derived(currentProjectId());
-
-  const offline = $derived(session.status === 'authed' && realtime.interrupted);
 
   let feedbackOpen = $state(false);
   let localProjects = $state<Project[]>([]);
@@ -68,15 +66,7 @@
   }
 </script>
 
-{#if offline}
-  <div
-    role="status"
-    class="fixed top-2 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-edge bg-surface px-3 py-1 text-xs font-medium text-muted shadow-sm"
-  >
-    <span class="size-2 animate-pulse rounded-full bg-amber-500" aria-hidden="true"></span>
-    Offline — reconnecting
-  </div>
-{/if}
+<SyncStatus />
 
 {#snippet projectsIcon()}
   <svg
