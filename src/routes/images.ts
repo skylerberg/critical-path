@@ -1,14 +1,16 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import { skipAuth } from '../middleware/auth';
+import { optionalAuth } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
 import { storage } from '../services/storage/index';
 import { storedObjectResponse } from '../services/storage/response';
+import { assertAttachmentReadable } from '../services/attachments/index';
 import { logger } from '../utils/logger';
 import {
   idSchema,
   badRequestErrorResponse,
+  unauthorizedErrorResponse,
   notFoundErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
@@ -26,7 +28,12 @@ publicImagesRouter.get(
     tags: ['Images'],
     summary: 'Get image',
     description:
-      'Serve image bytes with the Content-Type recorded at upload. Unauthenticated: the unguessable image id acts as a capability URL so <img> tags work without auth headers.',
+      'Serve image bytes with the Content-Type recorded at upload. On a private board this ' +
+      'answers only to a member, so a picture stops being readable the moment someone is ' +
+      'removed from the project; on a published board it serves anyone, because a public board ' +
+      'publishes its pictures. A browser authenticates with the session cookie, since an <img> ' +
+      'tag cannot carry an Authorization header.',
+    security: [{ bearerAuth: [] }],
     responses: {
       200: {
         description: 'Image bytes (Content-Type reflects the stored image format)',
@@ -37,20 +44,25 @@ publicImagesRouter.get(
         },
       },
       ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  skipAuth,
+  optionalAuth,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
 
+    await assertAttachmentReadable(c.get('db'), c.get('user'), id);
+
     // Selects the two image-only columns and never storage_key or content_type,
     // so this route stays structurally incapable of serving a file attachment's
     // bytes — a file row has both of these null and 404s here. That, rather than
-    // a kind filter someone could drop, is what keeps an unauthenticated URL
-    // from echoing an uploader-chosen content type over uploader-chosen bytes.
+    // a kind filter someone could drop, is what keeps a renderable URL from
+    // echoing an uploader-chosen content type over uploader-chosen bytes. It
+    // still matters now that the route is authenticated: a published board
+    // serves these to anyone.
     const row = await c
       .get('db')
       .selectFrom('task_attachment')
@@ -75,7 +87,7 @@ publicImagesRouter.get(
     // The type is sniffed and CHECK-constrained to four image formats, but a
     // file can be a valid GIF *and* valid HTML at once. nosniff is what stops a
     // browser looking past the declared type and rendering the other half as a
-    // document on our own origin, from a URL that needs no credentials.
+    // document on our own origin.
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('Cache-Control', 'private, max-age=31536000, immutable');
     return storedObjectResponse(c, object);

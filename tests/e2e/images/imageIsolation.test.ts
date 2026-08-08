@@ -10,11 +10,11 @@ const PNG_1X1 = Buffer.from(
 const PDF = Buffer.from('%PDF-1.4\nbody\n%%EOF\n');
 
 // Images and file attachments share a table now, and the two are served under
-// opposite rules: an image goes out unauthenticated with its real content type
-// so an <img> can render it, a file only ever as an authenticated
-// application/octet-stream download. Sharing storage must not let either id
-// cross into the other's route — that crossing is what would turn an arbitrary
-// upload into a script served from our own origin.
+// opposite rules: an image goes out with its real content type so an <img> can
+// render it, a file only ever as an application/octet-stream download. Both are
+// authenticated, so the crossing these guard is between one member's routes —
+// letting an id cross is what would turn an arbitrary upload into a script
+// served from our own origin.
 describe('image and file attachment isolation', () => {
   const ctx = new TestContext();
   const createdProjectIds: string[] = [];
@@ -43,14 +43,14 @@ describe('image and file attachment isolation', () => {
     await ctx.cleanup();
   });
 
-  it('will not serve a file attachment through the unauthenticated image route', async () => {
-    const res = await ctx.request().get(`/api/images/${fileId}`);
+  it('will not serve a file attachment through the image route even to its owner', async () => {
+    const res = await ctx.request(user.token).get(`/api/images/${fileId}`);
     expect(res.status).toBe(404);
     expect(res.headers.get('content-type')).not.toContain('application/pdf');
   });
 
-  it('will not serve a file attachment through the image route even to its owner', async () => {
-    expect((await ctx.request(user.token).get(`/api/images/${fileId}`)).status).toBe(404);
+  it("answers an anonymous caller 401 for a private board's image", async () => {
+    expect((await ctx.request().get(`/api/images/${imageId}`)).status).toBe(401);
   });
 
   it('will not serve an image through the attachment download route', async () => {
@@ -60,8 +60,9 @@ describe('image and file attachment isolation', () => {
   });
 
   it('will not serve an image through the link preview or favicon routes', async () => {
-    expect((await ctx.request().get(`/api/attachments/${imageId}/preview`)).status).toBe(404);
-    expect((await ctx.request().get(`/api/attachments/${imageId}/favicon`)).status).toBe(404);
+    const request = ctx.request(user.token);
+    expect((await request.get(`/api/attachments/${imageId}/preview`)).status).toBe(404);
+    expect((await request.get(`/api/attachments/${imageId}/favicon`)).status).toBe(404);
   });
 
   // Isolation is about which bytes each route can reach, not about which rows it
@@ -79,8 +80,8 @@ describe('image and file attachment isolation', () => {
     expect(body.image_url).toBe(`/api/images/${imageId}`);
   });
 
-  it('still serves the image itself, unauthenticated and with its sniffed type', async () => {
-    const res = await ctx.request().get(`/api/images/${imageId}`);
+  it('still serves the image itself to a member, with its sniffed type', async () => {
+    const res = await ctx.request(user.token).get(`/api/images/${imageId}`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(Buffer.from(await res.arrayBuffer()).equals(PNG_1X1)).toBe(true);

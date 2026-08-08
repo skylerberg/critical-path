@@ -18,17 +18,21 @@ const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   'POST /api/auth/unsubscribe',
   'POST /api/auth/unsubscribe/all',
   'POST /api/auth/unsubscribe/one-click',
-  'GET /api/avatars/:id',
-  'GET /api/images/:id',
-  'GET /api/attachments/:id/preview',
-  'GET /api/attachments/:id/favicon',
   'GET /api/public/projects/:id/board',
 ]);
 
 // Routes that serve with or without a token and decide for themselves. Pinned
 // the same way and for the same reason: the marker is easy to add and its effect
 // is invisible until someone reaches the resource without credentials.
-const OPTIONAL_AUTH_ROUTES: ReadonlySet<string> = new Set(['GET /api/attachments/:id/download']);
+const OPTIONAL_AUTH_ROUTES: ReadonlySet<string> = new Set([
+  'GET /api/attachments/:id/download',
+  // The media routes. Optional rather than required because a published board
+  // serves them to anyone, and each one decides for itself which it is.
+  'GET /api/images/:id',
+  'GET /api/avatars/:id',
+  'GET /api/attachments/:id/preview',
+  'GET /api/attachments/:id/favicon',
+]);
 
 export function assertPublicRoutes(routes: RouterRoute[]): void {
   const registered = new Set<string>();
