@@ -902,7 +902,7 @@ export interface paths {
     head?: never;
     /**
      * Update a task
-     * @description Update title, description (a Tiptap doc, or null to clear it), due_date (a calendar day YYYY-MM-DD, or null to clear it; omit it to leave it alone), or move the task by sending column_id and position together. The new column must belong to the task’s project and due_date must be a real calendar day; violations return 422 with a plain error body. updated_at is bumped only when the patch changes title or description — a pure move or due-date change leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task or sets its due date is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
+     * @description Update title, description (a Tiptap doc, or null to clear it), due_date (a calendar day YYYY-MM-DD, or null to clear it; omit it to leave it alone), or move the task by sending column_id and position together. The new column must belong to the task’s project and due_date must be a real calendar day; violations return 422 with a plain error body. A sort_key already taken in the destination — including by an archived card the caller cannot see — ranks the task immediately after the card holding it rather than failing, so the echoed sort_key is not always the one that was sent. updated_at is bumped only when the patch changes title or description — a pure move or due-date change leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task or sets its due date is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
      */
     patch: operations['patchApiTasksById'];
     trace?: never;
@@ -1348,7 +1348,7 @@ export interface paths {
     };
     /**
      * Get image
-     * @description Serve image bytes with the Content-Type recorded at upload. Unauthenticated: the unguessable image id acts as a capability URL so <img> tags work without auth headers.
+     * @description Serve image bytes with the Content-Type recorded at upload. On a private board this answers only to a member, so a picture stops being readable the moment someone is removed from the project; on a published board it serves anyone, because a public board publishes its pictures. A browser authenticates with the session cookie, since an <img> tag cannot carry an Authorization header.
      */
     get: operations['getApiImagesById'];
     put?: never;
@@ -1492,7 +1492,7 @@ export interface paths {
     };
     /**
      * Get avatar
-     * @description Serve avatar image bytes by storage key. Unauthenticated: the unguessable key acts as a capability URL so <img> tags work without auth headers. Every avatar upload mints a fresh key, so responses are immutable and cacheable forever.
+     * @description Serve avatar image bytes by storage key. Answers any signed-in caller — an avatar is the same key on every board its owner appears on — and an anonymous one only when its owner appears on a published board. A browser authenticates with the session cookie, since an <img> tag cannot carry an Authorization header. Every avatar upload mints a fresh key, so responses are immutable and cacheable forever.
      */
     get: operations['getApiAvatarsById'];
     put?: never;
@@ -7709,6 +7709,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Authentication required or failed */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Not Found */
       404: {
         headers: {
@@ -8249,6 +8258,15 @@ export interface operations {
       };
       /** @description Bad Request */
       400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Authentication required or failed */
+      401: {
         headers: {
           [name: string]: unknown;
         };

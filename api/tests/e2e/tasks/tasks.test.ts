@@ -336,6 +336,62 @@ describe('Tasks CRUD', () => {
       expect(updated.sort_key).toBeTruthy();
     });
 
+    it('moves onto a key an archived card in the destination is still holding', async () => {
+      const targetColumn = await fixtures.createColumn(projectId, {
+        name: 'Move onto archived key',
+        sortKey: rankKey(2100),
+      });
+      const takenKey = rankKey(500);
+      await fixtures.createTaskRow(projectId, targetColumn, 'archived squatter', {
+        sortKey: takenKey,
+        archivedAt: new Date(),
+      });
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${id}`, { column_id: targetColumn, sort_key: takenKey });
+      expect(res.status).toBe(200);
+      const updated = await res.json();
+      expect(updated.column_id).toBe(targetColumn);
+      expect(updated.sort_key > takenKey).toBe(true);
+    });
+
+    it('moves onto a key a live card in the destination is still holding', async () => {
+      const targetColumn = await fixtures.createColumn(projectId, {
+        name: 'Move onto live key',
+        sortKey: rankKey(2200),
+      });
+      const takenKey = rankKey(500);
+      await fixtures.createTaskRow(projectId, targetColumn, 'sitting card', { sortKey: takenKey });
+      const created = await ctx.request(user.token).post('/api/tasks', taskBody());
+      const { id } = await created.json();
+
+      const res = await ctx
+        .request(user.token)
+        .patch(`/api/tasks/${id}`, { column_id: targetColumn, sort_key: takenKey });
+      expect(res.status).toBe(200);
+      expect((await res.json()).sort_key > takenKey).toBe(true);
+    });
+
+    it('reorders within a column onto a taken key without colliding', async () => {
+      const column = await fixtures.createColumn(projectId, {
+        name: 'Reorder onto taken key',
+        sortKey: rankKey(2300),
+      });
+      const takenKey = rankKey(500);
+      await fixtures.createTaskRow(projectId, column, 'neighbour', { sortKey: takenKey });
+      const created = await ctx
+        .request(user.token)
+        .post('/api/tasks', taskBody({ column_id: column }));
+      const { id } = await created.json();
+
+      const res = await ctx.request(user.token).patch(`/api/tasks/${id}`, { sort_key: takenKey });
+      expect(res.status).toBe(200);
+      expect((await res.json()).sort_key > takenKey).toBe(true);
+    });
+
     it('rejects a non-finite position with 422', async () => {
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const { id } = await created.json();
