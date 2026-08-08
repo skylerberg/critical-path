@@ -59,6 +59,30 @@ describe('Realtime end to end', () => {
       .put(`/api/projects/${projectId}/members`, { user_ids: [userB.id] });
     expect(shareRes.status).toBe(204);
 
+    // Nine tests below mutate this card and assert on the events that follow.
+    // Built before the clients connect, so it reaches none of their buffers and
+    // a create that breaks fails this hook once instead of leaving those nine
+    // to patch an undefined id.
+    taskId = newId();
+    const sharedTask = await ctx.request(userA.token).post('/api/tasks', {
+      id: taskId,
+      project_id: projectId,
+      column_id: columnId,
+      title: 'Shared task',
+      sort_key: rankKey(1000),
+    });
+    expect(sharedTask.status).toBe(201);
+
+    task2Id = newId();
+    const blockerTask = await ctx.request(userA.token).post('/api/tasks', {
+      id: task2Id,
+      project_id: projectId,
+      column_id: columnId,
+      title: 'Blocker task',
+      sort_key: rankKey(2000),
+    });
+    expect(blockerTask.status).toBe(201);
+
     clientA = await connect(userA.token);
     clientB = await connect(userB.token);
     clientB2 = await connect(userB.token);
@@ -81,39 +105,45 @@ describe('Realtime end to end', () => {
     await ctx.cleanup();
   });
 
-  const key1000 = rankKey(1000);
   it('delivers task_created to subscribed members with the board task shape', async () => {
-    taskId = newId();
-    const res = await ctx.request(userA.token).post('/api/tasks', {
-      id: taskId,
-      project_id: projectId,
-      column_id: columnId,
-      title: 'First task',
-      sort_key: key1000,
-    });
-    expect(res.status).toBe(201);
+    const createdId = newId();
+    try {
+      const res = await ctx.request(userA.token).post('/api/tasks', {
+        id: createdId,
+        project_id: projectId,
+        column_id: columnId,
+        title: 'First task',
+        sort_key: rankKey(1000),
+      });
+      expect(res.status).toBe(201);
 
-    const event = await clientA.waitForEvent(
-      (e) => e.type === 'task_created' && e.data.id === taskId
-    );
-    expect(Object.keys(event).sort()).toEqual(['data', 'project_id', 'type']);
-    expect(event.project_id).toBe(projectId);
-    expect(event.data).toMatchObject({
-      id: taskId,
-      column_id: columnId,
-      title: 'First task',
-      sort_key: expect.any(String),
-      label_ids: [],
-      assignee_ids: [],
-      blocker_ids: [],
-      cover_image_url: null,
-      comment_count: 0,
-    });
+      const event = await clientA.waitForEvent(
+        (e) => e.type === 'task_created' && e.data.id === createdId
+      );
+      expect(Object.keys(event).sort()).toEqual(['data', 'project_id', 'type']);
+      expect(event.project_id).toBe(projectId);
+      expect(event.data).toMatchObject({
+        id: createdId,
+        column_id: columnId,
+        title: 'First task',
+        sort_key: expect.any(String),
+        label_ids: [],
+        assignee_ids: [],
+        blocker_ids: [],
+        cover_image_url: null,
+        comment_count: 0,
+      });
 
-    await clientB.waitForEvent((e) => e.type === 'task_created' && e.data.id === taskId);
-    await settle();
-    expect(clientB2.eventsOfType('task_created')).toEqual([]);
-    expect(clientC.events).toEqual([]);
+      await clientB.waitForEvent((e) => e.type === 'task_created' && e.data.id === createdId);
+      await settle();
+      expect(clientB2.eventsOfType('task_created')).toEqual([]);
+      expect(clientC.events).toEqual([]);
+    } finally {
+      // Later cases assert on this project's task counts, so nothing created
+      // here may outlive the test, failure included.
+      await ctx.request(userA.token).post(`/api/tasks/${createdId}/archive`);
+      await ctx.request(userA.token).delete(`/api/tasks/${createdId}`);
+    }
   });
 
   it('delivers one task_created per task in a batch', async () => {
@@ -232,16 +262,6 @@ describe('Realtime end to end', () => {
         e.data.task_id === taskId &&
         JSON.stringify(e.data.assignee_ids) === JSON.stringify([userB.id])
     );
-
-    task2Id = newId();
-    const taskRes = await ctx.request(userA.token).post('/api/tasks', {
-      id: task2Id,
-      project_id: projectId,
-      column_id: columnId,
-      title: 'Blocker task',
-      sort_key: rankKey(2000),
-    });
-    expect(taskRes.status).toBe(201);
 
     const blockRes = await ctx
       .request(userA.token)
