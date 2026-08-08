@@ -333,7 +333,6 @@ via a `sessions_revoked` entry naming the session (see
 [Realtime](#realtime)); the socket's own 30-second credential re-check is the
 backstop if that entry is ever missed.
 
-<<<<<<< HEAD
 ### Password change and reset
 
 Neither `POST /api/auth/change-password` nor `POST /api/auth/reset-password`
@@ -355,7 +354,7 @@ What both flows *do* rotate is `app_user.alternative_id`, which is the subject
 of the stateless reset-token HMAC. That makes the link that just got used
 single-use and invalidates every other outstanding reset email. It has no
 effect on sessions.
-=======
+
 ### The session cookie
 
 Signup and login also set the session token as an HttpOnly `cp_session`
@@ -384,7 +383,6 @@ The media routes read it, and nothing else does — see the note on
 routes is what keeps it from being a CSRF primitive: they are all GETs that
 only read bytes, and every mutation still requires the `Authorization` header,
 which no other origin can set.
->>>>>>> b0b1194 (Issue the session token as a cookie)
 
 ### Personal access tokens
 
