@@ -1,5 +1,5 @@
 import { type } from 'arktype';
-import { isValidUuid, toUuid } from '../types/uuid';
+import { isValidUuid, toUuid } from '../utils/uuid';
 import { hasControlCharacterBesidesWhitespace } from '../utils/controlCharacters';
 import { isValidSortKey } from '../services/sortKey';
 

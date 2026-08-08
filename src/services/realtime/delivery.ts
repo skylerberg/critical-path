@@ -1,7 +1,8 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import { db } from '../../db/index';
-import { normalizeProjectRole, projectSharerIdsAmong } from '../authorization';
+import { normalizeProjectRole } from '../authorization';
+import { projectSharerIdsAmong } from '../userDirectory';
 import { USER_UPDATED } from './bus';
 import type { BusEntry } from './bus';
 import { authedSocketEntries, getSocketState, projectSockets } from './state';

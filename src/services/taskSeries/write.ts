@@ -1,11 +1,7 @@
 import { sql, type Kysely, type RawBuilder, type UpdateObject } from 'kysely';
 import type { DB } from '../../db/types';
-import type {
-  CreateTaskSeriesInput,
-  PatchTaskSeriesInput,
-  TiptapDoc,
-  TiptapNode,
-} from '../../schemas/index';
+import { mapTiptapDoc } from '../../schemas/index';
+import type { CreateTaskSeriesInput, PatchTaskSeriesInput, TiptapDoc } from '../../schemas/index';
 import { dedupe } from '../../utils/arrays';
 import { AppError } from '../../utils/errors';
 import type { ProjectAccessFields } from '../authorization';
@@ -35,31 +31,17 @@ interface StrippedDescription {
 
 // A template owns no task, so an image node in it would point at a file owned by
 // some other card and break the moment that card is deleted.
-function stripImages(node: TiptapNode): { node: TiptapNode; dropped: number } {
-  let dropped = 0;
-  const next: TiptapNode = { ...node };
-  if (next.content) {
-    const kept: TiptapNode[] = [];
-    for (const child of next.content) {
-      if (child.type === 'image') {
-        dropped += 1;
-        continue;
-      }
-      const result = stripImages(child);
-      dropped += result.dropped;
-      kept.push(result.node);
-    }
-    next.content = kept;
-  }
-  return { node: next, dropped };
-}
-
 function stripDescriptionImages(description: TiptapDoc | null | undefined): StrippedDescription {
   if (description == null) {
     return { description: null, droppedImageCount: 0 };
   }
-  const { node, dropped } = stripImages(description);
-  return { description: node as TiptapDoc, droppedImageCount: dropped };
+  let droppedImageCount = 0;
+  const stripped = mapTiptapDoc(description, (node) => {
+    if (node.type !== 'image') return node;
+    droppedImageCount += 1;
+    return null;
+  });
+  return { description: stripped, droppedImageCount };
 }
 
 async function assertKnownTimezone(db: Kysely<DB>, timezone: string): Promise<void> {

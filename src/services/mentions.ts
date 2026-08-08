@@ -15,12 +15,20 @@ export interface MentionNotification {
   recipientUserIds: string[];
 }
 
-// The single seam where notification delivery attaches.
-export const mentionDelivery: {
-  deliver: (notification: MentionNotification) => Promise<void>;
-} = {
-  deliver: async () => {},
-};
+export type MentionDeliverer = (notification: MentionNotification) => Promise<void>;
+
+// Nothing in the app registers one, so mentions notify nobody today: whether a
+// mention should send mail is an unmade product decision, and this is the seam
+// it would attach to. Null rather than a no-op function so the unwired state is
+// a state `notifyMentions` can see and skip — resolving recipients for a
+// deliverer that does not exist is a query per write for nothing — and so the
+// difference between "sends nothing" and "sends to nobody" is visible here
+// instead of only in a stack trace that never arrives.
+let mentionDeliverer: MentionDeliverer | null = null;
+
+export function setMentionDeliverer(deliverer: MentionDeliverer | null): void {
+  mentionDeliverer = deliverer;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -69,6 +77,9 @@ export async function notifyMentions(
     next: unknown;
   }
 ): Promise<void> {
+  const deliverer = mentionDeliverer;
+  if (deliverer === null) return;
+
   const added = newMentionIds(args.previous, args.next).filter((id) => id !== args.actorUserId);
   if (added.length === 0) return;
 
@@ -87,6 +98,6 @@ export async function notifyMentions(
     recipientUserIds,
   };
   c.get('postCommitHooks').push(async () => {
-    await mentionDelivery.deliver(notification);
+    await deliverer(notification);
   });
 }

@@ -16,12 +16,12 @@ import { db } from '../../helpers/database';
 import { newId, rankKey } from '../../helpers/fixtures';
 import { errorHandler } from '../../../src/middleware/errorHandler';
 import { transactionMiddleware } from '../../../src/middleware/transaction';
+import { resetRateLimiter } from '../../../src/services/rateLimit';
 import {
   NOTIFY_PAIR_MAX_ATTEMPTS,
   NOTIFY_RECIPIENT_MAX_ATTEMPTS,
   NOTIFY_WINDOW_MS,
-  resetRateLimiter,
-} from '../../../src/middleware/rateLimit';
+} from '../../../src/services/notificationBudget';
 import { env } from '../../../src/config/env';
 import { logger } from '../../../src/utils/logger';
 import {

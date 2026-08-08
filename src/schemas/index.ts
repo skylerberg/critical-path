@@ -19,7 +19,6 @@ export * from './tasks';
 export * from './myTasks';
 export * from './search';
 export * from './labels';
-export * from './images';
 export * from './comments';
 export * from './crossProjectDependencies';
 export * from './checklists';

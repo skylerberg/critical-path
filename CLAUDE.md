@@ -143,6 +143,30 @@ web app and the CLI generate from it.
     bulk paths that use them take the column's tail advisory lock instead, and
     a new one must do the same, in that order (tail lock, then task rows) or it
     deadlocks against the bulk move.
+16. Background work is pinned the same way realtime events are, across three
+    tables. `src/services/jobs/payloads.ts` declares which kinds exist and the
+    shape of each payload; `registerJobHandler` and `enqueueJob` are generic over
+    its keys, so a kind with no row cannot be registered or enqueued and a
+    payload that disagrees with its row is a type error at the enqueue site
+    rather than a re-parse inside the handler. `src/services/jobs/register.ts` is
+    a `Record<JobKind, () => void>` against the same keys, so a kind that nothing
+    runs does not compile, and it is called **once**, from the entrypoint beside
+    the worker — never as an import side effect. `registeredJobKinds()` is both
+    what `claimDueJobs` filters on and what `syncPeriodicJobs` retires schedules
+    by, so a process holding a different subset than production leaves work
+    unclaimed and deletes schedules it should not; registering on import gave
+    tests exactly that. Payloads carry ids and never contact details
+    (`assertJobPayload`).
+17. A route's response statuses are declared once, in the object built from
+    `src/schemas/responses.ts` (`jsonResponse` / `emptyResponse` /
+    `rawResponse`), and that same object is both spread into `describeRoute`'s
+    `responses` and read back as the handler's return type through
+    `Returned<typeof …>`. hono-openapi validates nothing at runtime, so without
+    the pairing a handler can quietly stop answering what its own spec promises —
+    which is how `GET /api/tasks/:id` came to declare a required `images[]` it
+    had never sent. Error bodies stay out of it deliberately: they come from
+    thrown `AppError`s through `onError`, never from a handler return, so they
+    remain ordinary spreads from `src/schemas/errors.ts`.
 
 # Realtime, email, and password reset
 

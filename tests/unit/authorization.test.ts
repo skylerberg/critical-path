@@ -13,8 +13,8 @@ import {
   normalizeProjectRole,
   projectAccessIdsAmong,
   projectRole,
-  usersWithProjectAccess,
 } from '../../src/services/authorization';
+import { usersWithProjectAccess } from '../../src/services/userDirectory';
 import { AppError } from '../../src/utils/errors';
 
 const key1000 = rankKey(1000);

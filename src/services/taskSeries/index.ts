@@ -1,6 +1,7 @@
 export * from './rule';
 export * from './copy';
 export * from './events';
+export * from './access';
 export * from './read';
 export * from './write';
 export * from './materialize';

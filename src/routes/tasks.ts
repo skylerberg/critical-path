@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { sql, type Kysely } from 'kysely';
 import type { DB, ResolvedSortKey } from '../db/types';
 import { jsonValidator } from '../middleware/jsonValidator';
@@ -178,6 +178,7 @@ router.post(
       { taskId: body.id, kind: 'created', newValue: { text: body.title } },
     ]);
 
+    // Notifies nobody today: no mention deliverer is registered.
     await notifyMentions(c, {
       actorUserId: user.id,
       project,
@@ -383,6 +384,8 @@ router.post(
   }
 );
 
+const getTaskResponses = { 200: jsonResponse('Task detail', taskDetailResponseSchema) };
+
 router.get(
   '/:id',
   describeRoute({
@@ -390,21 +393,14 @@ router.get(
     summary: 'Get task detail',
     description:
       'Get a task in board-payload shape plus its project id, archived_at (null unless the ' +
-      'task is archived), images, its full comment stream oldest first, and its checklist in ' +
-      'list order. Archived tasks are readable here even though they are absent from every ' +
-      'board payload. `series_summary` names the recurrence in English for a card a ' +
+      'task is archived), its attachments, its full comment stream oldest first, and its ' +
+      'checklist in list order. Archived tasks are readable here even though they are absent ' +
+      'from every board payload. `series_summary` names the recurrence in English for a card a ' +
       'recurring series created, and is null for every other card — including one whose ' +
       'series has since been deleted.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Task detail',
-        content: {
-          'application/json': {
-            schema: resolver(taskDetailResponseSchema),
-          },
-        },
-      },
+      ...getTaskResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -412,7 +408,7 @@ router.get(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof getTaskResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');
@@ -760,6 +756,7 @@ router.patch(
     }
 
     if ('description' in body && before !== null) {
+      // Notifies nobody today: no mention deliverer is registered.
       await notifyMentions(c, {
         actorUserId: actorId,
         project,

@@ -1,3 +1,4 @@
+import { mentionText } from '../../schemas/index';
 import type { ProjectExport, TiptapDoc, TiptapNode } from '../../schemas/index';
 
 // Excel assumes the platform's legacy code page without it and mangles every
@@ -49,9 +50,9 @@ export function tiptapToPlainText(doc: TiptapDoc | null): string {
       text += '\n';
       return;
     }
-    if (node.type === 'mention') {
-      const label = node.attrs?.label;
-      text += `@${typeof label === 'string' ? label : ''}`;
+    const mention = mentionText(node);
+    if (mention !== null) {
+      text += mention;
       return;
     }
     if (node.type === 'image' || node.type === 'horizontalRule') {

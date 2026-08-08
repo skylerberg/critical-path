@@ -205,9 +205,18 @@ export function publishAfterCommit(
   // A post-commit hook rather than a bus subscriber: with Redis every replica
   // sees every entry through the subscription echo, so a subscriber would
   // enqueue one copy per replica.
+  //
+  // One hook for the whole request, queued by whichever event is the first, and
+  // it re-reads the request's list when it runs rather than closing over a
+  // snapshot taken here: every later event of the same request appends to that
+  // list, and all of them have to be in it by the time the list is read. Two
+  // things therefore have to stay true — hooks drain strictly after the handler
+  // has finished publishing (see transactionMiddleware), and nothing replaces
+  // `webhookEvents` with a copy mid-request. Either one broken delivers a batch
+  // missing everything published after the first event, silently.
   const pending = c.get('webhookEvents');
   if (pending.length === 0) {
-    hooks.push(() => enqueueDeliveries(pending));
+    hooks.push(() => enqueueDeliveries(c.get('webhookEvents')));
   }
   // The whole entry, publish options included: only the correlated value carries
   // a payload the compiler can still match to its type. Nothing leaks, because

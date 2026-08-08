@@ -66,9 +66,10 @@ export async function loadBulkTargets(
 /**
  * Appends the rows in the order they arrive, each carrying its own source column
  * into the activity log — a selection spans columns, so one source for the whole
- * batch would misreport most of it. Unlike `relocateTasks` in the column routes,
- * the ids come from the client and can already be in the target column, which is
- * where the project and archived predicates and the column_since case come from.
+ * batch would misreport most of it. Unlike `relocateColumnTasks` in
+ * ./boardColumns, the ids come from the client and can already be in the target
+ * column, which is where the project and archived predicates and the
+ * column_since case come from.
  */
 export async function relocateSelectedTasks(
   db: Kysely<DB>,

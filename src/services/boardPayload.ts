@@ -9,7 +9,8 @@ import type {
   PublicBoardUser,
   TiptapDoc,
 } from '../schemas/index';
-import { assertPublicProject, usersWithProjectAccess } from './authorization';
+import { assertPublicProject } from './authorization';
+import { usersWithProjectAccess } from './userDirectory';
 import { fetchAttachmentsForTasks, IMAGE_KIND } from './attachments/index';
 import type { AttachmentResponse } from '../schemas/index';
 import { normalizeProjectAccent, toMemberEntries } from './projectListItem';

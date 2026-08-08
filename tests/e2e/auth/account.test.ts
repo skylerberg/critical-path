@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { uniqueEmail } from '../../helpers/fixtures';
-import { resetRateLimiter } from '../../../src/middleware/rateLimit';
+import { resetRateLimiter } from '../../../src/services/rateLimit';
 import { createResetToken } from '../../../src/services/resetToken';
 import { collectBusEntries } from '../../helpers/bus';
 

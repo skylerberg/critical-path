@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import { app } from '../../../src/index';
 import { errorHandler } from '../../../src/middleware/errorHandler';
 import { transactionMiddleware } from '../../../src/middleware/transaction';
-import { resetRateLimiter } from '../../../src/middleware/rateLimit';
+import { resetRateLimiter } from '../../../src/services/rateLimit';
 import { env } from '../../../src/config/env';
 import { logger } from '../../../src/utils/logger';
 import { db } from '../../helpers/database';
