@@ -1,8 +1,7 @@
 import { getRedis, redisConfigured } from '../redis';
 import type { RedisClient } from '../redis';
 import { logger } from '../../utils/logger';
-import { deliverLocal, setRemotePublisher } from './bus';
-import type { BusEntry } from './bus';
+import { deliverLocal, parseBusEntry, setRemotePublisher } from './bus';
 
 const CHANNEL = 'realtime-bus';
 
@@ -20,7 +19,12 @@ export async function initRedisBus(): Promise<void> {
   await subscriber.connect();
   await subscriber.subscribe(CHANNEL, (message) => {
     try {
-      deliverLocal(JSON.parse(message) as BusEntry);
+      const entry = parseBusEntry(JSON.parse(message));
+      if (entry === null) {
+        logger.warn({ msg: 'Discarded malformed bus message' });
+        return;
+      }
+      deliverLocal(entry);
     } catch (err) {
       logger.error({
         msg: 'Failed to deliver bus message',

@@ -8,6 +8,7 @@
   },
   "scripts": {
     "generate-api": "node scripts/generate-api-types.mjs && prettier --write src/api/api.generated.ts",
+    "generate-realtime": "node scripts/generate-realtime-types.mjs && prettier --write src/api/realtime.generated.ts",
     "type-check": "tsc -p tsconfig.json",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",

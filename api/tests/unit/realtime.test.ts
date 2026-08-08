@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db } from '../helpers/database';
-import { newId, uniqueEmail } from '../helpers/fixtures';
+import { boardTaskPayload, newId, projectListPayload, uniqueEmail } from '../helpers/fixtures';
 import {
   publish,
   subscribeBus,
@@ -60,12 +60,12 @@ describe('realtime bus', () => {
     const seen: BusEntry[] = [];
     const unsubscribe = subscribeBus((entry) => seen.push(entry));
 
-    publish({ type: 'task_updated', project_id: 'p1', data: { id: 't1' } });
+    publish({ type: 'task_updated', project_id: 'p1', data: boardTaskPayload('t1') });
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ type: 'task_updated', project_id: 'p1' });
 
     unsubscribe();
-    publish({ type: 'task_updated', project_id: 'p1', data: { id: 't1' } });
+    publish({ type: 'task_updated', project_id: 'p1', data: boardTaskPayload('t1') });
     expect(seen).toHaveLength(1);
   });
 
@@ -286,7 +286,11 @@ describe('realtime delivery', () => {
     const outsiderSocket = connect(outsider, sharedProjectId);
     const unsubscribedMember = connect(member);
 
-    await deliver({ type: 'task_updated', project_id: sharedProjectId, data: { id: 't1' } });
+    await deliver({
+      type: 'task_updated',
+      project_id: sharedProjectId,
+      data: boardTaskPayload('t1'),
+    });
 
     expect(creatorSocket.sent).toHaveLength(1);
     expect(memberSocket.sent).toHaveLength(1);
@@ -298,7 +302,11 @@ describe('realtime delivery', () => {
     const memberSocket = connect(member, personalProjectId);
     const creatorSocket = connect(creator, personalProjectId);
 
-    await deliver({ type: 'task_created', project_id: personalProjectId, data: { id: 't2' } });
+    await deliver({
+      type: 'task_created',
+      project_id: personalProjectId,
+      data: boardTaskPayload('t2'),
+    });
 
     expect(creatorSocket.sent).toHaveLength(1);
     expect(memberSocket.sent).toEqual([]);
@@ -311,7 +319,7 @@ describe('realtime delivery', () => {
     await deliver({
       type: 'project_updated',
       project_id: sharedProjectId,
-      data: { id: sharedProjectId },
+      data: projectListPayload(sharedProjectId),
       broadcast: true,
     });
 
@@ -372,13 +380,18 @@ describe('realtime delivery', () => {
     expect(creatorSocket.sent).toEqual([]);
   });
 
+  // The guard is in deliver(): an editorsOnly entry goes to deliverProjectScoped,
+  // which returns on a null project rather than falling through to the
+  // recipient-list path, which sends without an access check. Only an
+  // account-scoped event can carry a null project id now that envelopes are typed
+  // per event, so one stands in for the project event this used to fake.
   it('delivers an editorsOnly event with no project to nobody', async () => {
     const creatorSocket = connect(creator);
 
     await deliver({
-      type: INVITATIONS_CHANGED,
+      type: USER_UPDATED,
       project_id: null,
-      data: { project_id: sharedProjectId },
+      data: { id: creator, name: 'Creator', avatar_url: null },
       editorsOnly: true,
       recipientUserIds: [creator],
     });
@@ -428,14 +441,22 @@ describe('realtime delivery', () => {
   it('delivers nothing when the project row is gone', async () => {
     const missingProjectId = newId();
     const socket = connect(creator, missingProjectId);
-    await deliver({ type: 'task_updated', project_id: missingProjectId, data: { id: 't3' } });
+    await deliver({
+      type: 'task_updated',
+      project_id: missingProjectId,
+      data: boardTaskPayload('t3'),
+    });
     expect(socket.sent).toEqual([]);
   });
 
   it('skips sockets that are not open', async () => {
     const socket = connect(creator, personalProjectId);
     socket.readyState = 3;
-    await deliver({ type: 'task_updated', project_id: personalProjectId, data: { id: 't4' } });
+    await deliver({
+      type: 'task_updated',
+      project_id: personalProjectId,
+      data: boardTaskPayload('t4'),
+    });
     expect(socket.sent).toEqual([]);
   });
 
