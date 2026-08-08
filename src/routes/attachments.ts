@@ -3,7 +3,7 @@ import type { MiddlewareHandler } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql } from 'kysely';
 import { env } from '../config/env';
-import { optionalAuth, skipAuth } from '../middleware/auth';
+import { optionalAuth } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { enforceLinkAttachmentRateLimit } from '../middleware/rateLimit';
@@ -517,10 +517,12 @@ function imageServingRoute(
         ...internalServerErrorResponse,
       },
     }),
-    skipAuth,
+    optionalAuth,
     paramValidator(idSchema),
     async (c) => {
       const { id } = c.req.valid('param');
+
+      await assertAttachmentReadable(c.get('db'), c.get('user'), id);
 
       const row = await c
         .get('db')

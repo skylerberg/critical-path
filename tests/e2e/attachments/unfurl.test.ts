@@ -122,7 +122,7 @@ describe('Link unfurl', () => {
       favicon_url: `/api/attachments/${id}/favicon`,
     });
 
-    const preview = await ctx.request().get(`/api/attachments/${id}/preview`);
+    const preview = await ctx.request(user.token).get(`/api/attachments/${id}/preview`);
     expect(preview.status).toBe(200);
     expect(preview.headers.get('Content-Type')).toBe('image/webp');
     expect(preview.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox");
@@ -130,7 +130,7 @@ describe('Link unfurl', () => {
     expect(previewBytes.length).toBeGreaterThan(0);
     expect(preview.headers.get('Content-Length')).toBe(String(previewBytes.length));
 
-    const favicon = await ctx.request().get(`/api/attachments/${id}/favicon`);
+    const favicon = await ctx.request(user.token).get(`/api/attachments/${id}/favicon`);
     expect(favicon.status).toBe(200);
     expect(favicon.headers.get('Content-Type')).toBe('image/webp');
     const faviconBytes = Buffer.from(await favicon.arrayBuffer());
