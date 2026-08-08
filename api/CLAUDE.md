@@ -173,6 +173,46 @@ npm run --prefix cli generate-api` and commit the regenerated
 `npm run realtime:dump && npm run --prefix cli generate-realtime` and commit
 `cli/src/api/realtime.generated.ts` alongside it.
 
+# Staying current with main
+
+`main` moves fast — several PRs an hour when more than one agent is working — so a
+branch cut an hour ago is routinely behind, and *nothing tells you* until a rebase
+conflicts or CI fails on a rule your base predates. Rebase onto `main` (not merge:
+branches are rebased, only the PR itself lands as a merge commit) and check at
+three points:
+
+```sh
+git fetch origin && git rev-list --count HEAD..origin/main   # 0 means current
+```
+
+1. **Before starting.** A stale base means writing against code that has moved,
+   and it is also where duplicated work comes from: run `gh pr list` and
+   `git branch -a` too, because the fix you are about to write may already be
+   open. That has happened.
+2. **Before the full suite.** A 4-minute run against a stale base proves nothing
+   about the merge, and re-running after the rebase costs the same 4 minutes
+   twice.
+3. **Before pushing, and again before merging.** `gh pr view <n> --json
+   mergeStateStatus` reports `CLEAN` only for a branch that still applies.
+
+After any rebase, re-run the checks rather than trusting the pre-rebase pass, and
+re-run whatever generation the change involves (`openapi:dump`,
+`realtime:dump`, the client generators) — a rebase can bring in a schema change
+that silently invalidates a committed generated file.
+
+Two ways a stale base has produced *wrong* conclusions here, both worth guarding
+against directly:
+
+- **Comments about build configuration go stale.** `tsc` covers `src`, `tests`,
+  `scripts` and `vitest.config.ts`; a comment claiming tests are unchecked was
+  true when written and false a release later. Read `package.json` and
+  `tsconfig.json` rather than a comment describing them.
+- **"No diff" is not a passing check.** `git diff --quiet <file>` is vacuously
+  clean for a gitignored file, and for one a failed command never wrote —
+  `openapi.json` and `realtime-events.json` are both gitignored. Assert the
+  positive: the command exited 0, the file was written, the content is what you
+  expected.
+
 # Running things
 
 - `npm run dev` — API on port 3001.
