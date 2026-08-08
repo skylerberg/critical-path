@@ -4,7 +4,6 @@
   import type { BoardTask } from '../lib/board-types';
   import { conflictDrafts, type TaskVersion } from '../lib/conflictDrafts.svelte';
   import { formatFullDate, isCalendarDate } from '../lib/dates';
-  import { docDraftKey, drafts } from '../lib/drafts.svelte';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { router } from '../lib/router.svelte';
   import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
@@ -92,7 +91,6 @@
   // Neither ever hides something the card actually holds.
   let checklistRevealed = $state(false);
   let attachmentsRevealed = $state(false);
-  let commentsOpen = $state(false);
   let historyOpen = $state(false);
   let quickActions = $state<ReturnType<typeof TaskQuickActions>>();
   let checklistRef = $state<ReturnType<typeof TaskChecklist>>();
@@ -162,10 +160,6 @@
       descriptionSaveState = 'idle';
       checklistRevealed = false;
       attachmentsRevealed = false;
-      // An unsent comment is the one thing that opens a disclosure by itself:
-      // restoring the draft behind a collapsed header would hide the very text
-      // the user came back to finish.
-      commentsOpen = drafts.getDoc(docDraftKey.taskComment(id)) !== null;
       historyOpen = false;
       if (authed) {
         board.clearChanged(id);
@@ -626,25 +620,12 @@
       {/if}
 
       {#if !anonymous || task.comment_count > 0}
-        <!-- Driven from state rather than the browser default, so the body stays
-             unmounted while collapsed and no editor is built for a card nobody
-             opened the comments on. -->
-        <details class="border-t border-edge pt-4" open={commentsOpen}>
-          <summary
-            onclick={(event) => {
-              event.preventDefault();
-              commentsOpen = !commentsOpen;
-            }}
-            class="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-muted"
-          >
-            Comments ({task.comment_count})
-          </summary>
-          {#if commentsOpen}
-            <div class="flex flex-col gap-4 pt-2">
-              <TaskComments {taskId} {anonymous} />
-            </div>
-          {/if}
-        </details>
+        <section class="flex flex-col gap-2 border-t border-edge pt-4">
+          <h3 class="text-sm font-semibold text-muted">Comments ({task.comment_count})</h3>
+          <div class="flex flex-col gap-4">
+            <TaskComments {taskId} {anonymous} />
+          </div>
+        </section>
       {/if}
 
       {#if !anonymous}

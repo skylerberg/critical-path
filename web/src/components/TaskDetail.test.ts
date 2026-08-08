@@ -327,12 +327,7 @@ function renderDetail(props: {
   });
 }
 
-// Comments and History open collapsed, and the attachment list only exists once
-// the detail fetch has reported a count, so both need awaiting.
-async function openComments(): Promise<void> {
-  await fireEvent.click(await screen.findByText(/^Comments \(/));
-}
-
+// History opens collapsed, and its header only exists once the card has rendered.
 async function openHistory(): Promise<void> {
   await fireEvent.click(await screen.findByText('History'));
 }
@@ -394,17 +389,12 @@ describe('TaskDetail', () => {
     expect(section).toContainElement(screen.getByRole('button', { name: 'Delete image mock.png' }));
   });
 
-  it('loads images and comments from the one detail fetch and keeps them behind a disclosure', async () => {
+  it('loads images and comments from the one detail fetch and shows them without a click', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
     expect(board.taskAttachments[T1]).toEqual([image]);
-    // The count is on the collapsed header, so the card says there is something
-    // to read without mounting an editor per comment.
-    expect(await screen.findByText(/^Comments \(/)).toBeInTheDocument();
-    expect(screen.queryByText('first thoughts')).toBeNull();
-
-    await openComments();
+    expect(await screen.findByRole('heading', { name: /^Comments \(/ })).toBeInTheDocument();
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
   });
 
@@ -651,79 +641,52 @@ describe('TaskDetail', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  // The disclosure unmounts the composer, so the overlay holds the draft: losing
-  // a half-written comment to a stray click on the header is not acceptable.
-  it('keeps a half-written comment across collapsing and reopening Comments', async () => {
-    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
-    await openComments();
-
-    const editor = descriptionEditor(container, '.rte-compact .tiptap');
-    editor.commands.insertContent('half-written');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled());
-
-    await openComments();
-    expect(container.querySelector('.rte-compact')).toBeNull();
-
-    await openComments();
-    await waitFor(() =>
-      expect(descriptionEditor(container, '.rte-compact .tiptap').getText()).toBe('half-written')
-    );
-    expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled();
-  });
-
   // Someone writing a comment often needs to go and check something first; the
   // card they come back to has to still have their text.
   it('keeps a comment draft across closing and reopening the card', async () => {
     const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
-    await openComments();
-    descriptionEditor(first.container, '.rte-compact .tiptap').commands.insertContent(
-      'half-written'
+    const composer = await waitFor(() =>
+      descriptionEditor(first.container, '.rte-compact .tiptap')
     );
+    composer.commands.insertContent('half-written');
     await tick();
     first.unmount();
 
     const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
-    // Opened for them: a restored draft behind a collapsed header is a draft the
-    // user cannot see they still have.
     await waitFor(() =>
       expect(descriptionEditor(container, '.rte-compact .tiptap').getText()).toBe('half-written')
     );
     expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled();
   });
 
-  it('opens with Comments collapsed when there is no draft to come back to', async () => {
-    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
-    await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
-
-    expect(container.querySelector('.rte-compact')).toBeNull();
-  });
-
   it('does not carry a comment draft onto the next card', async () => {
     const { container, rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
-    await openComments();
-    descriptionEditor(container, '.rte-compact .tiptap').commands.insertContent('half-written');
+    const composer = await waitFor(() => descriptionEditor(container, '.rte-compact .tiptap'));
+    composer.commands.insertContent('half-written');
     await tick();
 
     await rerender({ taskId: T2, closePath: BOARD_PATH });
-    await openComments();
 
     await waitFor(() =>
       expect(descriptionEditor(container, '.rte-compact .tiptap').isEmpty).toBe(true)
     );
   });
 
-  it('opens with both disclosures collapsed', async () => {
-    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+  // Reading the discussion is most of what the card is opened for, so it costs
+  // no click; the log behind History is the one thing still worth a request.
+  it('opens with the comments shown and History collapsed', async () => {
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
 
-    expect(screen.getByText(/^Comments \(/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^Comments \(/ })).toBeInTheDocument();
+    expect(await screen.findByText('first thoughts')).toBeInTheDocument();
+    expect(container.querySelector('.rte-compact')).not.toBeNull();
     expect(screen.getByText('History')).toBeInTheDocument();
-    expect(screen.queryByText('first thoughts')).toBeNull();
     expect(screen.queryByText(/created this task/)).toBeNull();
   });
 
-  // Nothing on a fresh card but the title, the bar, the description and the two
-  // collapsed headers.
+  // Nothing on a fresh card but the title, the bar, the description, the
+  // comments and the collapsed History header.
   it('shows no section for a feature the card is not using', async () => {
     board.tasks = board.tasks.map((t) =>
       t.id === T1 ? { ...t, label_ids: [], assignee_ids: [], blocker_ids: [], due_date: null } : t
@@ -1730,7 +1693,6 @@ describe('TaskDetail on a public board', () => {
 
     renderDetail({ taskId: T1, ...publicView });
 
-    await openComments();
     const posted = await screen.findByText('first thoughts');
     expect(within(posted.closest('li')!).getByText('Ada Lovelace')).toBeInTheDocument();
 
@@ -1750,7 +1712,6 @@ describe('TaskDetail on a public board', () => {
 
     renderDetail({ taskId: T1, ...publicView });
 
-    await openComments();
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Edit comment/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Delete comment/ })).toBeNull();
@@ -1764,7 +1725,6 @@ describe('TaskDetail on a public board', () => {
 
     renderDetail({ taskId: T1, ...publicView });
 
-    await openComments();
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
     expect(screen.queryByText('created this task')).toBeNull();
   });
@@ -1790,7 +1750,6 @@ describe('TaskDetail on a public board', () => {
 
     renderDetail({ taskId: T1, ...publicView });
 
-    await openComments();
     expect(await screen.findByText('@Ada Lovelace')).toBeInTheDocument();
   });
 });
@@ -1813,7 +1772,6 @@ describe('TaskDetail for a viewer', () => {
     expect(screen.queryByRole('button', { name: '+ Add label' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Remove blocking task/ })).toBeNull();
 
-    await openComments();
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
     expect(container.querySelector('.rte-compact')).not.toBeNull();
 
