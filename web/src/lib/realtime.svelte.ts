@@ -201,6 +201,12 @@ class RealtimeClient {
     // The very first connect follows the initial page load, which already
     // fetched everything; only a reconnect needs to self-heal the missed gap.
     if (this.#hasSyncedOnce) {
+      // account_updated is delivered, not replayed: one published while this
+      // socket was down is gone, and nothing else re-reads the account until a
+      // page load. Every other store below heals the same gap the same way.
+      void session.refresh().catch(() => {
+        // Best-effort: a failed read leaves the account as stale as it was.
+      });
       void projects.load();
       invitations.resync();
       taskSeries.resync();
@@ -329,11 +335,16 @@ class RealtimeClient {
       const updated = users.applyRealtime(event.data);
       if (updated !== null && session.user?.id === updated.id) {
         session.user = { ...session.user, ...updated };
-        // The broadcast carries only what everyone sharing a board may read, so
-        // a change to the address or its verification is invisible in it.
-        void session.refresh().catch(() => {
-          // Best-effort: the public fields are merged either way.
-        });
+      }
+    } else if (event.type === 'account_updated') {
+      // Account-scoped and delivered only to this account's own sockets, which
+      // is why it may carry the whole /api/auth/me shape — the address and
+      // whether it is verified included, neither of which user_updated may
+      // hold. Assigned whole rather than merged: the payload is that record.
+      // The id is still checked, because applying someone else's would change
+      // who this tab thinks it is.
+      if (session.user?.id === event.data.id) {
+        session.user = event.data;
       }
     }
   }
