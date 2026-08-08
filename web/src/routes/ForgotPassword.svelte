@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api } from '../api/client';
+  import { api, ApiError, assertOk } from '../api/client';
+  import { apiMessage } from '../lib/apiMessages';
   import { APP_NAME } from '../lib/constants';
   import { link } from '../lib/router.svelte';
   import Button from '../components/ui/Button.svelte';
@@ -7,7 +8,9 @@
 
   let email = $state('');
   let emailError = $state('');
-  let submitted = $state(false);
+  let formError = $state('');
+  let noAccount = $state(false);
+  let sentTo = $state('');
   let submitting = $state(false);
 
   async function handleSubmit(event: SubmitEvent): Promise<void> {
@@ -17,15 +20,32 @@
       return;
     }
     emailError = '';
+    formError = '';
+    noAccount = false;
     submitting = true;
+    const address = email.trim();
     try {
-      await api.POST('/api/auth/forgot-password', { body: { email: email.trim() } });
-    } catch {
-      // Swallowed so a network error can't distinguish known from unknown addresses.
+      assertOk(await api.POST('/api/auth/forgot-password', { body: { email: address } }));
+      sentTo = address;
+    } catch (error) {
+      noAccount = error instanceof ApiError && error.status === 404;
+      formError = messageFor(error);
     } finally {
       submitting = false;
-      submitted = true;
     }
+  }
+
+  function messageFor(error: unknown): string {
+    if (error instanceof ApiError) {
+      if (error.status === 404) {
+        return 'No account exists for that email address. Check it for a typo, or try the address you signed up with.';
+      }
+      if (error.status === 429) {
+        return 'Too many attempts. Please try again later.';
+      }
+      return 'Could not send a reset link. Please try again.';
+    }
+    return apiMessage(error);
   }
 </script>
 
@@ -33,8 +53,8 @@
   <div class="w-full max-w-sm rounded-lg border border-edge bg-surface p-6">
     <h1 class="text-xl font-semibold">{APP_NAME}</h1>
     <p class="mt-1 text-sm text-muted">Reset your password</p>
-    {#if submitted}
-      <p role="status" class="mt-6 text-sm">If that address exists, we've sent a reset link.</p>
+    {#if sentTo !== ''}
+      <p role="status" class="mt-6 text-sm">We've sent a reset link to {sentTo}.</p>
     {:else}
       <form class="mt-6 flex flex-col gap-4" novalidate onsubmit={handleSubmit}>
         <Input
@@ -45,8 +65,17 @@
           bind:value={email}
           error={emailError}
         />
+        {#if formError !== ''}
+          <p role="alert" class="text-sm text-danger">{formError}</p>
+        {/if}
         <Button type="submit" disabled={submitting} class="w-full">Send reset link</Button>
       </form>
+      {#if noAccount}
+        <p class="mt-4 text-center text-sm text-muted">
+          No account?
+          <a use:link href="/signup" class="font-medium text-accent hover:underline">Sign up</a>
+        </p>
+      {/if}
     {/if}
     <p class="mt-4 text-center text-sm text-muted">
       <a use:link href="/login" class="font-medium text-accent hover:underline">Back to log in</a>
