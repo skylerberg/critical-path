@@ -18,8 +18,10 @@
   import {
     edgeScrollSpeed,
     fitsHorizontally,
-    overshootTarget,
     snapScrollLeft,
+    SWIPE_AXIS_LOCK_PX,
+    swipeTarget,
+    SWIPE_VELOCITY_SAMPLE_MS,
   } from '../lib/board-scroll';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
@@ -146,6 +148,7 @@
   const DRAG_EDGE_ZONE_PX = 80; // pointer within this band of an edge starts scrolling
   const DRAG_SCROLL_SPEED_PX_PER_S = 500; // top speed at the very edge; scales to 0 at the band's inner edge
   const DROP_CENTER_TIMEOUT_MS = 500; // fallback restore if `scrollend` never fires
+  const SWIPE_SETTLE_TIMEOUT_MS = 500; // same, for the slide that ends a swipe
   let boardScroller: HTMLElement | undefined = $state();
   // Column to center after a pointer drop. While set, snap stays off so the
   // centering slide isn't fought by scroll-snap.
@@ -303,93 +306,157 @@
   });
 
   // --- A touch swipe moves at most one column ---
-  // `snap-always` (scroll-snap-stop: always) is what caps a fling; this is the
-  // fallback for an engine that ignores it, and it may only act on a scroll it
-  // watched end to end: from a resting board, through a finger it saw go down and
-  // come up, to a settle inside that lift's momentum. Everything else — a wheel
-  // or trackpad scroll, our own centering slide, the browser re-snapping after a
-  // layout change, a second swipe chained onto the first — is left alone.
-  // `overshootTarget` holds the judgment; this only feeds it.
+  // The board owns the horizontal gesture on touch rather than letting the
+  // browser scroll and correcting afterwards. `touch-action: pan-y` below lg
+  // means no native horizontal pan and no momentum, so the only thing that moves
+  // the board sideways is the drag below — and the target it lands on is
+  // `origin ± 1` by construction, which nothing about drag length or engine
+  // momentum can widen.
+  //
+  // Correcting after the fact cannot do this. `scroll-snap-stop: always` governs
+  // only the inertial phase, so a long drag crosses two columns with it honoured;
+  // and a correction is by definition visible as the overshoot it undoes.
+  //
+  // Snap is suspended inline, not through `snapActive`: a class change lands a
+  // microtask later, and mandatory snap re-snaps every scrollLeft written before
+  // it does, so the first frames of the drag would not follow the finger.
   $effect(() => {
     const scroller = boardScroller;
-    if (!scroller || !snapActive) {
+    if (!scroller) {
       return;
     }
-    let origin: number | null = null;
-    let atLift: number | null = null;
-    let liftedAt = 0;
-    let fingers = 0;
-    let scrolling = false;
-    let dragMoved = false;
-    const disarm = () => {
-      origin = null;
-      atLift = null;
-      dragMoved = false;
+    interface Swipe {
+      startX: number;
+      startY: number;
+      startLeft: number;
+      origin: number;
+      lastIndex: number;
+      horizontal: boolean;
+      lastX: number;
+      velX: number;
+      velT: number;
+      velocity: number;
+    }
+    let swipe: Swipe | null = null;
+    const releaseSnap = () => {
+      scroller.style.scrollSnapType = '';
     };
-    const onTouchStart = () => {
-      fingers += 1;
-      // Only a board at rest has an origin worth sampling. A finger landing
-      // mid-scroll is either a second swipe chained onto the first — iOS reports
-      // no touchstart at all for the one that halts momentum, so this is the
-      // charitable half of that case — or a grab at our own centering slide.
-      // Either way the sequence no longer describes one gesture.
-      if (scrolling || origin !== null) {
-        disarm();
+    // A card drag owns the same finger, and the open menu is anchored to it.
+    // A *pending* press is not in that list on purpose: pointerdown precedes
+    // touchstart, so every swipe that starts on a card — nearly all of them —
+    // would be refused before it began. The press cancels itself once the finger
+    // passes its own slop, which any real swipe does.
+    const busy = () => dragging || cardMenu.taskId !== null;
+
+    const onTouchStart = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      // Nothing to take over where the board doesn't snap (lg and up), and a
+      // second finger means a pinch, not a swipe.
+      if (
+        touch === undefined ||
+        event.touches.length !== 1 ||
+        busy() ||
+        getComputedStyle(scroller).scrollSnapType === 'none'
+      ) {
+        swipe = null;
         return;
       }
-      // Nothing to compensate for where the board doesn't snap (lg and up).
-      if (getComputedStyle(scroller).scrollSnapType !== 'none') {
-        origin = nearestSnapIndex(scroller);
-      }
+      swipe = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        startLeft: scroller.scrollLeft,
+        origin: nearestSnapIndex(scroller),
+        lastIndex: snapTargets(scroller).length - 1,
+        horizontal: false,
+        lastX: touch.clientX,
+        velX: touch.clientX,
+        velT: performance.now(),
+        velocity: 0,
+      };
     };
-    const onScroll = () => {
-      scrolling = true;
-      if (fingers > 0) {
-        dragMoved = true;
+
+    const onTouchMove = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (swipe === null || touch === undefined) {
+        return;
       }
+      if (busy()) {
+        swipe = null;
+        releaseSnap();
+        return;
+      }
+      const dx = touch.clientX - swipe.startX;
+      const dy = touch.clientY - swipe.startY;
+      if (!swipe.horizontal) {
+        if (Math.abs(dx) < SWIPE_AXIS_LOCK_PX && Math.abs(dy) < SWIPE_AXIS_LOCK_PX) {
+          return;
+        }
+        // A vertical gesture belongs to the column's card list; hand it back for
+        // the rest of this touch rather than re-judging it every move.
+        if (Math.abs(dy) >= Math.abs(dx)) {
+          swipe = null;
+          return;
+        }
+        swipe.horizontal = true;
+        scroller.style.scrollSnapType = 'none';
+      }
+      swipe.lastX = touch.clientX;
+      const now = performance.now();
+      const sample = now - swipe.velT;
+      if (sample >= SWIPE_VELOCITY_SAMPLE_MS) {
+        swipe.velocity = ((touch.clientX - swipe.velX) / sample) * 1000;
+        swipe.velX = touch.clientX;
+        swipe.velT = now;
+      }
+      scroller.scrollLeft = swipe.startLeft - dx;
     };
+
     const onTouchEnd = () => {
-      fingers = Math.max(0, fingers - 1);
-      if (fingers > 0 || origin === null) {
+      const gesture = swipe;
+      swipe = null;
+      if (gesture === null || !gesture.horizontal) {
         return;
       }
-      // A touch that scrolled nothing is a tap, and must not leave a correction
-      // armed against whatever moves the board next.
-      if (!dragMoved) {
-        disarm();
+      const section =
+        snapTargets(scroller)[
+          swipeTarget(
+            gesture.origin,
+            gesture.lastX - gesture.startX,
+            gesture.velocity,
+            gesture.lastIndex
+          )
+        ];
+      if (section === undefined) {
+        releaseSnap();
         return;
       }
-      liftedAt = performance.now();
-      atLift = nearestSnapIndex(scroller);
+      // Snap stays off until the slide settles on the target, so re-arming it is
+      // the no-op it should be rather than a second, visible correction.
+      slideColumnIntoView(scroller, section);
+      let done = false;
+      const finish = () => {
+        if (done) {
+          return;
+        }
+        done = true;
+        window.clearTimeout(timeout);
+        scroller.removeEventListener('scrollend', finish);
+        releaseSnap();
+      };
+      const timeout = window.setTimeout(finish, SWIPE_SETTLE_TIMEOUT_MS);
+      scroller.addEventListener('scrollend', finish);
     };
-    const onScrollEnd = () => {
-      scrolling = false;
-      const target =
-        origin === null || atLift === null
-          ? null
-          : overshootTarget(
-              origin,
-              atLift,
-              nearestSnapIndex(scroller),
-              performance.now() - liftedAt
-            );
-      disarm();
-      const section = target === null ? undefined : snapTargets(scroller)[target];
-      if (section !== undefined) {
-        slideColumnIntoView(scroller, section);
-      }
-    };
+
     scroller.addEventListener('touchstart', onTouchStart, { passive: true });
+    scroller.addEventListener('touchmove', onTouchMove, { passive: true });
     scroller.addEventListener('touchend', onTouchEnd, { passive: true });
     scroller.addEventListener('touchcancel', onTouchEnd, { passive: true });
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    scroller.addEventListener('scrollend', onScrollEnd);
     return () => {
       scroller.removeEventListener('touchstart', onTouchStart);
+      scroller.removeEventListener('touchmove', onTouchMove);
       scroller.removeEventListener('touchend', onTouchEnd);
       scroller.removeEventListener('touchcancel', onTouchEnd);
-      scroller.removeEventListener('scroll', onScroll);
-      scroller.removeEventListener('scrollend', onScrollEnd);
+      releaseSnap();
     };
   });
 
@@ -580,7 +647,7 @@
 
 <div
   bind:this={boardScroller}
-  class="relative flex min-h-0 flex-1 flex-col overscroll-x-contain overflow-y-hidden md:scroll-p-3 lg:scroll-p-4 {snapActive
+  class="relative flex min-h-0 touch-pan-y touch-pinch-zoom flex-1 flex-col overscroll-x-contain overflow-y-hidden md:scroll-p-3 lg:touch-auto lg:scroll-p-4 {snapActive
     ? 'overflow-x-auto snap-x snap-mandatory lg:snap-none'
     : 'overflow-x-hidden'}"
 >

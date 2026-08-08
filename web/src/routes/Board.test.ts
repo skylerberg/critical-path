@@ -5,7 +5,7 @@ import { tick } from 'svelte';
 import { SHADOW_PLACEHOLDER_ITEM_ID, SOURCES, TRIGGERS, type Options } from 'svelte-dnd-action';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
-import { MOMENTUM_WINDOW_MS } from '../lib/board-scroll';
+import { SWIPE_COMMIT_PX } from '../lib/board-scroll';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';
@@ -1058,15 +1058,15 @@ describe('Board column drops', () => {
   });
 });
 
-// `scroll-snap-stop: always` is what caps a fling at one column; this fallback is
-// for an engine that ignores it, and it may only act on a scroll it watched end to
-// end — from a board at rest, through a finger it saw go down and come up, to a
-// settle inside that lift's momentum. Everything else is somebody else's scroll:
-// a trackpad flick, our own centering slide, the browser re-snapping after a
-// layout change, or a second swipe chained onto the first.
-describe('Board swipe pagination', () => {
-  // `centered` is the snap-target index sitting under the board's midpoint; moving
-  // it and firing scrollend is how a settled scroll is modeled without any layout.
+// The board owns the horizontal gesture on touch: `touch-action: pan-y` means the
+// browser never pans it sideways, so nothing but the drag below moves it and the
+// landing is `origin ± 1` by construction. Correcting a native scroll afterwards
+// could not deliver this — `scroll-snap-stop: always` governs only the inertial
+// phase, so a long drag crosses two columns with it honored, and a correction is
+// by definition visible as the overshoot it undoes.
+describe('Board swipe gestures', () => {
+  // `centered` is the snap-target index under the board's midpoint; the rects are
+  // the only geometry there is, since jsdom lays nothing out.
   let centered = 0;
 
   function stubGeometry(): void {
@@ -1082,26 +1082,41 @@ describe('Board swipe pagination', () => {
     }
   }
 
-  // The handlers read nothing off the event, so a plain Event sidesteps jsdom's
-  // TouchEvent constructor entirely.
-  const touchStart = () => fireEvent(scroller(), new Event('touchstart'));
-  const touchEnd = () => fireEvent(scroller(), new Event('touchend'));
-  const scroll = () => fireEvent(scroller(), new Event('scroll'));
-  const settle = () => fireEvent(scroller(), new Event('scrollend'));
+  // jsdom has no Touch constructor, so the handlers' one input — touches[0]'s
+  // coordinates — is supplied directly.
+  function touch(type: string, x: number, y: number): Event {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperty(event, 'touches', {
+      value: type === 'touchend' ? [] : [{ clientX: x, clientY: y }],
+    });
+    return event;
+  }
 
-  // One whole gesture: finger down on a resting board, a drag that scrolls, the
-  // finger up, then momentum carrying it to `landing` before it settles.
-  async function fling(landing: number): Promise<void> {
-    await touchStart();
-    await scroll();
-    await touchEnd();
-    centered = landing;
-    await settle();
+  async function swipe(dx: number, dy = 0): Promise<void> {
+    await fireEvent(scroller(), touch('touchstart', 200, 300));
+    // Two moves: the first locks the axis, the second carries the travel, which is
+    // how a real gesture arrives and what the axis lock is written against.
+    await fireEvent(scroller(), touch('touchmove', 200 + Math.sign(dx) * 10, 300 + dy));
+    await fireEvent(scroller(), touch('touchmove', 200 + dx, 300 + dy));
+    await fireEvent(scroller(), touch('touchend', 0, 0));
+  }
+
+  // How many columns the board committed to move, inverted out of the scroll the
+  // component asked for. The rects above put snap target i at x = (i - centered) *
+  // 300 + 6, and jsdom reports no scroll-snap-align, which slideColumnIntoView
+  // reads as start-aligned against the mocked 12px scroll padding. Asserting the
+  // step rather than a pixel value is the point: the cap is a number of columns.
+  function columnsMoved(scrollTo: ReturnType<typeof vi.spyOn>): number {
+    const call = scrollTo.mock.calls.at(-1) as [ScrollToOptions] | undefined;
+    if (call === undefined) {
+      return 0;
+    }
+    return ((call[0].left ?? 0) - scroller().scrollLeft - 6 + 12) / 300;
   }
 
   // jsdom applies no stylesheet, so it computes `scroll-snap-type: none` for
-  // everything — which is exactly what the guardrail treats as "desktop, leave it
-  // alone". Every case has to say which of the two it is modeling.
+  // everything — which is exactly what the takeover treats as "desktop, leave it
+  // alone". Every case has to say which of the two it is modelling.
   function setSnapType(value: string): void {
     const real = window.getComputedStyle;
     vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) =>
@@ -1130,113 +1145,83 @@ describe('Board swipe pagination', () => {
     return scrollTo;
   }
 
-  // The desktop bug: a trackpad flick across several columns settles like any
-  // other scroll, and correcting it yanked the board backwards mid-gesture.
-  it('leaves a scroll no finger started where it lands', async () => {
+  it('advances one column for a swipe past the commit threshold', async () => {
     const scrollTo = await mount();
 
-    centered = 3;
-    await settle();
+    await swipe(-SWIPE_COMMIT_PX - 20);
 
-    expect(scrollTo).not.toHaveBeenCalled();
+    expect(columnsMoved(scrollTo)).toBe(1);
   });
 
-  it('pulls a touch fling back to one column', async () => {
+  // The reported bug: a drag long enough to carry the board two columns still
+  // lands on the next one. Nothing about drag length can widen the step.
+  it('advances only one column for a drag that spans two', async () => {
     const scrollTo = await mount();
 
-    await fling(3);
+    await swipe(-700);
 
     expect(scrollTo).toHaveBeenCalledTimes(1);
-    // With target 3 centered, target 1 sits at x=-594; the 12px scroll padding
-    // shifts the landing so its left edge clears the board's gutter.
-    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: -606 }));
+    expect(columnsMoved(scrollTo)).toBe(1);
   });
 
-  it('leaves a one-column swipe alone', async () => {
+  it('goes back one column for a swipe the other way', async () => {
+    const scrollTo = await mount();
+    centered = 2;
+
+    await swipe(700);
+
+    expect(columnsMoved(scrollTo)).toBe(-1);
+  });
+
+  it('returns to the column it started on for a drag too short to commit', async () => {
     const scrollTo = await mount();
 
-    await fling(1);
+    await swipe(-20);
+
+    expect(columnsMoved(scrollTo)).toBe(0);
+  });
+
+  // The column card lists scroll vertically inside the board, and pan-y leaves
+  // that to the browser — so a vertical gesture must never be claimed here.
+  it('leaves a vertical gesture to the card list', async () => {
+    const scrollTo = await mount();
+
+    await swipe(-4, 120);
 
     expect(scrollTo).not.toHaveBeenCalled();
   });
 
-  // The reported bug. iOS dispatches no touchstart for the finger that halts
-  // momentum, so a rapid double-swipe used to look like one gesture from the
-  // FIRST swipe's origin — and the board yanked back a column the user had
-  // deliberately swiped past. Whichever half of the quirk applies, the sequence
-  // is no longer one gesture and must be left alone.
-  it('leaves a second swipe chained onto the first alone', async () => {
-    const scrollTo = await mount();
-
-    await touchStart();
-    await scroll();
-    await touchEnd();
-    // The second finger lands before the first fling settled. Both readings are
-    // covered: the touchstart iOS may swallow, and the scroll it cannot.
-    centered = 1;
-    await scroll();
-    await touchStart();
-    await scroll();
-    await touchEnd();
-    centered = 3;
-    await settle();
-
-    expect(scrollTo).not.toHaveBeenCalled();
-  });
-
-  // A finger that scrolled nothing is a tap. It used to arm the correction, which
-  // then sat waiting for any later scrollend — a re-snap after a column arrived
-  // over the wire — and blamed it on that stale origin.
-  it('leaves a scroll that follows a tap alone', async () => {
-    const scrollTo = await mount();
-
-    await touchStart();
-    await touchEnd();
-    centered = 3;
-    await scroll();
-    await settle();
-
-    expect(scrollTo).not.toHaveBeenCalled();
-  });
-
-  it('leaves a scroll that settles with the finger still down alone', async () => {
-    const scrollTo = await mount();
-
-    await touchStart();
-    await scroll();
-    centered = 3;
-    await settle();
-
-    expect(scrollTo).not.toHaveBeenCalled();
-  });
-
-  // Momentum decays in well under a second. A settle that arrives later belongs to
-  // something else that moved the board since.
-  it('leaves a scroll settling long after the finger lifted alone', async () => {
-    vi.spyOn(performance, 'now')
-      .mockReturnValueOnce(0) // the lift
-      .mockReturnValueOnce(MOMENTUM_WINDOW_MS + 1); // the settle
-    const scrollTo = await mount();
-
-    await fling(3);
-
-    expect(scrollTo).not.toHaveBeenCalled();
-  });
-
-  it('does not correct its own correction', async () => {
-    const scrollTo = await mount();
-
-    await fling(3);
-    centered = 1;
-    await settle();
-
-    expect(scrollTo).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not paginate where the board is not snapping', async () => {
+  it('does not take over where the board does not snap', async () => {
     const scrollTo = await mount('none');
 
-    await fling(3);
+    await swipe(-700);
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  // pointerdown precedes touchstart, so a swipe that starts on a card arms the
+  // long-press first. Refusing the gesture for that would refuse nearly every
+  // swipe there is, since cards cover most of the board.
+  it('takes over a swipe that starts on a card with a press pending', async () => {
+    const scrollTo = await mount();
+    cardMenu.pressStart(
+      new PointerEvent('pointerdown', { pointerType: 'touch', isPrimary: true }),
+      T1
+    );
+    expect(cardMenu.pressPending).toBe(true);
+
+    await swipe(-700);
+
+    expect(columnsMoved(scrollTo)).toBe(1);
+  });
+
+  // A card drag owns the same finger; taking the gesture over would fight it.
+  it('does not take over while a card is being dragged', async () => {
+    const scrollTo = await mount();
+    pickUp(T1);
+    await tick();
+
+    await swipe(-700);
 
     expect(scrollTo).not.toHaveBeenCalled();
   });
