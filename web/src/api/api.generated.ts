@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/.worktrees/critical-path-api/reset-password-session/openapi.json
+// AUTO-GENERATED FROM critical-path-api/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -369,7 +369,7 @@ export interface paths {
         get: operations["getApiAuthMeNotificationSettings"];
         /**
          * Set notification settings
-         * @description Replace the full set of notification preferences for the authenticated user. A preference stays meaningful while the address is unverified — no mail is sent then either way — so the toggles are never forced off.
+         * @description Change the notification preferences the body names and leave the rest alone, then return the full set. Every key is optional so a client can send only what it changed, and so a kind added to a later release does not start refusing saves from a client that predates it. A preference stays meaningful while the address is unverified — no mail is sent then either way — so the toggles are never forced off.
          */
         put: operations["putApiAuthMeNotificationSettings"];
         post?: never;
@@ -1779,7 +1779,7 @@ export interface components {
         };
         UnsubscribeResponse: {
             /** @enum {unknown} */
-            kind: "added_to_project" | "bulk_task_assigned" | "task_assigned";
+            kind: "added_to_project" | "bulk_task_assigned" | "mentioned" | "task_assigned";
         };
         PatchMe: {
             email?: string;
@@ -1868,7 +1868,14 @@ export interface components {
         NotificationSettings: {
             added_to_project: boolean;
             bulk_task_assigned: boolean;
+            mentioned: boolean;
             task_assigned: boolean;
+        };
+        NotificationSettingsUpdate: {
+            added_to_project?: boolean;
+            bulk_task_assigned?: boolean;
+            mentioned?: boolean;
+            task_assigned?: boolean;
         };
         UsersResponse: {
             users: components["schemas"]["User"][];
@@ -3664,7 +3671,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["NotificationSettings"];
+                "application/json": components["schemas"]["NotificationSettingsUpdate"];
             };
         };
         responses: {
