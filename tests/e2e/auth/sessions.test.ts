@@ -3,7 +3,8 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
-import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
+import { SESSIONS_REVOKED } from '../../../src/services/realtime/bus';
+import { collectBusEntries } from '../../helpers/bus';
 
 interface SessionMetadata {
   id: string;
@@ -19,17 +20,6 @@ const CHROME_UA =
 
 function sha256Hex(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
-}
-
-async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
-  const seen: BusEntry[] = [];
-  const unsubscribe = subscribeBus((entry) => seen.push(entry));
-  try {
-    await run();
-  } finally {
-    unsubscribe();
-  }
-  return seen;
 }
 
 describe('Sessions', () => {

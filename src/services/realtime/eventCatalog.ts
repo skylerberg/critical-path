@@ -7,7 +7,22 @@
 
 // No project id, so neither of the project-scoped columns applies: publishing
 // one returns before the dot and the webhook queue are ever consulted.
-type AccountEvent = { scope: 'account' };
+//
+// What a project event answers with its project — who receives this — an
+// account event has to answer here, because the delivery layer has no room to
+// fall back to: an account entry that reaches deliverProjectScoped is dropped
+// on the null project id, silently and with nothing logged. So the column is
+// what stops that being a runtime accident. `namedRecipients` is the only kind
+// whose audience the publish site knows, and publishAfterCommit's overloads
+// require exactly that kind to carry `recipientUserIds`; the other two are
+// answered by a dedicated branch and take no publish options at all.
+type AccountEvent = {
+  scope: 'account';
+  delivery:
+    | 'namedRecipients' // deliver() → the exact-recipient shortcut
+    | 'projectSharers' // deliver() → deliverUserUpdated
+    | 'intercepted'; // handleBusEntry closes sockets; never delivered
+};
 
 type ProjectEvent = {
   scope: 'project';
@@ -82,13 +97,11 @@ const EVENTS = {
   series_updated: { scope: 'project', webhook: false, raisesUnseenDot: false },
   series_deleted: { scope: 'project', webhook: false, raisesUnseenDot: false },
 
-  sessions_revoked: { scope: 'account' },
-  user_updated: { scope: 'account' },
+  sessions_revoked: { scope: 'account', delivery: 'intercepted' },
+  user_updated: { scope: 'account', delivery: 'projectSharers' },
   // Self-only: the payload is the subject's own record, address included, so
-  // every publisher must name them in recipientUserIds. An account event
-  // published without one reaches nobody, which is at least the fail-closed
-  // direction, but it is a silent drop rather than an error.
-  account_updated: { scope: 'account' },
+  // every publisher has to name them.
+  account_updated: { scope: 'account', delivery: 'namedRecipients' },
 } as const satisfies Record<string, AccountEvent | ProjectEvent>;
 
 export type RealtimeEventType = keyof typeof EVENTS;
@@ -99,6 +112,16 @@ type OfScope<S extends 'account' | 'project'> = {
 
 export type AccountEventType = OfScope<'account'>;
 export type ProjectEventType = OfScope<'project'>;
+
+// The account types whose audience only the publish site knows. Split out so
+// publishAfterCommit can demand `recipientUserIds` from exactly these and
+// refuse it from the rest, rather than accepting a publish that would reach
+// nobody.
+export type NamedRecipientEventType = {
+  [K in AccountEventType]: (typeof EVENTS)[K] extends { delivery: 'namedRecipients' } ? K : never;
+}[AccountEventType];
+
+export type DispatchedEventType = Exclude<AccountEventType, NamedRecipientEventType>;
 
 export type WebhookEventType = {
   [K in ProjectEventType]: (typeof EVENTS)[K] extends { webhook: true } ? K : never;

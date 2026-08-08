@@ -275,10 +275,20 @@ against directly:
   `tests/setup/testContext.ts`): a parsed body has no compile-time link to the
   route that produced it, so name the shape with `res.json<T>()` where it
   matters rather than trying to type the client.
-- Worktrees under `.pi/worktrees/` need `node_modules` to run any of the
-  above; symlink it from the main checkout
-  (`ln -s ../../../node_modules node_modules` from inside the worktree)
-  instead of running `npm install` again.
+- `scripts/new-worktree.sh <branch> [base-ref]` creates a worktree that can run
+  all of the above: it branches, adds the worktree under
+  `~/.worktrees/<repo>/<branch>`, symlinks `node_modules` and `cli/node_modules`
+  from the main checkout by absolute path, and copies the untracked `.env` and
+  `.env.test`. A worktree made by hand and missing any of those fails the checks
+  for reasons that have nothing to do with the change in it — a missing
+  `cli/node_modules` in particular fails only the CLI tests, deep into a run.
+  The script resolves everything from the checkout it is run in, so it works
+  from a sibling project too.
+- A worktree that already exists but predates the script needs `node_modules`
+  symlinked from the main checkout
+  (`ln -s /absolute/path/to/repo/node_modules node_modules`) rather than a
+  second `npm install`. Never put one inside the repository: it is a second full
+  copy of the codebase that every recursive search has to walk.
 
 # Migration workflow
 
