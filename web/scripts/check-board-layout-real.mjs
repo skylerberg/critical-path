@@ -7,72 +7,41 @@
 //
 //   npm run check:layout:real
 //
-// Boots `vite dev` on a fixed port, waits for it, measures, tears down. Skips
+// Boots vite in-process on the first free port at or above 5180 (override with
+// VITE_PORT), measures, tears down. Two worktrees can therefore run this check
+// at once, and a killed run leaves no server behind to fail the next one. Skips
 // with exit 0 if Chromium isn't installed. Exits non-zero on assertion failure.
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
+import { createServer } from 'vite';
 import { createBrowser } from './lib/browser.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(__dirname); // repo root (worktree root)
-const PORT = Number(process.env.VITE_PORT ?? '5180');
-const PROBE = `http://127.0.0.1:${PORT}/scripts/board-probe.html`;
 
-// --- boot vite dev ---
-const vite = spawn(
-  process.execPath,
-  [
-    join('node_modules', 'vite', 'bin', 'vite.js'),
-    '--port',
-    String(PORT),
-    '--strictPort',
-    '--host',
-    '127.0.0.1',
-  ],
-  { cwd: ROOT, stdio: ['ignore', 'ignore', 'ignore'] }
-);
-vite.on('exit', (code) => {
-  if (!tearingDown && code !== null) {
-    console.error(`check:layout:real — vite exited unexpectedly (code ${code})`);
-    process.exit(1);
-  }
+const server = await createServer({
+  root: ROOT,
+  // logLevel keeps vite's ready-banner out of the check's output while leaving
+  // the warnings and transform errors that explain a failure on stderr.
+  logLevel: 'warn',
+  server: {
+    host: '127.0.0.1',
+    port: Number(process.env.VITE_PORT ?? '5180'),
+    strictPort: false,
+  },
 });
-
-async function waitForVite() {
-  const deadline = Date.now() + 30000;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(PROBE, { method: 'head' });
-      if (res.ok || res.status === 200 || res.status === 404) return; // server is up (404 = up, wrong path)
-    } catch {
-      // not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`vite did not start on port ${PORT} within 30s`);
-}
-
-let tearingDown = false;
-const teardown = () => {
-  tearingDown = true;
-  try {
-    vite.kill();
-  } catch {
-    // already gone
-  }
-};
-process.on('exit', teardown);
+await server.listen();
+const teardown = () => server.close();
 process.on('SIGINT', () => process.exit(130));
 process.on('SIGTERM', () => process.exit(143));
 
-await waitForVite();
+const PROBE = new URL('scripts/board-probe.html', server.resolvedUrls.local[0]).href;
 
 const browser = await createBrowser();
 if (!browser) {
   console.warn('check:layout:real — skipped (Playwright Chromium not installed).');
   console.warn('  Run `npx playwright install chromium`.');
-  teardown();
+  await teardown();
   process.exit(0);
 }
 const { setViewport, goto, eval: evalPage, close } = browser;
@@ -168,7 +137,7 @@ const CASES = [
 ];
 
 let failed = 0;
-console.log('check:layout:real — real Board.svelte in headless Chrome');
+console.log(`check:layout:real — real Board.svelte in headless Chrome (${new URL(PROBE).origin})`);
 for (const c of CASES) {
   const mobile = c.w < 1024;
   await setViewport({ width: c.w, height: c.h, mobile });
@@ -303,8 +272,8 @@ for (const c of SCROLL_CASES) {
   }
 }
 
-close();
-teardown();
+await close();
+await teardown();
 if (failed > 0) {
   console.log(`\ncheck:layout:real — FAILED (${failed})`);
   process.exit(1);
