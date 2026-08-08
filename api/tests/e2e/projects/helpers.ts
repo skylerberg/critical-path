@@ -1,4 +1,5 @@
 import { db } from '../../helpers/database';
+import type { ResolvedSortKey } from '../../../src/db/types';
 import { insertTaskImages } from '../../../src/services/attachments/images';
 import { rankKey } from '../../helpers/fixtures';
 
@@ -62,7 +63,7 @@ export async function insertTask(options: {
   columnId: string;
   title?: string;
   position?: number;
-  sort_key?: string;
+  sort_key?: ResolvedSortKey;
   description?: unknown;
   dueDate?: string;
 }): Promise<string> {

@@ -18,5 +18,5 @@
       "project": ["src/**/*.ts", "tests/**/*.ts", "bin/*.mjs", "scripts/*.mjs"]
     }
   },
-  "ignore": ["src/db/types.ts", "cli/src/api/*.generated.ts"]
+  "ignore": ["src/db/types.generated.ts", "cli/src/api/*.generated.ts"]
 }

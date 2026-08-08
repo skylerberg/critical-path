@@ -1,3 +1,4 @@
+import type { ResolvedSortKey } from '../../src/db/types';
 import type { RealtimePayloads } from '../../src/services/realtime/payloads';
 export function newId(): string {
   return crypto.randomUUID();
@@ -10,12 +11,16 @@ export function uniqueEmail(prefix: string): string {
 // notional position the test means, then by insertion order so two rows that
 // share one still satisfy the unique index. Never ends in the zero digit, which
 // the key generator rejects as a bound.
+//
+// The insertion counter is also why no test collides by accident: two calls
+// with the same position return different keys. A test that means to land on a
+// key something already holds has to read that key back and send it.
 let rankCounter = 0;
 
-export function rankKey(position = 1000): string {
+export function rankKey(position = 1000): ResolvedSortKey {
   rankCounter += 1;
   const ordinal = Math.round(position) + 1_000_000;
-  return `V0${String(ordinal).padStart(9, '0')}${String(rankCounter).padStart(5, '0')}1`;
+  return `V0${String(ordinal).padStart(9, '0')}${String(rankCounter).padStart(5, '0')}1` as ResolvedSortKey;
 }
 
 // image_storage_key is nullable only because link attachments share the table.
