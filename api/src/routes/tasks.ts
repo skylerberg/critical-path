@@ -28,6 +28,8 @@ import { notifyMentions } from '../services/mentions';
 import { notify } from '../services/notifications';
 import { copyTasks } from '../services/projectCopy';
 import { assertAssigneesHaveProjectAccess, assertLabelsInProject } from '../services/projectScope';
+import { assertLockedTaskCapacity, assertTaskCapacity } from '../services/taskCap';
+import { MAX_TASKS_PER_PROJECT } from '../config/constants';
 import { deleteStoredObjectsAfterCommit } from '../services/storage/cleanup';
 import {
   findDependencyCyclePath,
@@ -77,7 +79,6 @@ import {
   conflictErrorResponse,
   preconditionConflictErrorResponse,
   dependencyCycleErrorResponse,
-  validationErrorResponse,
   unprocessableErrorResponse,
   validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
@@ -110,7 +111,9 @@ router.post(
       'project returns 404. The column must belong to the project, labels must belong to the ' +
       'project, and assignees must be users with access to the project; those violations return ' +
       '422 with a plain error body. due_date is an optional calendar day (YYYY-MM-DD, no time ' +
-      'and no timezone); anything else returns 422.',
+      'and no timezone); anything else returns 422. A project holds at most ' +
+      `${String(MAX_TASKS_PER_PROJECT)} tasks, archived ones included; past that, creating one ` +
+      'returns 422 while reading and editing the existing cards keeps working.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...createTaskResponses,
@@ -130,6 +133,7 @@ router.post(
 
     const project = await assertProjectWrite(db, user.id, body.project_id);
 
+    await assertTaskCapacity(db, body.project_id, 1);
     await assertColumnInProject(db, body.column_id, body.project_id);
 
     const labelIds = dedupe(body.label_ids ?? []);
@@ -221,7 +225,8 @@ router.post(
       'a copy keeps an edge only when both of its ends are copied too, which one card never ' +
       'is. It carries no comments and no activity history either — the copy’s log starts ' +
       'with its own created entry. Duplicating an archived task produces a live card. The ' +
-      'client supplies the new id and its position; a duplicate id returns 409.',
+      'client supplies the new id and its position; a duplicate id returns 409. A project ' +
+      `already holding ${String(MAX_TASKS_PER_PROJECT)} tasks, archived ones included, returns 422.`,
     security: [{ bearerAuth: [] }],
     responses: {
       ...duplicateTaskResponses,
@@ -230,7 +235,7 @@ router.post(
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
-      ...validationErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -243,6 +248,8 @@ router.post(
     const actorId = c.get('user').id;
 
     const project = await assertTaskWrite(db, actorId, id);
+
+    await assertLockedTaskCapacity(db, project.id, 1);
 
     // The caller ranks the copy against the cards it can see, which excludes the
     // archived ones still holding keys in that column, so a collision here is
@@ -305,8 +312,9 @@ router.post(
       'due dates, labels and assignees are set afterwards with the single-task endpoints. ' +
       'The batch is all or nothing — a duplicate id, whether it already exists or is repeated ' +
       'inside the batch, returns 409 and creates none of them. An unknown or inaccessible ' +
-      'project returns 404 and a column_id outside the project returns 422. Each created task ' +
-      'gets its own created activity entry and its own task_created event.',
+      'project returns 404 and a column_id outside the project returns 422, as does a batch ' +
+      `that would take the project past its ${String(MAX_TASKS_PER_PROJECT)}-task ceiling. Each ` +
+      'created task gets its own created activity entry and its own task_created event.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...createTasksBatchResponses,
@@ -327,6 +335,9 @@ router.post(
 
     await assertProjectWrite(db, user.id, body.project_id);
 
+    // Unlocked like the single create and for the same reason: a batch is one
+    // paste from the same board, capped at 100 items, not a bulk copy.
+    await assertTaskCapacity(db, body.project_id, body.tasks.length);
     await assertColumnInProject(db, body.column_id, body.project_id);
 
     try {

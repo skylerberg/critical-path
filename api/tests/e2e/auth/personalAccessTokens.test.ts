@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { describe, it, expect, afterAll } from 'vitest';
+import { sql } from 'kysely';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
@@ -31,6 +32,14 @@ async function lastUsedAt(id: string): Promise<Date | null> {
     .where('personal_access_token.id', '=', id)
     .executeTakeFirstOrThrow();
   return row.last_used_at;
+}
+
+// `last_used_at` is written as Postgres `now()`, so the reference instant has to
+// come from Postgres too — comparing it against the test process's `Date.now()`
+// measures the clock skew between two hosts rather than the write.
+async function databaseNow(): Promise<Date> {
+  const { rows } = await sql<{ at: Date }>`select now() as at`.execute(db);
+  return rows[0]!.at;
 }
 
 async function backdateLastUsed(id: string, at: Date): Promise<void> {
@@ -309,12 +318,14 @@ describe('Personal access tokens', () => {
       expect((await listTokens(user.token))[0].last_used_at).toBeNull();
       expect(await lastUsedAt(id)).toBeNull();
 
-      const before = Date.now();
+      const before = await databaseNow();
       expect((await ctx.request(created.token).get('/api/auth/me')).status).toBe(200);
+      const after = await databaseNow();
 
       const stamped = await lastUsedAt(id);
       expect(stamped).not.toBeNull();
-      expect(stamped?.getTime()).toBeGreaterThanOrEqual(before - 1000);
+      expect(stamped!.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect(stamped!.getTime()).toBeLessThanOrEqual(after.getTime());
 
       const listed = (await listTokens(user.token)).find((token) => token.id === id);
       expect(listed?.last_used_at).toBe(stamped?.toISOString());

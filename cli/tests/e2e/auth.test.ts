@@ -269,4 +269,24 @@ describe('auth commands', () => {
     expect(login.exitCode).toBe(2);
     expect(login.stderr).toContain('--no-input');
   });
+
+  it('account forgot-password confirms the send for a known address', async () => {
+    const user = await tc.createUser('cli-auth');
+    const h = await createCliHarness();
+    const forgot = await h.runCli(['account', 'forgot-password', '--email', user.email, '--json']);
+    expect(forgot.exitCode).toBe(0);
+    expect(forgot.json<{ sent: boolean }>()).toEqual({ sent: true });
+  });
+
+  it('account forgot-password exits 4 and says so for an unknown address', async () => {
+    const h = await createCliHarness();
+    const forgot = await h.runCli([
+      'account',
+      'forgot-password',
+      '--email',
+      `cli-nobody-${crypto.randomUUID()}@test.example.com`,
+    ]);
+    expect(forgot.exitCode).toBe(4);
+    expect(forgot.stderr).toContain('No account exists');
+  });
 });

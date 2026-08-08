@@ -8,7 +8,7 @@ import {
   periodicJobs,
   registerJobHandler,
   registeredJobKinds,
-  unregisterJobHandler,
+  resetJobHandlers,
 } from '../../src/services/jobs/index';
 
 const noop = () => Promise.resolve();
@@ -23,7 +23,7 @@ const register = registerJobHandler as unknown as (handler: {
 }) => void;
 
 afterEach(() => {
-  for (const kind of registeredJobKinds()) unregisterJobHandler(kind);
+  resetJobHandlers();
 });
 
 describe('lease budget', () => {

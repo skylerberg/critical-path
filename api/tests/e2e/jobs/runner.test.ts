@@ -14,6 +14,7 @@ import {
   recordJobFailure,
   registerJobHandler,
   registeredJobKinds,
+  resetJobHandlers,
   reportJobBacklog,
   runDueJobs,
   runJobMaintenance,
@@ -69,7 +70,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  for (const kind of registeredJobKinds()) unregisterJobHandler(kind);
+  resetJobHandlers();
   await db.deleteFrom('job').execute();
 });
 

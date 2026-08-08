@@ -32,6 +32,14 @@ const MAINTENANCE_EVERY_TICKS = 60;
 // would let every further tick pile on another batch.
 let inFlight = 0;
 
+// The counter is balanced by runDueJobs' own finally, so this is not a repair —
+// it exists because a still-running tick keeps holding its slots after whoever
+// started it has walked away, and a caller that then asks for work is answered 0
+// with no way to tell that apart from an empty queue.
+export function resetInFlightJobs(): void {
+  inFlight = 0;
+}
+
 export async function runDueJobs(): Promise<number> {
   const kinds = registeredJobKinds();
   if (kinds.length === 0) return 0;

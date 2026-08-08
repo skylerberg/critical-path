@@ -29,7 +29,7 @@ export default defineConfig({
     env: { TEST_DB_BASE: base, DB_DATABASE: database, DB_POOL_MAX: poolMax },
     include: ['tests/e2e/**/*.test.ts', 'tests/unit/**/*.test.ts', 'cli/tests/**/*.test.ts'],
     globalSetup: ['./tests/setup/globalSetup.ts'],
-    setupFiles: ['./tests/setup/assertTestDatabase.ts', './tests/setup/resetRateLimits.ts'],
+    setupFiles: ['./tests/setup/assertTestDatabase.ts', './tests/setup/resetProcessState.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
