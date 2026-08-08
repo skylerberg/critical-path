@@ -311,9 +311,9 @@ describe('Webhook delivery', () => {
   });
 
   it('covers comments, archive and restore, and publishing a board', async () => {
-    const project = await createProject('wh-catalogue');
+    const project = await createProject('wh-catalog');
     const webhookId = await registerWebhook(project.id);
-    const taskId = await createTask(project.id, project.columnId, 'Catalogue');
+    const taskId = await createTask(project.id, project.columnId, 'Catalog');
 
     expect(
       (

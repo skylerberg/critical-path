@@ -27,7 +27,7 @@ import {
 import type { DB, JsonValue } from '../../../src/db/types';
 import { logger } from '../../../src/utils/logger';
 
-// The payload catalogue is a production guarantee: every kind the app enqueues
+// The payload catalog is a production guarantee: every kind the app enqueues
 // has a row in it, and both entry points are generic over its keys. What this
 // file covers is the queue underneath — claiming, leasing, backoff, schedules —
 // which is kind-agnostic on purpose, so it drives that with synthetic kinds that
