@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/.worktrees/critical-path-api/cross-project-deps/openapi.json
+// AUTO-GENERATED FROM critical-path-api/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -1379,6 +1379,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attachments/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a file attachment
+         * @description Serve the stored bytes. On a private board this route is authenticated and answers 404 to anyone without project access, so a spec or a contract stops being readable the moment someone is removed from the project. On a published board it serves anyone, because a public board publishes its attachments. The response is always application/octet-stream with an attachment Content-Disposition, nosniff and a sandbox CSP, whatever the file is — no user-supplied bytes are ever served with a renderable content type. A link attachment answers 404.
+         */
+        get: operations["getApiAttachmentsByIdDownload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/attachments/{id}/preview": {
         parameters: {
             query?: never;
@@ -1481,26 +1501,6 @@ export interface paths {
          * @description Set the display title or description. Both fields are optional and an empty body changes nothing. A file attachment’s filename is immutable and is not touched, so a rename can never change what a download saves as. The parent task’s updated_at is never touched, so an attachment edit cannot invalidate an open editor’s optimistic-concurrency precondition.
          */
         patch: operations["patchApiAttachmentsById"];
-        trace?: never;
-    };
-    "/api/attachments/{id}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Download a file attachment
-         * @description Serve the stored bytes. On a private board this route is authenticated and answers 404 to anyone without project access, so a spec or a contract stops being readable the moment someone is removed from the project. On a published board it serves anyone, because a public board publishes its attachments. The response is always application/octet-stream with an attachment Content-Disposition, nosniff and a sandbox CSP, whatever the file is — no user-supplied bytes are ever served with a renderable content type. A link attachment answers 404.
-         */
-        get: operations["getApiAttachmentsByIdDownload"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/avatars/{id}": {
@@ -2508,7 +2508,8 @@ export interface components {
             next_attempt_at: string | null;
             payload: unknown;
             redelivery_count: number;
-            status: string;
+            /** @enum {unknown} */
+            status: "delivered" | "failed" | "pending";
             webhook_id: string;
         };
         TaskSeriesListResponse: {
@@ -2531,11 +2532,12 @@ export interface components {
             missed_occurrence_count: number;
             next_occurrence_date: string | null;
             open_occurrence_count: number;
-            preset: string | null;
+            preset: components["schemas"]["SeriesPreset"];
             project_id: string;
             rrule: string;
             start_date: string;
-            status: string;
+            /** @enum {unknown} */
+            status: "active" | "ended" | "paused";
             summary: string;
             timezone: string;
             title: string;
@@ -2545,6 +2547,7 @@ export interface components {
             id: string;
             text: string;
         };
+        SeriesPreset: "daily" | "monthly_date" | "monthly_weekday" | "weekdays" | "weekly" | "yearly" | null;
         TaskSeriesCreateResponse: {
             assignee_ids: string[];
             checklist_items: components["schemas"]["TaskSeriesChecklistItem"][];
@@ -2563,11 +2566,12 @@ export interface components {
             missed_occurrence_count: number;
             next_occurrence_date: string | null;
             open_occurrence_count: number;
-            preset: string | null;
+            preset: components["schemas"]["SeriesPreset"];
             project_id: string;
             rrule: string;
             start_date: string;
-            status: string;
+            /** @enum {unknown} */
+            status: "active" | "ended" | "paused";
             summary: string;
             timezone: string;
             title: string;
@@ -7833,6 +7837,64 @@ export interface operations {
             };
         };
     };
+    getApiAttachmentsByIdDownload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attachment bytes, always application/octet-stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getApiAttachmentsByIdPreview: {
         parameters: {
             query?: never;
@@ -8260,64 +8322,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationError"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    getApiAttachmentsByIdDownload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Attachment bytes, always application/octet-stream */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": string;
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Authentication required or failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Internal Server Error */

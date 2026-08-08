@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/.worktrees/critical-path-api/cross-project-deps/realtime-events.json
+// AUTO-GENERATED FROM critical-path-api/realtime-events.json
 // DO NOT EDIT. Regenerate with: npm run generate:realtime
 
 export type paths = Record<string, never>;
@@ -943,11 +943,19 @@ export interface components {
         missed_occurrence_count: number;
         next_occurrence_date: string | null;
         open_occurrence_count: number;
-        preset: string | null;
+        preset:
+          | 'daily'
+          | 'monthly_date'
+          | 'monthly_weekday'
+          | 'weekdays'
+          | 'weekly'
+          | 'yearly'
+          | null;
         project_id: string;
         rrule: string;
         start_date: string;
-        status: string;
+        /** @enum {unknown} */
+        status: 'active' | 'ended' | 'paused';
         summary: string;
         timezone: string;
         title: string;
@@ -990,11 +998,19 @@ export interface components {
         missed_occurrence_count: number;
         next_occurrence_date: string | null;
         open_occurrence_count: number;
-        preset: string | null;
+        preset:
+          | 'daily'
+          | 'monthly_date'
+          | 'monthly_weekday'
+          | 'weekdays'
+          | 'weekly'
+          | 'yearly'
+          | null;
         project_id: string;
         rrule: string;
         start_date: string;
-        status: string;
+        /** @enum {unknown} */
+        status: 'active' | 'ended' | 'paused';
         summary: string;
         timezone: string;
         title: string;
