@@ -3,7 +3,7 @@
   import { announcer } from '../lib/announcer.svelte';
   import type { BoardContext } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
-  import { placeAtIndex } from '../lib/positions';
+  import { placeAtIndex } from '../lib/ranks';
   import { truncateTitle } from '../lib/titles';
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';

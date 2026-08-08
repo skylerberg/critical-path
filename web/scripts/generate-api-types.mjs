@@ -56,22 +56,41 @@ function findDumpedSpec() {
 
 // A stale spec silently drops whole endpoints from the client, and the result
 // only fails under svelte-check — never under vitest, which strips types.
+//
+// openapi.json is gitignored — a local dump, never committed — so freshness is
+// its mtime against the newest file that determines it. The previous check
+// compared it against the HEAD commit date instead, which called a perfectly
+// good spec stale after any merge or pull: HEAD moves whether or not anything
+// under src/ did. Comparing against the inputs gets both cases right, because a
+// checkout only rewrites the files whose content actually changed.
 async function assertSpecIsFresh(specPath) {
-  const { mtime } = await stat(specPath);
   const apiRoot = dirname(specPath);
   const git = (args) => execFileSync('git', ['-C', apiRoot, ...args], { encoding: 'utf8' }).trim();
-  let head;
+
+  let sources;
   try {
-    head = git(['log', '-1', '--format=%cI']);
+    sources = git(['ls-files', 'src']).split('\n').filter(Boolean);
   } catch {
     return;
   }
-  if (mtime < new Date(head)) {
+
+  const { mtime } = await stat(specPath);
+  let newest = null;
+  for (const relative of sources) {
+    const stats = await stat(resolve(apiRoot, relative)).catch(() => null);
+    if (stats !== null && (newest === null || stats.mtime > newest.mtime)) {
+      newest = { mtime: stats.mtime, relative };
+    }
+  }
+  if (newest !== null && mtime < newest.mtime) {
     throw new Error(
-      `${specPath} was written ${mtime.toISOString()}, older than that repo's HEAD commit (${head}).\n` +
-        `Run \`npm run openapi:dump\` in the api repo first, or the generated client will be missing endpoints.`
+      `${specPath} was written ${mtime.toISOString()}, older than ${newest.relative} ` +
+        `(${newest.mtime.toISOString()}).\n` +
+        `Run \`npm run openapi:dump\` in the api repo first, or the generated client will be ` +
+        `missing endpoints.`
     );
   }
+
   // A dump only ever reflects the checkout, so fetching without pulling produces a
   // spec that is newer than HEAD and still missing everything merged upstream.
   let behind;

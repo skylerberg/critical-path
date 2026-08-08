@@ -25,7 +25,16 @@ the payload is deliberately not validated there. Tests build events with
 checked — a fixture naming a field the API stopped sending is what hid the
 `project_position_updated` bug for several releases.
 
-## Checks (run all before finishing)
+## Checks
+
+**While working, run only the tests your change touches** — `npm test -- --run
+<path>` on a file or directory takes seconds. The full suite is minutes, CI
+runs it on every push, and re-running it after every edit is most of the
+wall-clock in a long session for almost no extra signal. Reach for the whole
+suite when a change is broad enough that you cannot name the files it affects
+(a shared helper, a store, a type everything imports) — and once at the end.
+
+Before finishing, run all of these:
 
 ```sh
 npm run check && npm run check:layout && npm run check:layout:real && npm run lint && npm run format:check && npm test && npm run build
