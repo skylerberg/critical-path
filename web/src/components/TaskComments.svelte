@@ -36,9 +36,8 @@
   let editDoc = $state<CommentBody | null>(null);
   let confirmingDeleteId = $state<string | null>(null);
 
-  // The store outlives both the collapsed disclosure and the closed overlay, and
-  // is keyed by task, so a draft can neither be lost by looking something up nor
-  // resurface on another card.
+  // The store outlives the closed overlay and is keyed by task, so a draft can
+  // neither be lost by looking something up nor resurface on another card.
   const draftKeyForTask = $derived(docDraftKey.taskComment(taskId));
   const draftDoc = $derived(drafts.getDoc(draftKeyForTask));
 
