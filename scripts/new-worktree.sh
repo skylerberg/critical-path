@@ -33,6 +33,12 @@ main_checkout=$(dirname "$git_common_dir")
 repo=$(basename "$main_checkout")
 worktree="$HOME/.worktrees/$repo/$branch"
 
+# Named before anything is created. Which repo this acts on comes from the
+# directory it runs in, not from where the script itself lives, so invoking one
+# project's copy from another project's directory silently branches the wrong
+# repo — and every line below this looks identical either way.
+echo "==> $repo: $branch in $worktree"
+
 if [ -e "$worktree" ]; then
   echo "error: $worktree already exists" >&2
   exit 1

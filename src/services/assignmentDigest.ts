@@ -205,9 +205,12 @@ export const assignmentDigestDelivery: {
       .executeTakeFirst();
     if (!project) return;
 
-    const [recipient] = await eligibleRecipients('bulk_task_assigned', project, [
-      digest.recipientUserId,
-    ]);
+    const [recipient] = await eligibleRecipients(
+      'bulk_task_assigned',
+      project,
+      digest.actorUserId,
+      [digest.recipientUserId]
+    );
     if (recipient === undefined) return;
 
     const actor = await db

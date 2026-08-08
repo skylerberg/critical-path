@@ -495,7 +495,7 @@ describe('Notifications', () => {
       await grantAccess([member.id]);
       const off = await ctx
         .request(member.token)
-        .put('/api/auth/me/notification-settings', { mentioned: false });
+        .patch('/api/auth/me/notification-settings', { mentioned: false });
       expect(off.status).toBe(200);
 
       await createTask(owner.token, { description: mentionDoc(member.id) });
@@ -566,6 +566,28 @@ describe('Notifications', () => {
     });
   });
 
+  describe('never the actor', () => {
+    // notify() drops the actor before it queues anything, so every route
+    // inherits the rule. This is the other half: a publisher that builds its own
+    // Notification and calls the delivery seam runs none of that, and the rule
+    // has to hold for it too — which is why the last gate re-applies it.
+    it('drops the actor from a notification handed straight to the delivery seam', async () => {
+      await grantAccess([member.id]);
+      const task = await createTask(owner.token);
+
+      await notificationDelivery.deliver({
+        kind: 'task_assigned',
+        actor: { id: owner.id, name: owner.name },
+        project: { id: projectId, name: 'Notify board', created_by: owner.id },
+        task: { id: task.id, title: 'Ship the thing' },
+        recipientUserIds: [owner.id, member.id],
+      });
+      await settle();
+
+      expect(sentEmails().map((email) => email.to)).toEqual([member.email]);
+    });
+  });
+
   describe('preferences', () => {
     it('defaults every kind on and round-trips a change', async () => {
       const initial = await ctx.request(member.token).get('/api/auth/me/notification-settings');
@@ -574,7 +596,7 @@ describe('Notifications', () => {
 
       const saved = await ctx
         .request(member.token)
-        .put('/api/auth/me/notification-settings', { ...ALL_ON, task_assigned: false });
+        .patch('/api/auth/me/notification-settings', { ...ALL_ON, task_assigned: false });
       expect(saved.status).toBe(200);
       expect(await saved.json()).toEqual({ ...ALL_ON, task_assigned: false });
       expect(await settingsOf(member.id)).toEqual({ ...ALL_ON, task_assigned: false });
@@ -585,13 +607,13 @@ describe('Notifications', () => {
     it('changes only the keys the body names and returns the whole set', async () => {
       const saved = await ctx
         .request(member.token)
-        .put('/api/auth/me/notification-settings', { mentioned: false });
+        .patch('/api/auth/me/notification-settings', { mentioned: false });
       expect(saved.status).toBe(200);
       expect(await saved.json()).toEqual({ ...ALL_ON, mentioned: false });
 
       const again = await ctx
         .request(member.token)
-        .put('/api/auth/me/notification-settings', { task_assigned: false });
+        .patch('/api/auth/me/notification-settings', { task_assigned: false });
       expect(again.status).toBe(200);
       expect(await again.json()).toEqual({
         ...ALL_ON,
@@ -608,9 +630,9 @@ describe('Notifications', () => {
     it('treats a body that names nothing as a read', async () => {
       await ctx
         .request(member.token)
-        .put('/api/auth/me/notification-settings', { added_to_project: false });
+        .patch('/api/auth/me/notification-settings', { added_to_project: false });
 
-      const empty = await ctx.request(member.token).put('/api/auth/me/notification-settings', {});
+      const empty = await ctx.request(member.token).patch('/api/auth/me/notification-settings', {});
       expect(empty.status).toBe(200);
       expect(await empty.json()).toEqual({ ...ALL_ON, added_to_project: false });
       expect(await settingsOf(member.id)).toEqual({ ...ALL_ON, added_to_project: false });
@@ -620,14 +642,14 @@ describe('Notifications', () => {
       const read = await ctx.request().get('/api/auth/me/notification-settings');
       expect(read.status).toBe(401);
 
-      const write = await ctx.request().put('/api/auth/me/notification-settings', ALL_ON);
+      const write = await ctx.request().patch('/api/auth/me/notification-settings', ALL_ON);
       expect(write.status).toBe(401);
     });
 
     it('gates each kind independently', async () => {
       await ctx
         .request(member.token)
-        .put('/api/auth/me/notification-settings', { task_assigned: false });
+        .patch('/api/auth/me/notification-settings', { task_assigned: false });
 
       const add = await ctx
         .request(owner.token)
@@ -711,10 +733,10 @@ describe('Notifications', () => {
 
       const body = ALL_ON;
       expect(
-        (await ctx.request(token).put('/api/auth/me/notification-settings', body)).status
+        (await ctx.request(token).patch('/api/auth/me/notification-settings', body)).status
       ).toBe(401);
       expect(
-        (await ctx.request(member.token).put('/api/auth/me/notification-settings', body)).status
+        (await ctx.request(member.token).patch('/api/auth/me/notification-settings', body)).status
       ).toBe(200);
     });
 
