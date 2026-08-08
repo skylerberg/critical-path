@@ -144,7 +144,11 @@ and the deploy workflow's path filters are untouched by CLI changes; never
 add CLI dependencies to the root package.json. CLI tests are part of the root
 `npm test` (they drive the Hono app in-process via `cli/tests/e2e/helpers.ts`);
 CLI checks run from `cli/`: `npm run type-check && npm run lint && npm run
-format:check`. After changing the API surface, run `npm run openapi:dump &&
+format:check`. Knip is the exception that covers both from the root, because
+`cli` is a knip workspace in knip.json — that is what resolves CLI imports
+against `cli/package.json` instead of the root's, and it is unrelated to npm
+workspaces, which this repo still must not use. After changing the API
+surface, run `npm run openapi:dump &&
 npm run --prefix cli generate-api` and commit the regenerated
 `cli/src/api/api.generated.ts`.
 

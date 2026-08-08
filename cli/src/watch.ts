@@ -8,7 +8,7 @@ const STALE_TIMEOUT_MS = 90_000;
 const AUTH_CLOSE_CODE = 4401;
 const WS_OPEN = 1;
 
-export interface WatchSocket {
+interface WatchSocket {
   send(data: string): void;
   close(): void;
 }
@@ -39,7 +39,7 @@ export function realtimeUrl(baseUrl: string): string {
   return `${baseUrl.replace(/^http/, 'ws')}/ws`;
 }
 
-export const connectWebSocket: Connect = (url, handlers) => {
+const connectWebSocket: Connect = (url, handlers) => {
   const ws = new WebSocket(url);
   ws.onopen = () => handlers.onOpen();
   ws.onmessage = (event: MessageEvent) => {

@@ -5,7 +5,7 @@ export interface Candidate {
   description: string;
 }
 
-export type ValueKind = 'project' | 'task' | 'archived-task' | 'column' | 'label' | 'user' | 'path';
+type ValueKind = 'project' | 'task' | 'archived-task' | 'column' | 'label' | 'user' | 'path';
 
 export type CompletionPlan =
   | { kind: 'none' }
