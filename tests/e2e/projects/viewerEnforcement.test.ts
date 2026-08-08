@@ -308,6 +308,13 @@ describe('Viewer enforcement across every mutating route', () => {
             .post(`/api/columns/${columnId}/move-tasks`, { target_column_id: doneColumnId }),
       },
       {
+        name: 'POST /api/columns/:id/reorder',
+        send: (t) =>
+          ctx
+            .request(t)
+            .post(`/api/columns/${columnId}/reorder`, { task_ids: [blockerTaskId, taskId] }),
+      },
+      {
         name: 'POST /api/columns/:id/archive-tasks',
         send: (t) => ctx.request(t).post(`/api/columns/${columnId}/archive-tasks`),
       },
