@@ -1,7 +1,12 @@
 import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { startWorker } from '../worker';
-import { jobHandler, periodicJobs, registeredJobKinds, type JobHandler } from './handlers';
+import {
+  jobHandler,
+  periodicJobs,
+  registeredJobKinds,
+  type RegisteredJobHandler,
+} from './handlers';
 import {
   CLAIM_BATCH,
   MAX_ATTEMPTS,
@@ -61,7 +66,10 @@ export async function runDueJobs(): Promise<number> {
 // Bounds how long the runner waits, not the handler: an overrunning handler
 // keeps going and its row is re-claimed once the lease lapses, which the handler
 // contract already requires it to survive.
-async function withTimeout(handler: JobHandler, payload: JobRow['payload']): Promise<void> {
+async function withTimeout(
+  handler: RegisteredJobHandler,
+  payload: JobRow['payload']
+): Promise<void> {
   let timer: NodeJS.Timeout | undefined;
   try {
     await Promise.race([

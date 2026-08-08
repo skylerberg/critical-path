@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import sharp from 'sharp';
 import { AppError } from '../utils/errors';
 import { avatarUrl } from '../services/avatars';
@@ -10,6 +10,8 @@ import { storage } from '../services/storage/index';
 import { logger } from '../utils/logger';
 import {
   meSchema,
+  jsonResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   payloadTooLargeErrorResponse,
@@ -22,6 +24,8 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const AVATAR_MAX_DIMENSION = 1024;
 
 const router: AppHono = new Hono();
+
+const uploadAvatarResponses = { 200: jsonResponse('Updated user', meSchema) };
 
 router.post(
   '/me/avatar',
@@ -51,14 +55,7 @@ router.post(
       },
     },
     responses: {
-      200: {
-        description: 'Updated user',
-        content: {
-          'application/json': {
-            schema: resolver(meSchema),
-          },
-        },
-      },
+      ...uploadAvatarResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...payloadTooLargeErrorResponse,
@@ -70,7 +67,7 @@ router.post(
     maxSize: 11 * 1024 * 1024,
     onError: (c) => c.json({ error: 'Payload too large' }, 413),
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof uploadAvatarResponses>> => {
     const db = c.get('db');
     const user = c.get('user');
 
@@ -147,6 +144,8 @@ router.post(
   }
 );
 
+const removeAvatarResponses = { 200: jsonResponse('Updated user', meSchema) };
+
 router.delete(
   '/me/avatar',
   describeRoute({
@@ -158,19 +157,12 @@ router.delete(
       'Returns the updated user so clients can adopt it directly.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated user',
-        content: {
-          'application/json': {
-            schema: resolver(meSchema),
-          },
-        },
-      },
+      ...removeAvatarResponses,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof removeAvatarResponses>> => {
     const db = c.get('db');
     const user = c.get('user');
 

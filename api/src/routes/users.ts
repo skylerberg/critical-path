@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { queryValidator } from '../middleware/requestValidator';
 import {
   assertProjectAccess,
@@ -11,6 +11,8 @@ import { avatarUrl } from '../services/avatars';
 import {
   usersQuerySchema,
   usersResponseSchema,
+  jsonResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
@@ -19,6 +21,10 @@ import {
 import { AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
+
+const listUsersResponses = {
+  200: jsonResponse('Visible users', usersResponseSchema),
+};
 
 router.get(
   '/',
@@ -38,14 +44,7 @@ router.get(
       'missing or unreadable. A malformed address is 400.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Visible users',
-        content: {
-          'application/json': {
-            schema: resolver(usersResponseSchema),
-          },
-        },
-      },
+      ...listUsersResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -53,7 +52,7 @@ router.get(
     },
   }),
   queryValidator(usersQuerySchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof listUsersResponses>> => {
     const { project_id, email } = c.req.valid('query');
     const db = c.get('db');
     const user = c.get('user');

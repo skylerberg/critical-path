@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { AppError } from '../utils/errors';
 import { claimInvitations } from '../services/invitations';
@@ -7,6 +7,8 @@ import { hashBearerToken } from '../services/sessions';
 import {
   acceptInvitationSchema,
   acceptedInvitationSchema,
+  jsonResponse,
+  type Returned,
   unauthorizedErrorResponse,
   validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
@@ -14,6 +16,10 @@ import {
 import { AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
+
+const acceptInvitationResponses = {
+  200: jsonResponse('The board that was joined, and the role held on it', acceptedInvitationSchema),
+};
 
 router.post(
   '/accept',
@@ -32,21 +38,14 @@ router.post(
       'project id in the path because the holder of a link does not know it.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'The board that was joined, and the role held on it',
-        content: {
-          'application/json': {
-            schema: resolver(acceptedInvitationSchema),
-          },
-        },
-      },
+      ...acceptInvitationResponses,
       ...unauthorizedErrorResponse,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   jsonValidator(acceptInvitationSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof acceptInvitationResponses>> => {
     const { token } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
