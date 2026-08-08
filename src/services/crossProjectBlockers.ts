@@ -17,7 +17,7 @@ export interface CrossProjectCount extends CrossProjectDependent {
 // Named the way each caller already knows its blockers: a handful of task ids, a
 // whole column about to have its done flag flipped, or the projects a delete is
 // about to take away. The column form is what keeps a fifty-card flip to one
-// query instead of fifty ids marshalled through an `in` list.
+// query instead of fifty ids marshaled through an `in` list.
 export type CrossProjectBlockerScope =
   | { taskIds: readonly string[] }
   | { columnId: string }

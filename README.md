@@ -544,7 +544,7 @@ the timezone that day is measured in. `GET /api/task-series?project_id=`,
 `DELETE /api/task-series/:id` manage it. Viewers may read the list; every
 mutation asserts write.
 
-**Materialisation is lazy.** A card exists only once its occurrence is due.
+**Materialization is lazy.** A card exists only once its occurrence is due.
 Completing an instance creates nothing; a periodic background sweep does, on the
 day the occurrence falls, and then advances the schedule. Nothing appears early:
 there is no lead time and no way to ask for one. Each occurrence is therefore an
@@ -586,11 +586,11 @@ does the DST arithmetic and the sweep's predicate stays sargable.
 **The occurrence date is not a due date.** It decides when a card comes into
 existence and nothing else. `due_date` is one more optional field on the
 template, exactly like title, description, labels and assignees: set it and
-every materialised card carries that value, leave it and materialised cards
+every materialized card carries that value, leave it and materialized cards
 have no due date, which is the default. It is never computed.
 
 **Scheduling is forward-only.** `next_occurrence_date` only ever moves to an
-occurrence after the one just materialised, or — on create, rule edit or resume
+occurrence after the one just materialized, or — on create, rule edit or resume
 — to the first occurrence on or after today in the series timezone. A series
 anchored a year in the past therefore backfills nothing.
 
@@ -616,7 +616,7 @@ has to run in.
 
 **One periodic sweep, not a job per occurrence.** An indexed table is already
 the queue, and the sweep is self-healing after any edit, pause, resume or
-delete with no schedule to cancel and reschedule. Each series is materialised in
+delete with no schedule to cancel and reschedule. Each series is materialized in
 its own transaction and every failure is absorbed per series into
 `consecutive_failures` / `last_error`, pausing that series at five: a periodic
 job row is never retired on failure, so a handler that threw would stall every
@@ -631,7 +631,7 @@ destroy the series, where nulling stops the sweep and asks for a new
 destination. `task_series.created_by` is nullable and `SET NULL`, because a
 series belongs to the project and not to whoever set it up: it gates nothing,
 so cascading would let a member who leaves take a project's schedules with
-them. A series whose creator is gone still materialises, and the card's
+them. A series whose creator is gone still materializes, and the card's
 creation entry is attributed to the project's owner instead.
 
 **Every series mutation emits a realtime event**, like every other mutation:
@@ -642,13 +642,13 @@ the list. None of the three raises the `project_changed` dot: a schedule writes
 no activity row, so a board read would report nothing changed and the dot could
 never be cleared by looking at the board.
 
-Two of them are not the CRUD routes. **Materialisation publishes
+Two of them are not the CRUD routes. **Materialization publishes
 `series_updated` too**, because the same commit advances
 `next_occurrence_date`, may raise `missed_occurrence_count`, may end the series
 outright, and changes `open_occurrence_count` — an open panel showing the
 occurrence it just consumed as still upcoming is wrong, not merely stale. So
 does the per-series failure absorber, which is what surfaces `last_error` and
-the pause at five without a reload. Materialisation additionally publishes a
+the pause at five without a reload. Materialization additionally publishes a
 real `task_created` for the card plus the `project_changed` dot, both naming the
 series creator as the actor so the live dot and the dot a board read computes
 from the activity log agree.
@@ -843,9 +843,9 @@ declares it. A malformed query parameter is a 400, an empty body a 422.
 Nothing is sniffed and nothing is normalized — a PDF cannot be re-encoded
 away, so the safety of an arbitrary upload comes from how it is served rather
 than from what it is.
-`content_type` records the sanitised _declared_ MIME type; it drives the UI
+`content_type` records the sanitized _declared_ MIME type; it drives the UI
 glyph and the label and **is never written to a response header**. `filename`
-is likewise sanitised at upload and is immutable: `PATCH` writes `title`, the
+is likewise sanitized at upload and is immutable: `PATCH` writes `title`, the
 display label, so a rename can never change what a download saves as.
 
 `GET /api/attachments/:id/download` always answers
@@ -984,7 +984,7 @@ side that carries the edge must always be able to detach it.
 same-project blockers only, which is what lets any client resolve every id in it
 against the board payload it already has. A blocker in another project is never
 named there. It arrives as one increment of `open_cross_project_blocker_count`,
-a denormalised count of the caller's cross-project blockers that are unarchived
+a denormalized count of the caller's cross-project blockers that are unarchived
 and not in a done column. A cross-project blocker therefore counts as exactly
 one blocker and is never expanded into whatever is blocking _it_: depth stops at
 the project boundary, and a board read never touches another project's rows.
@@ -1135,7 +1135,7 @@ caps a statement at 65,535, so the copy answered 500 rather than refusing.
 dependencies and checklist items in `BULK_INSERT_CHUNK` batches like the
 checklist rows always did.
 
-**The recurring sweep at the ceiling.** A full board makes materialisation fail
+**The recurring sweep at the ceiling.** A full board makes materialization fail
 rather than silently create nothing: the occurrence batch is refused whole — a
 partial fill would advance the schedule past the rest and drop cards with no
 trace — and the throw goes through the machinery the series already has. The
@@ -2027,7 +2027,7 @@ Three rules bound what is sent:
   removing a member and transferring ownership all send nothing.
 - **Copying is not writing.** Duplicating a card carries its assignees but
   notifies nobody, and neither does copying a whole board.
-- **Only a person.** A card a recurring schedule materialises carries the
+- **Only a person.** A card a recurring schedule materializes carries the
   series' assignees and mails none of them. The actor on that write is whoever
   set the schedule up, months ago and for every occurrence at once; a card
   arriving because Tuesday came round is not somebody putting your name on

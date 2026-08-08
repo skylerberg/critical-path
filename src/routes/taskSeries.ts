@@ -41,7 +41,7 @@ const RECURRENCE_MODEL =
   'A series holds the template for a repeating card — title, description, labels, assignees, ' +
   'checklist items, an optional due date and destination column — plus an RFC 5545 RRULE and ' +
   'the calendar day its next occurrence falls on. Nothing is created ahead of time and nothing ' +
-  'appears early: a background sweep materialises an ordinary card on the day the occurrence ' +
+  'appears early: a background sweep materializes an ordinary card on the day the occurrence ' +
   'falls, and then advances the schedule. The occurrence decides only when the card comes into ' +
   'existence — a card carries the template’s own `due_date`, never the occurrence date. ' +
   'Cards already created are ordinary cards and never change when the series does.';

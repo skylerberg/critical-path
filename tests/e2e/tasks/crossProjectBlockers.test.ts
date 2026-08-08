@@ -60,7 +60,7 @@ describe('Cross-project blocker counts', () => {
   }
 
   // The count has to be right on the board read too, not just the task detail:
-  // the board is the surface that pays for the denormalisation.
+  // the board is the surface that pays for the denormalization.
   async function boardCountOf(taskId: string): Promise<number> {
     const res = await ctx.request(user.token).get(`/api/projects/${nearProject}`);
     expect(res.status).toBe(200);

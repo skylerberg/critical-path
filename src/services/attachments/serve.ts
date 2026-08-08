@@ -10,7 +10,7 @@ const MIME_PATTERN = new RegExp(`^${MIME_TOKEN}/${MIME_TOKEN}$`);
 
 // Multipart filenames never pass through arktype, so this is the only thing
 // standing between an attacker-chosen name and a Postgres text bind that
-// refuses NUL — an unsanitised name would turn a bad request into a 500.
+// refuses NUL — an unsanitized name would turn a bad request into a 500.
 export function sanitizeUploadFilename(raw: string): string {
   const separator = Math.max(raw.lastIndexOf('/'), raw.lastIndexOf('\\'));
   const base = separator === -1 ? raw : raw.slice(separator + 1);
@@ -31,7 +31,7 @@ export function sanitizeUploadFilename(raw: string): string {
 }
 
 // The declared type is metadata for the UI glyph and nothing else; it is never
-// written to a response header, so anything unrecognisable degrades silently.
+// written to a response header, so anything unrecognizable degrades silently.
 export function sanitizeDeclaredContentType(raw: string): string {
   const withoutParameters = raw.split(';')[0].trim().toLowerCase();
   if (withoutParameters.length === 0 || withoutParameters.length > MAX_CONTENT_TYPE_LENGTH) {

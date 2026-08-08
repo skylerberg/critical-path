@@ -347,7 +347,7 @@ describe('POST /api/attachments/files', () => {
     expect(res.status).toBe(401);
   });
 
-  it('stores the sanitised declared MIME type, whatever the bytes are', async () => {
+  it('stores the sanitized declared MIME type, whatever the bytes are', async () => {
     const user = await ctx.createUser('att-mime');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
 
@@ -361,7 +361,7 @@ describe('POST /api/attachments/files', () => {
     expect((await res.json()).content_type).toBe('text/html');
   });
 
-  it('sanitises a path-shaped filename down to its basename', async () => {
+  it('sanitizes a path-shaped filename down to its basename', async () => {
     const user = await ctx.createUser('att-name');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
 

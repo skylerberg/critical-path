@@ -107,7 +107,7 @@ function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
 }
 
-export function canonicalise(rrule: string): string {
+export function canonicalize(rrule: string): string {
   return RRule.optionsToString(RRule.parseString(rrule)).replace(/^RRULE:/, '');
 }
 
@@ -149,12 +149,12 @@ export function rruleForPreset(preset: RecurrencePreset, startDate: string): str
 export function presetFor(rrule: string, startDate: string): RecurrencePreset | null {
   let canonical: string;
   try {
-    canonical = canonicalise(rrule);
+    canonical = canonicalize(rrule);
   } catch {
     return null;
   }
   for (const preset of RECURRENCE_PRESETS) {
-    if (canonicalise(rruleForPreset(preset, startDate)) === canonical) {
+    if (canonicalize(rruleForPreset(preset, startDate)) === canonical) {
       return preset;
     }
   }
@@ -218,7 +218,7 @@ export function assertUsableRrule(rrule: string, startDate: string): string {
     }
   }
 
-  const canonical = canonicalise(rrule);
+  const canonical = canonicalize(rrule);
   if (firstOccurrenceOnOrAfter(canonical, startDate, startDate) === null) {
     reject('a rule that occurs at least once on or after the start date');
   }
