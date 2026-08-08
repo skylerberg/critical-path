@@ -30,7 +30,7 @@ export async function discardStoredUpload(storageKey: string): Promise<void> {
   }
 }
 
-// Every format sniffImageContentType recognises declares itself within twelve
+// Every format sniffImageContentType recognizes declares itself within twelve
 // bytes, so that is all the prefix this has to hold to decide what is arriving.
 const SNIFF_BYTES = 12;
 

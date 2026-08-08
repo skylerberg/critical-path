@@ -370,7 +370,7 @@ out everywhere". That default predates the sessions list; now that a user can
 see each device and revoke it individually, an all-or-nothing revoke charges
 the phone and the laptop for what is usually a routine rotation. The cost is
 that recovering a compromised account is two steps rather than one: reset the
-password, then log in and revoke the sessions you do not recognise. The
+password, then log in and revoke the sessions you do not recognize. The
 sessions list is the only lever for that — nothing else evicts a session but
 its own expiry.
 
@@ -782,7 +782,7 @@ WebP under 10 MB becomes `kind: "image"`, anything else `kind: "file"` under the
 50 MB cap. The declared `content_type` never decides — it is recorded for display
 on a file and ignored entirely on an image. That keeps the rule in one place
 rather than in every client, and means a `.bin` that is really a PNG is stored as
-one while an SVG, which no sniffer here recognises, stays a file and is served as
+one while an SVG, which no sniffer here recognizes, stays a file and is served as
 an opaque download.
 
 A file attachment stays unreachable through `/api/images/:id`, and an image
@@ -819,7 +819,7 @@ the partial object is reclaimed. That is what makes a 50 MB cap affordable —
 concurrent uploads cost a chunk of memory each, not a whole file each. It also
 means a request with no `Content-Length` is bounded exactly like one that
 declares it. A malformed query parameter is a 400, an empty body a 422.
-Nothing is sniffed and nothing is normalised — a PDF cannot be re-encoded
+Nothing is sniffed and nothing is normalized — a PDF cannot be re-encoded
 away, so the safety of an arbitrary upload comes from how it is served rather
 than from what it is.
 `content_type` records the sanitised _declared_ MIME type; it drives the UI
@@ -845,7 +845,7 @@ to image uploads too — a project already over quota cannot upload again until
 it deletes something. A task holds at most 50 attachments. Whichever of
 the two byte limits bites first is the one the upload stream is cut at, so a
 project with 3 MB of quota left refuses a 50 MB file after 3 MB rather than
-after 50; the exact, serialised quota check still runs once the size is known
+after 50; the exact, serialized quota check still runs once the size is known
 and before the row commits, and the object it refuses is reclaimed.
 
 **On the card.** Every board task carries `attachment_count` — all three kinds
@@ -899,7 +899,7 @@ URL, at most three redirects are followed, responses are capped (512 KB of HTML,
 2 MB of preview image, 256 KB of favicon), `Accept-Encoding: identity` makes a
 compression bomb structurally impossible, and one absolute deadline covers the
 whole chain so a target trickling one byte a second still settles. `http://` is
-allowed even in production: the blocklist, not TLS, is the defence, and
+allowed even in production: the blocklist, not TLS, is the defense, and
 refusing a pasted `http://` link would help nobody.
 
 Storing a link and fetching it are separate decisions. A URL pointing at a
@@ -1100,7 +1100,7 @@ exempting them would leave the ceiling unbounded to anyone archiving as they go.
 The cap is a denial-of-service guard, not an invariant. The single-create path
 deliberately takes **no lock** on the project row, unlike the webhook and series
 caps: those gate a rare operation, while this gates the hottest write in the
-product, and serialising every card a board creates behind one row lock would
+product, and serializing every card a board creates behind one row lock would
 cost far more than the overshoot it prevents. Concurrent creates may therefore
 land a handful of rows past the ceiling. The copy and duplicate paths do lock,
 because they are rare, already expensive, and each adds thousands of rows at
@@ -1257,7 +1257,7 @@ means "unassigned, nothing is moving it", which is a stronger claim than
 "unknown".
 
 Done columns, archived tasks and **archived projects** are all excluded. The
-archived-project rule is the one judgement call: an archived project is still
+archived-project rule is the one judgment call: an archived project is still
 accessible everywhere else in the API, but archiving is the user's own "not
 now" signal and this screen trades completeness for signal density. A user
 whose only assignments live on an archived board therefore sees nothing, and
@@ -1399,7 +1399,7 @@ expires, so revoking one personal access token leaves the browser's sockets and
 every other token's sockets connected.
 
 Every mutation emits an event after its transaction commits. The envelope is
-`{ type, project_id, data }`. The table below summarises each payload; the
+`{ type, project_id, data }`. The table below summarizes each payload; the
 machine-readable version is served at `GET /api/realtime-events.json`, generated
 from the same declarations the server publishes against, so a client can generate
 types for the envelope instead of asserting shapes off the wire. `project_id` is
@@ -1729,7 +1729,7 @@ settles the row at `failed` and reports success, so a link cannot sit at
 objects it wrote and publishes nothing.
 
 Webhook delivery does **not** use this. `webhook_delivery` keeps its own table
-and claim because it carries per-receiver behaviour a generic table cannot hold
+and claim because it carries per-receiver behavior a generic table cannot hold
 — a fairness cap per registration, a circuit breaker that locks the
 registration before the delivery, an auto-disable exemption for manual
 re-sends, and a cascade from the registration that discards a backlog for free.
@@ -1780,7 +1780,7 @@ gone.
 
 **Payloads carry ids, never contact details.** Nothing reads this column and
 nothing reviews what enters it, so an address written here would outlive every
-consent and access check that authorised it. Handlers re-resolve from ids at
+consent and access check that authorized it. Handlers re-resolve from ids at
 run time; the enqueue rejects a payload containing an address or a field named
 for one.
 
@@ -2701,7 +2701,7 @@ unreachable server or an expired session just means no suggestions, never an
 error in the middle of your prompt.
 
 The bash and zsh scripts are verified against bash 3.2 and zsh 5.9. **The fish
-script is untested** — it was written from the documented behaviour of
+script is untested** — it was written from the documented behavior of
 `commandline` and has never been run against a real fish.
 
 The CLI talks to the production instance
@@ -2752,7 +2752,7 @@ npm run openapi:dump && npm run --prefix cli generate-api
   invitation route above and its hourly budget. A limiter here would instead
   meter ordinary work: naming an assignee costs one such call.
 - Ordering is a fractional index, so inserting repeatedly against the same
-  neighbour lengthens each successive key by about a character per five inserts.
+  neighbor lengthens each successive key by about a character per five inserts.
   The 1024-character cap allows roughly 5000 insertions at a single spot before
   a key is refused with a 422 — ordering stays correct, and re-stamping the
   column with `POST /api/columns/:id/reorder` clears it.

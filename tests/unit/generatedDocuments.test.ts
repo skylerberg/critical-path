@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 // schema change does not also produce a diff in a 140KB generated file. Gitignore
 // only stops an *untracked* file from being added, though, so a branch cut before
 // the untracking still carries the tracked copy: merging main into it raises a
-// modify/delete conflict, and resolving that in favour of "modified" — the side
+// modify/delete conflict, and resolving that in favor of "modified" — the side
 // git's own hint suggests — quietly puts the file back. realtime-events.json
 // returned exactly that way within an hour of being removed.
 const GENERATED_DOCUMENTS = ['openapi.json', 'realtime-events.json'];

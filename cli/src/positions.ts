@@ -14,7 +14,7 @@ function keys(a: string | null, b: string | null, count: number): string[] {
   return generateNKeysBetween(a, b, count, BASE_62_DIGITS);
 }
 
-// A run between two neighbours never runs out: the keys grow a character rather
+// A run between two neighbors never runs out: the keys grow a character rather
 // than exhausting a gap, which is what the float scheme did after a few dozen.
 export function spreadBetween(a: string | null, b: string | null, count: number): string[] {
   return keys(a, b, count);

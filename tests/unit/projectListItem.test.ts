@@ -28,7 +28,7 @@ describe('normalizeProjectAccent', () => {
     }
   });
 
-  it('reads anything else as no colour, so a hand-edited or newer row cannot reach a client', () => {
+  it('reads anything else as no color, so a hand-edited or newer row cannot reach a client', () => {
     expect(normalizeProjectAccent('chartreuse')).toBeNull();
     expect(normalizeProjectAccent('Amber')).toBeNull();
     expect(normalizeProjectAccent('')).toBeNull();
@@ -37,7 +37,7 @@ describe('normalizeProjectAccent', () => {
 });
 
 describe('toProjectResponse', () => {
-  it('serves the colour through the normalizer rather than the raw column', () => {
+  it('serves the color through the normalizer rather than the raw column', () => {
     expect(toProjectResponse(row({ color: 'violet' }), []).color).toBe('violet');
     expect(toProjectResponse(row({ color: 'chartreuse' }), []).color).toBeNull();
     expect(toProjectResponse(row(), []).color).toBeNull();

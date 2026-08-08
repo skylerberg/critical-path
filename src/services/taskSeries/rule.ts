@@ -237,7 +237,7 @@ function toText(rrule: string, startDate: string): string | null {
   }
 }
 
-export function summarise(rrule: string, startDate: string): string {
+export function summarize(rrule: string, startDate: string): string {
   const preset = presetFor(rrule, startDate);
   if (preset !== null) {
     const start = toUtcDate(startDate);

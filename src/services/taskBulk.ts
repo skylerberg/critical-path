@@ -39,7 +39,7 @@ export async function loadBulkTargets(
 ): Promise<BulkTargets> {
   const ids = [...new Set(taskIds)];
   // Locked in id order: Postgres puts LockRows above Sort, so two overlapping
-  // bulk writes serialise instead of deadlocking.
+  // bulk writes serialize instead of deadlocking.
   const rows = await db
     .selectFrom('task')
     .select(['id', 'column_id', 'archived_at'])
