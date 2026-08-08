@@ -19,9 +19,17 @@ for the frontend's conventions.
 
 Realtime and webhook event types come from a second document,
 `realtime-events.json`, because `/ws` has no HTTP request or response to put in
-the OpenAPI spec — see convention 14. The CLI generates from it; the web app
-does not yet, and until it does its realtime `data` stays `unknown` behind
-hand-written casts.
+the OpenAPI spec — see convention 14. Both clients generate from it: `npm run
+--prefix cli generate-realtime` here, and `npm run generate:realtime` in
+`../critical-path-web`. Neither generated file is ever hand-edited.
+
+The web app's generator resolves this repo as a sibling of its *main* checkout,
+so a change still on a branch is invisible to it. Point it at the worktree
+holding the new document instead:
+`REALTIME_DOC_PATH=~/.worktrees/critical-path-api/<branch>/realtime-events.json
+npm run generate:realtime`. Nothing checks that the two repos' committed
+artefacts agree, so a schema change reviewed and amended in the API PR needs the
+web PR regenerated against the final version.
 
 # Conventions
 
@@ -200,10 +208,20 @@ npm run --prefix cli generate-api` and commit the regenerated
   `tests/setup/testContext.ts`): a parsed body has no compile-time link to the
   route that produced it, so name the shape with `res.json<T>()` where it
   matters rather than trying to type the client.
-- Worktrees under `.pi/worktrees/` need `node_modules` to run any of the
-  above; symlink it from the main checkout
-  (`ln -s ../../../node_modules node_modules` from inside the worktree)
-  instead of running `npm install` again.
+- `scripts/new-worktree.sh <branch> [base-ref]` creates a worktree that can run
+  all of the above: it branches, adds the worktree under
+  `~/.worktrees/<repo>/<branch>`, symlinks `node_modules` and `cli/node_modules`
+  from the main checkout by absolute path, and copies the untracked `.env` and
+  `.env.test`. A worktree made by hand and missing any of those fails the checks
+  for reasons that have nothing to do with the change in it — a missing
+  `cli/node_modules` in particular fails only the CLI tests, deep into a run.
+  The script resolves everything from the checkout it is run in, so it works
+  from a sibling project too.
+- A worktree that already exists but predates the script needs `node_modules`
+  symlinked from the main checkout
+  (`ln -s /absolute/path/to/repo/node_modules node_modules`) rather than a
+  second `npm install`. Never put one inside the repository: it is a second full
+  copy of the codebase that every recursive search has to walk.
 
 # Migration workflow
 
