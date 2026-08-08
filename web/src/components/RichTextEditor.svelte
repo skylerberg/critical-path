@@ -14,6 +14,8 @@
 
   type TiptapDoc = NonNullable<BoardTask['description']>;
 
+  export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
   interface Props {
     content: TiptapDoc | null;
     onSave?: (doc: TiptapDoc | null) => void | Promise<boolean | void>;
@@ -23,6 +25,11 @@
     placeholder?: string;
     readonly?: boolean;
     bare?: boolean;
+    // One row tall rather than seven, for editors that sit in a list.
+    compact?: boolean;
+    // Only ever leaves 'idle' when onSave is set, so an editor the parent drives
+    // through onChange reports nothing.
+    saveState?: SaveState;
   }
 
   let {
@@ -34,6 +41,8 @@
     placeholder = 'Add a description…',
     readonly = false,
     bare = false,
+    compact = false,
+    saveState = $bindable('idle'),
   }: Props = $props();
 
   let element = $state<HTMLDivElement>();
@@ -50,8 +59,29 @@
 
   // Saves are debounced (800 ms) and flushed on blur and teardown.
   const SAVE_DEBOUNCE_MS = 800;
+  const SAVED_VISIBLE_MS = 2000;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let savedTimer: ReturnType<typeof setTimeout> | null = null;
   let lastSaved = 'null';
+
+  // The toolbar is hidden until the editor is first focused and then stays: it is
+  // rebuilt per card, so a card opens quiet and stops rearranging once in use.
+  let everFocused = $state(false);
+  const showToolbar = $derived(!readonly && everFocused);
+
+  function setSaveState(next: SaveState): void {
+    if (savedTimer !== null) {
+      clearTimeout(savedTimer);
+      savedTimer = null;
+    }
+    saveState = next;
+    if (next === 'saved') {
+      savedTimer = setTimeout(() => {
+        savedTimer = null;
+        saveState = 'idle';
+      }, SAVED_VISIBLE_MS);
+    }
+  }
 
   export function getEditor(): Editor | null {
     return editor;
@@ -68,6 +98,7 @@
     }
     e.commands.setContent((doc ?? null) as JSONContent | null, { emitUpdate: false });
     lastSaved = JSON.stringify(currentDoc(e));
+    setSaveState('idle');
   }
 
   function currentDoc(e: Editor): TiptapDoc | null {
@@ -77,6 +108,7 @@
   function scheduleSave(): void {
     if (saveTimer !== null) clearTimeout(saveTimer);
     saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS);
+    if (onSave !== undefined) setSaveState('saving');
   }
 
   function flushSave(): void {
@@ -89,7 +121,12 @@
     const save = onSave;
     const doc = currentDoc(e);
     const serialized = JSON.stringify(doc);
-    if (serialized === lastSaved) return;
+    // Typing back to the stored text writes nothing, so there is no save left to
+    // report; anything already settled keeps its word.
+    if (serialized === lastSaved) {
+      if (saveState === 'saving') setSaveState('idle');
+      return;
+    }
     const committed = serialized;
     lastSaved = serialized;
     // On failure, reset lastSaved to a value no doc serializes to so the next
@@ -97,10 +134,15 @@
     const markFailed = (): void => {
       if (lastSaved === committed) {
         lastSaved = '';
+        setSaveState('error');
       }
     };
     void Promise.resolve(save(doc)).then((ok) => {
-      if (ok === false) markFailed();
+      if (ok === false) {
+        markFailed();
+      } else if (lastSaved === committed) {
+        setSaveState('saved');
+      }
     }, markFailed);
   }
 
@@ -238,6 +280,7 @@
     editor = e;
     return () => {
       flushSave();
+      if (savedTimer !== null) clearTimeout(savedTimer);
       e.destroy();
       editor = null;
     };
@@ -266,9 +309,11 @@
       italic: e?.isActive('italic') ?? false,
       strike: e?.isActive('strike') ?? false,
       code: e?.isActive('code') ?? false,
-      h1: e?.isActive('heading', { level: 1 }) ?? false,
-      h2: e?.isActive('heading', { level: 2 }) ?? false,
-      h3: e?.isActive('heading', { level: 3 }) ?? false,
+      // Any level, not just the one the button writes: a document can still hold
+      // an h1 or h3 from the markdown importer or a paste, and a toggle that read
+      // as unpressed while the caret sat in a heading would lie about both what
+      // is there and what the next click does.
+      heading: e?.isActive('heading') ?? false,
       bulletList: e?.isActive('bulletList') ?? false,
       orderedList: e?.isActive('orderedList') ?? false,
       blockquote: e?.isActive('blockquote') ?? false,
@@ -378,11 +423,14 @@
 {/snippet}
 
 <div
-  class="rte relative {bare ? 'rte-bare' : 'rounded-md border border-edge bg-canvas'} {readonly
+  class="rte relative {bare ? 'rte-bare' : 'rounded-md border border-edge bg-canvas'} {compact
+    ? 'rte-compact'
+    : ''} {readonly
     ? ''
     : 'focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/30'}"
+  onfocusin={() => (everFocused = true)}
 >
-  {#if !readonly}
+  {#if showToolbar}
     <div
       class="flex flex-wrap items-center border-b border-edge px-1"
       role="toolbar"
@@ -392,9 +440,9 @@
       {@render tool('I', 'Italic', s.italic, () => run((c) => c.toggleItalic()))}
       {@render tool('S', 'Strikethrough', s.strike, () => run((c) => c.toggleStrike()))}
       {@render tool('</>', 'Inline code', s.code, () => run((c) => c.toggleCode()))}
-      {@render tool('H1', 'Heading 1', s.h1, () => run((c) => c.toggleHeading({ level: 1 })))}
-      {@render tool('H2', 'Heading 2', s.h2, () => run((c) => c.toggleHeading({ level: 2 })))}
-      {@render tool('H3', 'Heading 3', s.h3, () => run((c) => c.toggleHeading({ level: 3 })))}
+      {@render tool('H', 'Heading', s.heading, () =>
+        run((c) => (s.heading ? c.setParagraph() : c.toggleHeading({ level: 2 })))
+      )}
       {@render tool(bulletListIcon, 'Bullet list', s.bulletList, () =>
         run((c) => c.toggleBulletList())
       )}
@@ -472,6 +520,16 @@
     font-size: 0.8125rem;
     line-height: 1.55;
   }
+  /* One row of text plus its padding, which is also the 44px tap target. Capped
+     because this sits inside a scrolling dialog, where growing without limit
+     would push the button below it off screen. */
+  .rte-compact :global(.tiptap) {
+    min-height: 2.75rem;
+    max-height: 12rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.625rem 0.75rem;
+  }
   .rte :global(.tiptap > * + *) {
     margin-top: 0.5rem;
   }
@@ -486,6 +544,18 @@
   .rte :global(.tiptap h3) {
     font-size: 1.125rem;
     font-weight: 600;
+  }
+  /* Same ratios as above, but relative to the smaller bare body: absolute sizes
+     put a 24px h1 next to 13px text in a comment. Equal specificity to the rules
+     above, so these have to stay below them. */
+  .rte-bare :global(.tiptap h1) {
+    font-size: 1.5em;
+  }
+  .rte-bare :global(.tiptap h2) {
+    font-size: 1.25em;
+  }
+  .rte-bare :global(.tiptap h3) {
+    font-size: 1.125em;
   }
   .rte :global(.tiptap ul) {
     list-style: disc;

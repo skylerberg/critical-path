@@ -1,0 +1,179 @@
+import { fetchMock, jsonResponse } from '../api/testUtils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import TaskQuickActions from './TaskQuickActions.svelte';
+import { board } from '../lib/board.svelte';
+import type { BoardTask } from '../lib/board-types';
+import { users } from '../lib/users.svelte';
+
+const task: BoardTask = {
+  id: 't1',
+  column_id: 'c1',
+  title: 'Design cards',
+  description: null,
+  sort_key: 'V0000010001',
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+  column_since: '2026-01-01T00:00:00Z',
+  label_ids: [],
+  assignee_ids: [],
+  blocker_ids: [],
+  cover_image_url: null,
+  due_date: null,
+  comment_count: 0,
+  checklist_item_count: 0,
+  checklist_done_count: 0,
+  attachment_count: 0,
+};
+
+function renderBar(): {
+  onreveal: ReturnType<typeof vi.fn>;
+  onattach: ReturnType<typeof vi.fn>;
+} {
+  const onreveal = vi.fn();
+  const onattach = vi.fn();
+  render(TaskQuickActions, { taskId: 't1', onreveal, onattach });
+  return { onreveal, onattach };
+}
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  fetchMock.mockImplementation(async () => jsonResponse(200, {}));
+  board.reset();
+  users.reset();
+  board.currentProjectId = 'p1';
+  board.columns = [
+    { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+    { id: 'c2', name: 'Done', sort_key: 'V0000010002', is_done: true },
+  ];
+  board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
+  board.tasks = [{ ...task }];
+  users.setForProject('p1', [{ id: 'u-ada', name: 'Ada Lovelace', avatar_url: null }]);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('TaskQuickActions', () => {
+  it('offers every way into the card, with the column named on its own button', () => {
+    renderBar();
+
+    for (const name of ['Checklist', 'Due date', 'Assign', 'Labels', 'Attach', 'Dependencies']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+    // No Column section exists any more, so the button is the column display.
+    expect(screen.getByRole('button', { name: 'Todo' })).toBeInTheDocument();
+  });
+
+  it('marks the open button as expanded and closes it on a second press', async () => {
+    renderBar();
+
+    const trigger = screen.getByRole('button', { name: 'Labels' });
+    await fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('group', { name: 'Add labels' })).toBeInTheDocument();
+
+    await fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('group', { name: 'Add labels' })).toBeNull();
+  });
+
+  it('opens at most one panel', async () => {
+    renderBar();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Due date' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Assign' }));
+
+    expect(screen.queryByRole('group', { name: 'Set due date' })).toBeNull();
+    expect(screen.getByRole('group', { name: 'Assign' })).toBeInTheDocument();
+  });
+
+  it('moves the card to the column picked, and closes', async () => {
+    const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    renderBar();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Todo' }));
+    await fireEvent.click(
+      within(screen.getByRole('group', { name: 'Move to column' })).getByRole('button', {
+        name: 'Done',
+      })
+    );
+
+    expect(spy).toHaveBeenCalledWith('t1', 'c2', { sort_key: expect.any(String) });
+    expect(screen.queryByRole('group', { name: 'Move to column' })).toBeNull();
+  });
+
+  it('leaves the card alone when its current column is picked again', async () => {
+    const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    renderBar();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Todo' }));
+    await fireEvent.click(
+      within(screen.getByRole('group', { name: 'Move to column' })).getByRole('button', {
+        name: /Todo/,
+      })
+    );
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('asks the parent to reveal the checklist rather than opening a panel', async () => {
+    const { onreveal } = renderBar();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Checklist' }));
+
+    expect(onreveal).toHaveBeenCalledWith('checklist');
+    expect(screen.queryByRole('group')).toBeNull();
+  });
+
+  it('hands the chosen way of attaching back to the parent, and closes', async () => {
+    const { onattach } = renderBar();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Attach' }));
+    await fireEvent.click(
+      within(screen.getByRole('group', { name: 'Attach' })).getByRole('button', {
+        name: 'Attach file',
+      })
+    );
+
+    expect(onattach).toHaveBeenCalledWith('file');
+    expect(screen.queryByRole('group', { name: 'Attach' })).toBeNull();
+  });
+
+  it('holds both directions of dependency behind the one button', async () => {
+    renderBar();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Dependencies' }));
+    const panel = screen.getByRole('group', { name: 'Dependencies' });
+
+    expect(within(panel).getByLabelText('Search tasks that block this one')).toBeInTheDocument();
+    expect(within(panel).getByLabelText('Search tasks this one blocks')).toBeInTheDocument();
+  });
+
+  it('restores focus to the button that opened the panel on Escape', async () => {
+    renderBar();
+
+    const trigger = screen.getByRole('button', { name: 'Labels' });
+    await fireEvent.click(trigger);
+    await fireEvent.keyDown(screen.getByRole('group', { name: 'Add labels' }), { key: 'Escape' });
+
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  // A panel left open across a card switch would be editing the card just left.
+  it('closes the open panel when the overlay switches card', async () => {
+    board.tasks = [{ ...task }, { ...task, id: 't2' }];
+    const { rerender } = render(TaskQuickActions, {
+      taskId: 't1',
+      onreveal: vi.fn(),
+      onattach: vi.fn(),
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Labels' }));
+    expect(screen.getByRole('group', { name: 'Add labels' })).toBeInTheDocument();
+
+    await rerender({ taskId: 't2' });
+    expect(screen.queryByRole('group', { name: 'Add labels' })).toBeNull();
+  });
+});

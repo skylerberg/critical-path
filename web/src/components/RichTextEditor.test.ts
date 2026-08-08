@@ -14,6 +14,12 @@ async function settleSuggestion(): Promise<void> {
   await tick();
 }
 
+// The toolbar appears on first focus, and focusin bubbles from the contenteditable
+// to the wrapper that listens for it.
+async function focusEditor(container: HTMLElement): Promise<void> {
+  await fireEvent.focusIn(container.querySelector('.tiptap')!);
+}
+
 function insertedMentionAttrs(editor: Editor): Record<string, unknown> | undefined {
   const doc = editor.getJSON() as {
     content?: Array<{ content?: Array<{ type?: string; attrs?: Record<string, unknown> }> }>;
@@ -131,9 +137,9 @@ describe('RichTextEditor', () => {
     }
   });
 
-  it('starts from the provided doc and renders the toolbar', async () => {
+  it('starts from the provided doc and renders the toolbar once focused', async () => {
     const onSave = vi.fn();
-    const { component, getByRole } = render(RichTextEditor, {
+    const { component, container, getByRole } = render(RichTextEditor, {
       content: {
         type: 'doc',
         content: [{ type: 'paragraph', content: [{ type: 'text', text: 'existing' }] }],
@@ -141,10 +147,35 @@ describe('RichTextEditor', () => {
       onSave,
     });
     await tick();
+    await focusEditor(container);
 
     expect(component.getEditor()!.getText()).toBe('existing');
     expect(getByRole('button', { name: 'Bold' })).toHaveAttribute('aria-pressed', 'false');
     expect(getByRole('toolbar', { name: 'Formatting' })).toBeInTheDocument();
+  });
+
+  it('keeps the toolbar hidden until the editor is focused, then leaves it up', async () => {
+    const { container, queryByRole, getByRole } = render(RichTextEditor, {
+      content: null,
+      onSave: vi.fn(),
+    });
+    await tick();
+    expect(queryByRole('toolbar', { name: 'Formatting' })).toBeNull();
+
+    await focusEditor(container);
+    expect(getByRole('toolbar', { name: 'Formatting' })).toBeInTheDocument();
+
+    // Deliberately sticky: the description autosaves, so there is nothing to
+    // strand, and a toolbar that came and went on every click would thrash.
+    await fireEvent.focusOut(container.querySelector('.tiptap')!);
+    expect(getByRole('toolbar', { name: 'Formatting' })).toBeInTheDocument();
+  });
+
+  it('never shows a toolbar on a read-only body, focused or not', async () => {
+    const { container, queryByRole } = render(RichTextEditor, { content: null, readonly: true });
+    await tick();
+    await focusEditor(container);
+    expect(queryByRole('toolbar', { name: 'Formatting' })).toBeNull();
   });
 
   it('reports emptiness through onChange on mount and on every edit', async () => {
@@ -387,13 +418,91 @@ describe('RichTextEditor', () => {
 
   it('renders svg icons for the list buttons', async () => {
     const onSave = vi.fn();
-    const { getByRole } = render(RichTextEditor, { content: null, onSave });
+    const { container, getByRole } = render(RichTextEditor, { content: null, onSave });
     await tick();
+    await focusEditor(container);
 
     for (const name of ['Bullet list', 'Ordered list']) {
       const button = getByRole('button', { name });
       expect(button).toHaveAttribute('aria-pressed', 'false');
       expect(button.querySelector('svg')).not.toBeNull();
     }
+  });
+
+  it('offers one heading button, which toggles a level 2 heading', async () => {
+    const { component, container, getByRole, queryByRole } = render(RichTextEditor, {
+      content: null,
+      onSave: vi.fn(),
+    });
+    await tick();
+    await focusEditor(container);
+
+    for (const name of ['Heading 1', 'Heading 2', 'Heading 3']) {
+      expect(queryByRole('button', { name })).toBeNull();
+    }
+
+    const editor = component.getEditor()!;
+    editor.commands.insertContent('a title');
+    await tick();
+
+    const heading = getByRole('button', { name: 'Heading' });
+    expect(heading).toHaveAttribute('aria-pressed', 'false');
+
+    await fireEvent.click(heading);
+    expect(editor.getJSON().content?.[0]).toMatchObject({
+      type: 'heading',
+      attrs: { level: 2 },
+    });
+    await waitFor(() => {
+      expect(getByRole('button', { name: 'Heading' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    await fireEvent.click(getByRole('button', { name: 'Heading' }));
+    expect(editor.getJSON().content?.[0]).toMatchObject({ type: 'paragraph' });
+  });
+
+  // The toolbar stopped offering h1 and h3, but documents still hold them: the
+  // markdown importer writes them and a paste can carry them in.
+  it('reads a legacy heading as pressed and clears it in one click', async () => {
+    const { component, container, getByRole } = render(RichTextEditor, {
+      content: {
+        type: 'doc',
+        content: [
+          { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'legacy' }] },
+        ],
+      },
+      onSave: vi.fn(),
+    });
+    await tick();
+    await focusEditor(container);
+
+    expect(getByRole('button', { name: 'Heading' })).toHaveAttribute('aria-pressed', 'true');
+
+    await fireEvent.click(getByRole('button', { name: 'Heading' }));
+    expect(component.getEditor()!.getJSON().content?.[0]).toMatchObject({ type: 'paragraph' });
+  });
+
+  // Fails the moment someone narrows StarterKit's heading levels to [2]: the
+  // parse would flatten both to paragraphs and the render would coerce to h2,
+  // while the markdown serializer still emits # and ###.
+  it('still parses the heading levels the toolbar no longer offers', async () => {
+    const { component, container } = render(RichTextEditor, { content: null, onSave: vi.fn() });
+    await tick();
+
+    const editor = component.getEditor()!;
+    editor.commands.setContent('<h1>one</h1><h3>three</h3>');
+    await tick();
+
+    const doc = editor.getJSON();
+    expect(doc.content?.[0]).toMatchObject({ type: 'heading', attrs: { level: 1 } });
+    expect(doc.content?.[1]).toMatchObject({ type: 'heading', attrs: { level: 3 } });
+    expect(container.querySelector('h1')).toHaveTextContent('one');
+    expect(container.querySelector('h3')).toHaveTextContent('three');
+  });
+
+  it('renders a compact body', async () => {
+    const { container } = render(RichTextEditor, { content: null, compact: true });
+    await tick();
+    expect(container.querySelector('.rte-compact')).not.toBeNull();
   });
 });

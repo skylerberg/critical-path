@@ -1,24 +1,22 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
-  import { isCalendarDate } from '../lib/dates';
+  import { formatFullDate, isCalendarDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
-  import { append } from '../lib/positions';
   import { router } from '../lib/router.svelte';
-  import { shortcuts } from '../lib/shortcuts.svelte';
   import { taskActivity } from '../lib/taskActivity.svelte';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
-  import AssigneePicker from './AssigneePicker.svelte';
-  import DependencyPicker from './DependencyPicker.svelte';
-  import DueDatePicker from './DueDatePicker.svelte';
-  import LabelPicker from './LabelPicker.svelte';
-  import RichTextEditor from './RichTextEditor.svelte';
-  import TaskActivity from './TaskActivity.svelte';
+  import RichTextEditor, { type SaveState } from './RichTextEditor.svelte';
+  import TaskAssignees from './TaskAssignees.svelte';
   import TaskAttachments from './TaskAttachments.svelte';
   import TaskChecklist from './TaskChecklist.svelte';
+  import TaskComments from './TaskComments.svelte';
+  import TaskDependencies from './TaskDependencies.svelte';
+  import TaskHistory from './TaskHistory.svelte';
+  import TaskLabels from './TaskLabels.svelte';
+  import TaskQuickActions from './TaskQuickActions.svelte';
   import Announcer from './ui/Announcer.svelte';
-  import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
 
   type TiptapDoc = NonNullable<BoardTask['description']>;
@@ -35,13 +33,6 @@
   let { taskId, closePath, taskPath, readonly = false }: Props = $props();
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
-  const taskById = $derived(new Map(board.tasks.map((t) => [t.id, t])));
-  const doneColumnIds = $derived(board.doneColumnIds);
-  const blockers = $derived((task?.blocker_ids ?? []).flatMap((id) => taskById.get(id) ?? []));
-  const openBlockerCount = $derived(
-    blockers.filter((blocker) => !doneColumnIds.has(blocker.column_id)).length
-  );
-  const dependents = $derived(board.tasks.filter((t) => t.blocker_ids.includes(taskId)));
   const columnName = $derived(board.columns.find((c) => c.id === task?.column_id)?.name ?? '');
   const seriesSummary = $derived(board.taskSeriesSummaries[taskId] ?? null);
   const mentionUsers = $derived(currentProjectMentionCandidates());
@@ -71,6 +62,42 @@
   let editorRef = $state<ReturnType<typeof RichTextEditor>>();
   let pendingWrite: Promise<unknown> = Promise.resolve();
 
+  let descriptionSaveState = $state<SaveState>('idle');
+  // A checklist or an attachment list with nothing in it has nothing to show, so
+  // the quick bar asks for one and the section stays until the card is closed.
+  // Neither ever hides something the card actually holds.
+  let checklistRevealed = $state(false);
+  let attachmentsRevealed = $state(false);
+  let commentsOpen = $state(false);
+  let historyOpen = $state(false);
+  let quickActions = $state<ReturnType<typeof TaskQuickActions>>();
+  let checklistRef = $state<ReturnType<typeof TaskChecklist>>();
+  let attachmentsRef = $state<ReturnType<typeof TaskAttachments>>();
+
+  const showChecklist = $derived(checklistRevealed || (task?.checklist_item_count ?? 0) > 0);
+  const showAttachments = $derived(attachmentsRevealed || (task?.attachment_count ?? 0) > 0);
+
+  async function reveal(section: 'checklist' | 'attachments'): Promise<void> {
+    if (section === 'checklist') {
+      checklistRevealed = true;
+      await tick();
+      checklistRef?.focusAddItem();
+      return;
+    }
+    attachmentsRevealed = true;
+    await tick();
+  }
+
+  async function attach(how: 'file' | 'link'): Promise<void> {
+    attachmentsRevealed = true;
+    await tick();
+    if (how === 'file') {
+      attachmentsRef?.pickFile();
+    } else {
+      attachmentsRef?.openLinkForm();
+    }
+  }
+
   $effect(() => {
     const id = taskId;
     const authed = !anonymous;
@@ -83,12 +110,24 @@
       baseTitle = null;
       conflicted = false;
       pendingWrite = Promise.resolve();
+      descriptionSaveState = 'idle';
+      checklistRevealed = false;
+      attachmentsRevealed = false;
+      commentsOpen = false;
+      historyOpen = false;
       if (authed) {
         board.clearChanged(id);
         void board.loadTaskDetail(id);
-        void taskActivity.load(id);
       }
     });
+  });
+
+  // Deferred, unlike the detail fetch: History opens collapsed and nothing else
+  // reads the log, so an unopened one would spend a request per card.
+  $effect(() => {
+    if (historyOpen && !anonymous) {
+      void taskActivity.load(taskId);
+    }
   });
 
   // Must stay below the reset effect: effects run in declaration order, so capturing
@@ -209,12 +248,6 @@
     return uploaded?.image_url ?? null;
   }
 
-  function changeColumn(event: Event & { currentTarget: EventTarget & HTMLSelectElement }): void {
-    const columnId = event.currentTarget.value;
-    if (task === undefined || columnId === task.column_id) return;
-    void board.moveTask(taskId, columnId, append(board.tasksInColumn(columnId)));
-  }
-
   // Queued behind the title and description writes, so the server copies the text the
   // user just typed rather than whatever an in-flight PATCH is about to replace.
   // navigate, not redirect, so Back returns to the original card.
@@ -240,17 +273,12 @@
     await board.archiveTask(taskId);
     close();
   }
-
-  const dateFormat = new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
 </script>
 
 <dialog
   bind:this={dialog}
   aria-label={task === undefined ? 'Task not found' : truncateTitle(task.title)}
-  class="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto bg-surface p-0 text-ink backdrop:bg-black/50 lg:m-auto lg:h-auto lg:max-h-[90dvh] lg:w-full lg:max-w-2xl lg:rounded-lg lg:border lg:border-edge lg:shadow-xl"
+  class="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto bg-surface p-0 text-ink backdrop:bg-black/50 lg:m-auto lg:h-fit lg:max-h-[90dvh] lg:w-full lg:max-w-2xl lg:rounded-lg lg:border lg:border-edge lg:shadow-xl"
   oncancel={(event) => {
     event.preventDefault();
     // Escape discards the title edit, matching the inline column rename.
@@ -258,7 +286,9 @@
     close();
   }}
   onclick={(event) => {
-    if (event.target === dialog) close();
+    // A click that lands on the backdrop while a quick-action panel is up is
+    // dismissing the panel, not the card.
+    if (event.target === dialog && quickActions?.isOpen() !== true) close();
   }}
 >
   <div class="flex flex-col gap-6 p-4 lg:p-6">
@@ -294,12 +324,25 @@
         <Button variant="ghost" aria-label="Close" onclick={close}>✕</Button>
       </div>
 
-      {#if seriesSummary !== null}
-        <p
-          class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
-        >
-          Repeats: {seriesSummary}
-        </p>
+      {#if readonly || seriesSummary !== null}
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- The quick bar's own button carries the column for anyone who can move
+               the card; a reader has no bar, and still needs to know where it sits. -->
+          {#if readonly}
+            <p
+              class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
+            >
+              {columnName}
+            </p>
+          {/if}
+          {#if seriesSummary !== null}
+            <p
+              class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
+            >
+              Repeats: {seriesSummary}
+            </p>
+          {/if}
+        </div>
       {/if}
 
       {#if conflicted}
@@ -315,36 +358,36 @@
         </div>
       {/if}
 
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-semibold text-muted">Column</h3>
-        {#if readonly}
-          <p class="text-sm">{columnName}</p>
-        {:else}
-          <div class="flex flex-wrap items-center gap-2">
-            <select
-              aria-label="Column"
-              value={task.column_id}
-              onchange={changeColumn}
-              class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
-            >
-              {#each board.columns as column (column.id)}
-                <option value={column.id}>{column.name}</option>
-              {/each}
-            </select>
-            <Button variant="secondary" onclick={() => (shortcuts.moveMenu = taskId)}>Move…</Button>
-          </div>
-        {/if}
-      </section>
+      {#if !readonly}
+        <TaskQuickActions
+          bind:this={quickActions}
+          {taskId}
+          onreveal={(section) => void reveal(section)}
+          onattach={(how) => void attach(how)}
+        />
+      {/if}
 
       {#if !readonly || task.description !== null}
         <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold text-muted">Description</h3>
+          <div class="flex items-baseline justify-between gap-2">
+            <h3 class="text-sm font-semibold text-muted">Description</h3>
+            {#if descriptionSaveState !== 'idle'}
+              <span role="status" aria-live="polite" class="text-xs text-muted">
+                {descriptionSaveState === 'saving'
+                  ? 'Saving…'
+                  : descriptionSaveState === 'saved'
+                    ? 'Saved'
+                    : 'Not saved — retrying'}
+              </span>
+            {/if}
+          </div>
           {#key taskId}
             {#if readonly}
               <RichTextEditor content={task.description} readonly />
             {:else}
               <RichTextEditor
                 bind:this={editorRef}
+                bind:saveState={descriptionSaveState}
                 content={task.description}
                 onSave={saveDescription}
                 {uploadImage}
@@ -355,142 +398,94 @@
         </section>
       {/if}
 
-      {#if !readonly || (task.checklist_item_count ?? 0) > 0}
+      {#if showChecklist}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Checklist</h3>
-          <TaskChecklist {taskId} {readonly} {taskPath} />
+          <TaskChecklist bind:this={checklistRef} {taskId} {readonly} {taskPath} />
         </section>
       {/if}
 
-      {#if !readonly || task.label_ids.length > 0}
+      {#if task.label_ids.length > 0}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Labels</h3>
-          <LabelPicker {taskId} {readonly} />
+          <TaskLabels {taskId} {readonly} onemptied={() => quickActions?.focusButton('labels')} />
         </section>
       {/if}
 
-      {#if !readonly || task.assignee_ids.length > 0}
+      {#if task.assignee_ids.length > 0}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Assignees</h3>
-          <AssigneePicker {taskId} {readonly} />
+          <TaskAssignees
+            {taskId}
+            {readonly}
+            onemptied={() => quickActions?.focusButton('assign')}
+          />
         </section>
       {/if}
 
-      {#if !readonly || isCalendarDate(task.due_date)}
+      {#if isCalendarDate(task.due_date)}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Due date</h3>
-          <DueDatePicker {taskId} {readonly} />
+          <p class="text-sm">{formatFullDate(task.due_date)}</p>
         </section>
       {/if}
 
-      {#if !readonly || blockers.length > 0}
-        <section class="flex flex-col gap-2">
-          <div class="flex items-center gap-2">
-            <h3 class="text-sm font-semibold text-muted">Blocked by</h3>
-            {#if openBlockerCount > 0}
-              <Badge variant="danger">
-                {openBlockerCount} open task{openBlockerCount === 1 ? '' : 's'}
-              </Badge>
-            {/if}
-          </div>
-          {#if blockers.length > 0}
-            <ul class="flex flex-col">
-              {#each blockers as blocker (blocker.id)}
-                <li class="flex min-h-11 items-center gap-2">
-                  <span
-                    class="min-w-0 flex-1 truncate text-sm {doneColumnIds.has(blocker.column_id)
-                      ? 'text-muted line-through'
-                      : ''}"
-                  >
-                    {truncateTitle(blocker.title)}
-                  </span>
-                  {#if !readonly}
-                    <button
-                      type="button"
-                      aria-label="Remove blocking task {truncateTitle(blocker.title)}"
-                      onclick={() => void board.removeBlocker(taskId, blocker.id)}
-                      class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
-                    >
-                      Remove
-                    </button>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-          {#if !readonly}
-            <DependencyPicker {taskId} direction="blocker" />
-          {/if}
-        </section>
-      {/if}
+      <TaskDependencies {taskId} {readonly} />
 
-      {#if !readonly || dependents.length > 0}
-        <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold text-muted">Blocks</h3>
-          {#if dependents.length > 0}
-            <ul class="flex flex-col">
-              {#each dependents as dependent (dependent.id)}
-                <li class="flex min-h-11 items-center gap-2">
-                  <span
-                    class="min-w-0 flex-1 truncate text-sm {doneColumnIds.has(dependent.column_id)
-                      ? 'text-muted line-through'
-                      : ''}"
-                  >
-                    {truncateTitle(dependent.title)}
-                  </span>
-                  {#if !readonly}
-                    <button
-                      type="button"
-                      aria-label="Remove blocked task {truncateTitle(dependent.title)}"
-                      onclick={() => void board.removeBlocker(dependent.id, taskId)}
-                      class="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-sm text-muted hover:bg-accent-soft hover:text-danger focus-visible:outline-2 focus-visible:outline-accent"
-                    >
-                      Remove
-                    </button>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-          {#if !readonly}
-            <DependencyPicker {taskId} direction="blocked" />
-          {/if}
-        </section>
-      {/if}
-
-      {#if !anonymous}
+      {#if !anonymous && showAttachments}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Attachments</h3>
-          <TaskAttachments {taskId} {readonly} />
+          <TaskAttachments bind:this={attachmentsRef} {taskId} {readonly} />
         </section>
       {/if}
 
       {#if !anonymous || task.comment_count > 0}
-        <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold text-muted">{anonymous ? 'Comments' : 'Activity'}</h3>
-          <TaskActivity {taskId} {anonymous} />
-        </section>
+        <!-- Driven from state rather than the browser default, so the body stays
+             unmounted while collapsed and no editor is built for a card nobody
+             opened the comments on. -->
+        <details class="border-t border-edge pt-4" open={commentsOpen}>
+          <summary
+            onclick={(event) => {
+              event.preventDefault();
+              commentsOpen = !commentsOpen;
+            }}
+            class="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-muted"
+          >
+            Comments ({task.comment_count})
+          </summary>
+          {#if commentsOpen}
+            <div class="flex flex-col gap-4 pt-2">
+              <TaskComments {taskId} {anonymous} />
+            </div>
+          {/if}
+        </details>
       {/if}
 
       {#if !anonymous}
-        <div
-          class="flex flex-col gap-3 border-t border-edge pt-4 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <p class="text-xs text-muted">
-            Created {dateFormat.format(new Date(task.created_at))} · Updated {dateFormat.format(
-              new Date(task.updated_at)
-            )}
-          </p>
-          {#if !readonly}
-            <div class="flex gap-2">
-              <Button
-                variant="secondary"
-                disabled={duplicating}
-                onclick={() => void handleDuplicate()}>Duplicate</Button
-              >
-              <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
+        <details class="border-t border-edge pt-4" open={historyOpen}>
+          <summary
+            onclick={(event) => {
+              event.preventDefault();
+              historyOpen = !historyOpen;
+            }}
+            class="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-muted"
+          >
+            History
+          </summary>
+          {#if historyOpen}
+            <div class="flex flex-col gap-4 pt-2">
+              <TaskHistory {taskId} />
             </div>
           {/if}
+        </details>
+      {/if}
+
+      {#if !anonymous && !readonly}
+        <div class="flex gap-2 border-t border-edge pt-4">
+          <Button variant="secondary" disabled={duplicating} onclick={() => void handleDuplicate()}>
+            Duplicate
+          </Button>
+          <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
         </div>
       {/if}
     {/if}

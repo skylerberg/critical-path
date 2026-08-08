@@ -963,7 +963,7 @@ describe('Project shell for a viewer', () => {
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     // The identity-backed half of the overlay survives the demotion.
-    expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
+    expect(screen.getByText(/^Comments \(/)).toBeInTheDocument();
   });
 });
 

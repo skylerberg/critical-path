@@ -216,6 +216,7 @@ describe('PublicBoard', () => {
 
     render(PublicBoard, { props: { projectId: PROJECT_ID, taskId: DESIGN_CARDS_ID } });
 
+    await fireEvent.click(await screen.findByText(/^Comments \(/));
     expect(await screen.findByText('Locking the layout this week')).toBeInTheDocument();
     expect(screen.getByText('Sounds right to me')).toBeInTheDocument();
     expect(screen.getByText('Bo Peep')).toBeInTheDocument();
