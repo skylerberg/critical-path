@@ -26,6 +26,7 @@ export type BusSubscriber = (entry: BusEntry) => void;
 
 export const SESSIONS_REVOKED = 'sessions_revoked';
 export const USER_UPDATED = 'user_updated';
+export const ACCOUNT_UPDATED = 'account_updated';
 export const PROJECT_CHANGED = 'project_changed';
 export const INVITATIONS_CHANGED = 'invitations_changed';
 
