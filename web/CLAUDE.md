@@ -27,6 +27,21 @@ the payload is deliberately not validated there. Tests build events with
 checked — a fixture naming a field the API stopped sending is what hid the
 `project_position_updated` bug for several releases.
 
+## Staying current with main
+
+`main` moves fast here and in the api repo, and a stale base is silent until a
+rebase conflicts or CI fails on a rule the base predates. `git fetch origin &&
+git rev-list --count HEAD..origin/main` before starting, before the full suite,
+and before pushing; rebase onto `main` rather than merging, and re-run the checks
+afterwards rather than trusting the pre-rebase pass. Run `gh pr list` before
+starting too — the fix may already be open. `../critical-path-api/CLAUDE.md`
+carries the longer version, including two ways a stale base has produced wrong
+conclusions.
+
+Regenerate the clients after any rebase that moved the api repo
+(`npm run generate:api`, `npm run generate:realtime`): a rebase can pull in a
+schema change that leaves the committed client describing the old shape.
+
 ## Checks
 
 **While working, run only the tests your change touches** — `npm test -- --run
