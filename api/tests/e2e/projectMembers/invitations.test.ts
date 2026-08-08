@@ -5,7 +5,7 @@ import type { DB } from '../../../src/db/types';
 import { db, waitForLockWaiters } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects, insertTask } from '../projects/helpers';
-import { subscribeBus, type BusEntry } from '../../../src/services/realtime/bus';
+import { collectBusEntries } from '../../helpers/bus';
 import { clearSentEmails, sentEmails } from '../../../src/services/email/index';
 import { env } from '../../../src/config/env';
 import {
@@ -45,17 +45,6 @@ function inviteTokenFrom(text: string): string {
     throw new Error(`No invitation token found in email text: ${text}`);
   }
   return decodeURIComponent(match[1]);
-}
-
-async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
-  const seen: BusEntry[] = [];
-  const unsubscribe = subscribeBus((entry) => seen.push(entry));
-  try {
-    await run();
-  } finally {
-    unsubscribe();
-  }
-  return seen;
 }
 
 // Runs the statements and then sits on them, so the request under test has to

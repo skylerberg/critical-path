@@ -5,23 +5,13 @@ import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { imageStorageKey, uploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { env } from '../../../src/config/env';
-import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
+import { SESSIONS_REVOKED } from '../../../src/services/realtime/bus';
+import { collectBusEntries } from '../../helpers/bus';
 
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64'
 );
-
-async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
-  const seen: BusEntry[] = [];
-  const unsubscribe = subscribeBus((entry) => seen.push(entry));
-  try {
-    await run();
-  } finally {
-    unsubscribe();
-  }
-  return seen;
-}
 
 describe('DELETE /api/auth/me', () => {
   const ctx = new TestContext();
