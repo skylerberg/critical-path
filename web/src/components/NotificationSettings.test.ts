@@ -6,6 +6,7 @@ import { session } from '../lib/session.svelte';
 
 const ASSIGNED = 'When someone assigns me a task';
 const BULK_ASSIGNED = 'When someone assigns me several cards at once';
+const MENTIONED = 'When someone mentions me';
 const ADDED = 'When someone adds me to a board';
 const WITHHELD_LINE = 'These emails are on hold until your address is verified.';
 
@@ -22,9 +23,10 @@ function signIn(emailVerified: boolean): void {
 function settingsResponse(
   task_assigned: boolean,
   added_to_project: boolean,
-  bulk_task_assigned = true
+  bulk_task_assigned = true,
+  mentioned = true
 ): Response {
-  return jsonResponse(200, { task_assigned, added_to_project, bulk_task_assigned });
+  return jsonResponse(200, { task_assigned, added_to_project, bulk_task_assigned, mentioned });
 }
 
 beforeEach(() => {
@@ -44,7 +46,9 @@ describe('NotificationSettings', () => {
     expect(new URL(requestAt(0).url).pathname).toBe('/api/auth/me/notification-settings');
   });
 
-  it('sends the whole settings object when one toggle changes', async () => {
+  // Only the preference that moved: a tab open across a release that adds a
+  // kind must not write back its own stale idea of the others.
+  it('sends only the toggle that changed', async () => {
     fetchMock.mockResolvedValueOnce(settingsResponse(true, true));
     render(NotificationSettings);
 
@@ -57,11 +61,7 @@ describe('NotificationSettings', () => {
     });
     const request = requestAt(1);
     expect(request.method).toBe('PUT');
-    expect(await request.clone().json()).toEqual({
-      task_assigned: false,
-      added_to_project: true,
-      bulk_task_assigned: true,
-    });
+    expect(await request.clone().json()).toEqual({ task_assigned: false });
     expect(await screen.findByText('Preferences saved')).toBeInTheDocument();
   });
 
@@ -77,15 +77,31 @@ describe('NotificationSettings', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
-    expect(await requestAt(1).clone().json()).toEqual({
-      task_assigned: true,
-      added_to_project: true,
-      bulk_task_assigned: false,
-    });
+    expect(await requestAt(1).clone().json()).toEqual({ bulk_task_assigned: false });
     await waitFor(() => {
       expect(screen.getByLabelText(BULK_ASSIGNED)).not.toBeChecked();
     });
     expect(screen.getByLabelText(ASSIGNED)).toBeChecked();
+  });
+
+  it('offers a mention toggle and switches it off on its own', async () => {
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true, true, true));
+    render(NotificationSettings);
+
+    const toggle = await screen.findByLabelText(MENTIONED);
+    expect(toggle).toBeChecked();
+    fetchMock.mockResolvedValueOnce(settingsResponse(true, true, true, false));
+    await fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    expect(await requestAt(1).clone().json()).toEqual({ mentioned: false });
+    await waitFor(() => {
+      expect(screen.getByLabelText(MENTIONED)).not.toBeChecked();
+    });
+    expect(screen.getByLabelText(ASSIGNED)).toBeChecked();
+    expect(screen.getByLabelText(ADDED)).toBeChecked();
   });
 
   it('reloads the stored preferences when a save fails', async () => {

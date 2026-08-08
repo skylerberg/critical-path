@@ -13,6 +13,7 @@
   const TOGGLES = [
     { key: 'task_assigned', label: 'When someone assigns me a task' },
     { key: 'bulk_task_assigned', label: 'When someone assigns me several cards at once' },
+    { key: 'mentioned', label: 'When someone mentions me' },
     { key: 'added_to_project', label: 'When someone adds me to a board' },
   ] as const;
 
@@ -41,12 +42,16 @@
 
   async function toggle(key: keyof Settings, checked: boolean): Promise<void> {
     if (settings === null) return;
-    const next: Settings = { ...settings, [key]: checked };
-    settings = next;
+    settings = { ...settings, [key]: checked };
     saving = true;
     saveStatus = null;
     try {
-      settings = assertOk(await api.PUT('/api/auth/me/notification-settings', { body: next }));
+      // The one preference that moved, not the set this tab happens to hold: a
+      // tab left open across a release that adds a kind would otherwise write
+      // back its own stale idea of the others.
+      settings = assertOk(
+        await api.PUT('/api/auth/me/notification-settings', { body: { [key]: checked } })
+      );
       saveStatus = { kind: 'success', message: 'Preferences saved' };
     } catch (error) {
       saveStatus = { kind: 'error', message: apiMessage(error) };

@@ -23,6 +23,7 @@
     bulk_task_assigned:
       'This address will no longer get email when someone assigns you several cards at once.',
     added_to_project: 'This address will no longer get email when someone adds you to a board.',
+    mentioned: 'This address will no longer get email when someone mentions you.',
   };
 
   const RETRY_MESSAGE = 'Something went wrong. Please try again.';
