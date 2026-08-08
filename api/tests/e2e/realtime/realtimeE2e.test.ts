@@ -217,6 +217,7 @@ describe('Realtime end to end', () => {
       label_ids: [labelId],
       assignee_ids: [],
       blocker_ids: [],
+      open_cross_project_blocker_count: 0,
     });
   });
 

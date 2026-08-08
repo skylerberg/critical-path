@@ -198,6 +198,7 @@ function taskFixture(
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     comment_count: 0,
     checklist_item_count: 0,

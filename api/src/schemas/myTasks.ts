@@ -20,6 +20,13 @@ export const myTaskSchema = type({
   waiting_user_ids: 'string[]',
   blocking: myTaskLinkSchema.array(),
   blocked_by: myTaskLinkSchema.array(),
+  // Open edges whose far end is in a project the caller cannot read. They are
+  // counted rather than listed because a link carries a title, a project id and
+  // its assignees, none of which the caller is entitled to. A hidden blocker
+  // still files the task as blocked; a hidden dependent never names anyone, so
+  // it cannot put the task in the blocking bucket.
+  hidden_blocked_by_count: 'number',
+  hidden_blocking_count: 'number',
 });
 
 export type MyTask = typeof myTaskSchema.infer;

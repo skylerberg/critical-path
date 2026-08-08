@@ -176,6 +176,7 @@ export interface Task {
   description: Json | null;
   due_date: Timestamp | null;
   id: string;
+  open_cross_project_blocker_count: Generated<number>;
   project_id: string;
   search_vector: Generated<string | null>;
   series_id: string | null;

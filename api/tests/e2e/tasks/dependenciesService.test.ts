@@ -9,6 +9,7 @@ import { ProjectFixtures } from './taskFixtures';
 
 describe('dependencies service cycle detection', () => {
   const fixtures = new ProjectFixtures();
+  let ownerId: string;
   let projectId: string;
   let taskA: string;
   let taskB: string;
@@ -16,7 +17,10 @@ describe('dependencies service cycle detection', () => {
   let taskD: string;
 
   beforeAll(async () => {
-    projectId = await fixtures.createProject('dependencies service project');
+    ownerId = await fixtures.createUser('dependencies-service');
+    projectId = await fixtures.createProject('dependencies service project', {
+      createdBy: ownerId,
+    });
     const columnId = await fixtures.createColumn(projectId);
     taskA = await fixtures.createTaskRow(projectId, columnId, 'A');
     taskB = await fixtures.createTaskRow(projectId, columnId, 'B');
@@ -51,7 +55,7 @@ describe('dependencies service cycle detection', () => {
   it('names the offending path with current titles', async () => {
     await db.transaction().execute(async (trx) => {
       await lockProjectDependencies(trx, projectId);
-      expect(await findDependencyCyclePath(trx, projectId, taskA, taskC)).toEqual([
+      expect(await findDependencyCyclePath(trx, ownerId, taskA, taskC)).toEqual([
         { id: taskA, title: 'A' },
         { id: taskB, title: 'B' },
         { id: taskC, title: 'C' },
@@ -63,8 +67,56 @@ describe('dependencies service cycle detection', () => {
   it('returns no path when the edge would not close a cycle', async () => {
     await db.transaction().execute(async (trx) => {
       await lockProjectDependencies(trx, projectId);
-      expect(await findDependencyCyclePath(trx, projectId, taskC, taskA)).toEqual([]);
-      expect(await findDependencyCyclePath(trx, projectId, taskD, taskC)).toEqual([]);
+      expect(await findDependencyCyclePath(trx, ownerId, taskC, taskA)).toEqual([]);
+      expect(await findDependencyCyclePath(trx, ownerId, taskD, taskC)).toEqual([]);
+    });
+  });
+
+  it('walks a loop that leaves the project and comes back', async () => {
+    const farProject = await fixtures.createProject('far cycle project', { createdBy: ownerId });
+    const farColumn = await fixtures.createColumn(farProject);
+    const near = await fixtures.createTaskRow(
+      projectId,
+      await fixtures.createColumn(projectId),
+      'N'
+    );
+    const far = await fixtures.createTaskRow(farProject, farColumn, 'F');
+    await fixtures.createDependencyRow(near, far);
+
+    await db.transaction().execute(async (trx) => {
+      await lockProjectDependencies(trx, projectId);
+      // A project-scoped walk could not see this hop at all.
+      expect(await findDependencyCyclePath(trx, ownerId, near, far)).toEqual([
+        { id: near, title: 'N' },
+        { id: far, title: 'F' },
+        { id: near, title: 'N' },
+      ]);
+    });
+  });
+
+  it('redacts the steps of a loop that pass through a project the caller cannot read', async () => {
+    const stranger = await fixtures.createUser('cycle-stranger');
+    const hiddenProject = await fixtures.createProject('hidden cycle project');
+    const hiddenColumn = await fixtures.createColumn(hiddenProject);
+    const mine = await fixtures.createTaskRow(
+      projectId,
+      await fixtures.createColumn(projectId),
+      'M'
+    );
+    const theirs = await fixtures.createTaskRow(hiddenProject, hiddenColumn, 'Secret');
+    await fixtures.createDependencyRow(mine, theirs);
+
+    await db.transaction().execute(async (trx) => {
+      await lockProjectDependencies(trx, projectId);
+      const path = await findDependencyCyclePath(trx, stranger, mine, theirs);
+      // The loop keeps its shape so it still reads as one, but neither hop is
+      // named to someone entitled to neither project.
+      expect(path).toEqual([
+        { id: null, title: null },
+        { id: null, title: null },
+        { id: null, title: null },
+      ]);
+      expect(JSON.stringify(path)).not.toContain('Secret');
     });
   });
 

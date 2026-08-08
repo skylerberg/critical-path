@@ -343,7 +343,16 @@ describe('task blockers', () => {
       projectId,
       '--json',
     ]);
-    expect(empty.json<BlockersJson>()).toEqual({ blocked_by: [], blocks: [] });
+    expect(empty.json<BlockersJson>()).toEqual({
+      blocked_by: [],
+      blocks: [],
+      cross_project: {
+        blocked_by: [],
+        blocking: [],
+        hidden_blocked_by_count: 0,
+        hidden_blocking_count: 0,
+      },
+    });
 
     const human = await h.runCli(['task', 'blockers', 'Build the API', '--project', projectId]);
     expect(human.exitCode).toBe(0);
@@ -394,5 +403,91 @@ describe('task blockers', () => {
       '--json',
     ]);
     expect(after.json<BlockersJson>().blocked_by).toEqual([]);
+  });
+
+  describe('across projects', () => {
+    let farProjectId: string;
+    let farTaskId: string;
+
+    beforeAll(async () => {
+      const client = tc.request(user.token);
+      const create = await client.post('/api/projects', {
+        id: crypto.randomUUID(),
+        name: 'CLI Blockers Far Board',
+      });
+      expect(create.status).toBe(201);
+      const board = (await create.json()) as BoardPayload;
+      farProjectId = board.project.id;
+      const column = [...board.columns].sort((a, b) => (a.sort_key < b.sort_key ? -1 : 1))[0];
+      farTaskId = crypto.randomUUID();
+      expect(
+        (
+          await client.post('/api/tasks', {
+            id: farTaskId,
+            project_id: farProjectId,
+            column_id: column.id,
+            title: 'Sign the contract',
+            position: 1000,
+          })
+        ).status
+      ).toBe(201);
+    });
+
+    afterAll(async () => {
+      await tc.request(user.token).delete(`/api/projects/${farProjectId}`);
+    });
+
+    it('blocks by a task on another board, named by title with --by-project', async () => {
+      const res = await h.runCli([
+        'task',
+        'block',
+        'Draft requirements',
+        '--by',
+        'Sign the contract',
+        '--by-project',
+        farProjectId,
+        '--project',
+        projectId,
+      ]);
+      expect(res.exitCode).toBe(0);
+
+      const blockers = await h.runCli([
+        'task',
+        'blockers',
+        'Draft requirements',
+        '--project',
+        projectId,
+        '--json',
+      ]);
+      const json = blockers.json<
+        BlockersJson & { cross_project: { blocked_by: { task_id: string; title: string }[] } }
+      >();
+      // Not in blocker_ids: that list resolves against this board only.
+      expect(json.blocked_by).toEqual([]);
+      expect(json.cross_project.blocked_by.map((edge) => edge.task_id)).toEqual([farTaskId]);
+    });
+
+    it('drops the blocked task out of ready while the far blocker is open', async () => {
+      const ready = await h.runCli(['ready', '--project', projectId, '--json']);
+      expect(ready.exitCode).toBe(0);
+      const ids = ready.json<{ id: string }[]>().map((task) => task.id);
+      expect(ids).not.toContain(draftId);
+    });
+
+    it('unblocks by a bare uuid without resolving the far task', async () => {
+      const res = await h.runCli([
+        'task',
+        'unblock',
+        'Draft requirements',
+        '--by',
+        farTaskId,
+        '--project',
+        projectId,
+      ]);
+      expect(res.exitCode).toBe(0);
+
+      const ready = await h.runCli(['ready', '--project', projectId, '--json']);
+      expect(ready.json<{ id: string }[]>().map((task) => task.id)).toContain(draftId);
+    });
   });
 });
