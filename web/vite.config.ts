@@ -7,6 +7,16 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { AVATAR_CACHE_NAME, IMAGE_CACHE_NAME } from './src/lib/constants';
 
+// An API running anywhere other than the default port is the normal case when
+// two branches are in flight: a worktree's API takes a free port because the
+// main checkout's server already holds 3001, and a dev server hard-wired to
+// 3001 then proxies to the wrong build without saying so.
+const apiTarget = process.env.API_PROXY_TARGET ?? 'http://localhost:3001';
+const apiProxy = {
+  '/api': apiTarget,
+  '/ws': { target: apiTarget, ws: true },
+};
+
 export default defineConfig({
   plugins: [
     svelte(),
@@ -84,10 +94,7 @@ export default defineConfig({
     // Allow Tailscale MagicDNS hosts so `tailscale serve` (which forwards the
     // ts.net Host header to this localhost-bound server) isn't rejected.
     allowedHosts: ['.ts.net'],
-    proxy: {
-      '/api': 'http://localhost:3001',
-      '/ws': { target: 'http://localhost:3001', ws: true },
-    },
+    proxy: apiProxy,
     fs: {
       // node_modules may be a symlink into the main checkout when running from a
       // git worktree; the svelteTesting() setup file resolves to its realpath,
@@ -99,10 +106,7 @@ export default defineConfig({
     port: 4173,
     strictPort: true,
     allowedHosts: ['.ts.net'],
-    proxy: {
-      '/api': 'http://localhost:3001',
-      '/ws': { target: 'http://localhost:3001', ws: true },
-    },
+    proxy: apiProxy,
   },
   test: {
     environment: 'jsdom',
