@@ -3,16 +3,16 @@ import type { DB, ResolvedSortKey } from '../db/types';
 import { copyTaskAttachments } from './attachments/copy';
 import { IMAGE_KIND } from './attachments/index';
 import { storage } from './storage/index';
-import { AppError } from '../utils/errors';
+import { CHECKLIST_INSERT_CHUNK } from '../config/constants';
+import { AppError, errorText } from '../utils/errors';
 import { logger } from '../utils/logger';
-import { dueDateText } from './dueDate';
+import { dueDateText } from './dateText';
 import { appendKeys } from './sortKey';
 import { recordTaskActivity } from './taskActivity';
 import { copySeries } from './taskSeries/copy';
 import type { TiptapDoc, TiptapNode } from '../schemas/index';
 
 const IMAGE_SRC_PREFIX = '/api/images/';
-const CHECKLIST_INSERT_CHUNK = 5000;
 
 export interface CopyProjectInput {
   id: string;
@@ -218,9 +218,6 @@ export async function copyTasks(
     .where('checklist_item.task_id', 'in', input.sourceTaskIds)
     .execute();
 
-  // Chunked because the item count per project is unbounded: Postgres caps a
-  // statement at 65,535 bind parameters, and one oversized copy would 500 after
-  // the image objects were already written.
   for (let start = 0; start < checklistItems.length; start += CHECKLIST_INSERT_CHUNK) {
     await db
       .insertInto('checklist_item')
@@ -259,7 +256,7 @@ export async function copyTasks(
           logger.error({
             msg: 'Failed to reclaim a copied storage object after a failed copy',
             storageKey: key,
-            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+            error: errorText(cleanupErr),
           });
         })
       )

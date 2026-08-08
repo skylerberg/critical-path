@@ -1,7 +1,7 @@
 import { sql, type Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import type { MovedTask } from '../schemas/index';
-import { appendPositions, type ColumnInProject } from './boardColumns';
+import { appendPositions, positionValues, type ColumnInProject } from './boardColumns';
 import { recordTaskActivity } from './taskActivity';
 
 export interface BulkTaskRow {
@@ -66,7 +66,9 @@ export async function loadBulkTargets(
 /**
  * Appends the rows in the order they arrive, each carrying its own source column
  * into the activity log — a selection spans columns, so one source for the whole
- * batch would misreport most of it.
+ * batch would misreport most of it. Unlike `relocateTasks` in the column routes,
+ * the ids come from the client and can already be in the target column, which is
+ * where the project and archived predicates and the column_since case come from.
  */
 export async function relocateSelectedTasks(
   db: Kysely<DB>,
@@ -95,9 +97,7 @@ export async function relocateSelectedTasks(
           when task.column_id = ${target.id}::uuid then task.column_since
           else now()
         end
-    from (values ${sql.join(
-      movedTasks.map((task) => sql`(${task.id}::uuid, ${task.sort_key}::text)`)
-    )}) as v(id, sort_key)
+    from ${positionValues(movedTasks)}
     where task.id = v.id
       and task.project_id = ${projectId}::uuid
       and task.archived_at is null

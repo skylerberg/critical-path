@@ -1,5 +1,5 @@
 import rrulePkg from 'rrule';
-import { AppError } from '../../utils/errors';
+import { AppError, errorText } from '../../utils/errors';
 
 // rrule@2 ships CJS with no exports map, so the named ESM import resolves at
 // type-check time and throws at runtime.
@@ -191,7 +191,7 @@ export function assertUsableRrule(rrule: string, startDate: string): string {
   try {
     options = RRule.parseString(rrule);
   } catch (err) {
-    reject(`parseable (${err instanceof Error ? err.message : String(err)})`);
+    reject(`parseable (${errorText(err)})`);
   }
 
   if (options.freq === undefined || !CALENDAR_FREQUENCIES.has(options.freq)) {

@@ -13,7 +13,7 @@ import { assertPublicProject, usersWithProjectAccess } from './authorization';
 import { fetchAttachmentsForTasks, IMAGE_KIND } from './attachments/index';
 import type { AttachmentResponse } from '../schemas/index';
 import { normalizeProjectAccent, toMemberEntries } from './projectListItem';
-import { dueDateText } from './dueDate';
+import { dueDateText } from './dateText';
 import { unarchivedBlockerIds } from './taskRelations';
 
 function boardTasksQuery(db: Kysely<DB>) {

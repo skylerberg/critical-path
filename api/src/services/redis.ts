@@ -1,6 +1,7 @@
 import { createClient } from 'redis';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { errorText } from '../utils/errors';
 
 export type RedisClient = ReturnType<typeof createClient>;
 
@@ -29,7 +30,7 @@ export function getRedis(): RedisClient {
     client.connect().catch((err: unknown) => {
       logger.warn({
         msg: 'Redis connect failed',
-        error: err instanceof Error ? err.message : String(err),
+        error: errorText(err),
       });
     });
   }

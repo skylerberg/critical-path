@@ -3,6 +3,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { storage } from '../storage/index';
 import { sniffImageContentType, type SniffedImageContentType } from '../imageSniff';
 import { logger } from '../../utils/logger';
+import { errorText } from '../../utils/errors';
 
 export class UploadCapExceededError extends Error {
   constructor() {
@@ -24,7 +25,7 @@ export async function discardStoredUpload(storageKey: string): Promise<void> {
     logger.error({
       msg: 'Failed to reclaim a partial attachment object',
       storageKey,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
   }
 }

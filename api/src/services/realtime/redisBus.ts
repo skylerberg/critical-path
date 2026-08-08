@@ -2,6 +2,7 @@ import { getRedis, redisConfigured } from '../redis';
 import type { RedisClient } from '../redis';
 import { logger } from '../../utils/logger';
 import { deliverLocal, parseBusEntry, setRemotePublisher } from './bus';
+import { errorText } from '../../utils/errors';
 
 const CHANNEL = 'realtime-bus';
 
@@ -28,7 +29,7 @@ export async function initRedisBus(): Promise<void> {
     } catch (err) {
       logger.error({
         msg: 'Failed to deliver bus message',
-        error: err instanceof Error ? err.message : String(err),
+        error: errorText(err),
       });
     }
   });

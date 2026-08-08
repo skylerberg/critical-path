@@ -2,12 +2,14 @@ import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
+import { dedupe } from '../utils/arrays';
 import { AppError } from '../utils/errors';
 import { recordBulkAssignments } from '../services/assignmentDigest';
-import { assertProjectWrite, projectAccessIdsAmong } from '../services/authorization';
+import { assertProjectWrite } from '../services/authorization';
 import { assertColumnInProject, lockColumnTail } from '../services/boardColumns';
 import { getArchivedTasksByIds } from '../services/boardPayload';
 import { syncCrossProjectBlockers } from '../services/crossProjectBlockers';
+import { assertAssigneesHaveProjectAccess, assertLabelsInProject } from '../services/projectScope';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordAssigneeChanges, recordTaskActivity } from '../services/taskActivity';
 import { fetchTaskRelations } from '../services/taskRelations';
@@ -52,10 +54,6 @@ const SKIPPED_NOTE =
   '`skipped_task_ids` rather than failing the call, so one card changing underneath the ' +
   'caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 ' +
   'and 100 ids; anything else is a 422.';
-
-function dedupe(ids: readonly string[]): string[] {
-  return [...new Set(ids)];
-}
 
 function changedTaskIds(delta: SetDelta, order: readonly string[]): string[] {
   const changed = new Set([...delta.added, ...delta.removed].map((pair) => pair.task_id));
@@ -243,17 +241,7 @@ router.post(
       throw new AppError(422, 'add_label_ids and remove_label_ids must not overlap');
     }
 
-    if (add.length > 0) {
-      const known = await db
-        .selectFrom('label')
-        .select('label.id')
-        .where('label.id', 'in', add)
-        .where('label.project_id', '=', project.id)
-        .execute();
-      if (known.length !== add.length) {
-        throw new AppError(422, 'label_ids must reference labels in the project');
-      }
-    }
+    await assertLabelsInProject(db, add, project.id);
 
     const { rows, skipped } = await loadBulkTargets(db, project.id, body.task_ids);
     if (rows.length === 0) {
@@ -343,15 +331,7 @@ router.post(
       throw new AppError(422, 'add_user_ids and remove_user_ids must not overlap');
     }
 
-    if (add.length > 0) {
-      const withAccess = await projectAccessIdsAmong(db, project, add);
-      if (withAccess.length !== add.length) {
-        throw new AppError(
-          422,
-          'assignee user ids must reference users with access to the project'
-        );
-      }
-    }
+    await assertAssigneesHaveProjectAccess(db, add, project);
 
     const { rows, skipped } = await loadBulkTargets(db, project.id, body.task_ids);
     if (rows.length === 0) {

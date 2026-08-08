@@ -4,6 +4,7 @@ import type { DB } from './types';
 import { env } from '../config/env';
 import fs from 'fs/promises';
 import { logger } from '../utils/logger';
+import { errorText } from '../utils/errors';
 
 let caCert: string | undefined;
 if (env.db.caCertPath) {
@@ -33,7 +34,7 @@ const pool = new Pool({
 pool.on('error', (err) => {
   logger.error({
     msg: 'pg pool error',
-    error: err instanceof Error ? err.message : String(err),
+    error: errorText(err),
     code: (err as NodeJS.ErrnoException).code,
   });
 });
