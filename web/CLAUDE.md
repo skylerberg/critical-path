@@ -19,6 +19,10 @@ for the backend's conventions.
 npm run check && npm run check:layout && npm run check:layout:real && npm run lint && npm run format:check && npm test && npm run build
 ```
 
+`npm run check` covers `src/` (tests included — they are colocated as
+`src/**/*.test.ts`), `scripts/**/*.ts` and `vite.config.ts`. Nothing about the
+test files is exempt from `strict`.
+
 ## Svelte 5 conventions
 
 - Runes only: `$state`, `$derived`, `$effect`, `$props()`, `$bindable()`. No legacy
