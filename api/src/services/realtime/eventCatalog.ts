@@ -1,9 +1,10 @@
-// Every realtime event the server publishes, each classified once. The three
-// facts that used to live in separate lists — that a type exists, whether it
-// reaches webhook registrations, and whether it raises the unseen-changes dot —
-// are columns of one table, so a new type cannot be added without deciding all
-// of them and cannot be misspelled at a publish site. README.md carries the
-// payload catalogue; this file carries the classification.
+// Every realtime event the server publishes, each classified once. The facts
+// that used to live in separate lists — that a type exists, whether it reaches
+// webhook registrations, whether it raises the unseen-changes dot, and whether
+// its payload names who made the change — are columns of one table, so a new
+// type cannot be added without deciding all of them and cannot be misspelled at
+// a publish site. README.md carries the payload catalogue; this file carries the
+// classification.
 
 // No project id, so neither of the project-scoped columns applies: publishing
 // one returns before the dot and the webhook queue are ever consulted.
@@ -40,69 +41,169 @@ type ProjectEvent = {
   // new type is genuinely ambiguous, pick true: a dot too many costs one
   // glance, a dot missing costs the feature.
   raisesUnseenDot: boolean;
+  // The payload carries actor_user_id — who made the change, or null when a
+  // schedule or a background job did. publishAfterCommit merges it in from the
+  // session, so this row is what decides whether it is there; the two publishers
+  // that bypass publishAfterCommit name someone by hand. True for the board
+  // mutations a client has to attribute, so it can skip narrating a change back
+  // at whoever made it. False where nobody would ask who: a project-list row
+  // moving in one person's own sidebar, an invitation set, or a schedule whose
+  // failure absorber has no actor to give.
+  carriesActor: boolean;
 };
 
 const EVENTS = {
-  project_created: { scope: 'project', webhook: false, raisesUnseenDot: false },
-  project_updated: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  project_deleted: { scope: 'project', webhook: false, raisesUnseenDot: false },
-  project_position_updated: { scope: 'project', webhook: false, raisesUnseenDot: false },
-  project_seen: { scope: 'project', webhook: false, raisesUnseenDot: false },
+  project_created: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: false,
+    carriesActor: false,
+  },
+  project_updated: { scope: 'project', webhook: true, raisesUnseenDot: false, carriesActor: false },
+  project_deleted: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: false,
+    carriesActor: false,
+  },
+  project_position_updated: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: false,
+    carriesActor: false,
+  },
+  project_seen: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },
   // Emitted by publishAfterCommit itself to carry the dot, so dotting on it
-  // would be circular.
-  project_changed: { scope: 'project', webhook: false, raisesUnseenDot: false },
+  // would be circular. Its actor is the only one that predates this column and
+  // the only one its publishers pass by hand, both of them calling publish
+  // directly rather than reaching the merge in publishAfterCommit.
+  project_changed: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: true },
   // Not board content, and the dot would be one every viewer sees for a change
   // none of them may read.
-  invitations_changed: { scope: 'project', webhook: false, raisesUnseenDot: false },
+  invitations_changed: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: false,
+    carriesActor: false,
+  },
 
-  column_created: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  column_updated: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  column_deleted: { scope: 'project', webhook: true, raisesUnseenDot: true },
-  column_tasks_moved: { scope: 'project', webhook: false, raisesUnseenDot: true },
-  column_tasks_reordered: { scope: 'project', webhook: false, raisesUnseenDot: false },
-  column_tasks_archived: { scope: 'project', webhook: false, raisesUnseenDot: false },
+  column_created: { scope: 'project', webhook: true, raisesUnseenDot: false, carriesActor: true },
+  column_updated: { scope: 'project', webhook: true, raisesUnseenDot: false, carriesActor: true },
+  column_deleted: { scope: 'project', webhook: true, raisesUnseenDot: true, carriesActor: true },
+  column_tasks_moved: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: true,
+    carriesActor: true,
+  },
+  column_tasks_reordered: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: false,
+    carriesActor: true,
+  },
+  column_tasks_archived: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: false,
+    carriesActor: true,
+  },
 
-  task_created: { scope: 'project', webhook: true, raisesUnseenDot: true },
-  task_updated: { scope: 'project', webhook: true, raisesUnseenDot: true },
-  task_restored: { scope: 'project', webhook: true, raisesUnseenDot: true },
-  task_relations_set: { scope: 'project', webhook: true, raisesUnseenDot: true },
+  task_created: { scope: 'project', webhook: true, raisesUnseenDot: true, carriesActor: true },
+  task_updated: { scope: 'project', webhook: true, raisesUnseenDot: true, carriesActor: true },
+  task_restored: { scope: 'project', webhook: true, raisesUnseenDot: true, carriesActor: true },
+  task_relations_set: {
+    scope: 'project',
+    webhook: true,
+    raisesUnseenDot: true,
+    carriesActor: true,
+  },
   // Both take their card off the board, and its activity goes with it, so a
   // reader would find nothing to notice.
-  task_deleted: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  task_archived: { scope: 'project', webhook: true, raisesUnseenDot: false },
+  task_deleted: { scope: 'project', webhook: true, raisesUnseenDot: false, carriesActor: true },
+  task_archived: { scope: 'project', webhook: true, raisesUnseenDot: false, carriesActor: true },
 
   // Reaches a project the actor need not belong to, carrying a recount caused by
   // a card they cannot see. No webhook, because nothing in this project changed
   // that a registration could describe; no dot, because the change writes no
   // activity or comment row here, so a board read reports nothing and the dot
-  // could never be cleared.
-  cross_project_blockers_changed: { scope: 'project', webhook: false, raisesUnseenDot: false },
+  // could never be cleared. No actor either, for the same reason the dot is
+  // absent: naming them would hand every recipient the id of someone they may
+  // share no project with.
+  cross_project_blockers_changed: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: false,
+    carriesActor: false,
+  },
 
-  bulk_tasks_moved: { scope: 'project', webhook: false, raisesUnseenDot: true },
-  bulk_tasks_relations_set: { scope: 'project', webhook: false, raisesUnseenDot: true },
-  bulk_tasks_archived: { scope: 'project', webhook: false, raisesUnseenDot: false },
+  bulk_tasks_moved: { scope: 'project', webhook: false, raisesUnseenDot: true, carriesActor: true },
+  bulk_tasks_relations_set: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: true,
+    carriesActor: true,
+  },
+  bulk_tasks_archived: {
+    scope: 'project',
+    webhook: false,
+    raisesUnseenDot: false,
+    carriesActor: true,
+  },
 
-  label_created: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  label_updated: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  label_deleted: { scope: 'project', webhook: true, raisesUnseenDot: true },
+  label_created: { scope: 'project', webhook: true, raisesUnseenDot: false, carriesActor: true },
+  label_updated: { scope: 'project', webhook: true, raisesUnseenDot: false, carriesActor: true },
+  label_deleted: { scope: 'project', webhook: true, raisesUnseenDot: true, carriesActor: true },
 
-  attachment_created: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  attachment_updated: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  attachment_deleted: { scope: 'project', webhook: true, raisesUnseenDot: false },
+  attachment_created: {
+    scope: 'project',
+    webhook: true,
+    raisesUnseenDot: false,
+    carriesActor: true,
+  },
+  attachment_updated: {
+    scope: 'project',
+    webhook: true,
+    raisesUnseenDot: false,
+    carriesActor: true,
+  },
+  attachment_deleted: {
+    scope: 'project',
+    webhook: true,
+    raisesUnseenDot: false,
+    carriesActor: true,
+  },
 
-  comment_created: { scope: 'project', webhook: true, raisesUnseenDot: true },
-  comment_updated: { scope: 'project', webhook: true, raisesUnseenDot: false },
-  comment_deleted: { scope: 'project', webhook: true, raisesUnseenDot: false },
+  comment_created: { scope: 'project', webhook: true, raisesUnseenDot: true, carriesActor: true },
+  comment_updated: { scope: 'project', webhook: true, raisesUnseenDot: false, carriesActor: true },
+  comment_deleted: { scope: 'project', webhook: true, raisesUnseenDot: false, carriesActor: true },
 
-  checklist_item_created: { scope: 'project', webhook: true, raisesUnseenDot: true },
-  checklist_item_updated: { scope: 'project', webhook: true, raisesUnseenDot: true },
-  checklist_item_deleted: { scope: 'project', webhook: true, raisesUnseenDot: true },
+  checklist_item_created: {
+    scope: 'project',
+    webhook: true,
+    raisesUnseenDot: true,
+    carriesActor: true,
+  },
+  checklist_item_updated: {
+    scope: 'project',
+    webhook: true,
+    raisesUnseenDot: true,
+    carriesActor: true,
+  },
+  checklist_item_deleted: {
+    scope: 'project',
+    webhook: true,
+    raisesUnseenDot: true,
+    carriesActor: true,
+  },
 
   // A schedule writes no activity row, so a board read reports nothing changed
-  // and the dot would be one no amount of looking at the board clears.
-  series_created: { scope: 'project', webhook: false, raisesUnseenDot: false },
-  series_updated: { scope: 'project', webhook: false, raisesUnseenDot: false },
-  series_deleted: { scope: 'project', webhook: false, raisesUnseenDot: false },
+  // and the dot would be one no amount of looking at the board clears. No actor
+  // either: the sweep publishes these from a cron job, and the one that reports
+  // a failed materialisation has nobody to name at all.
+  series_created: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },
+  series_updated: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },
+  series_deleted: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },
 
   sessions_revoked: { scope: 'account', delivery: 'intercepted' },
   user_updated: { scope: 'account', delivery: 'projectSharers' },
@@ -134,6 +235,10 @@ export type WebhookEventType = {
   [K in ProjectEventType]: (typeof EVENTS)[K] extends { webhook: true } ? K : never;
 }[ProjectEventType];
 
+export type ActorEventType = {
+  [K in ProjectEventType]: (typeof EVENTS)[K] extends { carriesActor: true } ? K : never;
+}[ProjectEventType];
+
 export const REALTIME_EVENT_TYPES = Object.keys(EVENTS) as RealtimeEventType[];
 
 // Takes a string rather than the union: the lookups tolerate a type outside it
@@ -147,6 +252,14 @@ export function isWebhookEvent(type: string): type is WebhookEventType {
 export const WEBHOOK_EVENT_TYPES: ReadonlySet<WebhookEventType> = new Set(
   REALTIME_EVENT_TYPES.filter(isWebhookEvent)
 );
+
+// Same string-taking shape and the same reason as isWebhookEvent: this one is
+// read from inside publishAfterCommit, where a throw would roll back the
+// mutation being published.
+export function carriesActor(type: string): type is ActorEventType {
+  const event: (typeof EVENTS)[RealtimeEventType] | undefined = EVENTS[type as RealtimeEventType];
+  return event?.scope === 'project' && event.carriesActor;
+}
 
 // Null for a type outside the catalogue, so one call answers both "is this a
 // real event type" and "which scope does it belong to" — which is what

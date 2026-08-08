@@ -9,7 +9,11 @@ import {
 } from '../../src/services/realtime/bus';
 import type { BusEntry } from '../../src/services/realtime/bus';
 
-const entry: BusEntry = { type: 'task_deleted', project_id: 'p1', data: { id: 't1' } };
+const entry: BusEntry = {
+  type: 'task_deleted',
+  project_id: 'p1',
+  data: { id: 't1', actor_user_id: 'u1' },
+};
 
 describe('realtime bus remote publishing', () => {
   beforeEach(() => {

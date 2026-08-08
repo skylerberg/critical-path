@@ -3,7 +3,7 @@ import { logger } from '../../utils/logger';
 // Imported from the modules directly, not the barrel, so the sender and its
 // node:http / node:dns dependencies stay out of every module that touches the bus.
 import { enqueueDeliveries } from '../webhooks/queue';
-import { eventScope, raisesUnseenDot } from './eventCatalog';
+import { carriesActor, eventScope, raisesUnseenDot } from './eventCatalog';
 import type {
   DispatchedEventType,
   NamedRecipientEventType,
@@ -11,7 +11,7 @@ import type {
   RealtimeEventType,
 } from './eventCatalog';
 import { isWebhookEnvelope } from './payloads';
-import type { RealtimeEnvelope, RealtimePayloads } from './payloads';
+import type { CallerPayload, RealtimeEnvelope } from './payloads';
 import { errorText } from '../../utils/errors';
 
 export interface PublishOptions {
@@ -128,34 +128,47 @@ export function publishAfterCommit<T extends NamedRecipientEventType>(
   c: Pick<PublicContext, 'get'>,
   type: T,
   projectId: null,
-  data: RealtimePayloads[T],
+  data: CallerPayload<T>,
   opts: NamedRecipientOptions
 ): void;
 export function publishAfterCommit<T extends DispatchedEventType>(
   c: Pick<PublicContext, 'get'>,
   type: T,
   projectId: null,
-  data: RealtimePayloads[T]
+  data: CallerPayload<T>
 ): void;
 export function publishAfterCommit<T extends ProjectEventType>(
   c: Pick<PublicContext, 'get'>,
   type: T,
   projectId: string,
-  data: RealtimePayloads[T],
+  data: CallerPayload<T>,
   opts?: PublishOptions
 ): void;
 export function publishAfterCommit(
   c: Pick<PublicContext, 'get'>,
   type: RealtimeEventType,
   projectId: string | null,
-  data: RealtimePayloads[RealtimeEventType],
+  data: CallerPayload<RealtimeEventType>,
   opts?: PublishOptions
 ): void {
+  // Null when the caller has no session — a signup claiming its invitations is
+  // the one such path — which dots the project for everyone rather than failing.
+  // No type published without a session raises a dot today, so this is the
+  // fallback that keeps that changing from being a 500.
+  const actorUserId = c.get('user')?.id ?? null;
+
   // The overloads are what check that type, projectId and data agree. An
   // implementation signature necessarily sees the three widened independently,
   // and no single non-generic type can restate their pairing, so this is the one
   // place the envelope is asserted rather than inferred.
-  const entry = { type, project_id: projectId, data, ...opts } as BusEntry;
+  const entry = {
+    type,
+    project_id: projectId,
+    // Merged here rather than at forty publish sites: the catalogue decides
+    // which types name an actor, so a caller can neither forget nor lie.
+    data: carriesActor(type) ? { ...data, actor_user_id: actorUserId } : data,
+    ...opts,
+  } as BusEntry;
 
   const hooks = c.get('postCommitHooks');
   // A separate hook from the webhook flush below: the runner catches each hook
@@ -174,12 +187,6 @@ export function publishAfterCommit(
       changed.add(projectId);
       // The actor rides along rather than being withheld the event: their other
       // devices still have to update, and only the dot has to ignore it.
-      //
-      // Null when the caller has no session — a signup claiming its invitations
-      // is the one such path — which dots the project for everyone rather than
-      // failing. No type published without a session raises a dot today, so this
-      // is the fallback that keeps that changing from being a 500.
-      const actorUserId = c.get('user')?.id ?? null;
       hooks.push(async () => {
         publish({
           type: PROJECT_CHANGED,

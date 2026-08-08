@@ -102,10 +102,11 @@ web app and the CLI generate from it.
     snapshot `recipientUserIds` inside the transaction; events about live rows
     rely on the delivery layer's per-event access re-check. Every fact about a
     type — that it exists, whether it reaches webhook registrations, whether it
-    raises the unseen-changes dot, and whether it carries a project — is one row
-    of the table in `src/services/realtime/eventCatalog.ts`. Adding a type there
-    is what makes it publishable, so the classification cannot be left
-    half-done, and a unit test holds the README table to the same set.
+    raises the unseen-changes dot, whether its payload names the acting user
+    (`carriesActor`), and whether it carries a project — is one row of the table
+    in `src/services/realtime/eventCatalog.ts`. Adding a type there is what makes
+    it publishable, so the classification cannot be left half-done, and a unit
+    test holds the README table to the same set.
 14. A type's **payload shape** is one row of a second table,
     `src/services/realtime/payloads.ts`, and the two tables are pinned to each
     other: a type in the catalogue with no payload row does not compile.
@@ -116,6 +117,12 @@ web app and the CLI generate from it.
     restating its fields, and never re-export this module from
     `src/schemas/index.ts`: the OpenAPI schema-name registry throws on two
     schemas with identical JSON Schema, which the bare `{ id }` payloads are.
+    `actor_user_id` is merged in from the catalogue rather than restated on the
+    twenty-eight rows that carry it, and it is required, which is what forces the
+    two publishers outside a request — the series sweep and the unfurl job — to
+    name someone. `publishAfterCommit` therefore takes `CallerPayload<T>`, the
+    payload minus the field it fills in from the session; `publish` still takes
+    the whole thing.
     After changing a payload run `npm run realtime:dump` and
     `npm run --prefix cli generate-realtime`, and commit the regenerated
     `cli/src/api/realtime.generated.ts`. The dump itself is gitignored like

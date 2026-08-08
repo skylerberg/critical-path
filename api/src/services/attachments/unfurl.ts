@@ -193,7 +193,9 @@ export async function runAttachmentUnfurl(attachmentId: string): Promise<void> {
   const fresh = await fetchAttachmentRow(db, attachmentId);
   if (!fresh) return;
 
-  const data = toAttachmentResponse(fresh);
+  // Nobody to name: a background job has no session, and the attachment row
+  // records no uploader to fall back to.
+  const data = { ...toAttachmentResponse(fresh), actor_user_id: null };
   // No request context outside a route, so publishAfterCommit is unavailable
   // and the webhook fan-out it normally performs has to be done by hand.
   publish({ type: 'attachment_updated', project_id: row.project_id, data });
