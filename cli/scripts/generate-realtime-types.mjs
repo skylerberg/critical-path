@@ -5,6 +5,7 @@
 // the envelope union rather than something a path reaches.
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { redump } from './redump.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, relative, resolve } from 'node:path';
 import openapiTS, { astToString } from 'openapi-typescript';
@@ -19,6 +20,9 @@ const HEADER = `// AUTO-GENERATED FROM ${source}
 // DO NOT EDIT. Regenerate with: npm run generate-realtime
 `;
 
+if (process.env.REALTIME_DOC_PATH === undefined && redump('realtime:dump')) {
+  console.log('Re-dumped realtime-events.json');
+}
 const doc = JSON.parse(await readFile(DOC_PATH, 'utf8'));
 await mkdir(dirname(OUTPUT_PATH), { recursive: true });
 await writeFile(OUTPUT_PATH, HEADER + '\n' + astToString(await openapiTS(doc)), 'utf8');
