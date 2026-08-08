@@ -108,8 +108,9 @@ export async function cleanupProjects(createdProjectIds: string[]): Promise<void
   await db.deleteFrom('project').where('id', 'in', createdProjectIds).execute();
 }
 
-// A leftover row of this kind breaks the job runner's exact-contents backlog
-// assertions, which run against the same shared database.
+// Used inside a test to prove a later request enqueued nothing, and in afterAll to
+// leave the shared table tidy. Tidiness only: the job runner's tests empty the
+// table themselves rather than trusting other files to.
 export async function clearUnfurlJobs(): Promise<void> {
   await db.deleteFrom('job').where('kind', '=', 'attachment_unfurl').execute();
 }
