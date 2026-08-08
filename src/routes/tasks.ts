@@ -558,7 +558,10 @@ router.patch(
       'YYYY-MM-DD, or null to clear it; omit it to leave it alone), or move the task by ' +
       'sending column_id and position together. The new column must belong to the task’s ' +
       'project and due_date must be a real calendar day; violations return 422 with a plain ' +
-      'error body. updated_at is bumped only when the patch changes title or description — a ' +
+      'error body. A sort_key already taken in the destination — including by an archived card ' +
+      'the caller cannot see — ranks the task immediately after the card holding it rather ' +
+      'than failing, so the echoed sort_key is not always the one that was sent. ' +
+      'updated_at is bumped only when the patch changes title or description — a ' +
       'pure move or due-date change leaves it untouched. ' +
       'expected_updated_at is an optimistic-concurrency precondition on the task’s content: ' +
       'it is honored only when the patch includes title or description, a patch that only ' +
@@ -607,7 +610,10 @@ router.patch(
     // reading the pre-update row would pass both preconditions and log two
     // transitions out of a value only one of them saw.
     const before =
-      guardsContent || body.column_id !== undefined || 'due_date' in body
+      guardsContent ||
+      body.column_id !== undefined ||
+      body.sort_key !== undefined ||
+      'due_date' in body
         ? await db
             .selectFrom('task')
             .innerJoin('board_column', 'board_column.id', 'task.column_id')
@@ -648,19 +654,25 @@ router.patch(
 
     // A key only ranks a card against its own column's, so a move that does not
     // carry one has to be re-ranked into the destination rather than keeping a
-    // key that means nothing there -- and that the column may already hold.
-    const movedWithoutKey =
-      body.sort_key === undefined && body.column_id !== undefined && columnChanged;
-    const relocatedKey = movedWithoutKey
-      ? (await appendKeys(db, 'task', body.column_id as string))[0]!
-      : undefined;
+    // key that means nothing there -- and that the column may already hold. A
+    // key the client did send ranks it against the live cards it can see, which
+    // is not the whole scope the unique index covers: the archived cards in the
+    // destination are still holding theirs.
+    const destinationColumn = body.column_id ?? before?.column_id;
+    const nextKey =
+      destinationColumn === undefined
+        ? undefined
+        : body.sort_key !== undefined
+          ? await resolveSortKey(db, 'task', destinationColumn, body.sort_key)
+          : columnChanged
+            ? (await appendKeys(db, 'task', destinationColumn))[0]!
+            : undefined;
 
     const changes = {
       ...(body.title !== undefined ? { title: body.title } : {}),
       ...('description' in body ? { description: nextDescription } : {}),
       ...(body.column_id !== undefined ? { column_id: body.column_id } : {}),
-      ...(body.sort_key !== undefined ? { sort_key: body.sort_key } : {}),
-      ...(relocatedKey !== undefined ? { sort_key: relocatedKey } : {}),
+      ...(nextKey !== undefined ? { sort_key: nextKey } : {}),
       ...('due_date' in body ? { due_date: body.due_date ?? null } : {}),
       ...(guardsContent ? { updated_at: sql<Date>`now()` } : {}),
       ...(columnChanged ? { column_since: sql<Date>`now()` } : {}),
@@ -669,7 +681,16 @@ router.patch(
     // Every field is optional and an empty body validates, so without this a
     // `{}` patch would compile to an UPDATE with an empty SET list.
     if (Object.keys(changes).length > 0) {
-      await db.updateTable('task').set(changes).where('task.id', '=', id).execute();
+      try {
+        await db.updateTable('task').set(changes).where('task.id', '=', id).execute();
+      } catch (err) {
+        // Resolving the key reads the column, and nothing holds it against a
+        // card landing on the resolved slot in between.
+        if (isUniqueViolation(err)) {
+          throw new AppError(409, 'That position was taken while the move was in flight');
+        }
+        throw err;
+      }
     }
 
     if (before !== null) {
