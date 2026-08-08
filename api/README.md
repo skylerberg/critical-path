@@ -29,7 +29,7 @@ STORAGE_DISK_ROOT=./data/test-uploads
 ENVIRONMENT=test
 ```
 
-`DB_DATABASE` here is the *base* name: each checkout derives and creates its
+`DB_DATABASE` here is the _base_ name: each checkout derives and creates its
 own `game_dev_test_<checkout>_<hash>` from it, so parallel worktrees never
 share a test database. See [Testing](#testing).
 
@@ -393,10 +393,10 @@ duplicated via `POST /api/projects` with `source_project_id`.
 ### Card checklists
 
 Each task carries one flat, ordered checklist. `POST /api/checklist-items`
-(`{ id, task_id, text, position, checked? }`) adds an item,
-`PATCH /api/checklist-items/:id` (`{ text?, checked?, position? }`) ticks,
+(`{ id, task_id, text, sort_key?, checked? }`) adds an item,
+`PATCH /api/checklist-items/:id` (`{ text?, checked?, sort_key? }`) ticks,
 renames or repositions one, `DELETE /api/checklist-items/:id` removes it, and
-`POST /api/checklist-items/:id/promote` (`{ id, position }`) turns one into a
+`POST /api/checklist-items/:id/promote` (`{ id, sort_key? }`) turns one into a
 card. There is no cap on how many items a task may carry, and no per-item
 assignee, due date, label or dependency edge — the restraint is the feature; an
 item that needs any of those is a card, which is what promote is for.
@@ -709,7 +709,7 @@ content type — structurally unable to reach a document's bytes: it selects onl
 those two columns, and a file row has both null. The type is CHECK-restricted to
 the four formats magic-byte sniffing produces, so no repair query can leave a row
 it would serve as something renderable. The route also sends
-`X-Content-Type-Options: nosniff`: a file can be a valid GIF *and* valid HTML at
+`X-Content-Type-Options: nosniff`: a file can be a valid GIF _and_ valid HTML at
 once, and the header is what stops a browser looking past the declared type and
 rendering the other half as a document on our own origin.
 
@@ -775,7 +775,7 @@ vocabulary stays current.
 cards; leaving files out would have meant an image on a public card was readable
 by anyone while a PDF beside it was not — one list, two rules.
 
-That makes `GET /api/attachments/:id/download` the first route with *optional*
+That makes `GET /api/attachments/:id/download` the first route with _optional_
 auth rather than none or all: it reads a token when one is offered, serves a
 stranger only when the board is published, and still answers 404 to an account
 with no membership on one that is not. A missing token on a private board is a
@@ -874,7 +874,7 @@ they were archived from still exists to restore them into.
 `POST /api/columns/:id/archive-tasks` archives every live task in the column
 in one statement with one `archived_at`, and answers with them in the
 `GET /api/projects/:id/archived-tasks` shape and order — the whole batch ties
-on that one stamp, and the tie breaks on board position, so the archive lists
+on that one stamp, and the tie breaks on sort key, so the archive lists
 the batch the same way the response did. Already archived tasks keep their
 original stamp and are absent from the response, so a repeat call is a no-op
 200 with an empty `tasks` array. The archived cards stay in the column, so
@@ -888,9 +888,9 @@ neither bumps `updated_at`.
 
 ### Duplicating a card or a column
 
-`POST /api/tasks/:id/duplicate` (`{ id, position }`) copies one card into the
+`POST /api/tasks/:id/duplicate` (`{ id, sort_key? }`) copies one card into the
 column it is already in, and `POST /api/columns/:id/duplicate`
-(`{ id, position }`) copies a column plus every live card in it into the same
+(`{ id, sort_key? }`) copies a column plus every live card in it into the same
 project. Both take a client-supplied id, so a retry cannot double-create, and
 both answer 409 on an id already in use. There is no dialog of what to carry
 over: a copy takes the title, description, due date, labels, assignees,
@@ -898,9 +898,10 @@ checklist items (text and ticked state alike) and images, each image copied to
 its own stored object so deleting one leaves the other intact, and the
 description's `/api/images/:id` srcs rewritten to point at the copies. A copied
 image keeps its cover flag, so a card with a cover duplicates into a card with
-the same cover. A column copy keeps each card's
-position, so the cards land in the same relative order, and keeps the source's
-name and done flag.
+the same cover. A column copy keeps each card's sort key — they are unique per
+column and the copy's column is new — so the cards land in the same relative
+order, and keeps the source's name and done flag. A card duplicated into the
+column it came from cannot keep its key, and is ranked after it instead.
 
 Assignees are copied, deliberately unlike a project copy, which drops them
 because it also drops members: duplicating inside a project changes nothing
@@ -933,7 +934,7 @@ registration.
 
 `POST /api/tasks/batch` (`{ project_id, column_id, tasks }`) creates 1 to 100
 tasks in one column of one project, for pasting a list. Every item carries an
-id the client generates, plus a title and a position; descriptions, due dates,
+id the client generates, plus a title and an optional sort key; descriptions, due dates,
 labels and assignees are set afterwards through the single-task endpoints. The
 response is `{ tasks }` in request order, in the board-task shape.
 
@@ -984,15 +985,15 @@ the user selected, and reporting a skip they cannot act on helps nobody.
 
 Move appends after the target column's existing cards in the order the ids were
 sent, so the client decides where the selection lands. The read of the target's
-maximum position spans archived rows, so a relocated card never collides with
-one. A card already in the target is re-stamped, so the selection lands
+greatest sort key spans archived rows, so a relocated card never collides with
+one — an archived card holds its slot against the unique index. A card already in the target is re-stamped, so the selection lands
 contiguous, but keeps its `column_since` and writes no `column_changed` entry;
 every other card logs a move naming **its own** source column, which is why the
 column-wide relocate cannot be reused here. A `column_id` outside the project is
 a 422 even when every task id was skipped.
 
 Archive shares one `archived_at` across the batch, exactly like the column-wide
-archive, so the archive view's tie-break on position and then id interleaves the
+archive, so the archive view's tie-break on sort key and then id interleaves the
 columns of a selection that spans several. Already-archived ids keep their
 original stamp, so a repeat call is a no-op 200.
 
@@ -1032,7 +1033,7 @@ dependent that is unassigned, or assigned only to the caller, does not count,
 because the bucket means "someone else is waiting on you". Everything else is
 `ready`. Tasks come back `blocking`, then `ready`, then `blocked`, and inside
 a bucket by how many people are waiting (`waiting_user_ids.length`,
-descending), then project name, then board column and position.
+descending), then project name, then board column and sort key.
 
 Each task carries its unfinished blockers as `blocked_by` and its unfinished
 dependents as `blocking`, both with their assignees, plus `waiting_user_ids` —
@@ -1138,15 +1139,14 @@ index. Weighting puts title hits above description hits. Results are capped at
 ### Per-user project ordering
 
 Each user can order their own project list without affecting anyone else's.
-`PUT /api/projects/:id/position` (`{ position: number }`, float) upserts the
-caller's position for that project and returns 204; non-accessors get 404.
-`GET /api/projects` returns each item's `position` (`null` when the caller
-never set one) and orders by position ascending with nulls last, then
-`created_at`, then `id` — so never-positioned projects keep creation order at
-the end of the list. Position rows are deleted by cascade when the project is
-deleted or the user's account is removed; leaving a project keeps the row,
-which is harmless (the project no longer appears in the list) and restores
-the old position if the user is re-added.
+`PUT /api/projects/:id/position` (`{ sort_key }`) upserts the caller's rank for
+that project and returns 204; non-accessors get 404. `GET /api/projects`
+returns each item's `sort_key` (`null` when the caller never set one) and orders
+by it ascending with nulls last, then `created_at`, then `id` — so never-ranked
+projects keep creation order at the end of the list. Rank rows are deleted by
+cascade when the project is deleted or the user's account is removed; leaving a
+project keeps the row, which is harmless (the project no longer appears in the
+list) and restores the old rank if the user is re-added.
 
 ### What changed since you last looked
 
@@ -1196,41 +1196,41 @@ every other token's sockets connected.
 Every mutation emits an event after its transaction commits. The envelope is
 `{ type, project_id, data }`:
 
-| type                                  | data                                                                                               |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `task_created` / `task_updated`       | board task shape                                                                                   |
-| `task_deleted`                        | `{ id }`                                                                                           |
-| `task_archived`                       | board task shape plus `archived_at`                                                                |
-| `task_restored`                       | board task shape                                                                                   |
-| `task_relations_set`                  | `{ task_id, label_ids, assignee_ids, blocker_ids }`                                                |
-| `column_created` / `column_updated`   | column response shape                                                                              |
-| `column_deleted`                      | `{ id, moved_tasks }`                                                                              |
-| `column_tasks_moved`                  | `{ column_id, target_column_id, moved_tasks }`                                                     |
-| `column_tasks_archived`               | `{ column_id, tasks }`                                                                             |
-| `column_tasks_reordered`              | `{ column_id, moved_tasks }`                                                                       |
-| `bulk_tasks_moved`                    | `{ moved_tasks }`                                                                                  |
-| `bulk_tasks_archived`                 | `{ tasks }`                                                                                        |
-| `bulk_tasks_relations_set`            | `{ tasks }`, each `{ task_id, label_ids, assignee_ids, blocker_ids }`                              |
-| `label_created` / `label_updated`     | label row                                                                                          |
-| `label_deleted`                       | `{ id }`                                                                                           |
-| `attachment_created`                  | attachment response plus `{ attachment_count }`                                                    |
-| `attachment_updated`                  | attachment response shape                                                                          |
-| `attachment_deleted`                  | `{ id, task_id, attachment_count, cover_image_url }`                                                                |
-| `comment_created`                     | comment row plus `{ comment_count }`                                                               |
-| `comment_updated`                     | comment row                                                                                        |
-| `comment_deleted`                     | `{ id, task_id, comment_count }`                                                                   |
-| `checklist_item_created` / `checklist_item_updated` | checklist item row plus both counts                                          |
-| `checklist_item_deleted`              | `{ id, task_id, checklist_item_count, checklist_done_count }`                                      |
-| `series_created` / `series_updated`   | recurring series shape                                                                             |
-| `series_deleted`                      | `{ id }`                                                                                           |
-| `project_created` / `project_updated` | projects-list item (with `member_ids`, `members` and task counts, without the per-user `position`) |
-| `project_deleted`                     | `{ id }`                                                                                           |
-| `project_position_updated`            | `{ id, position }`                                                                                 |
-| `project_seen`                        | `{ id }`                                                                                           |
-| `project_changed`                     | `{ id, actor_user_id }`                                                                            |
-| `invitations_changed`                 | `{ project_id }`                                                                                   |
-| `user_updated`                        | public user `{ id, name, avatar_url }`                                                             |
-| `sessions_revoked`                    | `{ user_id }`, optionally plus `personal_access_token_id`, `session_id` or `except_session_id`      |
+| type                                                | data                                                                                               |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `task_created` / `task_updated`                     | board task shape                                                                                   |
+| `task_deleted`                                      | `{ id }`                                                                                           |
+| `task_archived`                                     | board task shape plus `archived_at`                                                                |
+| `task_restored`                                     | board task shape                                                                                   |
+| `task_relations_set`                                | `{ task_id, label_ids, assignee_ids, blocker_ids }`                                                |
+| `column_created` / `column_updated`                 | column response shape                                                                              |
+| `column_deleted`                                    | `{ id, moved_tasks }`                                                                              |
+| `column_tasks_moved`                                | `{ column_id, target_column_id, moved_tasks }`                                                     |
+| `column_tasks_archived`                             | `{ column_id, tasks }`                                                                             |
+| `column_tasks_reordered`                            | `{ column_id, moved_tasks }`                                                                       |
+| `bulk_tasks_moved`                                  | `{ moved_tasks }`                                                                                  |
+| `bulk_tasks_archived`                               | `{ tasks }`                                                                                        |
+| `bulk_tasks_relations_set`                          | `{ tasks }`, each `{ task_id, label_ids, assignee_ids, blocker_ids }`                              |
+| `label_created` / `label_updated`                   | label row                                                                                          |
+| `label_deleted`                                     | `{ id }`                                                                                           |
+| `attachment_created`                                | attachment response plus `{ attachment_count }`                                                    |
+| `attachment_updated`                                | attachment response shape                                                                          |
+| `attachment_deleted`                                | `{ id, task_id, attachment_count, cover_image_url }`                                               |
+| `comment_created`                                   | comment row plus `{ comment_count }`                                                               |
+| `comment_updated`                                   | comment row                                                                                        |
+| `comment_deleted`                                   | `{ id, task_id, comment_count }`                                                                   |
+| `checklist_item_created` / `checklist_item_updated` | checklist item row plus both counts                                                                |
+| `checklist_item_deleted`                            | `{ id, task_id, checklist_item_count, checklist_done_count }`                                      |
+| `series_created` / `series_updated`                 | recurring series shape                                                                             |
+| `series_deleted`                                    | `{ id }`                                                                                           |
+| `project_created` / `project_updated`               | projects-list item (with `member_ids`, `members` and task counts, without the per-user `sort_key`) |
+| `project_deleted`                                   | `{ id }`                                                                                           |
+| `project_position_updated`                          | `{ id, sort_key }`                                                                                 |
+| `project_seen`                                      | `{ id }`                                                                                           |
+| `project_changed`                                   | `{ id, actor_user_id }`                                                                            |
+| `invitations_changed`                               | `{ project_id }`                                                                                   |
+| `user_updated`                                      | public user `{ id, name, avatar_url }`                                                             |
+| `sessions_revoked`                                  | `{ user_id }`, optionally plus `personal_access_token_id`, `session_id` or `except_session_id`     |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
 add/remove, by the cascade that strips assignees when a project member is
@@ -1285,7 +1285,7 @@ actor's _other_ devices still need it; only the dot ignores its own. Nothing
 per-reader may ever ride in it, `has_unseen_changes` least of all: one
 recipient's answer would be wrong for every other member of the same board.
 The same rule is why the `project_updated` broadcast carries the projects-list
-item without `position`, `last_seen_at` or `has_unseen_changes`.
+item without `sort_key`, `last_seen_at` or `has_unseen_changes`.
 `invitations_changed` is the one **editor-scoped** event: its subject is the
 board's pending invitations, which are made of email addresses and which only
 editors may read, so the delivery re-check is narrowed from "can access this
@@ -2051,19 +2051,19 @@ back:
   "project": { "id", "name", "description", "archived_at", "created_at",
                "created_by", "member_ids", "is_public", "color" },
   "users":   [ { "id", "name" } ],
-  "columns": [ { "id", "name", "position", "is_done" } ],
+  "columns": [ { "id", "name", "sort_key", "is_done" } ],
   "labels":  [ { "id", "name", "color" } ],
   "tasks": [ {
     "id", "column_id", "title",
     "description": "<tiptap doc or null>",
-    "position", "due_date", "created_at", "updated_at",
+    "sort_key", "due_date", "created_at", "updated_at",
     "archived_at": "<ISO timestamp if the card is archived, else null>",
     "cover_image_url": "<'/api/images/:id' for the cover image, or null>",
     "label_ids": [], "assignee_ids": [], "blocker_ids": [],
     "attachments": [ { "id", "kind", "is_cover", "path", "title", "description",
                        "filename", "content_type", "size_bytes", "url",
                        "unfurl_state", "created_at" } ],
-    "checklist_items": [ { "id", "text", "checked", "position" } ]
+    "checklist_items": [ { "id", "text", "checked", "sort_key" } ]
   } ]
 }
 ```
@@ -2093,10 +2093,10 @@ back:
   `column_id` against `columns[]`, and `blocker_ids` against `tasks[]`. A
   `blocker_ids` entry that resolves to nothing is a corrupt cross-project row
   and should be dropped, exactly as project copy drops it.
-- Ordering is the board's: columns and live tasks by position, labels and users
+- Ordering is the board's: columns and live tasks by sort key, labels and users
   by name. Archived cards come after every live one, newest archive first — they
-  kept the position they were archived at, which a live card may since have
-  taken.
+  keep the rank they were archived at, which is why an archived card's slot is
+  still reserved against the unique index.
 - `description` is stored verbatim, so its embedded `/api/images/<uuid>`
   sources resolve by id against the `kind: "image"` entries of the flattened
   `tasks[].attachments[]` — build the id map across the whole export, not per
@@ -2124,6 +2124,8 @@ id,title,column,is_done,position,due_date,labels,assignees,blocked_by,image_coun
 ```
 
 one row per task in the manifest's order, RFC 4180 quoting, CRLF line endings.
+`position` is the row's 1-based place in that order, not a stored value — the
+ordering itself lives in `sort_key`, which is meaningless to a spreadsheet.
 Labels, assignees (as names) and blockers (as titles) are joined with `"; "`,
 `archived_at` is empty for a live card, `checklist` renders each item as
 `[x] done` or `[ ] not done` joined the same way, and the description is
@@ -2187,7 +2189,7 @@ This exists because the opening `TRUNCATE` is fatal to a suite running beside
 it: two worktrees sharing one database meant one run wiped the other's rows
 mid-test, or blocked behind its transactions until the statement timeout. With
 the name derived from the path, two checkouts cannot collide even though they
-copy the same `.env.test`. Two suites started in the *same* checkout still
+copy the same `.env.test`. Two suites started in the _same_ checkout still
 share its database and will still disturb each other — run them from separate
 worktrees.
 
@@ -2467,7 +2469,11 @@ npm run openapi:dump && npm run --prefix cli generate-api
   set means gaining a project with the person, which runs through the
   invitation route above and its hourly budget. A limiter here would instead
   meter ordinary work: naming an assignee costs one such call.
-- Float `position` ordering with no automatic rebalancing.
+- Ordering is a fractional index, so inserting repeatedly against the same
+  neighbour lengthens each successive key by about a character per five inserts.
+  The 1024-character cap allows roughly 5000 insertions at a single spot before
+  a key is refused with a 422 — ordering stays correct, and re-stamping the
+  column with `POST /api/columns/:id/reorder` clears it.
 - Project roles are only `editor` and `viewer`. Every editor can rename,
   archive and publish the board and manage its member set — including demoting
   another editor, or themselves, to viewer; only the owner can transfer
