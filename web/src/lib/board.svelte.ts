@@ -26,7 +26,7 @@ import {
   restack,
   type Placement,
   type Ranked,
-} from './positions';
+} from './ranks';
 import { canEditProject } from './roles';
 import { router, splitPath } from './router.svelte';
 import { projects } from './projects.svelte';
@@ -49,7 +49,7 @@ export type TaskUpdateOutcome =
   | { status: 'error' };
 
 // Anchors on the visual neighbor above the drop, so it stays correct when the
-// display order is a filtered partition rather than pure position order.
+// display order is a filtered partition rather than pure rank order.
 export function placementAfterDrop(items: readonly Ranked[], movedId: string): Placement {
   const index = items.findIndex((item) => item.id === movedId);
   const others = items.filter((item) => item.id !== movedId);
@@ -171,10 +171,6 @@ function cycleFromApiError(error: unknown): { message: string; cycle: CycleTask[
 
 function chronological(a: TaskComment, b: TaskComment): number {
   return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
-}
-
-function byPosition(a: ChecklistItem, b: ChecklistItem): number {
-  return byRank(a, b);
 }
 
 class BoardStore {
@@ -426,7 +422,7 @@ class BoardStore {
       checklists[item.task_id]?.push({ ...item, created_at: '', updated_at: '' });
     }
     for (const items of Object.values(checklists)) {
-      items.sort(byPosition);
+      items.sort(byRank);
     }
     return {
       data: {
@@ -1962,7 +1958,7 @@ class BoardStore {
       this.#replaceChecklist(taskId, (items) =>
         items.some((item) => item.id === id)
           ? items.map((item) => (item.id === id ? created : item))
-          : [...items, created].sort(byPosition)
+          : [...items, created].sort(byRank)
       );
     } catch (error) {
       await this.#mutationFailed(error);
@@ -1999,7 +1995,7 @@ class BoardStore {
   // that must not refetch the log.
   async moveChecklistItem(taskId: string, itemId: string, placement: Placement): Promise<void> {
     this.#replaceChecklist(taskId, (items) =>
-      items.map((item) => (item.id === itemId ? { ...item, ...placement } : item)).sort(byPosition)
+      items.map((item) => (item.id === itemId ? { ...item, ...placement } : item)).sort(byRank)
     );
     await this.#patchChecklistItem(taskId, itemId, { ...placement }, false);
   }
@@ -2015,7 +2011,7 @@ class BoardStore {
         await api.PATCH('/api/checklist-items/{id}', { params: { path: { id: itemId } }, body })
       );
       this.#replaceChecklist(taskId, (items) =>
-        items.map((item) => (item.id === itemId ? updated : item)).sort(byPosition)
+        items.map((item) => (item.id === itemId ? updated : item)).sort(byRank)
       );
     } catch (error) {
       await this.#mutationFailed(error);
@@ -2217,7 +2213,7 @@ class BoardStore {
         break;
       }
       case 'column_tasks_reordered': {
-        // No column change, so only positions move; no activity to invalidate.
+        // No column change, so only ranks move; no activity to invalidate.
         const d = event.data;
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         this.tasks = this.tasks.map((t) => {
@@ -2365,7 +2361,7 @@ class BoardStore {
           (items.some((i) => i.id === item.id)
             ? items.map((i) => (i.id === item.id ? item : i))
             : [...items, item]
-          ).sort(byPosition)
+          ).sort(byRank)
         );
         // A reposition writes no activity entry, but the event cannot say which kind
         // of patch it was; the store's refresh collapses a burst into one fetch.

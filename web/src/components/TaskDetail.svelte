@@ -4,7 +4,7 @@
   import type { BoardTask } from '../lib/board-types';
   import { isCalendarDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
-  import { append } from '../lib/positions';
+  import { append } from '../lib/ranks';
   import { router } from '../lib/router.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';

@@ -16,8 +16,6 @@ const OFFLINE_NOTICE_DELAY_MS = 3000;
 // The server closes with 4401 when a token is rejected or its session revoked.
 const AUTH_CLOSE_CODE = 4401;
 
-// Typed against the generated union: a name the API no longer publishes, or one
-// misspelled, fails here instead of quietly matching no event forever.
 const BOARD_EVENTS = new Set<RealtimeEventType>([
   'task_created',
   'task_updated',
@@ -172,13 +170,9 @@ class RealtimeClient {
     if (message.type === 'pong') {
       return;
     }
-    // The one assertion the generated union rests on. A frame is untrusted and
-    // the generated output is types only, so the envelope is checked here and
-    // the payload is not walked — the same trade the server makes for an entry
-    // arriving over its Redis bus. A type this client does not know asserts to a
-    // member it is not, which costs nothing: every comparison in #dispatch fails
-    // and the frame is ignored, which is how a client older than the server
-    // already behaved.
+    // The one assertion the union rests on: a frame is untrusted and the
+    // generated output is types only. An event type this client does not know
+    // matches nothing in #dispatch and is ignored, as it was before.
     this.#dispatch({
       type: message.type,
       project_id: typeof message.project_id === 'string' ? message.project_id : null,
