@@ -40,6 +40,11 @@ describe('Password reset', () => {
     return user;
   }
 
+  async function sessionCount(token: string): Promise<number> {
+    const res = await ctx.request(token).get('/api/auth/sessions');
+    return (await res.json<{ sessions: unknown[] }>()).sessions.length;
+  }
+
   beforeAll(() => {
     process.env.EMAIL_DRIVER = 'memory';
   });
@@ -190,7 +195,7 @@ describe('Password reset', () => {
         const res = await ctx
           .request()
           .post('/api/auth/reset-password', { token, new_password: 'after-reset-123' });
-        expect(res.status).toBe(204);
+        expect(res.status).toBe(200);
       } finally {
         unsubscribe();
       }
@@ -229,7 +234,60 @@ describe('Password reset', () => {
       const retry = await ctx
         .request()
         .post('/api/auth/reset-password', { token, new_password: 'long-enough-123' });
-      expect(retry.status).toBe(204);
+      expect(retry.status).toBe(200);
+    });
+
+    // The point of answering with a session at all: the caller is signed in on
+    // the way out, rather than sent to a login form to retype what they just
+    // chose. A token that does not work here is the whole feature failing.
+    it('answers with a working session for the account the token named', async () => {
+      const user = await createUser('reset-session');
+      const token = createResetToken(await alternativeIdOf(user.id));
+
+      const res = await ctx
+        .request()
+        .post('/api/auth/reset-password', { token, new_password: 'signed-in-123' });
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ token: string; user: { id: string; email: string } }>();
+      expect(body.user.id).toBe(user.id);
+      expect(body.user.email).toBe(user.email);
+
+      const me = await ctx.request(body.token).get('/api/auth/me');
+      expect(me.status).toBe(200);
+      expect((await me.json()).id).toBe(user.id);
+    });
+
+    it('leaves the sessions that predate it alone, and adds exactly one', async () => {
+      const user = await createUser('reset-session-count');
+      const countBefore = await sessionCount(user.token);
+
+      const res = await ctx.request().post('/api/auth/reset-password', {
+        token: createResetToken(await alternativeIdOf(user.id)),
+        new_password: 'one-more-session-123',
+      });
+      expect(res.status).toBe(200);
+
+      expect(await sessionCount(user.token)).toBe(countBefore + 1);
+    });
+
+    // A refused reset changes no password, so a session handed out here would be
+    // a way in for whoever holds an expired link. The token is this user's, so a
+    // handler that created the session before checking it would show up.
+    it('starts no session when the token is refused', async () => {
+      const user = await createUser('reset-session-refused');
+      const countBefore = await sessionCount(user.token);
+
+      const res = await ctx.request().post('/api/auth/reset-password', {
+        token: createResetToken(
+          await alternativeIdOf(user.id),
+          Date.now() - RESET_TOKEN_TTL_MS - 1000
+        ),
+        new_password: 'never-applied-123',
+      });
+      expect(res.status).toBe(422);
+
+      expect(await sessionCount(user.token)).toBe(countBefore);
     });
   });
 });

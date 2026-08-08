@@ -352,10 +352,18 @@ never actually held. All it bought was that someone who mistyped their address
 waited for mail that was never coming.
 
 Neither `POST /api/auth/change-password` nor `POST /api/auth/reset-password`
-touches the `session` table. Both answer 204, and every session that was signed
-in before the call is still signed in after it, including the one that made the
-call — a password change issues no replacement token because it invalidates
-nothing.
+revokes anything in the `session` table: every session that was signed in
+before the call is still signed in after it, including the one that made the
+call. `change-password` answers 204 and issues no replacement token, because it
+runs on an authenticated caller and invalidates nothing.
+
+`reset-password` answers **200** with the same `{ token, user }` body as login
+and signup, and its caller is signed in on that token. Redeeming the link
+proves control of the address, which is the same proof signup takes, so the
+alternative — bouncing to a login form to retype the password chosen one field
+ago — buys nothing: whoever redeemed the link can log in with it regardless.
+What it costs is that a forwarded or leaked reset link mints a session directly
+rather than after one more form; the 15-minute expiry is what bounds that.
 
 This is a deliberate reversal of the usual "changing your password signs you
 out everywhere". That default predates the sessions list; now that a user can

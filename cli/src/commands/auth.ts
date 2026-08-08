@@ -267,7 +267,7 @@ export function registerAuth(program: Command, deps: CliDeps): void {
 
   account.addCommand(
     leaf('reset-password')
-      .description('Reset the password with an emailed token')
+      .description('Reset the password with an emailed token and store the session token')
       .requiredOption('--token <token>', 'reset token from the email')
       .option('--password-stdin', 'read the new password from the first line of stdin')
       .action(
@@ -280,12 +280,14 @@ export function registerAuth(program: Command, deps: CliDeps): void {
             'New password',
             'Confirm new password'
           );
-          assertOk(
+          const result = assertOk(
             await ctx.api.POST('/api/auth/reset-password', {
               body: { token: opts.token as string, new_password: newPassword },
             })
           );
-          ctx.out.data({ reset: true }, () => ctx.out.line('Password reset'));
+          await ctx.credentials.set(ctx.baseUrl, result.token);
+          warnIfEnvToken(ctx);
+          printUser(ctx, result.user, 'Password reset. Logged in as');
         })
       )
   );
