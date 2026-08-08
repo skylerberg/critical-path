@@ -232,6 +232,30 @@ describe('PATCH /api/columns/:id', () => {
     expect(body.sort_key).toBe(moved);
   });
 
+  it('repositions onto a key a sibling column is holding', async () => {
+    const projectId = await createProject();
+    const takenKey = rankKey(500);
+    await insertColumn(projectId, { name: 'Sitting', sort_key: takenKey });
+    const columnId = await insertColumn(projectId, { sort_key: rankKey(1000) });
+
+    const res = await ctx.request(token).patch(`/api/columns/${columnId}`, { sort_key: takenKey });
+    expect(res.status).toBe(200);
+    expect((await res.json()).sort_key > takenKey).toBe(true);
+  });
+
+  it('leaves a key free in the project alone, even when a sibling project holds it', async () => {
+    const otherProject = await createProject();
+    const sharedKey = rankKey(700);
+    await insertColumn(otherProject, { name: 'Elsewhere', sort_key: sharedKey });
+
+    const projectId = await createProject();
+    const columnId = await insertColumn(projectId, { sort_key: rankKey(1000) });
+
+    const res = await ctx.request(token).patch(`/api/columns/${columnId}`, { sort_key: sharedKey });
+    expect(res.status).toBe(200);
+    expect((await res.json()).sort_key).toBe(sharedKey);
+  });
+
   it('toggles is_done', async () => {
     const projectId = await createProject();
     const columnId = await insertColumn(projectId, { is_done: false });

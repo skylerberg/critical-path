@@ -35,6 +35,7 @@ import {
   forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
+  positionConflictErrorResponse,
   validationErrorResponse,
   validationOrUnprocessableErrorResponse,
   unprocessableErrorResponse,
@@ -320,7 +321,10 @@ router.patch(
   describeRoute({
     tags: ['Columns'],
     summary: 'Update column',
-    description: 'Update the name, position, or done flag of a column.',
+    description:
+      'Update the name, position, or done flag of a column. A sort_key already taken in the ' +
+      'project ranks the column immediately after the one holding it rather than failing, so ' +
+      'the echoed sort_key is not always the one that was sent.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -335,6 +339,7 @@ router.patch(
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
+      ...positionConflictErrorResponse,
       ...validationErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -351,7 +356,9 @@ router.patch(
 
     const updates: Partial<{ name: string; sort_key: string; is_done: boolean }> = {};
     if (name !== undefined) updates.name = name;
-    if (sort_key !== undefined) updates.sort_key = sort_key;
+    if (sort_key !== undefined) {
+      updates.sort_key = await resolveSortKey(db, 'board_column', existing.project_id, sort_key);
+    }
     if (is_done !== undefined) updates.is_done = is_done;
 
     const column =
@@ -362,7 +369,13 @@ router.patch(
             .set(updates)
             .where('id', '=', id)
             .returning(COLUMN_COLUMNS)
-            .executeTakeFirst();
+            .executeTakeFirst()
+            .catch((err: unknown) => {
+              if (isUniqueViolation(err)) {
+                throw new AppError(409, 'That position was taken while the move was in flight');
+              }
+              throw err;
+            });
 
     if (!column) {
       throw new AppError(404, COLUMN_NOT_FOUND);

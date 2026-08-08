@@ -22,6 +22,7 @@ import {
   forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
+  positionConflictErrorResponse,
   validationErrorResponse,
   internalServerErrorResponse,
   type ChecklistItemResponse,
@@ -177,7 +178,9 @@ router.patch(
       'it alone and, unlike the other three, records no activity entry — a keyboard drag ' +
       'finalizes once per arrow press and would otherwise write one entry per press. The ' +
       'parent task’s updated_at is never touched by any checklist write, so a checklist edit ' +
-      'cannot invalidate an open editor’s optimistic-concurrency precondition.',
+      'cannot invalidate an open editor’s optimistic-concurrency precondition. A sort_key ' +
+      'already taken on the task ranks the item immediately after the one holding it rather ' +
+      'than failing, so the echoed sort_key is not always the one that was sent.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -192,6 +195,7 @@ router.patch(
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
+      ...positionConflictErrorResponse,
       ...validationErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -223,18 +227,27 @@ router.patch(
     const changes = {
       ...(body.text !== undefined ? { text: body.text } : {}),
       ...(body.checked !== undefined ? { checked: body.checked } : {}),
-      ...(body.sort_key !== undefined ? { sort_key: body.sort_key } : {}),
+      ...(body.sort_key !== undefined
+        ? { sort_key: await resolveSortKey(db, 'checklist_item', task_id, body.sort_key) }
+        : {}),
       ...(contentChanged ? { updated_at: sql<Date>`now()` } : {}),
     };
 
     // Every field is optional and an empty body validates, so without this a `{}`
     // patch would compile to an UPDATE with an empty SET list.
     if (Object.keys(changes).length > 0) {
-      await db
-        .updateTable('checklist_item')
-        .set(changes)
-        .where('checklist_item.id', '=', id)
-        .execute();
+      try {
+        await db
+          .updateTable('checklist_item')
+          .set(changes)
+          .where('checklist_item.id', '=', id)
+          .execute();
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          throw new AppError(409, 'That position was taken while the move was in flight');
+        }
+        throw err;
+      }
     }
 
     if (body.text !== undefined && body.text !== before.text) {
