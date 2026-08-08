@@ -20,8 +20,11 @@
     type GraphResult,
     type LayoutEdge,
     type LayoutPoint,
+    type CrossProjectExpansion,
     type ViewBox,
   } from '../lib/graph';
+  import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
+  import Spinner from '../components/ui/Spinner.svelte';
 
   interface Props {
     projectId: string;
@@ -44,7 +47,45 @@
       : board.tasks.filter((task) => !doneColumnIds.has(task.column_id))
   );
 
-  const result: GraphResult = $derived(computeGraph(graphTasks, board.columns));
+  // Local to the view: an expansion is an affordance, not board data, and should
+  // not survive leaving the graph. Keyed by host task id, which is both the fetch
+  // key and the expansion key.
+  const expandedCrossProject = new SvelteSet<string>();
+  // The component survives a project change (Project.svelte only swaps the prop),
+  // so the set has to be cleared by hand — same shape as the fit guard below.
+  let expandedForProject: string | null = null;
+  $effect(() => {
+    const id = projectId;
+    untrack(() => {
+      if (expandedForProject !== id) {
+        expandedForProject = id;
+        expandedCrossProject.clear();
+      }
+    });
+  });
+
+  function expandCrossProject(hostTaskId: string): void {
+    expandedCrossProject.add(hostTaskId);
+    // ensure, not refresh: clicking an already-expanded node must not refetch.
+    crossProjectDeps.ensure(hostTaskId);
+  }
+
+  // Only the blocked-by direction: the board payload carries no count for the
+  // outgoing side, so a "blocks" placeholder cannot be sized without a second
+  // field. Symmetric placeholders are a small follow-up if that is ever added.
+  const crossExpansion = $derived<CrossProjectExpansion>({
+    expanded: expandedCrossProject,
+    loaded: new Map(
+      [...expandedCrossProject].flatMap((id) => {
+        const deps = crossProjectDeps.get(id)?.deps;
+        return deps == null
+          ? []
+          : [[id, { tasks: deps.blocked_by, hiddenCount: deps.hidden_blocked_by_count }] as const];
+      })
+    ),
+  });
+
+  const result: GraphResult = $derived(computeGraph(graphTasks, board.columns, crossExpansion));
   const layout = $derived(result.kind === 'ok' ? result.layout : null);
   const taskById = $derived(new Map<string, BoardTask>(board.tasks.map((t) => [t.id, t])));
 
@@ -60,7 +101,12 @@
     return task !== undefined && board.taskMatchesFilters(task);
   }
 
-  const cycleIds = $derived(board.cyclePath?.map((step) => step.id) ?? []);
+  // A redacted step carries no id and is on no board this view draws, so it
+  // cannot be highlighted. Dropped rather than substituted: leaving a gap in the
+  // chain would pair the wrong nodes into edges.
+  const cycleIds = $derived(
+    board.cyclePath?.flatMap((step) => (step.id === null ? [] : [step.id])) ?? []
+  );
   const cycleNodes = $derived(new Set(cycleIds));
   // Every pair but the last: the closing hop is the edge that does not exist yet.
   const cycleEdges = $derived(
@@ -440,7 +486,12 @@
   // node under the finger, so the target is read from the point instead.
   function resolveConnectTarget(e: PointerEvent): void {
     const group = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-node-id]');
-    const id = group?.getAttribute('data-node-id') ?? null;
+    // Real cards only. A synthetic node's id is not a task id, so accepting one
+    // would POST a malformed blocker.
+    const id =
+      group?.getAttribute('data-node-kind') === 'task'
+        ? (group.getAttribute('data-node-id') ?? null)
+        : null;
     connectTarget = id !== null && id !== connectSource ? id : null;
   }
 
@@ -474,7 +525,10 @@
   function onConnectOver(e: PointerEvent): void {
     if (connectSource === null) return;
     const group = (e.target as Element | null)?.closest('[data-node-id]');
-    const id = group?.getAttribute('data-node-id') ?? null;
+    const id =
+      group?.getAttribute('data-node-kind') === 'task'
+        ? (group.getAttribute('data-node-id') ?? null)
+        : null;
     connectTarget = id !== null && id !== connectSource ? id : null;
   }
 
@@ -740,16 +794,19 @@
         {@const emphasis = isTarget || pulse || labelMatch}
         {@const dimmed = nodeDimmed(n.id)}
         {@const onCycle = cycleNodes.has(n.id)}
+        {@const crossEntry =
+          n.kind === 'placeholder' ? crossProjectDeps.get(n.hostTaskId) : undefined}
         <g
           transform="translate({n.x - NODE_WIDTH / 2} {n.y - NODE_HEIGHT / 2})"
           data-node-id={n.id}
+          data-node-kind={n.kind}
           data-highlight={pulse ? '' : undefined}
           data-cycle={onCycle ? '' : undefined}
           class="group {pulse || onCycle
             ? 'opacity-100'
             : dimmed
               ? 'opacity-25'
-              : n.isDone
+              : (n.kind === 'task' || n.kind === 'remote') && n.isDone
                 ? 'opacity-60'
                 : ''}"
         >
@@ -757,33 +814,98 @@
             width={NODE_WIDTH}
             height={NODE_HEIGHT}
             rx="10"
-            class="fill-surface {onCycle
+            stroke-dasharray={n.kind === 'task' ? undefined : '5 4'}
+            class="{n.kind === 'placeholder' || n.kind === 'hidden'
+              ? 'fill-canvas'
+              : 'fill-surface'} {onCycle
               ? 'stroke-danger'
               : emphasis
                 ? 'stroke-accent'
                 : 'stroke-edge'} {pulse ? 'cp-node-pulse' : ''}"
             stroke-width={onCycle || isTarget || pulse ? 3 : labelMatch ? 2.5 : 1}
           />
-          <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
-            <a
-              use:link
-              use:suppressTouchContextMenu
-              href={taskHref(n.id, n.title, 'graph') + board.filterSearch}
-              draggable="false"
-              aria-label="Open task {truncateTitle(n.title)}"
-              class="flex h-full w-full touch-callout-none cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3"
-            >
-              <span class="truncate text-[13px] font-medium {n.isDone ? 'text-muted' : 'text-ink'}">
-                {truncateTitle(n.title)}
-              </span>
-              <span
-                class="max-w-full self-start truncate rounded-full border border-edge bg-canvas px-2 py-0.5 text-[10px] text-muted"
+          {#if n.kind === 'task'}
+            <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
+              <a
+                use:link
+                use:suppressTouchContextMenu
+                href={taskHref(n.id, n.title, 'graph') + board.filterSearch}
+                draggable="false"
+                aria-label="Open task {truncateTitle(n.title)}"
+                class="flex h-full w-full touch-callout-none cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3"
               >
-                {n.columnName}
+                <span
+                  class="truncate text-[13px] font-medium {n.isDone ? 'text-muted' : 'text-ink'}"
+                >
+                  {truncateTitle(n.title)}
+                </span>
+                <span
+                  class="max-w-full self-start truncate rounded-full border border-edge bg-canvas px-2 py-0.5 text-[10px] text-muted"
+                >
+                  {n.columnName}
+                </span>
+              </a>
+            </foreignObject>
+          {:else if n.kind === 'remote'}
+            <!-- Links to the card's own board rather than into this graph: pulling
+                 another project's subgraph in here is the thing this whole shape
+                 exists to avoid. -->
+            <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
+              <a
+                use:link
+                use:suppressTouchContextMenu
+                href={taskHref(n.id, n.title)}
+                draggable="false"
+                aria-label="Open task {truncateTitle(n.title)} in {n.projectName}"
+                class="flex h-full w-full touch-callout-none cursor-pointer flex-col justify-center gap-1 rounded-[10px] px-3"
+              >
+                <span
+                  class="truncate text-[13px] font-medium {n.isDone ? 'text-muted' : 'text-ink'}"
+                >
+                  {truncateTitle(n.title)}
+                </span>
+                <span
+                  class="max-w-full self-start truncate rounded-full border border-edge bg-canvas px-2 py-0.5 text-[10px] text-muted"
+                >
+                  {n.projectName}
+                </span>
+              </a>
+            </foreignObject>
+          {:else if n.kind === 'placeholder'}
+            <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT}>
+              <button
+                type="button"
+                disabled={crossEntry?.loading === true}
+                aria-busy={crossEntry?.loading === true}
+                aria-label={crossEntry?.error === true
+                  ? 'Retry loading blocking tasks in other projects'
+                  : `Show ${n.count} blocking task${n.count === 1 ? '' : 's'} in other projects`}
+                onclick={() => expandCrossProject(n.hostTaskId)}
+                class="flex h-full w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] px-3 text-[13px] text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-default"
+              >
+                {#if crossEntry?.loading === true}
+                  <Spinner size="sm" label="Loading tasks in other projects" />
+                {:else if crossEntry?.error === true}
+                  <span class="truncate">Couldn’t load — try again</span>
+                {:else}
+                  <span aria-hidden="true" class="text-base leading-none">+</span>
+                  <span class="truncate">
+                    {n.count} in {n.count === 1 ? 'another project' : 'other projects'}
+                  </span>
+                {/if}
+              </button>
+            </foreignObject>
+          {:else}
+            <!-- No title, no project, no link: the viewer may not read these. -->
+            <foreignObject width={NODE_WIDTH} height={NODE_HEIGHT} pointer-events="none">
+              <span
+                class="flex h-full w-full items-center justify-center px-3 text-center text-[13px] text-muted"
+              >
+                {n.count === 1 ? '1 task in another project' : `${n.count} tasks in other projects`}
               </span>
-            </a>
-          </foreignObject>
-          {#if !readonly}
+            </foreignObject>
+          {/if}
+          {#if !readonly && n.kind === 'task'}
             <circle
               data-connect-handle={n.id}
               data-connect-dir="front"

@@ -373,11 +373,16 @@
     return task.label_ids.flatMap((id) => labelById.get(id) ?? []);
   }
 
+  // blocker_ids is same-project by contract, so every id in it resolves against
+  // this board. Blockers on other boards are never named here; the server sends
+  // their open count already resolved, because the board read deliberately does
+  // not join across the project boundary to find out.
   function openBlockerCount(task: BoardTask): number {
-    return task.blocker_ids.filter((id) => {
+    const local = task.blocker_ids.filter((id) => {
       const blocker = taskById.get(id);
       return blocker !== undefined && !doneColumnIds.has(blocker.column_id);
     }).length;
+    return local + task.open_cross_project_blocker_count;
   }
 
   // Keyboard drags end with a consider event (trigger DRAG_STOPPED), not a

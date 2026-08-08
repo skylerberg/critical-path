@@ -72,6 +72,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
     label_ids: [] as string[],
     assignee_ids: [] as string[],
     blocker_ids: [] as string[],
+    open_cross_project_blocker_count: 0,
     image_count: 0,
     cover_image_url: null,
     due_date: null,
@@ -262,7 +263,13 @@ describe('board event application', () => {
     board.applyRealtime(
       realtimeEvent(
         'task_relations_set',
-        { task_id: 't1', label_ids: ['l1'], assignee_ids: ['u2'], blocker_ids: ['t9'] },
+        {
+          task_id: 't1',
+          label_ids: ['l1'],
+          assignee_ids: ['u2'],
+          blocker_ids: ['t9'],
+          open_cross_project_blocker_count: 0,
+        },
         'p1'
       )
     );
@@ -270,7 +277,55 @@ describe('board event application', () => {
       label_ids: ['l1'],
       assignee_ids: ['u2'],
       blocker_ids: ['t9'],
+      open_cross_project_blocker_count: 0,
     });
+  });
+
+  it('carries the cross-project count on task_relations_set', () => {
+    board.tasks = [{ ...task('t1'), open_cross_project_blocker_count: 3 }];
+    board.applyRealtime(
+      realtimeEvent(
+        'task_relations_set',
+        {
+          task_id: 't1',
+          label_ids: [],
+          assignee_ids: [],
+          blocker_ids: [],
+          open_cross_project_blocker_count: 1,
+        },
+        'p1'
+      )
+    );
+    expect(board.tasks[0]?.open_cross_project_blocker_count).toBe(1);
+  });
+
+  it('applies a bare recount from cross_project_blockers_changed', () => {
+    board.tasks = [
+      { ...task('t1'), open_cross_project_blocker_count: 2 },
+      { ...task('t2'), open_cross_project_blocker_count: 5 },
+    ];
+    board.applyRealtime(
+      realtimeEvent(
+        'cross_project_blockers_changed',
+        { tasks: [{ task_id: 't1', open_cross_project_blocker_count: 0 }] },
+        'p1'
+      )
+    );
+    expect(board.tasks[0]?.open_cross_project_blocker_count).toBe(0);
+    // Untouched: the event names only the cards whose count moved.
+    expect(board.tasks[1]?.open_cross_project_blocker_count).toBe(5);
+  });
+
+  it('ignores a recount aimed at another project', () => {
+    board.tasks = [{ ...task('t1'), open_cross_project_blocker_count: 2 }];
+    board.applyRealtime(
+      realtimeEvent(
+        'cross_project_blockers_changed',
+        { tasks: [{ task_id: 't1', open_cross_project_blocker_count: 0 }] },
+        'p2'
+      )
+    );
+    expect(board.tasks[0]?.open_cross_project_blocker_count).toBe(2);
   });
 
   it('upserts columns sorted by sort key', () => {

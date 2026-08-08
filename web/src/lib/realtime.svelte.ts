@@ -23,6 +23,7 @@ const BOARD_EVENTS = new Set<RealtimeEventType>([
   'task_archived',
   'task_restored',
   'task_relations_set',
+  'cross_project_blockers_changed',
   'column_created',
   'column_updated',
   'column_deleted',
