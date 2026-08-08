@@ -3,7 +3,7 @@ import type { components } from '../api/api.generated';
 import type { ProjectAccent } from './accents';
 import { newId } from './ids';
 import { invitations } from './invitations.svelte';
-import { reorderRankUpdates } from './positions';
+import { reorderRankUpdates } from './ranks';
 import type { RealtimeEvent } from './realtime-types';
 import { canEditProject, type ProjectRole } from './roles';
 import { session } from './session.svelte';
@@ -26,7 +26,7 @@ function byCreation(a: Project, b: Project): number {
 
 // A project the caller has never reordered has no key, and sorts after every
 // one that does rather than interleaving.
-function byPosition(a: Project, b: Project): number {
+function byProjectRank(a: Project, b: Project): number {
   if (a.sort_key !== null && b.sort_key !== null) {
     return a.sort_key < b.sort_key ? -1 : a.sort_key > b.sort_key ? 1 : byCreation(a, b);
   }
@@ -54,7 +54,7 @@ class ProjectsStore {
   loading = $state(false);
   loadError = $state<string | null>(null);
 
-  #sorted = $derived([...this.projects].sort(byPosition));
+  #sorted = $derived([...this.projects].sort(byProjectRank));
   active = $derived(this.#sorted.filter((p) => p.archived_at === null));
   archived = $derived(this.#sorted.filter((p) => p.archived_at !== null));
 
@@ -282,7 +282,7 @@ class ProjectsStore {
     }
   }
 
-  async setPosition(id: string, sortKey: string): Promise<void> {
+  async setRank(id: string, sortKey: string): Promise<void> {
     this.#update(id, (p) => ({ ...p, sort_key: sortKey }));
     try {
       assertOk(
@@ -300,7 +300,7 @@ class ProjectsStore {
     const byId = new Map(this.projects.map((p) => [p.id, p]));
     const ordered = orderedIds.flatMap((id) => byId.get(id) ?? []);
     const updates = reorderRankUpdates(ordered, movedId);
-    await Promise.all(updates.map(({ id, sort_key }) => this.setPosition(id, sort_key)));
+    await Promise.all(updates.map(({ id, sort_key }) => this.setRank(id, sort_key)));
   }
 
   // No toast and no resync on failure, unlike every other write here: nobody

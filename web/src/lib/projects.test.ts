@@ -668,7 +668,7 @@ describe('projects store', () => {
     await loadWith([project()]);
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
-    const pending = projects.setPosition('p-1', 'V3');
+    const pending = projects.setRank('p-1', 'V3');
     expect(projects.projects[0]!.sort_key).toBe('V3');
 
     await pending;
@@ -689,7 +689,7 @@ describe('projects store', () => {
       return jsonResponse(200, { projects: [item] });
     });
 
-    await projects.setPosition('p-1', 'V3');
+    await projects.setRank('p-1', 'V3');
 
     expect(projects.projects[0]!.sort_key).toBeNull();
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
