@@ -61,17 +61,28 @@ export function fitsHorizontally(view: Span, target: Span): boolean {
   );
 }
 
+/** Inline-axis `scroll-snap-align` of a column. The board uses both. */
+export type SnapAlign = 'start' | 'center';
+
 /**
- * The `scrollLeft` that parks `target` on the scroller's snap position, given the
- * container's `scroll-padding-left`. Landing short of it by the gutter width is
- * not harmless: under mandatory snap the browser then rounds the scroll to
- * whichever snap point is nearest, which can be the next column over.
+ * The `scrollLeft` that parks `target` on the scroller's snap position. Landing
+ * short of it is not harmless: under mandatory snap the browser then rounds the
+ * scroll to whichever snap point is nearest, which can be the next column over.
+ *
+ * A start-aligned column parks against the snapport's left edge, which
+ * `scroll-padding-left` insets by the board's gutter. A center-aligned one parks
+ * its center on the snapport's center, where symmetric scroll padding cancels
+ * out — so that arm ignores it rather than pretending to use it.
  */
 export function snapScrollLeft(
   scrollLeft: number,
   view: Span,
   target: Span,
+  align: SnapAlign,
   scrollPaddingLeft: number
 ): number {
+  if (align === 'center') {
+    return scrollLeft + ((target.left + target.right) / 2 - (view.left + view.right) / 2);
+  }
   return scrollLeft + (target.left - view.left - scrollPaddingLeft);
 }

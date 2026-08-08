@@ -69,27 +69,62 @@ describe('fitsHorizontally', () => {
   });
 });
 
-describe('snapScrollLeft', () => {
+describe('snapScrollLeft (start-aligned)', () => {
   it('leaves a column already on its snap position alone', () => {
-    expect(snapScrollLeft(0, VIEW, { left: 12, right: 300 }, 12)).toBe(0);
+    expect(snapScrollLeft(0, VIEW, { left: 12, right: 300 }, 'start', 12)).toBe(0);
   });
 
   it('scrolls right to reach a column further along', () => {
-    expect(snapScrollLeft(0, VIEW, { left: 612, right: 900 }, 12)).toBe(600);
+    expect(snapScrollLeft(0, VIEW, { left: 612, right: 900 }, 'start', 12)).toBe(600);
   });
 
   it('scrolls left to reach a column behind', () => {
-    expect(snapScrollLeft(600, VIEW, { left: -288, right: 0 }, 12)).toBe(300);
+    expect(snapScrollLeft(600, VIEW, { left: -288, right: 0 }, 'start', 12)).toBe(300);
   });
 
   it('is relative to where the board is scrolled now', () => {
-    expect(snapScrollLeft(900, VIEW, { left: 312, right: 600 }, 12)).toBe(1200);
+    expect(snapScrollLeft(900, VIEW, { left: 312, right: 600 }, 'start', 12)).toBe(1200);
   });
 
   // Landing a gutter short would leave the board between two snap points, and
   // mandatory snap would then round it to whichever is nearer.
   it('accounts for the scroll padding that offsets the snap position', () => {
     const target = { left: 312, right: 600 };
-    expect(snapScrollLeft(0, VIEW, target, 0) - snapScrollLeft(0, VIEW, target, 12)).toBe(12);
+    expect(
+      snapScrollLeft(0, VIEW, target, 'start', 0) - snapScrollLeft(0, VIEW, target, 'start', 12)
+    ).toBe(12);
+  });
+});
+
+describe('snapScrollLeft (center-aligned)', () => {
+  // VIEW is the 390px phone board, so its center is 195 and a centered 288px
+  // column spans 51..339 — exactly the resting position of column 1.
+  it('leaves a column already centered alone', () => {
+    expect(snapScrollLeft(0, VIEW, { left: 51, right: 339 }, 'center', 0)).toBe(0);
+  });
+
+  it('scrolls right to center a column further along', () => {
+    expect(snapScrollLeft(0, VIEW, { left: 351, right: 639 }, 'center', 0)).toBe(300);
+  });
+
+  it('scrolls left to center a column behind', () => {
+    expect(snapScrollLeft(300, VIEW, { left: -249, right: 39 }, 'center', 0)).toBe(0);
+  });
+
+  // Symmetric scroll padding insets both edges of the snapport, leaving its
+  // center exactly where it was — subtracting it here would push every centered
+  // column off by a gutter.
+  it('ignores the scroll padding, which cancels out on a centered target', () => {
+    const target = { left: 351, right: 639 };
+    expect(snapScrollLeft(0, VIEW, target, 'center', 12)).toBe(
+      snapScrollLeft(0, VIEW, target, 'center', 0)
+    );
+  });
+
+  // The lg sidebar offsets the board from the viewport origin; centering is
+  // measured against the board's own box.
+  it('centers against the board, not the origin', () => {
+    const offset = { left: 224, right: 1280 };
+    expect(snapScrollLeft(0, offset, { left: 608, right: 896 }, 'center', 0)).toBe(0);
   });
 });

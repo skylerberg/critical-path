@@ -33,6 +33,10 @@
      the bottom nav. Defined as a variable so the class layer stays free of
      calc()-in-arbitrary-value fragility. */
   --cp-board-h: calc(100dvh - var(--cp-bottom-nav-h));
+  /* Width of one board column. The board's side padding is derived from it, so
+     the two must agree exactly or the end columns cannot reach their snap
+     position — hence one definition rather than a repeated min(). */
+  --cp-board-col-w: min(85vw, 18rem);
 }
 
 @media (prefers-color-scheme: dark) {

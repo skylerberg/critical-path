@@ -351,11 +351,15 @@ describe('Board readonly', () => {
 });
 
 describe('Board snapping', () => {
-  // Start-aligned at every width, with scroll padding matching the board's gutter,
-  // so the FIRST column's snap position is a scrollLeft the board can actually
-  // reach. Centering them put it at a negative offset no scroll can land on, which
-  // leaves a mandatory-snap container free to resolve to some other column.
-  it('start-aligns snap targets against the gutter and drops snapping at lg', async () => {
+  // Centered on phones so a swipe leaves the column you landed on between two
+  // peeking neighbours; start-aligned from md up, where the columns are capped at
+  // 288px and centering one would strand it in a field of padding.
+  //
+  // Centering only works because the track carries side padding of half the
+  // leftover width. Without it the first column's snap position is a negative
+  // scrollLeft no scroll can land on, and a mandatory-snap container is then free
+  // to resolve to some other column — the bug that removed centering before.
+  it('centers snap targets on phones and start-aligns them from md up', async () => {
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
@@ -364,13 +368,32 @@ describe('Board snapping', () => {
       'snap-mandatory',
       'overscroll-x-contain',
       'lg:snap-none',
-      'scroll-p-3',
+      'md:scroll-p-3',
       'lg:scroll-p-4'
     );
     for (const target of [column(), addColumnTile()]) {
-      expect(target).toHaveClass('snap-start', 'snap-always');
-      expect(target).not.toHaveClass('snap-center');
+      expect(target).toHaveClass('snap-center', 'snap-always', 'md:snap-start');
     }
+  });
+
+  // The track must size to its content, not stretch to the scroller: a stretched
+  // track ends at the scroller's right edge, so its padding-right adds no
+  // scrollable space and the LAST column can never reach center. Measured in real
+  // Chrome it sat 51px off on a 390px viewport.
+  it('sizes the track to its content and pads it by half the leftover width', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+
+    const track = scroller().firstElementChild;
+    expect(track).toHaveClass(
+      'w-max',
+      'px-[calc(50%_-_var(--cp-board-col-w)/2)]',
+      'md:px-3',
+      'lg:px-4'
+    );
+    // The padding is derived from the column width, so the two must be one
+    // definition — a column sized any other way silently breaks the centering.
+    expect(column()).toHaveClass('w-[var(--cp-board-col-w)]');
   });
 
   // Guards the mobile bottom-bar / column-gap fix. The board scroller must be a
@@ -872,6 +895,35 @@ describe('Board pointer drops', () => {
 
     await fireEvent(scroller(), new Event('scrollend'));
     expect(scroller().className).toContain('snap-mandatory');
+  });
+
+  // Where the columns center (phone widths), the slide has to land the column's
+  // center on the board's, not its left edge on the board's. Getting this wrong
+  // parks the board a half-column past the snap position, and mandatory snap then
+  // rounds it to whichever column is nearer — which can be the next one over.
+  it('centers the destination column where the columns snap to center', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    placeColumn(new DOMRect(0, 0, 390, 600), new DOMRect(420, 0, 288, 600));
+    // jsdom applies no stylesheet, so the alignment the phone breakpoint sets has
+    // to be reported by hand: this is the seam the component reads to choose.
+    const destination = column();
+    const computed = window.getComputedStyle.bind(window);
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) =>
+      el === destination
+        ? ({ scrollSnapAlign: 'center' } as unknown as CSSStyleDeclaration)
+        : computed(el, pseudo)
+    );
+    const [first, ...rest] = board.tasksInColumn('c1');
+
+    pickUp(T1);
+    drop(T1, [...rest, first!]);
+    await tick();
+
+    // The column's center (564) onto the board's (195) — not its left edge (420)
+    // onto the board's, which is where start alignment would have put it.
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: 369 }));
   });
 
   // The whole point on desktop: a board wide enough to show the destination must

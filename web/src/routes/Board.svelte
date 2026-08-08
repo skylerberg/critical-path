@@ -106,14 +106,19 @@
     return best;
   }
 
-  // Reading the scroll padding back off the element keeps the breakpoint that sets
-  // it in one place — the class list — rather than duplicating rem values here.
+  // Reading the alignment and scroll padding back off the elements keeps the
+  // breakpoints that set them in one place — the class list — rather than
+  // duplicating rem values and a `md` cutoff here. `scroll-snap-align` serializes
+  // as `<block> <inline>`, so the last token is the axis this scroller uses; a
+  // stylesheet-less environment reports neither, which reads as start.
   function slideColumnIntoView(scroller: HTMLElement, section: HTMLElement): void {
+    const align = getComputedStyle(section).scrollSnapAlign.split(' ').pop();
     scroller.scrollTo({
       left: snapScrollLeft(
         scroller.scrollLeft,
         scroller.getBoundingClientRect(),
         section.getBoundingClientRect(),
+        align === 'center' ? 'center' : 'start',
         parseFloat(getComputedStyle(scroller).scrollPaddingLeft) || 0
       ),
       behavior: motion.reduced ? 'auto' : 'smooth',
@@ -406,11 +411,17 @@
 
 <div
   bind:this={boardScroller}
-  class="relative flex min-h-0 flex-1 scroll-p-3 flex-col overscroll-x-contain overflow-y-hidden lg:scroll-p-4 {snapActive
+  class="relative flex min-h-0 flex-1 flex-col overscroll-x-contain overflow-y-hidden md:scroll-p-3 lg:scroll-p-4 {snapActive
     ? 'overflow-x-auto snap-x snap-mandatory lg:snap-none'
     : 'overflow-x-hidden'}"
 >
-  <div class="flex min-h-0 flex-1 items-stretch gap-3 p-3 lg:gap-4 lg:p-4">
+  <!-- w-max, not the default stretch-to-scroller width: a stretched track ends at
+       the scroller's right edge, so its padding-right lands there instead of after
+       the last column and adds no scrollable space. Sizing the track to its content
+       is what lets the trailing padding below make the last column reachable. -->
+  <div
+    class="flex w-max min-h-0 flex-1 items-stretch gap-3 px-[calc(50%_-_var(--cp-board-col-w)/2)] py-3 md:px-3 lg:gap-4 lg:px-4 lg:py-4"
+  >
     <div
       class="flex items-stretch gap-3 empty:hidden lg:gap-4"
       aria-label="Columns"
@@ -432,7 +443,7 @@
           data-column-id={column.id}
           animate:flip={{ duration: flipMs }}
           aria-label={column.name}
-          class="flex max-h-full w-[85vw] max-w-72 shrink-0 snap-start snap-always flex-col rounded-lg border border-edge bg-surface"
+          class="flex max-h-full w-[var(--cp-board-col-w)] shrink-0 snap-center snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start"
         >
           <ColumnHeader
             {column}
@@ -487,7 +498,7 @@
       {/each}
     </div>
     {#if !readonly}
-      <div class="w-[85vw] max-w-72 shrink-0 snap-start snap-always">
+      <div class="w-[var(--cp-board-col-w)] shrink-0 snap-center snap-always md:snap-start">
         {#if addingColumn}
           <form
             onsubmit={submitNewColumn}
