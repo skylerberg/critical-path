@@ -163,7 +163,7 @@ function announce(result: MaterializeResult, webhookEvents: WebhookEvent[]): voi
 // stall every project's schedules behind its backoff.
 async function recordSeriesFailure(seriesId: string, err: unknown): Promise<void> {
   const message = errorText(err);
-  logger.error({ msg: 'Recurring series could not be materialised', series_id: seriesId, message });
+  logger.error({ msg: 'Recurring series could not be materialized', series_id: seriesId, message });
   try {
     await db
       .updateTable('task_series')

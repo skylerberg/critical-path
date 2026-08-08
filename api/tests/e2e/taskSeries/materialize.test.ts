@@ -75,7 +75,7 @@ interface TaskRow {
   series_occurrence_date: string | null;
 }
 
-describe('Recurring series materialisation', () => {
+describe('Recurring series materialization', () => {
   const ctx = new TestContext();
   const projectIds: string[] = [];
   let server: ServerType;
@@ -203,7 +203,7 @@ describe('Recurring series materialisation', () => {
     outsider = await ctx.createUser('mat-outsider');
     seriesStart = await todayIn('UTC');
 
-    [projectId, columnId] = await createProject('materialise project');
+    [projectId, columnId] = await createProject('materialize project');
     const members = await ctx.request(owner.token).put(`/api/projects/${projectId}/members`, {
       user_ids: [member.id],
       roles: [{ user_id: member.id, role: 'editor' }],
@@ -235,7 +235,7 @@ describe('Recurring series materialisation', () => {
     await ctx.cleanup();
   });
 
-  it('materialises one ordinary card carrying the whole template', async () => {
+  it('materializes one ordinary card carrying the whole template', async () => {
     const labelId = newId();
     await ctx
       .request(owner.token)
@@ -276,7 +276,7 @@ describe('Recurring series materialisation', () => {
       due_date: null,
       series_occurrence_date: today,
     });
-    // Materialised after the tail, so it ranks above everything already there.
+    // Materialized after the tail, so it ranks above everything already there.
     expect(cards[0].sort_key > tailKey).toBe(true);
 
     const detail = await ctx.request(owner.token).get(`/api/tasks/${cards[0].id}`);
@@ -594,7 +594,7 @@ describe('Recurring series materialisation', () => {
     expect(after.next_occurrence_date).toBe(addDays(today, 1));
   });
 
-  it('materialises exactly the occurrence that fell today and nothing beyond it', async () => {
+  it('materializes exactly the occurrence that fell today and nothing beyond it', async () => {
     const daily = await createSeries();
     const today = todayOf(daily);
     await runSeriesSweep({ now: await noonIn(today, 'UTC') });
