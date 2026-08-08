@@ -157,15 +157,6 @@ export async function assertAttachmentWrite(
   return await assertProjectWrite(db, userId, projectId, ATTACHMENT_NOT_FOUND);
 }
 
-export async function assertAttachmentAccess(
-  db: Kysely<DB>,
-  userId: string,
-  attachmentId: string
-): Promise<Selectable<Project>> {
-  const projectId = await attachmentProjectId(db, attachmentId);
-  return await assertProjectAccess(db, userId, projectId, ATTACHMENT_NOT_FOUND);
-}
-
 // A published board publishes its attachments, so this is the one read that a
 // caller with no identity can pass. Anonymity is only enough for a public
 // project: on a private one the answer is still 401, because a token might have

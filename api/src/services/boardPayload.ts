@@ -309,7 +309,7 @@ async function fetchChecklistItemsForTasks(
 
 // Never spread: listing every field by hand is what keeps a newly added board
 // field private until someone deliberately publishes it here.
-export function toPublicBoard(
+function toPublicBoard(
   payload: BoardPayload,
   users: PublicBoardUser[],
   comments: PublicCommentRow[],

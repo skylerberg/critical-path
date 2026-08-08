@@ -21,9 +21,9 @@ for the frontend's conventions.
 
 1. All POST/PUT/PATCH/DELETE handlers run inside a database transaction via
    `transactionMiddleware`. Route handlers access the connection with
-   `c.get('db')` — never import `db` directly in route handlers. Opt out with
-   the `skipAutoTransaction` marker middleware. Post-commit work (e.g. storage
-   object deletion) goes through `c.get('postCommitHooks')`.
+   `c.get('db')` — never import `db` directly in route handlers. There is no
+   opt-out. Post-commit work (e.g. storage object deletion) goes through
+   `c.get('postCommitHooks')`.
 2. Authentication is global (`app.use('*', authMiddleware)`), not per-route. A
    route serves without a token only by carrying the `skipAuth` marker
    middleware, and `assertPublicRoutes` fails at boot if the marked set drifts

@@ -10,7 +10,7 @@ export class UploadCapExceededError extends Error {
   }
 }
 
-export interface StoredUpload {
+interface StoredUpload {
   storageKey: string;
   size: number;
 }
@@ -99,15 +99,6 @@ export async function storeSniffedUpload(
 
 // The cap is enforced on the bytes in flight, so an oversized upload is cut off
 // mid-transfer and the request never holds more than a chunk.
-export async function storeUploadStream(
-  body: ReadableStream<Uint8Array>,
-  maxBytes: number,
-  contentType: string
-): Promise<StoredUpload> {
-  const source = Readable.fromWeb(body as NodeReadableStream<Uint8Array>);
-  return await pipeToStorage(source, maxBytes, contentType, source);
-}
-
 async function pipeToStorage(
   data: Readable,
   maxBytes: number,

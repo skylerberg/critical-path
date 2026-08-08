@@ -7,7 +7,7 @@ import { logger, type LogFields } from '../utils/logger';
 
 const WINDOW_MS = 60_000;
 const MAX_ATTEMPTS = 10;
-export const EMAIL_WINDOW_MS = 15 * 60_000;
+const EMAIL_WINDOW_MS = 15 * 60_000;
 export const EMAIL_MAX_ATTEMPTS = 30;
 
 interface Window {
@@ -210,9 +210,9 @@ function clientIp(c: Context): string {
   return socketAddress(c) ?? 'unknown';
 }
 
-export const RESET_IP_WINDOW_MS = 60 * 60_000;
+const RESET_IP_WINDOW_MS = 60 * 60_000;
 export const RESET_IP_MAX_ATTEMPTS = 5;
-export const RESET_EMAIL_WINDOW_MS = 60 * 60_000;
+const RESET_EMAIL_WINDOW_MS = 60 * 60_000;
 export const RESET_EMAIL_MAX_ATTEMPTS = 3;
 
 // Returns shouldSend instead of throwing 429: a visible throttle status would
@@ -234,9 +234,9 @@ export async function enforceResetRateLimit(c: Context, email: string): Promise<
   return ipAllowed && emailAllowed;
 }
 
-export const VERIFY_USER_WINDOW_MS = 60 * 60_000;
+const VERIFY_USER_WINDOW_MS = 60 * 60_000;
 export const VERIFY_USER_MAX_ATTEMPTS = 3;
-export const VERIFY_IP_WINDOW_MS = 60 * 60_000;
+const VERIFY_IP_WINDOW_MS = 60 * 60_000;
 export const VERIFY_IP_MAX_ATTEMPTS = 10;
 
 // Throws rather than returning a verdict: the caller is authenticated and the
@@ -260,11 +260,11 @@ export async function enforceVerificationRateLimit(c: Context, userId: string): 
   }
 }
 
-export const INVITE_LOOKUP_WINDOW_MS = 60 * 60_000;
+const INVITE_LOOKUP_WINDOW_MS = 60 * 60_000;
 export const INVITE_LOOKUP_MAX_ATTEMPTS = 100;
-export const INVITE_SEND_WINDOW_MS = 60 * 60_000;
+const INVITE_SEND_WINDOW_MS = 60 * 60_000;
 export const INVITE_SEND_MAX_ATTEMPTS = 20;
-export const INVITE_RESEND_WINDOW_MS = 60 * 60_000;
+const INVITE_RESEND_WINDOW_MS = 60 * 60_000;
 export const INVITE_RESEND_MAX_ATTEMPTS = 3;
 
 // Metered apart from mail: this bounds how fast a share attempt can tell an
@@ -417,7 +417,7 @@ export async function enforceAuthRateLimit(c: Context, email: string): Promise<v
   }
 }
 
-export const SIGNUP_IP_WINDOW_MS = 60 * 60_000;
+const SIGNUP_IP_WINDOW_MS = 60 * 60_000;
 export const SIGNUP_IP_MAX_ATTEMPTS = 50;
 
 // The only bound on how many accounts one source can open on addresses it does
@@ -436,7 +436,7 @@ export async function enforceSignupRateLimit(c: Context): Promise<void> {
   }
 }
 
-export const LINK_ATTACH_WINDOW_MS = 60 * 60_000;
+const LINK_ATTACH_WINDOW_MS = 60 * 60_000;
 export const LINK_ATTACH_MAX_ATTEMPTS = 60;
 
 // The only user-triggered outbound request in the product: without a budget, a
