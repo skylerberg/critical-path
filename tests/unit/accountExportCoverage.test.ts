@@ -45,6 +45,7 @@ const DECIDED_COLUMNS: Record<string, 'in' | 'out'> = {
   'app_user.name': 'in',
   'app_user.notify_added_to_project': 'in',
   'app_user.notify_bulk_task_assigned': 'in',
+  'app_user.notify_mentioned': 'in',
   'app_user.notify_task_assigned': 'in',
   'app_user.password_hash': 'out',
   'feedback.created_at': 'in',

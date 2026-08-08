@@ -37,6 +37,7 @@ export interface AppUser {
   name: string;
   notify_added_to_project: Generated<boolean>;
   notify_bulk_task_assigned: Generated<boolean>;
+  notify_mentioned: Generated<boolean>;
   notify_task_assigned: Generated<boolean>;
   password_hash: string;
 }

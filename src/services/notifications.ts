@@ -8,7 +8,12 @@ import { projectAccessIdsAmong, type ProjectAccessFields } from './authorization
 import { getEmailSender } from './email/index';
 import { createUnsubscribeToken } from './emailToken';
 import type { EmailMessage } from './email/types';
-import type { NotificationKind } from '../schemas/notifications';
+import type { MentionSource } from './mentions';
+import type {
+  NotificationKind,
+  NotificationSettings,
+  NotificationSettingsUpdate,
+} from '../schemas/notifications';
 import type { PublicContext } from '../types/index';
 
 // Membership already bounds who can be notified; this bounds the fan-out of a
@@ -19,17 +24,52 @@ export const NOTIFY_COLUMN = {
   task_assigned: 'notify_task_assigned',
   added_to_project: 'notify_added_to_project',
   bulk_task_assigned: 'notify_bulk_task_assigned',
+  mentioned: 'notify_mentioned',
 } as const satisfies Record<NotificationKind, string>;
+
+export type NotifyColumn = (typeof NOTIFY_COLUMN)[NotificationKind];
 
 export const NOTIFICATION_KINDS = Object.keys(NOTIFY_COLUMN) as NotificationKind[];
 
-export interface Notification {
-  kind: NotificationKind;
+// Everything that reads or writes the preferences goes through these two, so a
+// new kind is the `NOTIFY_COLUMN` row and its migration and nothing else.
+export const NOTIFY_COLUMNS: NotifyColumn[] = NOTIFICATION_KINDS.map((kind) => NOTIFY_COLUMN[kind]);
+
+export function toNotificationSettings(row: Record<NotifyColumn, boolean>): NotificationSettings {
+  return Object.fromEntries(
+    NOTIFICATION_KINDS.map((kind) => [kind, row[NOTIFY_COLUMN[kind]]])
+  ) as NotificationSettings;
+}
+
+export function toNotifyColumns(
+  settings: NotificationSettingsUpdate
+): Partial<Record<NotifyColumn, boolean>> {
+  const changes: Partial<Record<NotifyColumn, boolean>> = {};
+  for (const kind of NOTIFICATION_KINDS) {
+    const value = settings[kind];
+    if (value !== undefined) {
+      changes[NOTIFY_COLUMN[kind]] = value;
+    }
+  }
+  return changes;
+}
+
+interface NotificationTarget {
   actor: { id: string; name: string };
   project: { id: string; name: string; created_by: string | null };
-  task?: { id: string; title: string };
   recipientUserIds: string[];
 }
+
+// A union rather than one shape with optional parts, so `messageFor` cannot be
+// handed a kind whose message it has nothing to build from. `bulk_task_assigned`
+// is absent on purpose: it never reaches this layer, because a digest coalesces
+// many cards into one message of its own in ./assignmentDigest.
+export type Notification = NotificationTarget &
+  (
+    | { kind: 'added_to_project'; task?: undefined; source?: undefined }
+    | { kind: 'task_assigned'; task: { id: string; title: string }; source?: undefined }
+    | { kind: 'mentioned'; task: { id: string; title: string }; source: MentionSource }
+  );
 
 export interface Recipient {
   id: string;
@@ -91,19 +131,44 @@ export function unsubscribeLinks(
   };
 }
 
+function contentFor(notification: Notification): { subject: string; body: string } {
+  const actor = notification.actor.name;
+  const board = notification.project.name;
+  switch (notification.kind) {
+    case 'added_to_project':
+      return {
+        subject: `${actor} added you to ${board}`,
+        body:
+          `${actor} added you to the board "${board}" on ${APP_NAME}.\n\n` +
+          `Open it here: ${projectLink(notification.project.id)}`,
+      };
+    case 'task_assigned':
+      return {
+        subject: `${actor} assigned you: ${notification.task.title}`,
+        body:
+          `${actor} assigned you "${notification.task.title}" on the board "${board}".\n\n` +
+          `Open it here: ${taskLink(notification.project.id, notification.task.id)}`,
+      };
+    case 'mentioned': {
+      // A comment has no link of its own — the card is the finest thing
+      // ./webLinks can address — so the sentence is what says where to look.
+      const where =
+        notification.source === 'comment'
+          ? `in a comment on "${notification.task.title}"`
+          : `in the description of "${notification.task.title}"`;
+      return {
+        subject: `${actor} mentioned you in ${notification.task.title}`,
+        body:
+          `${actor} mentioned you ${where} on the board "${board}".\n\n` +
+          `Open it here: ${taskLink(notification.project.id, notification.task.id)}`,
+      };
+    }
+  }
+}
+
 function messageFor(notification: Notification, recipient: Recipient): EmailMessage {
   const { page, headers } = unsubscribeLinks(recipient, notification.kind);
-  const subject =
-    notification.task === undefined
-      ? `${notification.actor.name} added you to ${notification.project.name}`
-      : `${notification.actor.name} assigned you: ${notification.task.title}`;
-  const body =
-    notification.task === undefined
-      ? `${notification.actor.name} added you to the board "${notification.project.name}" on ${APP_NAME}.\n\n` +
-        `Open it here: ${projectLink(notification.project.id)}`
-      : `${notification.actor.name} assigned you "${notification.task.title}" on the board ` +
-        `"${notification.project.name}".\n\n` +
-        `Open it here: ${taskLink(notification.project.id, notification.task.id)}`;
+  const { subject, body } = contentFor(notification);
 
   return {
     to: recipient.email,
@@ -151,16 +216,17 @@ export const notificationDelivery: {
   },
 };
 
-export async function notify(
-  c: Pick<PublicContext, 'get'>,
-  args: {
-    kind: NotificationKind;
-    actor: { id: string; name: string };
-    project: { id: string; name: string; created_by: string | null };
-    taskId?: string;
-    recipientUserIds: string[];
-  }
-): Promise<void> {
+export type NotifyArgs = {
+  actor: { id: string; name: string };
+  project: { id: string; name: string; created_by: string | null };
+  recipientUserIds: string[];
+} & (
+  | { kind: 'added_to_project'; taskId?: undefined; source?: undefined }
+  | { kind: 'task_assigned'; taskId: string; source?: undefined }
+  | { kind: 'mentioned'; taskId: string; source: MentionSource }
+);
+
+export async function notify(c: Pick<PublicContext, 'get'>, args: NotifyArgs): Promise<void> {
   // Here rather than at the call sites so every future kind inherits it: acting
   // on yourself never mails you.
   const recipientUserIds = [...new Set(args.recipientUserIds)]
@@ -168,28 +234,32 @@ export async function notify(
     .slice(0, MAX_NOTIFICATION_RECIPIENTS);
   if (recipientUserIds.length === 0) return;
 
-  let task: { id: string; title: string } | undefined;
-  if (args.taskId !== undefined) {
-    const row = await c
-      .get('db')
-      .selectFrom('task')
-      .select(['id', 'title'])
-      .where('id', '=', args.taskId)
-      .executeTakeFirst();
-    if (!row) return;
-    task = row;
-  }
-
-  const notification: Notification = {
-    kind: args.kind,
+  const target: NotificationTarget = {
     actor: { id: args.actor.id, name: args.actor.name },
     project: {
       id: args.project.id,
       name: args.project.name,
       created_by: args.project.created_by,
     },
-    task,
     recipientUserIds,
   };
+
+  let notification: Notification;
+  if (args.kind === 'added_to_project') {
+    notification = { ...target, kind: args.kind };
+  } else {
+    const task = await c
+      .get('db')
+      .selectFrom('task')
+      .select(['id', 'title'])
+      .where('id', '=', args.taskId)
+      .executeTakeFirst();
+    if (!task) return;
+    notification =
+      args.kind === 'mentioned'
+        ? { ...target, kind: args.kind, task, source: args.source }
+        : { ...target, kind: args.kind, task };
+  }
+
   c.get('postCommitHooks').push(() => notificationDelivery.deliver(notification));
 }

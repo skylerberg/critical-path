@@ -37,7 +37,13 @@ import {
   verifyUnsubscribeToken,
   verifyVerificationToken,
 } from '../services/emailToken';
-import { NOTIFICATION_KINDS, NOTIFY_COLUMN } from '../services/notifications';
+import {
+  NOTIFICATION_KINDS,
+  NOTIFY_COLUMN,
+  NOTIFY_COLUMNS,
+  toNotificationSettings,
+  toNotifyColumns,
+} from '../services/notifications';
 import type { NotificationKind } from '../schemas/notifications';
 import { enqueueVerificationEmail } from '../services/emailVerification';
 import { claimInvitationsForNewAccount } from '../services/invitations';
@@ -70,6 +76,7 @@ import {
   resetPasswordSchema,
   emailTokenRequestSchema,
   notificationSettingsSchema,
+  notificationSettingsUpdateSchema,
   unsubscribeResponseSchema,
   meSchema,
   idSchema,
@@ -1239,18 +1246,11 @@ router.get(
     const row = await c
       .get('db')
       .selectFrom('app_user')
-      .select(['notify_task_assigned', 'notify_added_to_project', 'notify_bulk_task_assigned'])
+      .select(NOTIFY_COLUMNS)
       .where('id', '=', c.get('user').id)
       .executeTakeFirstOrThrow();
 
-    return c.json(
-      {
-        task_assigned: row.notify_task_assigned,
-        added_to_project: row.notify_added_to_project,
-        bulk_task_assigned: row.notify_bulk_task_assigned,
-      },
-      200
-    );
+    return c.json(toNotificationSettings(row), 200);
   }
 );
 
@@ -1264,9 +1264,11 @@ router.put(
     tags: ['Auth'],
     summary: 'Set notification settings',
     description:
-      'Replace the full set of notification preferences for the authenticated user. A ' +
-      'preference stays meaningful while the address is unverified — no mail is sent then ' +
-      'either way — so the toggles are never forced off.',
+      'Change the notification preferences the body names and leave the rest alone, then ' +
+      'return the full set. Every key is optional so a client can send only what it changed, ' +
+      'and so a kind added to a later release does not start refusing saves from a client ' +
+      'that predates it. A preference stays meaningful while the address is unverified — no ' +
+      'mail is sent then either way — so the toggles are never forced off.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...setNotificationSettingsResponses,
@@ -1275,22 +1277,30 @@ router.put(
       ...internalServerErrorResponse,
     },
   }),
-  jsonValidator(notificationSettingsSchema),
+  jsonValidator(notificationSettingsUpdateSchema),
   async (c): Promise<Returned<typeof setNotificationSettingsResponses>> => {
-    const settings = c.req.valid('json');
+    const changes = toNotifyColumns(c.req.valid('json'));
+    const db = c.get('db');
+    const userId = c.get('user').id;
 
-    await c
-      .get('db')
-      .updateTable('app_user')
-      .set({
-        notify_task_assigned: settings.task_assigned,
-        notify_added_to_project: settings.added_to_project,
-        notify_bulk_task_assigned: settings.bulk_task_assigned,
-      })
-      .where('id', '=', c.get('user').id)
-      .execute();
+    // A body naming nothing is a read: an UPDATE with an empty SET is a syntax
+    // error, and answering 422 for it would make "change nothing" the one
+    // request this endpoint refuses.
+    const row =
+      Object.keys(changes).length === 0
+        ? await db
+            .selectFrom('app_user')
+            .select(NOTIFY_COLUMNS)
+            .where('id', '=', userId)
+            .executeTakeFirstOrThrow()
+        : await db
+            .updateTable('app_user')
+            .set(changes)
+            .where('id', '=', userId)
+            .returning(NOTIFY_COLUMNS)
+            .executeTakeFirstOrThrow();
 
-    return c.json(settings, 200);
+    return c.json(toNotificationSettings(row), 200);
   }
 );
 
