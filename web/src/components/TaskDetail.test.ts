@@ -375,6 +375,13 @@ describe('TaskDetail', () => {
     expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
   });
 
+  it('opens with focus on the dialog rather than the title field', async () => {
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const title = await screen.findByLabelText('Task title');
+    expect(document.activeElement).toBe(title.closest('dialog'));
+  });
+
   it('gathers images, files and links under one Attachments heading', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
