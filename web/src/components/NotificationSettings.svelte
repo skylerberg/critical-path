@@ -50,7 +50,7 @@
       // tab left open across a release that adds a kind would otherwise write
       // back its own stale idea of the others.
       settings = assertOk(
-        await api.PUT('/api/auth/me/notification-settings', { body: { [key]: checked } })
+        await api.PATCH('/api/auth/me/notification-settings', { body: { [key]: checked } })
       );
       saveStatus = { kind: 'success', message: 'Preferences saved' };
     } catch (error) {

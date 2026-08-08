@@ -60,7 +60,7 @@ describe('NotificationSettings', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
     const request = requestAt(1);
-    expect(request.method).toBe('PUT');
+    expect(request.method).toBe('PATCH');
     expect(await request.clone().json()).toEqual({ task_assigned: false });
     expect(await screen.findByText('Preferences saved')).toBeInTheDocument();
   });
