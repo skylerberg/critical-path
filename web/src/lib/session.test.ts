@@ -1,5 +1,5 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import { consumeIntendedPath, rememberIntendedPath, session } from './session.svelte';
 import { matchRoute, router } from './router.svelte';
@@ -244,6 +244,36 @@ describe('session.logout', () => {
     expect(session.status).toBe('anon');
     expect(localStorage.getItem('cp.token')).toBeNull();
     expect(window.location.pathname).toBe('/login');
+  });
+
+  // The image and avatar routes require a credential now, so the weeks of
+  // board pictures the service worker holds must not outlive the session on a
+  // shared machine.
+  it('evicts the cached images and avatars', async () => {
+    const cacheDelete = vi.fn<(name: string) => Promise<boolean>>().mockResolvedValue(true);
+    // Assigned directly rather than through vi.stubGlobal: unstubbing restores
+    // every global vitest is tracking, localStorage included, and this file
+    // reaches for that in beforeEach.
+    const scope = globalThis as { caches?: unknown };
+    scope.caches = { delete: cacheDelete };
+    try {
+      await loginAs();
+      fetchMock.mockResolvedValue(jsonResponse(204));
+
+      await session.logout();
+
+      expect(cacheDelete.mock.calls.map(([name]) => name)).toEqual(['api-images', 'api-avatars']);
+    } finally {
+      delete scope.caches;
+    }
+  });
+
+  it('survives a browser with no CacheStorage at all', async () => {
+    await loginAs();
+    fetchMock.mockResolvedValue(jsonResponse(204));
+
+    await expect(session.logout()).resolves.toBeUndefined();
+    expect(session.status).toBe('anon');
   });
 });
 

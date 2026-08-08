@@ -1,6 +1,7 @@
 import { api, ApiError, assertOk, setAuthHooks } from '../api/client';
 import type { components } from '../api/api.generated';
 import { newId } from './ids';
+import { clearMediaCaches } from './mediaCaches';
 import { router, type Route } from './router.svelte';
 
 export type SessionUser = components['schemas']['Me'];
@@ -114,6 +115,7 @@ class SessionStore {
       // Best effort: the local session is cleared regardless.
     }
     this.#clear();
+    clearMediaCaches();
     sessionStorage.removeItem(INTENDED_PATH_KEY);
     if (router.current.name !== 'login') {
       router.navigate('/login');
