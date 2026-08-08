@@ -17,17 +17,9 @@ import {
 import { isWebhookEvent } from './eventCatalog';
 import type { AccountEventType, RealtimeEventType, WebhookEventType } from './eventCatalog';
 
-// The payload shape of every realtime event, beside the classification table in
-// eventCatalog.ts. Publishing is generic over the event type, so a payload that
-// disagrees with its row here is a type error at the publish site rather than a
-// README row that drifts. The README table and the clients' event types are both
-// generated from this map (`npm run realtime:dump`).
-//
-// Deliberately not re-exported from src/schemas/index.ts, unlike every schema
-// that describes a request or response: the OpenAPI schema-name registry hashes
-// each schema in that barrel and throws on two that produce identical JSON
-// Schema, which the bare `{ id }` payloads below would. /ws is not part of the
-// OpenAPI spec, so these reach clients through realtime-events.json instead.
+// Never re-export this module from src/schemas/index.ts: the OpenAPI schema-name
+// registry hashes every schema in that barrel and throws on two that produce
+// identical JSON Schema, which the bare `{ id }` payloads below would.
 
 const idOnly = type({ id: 'string' });
 
@@ -116,20 +108,14 @@ export const REALTIME_PAYLOAD_SCHEMAS = {
   // The subject's own record — the same shape GET /api/auth/me answers with,
   // which is exactly why it is delivered to no socket but theirs.
   account_updated: meSchema,
-  // Both directions are load-bearing: a missing key fails the mapped type
-  // below, and an excess one fails this check.
 } satisfies Record<RealtimeEventType, unknown>;
 
 export type RealtimePayloads = {
   [K in RealtimeEventType]: (typeof REALTIME_PAYLOAD_SCHEMAS)[K]['infer'];
 };
 
-// One envelope per event type rather than one envelope with a widened `type` and
-// an `unknown` payload, so the bus, the delivery layer, the transport and the
-// out-of-band publishers all narrow to a real payload by testing `type`. The
-// project id is part of the pairing: an account event carries null and a
-// project event carries a string, which is the invariant publishAfterCommit's
-// overloads used to be the only thing enforcing.
+// The project id belongs to the pairing an event type implies: an account event
+// carries null, a project event a string.
 type EnvelopeFor<T extends RealtimeEventType> = {
   type: T;
   project_id: T extends AccountEventType ? null : string;

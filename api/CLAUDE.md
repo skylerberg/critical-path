@@ -19,9 +19,10 @@ for the frontend's conventions.
 
 Realtime and webhook event types come from a second document,
 `realtime-events.json`, because `/ws` has no HTTP request or response to put in
-the OpenAPI spec — see convention 14. The CLI generates from it; the web app
-does not yet, and until it does its realtime `data` stays `unknown` behind
-hand-written casts.
+the OpenAPI spec — see convention 14. It is dumped locally and gitignored, the
+same as `openapi.json`, and served at `GET /api/realtime-events.json` so a client
+can generate against a deployed API without a checkout of this repo. Both the
+web app and the CLI generate from it.
 
 # Conventions
 
@@ -106,10 +107,10 @@ hand-written casts.
     `src/schemas/index.ts`: the OpenAPI schema-name registry throws on two
     schemas with identical JSON Schema, which the bare `{ id }` payloads are.
     After changing a payload run `npm run realtime:dump` and
-    `npm run --prefix cli generate-realtime`, and commit
-    `realtime-events.json` with the change — a unit test fails when that file is
-    stale. `/ws` is not in openapi.json, so this is the only document the
-    clients can generate realtime types from.
+    `npm run --prefix cli generate-realtime`, and commit the regenerated
+    `cli/src/api/realtime.generated.ts`. The dump itself is gitignored like
+    `openapi.json`; what the clients check is that theirs is not older than this
+    repo's HEAD.
 
 # Realtime, email, and password reset
 
