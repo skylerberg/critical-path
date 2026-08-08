@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import TaskComments from './TaskComments.svelte';
 import { board, type TaskComment } from '../lib/board.svelte';
+import { drafts } from '../lib/drafts.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { session } from '../lib/session.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
@@ -112,6 +113,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   mockCommentApi();
   board.reset();
+  drafts.clearAll();
   projects.reset();
   users.reset();
   taskActivity.reset();

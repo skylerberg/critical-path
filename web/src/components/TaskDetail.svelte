@@ -3,6 +3,7 @@
   import { board } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
   import { formatFullDate, isCalendarDate } from '../lib/dates';
+  import { docDraftKey, drafts } from '../lib/drafts.svelte';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { router } from '../lib/router.svelte';
   import { taskActivity } from '../lib/taskActivity.svelte';
@@ -11,7 +12,7 @@
   import TaskAssignees from './TaskAssignees.svelte';
   import TaskAttachments from './TaskAttachments.svelte';
   import TaskChecklist from './TaskChecklist.svelte';
-  import TaskComments, { type CommentDraft } from './TaskComments.svelte';
+  import TaskComments from './TaskComments.svelte';
   import TaskDependencies from './TaskDependencies.svelte';
   import TaskHistory from './TaskHistory.svelte';
   import TaskLabels from './TaskLabels.svelte';
@@ -70,10 +71,6 @@
   let attachmentsRevealed = $state(false);
   let commentsOpen = $state(false);
   let historyOpen = $state(false);
-  // Owned here rather than in TaskComments, which collapsing unmounts. Local like
-  // the title draft and unlike the compose drafts: it belongs to this card, and
-  // an unsent comment should not resurface on the next one.
-  let commentDraft = $state<CommentDraft | null>(null);
   let quickActions = $state<ReturnType<typeof TaskQuickActions>>();
   let checklistRef = $state<ReturnType<typeof TaskChecklist>>();
   let attachmentsRef = $state<ReturnType<typeof TaskAttachments>>();
@@ -117,9 +114,11 @@
       descriptionSaveState = 'idle';
       checklistRevealed = false;
       attachmentsRevealed = false;
-      commentsOpen = false;
+      // An unsent comment is the one thing that opens a disclosure by itself:
+      // restoring the draft behind a collapsed header would hide the very text
+      // the user came back to finish.
+      commentsOpen = drafts.getDoc(docDraftKey.taskComment(id)) !== null;
       historyOpen = false;
-      commentDraft = null;
       if (authed) {
         board.clearChanged(id);
         void board.loadTaskDetail(id);
@@ -460,7 +459,7 @@
           </summary>
           {#if commentsOpen}
             <div class="flex flex-col gap-4 pt-2">
-              <TaskComments {taskId} {anonymous} bind:draft={commentDraft} />
+              <TaskComments {taskId} {anonymous} />
             </div>
           {/if}
         </details>

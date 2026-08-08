@@ -626,6 +626,33 @@ describe('TaskDetail', () => {
     expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled();
   });
 
+  // Someone writing a comment often needs to go and check something first; the
+  // card they come back to has to still have their text.
+  it('keeps a comment draft across closing and reopening the card', async () => {
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await openComments();
+    descriptionEditor(first.container, '.rte-compact .tiptap').commands.insertContent(
+      'half-written'
+    );
+    await tick();
+    first.unmount();
+
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    // Opened for them: a restored draft behind a collapsed header is a draft the
+    // user cannot see they still have.
+    await waitFor(() =>
+      expect(descriptionEditor(container, '.rte-compact .tiptap').getText()).toBe('half-written')
+    );
+    expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled();
+  });
+
+  it('opens with Comments collapsed when there is no draft to come back to', async () => {
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
+
+    expect(container.querySelector('.rte-compact')).toBeNull();
+  });
+
   it('does not carry a comment draft onto the next card', async () => {
     const { container, rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await openComments();

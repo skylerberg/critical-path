@@ -2,6 +2,7 @@
   import type { Editor } from '@tiptap/core';
   import { board, type CommentBody, type TaskComment } from '../lib/board.svelte';
   import { formatTimestamp } from '../lib/dates';
+  import { docDraftKey, drafts } from '../lib/drafts.svelte';
   import { focusRemainsInside } from '../lib/focus';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { session } from '../lib/session.svelte';
@@ -11,23 +12,14 @@
   import Button from './ui/Button.svelte';
   import Spinner from './ui/Spinner.svelte';
 
-  // The task id travels with the text. The composer is keyed on taskId and is
-  // rebuilt before any effect could clear a stale draft, so identity has to be
-  // something the value carries rather than something reset after the fact.
-  export type CommentDraft = { taskId: string; doc: CommentBody };
-
   interface Props {
     taskId: string;
     // Not the same as read-only: a viewer may still write, edit and delete their
     // own comments, and an anonymous reader has no identity to attribute one to.
     anonymous?: boolean;
-    // Held by the overlay, which outlives this component: collapsing the
-    // disclosure unmounts the composer, and a half-written comment must not go
-    // with it.
-    draft?: CommentDraft | null;
   }
 
-  let { taskId, anonymous = false, draft = $bindable(null) }: Props = $props();
+  let { taskId, anonymous = false }: Props = $props();
 
   const mentionUsers = $derived(currentProjectMentionCandidates());
   const commentCount = $derived(board.tasks.find((t) => t.id === taskId)?.comment_count ?? 0);
@@ -44,7 +36,11 @@
   let editDoc = $state<CommentBody | null>(null);
   let confirmingDeleteId = $state<string | null>(null);
 
-  const draftDoc = $derived(draft?.taskId === taskId ? draft.doc : null);
+  // The store outlives both the collapsed disclosure and the closed overlay, and
+  // is keyed by task, so a draft can neither be lost by looking something up nor
+  // resurface on another card.
+  const draftKeyForTask = $derived(docDraftKey.taskComment(taskId));
+  const draftDoc = $derived(drafts.getDoc(draftKeyForTask));
 
   // Focused-but-empty still shows the button, disabled: that is where posting
   // happens once there is something to post. A draft keeps it up after a click
@@ -71,6 +67,7 @@
   function submit(): void {
     const doc = draftDoc;
     if (doc === null) return;
+    // clearContent reports null through onChange, which drops the stored draft.
     composer?.getEditor()?.commands.clearContent(true);
     void board.createComment(taskId, doc);
   }
@@ -195,7 +192,8 @@
       <RichTextEditor
         bind:this={composer}
         content={draftDoc}
-        onChange={(doc) => (draft = doc === null ? null : { taskId, doc })}
+        onChange={(doc) =>
+          doc === null ? drafts.clearDoc(draftKeyForTask) : drafts.setDoc(draftKeyForTask, doc)}
         placeholder="Write a comment…"
         compact
         {mentionUsers}
