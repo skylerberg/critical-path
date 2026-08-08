@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { db, waitForLockWaiters } from '../../helpers/database';
 import { newId, uniqueEmail, rankKey } from '../../helpers/fixtures';
 import { appendPositions } from '../../../src/services/boardColumns';
+import { keyBetween } from '../../../src/services/sortKey';
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -44,7 +45,7 @@ describe('concurrent moves into one column', () => {
           project_id: projectId,
           column_id: targetColumnId,
           title: 'already here',
-          sort_key: 'V0',
+          sort_key: keyBetween(null, null),
         },
         {
           id: movedA,

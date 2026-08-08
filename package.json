@@ -17,7 +17,7 @@
     "migrate:down": "node --env-file=.env --import tsx src/db/migrate.ts down",
     "migrate:test": "node --env-file=.env.test --import tsx scripts/with-test-db.ts node --import tsx src/db/migrate.ts",
     "test:db:prune": "node --env-file=.env.test --import tsx scripts/prune-test-databases.ts",
-    "kysely-codegen": "kysely-codegen --dialect postgres --out-file ./src/db/types.ts",
+    "kysely-codegen": "kysely-codegen --dialect postgres --out-file ./src/db/types.generated.ts",
     "openapi:dump": "node --env-file=.env --import tsx scripts/dump-openapi.ts",
     "realtime:dump": "node --env-file=.env --import tsx scripts/dump-realtime-events.ts",
     "test": "node --env-file=.env.test node_modules/vitest/vitest.mjs run",

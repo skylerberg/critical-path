@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
+import type { ResolvedSortKey } from '../../../src/db/types';
 import { imageStorageKey, newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import {
@@ -38,7 +39,7 @@ describe('POST /api/columns/:id/duplicate', () => {
 
   async function createColumn(
     projectId: string,
-    opts: { name?: string; sortKey?: string; isDone?: boolean } = {}
+    opts: { name?: string; sortKey?: ResolvedSortKey; isDone?: boolean } = {}
   ): Promise<string> {
     const id = newId();
     await db
@@ -190,6 +191,19 @@ describe('POST /api/columns/:id/duplicate', () => {
       .where('archived_at', 'is not', null)
       .execute();
     expect(archivedInCopy).toEqual([]);
+  });
+
+  it('ranks the copy past a key a sibling column is holding', async () => {
+    const projectId = await createProject('duplicate onto taken key');
+    const takenKey = rankKey(500);
+    await createColumn(projectId, { name: 'Sitting', sortKey: takenKey });
+    const sourceColumnId = await createColumn(projectId, { name: 'Source' });
+
+    const res = await ctx
+      .request(owner.token)
+      .post(`/api/columns/${sourceColumnId}/duplicate`, { id: newId(), sort_key: takenKey });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as DuplicatedColumn).column.sort_key > takenKey).toBe(true);
   });
 
   it('duplicates an empty column', async () => {

@@ -405,7 +405,10 @@ router.post(
           project_id: parent.project_id,
           column_id: parent.column_id,
           title: removed.text,
-          sort_key: body.sort_key ?? (await appendKeys(db, 'task', parent.column_id))[0]!,
+          sort_key:
+            body.sort_key === undefined
+              ? (await appendKeys(db, 'task', parent.column_id))[0]!
+              : await resolveSortKey(db, 'task', parent.column_id, body.sort_key),
         })
         .execute();
     } catch (err) {

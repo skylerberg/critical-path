@@ -1,5 +1,5 @@
 import type { Kysely } from 'kysely';
-import type { DB } from '../db/types';
+import type { DB, ResolvedSortKey } from '../db/types';
 import { copyTaskAttachments } from './attachments/copy';
 import { IMAGE_KIND } from './attachments/index';
 import { storage } from './storage/index';
@@ -49,7 +49,7 @@ export interface CopyTasksInput {
   actorUserId: string;
   columnIdFor: (sourceColumnId: string) => string;
   labelIdFor?: (sourceLabelId: string) => string;
-  sortKeyFor?: (source: { sort_key: string }) => string | undefined;
+  sortKeyFor?: (source: { sort_key: ResolvedSortKey }) => ResolvedSortKey | undefined;
   newIdFor?: () => string;
   copyAssignees: boolean;
 }
@@ -95,7 +95,7 @@ export async function copyTasks(
   // A copy into the column it came from cannot keep the source's key -- they
   // are unique per column. Only a copy into a fresh column can, and that is what
   // keeps a duplicated column's cards in the order they were in.
-  const destinationKeys = new Map<string, string>();
+  const destinationKeys = new Map<string, ResolvedSortKey>();
   const appendedBy = new Map<string, string[]>();
   for (const task of tasks) {
     const destination = input.columnIdFor(task.column_id);
@@ -130,7 +130,7 @@ export async function copyTasks(
               : JSON.stringify(
                   rewriteDescriptionImageIds(task.description as unknown as TiptapDoc, imageIdMap)
                 ),
-          sort_key: destinationKeys.get(task.id) as string,
+          sort_key: destinationKeys.get(task.id) as ResolvedSortKey,
           due_date: task.due_date,
         }))
       )
