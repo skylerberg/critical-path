@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
-import type { Selectable } from 'kysely';
+import type { Kysely, Selectable } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -10,7 +10,7 @@ import {
   assertProjectWrite,
   projectRole,
 } from '../services/authorization';
-import type { ProjectWebhook, WebhookDelivery } from '../db/types';
+import type { DB, ProjectWebhook, WebhookDelivery } from '../db/types';
 import {
   MAX_WEBHOOKS_PER_PROJECT,
   assertRegistrableWebhookUrl,
@@ -72,6 +72,44 @@ function toDeliveryResponse(row: Selectable<WebhookDelivery>): WebhookDeliveryRe
     created_at: row.created_at.toISOString(),
     payload: row.payload,
   };
+}
+
+const WEBHOOK_NOT_FOUND = 'Webhook not found';
+
+async function loadWebhook(db: Kysely<DB>, webhookId: string): Promise<Selectable<ProjectWebhook>> {
+  const webhook = await db
+    .selectFrom('project_webhook')
+    .selectAll()
+    .where('id', '=', webhookId)
+    .executeTakeFirst();
+  if (!webhook) {
+    throw new AppError(404, WEBHOOK_NOT_FOUND);
+  }
+  return webhook;
+}
+
+// 404 for a caller with no access to the webhook's project, so an inaccessible
+// registration stays indistinguishable from a nonexistent one; 403 for a viewer.
+async function assertWebhookWrite(
+  db: Kysely<DB>,
+  userId: string,
+  webhookId: string
+): Promise<Selectable<ProjectWebhook>> {
+  const webhook = await loadWebhook(db, webhookId);
+  await assertProjectWrite(db, userId, webhook.project_id, WEBHOOK_NOT_FOUND);
+  return webhook;
+}
+
+// The delivery log is the one webhook route a viewer may reach, so this asserts
+// access rather than write.
+async function assertWebhookAccess(
+  db: Kysely<DB>,
+  userId: string,
+  webhookId: string
+): Promise<Selectable<ProjectWebhook>> {
+  const webhook = await loadWebhook(db, webhookId);
+  await assertProjectAccess(db, userId, webhook.project_id, WEBHOOK_NOT_FOUND);
+  return webhook;
 }
 
 const router: AppHono = new Hono();
@@ -225,15 +263,7 @@ router.patch(
     const db = c.get('db');
     const user = c.get('user');
 
-    const existing = await db
-      .selectFrom('project_webhook')
-      .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!existing) {
-      throw new AppError(404, 'Webhook not found');
-    }
-    await assertProjectWrite(db, user.id, existing.project_id, 'Webhook not found');
+    const existing = await assertWebhookWrite(db, user.id, id);
 
     const updates: { url?: string; disabled_at?: Date | null; consecutive_failures?: number } = {};
     if (body.url !== undefined) {
@@ -305,15 +335,7 @@ router.delete(
     const db = c.get('db');
     const user = c.get('user');
 
-    const webhook = await db
-      .selectFrom('project_webhook')
-      .select(['id', 'project_id'])
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!webhook) {
-      throw new AppError(404, 'Webhook not found');
-    }
-    await assertProjectWrite(db, user.id, webhook.project_id, 'Webhook not found');
+    await assertWebhookWrite(db, user.id, id);
 
     await db.deleteFrom('project_webhook').where('id', '=', id).execute();
     return c.body(null, 204);
@@ -348,15 +370,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const webhook = await db
-      .selectFrom('project_webhook')
-      .select(['id', 'project_id'])
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!webhook) {
-      throw new AppError(404, 'Webhook not found');
-    }
-    await assertProjectWrite(db, user.id, webhook.project_id, 'Webhook not found');
+    await assertWebhookWrite(db, user.id, id);
 
     const row = await db
       .updateTable('project_webhook')
@@ -396,15 +410,7 @@ router.get(
     const db = c.get('db');
     const user = c.get('user');
 
-    const webhook = await db
-      .selectFrom('project_webhook')
-      .select(['id', 'project_id'])
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!webhook) {
-      throw new AppError(404, 'Webhook not found');
-    }
-    await assertProjectAccess(db, user.id, webhook.project_id, 'Webhook not found');
+    await assertWebhookAccess(db, user.id, id);
 
     const rows = await db
       .selectFrom('webhook_delivery')
@@ -444,15 +450,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const webhook = await db
-      .selectFrom('project_webhook')
-      .select(['id', 'project_id', 'disabled_at'])
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!webhook) {
-      throw new AppError(404, 'Webhook not found');
-    }
-    await assertProjectWrite(db, user.id, webhook.project_id, 'Webhook not found');
+    const webhook = await assertWebhookWrite(db, user.id, id);
 
     const delivery = await db
       .selectFrom('webhook_delivery')

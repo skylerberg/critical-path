@@ -1,8 +1,9 @@
-import type { Kysely } from 'kysely';
-import type { DB } from '../db/types';
+import type { Kysely, Selectable } from 'kysely';
+import type { BoardColumn, DB } from '../db/types';
 import type { MovedTask } from '../schemas/index';
 import { AppError } from '../utils/errors';
 import { AdvisoryLock, takeAdvisoryLock } from './advisoryLock';
+import { assertProjectWrite } from './authorization';
 import { keysBetween } from './sortKey';
 
 export interface ColumnInProject {
@@ -12,6 +13,8 @@ export interface ColumnInProject {
 }
 
 const CROSS_PROJECT_MESSAGE = 'column_id must reference a column in the project';
+
+export const COLUMN_NOT_FOUND = 'Column not found';
 
 // The database refuses a task or series whose column belongs to another
 // project, so this is what turns that refusal into a 422 naming the field the
@@ -33,6 +36,25 @@ export async function assertColumnInProject(
   if (column.project_id !== projectId) {
     throw new AppError(422, messages.otherProject ?? CROSS_PROJECT_MESSAGE);
   }
+  return column;
+}
+
+// 404 for a caller with no access to the column's project, so an inaccessible
+// column stays indistinguishable from a nonexistent one; 403 for a viewer.
+export async function assertColumnWrite(
+  db: Kysely<DB>,
+  userId: string,
+  columnId: string
+): Promise<Selectable<BoardColumn>> {
+  const column = await db
+    .selectFrom('board_column')
+    .selectAll()
+    .where('id', '=', columnId)
+    .executeTakeFirst();
+  if (!column) {
+    throw new AppError(404, COLUMN_NOT_FOUND);
+  }
+  await assertProjectWrite(db, userId, column.project_id, COLUMN_NOT_FOUND);
   return column;
 }
 
