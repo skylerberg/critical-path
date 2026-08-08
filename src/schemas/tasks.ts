@@ -9,7 +9,6 @@ import {
 } from './common';
 import { nullableTiptapDocSchema } from './tiptap';
 import { boardTaskSchema } from './board';
-import { imageResponseSchema } from './images';
 import { commentSchema } from './comments';
 import { checklistItemSchema } from './checklists';
 import { attachmentSchema } from './attachments';
@@ -60,7 +59,6 @@ export const taskDetailResponseSchema = boardTaskSchema.merge({
   project_id: 'string',
   archived_at: 'string | null',
   series_summary: 'string | null',
-  images: imageResponseSchema.array(),
   comments: commentSchema.array(),
   checklist_items: checklistItemSchema.array(),
   attachments: attachmentSchema.array(),

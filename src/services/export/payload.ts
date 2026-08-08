@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import type { BoardPayload, BoardTask, ProjectExport } from '../../schemas/index';
-import { usersWithProjectAccess } from '../authorization';
+import { usersWithProjectAccess } from '../userDirectory';
 import { IMAGE_KIND } from '../attachments/index';
 import { getArchivedTasks } from '../boardPayload';
 

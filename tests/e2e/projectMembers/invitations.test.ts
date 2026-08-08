@@ -13,7 +13,7 @@ import {
   INVITE_RESEND_MAX_ATTEMPTS,
   INVITE_SEND_MAX_ATTEMPTS,
   resetRateLimiter,
-} from '../../../src/middleware/rateLimit';
+} from '../../../src/services/rateLimit';
 import {
   INVITATION_TTL_MS,
   MAX_PENDING_INVITATIONS_PER_PROJECT,

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { describe, it, expect } from 'vitest';
-import { deduplicateOpenAPISpec } from '../../src/utils/openapi-dedupe';
+import { deduplicateOpenAPISpec } from '../../src/spec/openapi-dedupe';
 
 type Json = Record<string, unknown>;
 

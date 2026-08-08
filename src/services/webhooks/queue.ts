@@ -20,7 +20,7 @@ export const MAX_WEBHOOKS_PER_PROJECT = 10;
 export const SEND_TIMEOUT_MS = 10_000;
 export const MAX_ERROR_BODY_BYTES = 2048;
 const RETENTION_DAYS = 7;
-// Exported for realtime/document.ts, which pins the same version into the
+// Exported for src/spec/realtime-events.ts, which pins the same version into the
 // generated description of the webhook body.
 export const ENVELOPE_VERSION = 1;
 

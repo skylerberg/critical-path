@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import { sql, type Kysely, type Selectable } from 'kysely';
-import type { DB, Project } from '../db/types';
+import { sql, type Kysely } from 'kysely';
+import type { DB } from '../db/types';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
-import { assertProjectWrite, assertTaskWrite } from '../services/authorization';
+import { assertTaskWrite } from '../services/authorization';
+import { assertChecklistItemWrite, CHECKLIST_ITEM_NOT_FOUND } from '../services/checklistItems';
 import { fetchBoardTaskRows } from '../services/boardPayload';
 import { publishAfterCommit } from '../services/realtime/index';
 import { appendKeys, resolveSortKey } from '../services/sortKey';
@@ -33,8 +34,6 @@ import {
 import { AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
-
-const NOT_FOUND = 'Checklist item not found';
 
 interface ChecklistItemRow {
   id: string;
@@ -76,26 +75,6 @@ async function countsForTask(db: Kysely<DB>, taskId: string): Promise<ChecklistC
     checklist_item_count: Number(row.total),
     checklist_done_count: Number(row.done),
   };
-}
-
-// Checklists are card content rather than discussion, so unlike comments every
-// mutation here demands write access: 404 for a caller with none, 403 for a viewer.
-async function assertItemWrite(
-  db: Kysely<DB>,
-  userId: string,
-  itemId: string
-): Promise<{ task_id: string; project: Selectable<Project> }> {
-  const row = await db
-    .selectFrom('checklist_item')
-    .innerJoin('task', 'task.id', 'checklist_item.task_id')
-    .select(['checklist_item.task_id', 'task.project_id'])
-    .where('checklist_item.id', '=', itemId)
-    .executeTakeFirst();
-  if (!row) {
-    throw new AppError(404, NOT_FOUND);
-  }
-  const project = await assertProjectWrite(db, userId, row.project_id, NOT_FOUND);
-  return { task_id: row.task_id, project };
 }
 
 const createChecklistItemResponses = {
@@ -205,7 +184,7 @@ router.patch(
     const db = c.get('db');
     const actorId = c.get('user').id;
 
-    const { task_id, project } = await assertItemWrite(db, actorId, id);
+    const { task_id, project } = await assertChecklistItemWrite(db, actorId, id);
 
     const before = await db
       .selectFrom('checklist_item')
@@ -214,7 +193,7 @@ router.patch(
       .forNoKeyUpdate('checklist_item')
       .executeTakeFirst();
     if (!before) {
-      throw new AppError(404, NOT_FOUND);
+      throw new AppError(404, CHECKLIST_ITEM_NOT_FOUND);
     }
 
     const contentChanged =
@@ -273,7 +252,7 @@ router.patch(
       .where('checklist_item.id', '=', id)
       .executeTakeFirst();
     if (!row) {
-      throw new AppError(404, NOT_FOUND);
+      throw new AppError(404, CHECKLIST_ITEM_NOT_FOUND);
     }
 
     const item = toResponse(row);
@@ -309,7 +288,7 @@ router.delete(
     const db = c.get('db');
     const actorId = c.get('user').id;
 
-    const { task_id, project } = await assertItemWrite(db, actorId, id);
+    const { task_id, project } = await assertChecklistItemWrite(db, actorId, id);
 
     const deleted = await db
       .deleteFrom('checklist_item')
@@ -317,7 +296,7 @@ router.delete(
       .returning('checklist_item.text')
       .executeTakeFirst();
     if (!deleted) {
-      throw new AppError(404, NOT_FOUND);
+      throw new AppError(404, CHECKLIST_ITEM_NOT_FOUND);
     }
 
     await recordTaskActivity(db, actorId, [
@@ -368,7 +347,7 @@ router.post(
     const db = c.get('db');
     const actorId = c.get('user').id;
 
-    const { task_id, project } = await assertItemWrite(db, actorId, id);
+    const { task_id, project } = await assertChecklistItemWrite(db, actorId, id);
 
     // Delete first: a second concurrent promote blocks on this row lock, then
     // matches nothing and answers 404 having created no card. Inserting first
@@ -379,7 +358,7 @@ router.post(
       .returning(['checklist_item.text', 'checklist_item.task_id'])
       .executeTakeFirst();
     if (!removed) {
-      throw new AppError(404, NOT_FOUND);
+      throw new AppError(404, CHECKLIST_ITEM_NOT_FOUND);
     }
 
     const parent = await db
@@ -388,7 +367,7 @@ router.post(
       .where('task.id', '=', removed.task_id)
       .executeTakeFirst();
     if (!parent) {
-      throw new AppError(404, NOT_FOUND);
+      throw new AppError(404, CHECKLIST_ITEM_NOT_FOUND);
     }
 
     try {

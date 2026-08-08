@@ -1,11 +1,11 @@
 import { describe, it, expect, afterEach, beforeEach, vi, type MockInstance } from 'vitest';
+import { resetRateLimiter } from '../../src/services/rateLimit';
 import {
   withNotificationBudget,
-  resetRateLimiter,
   NOTIFY_PAIR_MAX_ATTEMPTS,
   NOTIFY_RECIPIENT_MAX_ATTEMPTS,
   NOTIFY_SILENCE_LOG_MAX,
-} from '../../src/middleware/rateLimit';
+} from '../../src/services/notificationBudget';
 import { logger } from '../../src/utils/logger';
 import { FakeRedis } from '../helpers/fakeRedis';
 

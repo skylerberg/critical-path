@@ -9,6 +9,6 @@ import { beforeAll } from 'vitest';
 // limiter in eagerly resolves its dependencies ahead of any vi.mock a test
 // file declares for them, and the test then runs against the real ones.
 beforeAll(async () => {
-  const { resetRateLimiter } = await import('../../src/middleware/rateLimit');
+  const { resetRateLimiter } = await import('../../src/services/rateLimit');
   resetRateLimiter();
 });

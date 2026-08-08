@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assertUniqueOperationIds } from '../../src/utils/openapi-assert-unique-operation-ids';
+import { assertUniqueOperationIds } from '../../src/spec/openapi-assert-unique-operation-ids';
 
 type Operation = { operationId?: string; deprecated?: boolean };
 type PathItem = Record<string, Operation>;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { startWorker } from '../../src/services/worker';
+import { startWorker } from '../../src/services/tickWorker';
 import { logger } from '../../src/utils/logger';
 
 const delay = (ms: number): Promise<void> =>

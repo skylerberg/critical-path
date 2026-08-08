@@ -1,5 +1,11 @@
 import { type } from 'arktype';
-import { isValidUuid } from '../types/uuid';
+import { isValidUuid } from '../utils/uuid';
+
+// The document model, and the owner of every judgment about what a node means:
+// the node types below, what an image node may point at, and what a mention
+// reads as. Validation is only the first reader — export, copy and the series
+// template all walk the same tree, and a second opinion about a node type in one
+// of them is how a document comes to be empty in one place and not in another.
 
 export const TIPTAP_MAX_SERIALIZED_BYTES = 100 * 1024;
 // Matches the bound on app_user.name, which is what a mention label snapshots.
@@ -22,7 +28,7 @@ const NODE_TYPES = new Set([
 ]);
 const MARK_TYPES = new Set(['bold', 'italic', 'strike', 'code', 'link']);
 const LINK_HREF_PATTERN = /^(https?:|mailto:)/;
-const IMAGE_SRC_PREFIX = '/api/images/';
+export const IMAGE_SRC_PREFIX = '/api/images/';
 const NODE_KEYS = new Set(['type', 'attrs', 'marks', 'content', 'text']);
 const MARK_KEYS = new Set(['type', 'attrs']);
 // Tiptap documents are shallow in practice; the cap keeps the recursive walk
@@ -51,8 +57,61 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+export function imageSrc(imageId: string): string {
+  return `${IMAGE_SRC_PREFIX}${imageId}`;
+}
+
+// The one place an image node's src is taken apart. Anything reading the id back
+// out by hand is a second, quieter definition of what an image node may point
+// at, and the two go out of step the first time this one is tightened.
+export function imageIdFromSrc(src: string): string | null {
+  if (!src.startsWith(IMAGE_SRC_PREFIX)) return null;
+  const imageId = src.slice(IMAGE_SRC_PREFIX.length);
+  return isValidUuid(imageId) ? imageId.toLowerCase() : null;
+}
+
+// A mention is an atom with no text child, and it reads as its label. Emptiness
+// and plain-text rendering have to agree about that or a comment reading only
+// "@Bob" is rejected as empty by one and exported as its label by the other —
+// Tiptap's own emptiness check counts it, so both say it is content.
+export function mentionText(node: TiptapNode): string | null {
+  if (node.type !== 'mention') return null;
+  const label = node.attrs?.label;
+  return `@${typeof label === 'string' ? label : ''}`;
+}
+
+function mapNodes(
+  nodes: TiptapNode[],
+  visit: (node: TiptapNode) => TiptapNode | null
+): TiptapNode[] {
+  const kept: TiptapNode[] = [];
+  for (const node of nodes) {
+    const mapped = visit(node);
+    if (mapped === null) continue;
+    kept.push(
+      mapped.content === undefined
+        ? mapped
+        : { ...mapped, content: mapNodes(mapped.content, visit) }
+    );
+  }
+  return kept;
+}
+
+// Rebuilds a document with every node passed through `visit`, dropping the ones
+// it answers null for. The root is not offered: a document is not a node any
+// caller may delete, and both callers — rewriting image ids into a copy, and
+// stripping images out of a series template — only ever act on what is inside
+// it.
+export function mapTiptapDoc(
+  doc: TiptapDoc,
+  visit: (node: TiptapNode) => TiptapNode | null
+): TiptapDoc {
+  if (doc.content === undefined) return { ...doc };
+  return { ...doc, content: mapNodes(doc.content, visit) };
+}
+
 function isAllowedImageSrc(src: string): boolean {
-  return src.startsWith(IMAGE_SRC_PREFIX) && isValidUuid(src.slice(IMAGE_SRC_PREFIX.length));
+  return imageIdFromSrc(src) !== null;
 }
 
 function markProblem(mark: unknown, path: string): string | null {
@@ -155,9 +214,7 @@ function nodeProblem(node: unknown, path: string, depth: number): string | null 
 
 function hasVisibleContent(nodes: TiptapNode[] | undefined): boolean {
   for (const node of nodes ?? []) {
-    // A mention is an atom carrying no text, and Tiptap's own emptiness check
-    // counts it, so a comment reading only "@Bob" must not be rejected as empty.
-    if (node.type === 'image' || node.type === 'horizontalRule' || node.type === 'mention') {
+    if (node.type === 'image' || node.type === 'horizontalRule' || mentionText(node) !== null) {
       return true;
     }
     if (node.type === 'text' && (node.text ?? '').trim() !== '') {

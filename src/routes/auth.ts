@@ -11,11 +11,11 @@ import {
   enforceResetRateLimit,
   enforceSignupRateLimit,
   enforceVerificationRateLimit,
-} from '../middleware/rateLimit';
+} from '../services/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { passwordResetLink } from '../services/webLinks';
 import { APP_NAME } from '../config/constants';
-import { isValidUuid } from '../types/uuid';
+import { isValidUuid } from '../utils/uuid';
 import {
   assignedTasksElsewhere,
   deleteUnsharedProjects,

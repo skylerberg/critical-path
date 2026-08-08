@@ -1,7 +1,7 @@
 import { APP_NAME } from '../config/constants';
 import { projectLink, taskLink, unsubscribeLink, unsubscribeOneClickUrl } from './webLinks';
 import { db } from '../db/index';
-import { withNotificationBudget } from '../middleware/rateLimit';
+import { withNotificationBudget } from './notificationBudget';
 import { errorText } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { projectAccessIdsAmong, type ProjectAccessFields } from './authorization';

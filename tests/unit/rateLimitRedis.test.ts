@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SimpleError } from 'redis';
-import { consumeRateLimit, resetRateLimiter } from '../../src/middleware/rateLimit';
+import { consumeRateLimit, resetRateLimiter } from '../../src/services/rateLimit';
 import { logger } from '../../src/utils/logger';
 import { FakeRedis } from '../helpers/fakeRedis';
 
