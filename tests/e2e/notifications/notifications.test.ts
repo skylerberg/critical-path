@@ -27,6 +27,7 @@ import { logger } from '../../../src/utils/logger';
 import {
   notificationDelivery,
   notify,
+  MAX_NOTIFICATION_RECIPIENTS,
   NOTIFY_COLUMNS,
   toNotificationSettings,
   type Notification,
@@ -566,23 +567,46 @@ describe('Notifications', () => {
     });
   });
 
-  describe('never the actor', () => {
-    // notify() drops the actor before it queues anything, so every route
-    // inherits the rule. This is the other half: a publisher that builds its own
-    // Notification and calls the delivery seam runs none of that, and the rule
-    // has to hold for it too — which is why the last gate re-applies it.
-    it('drops the actor from a notification handed straight to the delivery seam', async () => {
-      await grantAccess([member.id]);
+  // notify() applies both of these before it queues anything, so every route
+  // inherits them. These are the other half: a publisher that builds its own
+  // Notification and calls the delivery seam runs none of that, and both rules
+  // have to hold for it too — which is why the last gate re-applies them.
+  describe('what one write can reach, from the delivery seam', () => {
+    async function deliverTo(recipientUserIds: string[]): Promise<void> {
       const task = await createTask(owner.token);
-
       await notificationDelivery.deliver({
         kind: 'task_assigned',
         actor: { id: owner.id, name: owner.name },
         project: { id: projectId, name: 'Notify board', created_by: owner.id },
         task: { id: task.id, title: 'Ship the thing' },
-        recipientUserIds: [owner.id, member.id],
+        recipientUserIds,
       });
       await settle();
+    }
+
+    it('drops the actor', async () => {
+      await grantAccess([member.id]);
+      await deliverTo([owner.id, member.id]);
+
+      expect(sentEmails().map((email) => email.to)).toEqual([member.email]);
+    });
+
+    // The bound is on the ids asked for, not on the ones that survive the gates,
+    // so a real recipient past the ceiling is dropped by position alone. Filling
+    // with ids that match no account is what keeps this cheap — the assertion is
+    // about where the cut falls, not about who is eligible.
+    it('mails nobody past the hundredth id it was handed', async () => {
+      await grantAccess([member.id]);
+      const filler = Array.from({ length: MAX_NOTIFICATION_RECIPIENTS }, () => newId());
+      await deliverTo([...filler, member.id]);
+
+      expect(sentEmails()).toEqual([]);
+    });
+
+    it('still mails the hundredth', async () => {
+      await grantAccess([member.id]);
+      const filler = Array.from({ length: MAX_NOTIFICATION_RECIPIENTS - 1 }, () => newId());
+      await deliverTo([...filler, member.id]);
 
       expect(sentEmails().map((email) => email.to)).toEqual([member.email]);
     });
