@@ -28,7 +28,9 @@ if [ -z "$candidates" ]; then
 fi
 
 npx eslint --fix $candidates || true
-npx prettier --write $candidates || true
+# --log-level warn: silent when it succeeds, still loud on a syntax error.
+# Without it this prints a line per file on every commit.
+npx prettier --write --log-level warn $candidates || true
 
 changed=""
 for f in $candidates; do
