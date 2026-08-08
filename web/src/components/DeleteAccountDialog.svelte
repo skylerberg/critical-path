@@ -2,7 +2,7 @@
   import { api, ApiError, assertOk } from '../api/client';
   import type { components } from '../api/api.generated';
   import { apiMessage } from '../lib/apiMessages';
-  import { AVATAR_CACHE_NAME, IMAGE_CACHE_NAME } from '../lib/constants';
+  import { clearMediaCaches } from '../lib/mediaCaches';
   import { projects } from '../lib/projects.svelte';
   import { realtime } from '../lib/realtime.svelte';
   import { router } from '../lib/router.svelte';
@@ -25,17 +25,6 @@
   let error = $state('');
   let blocking = $state<DeleteAccountConflict['blocking_projects']>([]);
   let deleting = $state(false);
-
-  // Nothing else in the app touches CacheStorage, and the service worker keeps
-  // this account's avatar and board images on the device for weeks.
-  function clearMediaCaches(): void {
-    if (typeof caches === 'undefined') return;
-    for (const name of [IMAGE_CACHE_NAME, AVATAR_CACHE_NAME]) {
-      // A CacheStorage that refuses is not worth reporting to someone whose
-      // account is already gone.
-      void caches.delete(name).catch(() => false);
-    }
-  }
 
   function close(): void {
     // Nothing can call the request back once it is in flight, so closing must
