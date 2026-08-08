@@ -184,9 +184,13 @@ npm run --prefix cli generate-api` and commit the regenerated
   `TRUNCATE` would otherwise wipe or block a suite running beside it. Never set
   `DB_DATABASE` to reach a specific database; both the config and the workers
   assert the derived name and fail loudly. Two suites in the *same* checkout
-  still share one database, so run them from separate worktrees.
-  `npm run test:db:prune` clears databases whose checkout is gone (add
-  `-- --legacy` for unstamped leftovers).
+  would still share one database, so `globalSetup` takes a Postgres advisory
+  lock keyed to that name before it truncates and the second run refuses to
+  start: a `TRUNCATE` landing under a live run deletes rows it has already
+  created, which surfaces as one unrelated test failing on a wrong exit code
+  and passing on the rerun. Run suites from separate worktrees to get them in
+  parallel. `npm run test:db:prune` clears databases whose checkout is gone
+  (add `-- --legacy` for unstamped leftovers).
 - Two files check the shared Redis path against a real server and skip without
   `REDIS_TEST_URL` in `.env.test` (`redis://127.0.0.1:6379/15`, `brew install
   redis`); CI has one and fails there rather than skipping. Never put
