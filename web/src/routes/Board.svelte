@@ -12,7 +12,7 @@
   import { focusIf, scrollToTopOn } from '../lib/actions';
   import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
-  import { cardMenu } from '../lib/card-menu.svelte';
+  import { cardMenu, TOUCH_DRAG_DELAY_MS } from '../lib/card-menu.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { edgeScrollSpeed, fitsHorizontally, snapScrollLeft } from '../lib/board-scroll';
   import { motion } from '../lib/motion.svelte';
@@ -32,7 +32,6 @@
   let { projectId, readonly = false }: Props = $props();
 
   const FLIP_MS = 150;
-  const TOUCH_DRAG_DELAY_MS = 250;
   const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
 
   const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);

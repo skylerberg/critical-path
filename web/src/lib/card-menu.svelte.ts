@@ -1,7 +1,16 @@
 import { board } from './board.svelte';
 import { selection } from './selection.svelte';
 
-const LONG_PRESS_MS = 500;
+/**
+ * A touch press arms the drag first and the menu second, so the gap between these
+ * two is the entire window a finger has to lift a card and start moving it before
+ * the menu takes the gesture away. It has to be generous: a hold long enough for
+ * the drag layer to call it deliberate still reads as hesitation to the person
+ * doing it, and reaching the menu is the rarer of the two intents.
+ */
+export const TOUCH_DRAG_DELAY_MS = 250;
+const LONG_PRESS_MS = 2000;
+
 const LONG_PRESS_SLOP_PX = 10;
 const CLICK_SWALLOW_MS = 700;
 
