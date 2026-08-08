@@ -6,6 +6,7 @@ export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
     RealtimeEvent:
+      | components['schemas']['AccountUpdatedEvent']
       | components['schemas']['AttachmentCreatedEvent']
       | components['schemas']['AttachmentDeletedEvent']
       | components['schemas']['AttachmentUpdatedEvent']
@@ -68,6 +69,18 @@ export interface components {
       | components['schemas']['TaskRelationsSetWebhookEvent']
       | components['schemas']['TaskRestoredWebhookEvent']
       | components['schemas']['TaskUpdatedWebhookEvent'];
+    AccountUpdatedEvent: {
+      /** @constant */
+      type: 'account_updated';
+      project_id: null;
+      data: {
+        avatar_url: string | null;
+        email: string;
+        email_verified: boolean;
+        id: string;
+        name: string;
+      };
+    };
     AttachmentCreatedEvent: {
       /** @constant */
       type: 'attachment_created';

@@ -214,15 +214,28 @@ describe('VerifyEmail', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(204));
     await fireEvent.click(screen.getByRole('button', { name: 'Send a new link' }));
 
-    // Hedged rather than "sent": the same 204 comes back having sent nothing when
-    // the address turned out to be verified already.
-    const sent = await screen.findByText(
-      'If your address still needs verifying, a new link is on its way.'
-    );
+    // Definite now: the button is offered only while this tab believes its own
+    // address unverified, which account_updated keeps current.
+    const sent = await screen.findByText('A new link is on its way.');
     expect(sent).toHaveAttribute('role', 'status');
-    expect(sent.textContent).not.toMatch(/\bsent\b/i);
     expect(sent.className).not.toContain('text-danger');
     expect(new URL(requestAt(1).url).pathname).toBe('/api/auth/verify-email/resend');
+  });
+
+  // The resend mails the caller's own address, never the one the link was for,
+  // so a caller already verified would get the same 204 having sent nothing.
+  // Landing here after verifying with a newer link is the common way to do it.
+  it('offers no new link to a visitor whose own address is already verified', async () => {
+    session.status = 'authed';
+    session.user = { ...ME, email_verified: true };
+    fetchMock.mockResolvedValueOnce(jsonResponse(422, EXPIRED));
+    render(VerifyEmail, { token: 'tok-stale' });
+    await screen.findByRole('alert');
+
+    expect(screen.queryByRole('button', { name: 'Send a new link' })).toBeNull();
+    expect(
+      screen.getByText('Your address is already verified, so there is no new link to send.')
+    ).toBeInTheDocument();
   });
 
   // Opening a second link must neither leave its resend button dead nor let the
