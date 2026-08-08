@@ -20,9 +20,14 @@ export const ACCENT_KEYS = Object.keys(ACCENTS) as ProjectAccent[];
 // fields, and a newer release can serve a key this build has no token for — an
 // indexed lookup produces a broken value or a throw on all three. hasOwn, not a
 // truthiness check: 'toString' indexes to a function off the prototype.
-export function accentVar(color: string | null | undefined): string | null {
+export function accentProperty(color: string | null | undefined): string | null {
   if (color == null || !Object.hasOwn(ACCENTS, color)) {
     return null;
   }
-  return `var(${ACCENTS[color as ProjectAccent].cssVar})`;
+  return ACCENTS[color as ProjectAccent].cssVar;
+}
+
+export function accentVar(color: string | null | undefined): string | null {
+  const property = accentProperty(color);
+  return property === null ? null : `var(${property})`;
 }

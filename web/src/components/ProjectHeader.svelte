@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { accentVar, type ProjectAccent } from '../lib/accents';
   import { apiMessage } from '../lib/apiMessages';
   import { board } from '../lib/board.svelte';
@@ -6,6 +7,7 @@
   import { projects } from '../lib/projects.svelte';
   import { link, type ProjectView } from '../lib/router.svelte';
   import { projectHref } from '../lib/short-links';
+  import { themeColor } from '../lib/theme-color';
   import { toasts } from '../lib/toasts.svelte';
   import ArchivedTasksModal from './ArchivedTasksModal.svelte';
   import FilterBar from './FilterBar.svelte';
@@ -63,6 +65,14 @@
     listed !== undefined ? listed.color : (board.project?.color ?? null)
   );
   const accentBar = $derived(accentVar(accent));
+
+  $effect(() => {
+    themeColor.set(accent);
+  });
+
+  // Not the effect's own teardown, which also runs before every re-run: moving
+  // between two colours would repaint the default in between.
+  onDestroy(() => themeColor.reset());
 
   const menuItemClass =
     'flex min-h-11 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm hover:bg-accent-soft';
