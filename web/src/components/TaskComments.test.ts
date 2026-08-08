@@ -6,6 +6,7 @@ import TaskComments from './TaskComments.svelte';
 import { board, type TaskComment } from '../lib/board.svelte';
 import { drafts } from '../lib/drafts.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
+import { realtimeEvent } from '../lib/realtime-test-events';
 import { session } from '../lib/session.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
 import { toasts } from '../lib/toasts.svelte';
@@ -387,11 +388,13 @@ describe('TaskComments', () => {
     render(TaskComments, { taskId: 't1' });
     expect(screen.getAllByRole('listitem')[1]).toHaveTextContent('theirs');
 
-    board.applyRealtime({
-      type: 'comment_updated',
-      project_id: 'p1',
-      data: { ...theirComment, body: comment('c2', 'u2', 'reworded').body },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'comment_updated',
+        { ...theirComment, body: comment('c2', 'u2', 'reworded').body },
+        'p1'
+      )
+    );
 
     await waitFor(() => expect(screen.getAllByRole('listitem')[1]).toHaveTextContent('reworded'));
     expect(screen.getAllByRole('listitem')[1]).not.toHaveTextContent('theirs');

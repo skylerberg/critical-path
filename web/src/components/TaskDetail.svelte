@@ -657,7 +657,9 @@
         />
       {/if}
     {/if}
-    <!-- The shell's copy is inert behind this dialog, so the overlay needs its own. -->
-    <Announcer />
+    <!-- The shell's copy is inert behind this dialog, so the overlay needs its own.
+         Only the local channel: remote board changes go unspoken while any dialog is
+         open, so a second region for them would never hold anything. -->
+    <Announcer message={announcer.message} />
   </div>
 </dialog>

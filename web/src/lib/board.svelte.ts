@@ -272,6 +272,21 @@ class BoardStore {
     this.changedTaskIds.delete(taskId);
   }
 
+  // A teammate's live change earns the same tint as the entry capture's, so a
+  // card that moved while the reader was looking elsewhere is still findable
+  // afterwards — which is the half a spoken announcement cannot do, since it
+  // cannot be re-read or navigated to. Deliberately ignores #lookedAtTaskIds:
+  // having opened a card earlier in this visit is no reason to hide that it has
+  // changed since.
+  markRemotelyChanged(taskIds: Iterable<string>): void {
+    if (this.readonly) {
+      return;
+    }
+    for (const id of taskIds) {
+      this.changedTaskIds.add(id);
+    }
+  }
+
   // `quiet` suppresses the error page for reads that merely supplement an action
   // that already succeeded.
   async refetch({ quiet = false }: { quiet?: boolean } = {}): Promise<void> {

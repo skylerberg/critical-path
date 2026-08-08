@@ -2,12 +2,16 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { board } from './board.svelte';
+import { boardAnnouncer } from './board-announcer.svelte';
 import { invitations } from './invitations.svelte';
 import type { BoardPayload } from './board-types';
 import { projects, type Project } from './projects.svelte';
 import { realtime } from './realtime.svelte';
 import { session } from './session.svelte';
 import { taskSeries } from './taskSeries.svelte';
+import { router } from './router.svelte';
+import { projectHref } from './short-links';
+import { testUuid } from './test-ids';
 import { users } from './users.svelte';
 import { realtimeEvent } from './realtime-test-events';
 
@@ -161,6 +165,7 @@ beforeEach(async () => {
   FakeWebSocket.instances = [];
   realtime.disconnect();
   board.reset();
+  boardAnnouncer.reset();
   projects.reset();
   taskSeries.reset();
   localStorage.setItem('cp.token', 'test-token');
@@ -179,6 +184,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   realtime.disconnect();
+  boardAnnouncer.reset();
   vi.useRealTimers();
 });
 
@@ -1441,5 +1447,68 @@ describe('invitations_changed dispatch', () => {
     await reconnect();
 
     expect(invitationRequests()).toBe(1);
+  });
+});
+
+describe('announcing a teammate’s board change', () => {
+  const PROJECT = testUuid('p1');
+
+  beforeEach(() => {
+    users.users = [{ id: 'u2', name: 'Ana', avatar_url: null }];
+    router.navigate(projectHref(PROJECT, 'Rulebook'), { replace: true });
+  });
+
+  // Only possible if record() ran before applyRealtime: the payload is an id,
+  // so the title exists nowhere but the store this event is about to change.
+  it('names a deleted card from the board as it stood before the event applied', async () => {
+    board.tasks = [task('t1')];
+    const socket = await connectAndAuth(PROJECT);
+
+    vi.useFakeTimers();
+    try {
+      socket.receive(realtimeEvent('task_deleted', { id: 't1', actor_user_id: 'u2' }, PROJECT));
+      expect(board.tasks).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(boardAnnouncer.message).toBe('Ana deleted "t1"');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for a drag to finish, then announces what landed behind it', async () => {
+    const socket = await connectAndAuth(PROJECT);
+    board.dragging = true;
+
+    vi.useFakeTimers();
+    try {
+      socket.receive(
+        realtimeEvent('task_created', { ...task('t1'), actor_user_id: 'u2' }, PROJECT)
+      );
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(boardAnnouncer.message).toBe('');
+
+      board.dragging = false;
+      flushSync();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(boardAnnouncer.message).toBe('Ana added "t1"');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Every other board-event case in this file builds payloads with no actor, so
+  // this is the invariant that keeps them all silent.
+  it('announces nothing and tints nothing for an event that names no actor', async () => {
+    const socket = await connectAndAuth(PROJECT);
+
+    vi.useFakeTimers();
+    try {
+      socket.receive(realtimeEvent('task_created', task('t1'), PROJECT));
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(boardAnnouncer.message).toBe('');
+      expect(board.changedTaskIds.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

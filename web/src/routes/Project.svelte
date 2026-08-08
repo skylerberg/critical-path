@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { announcer } from '../lib/announcer.svelte';
+  import { boardAnnouncer } from '../lib/board-announcer.svelte';
   import { board } from '../lib/board.svelte';
   import { mergeFilterSearch, noFilters, type BoardFilters } from '../lib/board-filters';
   import { router, splitPath, type ProjectView } from '../lib/router.svelte';
@@ -70,6 +71,7 @@
       selection.clear();
       shortcuts.closeMenus();
       announcer.clear();
+      boardAnnouncer.reset();
     });
   });
 
