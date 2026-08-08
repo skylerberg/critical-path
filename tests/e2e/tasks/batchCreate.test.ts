@@ -43,7 +43,7 @@ describe('POST /api/tasks/batch', () => {
     return { id, title, sort_key: rankKey(rank) };
   }
 
-  function batchBody(tasks: { id: string; title: string; position: number }[], overrides = {}) {
+  function batchBody(tasks: { id: string; title: string; sort_key: string }[], overrides = {}) {
     return { project_id: projectId, column_id: columnId, tasks, ...overrides };
   }
 

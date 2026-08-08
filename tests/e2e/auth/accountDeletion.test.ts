@@ -3,7 +3,7 @@ import path from 'path';
 import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { env } from '../../../src/config/env';
 import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
 
@@ -67,7 +67,7 @@ describe('DELETE /api/auth/me', () => {
       .where('id', '=', imageId)
       .where('kind', '=', 'image')
       .executeTakeFirstOrThrow();
-    return row.storage_key;
+    return imageStorageKey(row.storage_key);
   }
 
   async function uploadAvatar(user: TestUser): Promise<string> {

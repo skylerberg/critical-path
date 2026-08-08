@@ -51,8 +51,8 @@ describe('Bulk actions on a selection', () => {
       .insertInto('project_member')
       .values({ project_id: projectId, user_id: viewer.id, role: 'viewer' })
       .execute();
-    todo = await fixtures.createColumn(projectId, { name: 'Todo', sort_key: rankKey(1000) });
-    doing = await fixtures.createColumn(projectId, { name: 'Doing', sort_key: rankKey(2000) });
+    todo = await fixtures.createColumn(projectId, { name: 'Todo', sortKey: rankKey(1000) });
+    doing = await fixtures.createColumn(projectId, { name: 'Doing', sortKey: rankKey(2000) });
     labelId = await fixtures.createLabel(projectId, 'art');
     otherProjectId = await fixtures.createProject('bulk other project', { createdBy: outsider.id });
     otherColumnId = await fixtures.createColumn(otherProjectId, { name: 'Elsewhere' });
@@ -329,7 +329,7 @@ describe('Bulk actions on a selection', () => {
     it('re-stamps a card already in the target without moving or logging it', async () => {
       const [mover] = await seed(1);
       const resident = await fixtures.createTaskRow(projectId, doing, 'already there', {
-        sort_key: rankKey(500),
+        sortKey: rankKey(500),
       });
       const before = await taskRow(resident);
 
@@ -355,7 +355,7 @@ describe('Bulk actions on a selection', () => {
       const [fromTodo] = await seed(1);
       const third = await fixtures.createColumn(projectId, {
         name: 'Blocked',
-        sort_key: rankKey(3000),
+        sortKey: rankKey(3000),
       });
       const fromBlocked = await fixtures.createTaskRow(projectId, third, 'blocked one');
 

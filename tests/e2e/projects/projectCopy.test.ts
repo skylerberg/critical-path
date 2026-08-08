@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import {
   BoardPayloadBody,
@@ -36,7 +36,7 @@ describe('POST /api/projects with source_project_id', () => {
         .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', 'in', projectIds)
         .execute();
-      await Promise.all(imageRows.map((row) => storage.delete(row.storage_key)));
+      await Promise.all(imageRows.map((row) => storage.delete(imageStorageKey(row.storage_key))));
     }
     await deleteProjects(projectIds);
     await ctx.cleanup();
@@ -181,7 +181,7 @@ describe('POST /api/projects with source_project_id', () => {
     const textNode = copiedDescription.content!.find((node) => node.type === 'paragraph')!;
     expect(textNode).toEqual(description.content[0]);
 
-    expect(await storage.get(newImageRow.storage_key)).toEqual(imageBytes);
+    expect(await storage.get(imageStorageKey(newImageRow.storage_key))).toEqual(imageBytes);
     expect(await storage.get(storageKey)).toEqual(imageBytes);
   });
 

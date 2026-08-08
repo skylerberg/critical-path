@@ -101,12 +101,11 @@ export type WebhookEventType = {
 
 export const REALTIME_EVENT_TYPES = Object.keys(EVENTS) as RealtimeEventType[];
 
-// The lookups tolerate a type outside the union rather than throwing on one.
-// tsconfig type-checks src only, so the union does not constrain callers in
-// tests, and a TypeError raised from inside publishAfterCommit would roll back
-// the mutation that published it.
-export function isWebhookEvent(type: RealtimeEventType): type is WebhookEventType {
-  const event: (typeof EVENTS)[RealtimeEventType] | undefined = EVENTS[type];
+// Takes a string rather than the union: the lookups tolerate a type outside it
+// rather than throwing, because a TypeError raised from inside
+// publishAfterCommit would roll back the mutation that published it.
+export function isWebhookEvent(type: string): type is WebhookEventType {
+  const event: (typeof EVENTS)[RealtimeEventType] | undefined = EVENTS[type as RealtimeEventType];
   return event?.scope === 'project' && event.webhook;
 }
 

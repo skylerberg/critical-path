@@ -5,9 +5,9 @@
   "scripts": {
     "dev": "node --env-file=.env --import tsx --watch src/index.ts",
     "start": "node --env-file=.env --import tsx src/index.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "build:prod": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.mjs --packages=external",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",

@@ -22,8 +22,10 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run type-check
-      # The root scripts cover src/ and tests/ only, and npm test runs the CLI
-      # suites through tsx, which strips types without checking them.
+      # The root scripts cover src/, tests/, scripts/ and vitest.config.ts.
+      # cli/ stays separate because its imports resolve from cli/node_modules,
+      # and npm test runs the CLI suites through tsx, which strips types
+      # without checking them.
       - run: npm run --prefix cli check
 
   # The suite runs with vitest fileParallelism:false: files within a run share
