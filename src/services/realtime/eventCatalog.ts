@@ -91,6 +91,11 @@ const EVENTS = {
 
   sessions_revoked: { scope: 'account' },
   user_updated: { scope: 'account' },
+  // Self-only: the payload is the subject's own record, address included, so
+  // every publisher must name them in recipientUserIds. An account event
+  // published without one reaches nobody, which is at least the fail-closed
+  // direction, but it is a silent drop rather than an error.
+  account_updated: { scope: 'account' },
 } as const satisfies Record<string, AccountEvent | ProjectEvent>;
 
 export type RealtimeEventType = keyof typeof EVENTS;

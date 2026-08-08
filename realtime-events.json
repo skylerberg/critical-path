@@ -11,6 +11,9 @@
       "RealtimeEvent": {
         "oneOf": [
           {
+            "$ref": "#/components/schemas/AccountUpdatedEvent"
+          },
+          {
             "$ref": "#/components/schemas/AttachmentCreatedEvent"
           },
           {
@@ -201,6 +204,58 @@
             "$ref": "#/components/schemas/TaskUpdatedWebhookEvent"
           }
         ]
+      },
+      "AccountUpdatedEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "account_updated"
+          },
+          "project_id": {
+            "type": "null"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "avatar_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "email": {
+                "type": "string"
+              },
+              "email_verified": {
+                "type": "boolean"
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "avatar_url",
+              "email",
+              "email_verified",
+              "id",
+              "name"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "project_id",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "AttachmentCreatedEvent": {
         "type": "object",
