@@ -70,6 +70,39 @@ npm run check && npm run check:layout && npm run check:layout:real && npm run li
 `src/**/*.test.ts`), `scripts/**/*.ts` and `vite.config.ts`. Nothing about the
 test files is exempt from `strict`.
 
+Both layout checks boot vite in-process on the first free port at or above 5180,
+so two worktrees can run them at the same time and a killed run leaves nothing
+behind.
+
+## Checking what jsdom cannot model
+
+Layout, scrolling, focus, `showModal()`, computed styles: jsdom implements none
+of them, so a green suite says nothing about any of it — the task overlay put
+the caret in its title field on every open for a month, invisibly to the tests,
+because `showModal()`'s focus steps only exist in a real browser.
+`scripts/lib/browser.mjs` is how to see the real thing, and it is worth a
+throwaway probe before believing a claim about any of the above.
+
+`createBrowser()` wraps Playwright rather than re-exporting it: the returned
+object is `{ setViewport, goto, eval, screenshot, close }` and nothing more, so
+`newPage()` and the rest of the Playwright API are not on it. It returns `null`
+when Chromium is missing (`npm run playwright:install`) — a local-only skip,
+since under `CI` a launch failure throws instead.
+
+A probe has to sit inside the repo to resolve `vite`, `playwright` and the
+helper itself; one written to `/tmp` fails at the import, not at the assertion.
+
+```js
+import { createBrowser } from './scripts/lib/browser.mjs';
+const browser = await createBrowser();
+await browser.goto('data:text/html,' + encodeURIComponent('<dialog id="d"><input></dialog>'));
+console.log(await browser.eval(`(() => {
+  document.getElementById('d').showModal();
+  return document.activeElement.tagName;
+})()`));
+await browser.close();
+```
+
 ## Svelte 5 conventions
 
 - Runes only: `$state`, `$derived`, `$effect`, `$props()`, `$bindable()`. No legacy
