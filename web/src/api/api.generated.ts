@@ -220,7 +220,7 @@ export interface paths {
         };
         /**
          * List personal access tokens
-         * @description List the caller's personal access tokens, newest first. Secrets are never returned. Expired tokens stay listed until they are revoked.
+         * @description List the caller's personal access tokens, newest first. Secrets are never returned. Expired tokens stay listed until they are revoked. `last_used_at` is null until the token first authenticates, and is accurate to about a minute thereafter.
          */
         get: operations["getApiAuthTokens"];
         put?: never;
@@ -1808,6 +1808,7 @@ export interface components {
             created_at: string;
             expires_at: string | null;
             id: string;
+            last_used_at: string | null;
             name: string;
         };
         CreatePersonalAccessToken: {

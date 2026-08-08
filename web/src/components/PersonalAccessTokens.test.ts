@@ -9,6 +9,7 @@ interface TokenMetadata {
   name: string;
   created_at: string;
   expires_at: string | null;
+  last_used_at: string | null;
 }
 
 function token(overrides: Partial<TokenMetadata> = {}): TokenMetadata {
@@ -17,6 +18,7 @@ function token(overrides: Partial<TokenMetadata> = {}): TokenMetadata {
     name: 'CI runner',
     created_at: '2026-01-01T00:00:00.000Z',
     expires_at: null,
+    last_used_at: null,
     ...overrides,
   };
 }
@@ -99,6 +101,33 @@ describe('PersonalAccessTokens', () => {
     render(PersonalAccessTokens);
 
     expect(await screen.findByText('Expired')).toBeInTheDocument();
+  });
+
+  it('says a token has never been used until the server reports a use', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-01T12:00:00.000Z'));
+    fetchMock.mockResolvedValue(
+      listResponse([
+        token(),
+        token({
+          id: 't-2',
+          name: 'Laptop agent',
+          last_used_at: '2026-03-01T09:00:00.000Z',
+        }),
+      ])
+    );
+    render(PersonalAccessTokens);
+
+    await vi.waitFor(() => expect(screen.getByText('Laptop agent')).toBeInTheDocument());
+    expect(screen.getByText('CI runner').closest('li')).toHaveTextContent('never used');
+
+    const used = screen.getByText('3 hours ago');
+    expect(used.tagName).toBe('TIME');
+    expect(used).toHaveAttribute('datetime', '2026-03-01T09:00:00.000Z');
+    expect(used.getAttribute('title')).toContain('2026');
+    expect(screen.getByText('Laptop agent').closest('li')).toHaveTextContent(
+      'last used 3 hours ago'
+    );
   });
 
   it('creates a never-expiring token and shows the secret exactly once', async () => {
