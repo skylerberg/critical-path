@@ -299,8 +299,18 @@ the running code still reads; do that in a follow-up release).
 
 1. Add `src/db/migrations/NNNN_name.ts` exporting `up`/`down`.
 2. `npm run migrate` and `npm run migrate:test`.
-3. Regenerate committed types:
-   `DATABASE_URL=postgres://skylerberg@127.0.0.1:5432/game_dev npm run kysely-codegen`.
+3. Regenerate committed types: `npm run kysely-codegen`. It takes no
+   `DATABASE_URL` and never reads a database you develop against — it migrates
+   a scratch database from `src/db/migrations`, introspects that, formats the
+   output, and drops it, so what lands in the commit is a function of the
+   migrations rather than of your machine. Introspecting `game_dev` instead is
+   how a column left behind by an abandoned branch gets committed looking
+   exactly like a real one. The scratch database is named per checkout, so
+   parallel worktrees can regenerate at once, and it carries the same checkout
+   stamp the test databases do, so `npm run test:db:prune` reclaims one an
+   interrupted run left behind. `kysely-codegen` is in knip's
+   `ignoreDependencies` because that script spawns the binary rather than
+   importing it, which is not a reference knip can see.
    That writes `src/db/types.generated.ts`. `src/db/types.ts` is hand-written
    and is what the app imports: it re-exports the generated module and
    overrides `DB` to brand every `sort_key` column (convention 15). A new
