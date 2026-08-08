@@ -74,7 +74,7 @@ export function matchRef<T>(
 
 // The matcher lowercases every ref and a case-flipped alias is a different id, so
 // the decode happens out here.
-export function matchRefOrAliasOrNull<T>(
+function matchRefOrAliasOrNull<T>(
   ref: string,
   items: readonly T[],
   kind: string,

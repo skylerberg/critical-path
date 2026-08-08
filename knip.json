@@ -1,16 +1,22 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": [
-    "scripts/{dump-openapi,prune-test-databases,setup-hooks,with-test-db}.{ts,mjs}",
-    "eslint-rules/no-unqualified-kysely-columns.js",
-    "src/db/migrations/**/*.ts"
-  ],
-  "project": [
-    "src/**/*.ts",
-    "scripts/**/*.{ts,mjs}",
-    "eslint-rules/**/*.js",
-    "tests/**/*.ts",
-    "cli/tests/**/*.ts"
-  ],
-  "ignore": ["src/db/types.ts"]
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/{dump-openapi,prune-test-databases,setup-hooks,with-test-db}.{ts,mjs}",
+        "eslint-rules/no-unqualified-kysely-columns.js",
+        "src/db/migrations/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "scripts/**/*.{ts,mjs}",
+        "eslint-rules/**/*.js",
+        "tests/**/*.ts"
+      ]
+    },
+    "cli": {
+      "project": ["src/**/*.ts", "tests/**/*.ts", "bin/*.mjs", "scripts/*.mjs"]
+    }
+  },
+  "ignore": ["src/db/types.ts", "cli/src/api/api.generated.ts"]
 }
