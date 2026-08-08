@@ -117,6 +117,12 @@
     node.select();
   };
 
+  // The quick bar reveals an empty checklist; the field it should land in is here.
+  export function focusAddItem(): void {
+    addInput?.focus();
+    addInput?.scrollIntoView({ block: 'nearest' });
+  }
+
   function submitDraft(event: SubmitEvent): void {
     event.preventDefault();
     const text = draft.trim();

@@ -57,6 +57,17 @@ export function formatFullDate(due: string): string {
   return dayMonthYear.format(new Date(utcMs(due)));
 }
 
+// Deliberately not UTC-pinned, unlike the formatters above: this one names an
+// instant, so the reader's own zone is the right one to show it in.
+const timestamp = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+export function formatTimestamp(iso: string): string {
+  return timestamp.format(new Date(iso));
+}
+
 export function formatDue(due: string, today: string): string {
   const days = daysUntil(due, today);
   if (days === -1) return 'Yesterday';

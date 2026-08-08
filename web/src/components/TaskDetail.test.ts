@@ -326,11 +326,25 @@ function renderDetail(props: {
   });
 }
 
+// Comments and History open collapsed, and the attachment list only exists once
+// the detail fetch has reported a count, so both need awaiting.
+async function openComments(): Promise<void> {
+  await fireEvent.click(await screen.findByText(/^Comments \(/));
+}
+
+async function openHistory(): Promise<void> {
+  await fireEvent.click(await screen.findByText('History'));
+}
+
+async function openQuickAction(name: string): Promise<void> {
+  await fireEvent.click(screen.getByRole('button', { name }));
+}
+
 // Tiptap hangs the editor off its own DOM node; nothing else exposes the instance.
-function descriptionEditor(container: HTMLElement): Editor {
-  const dom = container.querySelector('.tiptap') as (HTMLElement & { editor?: Editor }) | null;
+function descriptionEditor(container: HTMLElement, selector = '.tiptap'): Editor {
+  const dom = container.querySelector(selector) as (HTMLElement & { editor?: Editor }) | null;
   if (!dom?.editor) {
-    throw new Error('description editor not mounted');
+    throw new Error(`editor not mounted for ${selector}`);
   }
   return dom.editor;
 }
@@ -344,10 +358,9 @@ describe('TaskDetail', () => {
 
     expect(screen.getByRole('button', { name: 'Remove label art' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove label rules' })).not.toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: /Ada Lovelace/ })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
+    expect(
+      await screen.findByRole('button', { name: 'Unassign Ada Lovelace' })
+    ).toBeInTheDocument();
 
     expect(screen.getByText('Cut prototype')).toBeInTheDocument();
     expect(screen.getByText('Buy sleeves')).toBeInTheDocument();
@@ -360,14 +373,16 @@ describe('TaskDetail', () => {
     expect(await screen.findByAltText('mock.png')).toHaveAttribute('src', '/api/images/img1');
     expect(screen.getByRole('button', { name: 'Delete image mock.png' })).toBeInTheDocument();
 
-    expect(screen.getByText(/Created .+ · Updated .+/)).toBeInTheDocument();
+    // The timestamps moved in with the rest of the audit trail.
+    await openHistory();
+    expect(await screen.findByText(/Created .+ · Updated .+/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
   });
 
   it('gathers images, files and links under one Attachments heading', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    expect(screen.getByRole('heading', { name: 'Attachments' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Attachments' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Images' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Attach file' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add link' })).toBeInTheDocument();
@@ -378,12 +393,17 @@ describe('TaskDetail', () => {
     expect(section).toContainElement(screen.getByRole('button', { name: 'Delete image mock.png' }));
   });
 
-  it('loads images and comments from the one detail fetch and renders the Activity section', async () => {
+  it('loads images and comments from the one detail fetch and keeps them behind a disclosure', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
     await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
     expect(board.taskAttachments[T1]).toEqual([image]);
+    // The count is on the collapsed header, so the card says there is something
+    // to read without mounting an editor per comment.
+    expect(await screen.findByText(/^Comments \(/)).toBeInTheDocument();
+    expect(screen.queryByText('first thoughts')).toBeNull();
+
+    await openComments();
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
   });
 
@@ -532,28 +552,32 @@ describe('TaskDetail', () => {
     it('offers no cover toggle on a read-only board', async () => {
       renderDetail({ taskId: T1, ...publicView });
 
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'Column' })).toBeVisible());
+      await waitFor(() => expect(screen.getByText('Todo')).toBeVisible());
       expect(screen.queryByRole('button', { name: /as cover/ })).toBeNull();
     });
   });
 
-  it('loads the activity log and interleaves it with the comments', async () => {
+  // History opens collapsed and nothing else reads the log, so fetching it on
+  // every card open would be a request per card that nobody looks at.
+  it('leaves the activity log unfetched until History is opened', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await screen.findByText('History');
+    await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
 
+    expect(activityRequests(T1)).toHaveLength(0);
+
+    await openHistory();
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
     expect(await screen.findByText(/created this task/)).toBeInTheDocument();
-    const stream = screen.getAllByRole('listitem').filter((item) => item.textContent !== null);
-    const created = stream.findIndex((item) => item.textContent!.includes('created this task'));
-    const written = stream.findIndex((item) => item.textContent!.includes('first thoughts'));
-    expect(created).toBeGreaterThanOrEqual(0);
-    expect(created).toBeLessThan(written);
   });
 
   it('drops the previous task’s log when the overlay switches task', async () => {
     const { rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await openHistory();
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
 
     await rerender({ taskId: T2, closePath: BOARD_PATH });
+    await openHistory();
     await waitFor(() => expect(taskActivity.entries).toEqual([]));
     expect(
       fetchMock.mock.calls.some(
@@ -564,6 +588,7 @@ describe('TaskDetail', () => {
 
   it('drops the log on unmount and stops refetching it for the closed overlay', async () => {
     const { unmount } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await openHistory();
     await waitFor(() => expect(taskActivity.entries).toEqual([activityEntry]));
 
     unmount();
@@ -581,41 +606,190 @@ describe('TaskDetail', () => {
     expect(activityRequests(T1)).toHaveLength(sent);
   });
 
-  it('renders the column select with the current column and all columns as options', () => {
+  // The bar button is the column display: there is no separate section for a
+  // value every card always has.
+  it('names the current column on the quick bar and lists the rest behind it', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    const select = screen.getByLabelText('Column');
-    expect(select).toHaveValue('c1');
-    expect(screen.getByRole('option', { name: 'Todo' })).toHaveValue('c1');
-    expect(screen.getByRole('option', { name: 'Done' })).toHaveValue('c2');
+    await openQuickAction('Todo');
+    const columns = screen.getByRole('group', { name: 'Move to column' });
+    expect(within(columns).getByRole('button', { name: /Todo/ })).toHaveAttribute(
+      'aria-current',
+      'true'
+    );
+    expect(within(columns).getByRole('button', { name: 'Done' })).toBeInTheDocument();
   });
 
-  it('moves the task to the bottom of the selected column', async () => {
+  it('moves the task to the bottom of the column picked from the bar', async () => {
     const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
+    await openQuickAction('Todo');
+    await fireEvent.click(
+      within(screen.getByRole('group', { name: 'Move to column' })).getByRole('button', {
+        name: 'Done',
+      })
+    );
 
     expect(spy).toHaveBeenCalledWith(T1, 'c2', {
       sort_key: expect.any(String),
     });
   });
 
-  it('requests the move menu for this task from the Move… button', async () => {
-    renderDetail({ taskId: T1, closePath: BOARD_PATH });
-
-    await fireEvent.click(screen.getByRole('button', { name: 'Move…' }));
-
-    expect(shortcuts.moveMenu).toBe(T1);
-  });
-
-  it('does not move the task when the current column is re-selected', async () => {
+  it('does not move the task when the current column is picked again', async () => {
     const spy = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c1' } });
+    await openQuickAction('Todo');
+    await fireEvent.click(
+      within(screen.getByRole('group', { name: 'Move to column' })).getByRole('button', {
+        name: /Todo/,
+      })
+    );
 
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  // The disclosure unmounts the composer, so the overlay holds the draft: losing
+  // a half-written comment to a stray click on the header is not acceptable.
+  it('keeps a half-written comment across collapsing and reopening Comments', async () => {
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await openComments();
+
+    const editor = descriptionEditor(container, '.rte-compact .tiptap');
+    editor.commands.insertContent('half-written');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled());
+
+    await openComments();
+    expect(container.querySelector('.rte-compact')).toBeNull();
+
+    await openComments();
+    await waitFor(() =>
+      expect(descriptionEditor(container, '.rte-compact .tiptap').getText()).toBe('half-written')
+    );
+    expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled();
+  });
+
+  // Someone writing a comment often needs to go and check something first; the
+  // card they come back to has to still have their text.
+  it('keeps a comment draft across closing and reopening the card', async () => {
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await openComments();
+    descriptionEditor(first.container, '.rte-compact .tiptap').commands.insertContent(
+      'half-written'
+    );
+    await tick();
+    first.unmount();
+
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    // Opened for them: a restored draft behind a collapsed header is a draft the
+    // user cannot see they still have.
+    await waitFor(() =>
+      expect(descriptionEditor(container, '.rte-compact .tiptap').getText()).toBe('half-written')
+    );
+    expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled();
+  });
+
+  it('opens with Comments collapsed when there is no draft to come back to', async () => {
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
+
+    expect(container.querySelector('.rte-compact')).toBeNull();
+  });
+
+  it('does not carry a comment draft onto the next card', async () => {
+    const { container, rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await openComments();
+    descriptionEditor(container, '.rte-compact .tiptap').commands.insertContent('half-written');
+    await tick();
+
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
+    await openComments();
+
+    await waitFor(() =>
+      expect(descriptionEditor(container, '.rte-compact .tiptap').isEmpty).toBe(true)
+    );
+  });
+
+  it('opens with both disclosures collapsed', async () => {
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await waitFor(() => expect(board.taskComments[T1]).toEqual([comment]));
+
+    expect(screen.getByText(/^Comments \(/)).toBeInTheDocument();
+    expect(screen.getByText('History')).toBeInTheDocument();
+    expect(screen.queryByText('first thoughts')).toBeNull();
+    expect(screen.queryByText(/created this task/)).toBeNull();
+  });
+
+  // Nothing on a fresh card but the title, the bar, the description and the two
+  // collapsed headers.
+  it('shows no section for a feature the card is not using', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === T1 ? { ...t, label_ids: [], assignee_ids: [], blocker_ids: [], due_date: null } : t
+    );
+    renderDetail({ taskId: T2, closePath: BOARD_PATH });
+
+    for (const name of ['Labels', 'Assignees', 'Due date', 'Blocked by', 'Blocks', 'Checklist']) {
+      expect(screen.queryByRole('heading', { name })).toBeNull();
+    }
+    expect(screen.getByRole('heading', { name: 'Description' })).toBeInTheDocument();
+  });
+
+  it('reveals an empty checklist from the quick bar and puts the cursor in it', async () => {
+    renderDetail({ taskId: T2, closePath: BOARD_PATH });
+    expect(screen.queryByRole('heading', { name: 'Checklist' })).toBeNull();
+
+    await openQuickAction('Checklist');
+
+    expect(screen.getByRole('heading', { name: 'Checklist' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText('Checklist item')).toHaveFocus());
+  });
+
+  it('reveals the attachment list from the quick bar and starts the link form', async () => {
+    renderDetail({ taskId: T2, closePath: BOARD_PATH });
+
+    await openQuickAction('Attach');
+    await fireEvent.click(
+      within(screen.getByRole('group', { name: 'Attach' })).getByRole('button', {
+        name: 'Add link',
+      })
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Attachments' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Link address')).toBeInTheDocument();
+  });
+
+  it('applies a label from the quick bar, and the section appears with it', async () => {
+    const spy = vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
+    renderDetail({ taskId: T2, closePath: BOARD_PATH });
+    expect(screen.queryByRole('heading', { name: 'Labels' })).toBeNull();
+
+    await openQuickAction('Labels');
+    await fireEvent.click(
+      within(screen.getByRole('group', { name: 'Add labels' })).getByRole('button', { name: 'art' })
+    );
+
+    expect(spy).toHaveBeenCalledWith(T2, ['l1']);
+  });
+
+  it('keeps at most one quick-action panel open', async () => {
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await openQuickAction('Labels');
+    expect(screen.getByRole('group', { name: 'Add labels' })).toBeInTheDocument();
+
+    await openQuickAction('Assign');
+    expect(screen.queryByRole('group', { name: 'Add labels' })).toBeNull();
+    expect(screen.getByRole('group', { name: 'Assign' })).toBeInTheDocument();
+  });
+
+  it('offers no quick bar to a viewer or a public reader', () => {
+    const { unmount } = renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
+    expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
+    unmount();
+
+    renderDetail({ taskId: T1, ...publicView });
+    expect(screen.queryByRole('button', { name: 'Labels' })).toBeNull();
   });
 
   it('shows a fallback when the task is not in the store', () => {
@@ -984,7 +1158,12 @@ describe('TaskDetail', () => {
   it('does not adopt a new precondition from a column change', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
+    await openQuickAction('Todo');
+    await fireEvent.click(
+      within(screen.getByRole('group', { name: 'Move to column' })).getByRole('button', {
+        name: 'Done',
+      })
+    );
     await waitFor(() => expect(taskPatches()).toHaveLength(1));
     await editTitle('Design cards v2');
     await waitFor(() => expect(taskPatches()).toHaveLength(2));
@@ -1258,13 +1437,12 @@ describe('TaskDetail', () => {
     });
   });
 
-  it('offers the due date behind an add affordance, like labels and assignees', async () => {
+  it('sets the due date from the quick bar, and shows no section until there is one', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    expect(screen.getByRole('heading', { name: 'Due date' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Due date')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Due date' })).toBeNull();
 
-    await fireEvent.click(screen.getByRole('button', { name: '+ Add due date' }));
+    await openQuickAction('Due date');
     await fireEvent.change(screen.getByLabelText('Due date'), {
       target: { value: '2026-08-03' },
     });
@@ -1442,7 +1620,6 @@ describe('TaskDetail on a public board', () => {
     expect(screen.getByRole('heading', { name: 'Design cards' })).toBeInTheDocument();
 
     expect(screen.queryByLabelText('Column')).toBeNull();
-    expect(screen.getByRole('heading', { name: 'Column' })).toBeInTheDocument();
     expect(screen.getByText('Todo')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Move…' })).toBeNull();
 
@@ -1464,9 +1641,9 @@ describe('TaskDetail on a public board', () => {
     expect(screen.queryByAltText('mock.png')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     expect(screen.queryByText(/Created .+ · Updated .+/)).toBeNull();
-    expect(screen.queryByRole('heading', { name: 'Activity' })).toBeNull();
+    expect(screen.queryByText('History')).toBeNull();
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Column' })).toBeVisible());
+    await waitFor(() => expect(screen.getByText('Todo')).toBeVisible());
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
     expect(paths).not.toContain(`/api/tasks/${T1}`);
     expect(paths).not.toContain('/api/users');
@@ -1552,9 +1729,9 @@ describe('TaskDetail on a public board', () => {
 
     renderDetail({ taskId: T1, ...publicView });
 
-    const heading = screen.getByRole('heading', { name: 'Comments' });
-    expect(await screen.findByText('first thoughts')).toBeInTheDocument();
-    expect(within(heading.closest('section')!).getByText('Ada Lovelace')).toBeInTheDocument();
+    await openComments();
+    const posted = await screen.findByText('first thoughts');
+    expect(within(posted.closest('li')!).getByText('Ada Lovelace')).toBeInTheDocument();
 
     expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
     expect(screen.queryByPlaceholderText('Write a comment…')).toBeNull();
@@ -1572,6 +1749,7 @@ describe('TaskDetail on a public board', () => {
 
     renderDetail({ taskId: T1, ...publicView });
 
+    await openComments();
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Edit comment/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Delete comment/ })).toBeNull();
@@ -1585,6 +1763,7 @@ describe('TaskDetail on a public board', () => {
 
     renderDetail({ taskId: T1, ...publicView });
 
+    await openComments();
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
     expect(screen.queryByText('created this task')).toBeNull();
   });
@@ -1610,6 +1789,7 @@ describe('TaskDetail on a public board', () => {
 
     renderDetail({ taskId: T1, ...publicView });
 
+    await openComments();
     expect(await screen.findByText('@Ada Lovelace')).toBeInTheDocument();
   });
 });
@@ -1621,7 +1801,7 @@ describe('TaskDetail for a viewer', () => {
   });
 
   it('drops every write control but keeps the comment stream and the history', async () => {
-    renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
 
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.queryByLabelText('Column')).toBeNull();
@@ -1632,10 +1812,12 @@ describe('TaskDetail for a viewer', () => {
     expect(screen.queryByRole('button', { name: '+ Add label' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Remove blocking task/ })).toBeNull();
 
-    expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
+    await openComments();
     expect(await screen.findByText('first thoughts')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Comment' })).toBeInTheDocument();
-    expect(screen.getByText(/Created .+ · Updated .+/)).toBeInTheDocument();
+    expect(container.querySelector('.rte-compact')).not.toBeNull();
+
+    await openHistory();
+    expect(await screen.findByText(/Created .+ · Updated .+/)).toBeInTheDocument();
   });
 
   it('shows attached images without the cover or delete controls', async () => {
@@ -1649,6 +1831,7 @@ describe('TaskDetail for a viewer', () => {
   it('mounts one read-only Attachments section holding the images', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH, readonly: true });
 
+    await screen.findByRole('heading', { name: 'Attachments' });
     const headings = screen.getAllByRole('heading').map((h) => h.textContent);
     expect(headings).toContain('Attachments');
     expect(headings).not.toContain('Images');
