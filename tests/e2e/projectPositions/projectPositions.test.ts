@@ -163,6 +163,29 @@ describe('project positions', () => {
     expect(aProjects.map((p) => p.sort_key)).toEqual([...aProjects.map((p) => p.sort_key)].sort());
   });
 
+  it('ranks onto a key another of the caller’s projects is holding', async () => {
+    const takenKey = (await positionRow(userA.id, first))!.sort_key;
+
+    const res = await ctx
+      .request(userA.token)
+      .put(`/api/projects/${second}/position`, { sort_key: takenKey });
+    expect(res.status).toBe(204);
+
+    const moved = (await positionRow(userA.id, second))!.sort_key;
+    expect(moved > takenKey).toBe(true);
+    expect((await listProjects(userA)).map((p) => p.id)).toEqual([third, first, second]);
+  });
+
+  it('leaves a key free for the caller alone, even when another user holds it', async () => {
+    const heldByB = (await positionRow(userB.id, first))!.sort_key;
+
+    const res = await ctx
+      .request(userA.token)
+      .put(`/api/projects/${second}/position`, { sort_key: heldByB });
+    expect(res.status).toBe(204);
+    expect((await positionRow(userA.id, second))!.sort_key).toBe(heldByB);
+  });
+
   it('returns 404 for a project the caller cannot access', async () => {
     const res = await ctx
       .request(userB.token)

@@ -525,7 +525,7 @@ export interface paths {
     get?: never;
     /**
      * Set project position
-     * @description Set the caller's personal sort position for a project. Positions are per user and order the project list for the caller only; other members are unaffected.
+     * @description Set the caller's personal sort position for a project. Positions are per user and order the project list for the caller only; other members are unaffected. A sort_key already taken among the caller’s positions ranks the project immediately after the one holding it, so the stored key is not always the one that was sent; the project_position_updated event carries the key that was stored.
      */
     put: operations['putApiProjectsByIdPosition'];
     post?: never;
@@ -754,7 +754,7 @@ export interface paths {
     head?: never;
     /**
      * Update column
-     * @description Update the name, position, or done flag of a column.
+     * @description Update the name, position, or done flag of a column. A sort_key already taken in the project ranks the column immediately after the one holding it rather than failing, so the echoed sort_key is not always the one that was sent.
      */
     patch: operations['patchApiColumnsById'];
     trace?: never;
@@ -1314,7 +1314,7 @@ export interface paths {
     head?: never;
     /**
      * Update a checklist item
-     * @description Tick, untick, rename or reposition one item. Every field is optional and an empty body changes nothing. Renaming and ticking advance the item’s updated_at; a reposition leaves it alone and, unlike the other three, records no activity entry — a keyboard drag finalizes once per arrow press and would otherwise write one entry per press. The parent task’s updated_at is never touched by any checklist write, so a checklist edit cannot invalidate an open editor’s optimistic-concurrency precondition.
+     * @description Tick, untick, rename or reposition one item. Every field is optional and an empty body changes nothing. Renaming and ticking advance the item’s updated_at; a reposition leaves it alone and, unlike the other three, records no activity entry — a keyboard drag finalizes once per arrow press and would otherwise write one entry per press. The parent task’s updated_at is never touched by any checklist write, so a checklist edit cannot invalidate an open editor’s optimistic-concurrency precondition. A sort_key already taken on the task ranks the item immediately after the one holding it rather than failing, so the echoed sort_key is not always the one that was sent.
      */
     patch: operations['patchApiChecklistItemsById'];
     trace?: never;
@@ -4337,6 +4337,15 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
+      /** @description Conflict - the position was taken while the move was in flight */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
       /** @description Validation error */
       422: {
         headers: {
@@ -5233,6 +5242,15 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Conflict - the position was taken while the move was in flight */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -7564,6 +7582,15 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Conflict - the position was taken while the move was in flight */
+      409: {
         headers: {
           [name: string]: unknown;
         };
