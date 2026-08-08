@@ -19,6 +19,8 @@ describe('task descriptions', () => {
   let tempDir: string;
   let markdownTaskId: string;
 
+  const markdown = '# Release notes\n\nShip the **beta** with *care*.\n\n- item one\n- item two';
+
   async function fetchDescription(taskId: string): Promise<unknown> {
     const res = await tc.request(user.token).get(`/api/tasks/${taskId}`);
     expect(res.status).toBe(200);
@@ -38,6 +40,21 @@ describe('task descriptions', () => {
     expect(create.status).toBe(201);
     projectId = ((await create.json()) as BoardPayload).project.id;
     tempDir = await mkdtemp(join(tmpdir(), 'cpath-desc-'));
+
+    // Three tests below address this card; built here so a create that breaks
+    // fails the hook once rather than leaving them to address an undefined id.
+    const described = await h.runCli([
+      'task',
+      'create',
+      'Markdown described',
+      '--project',
+      projectId,
+      '--description',
+      markdown,
+      '--json',
+    ]);
+    expect(described.exitCode).toBe(0);
+    markdownTaskId = described.json<BoardTask>().id;
   });
 
   afterAll(async () => {
@@ -47,20 +64,7 @@ describe('task descriptions', () => {
   });
 
   it('create --description stores exactly markdownToTiptap(md)', async () => {
-    const md = '# Release notes\n\nShip the **beta** with *care*.\n\n- item one\n- item two';
-    const res = await h.runCli([
-      'task',
-      'create',
-      'Markdown described',
-      '--project',
-      projectId,
-      '--description',
-      md,
-      '--json',
-    ]);
-    expect(res.exitCode).toBe(0);
-    markdownTaskId = res.json<BoardTask>().id;
-    expect(await fetchDescription(markdownTaskId)).toEqual(markdownToTiptap(md));
+    expect(await fetchDescription(markdownTaskId)).toEqual(markdownToTiptap(markdown));
   });
 
   it('show renders the description back as Markdown', async () => {

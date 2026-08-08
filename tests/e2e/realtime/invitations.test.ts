@@ -118,6 +118,13 @@ describe('Invitation realtime events', () => {
     const publicRead = await ctx.request().get(`/api/public/projects/${projectId}/board`);
     expect(publicRead.status).toBe(200);
 
+    // The resend and revoke cases below address this invitation. Built before
+    // the clients connect, so its own invitations_changed reaches none of their
+    // buffers — the publish is a post-commit hook, so it can land after a test
+    // has taken its mark — and an invite that breaks fails this hook once
+    // rather than leaving those two to address an undefined id.
+    invitationId = await invite(uniqueEmail('inv-rt-shared'));
+
     ownerClient = await connect(owner.token);
     editorClient = await connect(editor.token);
     viewerClient = await connect(viewer.token);
@@ -152,7 +159,7 @@ describe('Invitation realtime events', () => {
     const from = ownerClient.events.length;
     const editorFrom = editorClient.events.length;
 
-    invitationId = await invite(uniqueEmail('inv-rt-guest'));
+    await invite(uniqueEmail('inv-rt-guest'));
 
     const event = await ownerClient.waitForEvent((e) => e.type === INVITATIONS_CHANGED, { from });
     expect(Object.keys(event).sort()).toEqual(['data', 'project_id', 'type']);
