@@ -129,6 +129,32 @@ describe('ProjectMembersModal', () => {
     });
   });
 
+  // Someone found by global search is in nobody's directory yet, and this list
+  // falls back to the raw id for a member it cannot name.
+  it('names a member added from outside your collaborators', async () => {
+    const stranger = { id: 'u-sky', name: 'Skyler Berg', avatar_url: null };
+    projects.projects = [project({ created_by: me.id, member_ids: [] })];
+    mockApi((request, url) =>
+      url.pathname === '/api/users/search'
+        ? jsonResponse(200, { users: [stranger], truncated: false })
+        : request.method === 'PUT'
+          ? jsonResponse(204)
+          : jsonResponse(200, { users: [me, ada] })
+    );
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    await fireEvent.input(screen.getByLabelText('Add people'), { target: { value: 'sky' } });
+    const row = await screen.findByRole('button', { name: 'Add Skyler Berg' });
+    await fireEvent.click(row);
+
+    // The member row is named for whoever it holds, so its controls are the
+    // unambiguous evidence the list resolved them rather than printing the id.
+    expect(await screen.findByRole('button', { name: 'Remove Skyler Berg' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Role for Skyler Berg')).toBeInTheDocument();
+    expect(screen.queryByText('u-sky')).toBeNull();
+  });
+
   it('leaving from the board route PUTs minus self and navigates to the projects page', async () => {
     projects.projects = [project({ member_ids: [me.id, 'u-3'] })];
     mockApi(() => jsonResponse(204));

@@ -1,10 +1,13 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { tick } from 'svelte';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import MemberPicker from './MemberPicker.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { session } from '../lib/session.svelte';
-import { users } from '../lib/users.svelte';
+import { users, type User } from '../lib/users.svelte';
+
+const DEBOUNCE_MS = 250;
 
 const me = {
   id: 'u-me',
@@ -45,13 +48,35 @@ function field(): HTMLElement {
   return screen.getByLabelText('Add people');
 }
 
+function searchResponse(found: User[], truncated = false): Response {
+  return jsonResponse(200, { users: found, truncated });
+}
+
+// Typing alone arms the debounce; the request only goes out once it elapses, so
+// a test that wants the server's rows has to say so.
+async function type(value: string): Promise<void> {
+  await fireEvent.input(field(), { target: { value } });
+}
+
+async function typeAndSearch(value: string): Promise<void> {
+  await type(value);
+  await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+  await tick();
+}
+
 beforeEach(() => {
+  vi.useFakeTimers();
   fetchMock.mockReset();
+  fetchMock.mockImplementation(async () => searchResponse([]));
   projects.reset();
   users.reset();
   session.user = me;
   users.users = [ada, bob, cleo, me];
   projects.projects = [project()];
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('MemberPicker', () => {
@@ -306,10 +331,15 @@ describe('MemberPicker', () => {
     projects.projects = [project({ member_ids: [ada.id, bob.id, cleo.id] })];
     const exhausted = render(MemberPicker, { projectId: 'p-1' });
 
-    expect(screen.getByText(/Everyone you've shared a board with is already here/)).toBeVisible();
+    expect(screen.getByText(/Type a name to find someone/)).toBeVisible();
 
-    await fireEvent.input(field(), { target: { value: 'nobody' } });
-    expect(screen.getByText(/No matching people/)).toBeVisible();
+    // Below the server's minimum, so nothing has been asked yet and the empty
+    // list must not claim there is nobody.
+    await typeAndSearch('n');
+    expect(screen.getByText(/Keep typing to search everyone/)).toBeVisible();
+
+    await typeAndSearch('nobody');
+    expect(screen.getByText(/No one matches “nobody”/)).toBeVisible();
 
     exhausted.unmount();
     users.users = [me];
@@ -317,5 +347,188 @@ describe('MemberPicker', () => {
     render(MemberPicker, { projectId: 'p-1' });
 
     expect(screen.getByText(/You haven't shared a board with anyone yet/)).toBeVisible();
+  });
+});
+
+describe('MemberPicker global search', () => {
+  const stranger = { id: 'u-sky', name: 'Skyler Berg', avatar_url: null };
+
+  it('debounces a run of keystrokes into one request', async () => {
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await type('sk');
+    await type('sky');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+    await tick();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0]![0] as Request;
+    expect(new URL(request.url).pathname).toBe('/api/users/search');
+    expect(new URL(request.url).searchParams.get('q')).toBe('sky');
+  });
+
+  // The server refuses a single character, so asking is a guaranteed 400.
+  it('asks nothing for a query below the server minimum', async () => {
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await typeAndSearch('s');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('lists strangers under their own heading, apart from people you work with', async () => {
+    fetchMock.mockImplementation(async () => searchResponse([stranger]));
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await typeAndSearch('lovel');
+
+    expect(screen.getByText('People you work with')).toBeVisible();
+    expect(screen.getByText('Everyone else')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Add Ada Lovelace' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Skyler Berg' })).toBeInTheDocument();
+  });
+
+  it('adds a stranger and records their name in the directory', async () => {
+    fetchMock.mockImplementation(async (input) =>
+      (input as Request).method === 'PUT' ? jsonResponse(204) : searchResponse([stranger])
+    );
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await typeAndSearch('sky');
+    await fireEvent.click(screen.getByRole('button', { name: 'Add Skyler Berg' }));
+
+    expect(projects.projects[0]!.member_ids).toEqual([stranger.id]);
+    // Without this the member list renders them as a raw UUID.
+    expect(users.byId(stranger.id)?.name).toBe('Skyler Berg');
+  });
+
+  it('keeps an added stranger listed where they were, rather than moving groups', async () => {
+    fetchMock.mockImplementation(async (input) =>
+      (input as Request).method === 'PUT' ? jsonResponse(204) : searchResponse([stranger])
+    );
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await typeAndSearch('sky');
+    await fireEvent.click(screen.getByRole('button', { name: 'Add Skyler Berg' }));
+    await tick();
+
+    const done = screen.getByRole('button', { name: 'Skyler Berg added' });
+    expect(done).toBeDisabled();
+    // Adding them puts them in the directory, which would otherwise promote the
+    // row out from under the pointer into the group above.
+    const strangerHeading = screen.getByText('Everyone else');
+    expect(strangerHeading.compareDocumentPosition(done)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('marks same-named people apart even when one is a stranger', async () => {
+    users.users = [alexOne, me];
+    fetchMock.mockImplementation(async () =>
+      searchResponse([{ id: alexTwo.id, name: 'Alex Kim', avatar_url: null }])
+    );
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await typeAndSearch('alex');
+
+    expect(screen.getByRole('button', { name: 'Add Alex Kim 3f2a1b4c' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Alex Kim 9c8d7e6f' })).toBeInTheDocument();
+  });
+
+  it('drops a stale response that lands after a newer one', async () => {
+    let releaseSlow: (() => void) | null = null;
+    const slow = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    fetchMock.mockImplementationOnce(async () => {
+      await slow;
+      return searchResponse([{ id: 'u-stale', name: 'Stale Person', avatar_url: null }]);
+    });
+    fetchMock.mockImplementation(async () => searchResponse([stranger]));
+
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await typeAndSearch('sk');
+    await typeAndSearch('skyler');
+
+    releaseSlow!();
+    await vi.advanceTimersByTimeAsync(0);
+    await tick();
+
+    expect(screen.getByRole('button', { name: 'Add Skyler Berg' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Stale Person' })).toBeNull();
+  });
+
+  it('keeps the people you work with when the search itself fails', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'boom' }));
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await typeAndSearch('lovel');
+
+    expect(screen.getByRole('button', { name: 'Add Ada Lovelace' })).toBeInTheDocument();
+    expect(screen.getByText(/Could not search everyone/)).toBeVisible();
+  });
+
+  it('says it is searching from the keystroke, not from the request', async () => {
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await type('sky');
+
+    expect(screen.getByRole('status')).toHaveTextContent('Searching…');
+  });
+
+  it('walks from the local group into the stranger group with ArrowDown', async () => {
+    users.users = [ada, me];
+    fetchMock.mockImplementation(async (input) =>
+      (input as Request).method === 'PUT' ? jsonResponse(204) : searchResponse([stranger])
+    );
+    render(MemberPicker, { projectId: 'p-1' });
+
+    // Matches Ada locally and is long enough for the server to be asked, so the
+    // list spans both groups.
+    await typeAndSearch('lo');
+    expect(screen.getByRole('button', { name: 'Add Ada Lovelace' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Skyler Berg' })).toBeInTheDocument();
+
+    await fireEvent.keyDown(field(), { key: 'ArrowDown' });
+    await fireEvent.keyDown(field(), { key: 'Enter' });
+
+    expect(projects.projects[0]!.member_ids).toEqual([stranger.id]);
+  });
+
+  // A response landing while the user is arrowing must not re-aim Enter: the
+  // row it lands on grants that person access to the board.
+  it('adds the highlighted person even when results arrive before Enter', async () => {
+    users.users = [ada, me];
+    fetchMock.mockImplementation(async (input) =>
+      (input as Request).method === 'PUT' ? jsonResponse(204) : searchResponse([])
+    );
+    render(MemberPicker, { projectId: 'p-1' });
+
+    await typeAndSearch('lovel');
+    await fireEvent.keyDown(field(), { key: 'ArrowDown' });
+
+    // Ada is now highlighted. A late response inserts a stranger above nobody,
+    // but the rows either side of her shift.
+    fetchMock.mockImplementation(async (input) =>
+      (input as Request).method === 'PUT'
+        ? jsonResponse(204)
+        : searchResponse([{ id: 'u-late', name: 'Aaa Late', avatar_url: null }])
+    );
+    await typeAndSearch('lovel');
+
+    await fireEvent.keyDown(field(), { key: 'Enter' });
+
+    expect(projects.projects[0]!.member_ids).toEqual([ada.id]);
+  });
+
+  it('sends no request once it is unmounted mid-flight', async () => {
+    const view = render(MemberPicker, { projectId: 'p-1' });
+
+    await type('sky');
+    view.unmount();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -422,7 +422,7 @@ describe('projects store', () => {
     await loadWith([project({ created_by: 'u-me', member_ids: ['u-1'] })]);
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
-    const pending = projects.addMember('p-1', 'u-2');
+    const pending = projects.addMember('p-1', { id: 'u-2', name: 'Pat', avatar_url: null });
     expect(projects.projects[0]!.member_ids).toEqual(['u-1', 'u-2']);
 
     await pending;
@@ -432,12 +432,23 @@ describe('projects store', () => {
     expect(await bodyOf(requestAt(1))).toEqual({ user_ids: ['u-1', 'u-2'] });
   });
 
+  // Someone found by global search is not in the directory, and every member
+  // list renders their name from it.
+  it('records an added member in the user directory', async () => {
+    await loadWith([project({ created_by: 'u-me', member_ids: [] })]);
+    fetchMock.mockImplementation(async () => jsonResponse(204));
+
+    await projects.addMember('p-1', { id: 'u-9', name: 'Skyler Berg', avatar_url: null });
+
+    expect(users.byId('u-9')?.name).toBe('Skyler Berg');
+  });
+
   it('does not re-add the creator or an existing member', async () => {
     await loadWith([project({ created_by: 'u-me', member_ids: ['u-1'] })]);
 
-    await projects.addMember('p-1', 'u-me');
-    await projects.addMember('p-1', 'u-1');
-    await projects.addMember('p-missing', 'u-2');
+    await projects.addMember('p-1', { id: 'u-me', name: 'Me', avatar_url: null });
+    await projects.addMember('p-1', { id: 'u-1', name: 'One', avatar_url: null });
+    await projects.addMember('p-missing', { id: 'u-2', name: 'Two', avatar_url: null });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(projects.projects[0]!.member_ids).toEqual(['u-1']);

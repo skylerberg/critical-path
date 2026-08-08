@@ -412,9 +412,29 @@ export interface paths {
         };
         /**
          * List visible users
-         * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name. email narrows either listing to the one user holding that exact address, case-insensitively, and is the only way to name someone by address: a user record never carries one. It selects from the same set the unfiltered call already returns in full, so it discloses nothing new — an address that belongs to nobody visible yields an empty list rather than 404, which on this route means the project is missing or unreadable. A malformed address is 400.
+         * @description Without project_id, list the caller and every user sharing at least one project with them (as creator or member on either side). With project_id (the caller must have access to the project — 404 otherwise), list users who can access that project plus users still assigned to its tasks or still holding a comment on them. Ordered by name. email narrows either listing to the one user holding that exact address, case-insensitively, and is the only way to name someone by address: a user record never carries one. It selects from the same set the unfiltered call already returns in full, so it discloses nothing new — an address that belongs to nobody visible yields an empty list rather than 404, which on this route means the project is missing or unreadable. A malformed address is 400. This route never reaches past the caller's own set; GET /api/users/search is the one that does.
          */
         get: operations["getApiUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search all users by name
+         * @description Find people the caller does not already share a project with, so a board can be shared with someone by name rather than only by exact email address. Matching is by word prefix: every word in q must prefix some word of the name, in any order, so "sky" and "lo ada" find "Skyler Berg" and "Ada Lovelace" respectively. It is not a substring match — "kyler" finds nobody — and accents are not folded, so "jose" does not find "José". q is trimmed, and is 400 shorter than 2 characters or longer than 100; a q that tokenizes to nothing at all matches nobody rather than erroring. Deliberately disjoint from GET /api/users: the caller and everyone already listed there are excluded, so the two can be shown as one list without deduplicating, and the 10-result cap is never spent on people the client already holds. truncated reports that more matched than were returned; there is no pagination, because narrowing the query is the only intended way to see more. A user record is { id, name, avatar_url } here as everywhere — never an email address, and an address is not searchable. Metered per account and per source address, and 429 past either.
+         */
+        get: operations["getApiUsersSearch"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1884,6 +1904,10 @@ export interface components {
             avatar_url: string | null;
             id: string;
             name: string;
+        };
+        UserSearchResponse: {
+            truncated: boolean;
+            users: components["schemas"]["User"][];
         };
         ProjectsListResponse: {
             projects: components["schemas"]["ProjectListItem"][];
@@ -3864,6 +3888,65 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiUsersSearch: {
+        parameters: {
+            query: {
+                /** @description A name, or the first characters of one, matched a word at a time */
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching users, ordered by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSearchResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
