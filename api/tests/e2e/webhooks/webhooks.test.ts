@@ -420,6 +420,23 @@ describe('Webhooks API', () => {
         (await ctx.request(outsider.token).get(`/api/webhooks/${webhook.id}/deliveries`)).status
       ).toBe(404);
     });
+
+    // The one webhook route a viewer may reach: every other one is editor-only.
+    it('serves the log to a viewer', async () => {
+      const projectId = await createProject('wh-deliveries-viewer');
+      const webhook = await createWebhook(projectId);
+      const deliveryId = await insertPendingDelivery(webhook.id);
+      const viewer = await ctx.createUser('wh-deliveries-viewer-user');
+      await ctx.request(user.token).put(`/api/projects/${projectId}/members`, {
+        user_ids: [viewer.id],
+        roles: [{ user_id: viewer.id, role: 'viewer' }],
+      });
+
+      const res = await ctx.request(viewer.token).get(`/api/webhooks/${webhook.id}/deliveries`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { deliveries: { id: string }[] };
+      expect(body.deliveries.map((d) => d.id)).toContain(deliveryId);
+    });
   });
 
   describe('POST /api/webhooks/:id/deliveries/:deliveryId/redeliver', () => {
