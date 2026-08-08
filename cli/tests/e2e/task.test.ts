@@ -45,6 +45,29 @@ describe('task commands', () => {
     backlogId = columns[0].id;
     todoId = columns[1].id;
     doneId = columns.find((c) => c.is_done)!.id;
+
+    // Nine tests below address these five cards, so they are built here rather
+    // than in the first test: a create that breaks then fails this hook once,
+    // instead of leaving every later test to fail on an undefined id.
+    const createCard = async (title: string, ...placement: string[]): Promise<BoardTask> => {
+      const res = await h.runCli([
+        'task',
+        'create',
+        title,
+        '--project',
+        projectId,
+        ...placement,
+        '--json',
+      ]);
+      expect(res.exitCode).toBe(0);
+      return res.json<BoardTask>();
+    };
+
+    alpha = await createCard('Alpha task');
+    beta = await createCard('Beta task');
+    gamma = await createCard('Gamma task', '--top');
+    delta = await createCard('Delta task', '--before', 'Beta task');
+    epsilon = await createCard('Epsilon task', '--after', 'Gamma task');
   });
 
   afterAll(async () => {
@@ -53,52 +76,11 @@ describe('task commands', () => {
   });
 
   it('create defaults to the first non-done column and honors placement flags', async () => {
-    const a = await h.runCli(['task', 'create', 'Alpha task', '--project', projectId, '--json']);
-    expect(a.exitCode).toBe(0);
-    alpha = a.json<BoardTask>();
     expect(alpha.column_id).toBe(backlogId);
     expect(alpha.sort_key).toBeTruthy();
-
-    const b = await h.runCli(['task', 'create', 'Beta task', '--project', projectId, '--json']);
-    beta = b.json<BoardTask>();
     expect(beta.sort_key > alpha.sort_key).toBe(true);
-
-    const c = await h.runCli([
-      'task',
-      'create',
-      'Gamma task',
-      '--project',
-      projectId,
-      '--top',
-      '--json',
-    ]);
-    gamma = c.json<BoardTask>();
     expect(gamma.sort_key < alpha.sort_key).toBe(true);
-
-    const d = await h.runCli([
-      'task',
-      'create',
-      'Delta task',
-      '--project',
-      projectId,
-      '--before',
-      'Beta task',
-      '--json',
-    ]);
-    delta = d.json<BoardTask>();
     expect(delta.sort_key > alpha.sort_key && delta.sort_key < beta.sort_key).toBe(true);
-
-    const e = await h.runCli([
-      'task',
-      'create',
-      'Epsilon task',
-      '--project',
-      projectId,
-      '--after',
-      'Gamma task',
-      '--json',
-    ]);
-    epsilon = e.json<BoardTask>();
     expect(epsilon.sort_key > gamma.sort_key && epsilon.sort_key < alpha.sort_key).toBe(true);
 
     const list = await h.runCli([
