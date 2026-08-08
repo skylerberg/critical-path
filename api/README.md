@@ -379,9 +379,11 @@ credential; the backfill skips them, and skips unsafe methods too, because
 logout manages this cookie itself and a backfill would leave the response
 carrying two conflicting `Set-Cookie` headers for one name.
 
-Nothing requires the cookie yet — the routes that will are still open. It
-ships a release ahead of them so that a rolling deploy never has new pods
-demanding a credential from browsers that have not been issued one.
+The media routes read it, and nothing else does — see the note on
+`/api/images/:id` under [Known limitations](#known-limitations-v1). Confining it to those
+routes is what keeps it from being a CSRF primitive: they are all GETs that
+only read bytes, and every mutation still requires the `Authorization` header,
+which no other origin can set.
 >>>>>>> b0b1194 (Issue the session token as a cookie)
 
 ### Personal access tokens
@@ -854,9 +856,10 @@ fills in `title`, `description`, a preview image and a favicon, publishing
 `attachment_updated` when it settles. Both images are re-fetched into our own
 storage and re-encoded to WebP rather than hotlinked, so rendering a card leaks
 no viewer's IP to a third party and does not break when they move the file.
-They are served from unauthenticated capability URLs, like images and avatars,
-because they go in an `<img>`; each of those two routes selects only its own
-key column, so neither can serve a document's bytes whatever id is guessed.
+They are served under the same rule as images, because they go in an `<img>`:
+project access, or a published board. Each of those two routes selects only its
+own key column, so neither can serve a document's bytes whatever id is
+guessed.
 
 Unfurling is best-effort by design: a target that refuses unfurlers, times out,
 answers a non-HTML body or resolves to a blocked address settles the row at
@@ -2546,9 +2549,14 @@ npm run openapi:dump && npm run --prefix cli generate-api
   secret is the exception: the list route omits it for anyone whose role is not
   editor, since holding it is enough to forge a delivery to that receiver.
   Registering, changing, deleting, rotating and re-sending are editors only.
-- `GET /api/images/:id` and `GET /api/avatars/:key` are unauthenticated
-  capability URLs (unguessable UUIDs) so `<img>` tags work without auth
-  headers.
+- `GET /api/images/:id` answers to project access, or to anyone once the board
+  is published. A browser presents the `cp_session` cookie, because an `<img>`
+  tag cannot carry an `Authorization` header; the cookie is read on these
+  routes and nowhere else, so it is not a CSRF primitive. `GET
+  /api/avatars/:key` answers any signed-in caller — an avatar is the same key
+  on every board its owner appears on, so a per-board rule would cost a lookup
+  per face and gate nothing — and an anonymous one only when its owner appears
+  on a published board.
 - Task images are stored exactly as uploaded — no resizing, no re-encoding (only
   avatars and link previews are re-encoded). A card cover therefore serves the
   full original, so a 10 MB upload is a 10 MB card image; there is no derived
@@ -2565,26 +2573,23 @@ npm run openapi:dump && npm run --prefix cli generate-api
   be stored XSS against the app's own origin; the download route is the only
   one that reads `task_attachment.storage_key`, and it is the only place that
   has to keep that promise.
-- `GET /api/attachments/:id/preview` and `/favicon` are unauthenticated
-  capability URLs, so a preview image stays readable to anyone who learned the
-  attachment id even after they lose access to the project. They carry no
-  user-supplied bytes — only a WebP re-encode of a public page's own preview
-  image — but the fact that the project has _an_ attachment with a preview does
-  leak. The download route deliberately does not work this way.
+- `GET /api/attachments/:id/preview` and `/favicon` answer to project access
+  like the download route, so a preview stops being readable when someone loses
+  access to the project rather than staying readable to anyone who learned the
+  attachment id.
 - Attachment downloads support no Range requests and no resume: the storage
   interface returns a whole buffer, so a download costs its full size in pod
   memory per concurrent request. This was already true of images and is simply
   more noticeable at 50 MB. Uploads stream; downloads do not.
 - `GET /api/public/projects/:id/board` is unauthenticated and gated only by the
   project's `is_public` flag, which any member may flip. Clearing it stops the
-  board being served immediately, but images embedded in card descriptions, card
-  cover images, and the avatars of assigned users keep serving from their
-  `/api/images/:id` and
-  `/api/avatars/:key` capability URLs, so a viewer who already loaded (or
-  copied) one keeps it — an avatar key is only replaced when that user uploads
-  a new one, and it is the same key on every board they appear on. Anyone who
-  ever held the project id can read the board the moment it is published; there
-  is no separate, rotatable slug.
+  board being served immediately, and now takes the pictures with it: the
+  images embedded in card descriptions and the card covers re-check the flag on
+  every request, so a URL copied while the board was published stops working.
+  An avatar is the one thing that outlives unpublishing, and only while its
+  owner still appears on some other published board. Anyone who ever held the
+  project id can read the board the moment it is published; there is no
+  separate, rotatable slug.
 - Account deletion reaches database rows and storage objects, not logs. With
   `EMAIL_DRIVER=console` the console sender writes every message it would have
   sent into the application log, so feedback submissions (name, email, user id,

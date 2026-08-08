@@ -1,14 +1,16 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import { skipAuth } from '../middleware/auth';
+import { optionalAuth } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
 import { storage } from '../services/storage/index';
 import { storedObjectResponse } from '../services/storage/response';
+import { assertAvatarReadable } from '../services/avatars';
 import { logger } from '../utils/logger';
 import {
   idSchema,
   badRequestErrorResponse,
+  unauthorizedErrorResponse,
   notFoundErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
@@ -22,9 +24,12 @@ router.get(
     tags: ['Avatars'],
     summary: 'Get avatar',
     description:
-      'Serve avatar image bytes by storage key. Unauthenticated: the unguessable key acts ' +
-      'as a capability URL so <img> tags work without auth headers. Every avatar upload ' +
-      'mints a fresh key, so responses are immutable and cacheable forever.',
+      'Serve avatar image bytes by storage key. Answers any signed-in caller — an avatar is ' +
+      'the same key on every board its owner appears on — and an anonymous one only when its ' +
+      'owner appears on a published board. A browser authenticates with the session cookie, ' +
+      'since an <img> tag cannot carry an Authorization header. Every avatar upload mints a ' +
+      'fresh key, so responses are immutable and cacheable forever.',
+    security: [{ bearerAuth: [] }],
     responses: {
       200: {
         description: 'Avatar bytes (Content-Type reflects the stored image format)',
@@ -35,14 +40,17 @@ router.get(
         },
       },
       ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  skipAuth,
+  optionalAuth,
   paramValidator(idSchema),
   async (c) => {
     const { id } = c.req.valid('param');
+
+    await assertAvatarReadable(c.get('db'), c.get('user'), id);
 
     const row = await c
       .get('db')

@@ -64,17 +64,16 @@ describe('GET /api/attachments/:id/download', () => {
   );
 
   // A PNG sent here is sniffed into an image, so it leaves this route entirely
-  // and is served by the image one. That is a real change in who can read it:
-  // downloads are authenticated, an image URL is a capability anyone holding it
-  // can use.
-  it('routes a PNG to the image route instead, which serves it unauthenticated', async () => {
+  // and is served by the image one. Both are authenticated and both answer to
+  // project access, so which route serves it no longer changes who can read it.
+  it('routes a PNG to the image route instead, which serves it renderable', async () => {
     const user = await ctx.createUser('dl-png');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
     const id = await upload(user.token, taskId, PNG_1X1, 'pixel.png', 'image/png');
 
     expect((await ctx.request(user.token).get(`/api/attachments/${id}/download`)).status).toBe(404);
 
-    const served = await ctx.request().get(`/api/images/${id}`);
+    const served = await ctx.request(user.token).get(`/api/images/${id}`);
     expect(served.status).toBe(200);
     expect(served.headers.get('Content-Type')).toBe('image/png');
     expect(served.headers.get('X-Content-Type-Options')).toBe('nosniff');
@@ -184,14 +183,15 @@ describe('GET /api/attachments/:id/download', () => {
 
   // The preview route never selects storage_key, so a file's id cannot make it
   // serve the file's bytes no matter who guesses it.
-  it('cannot be reached through the unauthenticated preview or favicon routes', async () => {
+  it('cannot be reached through the preview or favicon routes', async () => {
     const user = await ctx.createUser('dl-preview');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
     const id = await upload(user.token, taskId, HTML, 'evil.html', 'text/html');
 
-    expect((await ctx.request().get(`/api/attachments/${id}/preview`)).status).toBe(404);
-    expect((await ctx.request().get(`/api/attachments/${id}/favicon`)).status).toBe(404);
-    expect((await ctx.request(user.token).get(`/api/attachments/${id}/preview`)).status).toBe(404);
+    const request = ctx.request(user.token);
+    expect((await request.get(`/api/attachments/${id}/preview`)).status).toBe(404);
+    expect((await request.get(`/api/attachments/${id}/favicon`)).status).toBe(404);
+    expect((await ctx.request().get(`/api/attachments/${id}/preview`)).status).toBe(401);
   });
 
   it('escapes a hostile filename into a legal Content-Disposition', async () => {
