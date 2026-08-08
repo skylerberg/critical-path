@@ -71,6 +71,105 @@ export function placeAtIndex(sorted: readonly Ranked[], index: number): Placemen
   return between(sorted[index - 1]!, sorted[index]!);
 }
 
+/**
+ * Where a drop landed, expressed as the cards it landed between rather than the
+ * key that would put it there. A key is only meaningful against the list it was
+ * computed from, so a move that has to wait — queued offline, replayed minutes
+ * later — keeps its meaning in these terms and in no others.
+ */
+export interface Neighbors {
+  afterId: string | null;
+  beforeId: string | null;
+}
+
+// `items` is the display order *including* the moved card at its new index.
+export function neighborsAfterDrop(items: readonly Ranked[], movedId: string): Neighbors {
+  const index = items.findIndex((item) => item.id === movedId);
+  const others = items.filter((item) => item.id !== movedId);
+  if (index === -1) {
+    return { afterId: null, beforeId: null };
+  }
+  if (index === 0) {
+    return { afterId: null, beforeId: extreme(others, false)?.id ?? null };
+  }
+  // Anchors on the visual neighbour above the drop, then takes the lowest-ranked
+  // sibling above it, so the placement stays right when the display is a
+  // filtered partition rather than the whole column.
+  const previous = items[index - 1]!;
+  // Strictly greater by key, not by rank: a sibling that merely ties on key and
+  // loses the id tiebreak is not something to squeeze in front of.
+  const above = (candidate: Ranked): boolean =>
+    previous.sort_key === null
+      ? candidate.sort_key !== null
+      : candidate.sort_key !== null && candidate.sort_key > previous.sort_key;
+  let next: Ranked | null = null;
+  for (const item of others) {
+    if (above(item) && (next === null || byRank(item, next) < 0)) {
+      next = item;
+    }
+  }
+  return { afterId: previous.id, beforeId: next?.id ?? null };
+}
+
+// The pairing for `placeAtIndex`: the same slot, named by the cards on either
+// side of it. `sorted` must be in rank order and must not contain the item
+// being placed, exactly as `placeAtIndex` requires.
+export function neighborsAtIndex(sorted: readonly Ranked[], index: number): Neighbors {
+  return {
+    afterId: index <= 0 ? null : (sorted[index - 1]?.id ?? null),
+    beforeId: index >= sorted.length ? null : (sorted[index]?.id ?? null),
+  };
+}
+
+/**
+ * Turns neighbours back into a key against whatever the list looks like *now*.
+ * `exact` is false when neither neighbour is still there — the card the user
+ * aimed at has been deleted or moved away, so the result is the end of the list
+ * and a guess. Callers surface that rather than pretending the drop landed.
+ */
+export function placeBetweenNeighbors(
+  siblings: readonly Ranked[],
+  { afterId, beforeId }: Neighbors
+): { placement: Placement; exact: boolean } {
+  const after = siblings.find((item) => item.id === afterId) ?? null;
+  const before = siblings.find((item) => item.id === beforeId) ?? null;
+  if (after !== null && before !== null) {
+    return { placement: between(after, before), exact: true };
+  }
+  // One anchor still standing is enough: "immediately after this card" survives
+  // whatever happened on the other side of the gap.
+  if (after !== null) {
+    return { placement: between(after, neighborBy(siblings, after, true)), exact: true };
+  }
+  if (before !== null) {
+    return { placement: between(neighborBy(siblings, before, false), before), exact: true };
+  }
+  return {
+    placement: append(siblings),
+    // Asking for no anchors at all means the end of the list, which is exactly
+    // where this lands — only a lost anchor is inexact.
+    exact: afterId === null && beforeId === null,
+  };
+}
+
+// The adjacent sibling on one side of `anchor` in rank order, or null at the end.
+function neighborBy(
+  siblings: readonly Ranked[],
+  anchor: Ranked,
+  wantAbove: boolean
+): Ranked | null {
+  let best: Ranked | null = null;
+  for (const item of siblings) {
+    if (item.id === anchor.id) continue;
+    const order = byRank(item, anchor);
+    if (wantAbove ? order <= 0 : order >= 0) continue;
+    if (best === null || (wantAbove ? byRank(item, best) < 0 : byRank(item, best) > 0)) {
+      best = item;
+    }
+  }
+  return best;
+}
+
 export interface RankUpdate extends Placement {
   id: string;
 }

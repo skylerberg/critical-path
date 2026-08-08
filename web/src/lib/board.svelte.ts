@@ -13,17 +13,22 @@ import type {
   PublicBoardPayload,
 } from './board-types';
 import { type ColumnSort, sortTasks } from './column-sort';
+import { mergeVersion, type TaskVersion } from './conflictDrafts.svelte';
 import { saveBlob } from './export';
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
+import type { SerializedRequest } from './outbox-ops';
+import { outbox, type SubmitInput, type SubmitResult } from './outbox.svelte';
 import type { RealtimeEvent } from './realtime-types';
 import {
   append,
   appendRun,
-  between,
   byRank,
+  neighborsAfterDrop,
   placeAtIndex,
+  placeBetweenNeighbors,
   restack,
+  type Neighbors,
   type Placement,
   type Ranked,
 } from './ranks';
@@ -42,40 +47,40 @@ export type TaskComment = components['schemas']['Comment'];
 export type CommentBody = TaskComment['body'];
 
 type BulkRelationsResponse = components['schemas']['BulkTaskRelationsResponse'];
+type BulkTasksResponse = components['schemas']['TasksBatchResponse'];
+type DuplicatedColumnResponse = components['schemas']['DuplicatedColumnResponse'];
+type MovedTasksResponse = components['schemas']['MovedTasksResponse'];
+type BulkMovedTasksResponse = components['schemas']['BulkMovedTasksResponse'];
+type ArchivedTasksResponse = components['schemas']['ArchivedTasksResponse'];
+type BulkArchivedTasksResponse = components['schemas']['BulkArchivedTasksResponse'];
+
+// The board's own shape for a card that is no longer archived. Only needed
+// while a restore is queued, when there is no server row to adopt yet.
+function unarchive(task: ArchivedTask | undefined): BoardTask | undefined {
+  if (task === undefined) {
+    return undefined;
+  }
+  const { archived_at, ...row } = task;
+  void archived_at;
+  return row;
+}
 
 export type TaskUpdateOutcome =
   | { status: 'ok'; updated_at: string }
+  // Held for a network that isn't there. The text is safe and the editor should
+  // settle exactly as it does on success — it is just not saved yet, which the
+  // sync indicator is responsible for saying.
+  | { status: 'queued' }
   | { status: 'conflict' }
   | { status: 'error' };
 
 // Anchors on the visual neighbor above the drop, so it stays correct when the
-// display order is a filtered partition rather than pure rank order.
+// display order is a filtered partition rather than pure rank order. Both this
+// and the neighbours a queued move remembers come from `neighborsAfterDrop`, so
+// what gets sent now and what gets replayed later cannot describe different drops.
 export function placementAfterDrop(items: readonly Ranked[], movedId: string): Placement {
-  const index = items.findIndex((item) => item.id === movedId);
   const others = items.filter((item) => item.id !== movedId);
-  if (index === -1) {
-    return append(others);
-  }
-  if (index === 0) {
-    return placeAtIndex(others, 0);
-  }
-  // Anchors on the visual neighbour above the drop, then takes the lowest-ranked
-  // sibling above it, so the placement stays right when the display is a
-  // filtered partition rather than the whole column.
-  const previous = items[index - 1]!;
-  // Strictly greater by key, not by rank: a sibling that merely ties on key and
-  // loses the id tiebreak is not something to squeeze in front of.
-  const above = (candidate: Ranked): boolean =>
-    previous.sort_key === null
-      ? candidate.sort_key !== null
-      : candidate.sort_key !== null && candidate.sort_key > previous.sort_key;
-  let next: Ranked | null = null;
-  for (const item of others) {
-    if (above(item) && (next === null || byRank(item, next) < 0)) {
-      next = item;
-    }
-  }
-  return next === null ? append(others) : between(previous, next);
+  return placeBetweenNeighbors(others, neighborsAfterDrop(items, movedId)).placement;
 }
 
 const CYCLE_PATH_MS = 5000;
@@ -544,21 +549,27 @@ class BoardStore {
     const id = newId();
     const placement = append(this.tasksInColumn(columnId));
     this.tasks = [...this.tasks, optimisticTask(id, columnId, title, placement)];
-    try {
-      const created = assertOk(
-        await api.POST('/api/tasks', {
-          body: { id, project_id: projectId, column_id: columnId, title, ...placement },
-        })
-      );
-      this.#adoptTimestamps(id, {
-        created_at: created.created_at,
-        updated_at: created.updated_at,
-      });
-      return id;
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send<BoardTask>({
+      entityId: id,
+      label: `New card “${truncateTitle(title)}”`,
+      semantics: 'create',
+      request: {
+        method: 'POST',
+        path: '/api/tasks',
+        body: { id, project_id: projectId, column_id: columnId, title, ...placement },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
       return null;
     }
+    if (result.status === 'sent') {
+      this.#adoptTimestamps(id, {
+        created_at: result.data.created_at,
+        updated_at: result.data.updated_at,
+      });
+    }
+    return id;
   }
 
   async createTasks(columnId: string, titles: string[]): Promise<string[] | null> {
@@ -575,26 +586,34 @@ class BoardStore {
       optimisticTask(newId(), columnId, title, placements[index]!)
     );
     this.tasks = [...this.tasks, ...created];
-    try {
-      const data = assertOk(
-        await api.POST('/api/tasks/batch', {
-          body: {
-            project_id: projectId,
-            column_id: columnId,
-            tasks: created.map((task) => ({
-              id: task.id,
-              title: task.title,
-              sort_key: task.sort_key,
-            })),
-          },
-        })
-      );
-      this.#adoptTimestampsFrom(data.tasks);
-      return created.map((task) => task.id);
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send<BulkTasksResponse>({
+      // The batch is all-or-nothing on a duplicate id, so replaying it either
+      // creates every card or reports that they are already there — never half.
+      entityId: created[0]!.id,
+      label: `${String(created.length)} new cards`,
+      semantics: 'create',
+      request: {
+        method: 'POST',
+        path: '/api/tasks/batch',
+        body: {
+          project_id: projectId,
+          column_id: columnId,
+          tasks: created.map((task) => ({
+            id: task.id,
+            title: task.title,
+            sort_key: task.sort_key,
+          })),
+        },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
       return null;
     }
+    if (result.status === 'sent') {
+      this.#adoptTimestampsFrom(result.data.tasks);
+    }
+    return created.map((task) => task.id);
   }
 
   async duplicateTask(taskId: string): Promise<string | null> {
@@ -664,24 +683,42 @@ class BoardStore {
     return id;
   }
 
-  async moveTask(taskId: string, columnId: string, placement: Placement): Promise<void> {
+  /**
+   * `intent` is the same drop expressed as the cards it landed between, and it
+   * is what gets queued when this cannot be sent now. A `sort_key` is only
+   * meaningful against the board it was computed from, so replaying one minutes
+   * later would drop the card wherever that key happens to fall; the neighbours
+   * still mean what the user meant. Defaults to the end of the column, which is
+   * what the callers that append actually intend.
+   */
+  async moveTask(
+    taskId: string,
+    columnId: string,
+    placement: Placement,
+    intent: Neighbors = { afterId: null, beforeId: null }
+  ): Promise<void> {
     this.tasks = this.tasks.map((task) =>
       task.id === taskId ? { ...task, column_id: columnId, ...placement } : task
     );
-    try {
-      assertOk(
-        await api.PATCH('/api/tasks/{id}', {
-          params: { path: { id: taskId } },
-          body: { column_id: columnId, ...placement },
-        })
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
-    } finally {
-      // In `finally`, not on success: a failed move resyncs the board, and the log
-      // has to end up showing what the server kept.
-      taskActivity.invalidate(taskId);
+    const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
+    const result = await this.#send({
+      entityId: taskId,
+      label: `Moved “${truncateTitle(title)}”`,
+      semantics: 'move',
+      move: { columnId, ...intent },
+      request: {
+        method: 'PATCH',
+        path: '/api/tasks/{id}',
+        pathParams: { id: taskId },
+        body: { column_id: columnId, ...placement },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
+    // Not conditional on success: a failed move resyncs the board, and the log
+    // has to end up showing what the server kept.
+    taskActivity.invalidate(taskId);
   }
 
   // False when the project has no done column, so callers can decline the action
@@ -712,6 +749,13 @@ class BoardStore {
     });
   }
 
+  /**
+   * `base` is the version the editor was populated from. It is only needed when
+   * the write might have to wait: a queued edit that comes back 409 has to be
+   * able to offer the user the same both-versions choice an online one does, and
+   * that needs the baseline as well as the text, captured now rather than
+   * reconstructed later from a board that has since moved on.
+   */
   async updateTask(
     taskId: string,
     patch: {
@@ -719,33 +763,44 @@ class BoardStore {
       description?: BoardTask['description'];
       due_date?: BoardTask['due_date'];
     },
-    expectedUpdatedAt?: string
+    expectedUpdatedAt?: string,
+    base?: TaskVersion
   ): Promise<TaskUpdateOutcome> {
     this.tasks = this.tasks.map((task) => (task.id === taskId ? { ...task, ...patch } : task));
-    try {
-      const data = assertOk(
-        await api.PATCH('/api/tasks/{id}', {
-          params: { path: { id: taskId } },
-          body: {
-            ...patch,
-            ...(expectedUpdatedAt !== undefined ? { expected_updated_at: expectedUpdatedAt } : {}),
-          },
-        })
-      );
-      this.#adoptTimestamps(taskId, { updated_at: data.updated_at });
-      return { status: 'ok', updated_at: data.updated_at };
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        // No toast: the caller owns the conflict surface, and the refetch is what
-        // lets it offer the server's current version.
-        await this.refetch();
-        return { status: 'conflict' };
-      }
-      await this.#mutationFailed(error);
-      return { status: 'error' };
-    } finally {
-      taskActivity.invalidate(taskId);
+    const body = {
+      ...patch,
+      ...(expectedUpdatedAt !== undefined ? { expected_updated_at: expectedUpdatedAt } : {}),
+    };
+    // Only a patch carrying a precondition can come back as a conflict; a move
+    // or a due-date change is last-write-wins and the server ignores it.
+    const guarded = expectedUpdatedAt !== undefined && base !== undefined;
+    const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
+    const result = await this.#send<BoardTask>({
+      entityId: taskId,
+      label: `Edited “${truncateTitle(title)}”`,
+      semantics: guarded ? 'contentEdit' : 'plain',
+      conflict: guarded ? { taskId, base, mine: mergeVersion(base, patch) } : undefined,
+      request: { method: 'PATCH', path: '/api/tasks/{id}', pathParams: { id: taskId }, body },
+    });
+    taskActivity.invalidate(taskId);
+    if (result.status === 'sent') {
+      this.#adoptTimestamps(taskId, { updated_at: result.data.updated_at });
+      return { status: 'ok', updated_at: result.data.updated_at };
     }
+    if (result.status === 'queued') {
+      // The baseline deliberately does not advance: the precondition still names
+      // the last version the server confirmed, which is what the queued patch
+      // carries and what it will be judged against.
+      return { status: 'queued' };
+    }
+    if (result.error.status === 409) {
+      // No toast: the caller owns the conflict surface, and the refetch is what
+      // lets it offer the server's current version.
+      await this.refetch();
+      return { status: 'conflict' };
+    }
+    await this.#mutationFailed(result.error);
+    return { status: 'error' };
   }
 
   // Plural so emptying a column is one pass over the tasks, not one per card.
@@ -768,13 +823,17 @@ class BoardStore {
   }
 
   async deleteTask(taskId: string): Promise<void> {
+    const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
     this.#dropTasks([taskId]);
     this.#discardArchivedLoad();
     this.archivedTasks = this.archivedTasks.filter((task) => task.id !== taskId);
-    try {
-      assertOk(await api.DELETE('/api/tasks/{id}', { params: { path: { id: taskId } } }));
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send({
+      entityId: taskId,
+      label: `Deleted “${truncateTitle(title)}”`,
+      request: { method: 'DELETE', path: '/api/tasks/{id}', pathParams: { id: taskId } },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
   }
 
@@ -790,37 +849,50 @@ class BoardStore {
       { ...task, archived_at: new Date().toISOString() },
       ...this.archivedTasks,
     ];
-    try {
-      const archived = assertOk(
-        await api.POST('/api/tasks/{id}/archive', { params: { path: { id: taskId } } })
-      );
-      this.archivedTasks = this.archivedTasks.map((t) => (t.id === taskId ? archived : t));
-    } catch (error) {
-      this.archivedTasks = this.archivedTasks.filter((t) => t.id !== taskId);
-      await this.#mutationFailed(error);
-    } finally {
-      taskActivity.invalidate(taskId);
+    const result = await this.#send<ArchivedTask>({
+      entityId: taskId,
+      label: `Archived “${truncateTitle(task.title)}”`,
+      request: { method: 'POST', path: '/api/tasks/{id}/archive', pathParams: { id: taskId } },
+    });
+    if (result.status === 'sent') {
+      this.archivedTasks = this.archivedTasks.map((t) => (t.id === taskId ? result.data : t));
     }
+    if (result.status === 'failed') {
+      this.archivedTasks = this.archivedTasks.filter((t) => t.id !== taskId);
+      await this.#mutationFailed(result.error);
+    }
+    taskActivity.invalidate(taskId);
   }
 
   async restoreTask(taskId: string): Promise<void> {
+    const archived = this.archivedTasks.find((t) => t.id === taskId);
     this.#discardArchivedLoad();
     this.archivedTasks = this.archivedTasks.filter((t) => t.id !== taskId);
-    try {
-      const restored = assertOk(
-        await api.POST('/api/tasks/{id}/restore', { params: { path: { id: taskId } } })
-      );
+    const result = await this.#send<BoardTask>({
+      entityId: taskId,
+      label: `Restored “${truncateTitle(archived?.title ?? '')}”`,
+      request: { method: 'POST', path: '/api/tasks/{id}/restore', pathParams: { id: taskId } },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
+      taskActivity.invalidate(taskId);
+      return;
+    }
+    // Queued, the server's version of the restored row is not available — so the
+    // card is put back from the archived copy rather than vanishing from both
+    // lists until the network returns.
+    const restored = result.status === 'sent' ? result.data : unarchive(archived);
+    if (restored !== undefined) {
       this.tasks = this.tasks.some((t) => t.id === restored.id)
         ? this.tasks.map((t) => (t.id === restored.id ? restored : t))
         : [...this.tasks, restored];
+    }
+    if (result.status === 'sent') {
       // The tasks this one blocks are not derivable from the response, and only
       // a board read names that direction.
       await this.refetch({ quiet: true });
-    } catch (error) {
-      await this.#mutationFailed(error);
-    } finally {
-      taskActivity.invalidate(taskId);
     }
+    taskActivity.invalidate(taskId);
   }
 
   async createColumn(name: string): Promise<void> {
@@ -831,12 +903,18 @@ class BoardStore {
     const id = newId();
     const placement = append(this.columns);
     this.columns = [...this.columns, { id, name, ...placement, is_done: false }];
-    try {
-      assertOk(
-        await api.POST('/api/columns', { body: { id, project_id: projectId, name, ...placement } })
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send({
+      entityId: id,
+      label: `New column “${truncateTitle(name)}”`,
+      semantics: 'create',
+      request: {
+        method: 'POST',
+        path: '/api/columns',
+        body: { id, project_id: projectId, name, ...placement },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
   }
 
@@ -844,12 +922,18 @@ class BoardStore {
     this.columns = this.columns.map((column) =>
       column.id === columnId ? { ...column, name } : column
     );
-    try {
-      assertOk(
-        await api.PATCH('/api/columns/{id}', { params: { path: { id: columnId } }, body: { name } })
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send({
+      entityId: columnId,
+      label: `Renamed a column to “${truncateTitle(name)}”`,
+      request: {
+        method: 'PATCH',
+        path: '/api/columns/{id}',
+        pathParams: { id: columnId },
+        body: { name },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
   }
 
@@ -857,15 +941,19 @@ class BoardStore {
     this.columns = this.columns
       .map((column) => (column.id === columnId ? { ...column, ...placement } : column))
       .sort(byRank);
-    try {
-      assertOk(
-        await api.PATCH('/api/columns/{id}', {
-          params: { path: { id: columnId } },
-          body: { ...placement },
-        })
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const name = this.columns.find((column) => column.id === columnId)?.name ?? '';
+    const result = await this.#send({
+      entityId: columnId,
+      label: `Moved column “${truncateTitle(name)}”`,
+      request: {
+        method: 'PATCH',
+        path: '/api/columns/{id}',
+        pathParams: { id: columnId },
+        body: { ...placement },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
   }
 
@@ -905,35 +993,44 @@ class BoardStore {
       ...this.columns,
       { id, name: source.name, ...placement, is_done: source.is_done },
     ].sort(byRank);
-    try {
-      const data = assertOk(
-        await api.POST('/api/columns/{id}/duplicate', {
-          params: { path: { id: columnId } },
-          body: { id, ...placement },
-        })
-      );
-      // Other mutations key off an id already on the board, so a late response is a
-      // no-op. This one appends outright, into whatever board is showing now.
-      if (this.currentProjectId !== projectId) {
-        return;
-      }
-      this.columns = this.columns.map((column) =>
-        column.id === id
-          ? {
-              id: data.column.id,
-              name: data.column.name,
-              sort_key: data.column.sort_key,
-              is_done: data.column.is_done,
-            }
-          : column
-      );
-      // Computed after the await so a realtime echo that landed while the request
-      // was in flight is not added a second time.
-      const held = new Set(this.tasks.map((task) => task.id));
-      this.tasks = [...this.tasks, ...data.tasks.filter((task) => !held.has(task.id))];
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send<DuplicatedColumnResponse>({
+      entityId: id,
+      label: `Duplicated column “${truncateTitle(source.name)}”`,
+      semantics: 'create',
+      request: {
+        method: 'POST',
+        path: '/api/columns/{id}/duplicate',
+        pathParams: { id: columnId },
+        body: { id, ...placement },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
+      return;
     }
+    if (result.status !== 'sent') {
+      return;
+    }
+    const data = result.data;
+    // Other mutations key off an id already on the board, so a late response is a
+    // no-op. This one appends outright, into whatever board is showing now.
+    if (this.currentProjectId !== projectId) {
+      return;
+    }
+    this.columns = this.columns.map((column) =>
+      column.id === id
+        ? {
+            id: data.column.id,
+            name: data.column.name,
+            sort_key: data.column.sort_key,
+            is_done: data.column.is_done,
+          }
+        : column
+    );
+    // Computed after the await so a realtime echo that landed while the request
+    // was in flight is not added a second time.
+    const held = new Set(this.tasks.map((task) => task.id));
+    this.tasks = [...this.tasks, ...data.tasks.filter((task) => !held.has(task.id))];
   }
 
   // The server relocates every row in the column, archived ones included, so
@@ -959,38 +1056,37 @@ class BoardStore {
       this.tasks = this.tasks.filter((task) => task.column_id !== columnId);
       this.archivedTasks = this.archivedTasks.filter((task) => task.column_id !== columnId);
     }
-    try {
-      const data = assertOk(
-        await api.DELETE('/api/columns/{id}', {
-          params: {
-            path: { id: columnId },
-            query: moveTasksTo === undefined ? undefined : { move_tasks_to: moveTasksTo },
-          },
-        })
-      );
-      if (data !== undefined) {
-        const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
-        const apply = <T extends { id: string; column_id: string; sort_key: string }>(
-          task: T
-        ): T => {
-          const movedTask = byId.get(task.id);
-          return movedTask === undefined
-            ? task
-            : {
-                ...task,
-                column_id: movedTask.column_id,
-                sort_key: movedTask.sort_key,
-              };
-        };
-        this.tasks = this.tasks.map(apply);
-        this.archivedTasks = this.archivedTasks.map(apply);
-      }
-    } catch (error) {
-      await this.#mutationFailed(error);
-    } finally {
-      for (const task of [...movedLive, ...movedArchived]) {
-        taskActivity.invalidate(task.id);
-      }
+    const name = this.columns.find((column) => column.id === columnId)?.name ?? '';
+    const result = await this.#send<MovedTasksResponse | undefined>({
+      entityId: columnId,
+      label: `Deleted column “${truncateTitle(name)}”`,
+      request: {
+        method: 'DELETE',
+        path: '/api/columns/{id}',
+        pathParams: { id: columnId },
+        query: moveTasksTo === undefined ? undefined : { move_tasks_to: moveTasksTo },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
+    }
+    if (result.status === 'sent' && result.data !== undefined) {
+      const byId = new Map(result.data.moved_tasks.map((task) => [task.id, task]));
+      const apply = <T extends { id: string; column_id: string; sort_key: string }>(task: T): T => {
+        const movedTask = byId.get(task.id);
+        return movedTask === undefined
+          ? task
+          : {
+              ...task,
+              column_id: movedTask.column_id,
+              sort_key: movedTask.sort_key,
+            };
+      };
+      this.tasks = this.tasks.map(apply);
+      this.archivedTasks = this.archivedTasks.map(apply);
+    }
+    for (const task of [...movedLive, ...movedArchived]) {
+      taskActivity.invalidate(task.id);
     }
   }
 
@@ -1007,14 +1103,21 @@ class BoardStore {
       const placement = optimistic.get(task.id);
       return placement === undefined ? task : { ...task, column_id: targetColumnId, ...placement };
     });
-    try {
-      const data = assertOk(
-        await api.POST('/api/columns/{id}/move-tasks', {
-          params: { path: { id: columnId } },
-          body: { target_column_id: targetColumnId },
-        })
-      );
-      const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
+    const result = await this.#send<MovedTasksResponse>({
+      entityId: columnId,
+      label: `Moved ${String(moved.length)} cards to another column`,
+      request: {
+        method: 'POST',
+        path: '/api/columns/{id}/move-tasks',
+        pathParams: { id: columnId },
+        body: { target_column_id: targetColumnId },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
+    }
+    if (result.status === 'sent') {
+      const byId = new Map(result.data.moved_tasks.map((task) => [task.id, task]));
       this.tasks = this.tasks.map((task) => {
         const movedTask = byId.get(task.id);
         return movedTask === undefined
@@ -1032,12 +1135,9 @@ class BoardStore {
       if (byId.size !== moved.length || moved.some((task) => !byId.has(task.id))) {
         await this.resync();
       }
-    } catch (error) {
-      await this.#mutationFailed(error);
-    } finally {
-      for (const task of moved) {
-        taskActivity.invalidate(task.id);
-      }
+    }
+    for (const task of moved) {
+      taskActivity.invalidate(task.id);
     }
   }
 
@@ -1058,20 +1158,25 @@ class BoardStore {
       const sortKey = optimistic.get(task.id);
       return sortKey === undefined ? task : { ...task, sort_key: sortKey };
     });
-    try {
-      const data = assertOk(
-        await api.POST('/api/columns/{id}/reorder', {
-          params: { path: { id: columnId } },
-          body: { task_ids: orderedIds },
-        })
-      );
-      const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
+    const result = await this.#send<MovedTasksResponse>({
+      entityId: columnId,
+      label: 'Sorted a column',
+      request: {
+        method: 'POST',
+        path: '/api/columns/{id}/reorder',
+        pathParams: { id: columnId },
+        body: { task_ids: orderedIds },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
+    }
+    if (result.status === 'sent') {
+      const byId = new Map(result.data.moved_tasks.map((task) => [task.id, task]));
       this.tasks = this.tasks.map((task) => {
         const movedTask = byId.get(task.id);
         return movedTask === undefined ? task : { ...task, sort_key: movedTask.sort_key };
       });
-    } catch (error) {
-      await this.#mutationFailed(error);
     }
   }
 
@@ -1088,11 +1193,17 @@ class BoardStore {
       ...archiving.map((task) => ({ ...task, archived_at: now })),
       ...this.archivedTasks,
     ];
-    try {
-      const data = assertOk(
-        await api.POST('/api/columns/{id}/archive-tasks', { params: { path: { id: columnId } } })
-      );
-      const byId = new Map(data.tasks.map((task) => [task.id, task]));
+    const result = await this.#send<ArchivedTasksResponse>({
+      entityId: columnId,
+      label: `Archived ${String(archivingIds.length)} cards in a column`,
+      request: {
+        method: 'POST',
+        path: '/api/columns/{id}/archive-tasks',
+        pathParams: { id: columnId },
+      },
+    });
+    if (result.status === 'sent') {
+      const byId = new Map(result.data.tasks.map((task) => [task.id, task]));
       this.archivedTasks = this.archivedTasks.map((task) => byId.get(task.id) ?? task);
       // A card we dropped from the board but the server did not archive is gone
       // from both lists until something else refetches. Sets, not counts: an id we
@@ -1100,14 +1211,14 @@ class BoardStore {
       if (byId.size !== archivingIds.length || archivingIds.some((id) => !byId.has(id))) {
         await this.resync();
       }
-    } catch (error) {
+    }
+    if (result.status === 'failed') {
       const dropped = new Set(archivingIds);
       this.archivedTasks = this.archivedTasks.filter((task) => !dropped.has(task.id));
-      await this.#mutationFailed(error);
-    } finally {
-      for (const id of archivingIds) {
-        taskActivity.invalidate(id);
-      }
+      await this.#mutationFailed(result.error);
+    }
+    for (const id of archivingIds) {
+      taskActivity.invalidate(id);
     }
   }
 
@@ -1124,13 +1235,20 @@ class BoardStore {
       const placement = optimistic.get(task.id);
       return placement === undefined ? task : { ...task, column_id: columnId, ...placement };
     });
-    try {
-      const data = assertOk(
-        await api.POST('/api/tasks/bulk-move', {
-          body: { project_id: projectId, task_ids: [...taskIds], column_id: columnId },
-        })
-      );
-      const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
+    const result = await this.#send<BulkMovedTasksResponse>({
+      entityId: columnId,
+      label: `Moved ${String(taskIds.length)} cards`,
+      request: {
+        method: 'POST',
+        path: '/api/tasks/bulk-move',
+        body: { project_id: projectId, task_ids: [...taskIds], column_id: columnId },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
+    }
+    if (result.status === 'sent') {
+      const byId = new Map(result.data.moved_tasks.map((task) => [task.id, task]));
       this.tasks = this.tasks.map((task) => {
         const moved = byId.get(task.id);
         return moved === undefined
@@ -1138,17 +1256,14 @@ class BoardStore {
           : { ...task, column_id: moved.column_id, sort_key: moved.sort_key };
       });
       if (
-        this.#bulkSkipped('Moved', taskIds, data.skipped_task_ids) ||
+        this.#bulkSkipped('Moved', taskIds, result.data.skipped_task_ids) ||
         this.#bulkDisagrees(taskIds, byId)
       ) {
         await this.resync();
       }
-    } catch (error) {
-      await this.#mutationFailed(error);
-    } finally {
-      for (const id of taskIds) {
-        taskActivity.invalidate(id);
-      }
+    }
+    for (const id of taskIds) {
+      taskActivity.invalidate(id);
     }
   }
 
@@ -1167,56 +1282,49 @@ class BoardStore {
       ...archiving.map((task) => ({ ...task, archived_at: now })),
       ...this.archivedTasks,
     ];
-    try {
-      const data = assertOk(
-        await api.POST('/api/tasks/bulk-archive', {
-          body: { project_id: projectId, task_ids: [...taskIds] },
-        })
-      );
-      const byId = new Map(data.tasks.map((task) => [task.id, task]));
+    const result = await this.#send<BulkArchivedTasksResponse>({
+      entityId: taskIds[0]!,
+      label: `Archived ${String(taskIds.length)} cards`,
+      request: {
+        method: 'POST',
+        path: '/api/tasks/bulk-archive',
+        body: { project_id: projectId, task_ids: [...taskIds] },
+      },
+    });
+    if (result.status === 'sent') {
+      const byId = new Map(result.data.tasks.map((task) => [task.id, task]));
       this.archivedTasks = this.archivedTasks.map((task) => byId.get(task.id) ?? task);
       if (
-        this.#bulkSkipped('Archived', taskIds, data.skipped_task_ids) ||
+        this.#bulkSkipped('Archived', taskIds, result.data.skipped_task_ids) ||
         this.#bulkDisagrees(taskIds, byId)
       ) {
         await this.resync();
       }
-    } catch (error) {
+    }
+    if (result.status === 'failed') {
       this.archivedTasks = this.archivedTasks.filter((task) => !wanted.has(task.id));
-      await this.#mutationFailed(error);
-    } finally {
-      for (const id of taskIds) {
-        taskActivity.invalidate(id);
-      }
+      await this.#mutationFailed(result.error);
+    }
+    for (const id of taskIds) {
+      taskActivity.invalidate(id);
     }
   }
 
   async bulkSetLabel(taskIds: readonly string[], labelId: string, on: boolean): Promise<void> {
-    await this.#bulkSetRelation(taskIds, 'label_ids', labelId, on, async (project_id, task_ids) =>
-      assertOk(
-        await api.POST('/api/tasks/bulk-labels', {
-          body: {
-            project_id,
-            task_ids,
-            ...(on ? { add_label_ids: [labelId] } : { remove_label_ids: [labelId] }),
-          },
-        })
-      )
-    );
+    const name = this.labels.find((label) => label.id === labelId)?.name ?? '';
+    await this.#bulkSetRelation(taskIds, 'label_ids', labelId, on, {
+      label: `${on ? 'Added' : 'Removed'} label “${truncateTitle(name)}” on ${String(taskIds.length)} cards`,
+      body: on ? { add_label_ids: [labelId] } : { remove_label_ids: [labelId] },
+      path: '/api/tasks/bulk-labels',
+    });
   }
 
   async bulkSetAssignee(taskIds: readonly string[], userId: string, on: boolean): Promise<void> {
-    await this.#bulkSetRelation(taskIds, 'assignee_ids', userId, on, async (project_id, task_ids) =>
-      assertOk(
-        await api.POST('/api/tasks/bulk-assignees', {
-          body: {
-            project_id,
-            task_ids,
-            ...(on ? { add_user_ids: [userId] } : { remove_user_ids: [userId] }),
-          },
-        })
-      )
-    );
+    await this.#bulkSetRelation(taskIds, 'assignee_ids', userId, on, {
+      label: `${on ? 'Assigned' : 'Unassigned'} ${String(taskIds.length)} cards`,
+      body: on ? { add_user_ids: [userId] } : { remove_user_ids: [userId] },
+      path: '/api/tasks/bulk-assignees',
+    });
   }
 
   async #bulkSetRelation(
@@ -1224,7 +1332,7 @@ class BoardStore {
     field: 'label_ids' | 'assignee_ids',
     valueId: string,
     on: boolean,
-    send: (projectId: string, taskIds: string[]) => Promise<BulkRelationsResponse>
+    send: { label: string; body: Record<string, string[]>; path: SerializedRequest['path'] }
   ): Promise<void> {
     const projectId = this.currentProjectId;
     if (projectId === null || taskIds.length === 0) {
@@ -1244,9 +1352,20 @@ class BoardStore {
           ? { ...task, label_ids: next(task.label_ids) }
           : { ...task, assignee_ids: next(task.assignee_ids) }
     );
-    try {
-      const data = await send(projectId, [...taskIds]);
-      const byId = new Map(data.tasks.map((task) => [task.task_id, task]));
+    const result = await this.#send<BulkRelationsResponse>({
+      entityId: taskIds[0]!,
+      label: send.label,
+      request: {
+        method: 'POST',
+        path: send.path,
+        body: { project_id: projectId, task_ids: [...taskIds], ...send.body },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
+    }
+    if (result.status === 'sent') {
+      const byId = new Map(result.data.tasks.map((task) => [task.task_id, task]));
       this.tasks = this.tasks.map((task) => {
         const relations = byId.get(task.id);
         return relations === undefined
@@ -1262,17 +1381,14 @@ class BoardStore {
       // Only the cards that actually changed come back, so a short list is
       // expected here; an id we never sent is not.
       if (
-        this.#bulkSkipped('Updated', taskIds, data.skipped_task_ids) ||
-        data.tasks.some((task) => !wanted.has(task.task_id))
+        this.#bulkSkipped('Updated', taskIds, result.data.skipped_task_ids) ||
+        result.data.tasks.some((task) => !wanted.has(task.task_id))
       ) {
         await this.resync();
       }
-    } catch (error) {
-      await this.#mutationFailed(error);
-    } finally {
-      for (const id of taskIds) {
-        taskActivity.invalidate(id);
-      }
+    }
+    for (const id of taskIds) {
+      taskActivity.invalidate(id);
     }
   }
 
@@ -1300,10 +1416,18 @@ class BoardStore {
     }
     const id = newId();
     this.labels = [...this.labels, { id, name, color }];
-    try {
-      assertOk(await api.POST('/api/labels', { body: { id, project_id: projectId, name, color } }));
-    } catch (error) {
-      await this.#labelConflictOrFail(error);
+    const result = await this.#send({
+      entityId: id,
+      label: `New label “${truncateTitle(name)}”`,
+      semantics: 'create',
+      request: {
+        method: 'POST',
+        path: '/api/labels',
+        body: { id, project_id: projectId, name, color },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#labelConflictOrFail(result.error);
     }
   }
 
@@ -1311,12 +1435,19 @@ class BoardStore {
     this.labels = this.labels.map((label) =>
       label.id === labelId ? { ...label, ...patch } : label
     );
-    try {
-      assertOk(
-        await api.PATCH('/api/labels/{id}', { params: { path: { id: labelId } }, body: patch })
-      );
-    } catch (error) {
-      await this.#labelConflictOrFail(error);
+    const name = this.labels.find((label) => label.id === labelId)?.name ?? '';
+    const result = await this.#send({
+      entityId: labelId,
+      label: `Edited label “${truncateTitle(name)}”`,
+      request: {
+        method: 'PATCH',
+        path: '/api/labels/{id}',
+        pathParams: { id: labelId },
+        body: patch,
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#labelConflictOrFail(result.error);
     }
   }
 
@@ -1331,10 +1462,13 @@ class BoardStore {
       ...this.filters,
       labelIds: this.filterLabelIds.filter((id) => id !== labelId),
     });
-    try {
-      assertOk(await api.DELETE('/api/labels/{id}', { params: { path: { id: labelId } } }));
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send({
+      entityId: labelId,
+      label: 'Deleted a label',
+      request: { method: 'DELETE', path: '/api/labels/{id}', pathParams: { id: labelId } },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
   }
 
@@ -1342,36 +1476,42 @@ class BoardStore {
     this.tasks = this.tasks.map((task) =>
       task.id === taskId ? { ...task, label_ids: labelIds } : task
     );
-    try {
-      assertOk(
-        await api.PUT('/api/tasks/{id}/labels', {
-          params: { path: { id: taskId } },
-          body: { label_ids: labelIds },
-        })
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
-    } finally {
-      taskActivity.invalidate(taskId);
+    const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
+    const result = await this.#send({
+      entityId: taskId,
+      label: `Changed labels on “${truncateTitle(title)}”`,
+      request: {
+        method: 'PUT',
+        path: '/api/tasks/{id}/labels',
+        pathParams: { id: taskId },
+        body: { label_ids: labelIds },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
+    taskActivity.invalidate(taskId);
   }
 
   async setTaskAssignees(taskId: string, userIds: string[]): Promise<void> {
     this.tasks = this.tasks.map((task) =>
       task.id === taskId ? { ...task, assignee_ids: userIds } : task
     );
-    try {
-      assertOk(
-        await api.PUT('/api/tasks/{id}/assignees', {
-          params: { path: { id: taskId } },
-          body: { user_ids: userIds },
-        })
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
-    } finally {
-      taskActivity.invalidate(taskId);
+    const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
+    const result = await this.#send({
+      entityId: taskId,
+      label: `Changed assignees on “${truncateTitle(title)}”`,
+      request: {
+        method: 'PUT',
+        path: '/api/tasks/{id}/assignees',
+        pathParams: { id: taskId },
+        body: { user_ids: userIds },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
+    taskActivity.invalidate(taskId);
   }
 
   // Takes the image rather than its id so the store never rebuilds the URL the
@@ -1387,15 +1527,18 @@ class BoardStore {
         entry.kind === 'image' ? { ...entry, is_cover: entry.id === image?.id } : entry
       )
     );
-    try {
-      assertOk(
-        await api.PUT('/api/tasks/{id}/cover', {
-          params: { path: { id: taskId } },
-          body: { image_id: image?.id ?? null },
-        })
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send({
+      entityId: taskId,
+      label: image === undefined ? 'Removed a cover image' : 'Set a cover image',
+      request: {
+        method: 'PUT',
+        path: '/api/tasks/{id}/cover',
+        pathParams: { id: taskId },
+        body: { image_id: image?.id ?? null },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
   }
 
@@ -1442,20 +1585,22 @@ class BoardStore {
       return false;
     }
     this.tasks = next;
-    try {
-      assertOk(
-        await api.POST('/api/tasks/{id}/blockers', {
-          params: { path: { id: taskId } },
-          body: { blocker_task_id: blockerTaskId },
-        })
-      );
-      return true;
-    } catch (error) {
-      await this.#cycleConflictOrFail(error);
+    const result = await this.#send({
+      entityId: taskId,
+      label: `Added a blocker to “${truncateTitle(target.title)}”`,
+      request: {
+        method: 'POST',
+        path: '/api/tasks/{id}/blockers',
+        pathParams: { id: taskId },
+        body: { blocker_task_id: blockerTaskId },
+      },
+    });
+    taskActivity.invalidate(taskId);
+    if (result.status === 'failed') {
+      await this.#cycleConflictOrFail(result.error);
       return false;
-    } finally {
-      taskActivity.invalidate(taskId);
     }
+    return true;
   }
 
   async removeBlocker(taskId: string, blockerTaskId: string): Promise<void> {
@@ -1464,17 +1609,20 @@ class BoardStore {
         ? { ...task, blocker_ids: task.blocker_ids.filter((id) => id !== blockerTaskId) }
         : task
     );
-    try {
-      assertOk(
-        await api.DELETE('/api/tasks/{id}/blockers/{blockerTaskId}', {
-          params: { path: { id: taskId, blockerTaskId } },
-        })
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
-    } finally {
-      taskActivity.invalidate(taskId);
+    const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
+    const result = await this.#send({
+      entityId: taskId,
+      label: `Removed a blocker from “${truncateTitle(title)}”`,
+      request: {
+        method: 'DELETE',
+        path: '/api/tasks/{id}/blockers/{blockerTaskId}',
+        pathParams: { id: taskId, blockerTaskId },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
+    taskActivity.invalidate(taskId);
   }
 
   get filters(): BoardFilters {
@@ -1838,25 +1986,32 @@ class BoardStore {
     };
     this.#replaceComments(taskId, (comments) => [...comments, optimistic]);
     this.#setCommentCount(taskId, (count) => count + 1);
-    try {
-      const created = assertOk(
-        await api.POST('/api/comments', { body: { id, task_id: taskId, body } })
-      );
-      // A detail fetch landing mid-flight replaces the whole stream, so the
-      // optimistic row may be gone and the server row has to be re-inserted.
-      if (this.taskComments[taskId] === undefined) {
-        await this.loadTaskDetail(taskId);
-        return;
-      }
-      this.#replaceComments(taskId, (comments) =>
-        comments.some((comment) => comment.id === id)
-          ? comments.map((comment) => (comment.id === id ? created : comment))
-          : [...comments, created].sort(chronological)
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send<TaskComment>({
+      entityId: taskId,
+      label: 'New comment',
+      semantics: 'create',
+      request: { method: 'POST', path: '/api/comments', body: { id, task_id: taskId, body } },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
       await this.loadTaskDetail(taskId);
+      return;
     }
+    if (result.status !== 'sent') {
+      return;
+    }
+    // A detail fetch landing mid-flight replaces the whole stream, so the
+    // optimistic row may be gone and the server row has to be re-inserted.
+    if (this.taskComments[taskId] === undefined) {
+      await this.loadTaskDetail(taskId);
+      return;
+    }
+    const created = result.data;
+    this.#replaceComments(taskId, (comments) =>
+      comments.some((comment) => comment.id === id)
+        ? comments.map((comment) => (comment.id === id ? created : comment))
+        : [...comments, created].sort(chronological)
+    );
   }
 
   // Unlike its siblings this one has an outcome: a rejected edit must leave the
@@ -1868,22 +2023,28 @@ class BoardStore {
         comment.id === commentId ? { ...comment, body, updated_at: now } : comment
       )
     );
-    try {
-      const updated = assertOk(
-        await api.PATCH('/api/comments/{id}', {
-          params: { path: { id: commentId } },
-          body: { body },
-        })
-      );
-      this.#replaceComments(taskId, (comments) =>
-        comments.map((comment) => (comment.id === commentId ? updated : comment))
-      );
-      return true;
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send<TaskComment>({
+      entityId: commentId,
+      label: 'Edited a comment',
+      request: {
+        method: 'PATCH',
+        path: '/api/comments/{id}',
+        pathParams: { id: commentId },
+        body: { body },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
       await this.loadTaskDetail(taskId);
       return false;
     }
+    if (result.status === 'sent') {
+      const updated = result.data;
+      this.#replaceComments(taskId, (comments) =>
+        comments.map((comment) => (comment.id === commentId ? updated : comment))
+      );
+    }
+    return true;
   }
 
   async deleteComment(taskId: string, commentId: string): Promise<void> {
@@ -1891,10 +2052,13 @@ class BoardStore {
       comments.filter((comment) => comment.id !== commentId)
     );
     this.#setCommentCount(taskId, (count) => Math.max(0, count - 1));
-    try {
-      assertOk(await api.DELETE('/api/comments/{id}', { params: { path: { id: commentId } } }));
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send({
+      entityId: commentId,
+      label: 'Deleted a comment',
+      request: { method: 'DELETE', path: '/api/comments/{id}', pathParams: { id: commentId } },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
       await this.loadTaskDetail(taskId);
     }
   }
@@ -1943,29 +2107,37 @@ class BoardStore {
     };
     this.#replaceChecklist(taskId, (items) => [...items, optimistic]);
     this.#setChecklistCounts(taskId, ({ total, done }) => ({ total: total + 1, done }));
-    try {
-      const created = assertOk(
-        await api.POST('/api/checklist-items', {
-          body: { id, task_id: taskId, text, ...placement },
-        })
-      );
-      // A detail fetch landing mid-flight replaces the whole list, so the optimistic
-      // row may be gone and the server row has to be re-inserted.
-      if (this.taskChecklists[taskId] === undefined) {
-        await this.loadTaskDetail(taskId);
-        return;
-      }
-      this.#replaceChecklist(taskId, (items) =>
-        items.some((item) => item.id === id)
-          ? items.map((item) => (item.id === id ? created : item))
-          : [...items, created].sort(byRank)
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send<ChecklistItem>({
+      entityId: taskId,
+      label: `New checklist item “${truncateTitle(text)}”`,
+      semantics: 'create',
+      request: {
+        method: 'POST',
+        path: '/api/checklist-items',
+        body: { id, task_id: taskId, text, ...placement },
+      },
+    });
+    taskActivity.invalidate(taskId);
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
       await this.loadTaskDetail(taskId);
-    } finally {
-      taskActivity.invalidate(taskId);
+      return;
     }
+    if (result.status !== 'sent') {
+      return;
+    }
+    // A detail fetch landing mid-flight replaces the whole list, so the optimistic
+    // row may be gone and the server row has to be re-inserted.
+    if (this.taskChecklists[taskId] === undefined) {
+      await this.loadTaskDetail(taskId);
+      return;
+    }
+    const created = result.data;
+    this.#replaceChecklist(taskId, (items) =>
+      items.some((item) => item.id === id)
+        ? items.map((item) => (item.id === id ? created : item))
+        : [...items, created].sort(byRank)
+    );
   }
 
   async setChecklistItemChecked(taskId: string, itemId: string, checked: boolean): Promise<void> {
@@ -1980,7 +2152,13 @@ class BoardStore {
         done: checked ? done + 1 : done - 1,
       }));
     }
-    await this.#patchChecklistItem(taskId, itemId, { checked }, true);
+    await this.#patchChecklistItem(
+      taskId,
+      itemId,
+      { checked },
+      true,
+      `${checked ? 'Checked' : 'Unchecked'} “${truncateTitle(before?.text ?? '')}”`
+    );
   }
 
   async renameChecklistItem(taskId: string, itemId: string, text: string): Promise<void> {
@@ -1988,7 +2166,13 @@ class BoardStore {
     this.#replaceChecklist(taskId, (items) =>
       items.map((item) => (item.id === itemId ? { ...item, text, updated_at: now } : item))
     );
-    await this.#patchChecklistItem(taskId, itemId, { text }, true);
+    await this.#patchChecklistItem(
+      taskId,
+      itemId,
+      { text },
+      true,
+      `Renamed a checklist item to “${truncateTitle(text)}”`
+    );
   }
 
   // The only checklist write the server records no activity for, so the only one
@@ -1997,29 +2181,44 @@ class BoardStore {
     this.#replaceChecklist(taskId, (items) =>
       items.map((item) => (item.id === itemId ? { ...item, ...placement } : item)).sort(byRank)
     );
-    await this.#patchChecklistItem(taskId, itemId, { ...placement }, false);
+    await this.#patchChecklistItem(
+      taskId,
+      itemId,
+      { ...placement },
+      false,
+      'Reordered a checklist item'
+    );
   }
 
   async #patchChecklistItem(
     taskId: string,
     itemId: string,
     body: { text?: string; checked?: boolean; sort_key?: string },
-    logged: boolean
+    logged: boolean,
+    label: string
   ): Promise<void> {
-    try {
-      const updated = assertOk(
-        await api.PATCH('/api/checklist-items/{id}', { params: { path: { id: itemId } }, body })
-      );
+    const result = await this.#send<ChecklistItem>({
+      entityId: itemId,
+      label,
+      request: {
+        method: 'PATCH',
+        path: '/api/checklist-items/{id}',
+        pathParams: { id: itemId },
+        body,
+      },
+    });
+    if (result.status === 'sent') {
+      const updated = result.data;
       this.#replaceChecklist(taskId, (items) =>
         items.map((item) => (item.id === itemId ? updated : item)).sort(byRank)
       );
-    } catch (error) {
-      await this.#mutationFailed(error);
+    }
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
       await this.loadTaskDetail(taskId);
-    } finally {
-      if (logged) {
-        taskActivity.invalidate(taskId);
-      }
+    }
+    if (logged) {
+      taskActivity.invalidate(taskId);
     }
   }
 
@@ -2030,14 +2229,20 @@ class BoardStore {
       total: total - 1,
       done: removed?.checked === true ? done - 1 : done,
     }));
-    try {
-      assertOk(await api.DELETE('/api/checklist-items/{id}', { params: { path: { id: itemId } } }));
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send({
+      entityId: itemId,
+      label: `Deleted checklist item “${truncateTitle(removed?.text ?? '')}”`,
+      request: {
+        method: 'DELETE',
+        path: '/api/checklist-items/{id}',
+        pathParams: { id: itemId },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
       await this.loadTaskDetail(taskId);
-    } finally {
-      taskActivity.invalidate(taskId);
     }
+    taskActivity.invalidate(taskId);
   }
 
   // Inserts the new card rather than waiting for its realtime echo: the caller
@@ -2056,24 +2261,31 @@ class BoardStore {
       total: total - 1,
       done: item.checked ? done - 1 : done,
     }));
-    try {
-      const created = assertOk(
-        await api.POST('/api/checklist-items/{id}/promote', {
-          params: { path: { id: itemId } },
-          body: { id, ...placement },
-        })
-      );
-      this.tasks = this.tasks.some((task) => task.id === id)
-        ? this.tasks.map((task) => (task.id === id ? created : task))
-        : [...this.tasks, created];
-      return id;
-    } catch (error) {
-      await this.#mutationFailed(error);
+    // Optimistic so the caller can navigate to the new card straight away: a card
+    // absent from `tasks` has no title to build a slug from.
+    this.tasks = [...this.tasks, optimisticTask(id, parent.column_id, item.text, placement)];
+    const result = await this.#send<BoardTask>({
+      entityId: id,
+      label: `Promoted “${truncateTitle(item.text)}” to a card`,
+      semantics: 'create',
+      request: {
+        method: 'POST',
+        path: '/api/checklist-items/{id}/promote',
+        pathParams: { id: itemId },
+        body: { id, ...placement },
+      },
+    });
+    taskActivity.invalidate(taskId);
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
       await this.loadTaskDetail(taskId);
       return null;
-    } finally {
-      taskActivity.invalidate(taskId);
     }
+    if (result.status === 'sent') {
+      const created = result.data;
+      this.tasks = this.tasks.map((task) => (task.id === id ? created : task));
+    }
+    return id;
   }
 
   // Idempotent direct patches from realtime events; an echo of our own mutation
@@ -2402,6 +2614,16 @@ class BoardStore {
         break;
       }
     }
+  }
+
+  /**
+   * Every board write goes through here so that "offline" is decided in one
+   * place rather than at forty call sites. When the server is reachable this is
+   * the request it always was; when it is not, the change is queued and the
+   * optimistic update the caller already applied simply stands.
+   */
+  async #send<T>(input: Omit<SubmitInput, 'projectId'>): Promise<SubmitResult<T>> {
+    return outbox.submit<T>({ projectId: this.currentProjectId ?? '', ...input });
   }
 
   async #mutationFailed(error: unknown): Promise<void> {
