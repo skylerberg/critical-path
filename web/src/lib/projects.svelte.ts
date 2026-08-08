@@ -9,7 +9,7 @@ import type { RealtimeEvent } from './realtime-types';
 import { canEditProject, type ProjectRole } from './roles';
 import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
-import { users } from './users.svelte';
+import { users, type User } from './users.svelte';
 
 export type Project = components['schemas']['ProjectListItem'];
 type BoardPayload = components['schemas']['BoardResponse'];
@@ -207,16 +207,20 @@ class ProjectsStore {
     }
   }
 
-  async addMember(id: string, userId: string): Promise<void> {
+  // Takes the record, not just an id: someone found by global search is not in
+  // the directory yet, and every place a member is rendered reads their name
+  // from it — without this they show up as a raw UUID until the next reload.
+  async addMember(id: string, user: User): Promise<void> {
     const project = this.projects.find((p) => p.id === id);
     if (
       project === undefined ||
-      project.created_by === userId ||
-      project.member_ids.includes(userId)
+      project.created_by === user.id ||
+      project.member_ids.includes(user.id)
     ) {
       return;
     }
-    await this.setMembers(id, [...project.member_ids, userId]);
+    users.upsert(user);
+    await this.setMembers(id, [...project.member_ids, user.id]);
   }
 
   // An address with no account yields an invitation, not a member: this board
