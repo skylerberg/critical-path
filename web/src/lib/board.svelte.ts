@@ -107,6 +107,7 @@ function optimisticTask(
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     comment_count: 0,
     checklist_item_count: 0,
@@ -130,11 +131,16 @@ function mergeCopy(base: BoardTask, current: BoardTask, server: BoardTask): Boar
 }
 
 // Elision keeps the repeated last entry so the message still reads as a loop.
-function cycleMessage(prefix: string, titles: readonly string[]): string {
+// A null title is a step in a project the viewer cannot read: the loop can now
+// leave this board and come back, and those hops keep their place in the chain
+// without being named.
+function cycleMessage(prefix: string, titles: readonly (string | null)[]): string {
   if (titles.length === 0) {
     return prefix;
   }
-  const shown = titles.map((title) => truncateTitle(title, MAX_CYCLE_TITLE_CHARS));
+  const shown = titles.map((title) =>
+    title === null ? 'a task in another project' : truncateTitle(title, MAX_CYCLE_TITLE_CHARS)
+  );
   const parts =
     shown.length <= MAX_CYCLE_TITLES
       ? shown
@@ -446,6 +452,10 @@ class BoardStore {
           // Public boards deliberately withhold it, and a paperclip on a card
           // whose files nobody can reach would only advertise what is missing.
           attachment_count: 0,
+          // Withheld for a sharper reason: it measures a project that never
+          // agreed to be published, so a stranger watching it fall would learn
+          // that another team finished something.
+          open_cross_project_blocker_count: 0,
         })),
         labels: data.labels,
         changed_task_ids: [],
@@ -606,6 +616,7 @@ class BoardStore {
       id,
       ...placement,
       blocker_ids: [],
+      open_cross_project_blocker_count: 0,
       comment_count: 0,
       attachment_count: 0,
       created_at: now,
@@ -1248,6 +1259,7 @@ class BoardStore {
               label_ids: relations.label_ids,
               assignee_ids: relations.assignee_ids,
               blocker_ids: relations.blocker_ids,
+              open_cross_project_blocker_count: 0,
             };
       });
       // Only the cards that actually changed come back, so a short list is
@@ -2136,6 +2148,7 @@ class BoardStore {
                 label_ids: d.label_ids,
                 assignee_ids: d.assignee_ids,
                 blocker_ids: d.blocker_ids,
+                open_cross_project_blocker_count: 0,
               }
             : t
         );
@@ -2219,6 +2232,7 @@ class BoardStore {
                 label_ids: relations.label_ids,
                 assignee_ids: relations.assignee_ids,
                 blocker_ids: relations.blocker_ids,
+                open_cross_project_blocker_count: 0,
               };
         });
         for (const task of d.tasks) {

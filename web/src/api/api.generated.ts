@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM /Users/skylerberg/Code/critical-path-api/openapi.json
+// AUTO-GENERATED FROM /Users/skylerberg/.worktrees/critical-path-api/cross-project-deps/openapi.json
 // DO NOT EDIT. Regenerate with: npm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
@@ -525,7 +525,7 @@ export interface paths {
         get?: never;
         /**
          * Set project position
-         * @description Set the caller's personal sort position for a project. Positions are per user and order the project list for the caller only; other members are unaffected.
+         * @description Set the caller's personal sort position for a project. Positions are per user and order the project list for the caller only; other members are unaffected. A sort_key already taken among the caller’s positions ranks the project immediately after the one holding it, so the stored key is not always the one that was sent; the project_position_updated event carries the key that was stored.
          */
         put: operations["putApiProjectsByIdPosition"];
         post?: never;
@@ -754,7 +754,7 @@ export interface paths {
         head?: never;
         /**
          * Update column
-         * @description Update the name, position, or done flag of a column.
+         * @description Update the name, position, or done flag of a column. A sort_key already taken in the project ranks the column immediately after the one holding it rather than failing, so the echoed sort_key is not always the one that was sent.
          */
         patch: operations["patchApiColumnsById"];
         trace?: never;
@@ -902,7 +902,7 @@ export interface paths {
         head?: never;
         /**
          * Update a task
-         * @description Update title, description (a Tiptap doc, or null to clear it), due_date (a calendar day YYYY-MM-DD, or null to clear it; omit it to leave it alone), or move the task by sending column_id and position together. The new column must belong to the task’s project and due_date must be a real calendar day; violations return 422 with a plain error body. updated_at is bumped only when the patch changes title or description — a pure move or due-date change leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task or sets its due date is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
+         * @description Update title, description (a Tiptap doc, or null to clear it), due_date (a calendar day YYYY-MM-DD, or null to clear it; omit it to leave it alone), or move the task by sending column_id and position together. The new column must belong to the task’s project and due_date must be a real calendar day; violations return 422 with a plain error body. A sort_key already taken in the destination — including by an archived card the caller cannot see — ranks the task immediately after the card holding it rather than failing, so the echoed sort_key is not always the one that was sent. updated_at is bumped only when the patch changes title or description — a pure move or due-date change leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task or sets its due date is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
          */
         patch: operations["patchApiTasksById"];
         trace?: never;
@@ -919,6 +919,26 @@ export interface paths {
          * @description The task’s activity log, oldest first: who created it, retitled it, edited its description, moved it between columns, set, changed or cleared its due date, added or removed a label, an assignee or a blocker, and who archived or restored it. A due-date entry carries the calendar day as text, with a null old value when it was first set and a null new value when it was cleared. Each entry carries the actor, the time, and the old and new value of what changed, with column, label, user and blocker names snapshotted as they were at the time. The log is append-only and starts when a task is created, so tasks that predate this feature read as empty until they next change. Consecutive description edits by one actor within a few minutes are recorded as a single entry whose old value is the text from before that session.
          */
         get: operations["getApiTasksByIdActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{id}/cross-project-dependencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a task’s dependencies in other projects
+         * @description The task’s dependency edges whose other end lives in a different project, fetched separately from the board because the board payload deliberately carries no identity for the remote side — only `open_cross_project_blocker_count`. `blocked_by` names the tasks blocking this one and `blocking` the tasks it blocks; both carry the remote title, project and done state, and both omit archived remote tasks exactly as `blocker_ids` does. An edge whose other end is in a project the caller cannot access is never listed: it is added to `hidden_blocked_by_count` or `hidden_blocking_count` instead, and only while it is open, so the counts reconcile with `open_cross_project_blocker_count` and never reveal that an unreadable task is done. A task the caller cannot read is 404.
+         */
+        get: operations["getApiTasksByIdCrossProjectDependencies"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1314,7 +1334,7 @@ export interface paths {
         head?: never;
         /**
          * Update a checklist item
-         * @description Tick, untick, rename or reposition one item. Every field is optional and an empty body changes nothing. Renaming and ticking advance the item’s updated_at; a reposition leaves it alone and, unlike the other three, records no activity entry — a keyboard drag finalizes once per arrow press and would otherwise write one entry per press. The parent task’s updated_at is never touched by any checklist write, so a checklist edit cannot invalidate an open editor’s optimistic-concurrency precondition.
+         * @description Tick, untick, rename or reposition one item. Every field is optional and an empty body changes nothing. Renaming and ticking advance the item’s updated_at; a reposition leaves it alone and, unlike the other three, records no activity entry — a keyboard drag finalizes once per arrow press and would otherwise write one entry per press. The parent task’s updated_at is never touched by any checklist write, so a checklist edit cannot invalidate an open editor’s optimistic-concurrency precondition. A sort_key already taken on the task ranks the item immediately after the one holding it rather than failing, so the echoed sort_key is not always the one that was sent.
          */
         patch: operations["patchApiChecklistItemsById"];
         trace?: never;
@@ -1929,6 +1949,7 @@ export interface components {
             due_date: string | null;
             id: string;
             label_ids: string[];
+            open_cross_project_blocker_count: number;
             sort_key: string;
             title: string;
             updated_at: string;
@@ -1973,6 +1994,7 @@ export interface components {
             due_date: string | null;
             id: string;
             label_ids: string[];
+            open_cross_project_blocker_count: number;
             sort_key: string;
             title: string;
             updated_at: string;
@@ -2021,6 +2043,7 @@ export interface components {
                 due_date: string | null;
                 id: string;
                 label_ids: string[];
+                open_cross_project_blocker_count: number;
                 sort_key: string;
                 title: string;
                 updated_at: string;
@@ -2182,6 +2205,7 @@ export interface components {
             id: string;
             images: components["schemas"]["ImageResponse"][];
             label_ids: string[];
+            open_cross_project_blocker_count: number;
             project_id: string;
             series_summary: string | null;
             sort_key: string;
@@ -2261,6 +2285,19 @@ export interface components {
             name?: string;
             text?: string;
         };
+        CrossProjectDependenciesResponse: {
+            blocked_by: components["schemas"]["CrossProjectDependency"][];
+            blocking: components["schemas"]["CrossProjectDependency"][];
+            hidden_blocked_by_count: number;
+            hidden_blocking_count: number;
+        };
+        CrossProjectDependency: {
+            is_done: boolean;
+            project_id: string;
+            project_name: string;
+            task_id: string;
+            title: string;
+        };
         SetTaskLabels: {
             label_ids: string[];
         };
@@ -2275,8 +2312,8 @@ export interface components {
             error: string;
         };
         CycleTask: {
-            id: string;
-            title: string;
+            id: string | null;
+            title: string | null;
         };
         AddBlocker: {
             /** Format: uuid */
@@ -2310,6 +2347,7 @@ export interface components {
             assignee_ids: string[];
             blocker_ids: string[];
             label_ids: string[];
+            open_cross_project_blocker_count: number;
             task_id: string;
         };
         BulkTaskLabels: {
@@ -2338,6 +2376,8 @@ export interface components {
             /** @enum {unknown} */
             bucket: "blocked" | "blocking" | "ready";
             column_name: string;
+            hidden_blocked_by_count: number;
+            hidden_blocking_count: number;
             id: string;
             project_id: string;
             project_name: string;
@@ -4307,6 +4347,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Conflict - the position was taken while the move was in flight */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -5210,6 +5259,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Conflict - the position was taken while the move was in flight */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -5941,6 +5999,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskActivityResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getApiTasksByIdCrossProjectDependencies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cross-project dependencies in both directions, plus the hidden counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CrossProjectDependenciesResponse"];
                 };
             };
             /** @description Bad Request */
@@ -7534,6 +7650,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conflict - the position was taken while the move was in flight */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

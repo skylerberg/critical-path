@@ -42,6 +42,7 @@ function task(id: string, columnId: string, position: number, title = id): Board
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     attachment_count: 0,
     cover_image_url: null,
     due_date: null,
@@ -87,6 +88,8 @@ function awayTask(): MyTask {
     waiting_user_ids: [],
     blocking: [],
     blocked_by: [],
+    hidden_blocked_by_count: 0,
+    hidden_blocking_count: 0,
   };
 }
 

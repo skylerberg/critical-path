@@ -60,7 +60,12 @@
     return task !== undefined && board.taskMatchesFilters(task);
   }
 
-  const cycleIds = $derived(board.cyclePath?.map((step) => step.id) ?? []);
+  // A redacted step carries no id and is on no board this view draws, so it
+  // cannot be highlighted. Dropped rather than substituted: leaving a gap in the
+  // chain would pair the wrong nodes into edges.
+  const cycleIds = $derived(
+    board.cyclePath?.flatMap((step) => (step.id === null ? [] : [step.id])) ?? []
+  );
   const cycleNodes = $derived(new Set(cycleIds));
   // Every pair but the last: the closing hop is the edge that does not exist yet.
   const cycleEdges = $derived(

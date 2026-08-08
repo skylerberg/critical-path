@@ -64,6 +64,7 @@ function task(
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -159,6 +160,7 @@ beforeEach(() => {
       label_ids: ['l1'],
       assignee_ids: ['u1'],
       blocker_ids: [T2, T3],
+      open_cross_project_blocker_count: 0,
     }),
     task(T2, 'c1', 'Cut prototype'),
     task(T3, 'c2', 'Buy sleeves', { sort_key: 'V0000050001' }),
@@ -236,6 +238,7 @@ function teammateVersion(): BoardTask {
     label_ids: ['l1'],
     assignee_ids: ['u1'],
     blocker_ids: [T2, T3],
+    open_cross_project_blocker_count: 0,
     updated_at: '2026-05-05T00:00:00Z',
     description: {
       type: 'doc',

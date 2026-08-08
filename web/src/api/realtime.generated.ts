@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM critical-path-api/realtime-events.json
+// AUTO-GENERATED FROM /Users/skylerberg/.worktrees/critical-path-api/cross-project-deps/realtime-events.json
 // DO NOT EDIT. Regenerate with: npm run generate:realtime
 
 export type paths = Record<string, never>;
@@ -25,6 +25,7 @@ export interface components {
       | components['schemas']['CommentCreatedEvent']
       | components['schemas']['CommentDeletedEvent']
       | components['schemas']['CommentUpdatedEvent']
+      | components['schemas']['CrossProjectBlockersChangedEvent']
       | components['schemas']['InvitationsChangedEvent']
       | components['schemas']['LabelCreatedEvent']
       | components['schemas']['LabelDeletedEvent']
@@ -244,6 +245,7 @@ export interface components {
           due_date: string | null;
           id: string;
           label_ids: string[];
+          open_cross_project_blocker_count: number;
           sort_key: string;
           title: string;
           updated_at: string;
@@ -271,6 +273,7 @@ export interface components {
           assignee_ids: string[];
           blocker_ids: string[];
           label_ids: string[];
+          open_cross_project_blocker_count: number;
           task_id: string;
         }[];
       };
@@ -469,6 +472,7 @@ export interface components {
           due_date: string | null;
           id: string;
           label_ids: string[];
+          open_cross_project_blocker_count: number;
           sort_key: string;
           title: string;
           updated_at: string;
@@ -640,6 +644,17 @@ export interface components {
         task_id: string;
         updated_at: string;
         user_id: string;
+      };
+    };
+    CrossProjectBlockersChangedEvent: {
+      /** @constant */
+      type: 'cross_project_blockers_changed';
+      project_id: string;
+      data: {
+        tasks: {
+          open_cross_project_blocker_count: number;
+          task_id: string;
+        }[];
       };
     };
     InvitationsChangedEvent: {
@@ -984,6 +999,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1019,6 +1035,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1047,6 +1064,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1081,6 +1099,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1116,6 +1135,7 @@ export interface components {
         assignee_ids: string[];
         blocker_ids: string[];
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         task_id: string;
       };
     };
@@ -1133,6 +1153,7 @@ export interface components {
         assignee_ids: string[];
         blocker_ids: string[];
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         task_id: string;
       };
     };
@@ -1159,6 +1180,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1193,6 +1215,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1221,6 +1244,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1255,6 +1279,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;

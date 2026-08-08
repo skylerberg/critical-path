@@ -72,6 +72,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
     label_ids: [] as string[],
     assignee_ids: [] as string[],
     blocker_ids: [] as string[],
+    open_cross_project_blocker_count: 0,
     image_count: 0,
     cover_image_url: null,
     due_date: null,
@@ -270,6 +271,7 @@ describe('board event application', () => {
       label_ids: ['l1'],
       assignee_ids: ['u2'],
       blocker_ids: ['t9'],
+      open_cross_project_blocker_count: 0,
     });
   });
 
