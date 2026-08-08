@@ -24,6 +24,16 @@ function probeId(n: number): string {
   return `00000000-0000-4000-8000-${hex}`;
 }
 
+// Column-major with a stride wider than the column, so no two cells can land on
+// the same number. A fixed stride of 100 silently handed column 1 the ids column
+// 0 already had as soon as a column held more than 100 cards — and a board
+// seeded with duplicate ids breaks Svelte's keyed each and quietly invalidates
+// every measurement taken on it.
+const TASK_ID_BASE = 1000;
+function taskId(column: number, index: number): string {
+  return probeId(TASK_ID_BASE + column * (TASKS + 1) + index);
+}
+
 const PROJECT_ID = probeId(1);
 const USER_ID = probeId(2);
 board.currentProjectId = PROJECT_ID;
@@ -52,11 +62,11 @@ session.user = {
   is_done: c === COLS - 1,
 }));
 
-const tasks: unknown[] = [];
+const tasks: { id: string; [field: string]: unknown }[] = [];
 for (let c = 0; c < COLS; c++) {
   for (let t = 0; t < TASKS; t++) {
     tasks.push({
-      id: probeId(1000 + c * 100 + t),
+      id: taskId(c, t),
       column_id: `c${c}`,
       title: `Task ${t + 1} in column ${c + 1}`,
       description: null,
@@ -72,6 +82,12 @@ for (let c = 0; c < COLS; c++) {
       comment_count: 0,
     });
   }
+}
+// Loud rather than silent: duplicate ids still render a board that looks right,
+// so without this the probe measures a board no real project could produce and
+// reports the numbers as if they were sound.
+if (new Set(tasks.map((task) => task.id)).size !== tasks.length) {
+  throw new Error(`board-probe seeded duplicate task ids (cols=${COLS}, tasks=${TASKS})`);
 }
 (board as unknown as { tasks: unknown[] }).tasks = tasks;
 
@@ -124,7 +140,7 @@ const scrollSamples: number[] = [];
 })();
 
 for (let t = 0; t < SELECTED; t++) {
-  selection.toggle(probeId(1000 + t));
+  selection.toggle(taskId(0, t));
 }
 
 mount(SelectionBar, { target: shell });
