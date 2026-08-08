@@ -41,7 +41,7 @@ export const attachmentLinkUrl = type('string').pipe((s, ctx) => {
 
 // The bytes are the whole request body, so the metadata travels as query
 // parameters. The two text bounds are loose on purpose: both values are
-// sanitised again by the serve helpers before they are stored or sent.
+// sanitized again by the serve helpers before they are stored or sent.
 export const uploadAttachmentQuerySchema = type({
   task_id: uuid,
   'id?': uuid,
