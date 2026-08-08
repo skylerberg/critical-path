@@ -5,17 +5,6 @@ export function newId(): string {
 export function uniqueEmail(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}@test.example.com`;
 }
-
-export function rawJsonWithPosition(
-  body: Record<string, unknown>,
-  positionLiteral: string
-): string {
-  const { position: _position, ...rest } = body;
-  const json = JSON.stringify(rest);
-  const prefix = json === '{}' ? '{' : `${json.slice(0, -1)},`;
-  return `${prefix}"position":${positionLiteral}}`;
-}
-
 // A rank for a fixture row inserted straight into the database. Ordered by the
 // notional position the test means, then by insertion order so two rows that
 // share one still satisfy the unique index. Never ends in the zero digit, which
