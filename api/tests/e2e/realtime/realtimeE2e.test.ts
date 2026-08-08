@@ -4,7 +4,7 @@ import { app } from '../../../src/index';
 import { attachRealtime, projectSockets } from '../../../src/services/realtime/index';
 import type { RealtimeHandle } from '../../../src/services/realtime/index';
 import { TestContext, type TestUser } from '../../setup/testContext';
-import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { uploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
 import { PNG_1X1, RtClient, settle } from './helpers';
 
@@ -507,7 +507,7 @@ describe('Realtime end to end', () => {
     const imageId = newId();
     const uploadRes = await ctx
       .request(userA.token)
-      .postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
+      .postBytes(uploadPath(taskId, { filename: 'pixel.png', id: imageId }), PNG_1X1);
     expect(uploadRes.status).toBe(201);
 
     const createdEvent = await clientB.waitForEvent(
@@ -558,7 +558,7 @@ describe('Realtime end to end', () => {
     ] as const) {
       const res = await ctx
         .request(userA.token)
-        .postBytes(imageUploadPath(taskId, filename, id), PNG_1X1);
+        .postBytes(uploadPath(taskId, { filename: filename, id: id }), PNG_1X1);
       expect(res.status).toBe(201);
     }
     const coverRes = await ctx

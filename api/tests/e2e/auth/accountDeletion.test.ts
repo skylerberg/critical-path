@@ -3,7 +3,7 @@ import path from 'path';
 import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { imageStorageKey, imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, uploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { env } from '../../../src/config/env';
 import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
 
@@ -58,7 +58,9 @@ describe('DELETE /api/auth/me', () => {
   }
 
   async function uploadTaskImage(user: TestUser, taskId: string): Promise<string> {
-    const res = await ctx.request(user.token).postBytes(imageUploadPath(taskId), PNG_1X1);
+    const res = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'pixel.png' }), PNG_1X1);
     expect(res.status).toBe(201);
     const imageId = (await res.json()).id;
     const row = await db

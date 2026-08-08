@@ -47,7 +47,7 @@ describe('POST /api/attachments/files', () => {
 
     const res = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, filename, declared), bytes);
+      .postBytes(uploadPath(taskId, { filename: filename, contentType: declared }), bytes);
     expect(res.status).toBe(201);
 
     const body = await res.json();
@@ -72,7 +72,10 @@ describe('POST /api/attachments/files', () => {
 
     const res = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, 'shot.bin', 'application/octet-stream'), PNG_1X1);
+      .postBytes(
+        uploadPath(taskId, { filename: 'shot.bin', contentType: 'application/octet-stream' }),
+        PNG_1X1
+      );
     expect(res.status).toBe(201);
 
     const body = await res.json();
@@ -100,7 +103,7 @@ describe('POST /api/attachments/files', () => {
 
     const res = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, 'evil.gif', 'image/gif'), POLYGLOT);
+      .postBytes(uploadPath(taskId, { filename: 'evil.gif', contentType: 'image/gif' }), POLYGLOT);
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.kind).toBe('image');
@@ -118,7 +121,9 @@ describe('POST /api/attachments/files', () => {
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
     const big = Buffer.alloc(3 * 1024 * 1024, 0x41);
 
-    const res = await ctx.request(user.token).postBytes(uploadPath(taskId, 'big.bin'), big);
+    const res = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'big.bin' }), big);
 
     expect(res.status).toBe(201);
     expect((await res.json()).size_bytes).toBe(big.length);
@@ -130,7 +135,10 @@ describe('POST /api/attachments/files', () => {
 
     const res = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, 'empty.txt', 'text/plain'), Buffer.alloc(0));
+      .postBytes(
+        uploadPath(taskId, { filename: 'empty.txt', contentType: 'text/plain' }),
+        Buffer.alloc(0)
+      );
     expect(res.status).toBe(422);
     expect((await res.json()).error).toBe('File is empty');
   });
@@ -142,7 +150,7 @@ describe('POST /api/attachments/files', () => {
     const before = await listStorageKeys();
     const res = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, 'empty.txt'), streamOf(Buffer.alloc(0), 0));
+      .postBytes(uploadPath(taskId, { filename: 'empty.txt' }), streamOf(Buffer.alloc(0), 0));
     expect(res.status).toBe(422);
 
     const after = await listStorageKeys();
@@ -157,7 +165,7 @@ describe('POST /api/attachments/files', () => {
     try {
       const res = await ctx
         .request(user.token)
-        .postBytes(uploadPath(taskId, 'big.bin'), Buffer.alloc(4096, 1));
+        .postBytes(uploadPath(taskId, { filename: 'big.bin' }), Buffer.alloc(4096, 1));
       expect(res.status).toBe(413);
       expect(
         await db.selectFrom('task_attachment').selectAll().where('task_id', '=', taskId).execute()
@@ -179,7 +187,10 @@ describe('POST /api/attachments/files', () => {
       const before = await listStorageKeys();
       const res = await ctx
         .request(user.token)
-        .postBytes(uploadPath(taskId, 'stream.bin'), streamOf(Buffer.alloc(1024, 9), 64));
+        .postBytes(
+          uploadPath(taskId, { filename: 'stream.bin' }),
+          streamOf(Buffer.alloc(1024, 9), 64)
+        );
 
       expect(res.status).toBe(413);
       expect(
@@ -200,7 +211,10 @@ describe('POST /api/attachments/files', () => {
 
     const res = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, 'stream.bin'), streamOf(Buffer.alloc(1024, 3), 8));
+      .postBytes(
+        uploadPath(taskId, { filename: 'stream.bin' }),
+        streamOf(Buffer.alloc(1024, 3), 8)
+      );
 
     expect(res.status).toBe(201);
     const body = await res.json();
@@ -231,7 +245,9 @@ describe('POST /api/attachments/files', () => {
       )
       .execute();
 
-    const res = await ctx.request(user.token).postBytes(uploadPath(taskId, 'x.pdf'), PDF);
+    const res = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'x.pdf' }), PDF);
     expect(res.status).toBe(422);
     expect((await res.json()).error).toContain('at most 50 attachments');
   });
@@ -241,13 +257,15 @@ describe('POST /api/attachments/files', () => {
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
     const id = newId();
 
-    const first = await ctx.request(user.token).postBytes(uploadPath(taskId, 'a.pdf', '', id), PDF);
+    const first = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'a.pdf', contentType: '', id: id }), PDF);
     expect(first.status).toBe(201);
     expect((await first.json()).id).toBe(id);
 
     const second = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, 'b.pdf', '', id), PDF);
+      .postBytes(uploadPath(taskId, { filename: 'b.pdf', contentType: '', id: id }), PDF);
     expect(second.status).toBe(409);
   });
 
@@ -255,12 +273,14 @@ describe('POST /api/attachments/files', () => {
     const user = await ctx.createUser('att-uuid');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
 
-    const badTask = await ctx.request(user.token).postBytes(uploadPath('not-a-uuid', 'a.pdf'), PDF);
+    const badTask = await ctx
+      .request(user.token)
+      .postBytes(uploadPath('not-a-uuid', { filename: 'a.pdf' }), PDF);
     expect(badTask.status).toBe(400);
 
     const badId = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, 'a.pdf', '', 'nope'), PDF);
+      .postBytes(uploadPath(taskId, { filename: 'a.pdf', contentType: '', id: 'nope' }), PDF);
     expect(badId.status).toBe(400);
   });
 
@@ -282,13 +302,19 @@ describe('POST /api/attachments/files', () => {
       .values({ project_id: projectId, user_id: viewer.id, role: 'viewer' })
       .execute();
 
-    const unknown = await ctx.request(owner.token).postBytes(uploadPath(newId(), 'a.pdf'), PDF);
+    const unknown = await ctx
+      .request(owner.token)
+      .postBytes(uploadPath(newId(), { filename: 'a.pdf' }), PDF);
     expect(unknown.status).toBe(404);
 
-    const outsider = await ctx.request(stranger.token).postBytes(uploadPath(taskId, 'a.pdf'), PDF);
+    const outsider = await ctx
+      .request(stranger.token)
+      .postBytes(uploadPath(taskId, { filename: 'a.pdf' }), PDF);
     expect(outsider.status).toBe(404);
 
-    const readOnly = await ctx.request(viewer.token).postBytes(uploadPath(taskId, 'a.pdf'), PDF);
+    const readOnly = await ctx
+      .request(viewer.token)
+      .postBytes(uploadPath(taskId, { filename: 'a.pdf' }), PDF);
     expect(readOnly.status).toBe(403);
   });
 
@@ -306,7 +332,7 @@ describe('POST /api/attachments/files', () => {
     const before = await listStorageKeys();
     const res = await ctx
       .request(viewer.token)
-      .postBytes(uploadPath(taskId, 'a.pdf'), Buffer.alloc(4096, 2));
+      .postBytes(uploadPath(taskId, { filename: 'a.pdf' }), Buffer.alloc(4096, 2));
     expect(res.status).toBe(403);
 
     const after = await listStorageKeys();
@@ -317,7 +343,7 @@ describe('POST /api/attachments/files', () => {
     const user = await ctx.createUser('att-anon');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
 
-    const res = await ctx.request().postBytes(uploadPath(taskId, 'a.pdf'), PDF);
+    const res = await ctx.request().postBytes(uploadPath(taskId, { filename: 'a.pdf' }), PDF);
     expect(res.status).toBe(401);
   });
 
@@ -327,7 +353,10 @@ describe('POST /api/attachments/files', () => {
 
     const res = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, 'lies.pdf', 'text/html; charset=utf-8'), PDF);
+      .postBytes(
+        uploadPath(taskId, { filename: 'lies.pdf', contentType: 'text/html; charset=utf-8' }),
+        PDF
+      );
     expect(res.status).toBe(201);
     expect((await res.json()).content_type).toBe('text/html');
   });
@@ -338,7 +367,7 @@ describe('POST /api/attachments/files', () => {
 
     const res = await ctx
       .request(user.token)
-      .postBytes(uploadPath(taskId, '../../etc/pas"swd.pdf'), PDF);
+      .postBytes(uploadPath(taskId, { filename: '../../etc/pas"swd.pdf' }), PDF);
     expect(res.status).toBe(201);
     expect((await res.json()).filename).toBe('passwd.pdf');
   });
@@ -363,13 +392,13 @@ describe('POST /api/attachments/files', () => {
       try {
         const fits = await ctx
           .request(user.token)
-          .postBytes(uploadPath(taskId, 'fits.bin'), Buffer.alloc(2000, 3));
+          .postBytes(uploadPath(taskId, { filename: 'fits.bin' }), Buffer.alloc(2000, 3));
         expect(fits.status).toBe(201);
 
         const before = await listStorageKeys();
         const overflows = await ctx
           .request(user.token)
-          .postBytes(uploadPath(taskId, 'over.bin'), Buffer.alloc(100, 4));
+          .postBytes(uploadPath(taskId, { filename: 'over.bin' }), Buffer.alloc(100, 4));
         expect(overflows.status).toBe(413);
         expect((await overflows.json()).error).toContain('storage quota');
 
@@ -392,7 +421,10 @@ describe('POST /api/attachments/files', () => {
         const before = await listStorageKeys();
         const res = await ctx
           .request(user.token)
-          .postBytes(uploadPath(taskId, 'over.bin'), streamOf(Buffer.alloc(1024, 6), 16));
+          .postBytes(
+            uploadPath(taskId, { filename: 'over.bin' }),
+            streamOf(Buffer.alloc(1024, 6), 16)
+          );
 
         expect(res.status).toBe(413);
         expect((await res.json()).error).toContain('storage quota');
@@ -411,17 +443,19 @@ describe('POST /api/attachments/files', () => {
       const previous = process.env.PROJECT_STORAGE_QUOTA_BYTES;
       process.env.PROJECT_STORAGE_QUOTA_BYTES = String(PNG_1X1.length + 10);
       try {
-        const image = await ctx.request(user.token).postBytes(uploadPath(taskId, 'p.png'), PNG_1X1);
+        const image = await ctx
+          .request(user.token)
+          .postBytes(uploadPath(taskId, { filename: 'p.png' }), PNG_1X1);
         expect(image.status).toBe(201);
 
         const attachment = await ctx
           .request(user.token)
-          .postBytes(uploadPath(taskId, 'over.bin'), Buffer.alloc(64, 5));
+          .postBytes(uploadPath(taskId, { filename: 'over.bin' }), Buffer.alloc(64, 5));
         expect(attachment.status).toBe(413);
 
         const secondImage = await ctx
           .request(user.token)
-          .postBytes(uploadPath(taskId, 'q.png'), PNG_1X1);
+          .postBytes(uploadPath(taskId, { filename: 'q.png' }), PNG_1X1);
         expect(secondImage.status).toBe(413);
       } finally {
         if (previous === undefined) delete process.env.PROJECT_STORAGE_QUOTA_BYTES;
@@ -434,9 +468,13 @@ describe('POST /api/attachments/files', () => {
     const user = await ctx.createUser('att-detail');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
 
-    const first = await ctx.request(user.token).postBytes(uploadPath(taskId, 'one.pdf'), PDF);
+    const first = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'one.pdf' }), PDF);
     expect(first.status).toBe(201);
-    const second = await ctx.request(user.token).postBytes(uploadPath(taskId, 'two.zip'), ZIP);
+    const second = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'two.zip' }), ZIP);
     expect(second.status).toBe(201);
 
     const detail = await ctx.request(user.token).get(`/api/tasks/${taskId}`);
@@ -452,7 +490,9 @@ describe('POST /api/attachments/files', () => {
     const user = await ctx.createUser('att-bytes');
     const { taskId } = await createTaskFixture(user.id, createdProjectIds);
 
-    const res = await ctx.request(user.token).postBytes(uploadPath(taskId, 'x.svg'), SVG);
+    const res = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'x.svg' }), SVG);
     const { id } = await res.json();
 
     const row = await db

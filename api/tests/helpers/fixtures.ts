@@ -28,13 +28,22 @@ export function imageStorageKey(key: string | null): string {
   return key;
 }
 
-// Uploading an image is uploading a file: the server reads the leading bytes and
-// decides. Kept here because most fixtures want a path, not a FormData.
-export function imageUploadPath(taskId: string, filename = 'pixel.png', id?: string): string {
-  const params = new URLSearchParams({ task_id: taskId, filename });
-  if (id !== undefined) {
-    params.set('id', id);
-  }
+// The one upload path builder. Uploading an image is uploading a file — the
+// server reads the leading bytes and decides — so there is nothing for a second
+// image-specific version to do differently.
+//
+// Everything past the task id is named rather than positional on purpose: the
+// two builders this replaced disagreed about what the third argument was, one
+// reading it as a content type and the other as the row id, which is a mix-up
+// that type-checks and uploads under the wrong id.
+export function uploadPath(
+  taskId: string,
+  options: { filename?: string; contentType?: string; id?: string } = {}
+): string {
+  const params = new URLSearchParams({ task_id: taskId });
+  if (options.filename !== undefined) params.set('filename', options.filename);
+  if (options.contentType !== undefined) params.set('content_type', options.contentType);
+  if (options.id !== undefined) params.set('id', options.id);
   return `/api/attachments/files?${params.toString()}`;
 }
 
