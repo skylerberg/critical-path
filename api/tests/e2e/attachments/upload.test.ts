@@ -105,7 +105,7 @@ describe('POST /api/attachments/files', () => {
     const body = await res.json();
     expect(body.kind).toBe('image');
 
-    const served = await ctx.request().get(`/api/images/${body.id}`);
+    const served = await ctx.request(user.token).get(`/api/images/${body.id}`);
     expect(served.status).toBe(200);
     expect(served.headers.get('content-type')).toBe('image/gif');
     expect(served.headers.get('x-content-type-options')).toBe('nosniff');

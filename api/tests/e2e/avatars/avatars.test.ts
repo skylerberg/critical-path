@@ -66,7 +66,7 @@ describe('Avatars', () => {
       expect(row.avatar_storage_key).toBe(storageKeyOf(body.avatar_url));
       expect(row.avatar_content_type).toBe('image/webp');
 
-      const get = await ctx.request().get(body.avatar_url);
+      const get = await ctx.request(user.token).get(body.avatar_url);
       expect(get.status).toBe(200);
       expect(get.headers.get('Content-Type')).toBe('image/webp');
       expect(get.headers.get('Cache-Control')).toBe('private, max-age=31536000, immutable');
@@ -92,7 +92,7 @@ describe('Avatars', () => {
       const bigBody = await bigRes.json();
       trackKey(bigBody.avatar_url);
 
-      const bigGet = await ctx.request().get(bigBody.avatar_url);
+      const bigGet = await ctx.request(user.token).get(bigBody.avatar_url);
       const bigMeta = await sharp(Buffer.from(await bigGet.arrayBuffer())).metadata();
       expect(bigMeta.format).toBe('webp');
       expect(bigMeta.width).toBe(1024);
@@ -105,7 +105,7 @@ describe('Avatars', () => {
       const smallBody = await smallRes.json();
       trackKey(smallBody.avatar_url);
 
-      const smallGet = await ctx.request().get(smallBody.avatar_url);
+      const smallGet = await ctx.request(user.token).get(smallBody.avatar_url);
       const smallMeta = await sharp(Buffer.from(await smallGet.arrayBuffer())).metadata();
       expect(smallMeta.width).toBe(1);
       expect(smallMeta.height).toBe(1);
@@ -131,10 +131,10 @@ describe('Avatars', () => {
       trackKey(secondUrl);
       expect(secondUrl).not.toBe(firstUrl);
 
-      expect((await ctx.request().get(firstUrl)).status).toBe(404);
+      expect((await ctx.request(user.token).get(firstUrl)).status).toBe(404);
       // Storage deletion runs in a post-commit hook that is not awaited.
       await expect.poll(() => existsSync(firstPath), { timeout: 5000 }).toBe(false);
-      expect((await ctx.request().get(secondUrl)).status).toBe(200);
+      expect((await ctx.request(user.token).get(secondUrl)).status).toBe(200);
     });
 
     it('rejects bytes that match no supported format with 422', async () => {
@@ -198,8 +198,51 @@ describe('Avatars', () => {
 
   describe('GET /api/avatars/:id', () => {
     it('returns 404 for an unknown key', async () => {
-      const res = await ctx.request().get(`/api/avatars/${newId()}`);
+      const user = await ctx.createUser('avatar-unknown');
+      const res = await ctx.request(user.token).get(`/api/avatars/${newId()}`);
       expect(res.status).toBe(404);
+    });
+
+    // The face on a published board's cards. Without this a public board renders
+    // with every avatar broken, which is why the rule is not simply "signed in".
+    it('serves an anonymous caller when its subject owns a published board', async () => {
+      const user = await ctx.createUser('avatar-public');
+      const uploaded = await ctx
+        .request(user.token)
+        .postMultipart('/api/auth/me/avatar', avatarForm(PNG_1X1));
+      const { avatar_url: avatarUrl } = (await uploaded.json()) as { avatar_url: string };
+      trackKey(avatarUrl);
+
+      const projectId = newId();
+      await db
+        .insertInto('project')
+        .values({ id: projectId, name: 'published', created_by: user.id, is_public: true })
+        .execute();
+      try {
+        expect((await ctx.request().get(avatarUrl)).status).toBe(200);
+
+        await db
+          .updateTable('project')
+          .set({ is_public: false })
+          .where('id', '=', projectId)
+          .execute();
+        expect((await ctx.request().get(avatarUrl)).status).toBe(401);
+      } finally {
+        await db.deleteFrom('project').where('id', '=', projectId).execute();
+      }
+    });
+
+    // 401 rather than 404, so an anonymous caller cannot tell a key that exists
+    // from one that does not.
+    it('refuses an anonymous caller whose subject is on no published board', async () => {
+      const user = await ctx.createUser('avatar-anon');
+      const uploaded = await ctx
+        .request(user.token)
+        .postMultipart('/api/auth/me/avatar', avatarForm(PNG_1X1));
+      const { avatar_url: avatarUrl } = (await uploaded.json()) as { avatar_url: string };
+      trackKey(avatarUrl);
+
+      expect((await ctx.request().get(avatarUrl)).status).toBe(401);
     });
 
     it('returns 400 for a malformed key', async () => {
@@ -238,7 +281,7 @@ describe('Avatars', () => {
       expect(row.avatar_storage_key).toBeNull();
       expect(row.avatar_content_type).toBeNull();
 
-      expect((await ctx.request().get(avatarUrl)).status).toBe(404);
+      expect((await ctx.request(user.token).get(avatarUrl)).status).toBe(404);
       await expect.poll(() => existsSync(filePath), { timeout: 5000 }).toBe(false);
 
       const again = await ctx.request(user.token).delete('/api/auth/me/avatar');

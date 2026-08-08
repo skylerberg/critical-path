@@ -26,12 +26,14 @@ export const skipAuth: MiddlewareHandler = async (_c, next) => {
   await next();
 };
 
-// Reads a token if one is offered and serves without one if it is not, which
-// skipAuth cannot do: it never looks, so a member presenting a valid token would
-// arrive anonymous. For a resource whose audience depends on the row — an
+// Reads a credential if one is offered and serves without one if it is not,
+// which skipAuth cannot do: it never looks, so a member presenting a valid token
+// would arrive anonymous. For a resource whose audience depends on the row — an
 // attachment on a board that may or may not be published — the handler needs to
-// know who is asking before it can decide. A token that is present and bad is
-// still refused; only its absence is tolerated.
+// know who is asking before it can decide. These routes are also the only ones
+// that read the session cookie, which is what lets an <img> tag authenticate.
+// A bearer token that is present and bad is still refused; a bad cookie reads
+// as anonymous, because a signed-out browser keeps sending one.
 export const optionalAuth: MiddlewareHandler = async (_c, next) => {
   await next();
 };
@@ -42,10 +44,17 @@ export async function authMiddleware(c: PublicContext, next: Next) {
     return await next();
   }
 
-  const token = bearerToken(c);
+  const optional = matched.some((route) => route.handler === optionalAuth);
+  const header = bearerToken(c);
+
+  // The cookie is read on optional-auth routes and nowhere else. Those are all
+  // GETs that only read bytes, so an ambient credential costs nothing; accepting
+  // it on a mutation would hand every other origin a CSRF primitive, which the
+  // Authorization header is immune to by construction.
+  const token = header ?? (optional ? sessionCookieToken(c) : null);
 
   if (token === null) {
-    if (matched.some((route) => route.handler === optionalAuth)) {
+    if (optional) {
       return await next();
     }
     throw new AppError(401, 'No token provided');
@@ -54,6 +63,12 @@ export async function authMiddleware(c: PublicContext, next: Next) {
   const credential = await authenticateBearerToken(c.get('db') ?? db, token);
 
   if (!credential) {
+    // A stale cookie is how a signed-out browser still looks, and it must not
+    // be what stops a published board rendering. A bad header is still refused:
+    // it was put there deliberately.
+    if (header === null && optional) {
+      return await next();
+    }
     throw new AppError(401, 'Invalid or expired token');
   }
 
