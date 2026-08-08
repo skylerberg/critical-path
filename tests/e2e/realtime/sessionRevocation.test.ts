@@ -128,7 +128,7 @@ describe('Realtime session revocation', () => {
       token: createResetToken(alternative_id),
       new_password: 'rt-sessions-reset-password',
     });
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
     user.password = 'rt-sessions-reset-password';
 
     await settle();
