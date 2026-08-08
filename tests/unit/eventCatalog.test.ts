@@ -7,7 +7,7 @@ import {
   type RealtimeEventType,
 } from '../../src/services/realtime/eventCatalog';
 
-// The envelope table in README.md is the client-facing catalogue, and the one
+// The envelope table in README.md is the client-facing catalog, and the one
 // registry the type system cannot reach. A new event type that never reaches it
 // is undocumented; a row that outlives its type misleads an integrator.
 function documentedEventTypes(): Set<string> {
@@ -23,7 +23,7 @@ function documentedEventTypes(): Set<string> {
   return types;
 }
 
-// The dot half of the catalogue, pinned the way the webhook half is in
+// The dot half of the catalog, pinned the way the webhook half is in
 // webhooks.test.ts: changing a classification should be a decision someone makes
 // here too, not a line that slips through in a larger diff.
 const RAISES_DOT: RealtimeEventType[] = [
@@ -76,13 +76,13 @@ const CARRIES_ACTOR: RealtimeEventType[] = [
   'checklist_item_deleted',
 ];
 
-describe('realtime event catalogue', () => {
+describe('realtime event catalog', () => {
   it('documents every type it publishes, and publishes every type it documents', () => {
     const documented = documentedEventTypes();
-    const catalogued = new Set<string>(REALTIME_EVENT_TYPES);
+    const cataloged = new Set<string>(REALTIME_EVENT_TYPES);
 
-    expect([...catalogued].filter((type) => !documented.has(type)).sort()).toEqual([]);
-    expect([...documented].filter((type) => !catalogued.has(type)).sort()).toEqual([]);
+    expect([...cataloged].filter((type) => !documented.has(type)).sort()).toEqual([]);
+    expect([...documented].filter((type) => !cataloged.has(type)).sort()).toEqual([]);
   });
 
   it('raises the unseen-changes dot for exactly the types that leave a trace on the board', () => {
