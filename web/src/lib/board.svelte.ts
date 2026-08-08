@@ -88,6 +88,9 @@ const MAX_CYCLE_TITLE_CHARS = 40;
 // Mirrors the batch endpoint's own limit, so an oversized paste is refused
 // before any card is drawn.
 const MAX_BATCH_TASKS = 100;
+// One identity for every empty column, so a reader deriving from an empty
+// column's tasks doesn't see a fresh array on every read.
+const NO_TASKS: BoardTask[] = [];
 
 function optimisticTask(
   id: string,
@@ -511,8 +514,26 @@ class BoardStore {
     this.#cyclePathTimer = setTimeout(() => this.#clearCyclePath(), CYCLE_PATH_MS);
   }
 
+  // One grouped pass over the board rather than a filter-and-sort per column.
+  // Every render asks each column for its tasks at least twice — the card list
+  // and the header count — so a per-column scan made one render cost columns x
+  // tasks, and a 64-column board spent 56ms per render on nothing but grouping.
+  readonly #tasksByColumn: Readonly<Record<string, BoardTask[]>> = $derived.by(() => {
+    // Null-prototype, so a column id can never collide with an Object member and
+    // hand back a function where the caller expects a list of tasks.
+    const grouped: Record<string, BoardTask[]> = Object.create(null);
+    for (const task of this.tasks) {
+      (grouped[task.column_id] ??= []).push(task);
+    }
+    for (const bucket of Object.values(grouped)) {
+      bucket.sort(byRank);
+    }
+    return grouped;
+  });
+
+  /** Shared and read-only: callers that reorder or splice must copy first. */
   tasksInColumn(columnId: string): BoardTask[] {
-    return this.tasks.filter((task) => task.column_id === columnId).sort(byRank);
+    return this.#tasksByColumn[columnId] ?? NO_TASKS;
   }
 
   async createTask(columnId: string, title: string): Promise<string | null> {
@@ -1552,26 +1573,24 @@ class BoardStore {
     this.setFilters(noFilters());
   }
 
-  get doneColumnIds(): Set<string> {
-    return new Set(this.columns.filter((column) => column.is_done).map((column) => column.id));
-  }
+  // Derived rather than computed per read: the board reads these once per column
+  // per render, and every card read the query through taskMatchesFilters.
+  readonly doneColumnIds: ReadonlySet<string> = $derived(
+    new Set(this.columns.filter((column) => column.is_done).map((column) => column.id))
+  );
 
-  get #normalizedQuery(): string {
-    return this.filterQuery.trim().toLowerCase();
-  }
+  readonly #normalizedQuery: string = $derived(this.filterQuery.trim().toLowerCase());
 
-  get hasActiveFilters(): boolean {
-    return (
-      this.filterLabelIds.length > 0 ||
+  readonly hasActiveFilters: boolean = $derived(
+    this.filterLabelIds.length > 0 ||
       this.filterAssigneeIds.length > 0 ||
       this.#normalizedQuery !== ''
-    );
-  }
+  );
 
   /** Changes only when the filter changes in a way that can repartition a column. */
-  get filterSignature(): string {
-    return JSON.stringify([this.#normalizedQuery, this.filterLabelIds, this.filterAssigneeIds]);
-  }
+  readonly filterSignature: string = $derived(
+    JSON.stringify([this.#normalizedQuery, this.filterLabelIds, this.filterAssigneeIds])
+  );
 
   taskMatchesFilters(task: BoardTask): boolean {
     const labelOk =
@@ -1585,10 +1604,13 @@ class BoardStore {
     return labelOk && assigneeOk && queryOk;
   }
 
+  // Copies: the board hands this straight to svelte-dnd-action, which reorders
+  // it as its own drag state, and the grouped cache behind tasksInColumn is
+  // shared with every other reader.
   displayTasksInColumn(columnId: string): BoardTask[] {
     const tasks = this.tasksInColumn(columnId);
     if (!this.hasActiveFilters) {
-      return tasks;
+      return [...tasks];
     }
     const matches: BoardTask[] = [];
     const rest: BoardTask[] = [];
@@ -1599,8 +1621,13 @@ class BoardStore {
   }
 
   matchingCountInColumn(columnId: string): number {
-    return this.tasks.filter((task) => task.column_id === columnId && this.taskMatchesFilters(task))
-      .length;
+    let count = 0;
+    for (const task of this.tasksInColumn(columnId)) {
+      if (this.taskMatchesFilters(task)) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   taskComments = $state<Record<string, TaskComment[]>>({});
