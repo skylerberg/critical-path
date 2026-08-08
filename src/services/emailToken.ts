@@ -2,11 +2,10 @@ import crypto from 'crypto';
 import { type } from 'arktype';
 import { env } from '../config/env';
 import { notificationKind, type NotificationKind } from '../schemas/notifications';
+import { decodeSignedToken, encodeSignedToken } from './signedToken';
 
 export const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
-// Domain separation: the secret is shared with the password-reset family, whose
-// payloads carry no `t` and so can never satisfy either check below.
 const VERIFY_TYPE = 'verify';
 const UNSUBSCRIBE_TYPE = 'unsubscribe';
 
@@ -21,40 +20,6 @@ export type UnsubscribeTokenVerification =
   | { status: 'valid'; user_id: string; email_hash: string; kind: NotificationKind }
   | { status: 'invalid' };
 
-function sign(payload: string): Buffer {
-  return crypto.createHmac('sha256', env.emailTokenSecret).update(payload).digest();
-}
-
-function encode(claims: Record<string, unknown>): string {
-  const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
-  return `${payload}.${sign(payload).toString('base64url')}`;
-}
-
-function decode(token: string): Record<string, unknown> | null {
-  const parts = token.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    return null;
-  }
-  const [payload, signature] = parts;
-
-  const expected = sign(payload);
-  const provided = Buffer.from(signature, 'base64url');
-  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
-    return null;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return null;
-  }
-  return parsed as Record<string, unknown>;
-}
-
 // Recomputed from the stored address at redemption, so changing the address
 // invalidates every outstanding link with no stored state — and no address
 // reaches a URL, an access log or a browser history.
@@ -68,8 +33,7 @@ export function emailAddressHash(email: string): string {
 }
 
 export function createVerificationToken(userId: string, email: string, now = Date.now()): string {
-  return encode({
-    t: VERIFY_TYPE,
+  return encodeSignedToken(env.emailTokenSecret, VERIFY_TYPE, {
     uid: userId,
     eh: emailAddressHash(email),
     exp: now + VERIFICATION_TOKEN_TTL_MS,
@@ -80,15 +44,12 @@ export function verifyVerificationToken(
   token: string,
   now = Date.now()
 ): VerificationTokenVerification {
-  const claims = decode(token);
+  const claims = decodeSignedToken(env.emailTokenSecret, VERIFY_TYPE, token);
   if (!claims) {
     return { status: 'invalid' };
   }
-  const { t, uid, eh, exp } = claims;
-  if (t !== VERIFY_TYPE || typeof uid !== 'string' || typeof eh !== 'string') {
-    return { status: 'invalid' };
-  }
-  if (typeof exp !== 'number') {
+  const { uid, eh, exp } = claims;
+  if (typeof uid !== 'string' || typeof eh !== 'string' || typeof exp !== 'number') {
     return { status: 'invalid' };
   }
 
@@ -107,16 +68,20 @@ export function createUnsubscribeToken(
   email: string,
   kind: NotificationKind
 ): string {
-  return encode({ t: UNSUBSCRIBE_TYPE, uid: userId, eh: emailAddressHash(email), k: kind });
+  return encodeSignedToken(env.emailTokenSecret, UNSUBSCRIBE_TYPE, {
+    uid: userId,
+    eh: emailAddressHash(email),
+    k: kind,
+  });
 }
 
 export function verifyUnsubscribeToken(token: string): UnsubscribeTokenVerification {
-  const claims = decode(token);
+  const claims = decodeSignedToken(env.emailTokenSecret, UNSUBSCRIBE_TYPE, token);
   if (!claims) {
     return { status: 'invalid' };
   }
-  const { t, uid, eh, k } = claims;
-  if (t !== UNSUBSCRIBE_TYPE || typeof uid !== 'string' || typeof eh !== 'string') {
+  const { uid, eh, k } = claims;
+  if (typeof uid !== 'string' || typeof eh !== 'string') {
     return { status: 'invalid' };
   }
   const kind = notificationKind(k);
