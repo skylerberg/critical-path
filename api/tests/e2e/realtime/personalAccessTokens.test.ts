@@ -12,6 +12,15 @@ import { newId, rankKey } from '../../helpers/fixtures';
 import { waitFor } from '../projects/helpers';
 import { RtClient, settle } from './helpers';
 
+async function lastUsedAt(id: string): Promise<Date | null> {
+  const row = await db
+    .selectFrom('personal_access_token')
+    .select('personal_access_token.last_used_at')
+    .where('personal_access_token.id', '=', id)
+    .executeTakeFirstOrThrow();
+  return row.last_used_at;
+}
+
 // RtClient only settles on auth_ok, so a rejected handshake needs the raw socket.
 function handshakeCloseCode(port: number, token: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -135,10 +144,11 @@ describe('Realtime with personal access tokens', () => {
 
   it('refuses a handshake with an expired token', async () => {
     const secret = `${PERSONAL_ACCESS_TOKEN_PREFIX}${crypto.randomBytes(32).toString('base64url')}`;
+    const id = newId();
     await db
       .insertInto('personal_access_token')
       .values({
-        id: newId(),
+        id,
         user_id: user.id,
         name: 'expired',
         token_hash: crypto.createHash('sha256').update(secret).digest('hex'),
@@ -147,5 +157,15 @@ describe('Realtime with personal access tokens', () => {
       .execute();
 
     expect(await handshakeCloseCode(port, secret)).toBe(4401);
+    expect(await lastUsedAt(id)).toBeNull();
+  });
+
+  it('records the handshake as a use of the token', async () => {
+    const { id, secret } = await mintToken('handshake-stamps');
+    expect(await lastUsedAt(id)).toBeNull();
+
+    await connect(secret);
+
+    await waitFor(async () => (await lastUsedAt(id)) !== null);
   });
 });

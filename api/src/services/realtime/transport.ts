@@ -6,6 +6,7 @@ import { db } from '../../db/index';
 import { authenticateBearerToken, credentialIsLive } from '../credentials';
 import type { CredentialKind } from '../credentials';
 import { logger } from '../../utils/logger';
+import { recordPersonalAccessTokenUse } from '../personalAccessTokens';
 import { SESSIONS_REVOKED, subscribeBus } from './bus';
 import type { BusEntry } from './bus';
 import { deliver } from './delivery';
@@ -87,9 +88,14 @@ function handleConnection(ws: WebSocket): void {
     ws.send(JSON.stringify({ type: 'ping' }));
     // Credentials are revocable DB rows; a socket must not outlive its own.
     void credentialIsLive(db, state.credentialKind, state.credentialId)
-      .then((live) => {
+      .then(async (live) => {
         if (!live) {
           ws.close(CLOSE_UNAUTHORIZED, 'Session revoked');
+          return;
+        }
+        // A socket held open for days is use, so the token must not look idle.
+        if (state.credentialKind === 'personal_access_token') {
+          await recordPersonalAccessTokenUse(state.credentialId);
         }
       })
       .catch((err) => {
