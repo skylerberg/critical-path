@@ -272,8 +272,8 @@ describe('Account', () => {
     expect(screen.getByRole('button', { name: 'Send verification email' })).toBeInTheDocument();
   });
 
-  it('changes the password, adopts the new session, and stays logged in', async () => {
-    mockRoutes(200, { token: 'tok-2', user });
+  it('changes the password and keeps the session it already had', async () => {
+    mockRoutes(204);
     render(Account);
 
     await fireEvent.input(screen.getByLabelText('Current password'), {
@@ -295,16 +295,14 @@ describe('Account', () => {
     });
     expect(window.location.pathname).toBe('/account');
     expect(session.status).toBe('authed');
-    expect(session.token).toBe('tok-2');
-    expect(localStorage.getItem('cp.token')).toBe('tok-2');
+    expect(session.token).toBe('tok');
+    expect(localStorage.getItem('cp.token')).toBe('tok');
     expect(screen.getByLabelText<HTMLInputElement>('Current password').value).toBe('');
     expect(screen.getByLabelText<HTMLInputElement>('New password').value).toBe('');
     expect(screen.getByLabelText<HTMLInputElement>('Confirm new password').value).toBe('');
-    expect(vi.mocked(realtime.disconnect)).toHaveBeenCalledOnce();
-    expect(vi.mocked(realtime.connect)).toHaveBeenCalledOnce();
-    expect(vi.mocked(realtime.disconnect).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(realtime.connect).mock.invocationCallOrder[0]
-    );
+    // Nothing is revoked, so the socket is never dropped and reopened.
+    expect(vi.mocked(realtime.disconnect)).not.toHaveBeenCalled();
+    expect(vi.mocked(realtime.connect)).not.toHaveBeenCalled();
   });
 
   it('shows an error when the current password is wrong', async () => {

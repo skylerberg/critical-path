@@ -3,7 +3,6 @@
   import { apiMessage } from '../lib/apiMessages';
   import { downloadAccountExport } from '../lib/export';
   import { projects } from '../lib/projects.svelte';
-  import { realtime } from '../lib/realtime.svelte';
   import { link } from '../lib/router.svelte';
   import { projectHref } from '../lib/short-links';
   import { session } from '../lib/session.svelte';
@@ -204,17 +203,12 @@
     }
     savingPassword = true;
     passwordStatus = null;
-    // The server closes this device's socket (4401) when it revokes the old
-    // sessions; disconnecting first keeps that close from being mistaken for a
-    // logout before the new token is stored.
-    realtime.disconnect();
     try {
-      const data = assertOk(
+      assertOk(
         await api.POST('/api/auth/change-password', {
           body: { current_password: currentPassword, new_password: newPassword },
         })
       );
-      session.adopt(data.token, data.user);
       currentPassword = '';
       newPassword = '';
       confirmPassword = '';
@@ -226,7 +220,6 @@
           : apiMessage(error);
       passwordStatus = { kind: 'error', message };
     } finally {
-      realtime.connect();
       savingPassword = false;
     }
   }
@@ -313,6 +306,10 @@
 
   <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
     <h2 class="text-lg font-semibold">Password</h2>
+    <p class="text-sm text-muted">
+      Changing your password does not sign you out anywhere — not this device, not your others. To
+      sign a device out, revoke its session under “Where you're signed in”.
+    </p>
     <form class="flex flex-col gap-3" novalidate onsubmit={submitPassword}>
       <Input
         label="Current password"
@@ -368,7 +365,7 @@
     <h2 class="text-lg font-semibold">Personal access tokens</h2>
     <p class="text-sm text-muted">
       Long-lived credentials for scripts, agents, and the <code>cpath</code> CLI. They have the same access
-      you do, outlive password changes, and can be revoked one at a time.
+      you do and can be revoked one at a time.
     </p>
     <PersonalAccessTokens />
   </section>
