@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../../src/db/index';
+import type { ResolvedSortKey } from '../../../src/db/types';
 import { newId, rankKey } from '../../helpers/fixtures';
 
 const key2000 = rankKey(2000);
@@ -22,7 +23,7 @@ async function createProject(): Promise<string> {
 
 async function insertColumn(
   projectId: string,
-  opts: { name?: string; sort_key?: string; is_done?: boolean } = {}
+  opts: { name?: string; sort_key?: ResolvedSortKey; is_done?: boolean } = {}
 ): Promise<string> {
   const id = newId();
   await db

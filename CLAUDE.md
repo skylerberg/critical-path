@@ -111,6 +111,21 @@ web app and the CLI generate from it.
     `cli/src/api/realtime.generated.ts`. The dump itself is gitignored like
     `openapi.json`; what the clients check is that theirs is not older than this
     repo's HEAD.
+15. Every `sort_key` is unique within its scope, and the `task` index spans
+    archived rows on purpose, so a key a client computed — ranked against only
+    the rows that client can see — is a request, not a value to store. The
+    column type is `ResolvedSortKey`, a branded string defined in
+    `src/db/types.ts`, and the request schemas produce a plain `string`: the
+    only way across is `resolveSortKey`, `resolveSortKeys` (a run of keys
+    resolved against each other as well as the scope, for a batch insert) or
+    `appendKeys`. Writing a client's key straight into the row is what used to
+    answer 500 on the rows it could not see; it is now a type error at the
+    write site rather than a rule each new handler has to remember. Keep the
+    residual `isUniqueViolation` → 409 anyway: resolving reads the scope, and
+    nothing holds it until the write. Raw `sql` writes bypass the brand — the
+    bulk paths that use them take the column's tail advisory lock instead, and
+    a new one must do the same, in that order (tail lock, then task rows) or it
+    deadlocks against the bulk move.
 
 # Realtime, email, and password reset
 
@@ -268,3 +283,8 @@ the running code still reads; do that in a follow-up release).
 2. `npm run migrate` and `npm run migrate:test`.
 3. Regenerate committed types:
    `DATABASE_URL=postgres://skylerberg@127.0.0.1:5432/game_dev npm run kysely-codegen`.
+   That writes `src/db/types.generated.ts`. `src/db/types.ts` is hand-written
+   and is what the app imports: it re-exports the generated module and
+   overrides `DB` to brand every `sort_key` column (convention 15). A new
+   ordering scope needs its scope column added to `SCOPES` in
+   `src/services/sortKey.ts`; the brand follows from the column name.
