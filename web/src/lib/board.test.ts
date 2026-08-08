@@ -12,6 +12,7 @@ import { testUuid } from './test-ids';
 import { taskActivity } from './taskActivity.svelte';
 import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
+import { realtimeEvent } from './realtime-test-events';
 
 const CYCLE_ERROR = 'Adding this blocker would create a dependency cycle';
 const SERVER_CREATED_AT = '2026-01-15T00:00:00Z';
@@ -618,11 +619,7 @@ describe('board store readonly mode', () => {
     mockPublic();
     await board.load('p1', undefined, { readonly: true });
 
-    board.applyRealtime({
-      type: 'task_deleted',
-      project_id: 'p1',
-      data: { id: 't1' },
-    });
+    board.applyRealtime(realtimeEvent('task_deleted', { id: 't1' }, 'p1'));
 
     expect(board.tasks.map((t) => t.id)).toEqual(['t1', 't2']);
   });
@@ -1068,11 +1065,9 @@ describe('board store mutations', () => {
     const pending = board.duplicateColumn('c1');
     const copyId = board.columns[1]!.id;
 
-    board.applyRealtime({
-      type: 'task_created',
-      project_id: 'p1',
-      data: { ...task('copy-t1', copyId, 1000, 'A'), title: 'A' },
-    } as never);
+    board.applyRealtime(
+      realtimeEvent('task_created', { ...task('copy-t1', copyId, 1000, 'A'), title: 'A' }, 'p1')
+    );
 
     await pending;
 
@@ -1563,7 +1558,7 @@ describe('filters in the query string', () => {
     board.toggleLabelFilter('l1');
     expect(router.path).toBe(`${BOARD_PATH}?labels=l1`);
 
-    board.applyRealtime({ type: 'label_deleted', project_id: PROJECT_ID, data: { id: 'l1' } });
+    board.applyRealtime(realtimeEvent('label_deleted', { id: 'l1' }, PROJECT_ID));
 
     expect(board.filterLabelIds).toEqual([]);
     expect(router.path).toBe(BOARD_PATH);
@@ -2100,12 +2095,8 @@ describe('archive', () => {
   });
 
   it('applyRealtime task_restored moves the card back onto the board', () => {
-    board.applyRealtime({ type: 'task_archived', project_id: 'p1', data: archivedTask('t1') });
-    board.applyRealtime({
-      type: 'task_restored',
-      project_id: 'p1',
-      data: task('t1', 'c1', 1000, 'A'),
-    });
+    board.applyRealtime(realtimeEvent('task_archived', archivedTask('t1'), 'p1'));
+    board.applyRealtime(realtimeEvent('task_restored', task('t1', 'c1', 1000, 'A'), 'p1'));
 
     expect(board.archivedTasks).toEqual([]);
     expect(board.tasks.some((t) => t.id === 't1')).toBe(true);
@@ -2114,17 +2105,19 @@ describe('archive', () => {
   it('applyRealtime task_deleted and column_deleted keep the archive consistent', () => {
     board.archivedTasks = [archivedTask('t8'), archivedTask('t9')];
 
-    board.applyRealtime({ type: 'task_deleted', project_id: 'p1', data: { id: 't8' } });
+    board.applyRealtime(realtimeEvent('task_deleted', { id: 't8' }, 'p1'));
     expect(board.archivedTasks.map((t) => t.id)).toEqual(['t9']);
 
-    board.applyRealtime({
-      type: 'column_deleted',
-      project_id: 'p1',
-      data: {
-        id: 'c1',
-        moved_tasks: [{ id: 't9', column_id: 'c2', position: 7000, sort_key: 'V0000070001' }],
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'column_deleted',
+        {
+          id: 'c1',
+          moved_tasks: [{ id: 't9', column_id: 'c2', sort_key: 'V0000070001' }],
+        },
+        'p1'
+      )
+    );
     expect(board.archivedTasks).toEqual([
       expect.objectContaining({
         id: 't9',
@@ -2134,11 +2127,7 @@ describe('archive', () => {
     ]);
 
     board.archivedTasks = [archivedTask('t7', 'c2')];
-    board.applyRealtime({
-      type: 'column_deleted',
-      project_id: 'p1',
-      data: { id: 'c2', moved_tasks: [] },
-    });
+    board.applyRealtime(realtimeEvent('column_deleted', { id: 'c2', moved_tasks: [] }, 'p1'));
     expect(board.archivedTasks).toEqual([]);
   });
 
@@ -2359,18 +2348,20 @@ describe('column bulk actions', () => {
   });
 
   it('applyRealtime column_tasks_moved relocates the listed cards and keeps the columns', () => {
-    board.applyRealtime({
-      type: 'column_tasks_moved',
-      project_id: 'p1',
-      data: {
-        column_id: 'c1',
-        target_column_id: 'c2',
-        moved_tasks: [
-          { id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' },
-          { id: 't2', column_id: 'c2', position: 5000, sort_key: 'V0000050001' },
-        ],
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'column_tasks_moved',
+        {
+          column_id: 'c1',
+          target_column_id: 'c2',
+          moved_tasks: [
+            { id: 't1', column_id: 'c2', sort_key: 'V0000040001' },
+            { id: 't2', column_id: 'c2', sort_key: 'V0000050001' },
+          ],
+        },
+        'p1'
+      )
+    );
 
     expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
     expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1', 't2']);
@@ -2383,11 +2374,11 @@ describe('column bulk actions', () => {
         : undefined
     );
     await board.refetch();
-    const event = {
-      type: 'column_tasks_archived',
-      project_id: 'p1',
-      data: { column_id: 'c2', tasks: [archivedTask('t3', 'c2', 'C')] },
-    } as const;
+    const event = realtimeEvent(
+      'column_tasks_archived',
+      { column_id: 'c2', tasks: [archivedTask('t3', 'c2', 'C')] },
+      'p1'
+    );
 
     board.applyRealtime(event);
     board.applyRealtime(event);
@@ -2398,20 +2389,24 @@ describe('column bulk actions', () => {
   });
 
   it('ignores both bulk events aimed at another project', () => {
-    board.applyRealtime({
-      type: 'column_tasks_moved',
-      project_id: 'p2',
-      data: {
-        column_id: 'c1',
-        target_column_id: 'c2',
-        moved_tasks: [{ id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' }],
-      },
-    });
-    board.applyRealtime({
-      type: 'column_tasks_archived',
-      project_id: 'p2',
-      data: { column_id: 'c2', tasks: [archivedTask('t3', 'c2', 'C')] },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'column_tasks_moved',
+        {
+          column_id: 'c1',
+          target_column_id: 'c2',
+          moved_tasks: [{ id: 't1', column_id: 'c2', sort_key: 'V0000040001' }],
+        },
+        'p2'
+      )
+    );
+    board.applyRealtime(
+      realtimeEvent(
+        'column_tasks_archived',
+        { column_id: 'c2', tasks: [archivedTask('t3', 'c2', 'C')] },
+        'p2'
+      )
+    );
 
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2']);
     expect(board.tasks.some((t) => t.id === 't3')).toBe(true);
@@ -2690,35 +2685,33 @@ describe('selection bulk actions', () => {
     it('bulk_tasks_moved relocates the cards and leaves the selection standing', () => {
       selection.toggle('t1');
 
-      board.applyRealtime({
-        type: 'bulk_tasks_moved',
-        project_id: 'p1',
-        data: {
-          moved_tasks: [{ id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' }],
-        },
-      });
+      board.applyRealtime(
+        realtimeEvent(
+          'bulk_tasks_moved',
+          {
+            moved_tasks: [{ id: 't1', column_id: 'c2', sort_key: 'V0000040001' }],
+          },
+          'p1'
+        )
+      );
 
       expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1']);
       expect(selection.selectedIds).toEqual(['t1']);
     });
 
     it('bulk_tasks_archived takes the cards off the board and into the archive', () => {
-      board.applyRealtime({
-        type: 'bulk_tasks_archived',
-        project_id: 'p1',
-        data: { tasks: [archivedTask('t1', 'c1', 'A')] },
-      });
+      board.applyRealtime(
+        realtimeEvent('bulk_tasks_archived', { tasks: [archivedTask('t1', 'c1', 'A')] }, 'p1')
+      );
 
       expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
       expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
     });
 
     it('bulk_tasks_relations_set rewrites only the cards it names', () => {
-      board.applyRealtime({
-        type: 'bulk_tasks_relations_set',
-        project_id: 'p1',
-        data: { tasks: [relations('t2', ['l1'], [ME])] },
-      });
+      board.applyRealtime(
+        realtimeEvent('bulk_tasks_relations_set', { tasks: [relations('t2', ['l1'], [ME])] }, 'p1')
+      );
 
       expect(board.tasks.find((t) => t.id === 't2')?.label_ids).toEqual(['l1']);
       expect(board.tasks.find((t) => t.id === 't2')?.assignee_ids).toEqual([ME]);
@@ -2726,11 +2719,9 @@ describe('selection bulk actions', () => {
     });
 
     it('ignores every bulk event aimed at another project', () => {
-      board.applyRealtime({
-        type: 'bulk_tasks_archived',
-        project_id: 'p2',
-        data: { tasks: [archivedTask('t1', 'c1', 'A')] },
-      });
+      board.applyRealtime(
+        realtimeEvent('bulk_tasks_archived', { tasks: [archivedTask('t1', 'c1', 'A')] }, 'p2')
+      );
 
       expect(board.tasks.some((t) => t.id === 't1')).toBe(true);
       expect(board.archivedTasks).toEqual([]);
@@ -2747,11 +2738,9 @@ describe('applyRealtime does not resurrect a deleted task', () => {
     await board.deleteTask('t1');
     expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
 
-    board.applyRealtime({
-      type: 'task_updated',
-      project_id: 'p1',
-      data: { ...task('t1', 'c1', 1000, 'A'), title: 'A edited' },
-    });
+    board.applyRealtime(
+      realtimeEvent('task_updated', { ...task('t1', 'c1', 1000, 'A'), title: 'A edited' }, 'p1')
+    );
 
     expect(board.tasks.some((t) => t.id === 't1')).toBe(false);
     const result = computeGraph(board.tasks, board.columns);
@@ -2761,11 +2750,9 @@ describe('applyRealtime does not resurrect a deleted task', () => {
   });
 
   it('still applies a task_updated echo for a task that is present', () => {
-    board.applyRealtime({
-      type: 'task_updated',
-      project_id: 'p1',
-      data: { ...task('t2', 'c1', 2000, 'B'), title: 'B renamed' },
-    });
+    board.applyRealtime(
+      realtimeEvent('task_updated', { ...task('t2', 'c1', 2000, 'B'), title: 'B renamed' }, 'p1')
+    );
 
     expect(board.tasks.find((t) => t.id === 't2')?.title).toBe('B renamed');
   });
@@ -2784,11 +2771,7 @@ describe('applyRealtime project_updated', () => {
   });
 
   it('adopts a rename that carries nothing else, leaving membership as it was', () => {
-    board.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', name: 'Renamed' },
-    });
+    board.applyRealtime(realtimeEvent('project_updated', { id: 'p1', name: 'Renamed' }, 'p1'));
 
     expect(board.project?.name).toBe('Renamed');
     expect(board.project?.created_by).toBe('u-owner');
@@ -2797,42 +2780,32 @@ describe('applyRealtime project_updated', () => {
   });
 
   it('leaves the name alone when the event carries only membership', () => {
-    board.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', member_ids: ['u-me'], members: [{ user_id: 'u-me', role: 'viewer' }] },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'project_updated',
+        { id: 'p1', member_ids: ['u-me'], members: [{ user_id: 'u-me', role: 'viewer' }] },
+        'p1'
+      )
+    );
 
     expect(board.project?.name).toBe('Game');
     expect(board.project?.members).toEqual([{ user_id: 'u-me', role: 'viewer' }]);
   });
 
   it("adopts a teammate's colour change", () => {
-    board.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', color: 'sky' },
-    });
+    board.applyRealtime(realtimeEvent('project_updated', { id: 'p1', color: 'sky' }, 'p1'));
 
     expect(board.project?.color).toBe('sky');
   });
 
   it('clears the colour when the event carries an explicit null', () => {
-    board.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', color: null },
-    });
+    board.applyRealtime(realtimeEvent('project_updated', { id: 'p1', color: null }, 'p1'));
 
     expect(board.project?.color).toBeNull();
   });
 
   it('keeps the colour when the event has no colour at all', () => {
-    board.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', name: 'Renamed' },
-    });
+    board.applyRealtime(realtimeEvent('project_updated', { id: 'p1', name: 'Renamed' }, 'p1'));
 
     expect(board.project?.color).toBe('amber');
   });
@@ -3038,20 +3011,24 @@ describe('board store comments', () => {
   });
 
   it('applyRealtime appends a comment_created and skips the author’s own echo', () => {
-    board.applyRealtime({
-      type: 'comment_created',
-      project_id: 'p1',
-      data: { ...serverComment('from a teammate', 'cm9'), comment_count: 1 },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'comment_created',
+        { ...serverComment('from a teammate', 'cm9'), comment_count: 1 },
+        'p1'
+      )
+    );
 
     expect(board.taskComments.t1!.map((c) => c.id)).toEqual(['cm9']);
     expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
 
-    board.applyRealtime({
-      type: 'comment_created',
-      project_id: 'p1',
-      data: { ...serverComment('from a teammate', 'cm9'), comment_count: 1 },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'comment_created',
+        { ...serverComment('from a teammate', 'cm9'), comment_count: 1 },
+        'p1'
+      )
+    );
 
     expect(board.taskComments.t1).toHaveLength(1);
   });
@@ -3061,11 +3038,13 @@ describe('board store comments', () => {
       ['late', '2026-06-01T00:00:00Z'],
       ['early', '2026-01-01T00:00:00Z'],
     ] as const) {
-      board.applyRealtime({
-        type: 'comment_created',
-        project_id: 'p1',
-        data: { ...serverComment(id, id), created_at: at, updated_at: at, comment_count: 1 },
-      });
+      board.applyRealtime(
+        realtimeEvent(
+          'comment_created',
+          { ...serverComment(id, id), created_at: at, updated_at: at, comment_count: 1 },
+          'p1'
+        )
+      );
     }
 
     expect(board.taskComments.t1!.map((c) => c.id)).toEqual(['early', 'late']);
@@ -3074,20 +3053,20 @@ describe('board store comments', () => {
   it('applyRealtime patches a comment_updated in place and removes a comment_deleted by id', () => {
     board.taskComments = { t1: [serverComment('before', 'cm1')] };
 
-    board.applyRealtime({
-      type: 'comment_updated',
-      project_id: 'p1',
-      data: { ...serverComment('after', 'cm1'), updated_at: SERVER_UPDATED_AT },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'comment_updated',
+        { ...serverComment('after', 'cm1'), updated_at: SERVER_UPDATED_AT },
+        'p1'
+      )
+    );
 
     expect(board.taskComments.t1![0]!.body).toEqual(commentBody('after'));
     expect(board.taskComments.t1![0]!.updated_at).toBe(SERVER_UPDATED_AT);
 
-    board.applyRealtime({
-      type: 'comment_deleted',
-      project_id: 'p1',
-      data: { id: 'cm1', task_id: 't1', comment_count: 0 },
-    });
+    board.applyRealtime(
+      realtimeEvent('comment_deleted', { id: 'cm1', task_id: 't1', comment_count: 0 }, 'p1')
+    );
 
     expect(board.taskComments.t1).toEqual([]);
     expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(0);
@@ -3096,22 +3075,18 @@ describe('board store comments', () => {
 
   it('leaves the cached count intact when a task_updated payload omits comment_count', () => {
     board.tasks = board.tasks.map((t) => (t.id === 't1' ? { ...t, comment_count: 4 } : t));
-    board.applyRealtime({
-      type: 'task_updated',
-      project_id: 'p1',
-      data: legacyTask(task('t1', 'c1', 1000, 'A renamed')),
-    });
+    board.applyRealtime(
+      realtimeEvent('task_updated', legacyTask(task('t1', 'c1', 1000, 'A renamed')), 'p1')
+    );
 
     expect(board.tasks.find((t) => t.id === 't1')?.title).toBe('A renamed');
     expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(4);
   });
 
   it('defaults comment_count to zero when a task_created payload omits it', () => {
-    board.applyRealtime({
-      type: 'task_created',
-      project_id: 'p1',
-      data: legacyTask(task('t9', 'c1', 9000, 'New')),
-    });
+    board.applyRealtime(
+      realtimeEvent('task_created', legacyTask(task('t9', 'c1', 9000, 'New')), 'p1')
+    );
 
     expect(board.tasks.find((t) => t.id === 't9')?.comment_count).toBe(0);
   });
@@ -3266,11 +3241,7 @@ describe('board store checklists', () => {
     expect(counts()).toEqual([0, 0]);
 
     // The server's own echo lands afterwards and must not double the card.
-    board.applyRealtime({
-      type: 'task_created',
-      project_id: 'p1',
-      data: task(id!, 'c1', 1500, 'promoted'),
-    });
+    board.applyRealtime(realtimeEvent('task_created', task(id!, 'c1', 1500, 'promoted'), 'p1'));
     expect(board.tasks.filter((t) => t.id === id)).toHaveLength(1);
   });
 
@@ -3280,36 +3251,42 @@ describe('board store checklists', () => {
   });
 
   it('applyRealtime adopts the event counts, skips a duplicate id and never seeds an uncached list', () => {
-    board.applyRealtime({
-      type: 'checklist_item_created',
-      project_id: 'p1',
-      data: {
-        ...serverChecklistItem('theirs', 'ci9'),
-        ...{ checklist_item_count: 4, checklist_done_count: 2 },
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'checklist_item_created',
+        {
+          ...serverChecklistItem('theirs', 'ci9'),
+          ...{ checklist_item_count: 4, checklist_done_count: 2 },
+        },
+        'p1'
+      )
+    );
     expect(counts()).toEqual([4, 2]);
     expect(board.taskChecklists.t1!.map((i) => i.id)).toEqual(['ci9']);
 
-    board.applyRealtime({
-      type: 'checklist_item_created',
-      project_id: 'p1',
-      data: {
-        ...serverChecklistItem('theirs', 'ci9'),
-        ...{ checklist_item_count: 4, checklist_done_count: 2 },
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'checklist_item_created',
+        {
+          ...serverChecklistItem('theirs', 'ci9'),
+          ...{ checklist_item_count: 4, checklist_done_count: 2 },
+        },
+        'p1'
+      )
+    );
     expect(board.taskChecklists.t1).toHaveLength(1);
 
     board.taskChecklists = {};
-    board.applyRealtime({
-      type: 'checklist_item_created',
-      project_id: 'p1',
-      data: {
-        ...serverChecklistItem('theirs', 'ci9'),
-        ...{ checklist_item_count: 4, checklist_done_count: 2 },
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'checklist_item_created',
+        {
+          ...serverChecklistItem('theirs', 'ci9'),
+          ...{ checklist_item_count: 4, checklist_done_count: 2 },
+        },
+        'p1'
+      )
+    );
     expect(board.taskChecklists.t1).toBeUndefined();
   });
 
@@ -3318,23 +3295,27 @@ describe('board store checklists', () => {
       t1: [serverChecklistItem('a', 'ci1', 1000), serverChecklistItem('b', 'ci2', 2000)],
     };
 
-    board.applyRealtime({
-      type: 'checklist_item_updated',
-      project_id: 'p1',
-      data: {
-        ...serverChecklistItem('a', 'ci1', 3000, true),
-        checklist_item_count: 2,
-        checklist_done_count: 1,
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'checklist_item_updated',
+        {
+          ...serverChecklistItem('a', 'ci1', 3000, true),
+          checklist_item_count: 2,
+          checklist_done_count: 1,
+        },
+        'p1'
+      )
+    );
     expect(board.taskChecklists.t1!.map((i) => i.id)).toEqual(['ci2', 'ci1']);
     expect(counts()).toEqual([2, 1]);
 
-    board.applyRealtime({
-      type: 'checklist_item_deleted',
-      project_id: 'p1',
-      data: { id: 'ci1', task_id: 't1', checklist_item_count: 1, checklist_done_count: 0 },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'checklist_item_deleted',
+        { id: 'ci1', task_id: 't1', checklist_item_count: 1, checklist_done_count: 0 },
+        'p1'
+      )
+    );
     expect(board.taskChecklists.t1!.map((i) => i.id)).toEqual(['ci2']);
     expect(counts()).toEqual([1, 0]);
   });
@@ -3343,7 +3324,7 @@ describe('board store checklists', () => {
     const legacy = legacyTask(task('t1', 'c1', 1000, 'A'));
     delete legacy.checklist_item_count;
     delete legacy.checklist_done_count;
-    board.applyRealtime({ type: 'task_created', project_id: 'p1', data: legacy });
+    board.applyRealtime(realtimeEvent('task_created', legacy, 'p1'));
 
     await board.addChecklistItem('t1', 'first');
 
@@ -3434,11 +3415,13 @@ describe('board store activity refresh', () => {
     await openLog();
 
     await board.updateTask('t2', { title: 'not the open one' });
-    board.applyRealtime({
-      type: 'task_relations_set',
-      project_id: 'p1',
-      data: { task_id: 't2', label_ids: [], assignee_ids: [], blocker_ids: [] },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'task_relations_set',
+        { task_id: 't2', label_ids: [], assignee_ids: [], blocker_ids: [] },
+        'p1'
+      )
+    );
     await vi.runAllTimersAsync();
 
     expect(requestLines()).toEqual(['PATCH /api/tasks/t2']);
@@ -3447,11 +3430,13 @@ describe('board store activity refresh', () => {
   it('refetches when a teammate’s relation change arrives over the socket', async () => {
     await openLog();
 
-    board.applyRealtime({
-      type: 'task_relations_set',
-      project_id: 'p1',
-      data: { task_id: 't1', label_ids: ['l1'], assignee_ids: [], blocker_ids: [] },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'task_relations_set',
+        { task_id: 't1', label_ids: ['l1'], assignee_ids: [], blocker_ids: [] },
+        'p1'
+      )
+    );
     await vi.runAllTimersAsync();
 
     expect(requestLines()).toEqual(['GET /api/tasks/t1/activity']);
@@ -3611,11 +3596,13 @@ describe('board store canEdit', () => {
     board.currentProjectId = 'p1';
     withProject('u-owner', [{ user_id: me.id, role: 'editor' }]);
 
-    board.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', member_ids: [me.id], members: [{ user_id: me.id, role: 'viewer' }] },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'project_updated',
+        { id: 'p1', member_ids: [me.id], members: [{ user_id: me.id, role: 'viewer' }] },
+        'p1'
+      )
+    );
 
     expect(board.canEdit).toBe(false);
     expect(board.project?.members).toEqual([{ user_id: me.id, role: 'viewer' }]);
@@ -3628,29 +3615,33 @@ describe('board store canEdit', () => {
     board.currentProjectId = 'p1';
     withProject('u-owner', [{ user_id: me.id, role: 'editor' }]);
 
-    board.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: {
-        id: 'p1',
-        created_by: me.id,
-        member_ids: ['u-owner'],
-        members: [{ user_id: 'u-owner', role: 'editor' }],
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'project_updated',
+        {
+          id: 'p1',
+          created_by: me.id,
+          member_ids: ['u-owner'],
+          members: [{ user_id: 'u-owner', role: 'editor' }],
+        },
+        'p1'
+      )
+    );
 
     expect(board.canEdit).toBe(true);
 
-    board.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: {
-        id: 'p1',
-        created_by: 'u-owner',
-        member_ids: [me.id],
-        members: [{ user_id: me.id, role: 'viewer' }],
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'project_updated',
+        {
+          id: 'p1',
+          created_by: 'u-owner',
+          member_ids: [me.id],
+          members: [{ user_id: me.id, role: 'viewer' }],
+        },
+        'p1'
+      )
+    );
 
     expect(board.canEdit).toBe(false);
   });
@@ -3660,11 +3651,13 @@ describe('board store canEdit', () => {
     board.currentProjectId = 'p1';
     withProject('u-owner', [{ user_id: me.id, role: 'editor' }]);
 
-    board.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p2',
-      data: { id: 'p2', member_ids: [me.id], members: [{ user_id: me.id, role: 'viewer' }] },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'project_updated',
+        { id: 'p2', member_ids: [me.id], members: [{ user_id: me.id, role: 'viewer' }] },
+        'p2'
+      )
+    );
 
     expect(board.canEdit).toBe(true);
   });
@@ -3976,11 +3969,13 @@ describe('board store attachments', () => {
       't1',
       new File(['x'], 'notes.txt', { type: 'text/plain' })
     );
-    board.applyRealtime({
-      type: 'attachment_created',
-      project_id: 'p1',
-      data: { ...serverAttachment({ id: A2 }), attachment_count: 1 },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'attachment_created',
+        { ...serverAttachment({ id: A2 }), attachment_count: 1 },
+        'p1'
+      )
+    );
     await upload;
 
     expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual([A2]);
@@ -4064,16 +4059,8 @@ describe('board store attachments', () => {
   it('applyRealtime appends a created row once, skipping the adder’s own echo', () => {
     board.taskAttachments = { t1: [] };
 
-    board.applyRealtime({
-      type: 'attachment_created',
-      project_id: 'p1',
-      data: serverAttachment(),
-    });
-    board.applyRealtime({
-      type: 'attachment_created',
-      project_id: 'p1',
-      data: serverAttachment(),
-    });
+    board.applyRealtime(realtimeEvent('attachment_created', serverAttachment(), 'p1'));
+    board.applyRealtime(realtimeEvent('attachment_created', serverAttachment(), 'p1'));
 
     expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual([A1]);
   });
@@ -4081,11 +4068,7 @@ describe('board store attachments', () => {
   it('applyRealtime does nothing when the list is not cached', () => {
     board.taskAttachments = {};
 
-    board.applyRealtime({
-      type: 'attachment_created',
-      project_id: 'p1',
-      data: serverAttachment(),
-    });
+    board.applyRealtime(realtimeEvent('attachment_created', serverAttachment(), 'p1'));
 
     expect(board.taskAttachments.t1).toBeUndefined();
   });
@@ -4095,28 +4078,28 @@ describe('board store attachments', () => {
       t1: [serverAttachment({ kind: 'link', url: 'https://x.test/', unfurl_state: 'pending' })],
     };
 
-    board.applyRealtime({
-      type: 'attachment_updated',
-      project_id: 'p1',
-      data: serverAttachment({
-        kind: 'link',
-        url: 'https://x.test/',
-        unfurl_state: 'ok',
-        title: 'Fetched',
-        preview_url: `/api/attachments/${A1}/preview`,
-      }),
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'attachment_updated',
+        serverAttachment({
+          kind: 'link',
+          url: 'https://x.test/',
+          unfurl_state: 'ok',
+          title: 'Fetched',
+          preview_url: `/api/attachments/${A1}/preview`,
+        }),
+        'p1'
+      )
+    );
     expect(board.taskAttachments.t1![0]).toMatchObject({
       title: 'Fetched',
       unfurl_state: 'ok',
       preview_url: `/api/attachments/${A1}/preview`,
     });
 
-    board.applyRealtime({
-      type: 'attachment_deleted',
-      project_id: 'p1',
-      data: { id: A1, task_id: 't1', attachment_count: 0 },
-    });
+    board.applyRealtime(
+      realtimeEvent('attachment_deleted', { id: A1, task_id: 't1', attachment_count: 0 }, 'p1')
+    );
     expect(board.taskAttachments.t1).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -4150,18 +4133,14 @@ describe('board store attachments', () => {
     it('adopts the count the realtime events carry', () => {
       board.taskAttachments = { t1: [] };
 
-      board.applyRealtime({
-        type: 'attachment_created',
-        project_id: 'p1',
-        data: { ...serverAttachment(), attachment_count: 4 },
-      });
+      board.applyRealtime(
+        realtimeEvent('attachment_created', { ...serverAttachment(), attachment_count: 4 }, 'p1')
+      );
       expect(countOf()).toBe(4);
 
-      board.applyRealtime({
-        type: 'attachment_deleted',
-        project_id: 'p1',
-        data: { id: A1, task_id: 't1', attachment_count: 3 },
-      });
+      board.applyRealtime(
+        realtimeEvent('attachment_deleted', { id: A1, task_id: 't1', attachment_count: 3 }, 'p1')
+      );
       expect(countOf()).toBe(3);
     });
 

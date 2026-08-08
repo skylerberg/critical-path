@@ -6,6 +6,8 @@ import { board } from '../lib/board.svelte';
 import { session } from '../lib/session.svelte';
 import { taskSeries, type TaskSeries } from '../lib/taskSeries.svelte';
 import { users } from '../lib/users.svelte';
+import { realtimeEvent } from '../lib/realtime-test-events';
+import type { PayloadOf, RealtimeEventType } from '../lib/realtime-types';
 
 function series(overrides: Partial<TaskSeries> = {}): TaskSeries {
   return {
@@ -223,8 +225,8 @@ describe('TaskSeriesModal', () => {
 });
 
 describe('TaskSeriesModal live updates', () => {
-  function realtime(type: string, data: unknown) {
-    taskSeries.applyRealtime({ type, project_id: 'p-1', data });
+  function realtime<T extends RealtimeEventType>(type: T, data: Partial<PayloadOf<T>>) {
+    taskSeries.applyRealtime(realtimeEvent(type, data, 'p-1'));
   }
 
   it('adds, changes and removes a row while the panel is open', async () => {

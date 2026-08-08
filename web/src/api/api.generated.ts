@@ -1348,7 +1348,7 @@ export interface paths {
         };
         /**
          * Get image
-         * @description Serve image bytes with the Content-Type recorded at upload. Unauthenticated: the unguessable image id acts as a capability URL so <img> tags work without auth headers.
+         * @description Serve image bytes with the Content-Type recorded at upload. On a private board this answers only to a member, so a picture stops being readable the moment someone is removed from the project; on a published board it serves anyone, because a public board publishes its pictures. A browser authenticates with the session cookie, since an <img> tag cannot carry an Authorization header.
          */
         get: operations["getApiImagesById"];
         put?: never;
@@ -1492,7 +1492,7 @@ export interface paths {
         };
         /**
          * Get avatar
-         * @description Serve avatar image bytes by storage key. Unauthenticated: the unguessable key acts as a capability URL so <img> tags work without auth headers. Every avatar upload mints a fresh key, so responses are immutable and cacheable forever.
+         * @description Serve avatar image bytes by storage key. Answers any signed-in caller — an avatar is the same key on every board its owner appears on — and an anonymous one only when its owner appears on a published board. A browser authenticates with the session cookie, since an <img> tag cannot carry an Authorization header. Every avatar upload mints a fresh key, so responses are immutable and cacheable forever.
          */
         get: operations["getApiAvatarsById"];
         put?: never;
@@ -7679,6 +7679,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Authentication required or failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -8219,6 +8228,15 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required or failed */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

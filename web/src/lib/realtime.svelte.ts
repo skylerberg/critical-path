@@ -4,7 +4,7 @@ import { invitations } from './invitations.svelte';
 import { projects } from './projects.svelte';
 import { taskSeries } from './taskSeries.svelte';
 import { users } from './users.svelte';
-import type { RealtimeEvent } from './realtime-types';
+import type { RealtimeEvent, RealtimeEventType } from './realtime-types';
 import { session } from './session.svelte';
 
 type RealtimeStatus = 'online' | 'offline' | 'connecting';
@@ -16,7 +16,9 @@ const OFFLINE_NOTICE_DELAY_MS = 3000;
 // The server closes with 4401 when a token is rejected or its session revoked.
 const AUTH_CLOSE_CODE = 4401;
 
-const BOARD_EVENTS = new Set([
+// Typed against the generated union: a name the API no longer publishes, or one
+// misspelled, fails here instead of quietly matching no event forever.
+const BOARD_EVENTS = new Set<RealtimeEventType>([
   'task_created',
   'task_updated',
   'task_deleted',
@@ -35,8 +37,6 @@ const BOARD_EVENTS = new Set([
   'label_created',
   'label_updated',
   'label_deleted',
-  'image_created',
-  'image_deleted',
   'comment_created',
   'comment_updated',
   'comment_deleted',
@@ -47,8 +47,12 @@ const BOARD_EVENTS = new Set([
   'attachment_updated',
   'attachment_deleted',
 ]);
-const SERIES_EVENTS = new Set(['series_created', 'series_updated', 'series_deleted']);
-const PROJECT_EVENTS = new Set([
+const SERIES_EVENTS = new Set<RealtimeEventType>([
+  'series_created',
+  'series_updated',
+  'series_deleted',
+]);
+const PROJECT_EVENTS = new Set<RealtimeEventType>([
   'project_created',
   'project_updated',
   'project_deleted',
@@ -167,11 +171,18 @@ class RealtimeClient {
     if (message.type === 'pong') {
       return;
     }
+    // The one assertion the generated union rests on. A frame is untrusted and
+    // the generated output is types only, so the envelope is checked here and
+    // the payload is not walked — the same trade the server makes for an entry
+    // arriving over its Redis bus. A type this client does not know asserts to a
+    // member it is not, which costs nothing: every comparison in #dispatch fails
+    // and the frame is ignored, which is how a client older than the server
+    // already behaved.
     this.#dispatch({
       type: message.type,
       project_id: typeof message.project_id === 'string' ? message.project_id : null,
       data: message.data,
-    });
+    } as unknown as RealtimeEvent);
   }
 
   // A read-only board is a one-shot fetch; subscribing would also be rejected
@@ -299,7 +310,7 @@ class RealtimeClient {
       // way: a missed dot self-heals on the next load, a false one on your own
       // edit does not. The open board is skipped for the same reason — a dot on
       // what you are already looking at is one you cannot act on.
-      const { actor_user_id: actor } = event.data as { actor_user_id?: string };
+      const { actor_user_id: actor } = event.data;
       if (
         event.project_id !== null &&
         event.project_id !== board.currentProjectId &&

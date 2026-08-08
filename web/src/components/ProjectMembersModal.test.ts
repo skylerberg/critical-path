@@ -10,6 +10,7 @@ import { projectHref, publicBoardHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
+import { realtimeEvent } from '../lib/realtime-test-events';
 
 const me = {
   id: 'u-me',
@@ -543,11 +544,9 @@ describe('ProjectMembersModal pending invitations', () => {
     expect(invitations.list).toEqual([]);
 
     fetchMock.mockClear();
-    invitations.applyRealtime({
-      type: 'invitations_changed',
-      project_id: PROJECT_ID,
-      data: null,
-    });
+    invitations.applyRealtime(
+      realtimeEvent('invitations_changed', { project_id: PROJECT_ID }, PROJECT_ID)
+    );
     invitations.resync();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).not.toHaveBeenCalled();

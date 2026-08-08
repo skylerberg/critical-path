@@ -2,6 +2,8 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { taskSeries, type TaskSeries } from './taskSeries.svelte';
 import { toasts } from './toasts.svelte';
+import { realtimeEvent } from './realtime-test-events';
+import type { PayloadOf, RealtimeEventType } from './realtime-types';
 
 function series(overrides: Partial<TaskSeries> = {}): TaskSeries {
   return {
@@ -208,8 +210,12 @@ describe('task series store', () => {
 });
 
 describe('task series realtime events', () => {
-  function event(type: string, data: unknown, projectId: string | null = 'p-1') {
-    return { type, project_id: projectId, data };
+  function event<T extends RealtimeEventType>(
+    type: T,
+    data: Partial<PayloadOf<T>>,
+    projectId: string | null = 'p-1'
+  ) {
+    return realtimeEvent(type, data, projectId);
   }
 
   it('appends a series someone else created', async () => {

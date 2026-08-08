@@ -9,6 +9,7 @@ import { realtime } from './realtime.svelte';
 import { session } from './session.svelte';
 import { taskSeries } from './taskSeries.svelte';
 import { users } from './users.svelte';
+import { realtimeEvent } from './realtime-test-events';
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -227,15 +228,11 @@ describe('board event application', () => {
   });
 
   it('upserts and is idempotent for task_created/updated', () => {
-    const event = { type: 'task_created', project_id: 'p1', data: task('t1') };
+    const event = realtimeEvent('task_created', task('t1'), 'p1');
     board.applyRealtime(event);
     board.applyRealtime(event);
     expect(board.tasks).toHaveLength(1);
-    board.applyRealtime({
-      type: 'task_updated',
-      project_id: 'p1',
-      data: { ...task('t1'), title: 'Renamed' },
-    });
+    board.applyRealtime(realtimeEvent('task_updated', { ...task('t1'), title: 'Renamed' }, 'p1'));
     expect(board.tasks).toHaveLength(1);
     expect(board.tasks[0]!.title).toBe('Renamed');
   });
@@ -243,36 +240,32 @@ describe('board event application', () => {
   it('adopts a due date set by a teammate, and its removal', () => {
     board.tasks = [task('t1')];
 
-    board.applyRealtime({
-      type: 'task_updated',
-      project_id: 'p1',
-      data: { ...task('t1'), due_date: '2026-08-03' },
-    });
+    board.applyRealtime(
+      realtimeEvent('task_updated', { ...task('t1'), due_date: '2026-08-03' }, 'p1')
+    );
     expect(board.tasks[0]!.due_date).toBe('2026-08-03');
 
-    board.applyRealtime({
-      type: 'task_updated',
-      project_id: 'p1',
-      data: { ...task('t1'), due_date: null },
-    });
+    board.applyRealtime(realtimeEvent('task_updated', { ...task('t1'), due_date: null }, 'p1'));
     expect(board.tasks[0]!.due_date).toBeNull();
   });
 
   it('removes on task_deleted and strips it from other blocker_ids', () => {
     board.tasks = [task('t1'), { ...task('t2'), blocker_ids: ['t1'] }];
-    board.applyRealtime({ type: 'task_deleted', project_id: 'p1', data: { id: 't1' } });
-    board.applyRealtime({ type: 'task_deleted', project_id: 'p1', data: { id: 't1' } });
+    board.applyRealtime(realtimeEvent('task_deleted', { id: 't1' }, 'p1'));
+    board.applyRealtime(realtimeEvent('task_deleted', { id: 't1' }, 'p1'));
     expect(board.tasks.map((t) => t.id)).toEqual(['t2']);
     expect(board.tasks[0]!.blocker_ids).toEqual([]);
   });
 
   it('overwrites the three arrays on task_relations_set', () => {
     board.tasks = [task('t1')];
-    board.applyRealtime({
-      type: 'task_relations_set',
-      project_id: 'p1',
-      data: { task_id: 't1', label_ids: ['l1'], assignee_ids: ['u2'], blocker_ids: ['t9'] },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'task_relations_set',
+        { task_id: 't1', label_ids: ['l1'], assignee_ids: ['u2'], blocker_ids: ['t9'] },
+        'p1'
+      )
+    );
     expect(board.tasks[0]).toMatchObject({
       label_ids: ['l1'],
       assignee_ids: ['u2'],
@@ -280,17 +273,21 @@ describe('board event application', () => {
     });
   });
 
-  it('upserts columns sorted by position', () => {
-    board.applyRealtime({
-      type: 'column_created',
-      project_id: 'p1',
-      data: { id: 'c2', name: 'Done', position: 500, sort_key: 'V0000005001', is_done: true },
-    });
-    board.applyRealtime({
-      type: 'column_created',
-      project_id: 'p1',
-      data: { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-    });
+  it('upserts columns sorted by sort key', () => {
+    board.applyRealtime(
+      realtimeEvent(
+        'column_created',
+        { id: 'c2', name: 'Done', sort_key: 'V0000005001', is_done: true },
+        'p1'
+      )
+    );
+    board.applyRealtime(
+      realtimeEvent(
+        'column_created',
+        { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+        'p1'
+      )
+    );
     expect(board.columns.map((c) => c.id)).toEqual(['c2', 'c1']);
   });
 
@@ -300,14 +297,16 @@ describe('board event application', () => {
       { id: 'c2', name: 'Done', sort_key: 'V0000020001', is_done: true },
     ];
     board.tasks = [task('t1', 'c1'), task('t2', 'c1')];
-    board.applyRealtime({
-      type: 'column_deleted',
-      project_id: 'p1',
-      data: {
-        id: 'c1',
-        moved_tasks: [{ id: 't1', column_id: 'c2', position: 3000, sort_key: 'V0000030001' }],
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'column_deleted',
+        {
+          id: 'c1',
+          moved_tasks: [{ id: 't1', column_id: 'c2', sort_key: 'V0000030001' }],
+        },
+        'p1'
+      )
+    );
     expect(board.columns.map((c) => c.id)).toEqual(['c2']);
     expect(board.tasks.find((t) => t.id === 't1')).toMatchObject({
       column_id: 'c2',
@@ -319,13 +318,11 @@ describe('board event application', () => {
   it('applies label create/update/delete and strips deleted labels from tasks', () => {
     board.tasks = [{ ...task('t1'), label_ids: ['l1'] }];
     board.filterLabelIds = ['l1'];
-    board.applyRealtime({
-      type: 'label_created',
-      project_id: 'p1',
-      data: { id: 'l1', name: 'art', color: '#f00' },
-    });
+    board.applyRealtime(
+      realtimeEvent('label_created', { id: 'l1', name: 'art', color: '#f00' }, 'p1')
+    );
     expect(board.labels).toHaveLength(1);
-    board.applyRealtime({ type: 'label_deleted', project_id: 'p1', data: { id: 'l1' } });
+    board.applyRealtime(realtimeEvent('label_deleted', { id: 'l1' }, 'p1'));
     expect(board.labels).toHaveLength(0);
     expect(board.tasks[0]!.label_ids).toEqual([]);
     expect(board.filterLabelIds).toEqual([]);
@@ -334,11 +331,13 @@ describe('board event application', () => {
   it('clears the cover when attachment_deleted reports it is gone', () => {
     board.tasks = [{ ...task('t1'), cover_image_url: '/api/images/img2' }];
 
-    board.applyRealtime({
-      type: 'attachment_deleted',
-      project_id: 'p1',
-      data: { id: 'img2', task_id: 't1', attachment_count: 1, cover_image_url: null },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'attachment_deleted',
+        { id: 'img2', task_id: 't1', attachment_count: 1, cover_image_url: null },
+        'p1'
+      )
+    );
 
     expect(board.tasks[0]!.cover_image_url).toBeNull();
   });
@@ -346,16 +345,18 @@ describe('board event application', () => {
   it('keeps a cover that survives someone else deleting another attachment', () => {
     board.tasks = [{ ...task('t1'), cover_image_url: '/api/images/img1' }];
 
-    board.applyRealtime({
-      type: 'attachment_deleted',
-      project_id: 'p1',
-      data: {
-        id: 'img2',
-        task_id: 't1',
-        attachment_count: 1,
-        cover_image_url: '/api/images/img1',
-      },
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'attachment_deleted',
+        {
+          id: 'img2',
+          task_id: 't1',
+          attachment_count: 1,
+          cover_image_url: '/api/images/img1',
+        },
+        'p1'
+      )
+    );
 
     expect(board.tasks[0]!.cover_image_url).toBe('/api/images/img1');
   });
@@ -365,11 +366,9 @@ describe('board event application', () => {
   it('reads an attachment_deleted without the field as no cover, never undefined', () => {
     board.tasks = [{ ...task('t1'), cover_image_url: '/api/images/img1' }];
 
-    board.applyRealtime({
-      type: 'attachment_deleted',
-      project_id: 'p1',
-      data: { id: 'img2', task_id: 't1', attachment_count: 1 },
-    });
+    board.applyRealtime(
+      realtimeEvent('attachment_deleted', { id: 'img2', task_id: 't1', attachment_count: 1 }, 'p1')
+    );
 
     expect(board.tasks[0]!.cover_image_url).toBeNull();
   });
@@ -377,11 +376,9 @@ describe('board event application', () => {
   it('adopts a cover chosen by a teammate on task_updated', () => {
     board.tasks = [task('t1')];
 
-    board.applyRealtime({
-      type: 'task_updated',
-      project_id: 'p1',
-      data: { ...task('t1'), cover_image_url: '/api/images/img7' },
-    });
+    board.applyRealtime(
+      realtimeEvent('task_updated', { ...task('t1'), cover_image_url: '/api/images/img7' }, 'p1')
+    );
 
     expect(board.tasks[0]!.cover_image_url).toBe('/api/images/img7');
   });
@@ -435,43 +432,35 @@ describe('board event application', () => {
 
 describe('project event application', () => {
   it('upserts and removes projects', () => {
-    projects.applyRealtime({ type: 'project_created', project_id: 'p1', data: project() });
-    projects.applyRealtime({ type: 'project_created', project_id: 'p1', data: project() });
+    projects.applyRealtime(realtimeEvent('project_created', project(), 'p1'));
+    projects.applyRealtime(realtimeEvent('project_created', project(), 'p1'));
     expect(projects.projects).toHaveLength(1);
-    projects.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', name: 'Renamed' },
-    });
+    projects.applyRealtime(realtimeEvent('project_updated', { id: 'p1', name: 'Renamed' }, 'p1'));
     expect(projects.projects[0]!.name).toBe('Renamed');
-    projects.applyRealtime({ type: 'project_deleted', project_id: 'p1', data: { id: 'p1' } });
+    projects.applyRealtime(realtimeEvent('project_deleted', { id: 'p1' }, 'p1'));
     expect(projects.projects).toHaveLength(0);
   });
 
   it('merges member_ids from a project_updated membership change', () => {
     projects.projects = [project({ member_ids: ['u2'] })];
-    projects.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', member_ids: ['u2', 'u3'] },
-    });
+    projects.applyRealtime(
+      realtimeEvent('project_updated', { id: 'p1', member_ids: ['u2', 'u3'] }, 'p1')
+    );
     expect(projects.projects[0]!.member_ids).toEqual(['u2', 'u3']);
     expect(projects.projects[0]!.name).toBe('Game');
   });
 
   it('upserts an unknown project from a project_updated broadcast', () => {
-    projects.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p9',
-      data: { id: 'p9', name: 'Gained', member_ids: ['u1'] },
-    });
+    projects.applyRealtime(
+      realtimeEvent('project_updated', { id: 'p9', name: 'Gained', member_ids: ['u1'] }, 'p9')
+    );
     expect(projects.projects).toHaveLength(1);
     expect(projects.projects[0]!.member_ids).toEqual(['u1']);
   });
 
   it('evicts the project on project_deleted when access is lost', () => {
     projects.projects = [project(), project({ id: 'p2', name: 'Other' })];
-    projects.applyRealtime({ type: 'project_deleted', project_id: 'p1', data: { id: 'p1' } });
+    projects.applyRealtime(realtimeEvent('project_deleted', { id: 'p1' }, 'p1'));
     expect(projects.projects.map((p) => p.id)).toEqual(['p2']);
   });
 
