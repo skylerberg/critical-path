@@ -124,10 +124,8 @@ for the frontend's conventions.
   them is what stops one family's token being spent as another's: the type is a
   required argument to both `encodeSignedToken` and `decodeSignedToken`, not a
   claim each caller remembers to check, and it is reserved from the claims
-  object at the type level. A new family is a new type string. Reset tokens
-  additionally pass `acceptUntyped` to stay valid across the rolling deploy
-  that introduced the claim; that flag is transitional and should be dropped in
-  a later release.
+  object at the type level. A new family is a new type string, and a token
+  naming no type at all verifies for nobody.
 - Neither `change-password` nor `reset-password` revokes anything: both answer
   204 and leave every session and token signed in, so a change-password issues
   no replacement token. Sessions are revoked only from the sessions list
