@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { TestContext } from '../../../tests/setup/testContext';
 import { db } from '../../../tests/helpers/database';
 import { createCliHarness } from './helpers';
+import { createResetToken } from '../../../src/services/resetToken';
 import type { components } from '../../src/api/api.generated';
 
 type Me = components['schemas']['Me'];
@@ -73,6 +74,32 @@ describe('auth commands', () => {
       env: { CRITICAL_PATH_TOKEN: user.token },
     });
     expect(who.exitCode).toBe(0);
+    expect(who.json<Me>().email).toBe(user.email);
+  });
+
+  it('reset-password stores the session it is answered with', async () => {
+    const user = await tc.createUser('cli-reset');
+    const { alternative_id } = await db
+      .selectFrom('app_user')
+      .select('app_user.alternative_id')
+      .where('app_user.id', '=', user.id)
+      .executeTakeFirstOrThrow();
+    const h = await createCliHarness();
+
+    const reset = await h.runCli(
+      [
+        'account',
+        'reset-password',
+        '--token',
+        createResetToken(alternative_id),
+        '--password-stdin',
+      ],
+      { stdin: 'cli-reset-password-123\n' }
+    );
+    expect(reset.exitCode).toBe(0);
+    expect(reset.stdout).toContain(user.email);
+
+    const who = await h.runCli(['whoami', '--json']);
     expect(who.json<Me>().email).toBe(user.email);
   });
 

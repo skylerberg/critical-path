@@ -977,7 +977,7 @@ publicAuthRouter.post(
   }
 );
 
-const resetPasswordResponses = { 204: emptyResponse('Password reset') };
+const resetPasswordResponses = { 200: jsonResponse('Password reset', authResponseSchema) };
 
 publicAuthRouter.post(
   '/reset-password',
@@ -985,9 +985,12 @@ publicAuthRouter.post(
     tags: ['Auth'],
     summary: 'Reset password',
     description:
-      'Set a new password using a token from a password-reset email. On success every ' +
-      'outstanding reset token is invalidated. Existing sessions stay signed in; revoke ' +
-      'them individually from GET /api/auth/sessions.',
+      'Set a new password using a token from a password-reset email, and start a session ' +
+      'on it. On success every outstanding reset token is invalidated. Redeeming the link ' +
+      'proves control of the address, which is the same proof signup takes, so the caller ' +
+      'is signed in rather than sent back to a login form to retype the password they just ' +
+      'chose. Other existing sessions stay signed in; revoke them individually from ' +
+      'GET /api/auth/sessions.',
     responses: {
       ...resetPasswordResponses,
       ...validationOrUnprocessableErrorResponse,
@@ -1010,7 +1013,7 @@ publicAuthRouter.post(
     const user = await c
       .get('db')
       .selectFrom('app_user')
-      .select('id')
+      .select(['id', 'email', 'name', 'avatar_storage_key', 'email_verified_at'])
       .where('alternative_id', '=', verification.alternative_id)
       .executeTakeFirst();
     // No match: the alternative_id was rotated after the token was issued.
@@ -1020,7 +1023,22 @@ publicAuthRouter.post(
 
     await setPassword(c, user.id, new_password);
 
-    return c.body(null, 204);
+    const { token: sessionToken } = await createSession(c, user.id);
+    setSessionCookie(c, sessionToken);
+
+    return c.json(
+      {
+        token: sessionToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          avatar_url: avatarUrl(user.avatar_storage_key),
+          email_verified: user.email_verified_at !== null,
+        },
+      },
+      200
+    );
   }
 );
 
