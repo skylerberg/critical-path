@@ -11,14 +11,23 @@
   import Button from './ui/Button.svelte';
   import Spinner from './ui/Spinner.svelte';
 
+  // The task id travels with the text. The composer is keyed on taskId and is
+  // rebuilt before any effect could clear a stale draft, so identity has to be
+  // something the value carries rather than something reset after the fact.
+  export type CommentDraft = { taskId: string; doc: CommentBody };
+
   interface Props {
     taskId: string;
     // Not the same as read-only: a viewer may still write, edit and delete their
     // own comments, and an anonymous reader has no identity to attribute one to.
     anonymous?: boolean;
+    // Held by the overlay, which outlives this component: collapsing the
+    // disclosure unmounts the composer, and a half-written comment must not go
+    // with it.
+    draft?: CommentDraft | null;
   }
 
-  let { taskId, anonymous = false }: Props = $props();
+  let { taskId, anonymous = false, draft = $bindable(null) }: Props = $props();
 
   const mentionUsers = $derived(currentProjectMentionCandidates());
   const commentCount = $derived(board.tasks.find((t) => t.id === taskId)?.comment_count ?? 0);
@@ -29,17 +38,18 @@
   const loading = $derived(comments === undefined && commentCount > 0);
 
   let composer = $state<ReturnType<typeof RichTextEditor>>();
-  let composerDoc = $state<CommentBody | null>(null);
   let composerFocused = $state(false);
   let editing = $state<ReturnType<typeof RichTextEditor>>();
   let editingId = $state<string | null>(null);
   let editDoc = $state<CommentBody | null>(null);
   let confirmingDeleteId = $state<string | null>(null);
 
+  const draftDoc = $derived(draft?.taskId === taskId ? draft.doc : null);
+
   // Focused-but-empty still shows the button, disabled: that is where posting
   // happens once there is something to post. A draft keeps it up after a click
   // elsewhere, so half-written text never loses its way to send.
-  const composerActive = $derived(composerFocused || composerDoc !== null);
+  const composerActive = $derived(composerFocused || draftDoc !== null);
 
   // Test seams: there is no way to type into a ProseMirror contenteditable under jsdom.
   export function getComposerEditor(): Editor | null {
@@ -54,13 +64,12 @@
     void taskId;
     editingId = null;
     editDoc = null;
-    composerDoc = null;
     composerFocused = false;
     confirmingDeleteId = null;
   });
 
   function submit(): void {
-    const doc = composerDoc;
+    const doc = draftDoc;
     if (doc === null) return;
     composer?.getEditor()?.commands.clearContent(true);
     void board.createComment(taskId, doc);
@@ -185,15 +194,15 @@
     >
       <RichTextEditor
         bind:this={composer}
-        content={null}
-        onChange={(doc) => (composerDoc = doc)}
+        content={draftDoc}
+        onChange={(doc) => (draft = doc === null ? null : { taskId, doc })}
         placeholder="Write a comment…"
         compact
         {mentionUsers}
       />
       {#if composerActive}
         <div class="flex">
-          <Button disabled={composerDoc === null} onclick={submit}>Comment</Button>
+          <Button disabled={draftDoc === null} onclick={submit}>Comment</Button>
         </div>
       {/if}
     </div>

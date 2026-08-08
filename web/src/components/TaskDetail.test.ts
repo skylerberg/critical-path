@@ -297,10 +297,10 @@ async function openQuickAction(name: string): Promise<void> {
 }
 
 // Tiptap hangs the editor off its own DOM node; nothing else exposes the instance.
-function descriptionEditor(container: HTMLElement): Editor {
-  const dom = container.querySelector('.tiptap') as (HTMLElement & { editor?: Editor }) | null;
+function descriptionEditor(container: HTMLElement, selector = '.tiptap'): Editor {
+  const dom = container.querySelector(selector) as (HTMLElement & { editor?: Editor }) | null;
   if (!dom?.editor) {
-    throw new Error('description editor not mounted');
+    throw new Error(`editor not mounted for ${selector}`);
   }
   return dom.editor;
 }
@@ -604,6 +604,40 @@ describe('TaskDetail', () => {
     );
 
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  // The disclosure unmounts the composer, so the overlay holds the draft: losing
+  // a half-written comment to a stray click on the header is not acceptable.
+  it('keeps a half-written comment across collapsing and reopening Comments', async () => {
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await openComments();
+
+    const editor = descriptionEditor(container, '.rte-compact .tiptap');
+    editor.commands.insertContent('half-written');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled());
+
+    await openComments();
+    expect(container.querySelector('.rte-compact')).toBeNull();
+
+    await openComments();
+    await waitFor(() =>
+      expect(descriptionEditor(container, '.rte-compact .tiptap').getText()).toBe('half-written')
+    );
+    expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled();
+  });
+
+  it('does not carry a comment draft onto the next card', async () => {
+    const { container, rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await openComments();
+    descriptionEditor(container, '.rte-compact .tiptap').commands.insertContent('half-written');
+    await tick();
+
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
+    await openComments();
+
+    await waitFor(() =>
+      expect(descriptionEditor(container, '.rte-compact .tiptap').isEmpty).toBe(true)
+    );
   });
 
   it('opens with both disclosures collapsed', async () => {

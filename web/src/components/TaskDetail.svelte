@@ -11,7 +11,7 @@
   import TaskAssignees from './TaskAssignees.svelte';
   import TaskAttachments from './TaskAttachments.svelte';
   import TaskChecklist from './TaskChecklist.svelte';
-  import TaskComments from './TaskComments.svelte';
+  import TaskComments, { type CommentDraft } from './TaskComments.svelte';
   import TaskDependencies from './TaskDependencies.svelte';
   import TaskHistory from './TaskHistory.svelte';
   import TaskLabels from './TaskLabels.svelte';
@@ -70,6 +70,10 @@
   let attachmentsRevealed = $state(false);
   let commentsOpen = $state(false);
   let historyOpen = $state(false);
+  // Owned here rather than in TaskComments, which collapsing unmounts. Local like
+  // the title draft and unlike the compose drafts: it belongs to this card, and
+  // an unsent comment should not resurface on the next one.
+  let commentDraft = $state<CommentDraft | null>(null);
   let quickActions = $state<ReturnType<typeof TaskQuickActions>>();
   let checklistRef = $state<ReturnType<typeof TaskChecklist>>();
   let attachmentsRef = $state<ReturnType<typeof TaskAttachments>>();
@@ -115,6 +119,7 @@
       attachmentsRevealed = false;
       commentsOpen = false;
       historyOpen = false;
+      commentDraft = null;
       if (authed) {
         board.clearChanged(id);
         void board.loadTaskDetail(id);
@@ -455,7 +460,7 @@
           </summary>
           {#if commentsOpen}
             <div class="flex flex-col gap-4 pt-2">
-              <TaskComments {taskId} {anonymous} />
+              <TaskComments {taskId} {anonymous} bind:draft={commentDraft} />
             </div>
           {/if}
         </details>
