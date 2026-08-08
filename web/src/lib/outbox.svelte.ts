@@ -138,7 +138,7 @@ class OutboxStore {
   async submit<T>(input: SubmitInput): Promise<SubmitResult<T>> {
     const op = this.#build(input);
     if (!connectivity.reachable || this.#ops.length > 0 || this.draining) {
-      await this.#enqueue(op);
+      this.#enqueue(op);
       return { status: 'queued' };
     }
     const outcome = await sendRequest(op.request);
@@ -146,7 +146,7 @@ class OutboxStore {
       return { status: 'sent', data: outcome.data as T };
     }
     if (outcome.kind === 'unreachable') {
-      await this.#enqueue(op);
+      this.#enqueue(op);
       return { status: 'queued' };
     }
     return { status: 'failed', error: outcome.error };
@@ -169,16 +169,22 @@ class OutboxStore {
     };
   }
 
-  async #enqueue(op: QueuedOp): Promise<void> {
+  /**
+   * The in-memory queue is what the UI reads and what the drain replays; the
+   * write is durability across a reload. So the caller is never made to wait on
+   * storage — a browser whose IndexedDB is wedged would otherwise hang every
+   * board mutation behind a cache the feature can do without.
+   */
+  #enqueue(op: QueuedOp): void {
     const merged = this.#coalesce(op);
     if (merged !== null) {
       this.#ops = this.#ops.map((queued) => (queued.id === merged.id ? merged : queued));
-      await writeOp(merged);
+      void writeOp(merged);
       return;
     }
     this.#ops = [...this.#ops, op];
-    await writeOp(op);
-    await this.#enforceBounds();
+    void writeOp(op);
+    this.#enforceBounds();
   }
 
   /**
@@ -229,7 +235,7 @@ class OutboxStore {
 
   // Overflow drops the *oldest*, and says so. Silently discarding the newest
   // would be worse and silently discarding anything would be worst.
-  async #enforceBounds(): Promise<void> {
+  #enforceBounds(): void {
     const cutoff = Date.now() - MAX_QUEUE_AGE_MS;
     const doomed = this.#ops.filter(
       (op, index) => index < this.#ops.length - MAX_QUEUED_OPS || Date.parse(op.queuedAt) < cutoff
@@ -244,7 +250,7 @@ class OutboxStore {
         detail: 'Waited too long to be sent and was not applied. Your version is kept here.',
       });
     }
-    await this.#forget(doomed);
+    this.#forget(doomed);
   }
 
   async hydrate(): Promise<void> {
@@ -261,7 +267,7 @@ class OutboxStore {
     // still sort after the ones read back from the last one.
     this.#seq = Math.max(this.#seq, ...stored.map((op) => op.seq));
     this.#ops = stored;
-    await this.#enforceBounds();
+    this.#enforceBounds();
   }
 
   async drain(): Promise<void> {
@@ -301,7 +307,7 @@ class OutboxStore {
           if (board !== null && op.move !== undefined) {
             applyMoveLocally(board, op.entityId, op.move.columnId, request);
           }
-          await this.#forget([op]);
+          this.#forget([op]);
           continue;
         }
         const verdict = await this.#handleHttpFailure(op, outcome.error, request);
@@ -341,13 +347,13 @@ class OutboxStore {
           'Someone else edited this while you were offline. Your version is kept — open the card to merge.',
         taskId: op.conflict.taskId,
       });
-      await this.#forget([op]);
+      this.#forget([op]);
       return 'next';
     }
     if (error.status === 409 && op.semantics === 'move' && op.attempts === 0) {
       // The slot was taken between reading the board and writing to it. One
       // fresh read is the whole fix.
-      await this.#bumpAttempts(op);
+      this.#bumpAttempts(op);
       return 'retry';
     }
     if (error.status === 404 || error.status === 403) {
@@ -363,11 +369,11 @@ class OutboxStore {
       });
       // Everything else queued against this card is doomed for the same reason,
       // and saying so once is the honest way to report it.
-      await this.#forget(doomed);
+      this.#forget(doomed);
       return 'next';
     }
     if (error.status >= 500 && op.attempts + 1 < MAX_SERVER_ERROR_ATTEMPTS) {
-      await this.#bumpAttempts(op);
+      this.#bumpAttempts(op);
       await sleep(this.retryDelayMs * 2 ** op.attempts);
       return 'retry';
     }
@@ -382,7 +388,7 @@ class OutboxStore {
     });
     // Dropped rather than retried forever: one request the server will never
     // accept must not hold every later change hostage behind it.
-    await this.#forget([op]);
+    this.#forget([op]);
     return 'next';
   }
 
@@ -418,10 +424,10 @@ class OutboxStore {
     }
   }
 
-  async #bumpAttempts(op: QueuedOp): Promise<void> {
+  #bumpAttempts(op: QueuedOp): void {
     const updated = { ...op, attempts: op.attempts + 1 };
     this.#ops = this.#ops.map((queued) => (queued.id === op.id ? updated : queued));
-    await writeOp(updated);
+    void writeOp(updated);
   }
 
   #raise(op: QueuedOp, issue: RaisedIssue): void {
@@ -440,10 +446,10 @@ class OutboxStore {
     ];
   }
 
-  async #forget(ops: readonly QueuedOp[]): Promise<void> {
+  #forget(ops: readonly QueuedOp[]): void {
     const ids = new Set(ops.map((op) => op.id));
     this.#ops = this.#ops.filter((op) => !ids.has(op.id));
-    await deleteOps([...ids]);
+    void deleteOps([...ids]);
   }
 
   dismissIssue(id: string): void {

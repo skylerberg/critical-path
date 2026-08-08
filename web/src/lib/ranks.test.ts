@@ -4,11 +4,14 @@ import {
   appendRun,
   between,
   byRank,
+  neighborsAfterDrop,
   placeAtIndex,
+  placeBetweenNeighbors,
   reorderRankUpdates,
   restack,
   type Ranked,
 } from './ranks';
+import { placementAfterDrop } from './board.svelte';
 
 function item(id: string, sortKey: string | null): Ranked {
   return { id, sort_key: sortKey };
@@ -115,5 +118,86 @@ describe('restack', () => {
     expect(updates.map((u) => u.id)).toEqual(['c', 'a', 'b']);
     const keys = updates.map((u) => u.sort_key);
     expect([...keys].sort()).toEqual(keys);
+  });
+});
+
+describe('neighbours as the durable form of a drop', () => {
+  const rows = (...keys: string[]) =>
+    keys.map((sort_key, index) => ({ id: `t${String(index)}`, sort_key }));
+
+  it('names the cards either side of the drop', () => {
+    const items = rows('V0', 'V1', 'V2');
+    // Moving the last card into the middle.
+    const display = [items[0]!, items[2]!, items[1]!];
+    expect(neighborsAfterDrop(display, 't2')).toEqual({ afterId: 't0', beforeId: 't1' });
+  });
+
+  it('has no anchor above it at the top of the list', () => {
+    const items = rows('V0', 'V1');
+    expect(neighborsAfterDrop([items[1]!, items[0]!], 't1')).toEqual({
+      afterId: null,
+      beforeId: 't0',
+    });
+  });
+
+  it('has no anchor below it at the end of the list', () => {
+    const items = rows('V0', 'V1');
+    expect(neighborsAfterDrop(items, 't1')).toEqual({ afterId: 't0', beforeId: null });
+  });
+
+  // The property that makes a queued move survive: what gets sent now and what
+  // gets replayed later describe the same drop.
+  it('agrees with the placement computed at drop time', () => {
+    const items = rows('V0', 'V1', 'V2');
+    const display = [items[0]!, items[2]!, items[1]!];
+    const others = display.filter((item) => item.id !== 't2');
+    expect(placeBetweenNeighbors(others, neighborsAfterDrop(display, 't2'))).toEqual({
+      placement: placementAfterDrop(display, 't2'),
+      exact: true,
+    });
+  });
+});
+
+describe('placeBetweenNeighbors', () => {
+  it('lands between both anchors when both are still there', () => {
+    const result = placeBetweenNeighbors(
+      [
+        { id: 'a', sort_key: 'V0' },
+        { id: 'b', sort_key: 'V1' },
+      ],
+      { afterId: 'a', beforeId: 'b' }
+    );
+    expect(result.exact).toBe(true);
+    expect(result.placement.sort_key > 'V0' && result.placement.sort_key < 'V1').toBe(true);
+  });
+
+  it('keeps the intent when only one anchor survived', () => {
+    const result = placeBetweenNeighbors(
+      [
+        { id: 'a', sort_key: 'V0' },
+        { id: 'c', sort_key: 'V5' },
+      ],
+      { afterId: 'a', beforeId: 'gone' }
+    );
+    expect(result.exact).toBe(true);
+    expect(result.placement.sort_key > 'V0' && result.placement.sort_key < 'V5').toBe(true);
+  });
+
+  // Reported rather than silently landing somewhere arbitrary.
+  it('is inexact when the cards it was dropped between are both gone', () => {
+    const result = placeBetweenNeighbors([{ id: 'c', sort_key: 'V5' }], {
+      afterId: 'gone',
+      beforeId: 'also-gone',
+    });
+    expect(result.exact).toBe(false);
+    expect(result.placement.sort_key > 'V5').toBe(true);
+  });
+
+  it('is exact when the end of the list is what was actually asked for', () => {
+    const result = placeBetweenNeighbors([{ id: 'c', sort_key: 'V5' }], {
+      afterId: null,
+      beforeId: null,
+    });
+    expect(result.exact).toBe(true);
   });
 });

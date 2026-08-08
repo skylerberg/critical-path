@@ -73,10 +73,11 @@ class ConnectivityStore {
     }
   }
 
-  // Tests own the window listeners they install.
+  // Tests own the window listeners they install. `onReachable` is deliberately
+  // left alone: it is wired once when the outbox is constructed, and clearing it
+  // between tests would quietly disable draining for every test after the first.
   resetForTests(): void {
     this.stop();
-    this.onReachable = undefined;
     this.reachable = true;
   }
 }

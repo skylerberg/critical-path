@@ -71,16 +71,48 @@ async function close(): Promise<void> {
   dbPromise = null;
 }
 
+/**
+ * IndexedDB can stop answering rather than fail — an upgrade blocked by another
+ * tab, a browser in a bad state — and a promise that never settles is worse than
+ * one that rejects, because every caller waits on it forever. Persistence is a
+ * convenience here; nothing the user does should ever be held up by it.
+ */
+const DB_TIMEOUT_MS = 5000;
+
 async function withDb<T>(
   run: (db: IDBPDatabase<OfflineSchema>) => Promise<T>,
   fallback: T
 ): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const db = await connect();
-    return db === null ? fallback : await run(db);
+    const work = (async () => {
+      const db = await connect();
+      return db === null ? fallback : await run(db);
+    })();
+    const guard = new Promise<T>((resolve) => {
+      timer = setTimeout(() => resolve(fallback), DB_TIMEOUT_MS);
+    });
+    return await Promise.race([work, guard]);
   } catch {
     return fallback;
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/**
+ * IndexedDB stores by structured clone, which throws on a Svelte `$state`
+ * proxy — and everything worth persisting here is reactive store state. Since
+ * `withDb` swallows failures so a broken storage layer cannot take the app down
+ * with it, an un-cloneable value would not throw either: it would just silently
+ * never be written, and only turn up as an offline load with nothing to show.
+ *
+ * A JSON round-trip is the guarantee that cannot be forgotten at a call site.
+ * Everything stored is API payload data that arrived as JSON, so nothing
+ * survives the trip that did not survive the wire.
+ */
+function toStorable<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 export async function readSnapshot(key: string): Promise<SnapshotRecord | null> {
@@ -96,7 +128,14 @@ export async function writeSnapshot(
   savedAt: string
 ): Promise<void> {
   await withDb(
-    async (db) => db.put('snapshots', { key, userId, version: SNAPSHOT_VERSION, savedAt, payload }),
+    async (db) =>
+      db.put('snapshots', {
+        key,
+        userId,
+        version: SNAPSHOT_VERSION,
+        savedAt,
+        payload: toStorable(payload),
+      }),
     undefined
   );
 }
@@ -109,7 +148,7 @@ export async function readQueue(userId: string): Promise<QueuedOp[]> {
 }
 
 export async function writeOp(op: QueuedOp): Promise<void> {
-  await withDb(async (db) => db.put('outbox', op), undefined);
+  await withDb(async (db) => db.put('outbox', toStorable(op)), undefined);
 }
 
 export async function deleteOps(ids: readonly string[]): Promise<void> {

@@ -358,3 +358,71 @@ describe('session.guardRoute', () => {
     }
   });
 });
+
+describe('a session that cannot be checked', () => {
+  // Collapsing "unreachable" into "signed out" is what made launching without a
+  // network land on the login screen and reset every store, on a device holding
+  // a perfectly good token.
+  it('stays signed in as the remembered account when the server cannot be reached', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'tok-live', user }));
+    await session.login(user.email, 'password123');
+
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await session.init();
+
+    expect(session.status).toBe('offline');
+    expect(session.user).toEqual(user);
+    expect(session.token).toBe('tok-live');
+  });
+
+  it('admits an offline session to the app instead of bouncing it to login', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'tok-live', user }));
+    await session.login(user.email, 'password123');
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await session.init();
+
+    expect(session.status).toBe('offline');
+    expect(session.guardRoute(matchRoute(BOARD_PATH), BOARD_PATH)).toBeUndefined();
+    // And still bounces away from the signed-out-only routes.
+    expect(session.guardRoute(matchRoute('/login'), '/login')).toBe('/');
+  });
+
+  it('still signs out when the server is reachable and rejects the token', async () => {
+    localStorage.setItem('cp.token', 'tok-revoked');
+    localStorage.setItem('cp.user', JSON.stringify(user));
+    fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Unauthorized' }));
+
+    await session.init();
+
+    expect(session.status).toBe('anon');
+    expect(session.user).toBeNull();
+    expect(localStorage.getItem('cp.user')).toBeNull();
+  });
+
+  // A token stored by a build that predates the cached account has nothing to
+  // carry on as, and guessing would be worse than the old behaviour.
+  it('falls back to signed out when there is no remembered account', async () => {
+    localStorage.setItem('cp.token', 'tok-stored');
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await session.init();
+
+    expect(session.status).toBe('anon');
+  });
+
+  it('promotes to a checked session once a read gets through', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'tok-live', user }));
+    await session.login(user.email, 'password123');
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await session.init();
+    expect(session.status).toBe('offline');
+
+    fetchMock.mockResolvedValue(jsonResponse(200, user));
+    await session.revalidate();
+
+    expect(session.status).toBe('authed');
+  });
+});
