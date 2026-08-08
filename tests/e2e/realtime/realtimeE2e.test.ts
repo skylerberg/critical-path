@@ -1066,11 +1066,16 @@ describe('Realtime end to end', () => {
     const userD = await ctx.createUser('rt-d');
     const clientD = await connect(userD.token);
 
-    const res = await ctx.request(userD.token).post('/api/auth/change-password', {
-      current_password: userD.password,
-      new_password: 'brand-new-password-123',
-    });
-    expect(res.status).toBe(200);
+    const list = await ctx.request(userD.token).get('/api/auth/sessions');
+    expect(list.status).toBe(200);
+    const { sessions } = (await list.json()) as { sessions: { id: string; is_current: boolean }[] };
+    const current = sessions.find((entry) => entry.is_current);
+    if (current === undefined) {
+      throw new Error('no current session to revoke');
+    }
+
+    const res = await ctx.request(userD.token).delete(`/api/auth/sessions/${current.id}`);
+    expect(res.status).toBe(204);
 
     await waitFor(async () => clientD.closeInfo !== null);
     expect(clientD.closeInfo).toEqual({ code: 4401, reason: 'Session revoked' });

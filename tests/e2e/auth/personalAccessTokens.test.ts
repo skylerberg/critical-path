@@ -424,7 +424,7 @@ describe('Personal access tokens', () => {
         current_password: user.password,
         new_password: 'a-brand-new-password',
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(204);
 
       expect((await ctx.request(token).get('/api/auth/me')).status).toBe(200);
       expect(

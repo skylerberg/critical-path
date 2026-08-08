@@ -107,28 +107,26 @@ describe('auth commands', () => {
     expect(update.exitCode).toBe(2);
   });
 
-  it('change-password stores the fresh token and revokes the old session', async () => {
+  it('change-password keeps the stored token working', async () => {
     const user = await tc.createUser('cli-auth');
     const h = await createCliHarness();
     await h.runCli(['login', '--email', user.email, '--password-stdin'], {
       stdin: `${user.password}\n`,
     });
-    const oldToken = await h.credentials.get('http://localhost:3001');
+    const token = await h.credentials.get('http://localhost:3001');
 
     const change = await h.runCli(['account', 'change-password', '--password-stdin'], {
       stdin: `${user.password}\nnew-password-456\n`,
     });
     expect(change.exitCode).toBe(0);
 
-    const newToken = await h.credentials.get('http://localhost:3001');
-    expect(newToken).not.toBeNull();
-    expect(newToken).not.toBe(oldToken);
+    expect(await h.credentials.get('http://localhost:3001')).toBe(token);
 
     const who = await h.runCli(['whoami', '--json']);
     expect(who.exitCode).toBe(0);
 
-    const res = await tc.request(oldToken!).get('/api/auth/me');
-    expect(res.status).toBe(401);
+    const res = await tc.request(token!).get('/api/auth/me');
+    expect(res.status).toBe(200);
   });
 
   it('change-password with a wrong current password keeps the session', async () => {

@@ -159,20 +159,20 @@ describe('realtime state', () => {
     expect(getSocketState(secondToken)).toBeDefined();
   });
 
-  it('closeSessionSocketsForUser spares the excepted session and closes its other sockets', () => {
-    const replacement = new FakeSocket();
-    const stale = new FakeSocket();
+  it('closeSessionSocketsForUser closes every session of that user and no one else', () => {
+    const first = new FakeSocket();
+    const second = new FakeSocket();
     const otherUser = new FakeSocket();
-    registerSocket(replacement, { kind: 'session', id: 'fresh', userId: 'u1' });
-    registerSocket(stale, { kind: 'session', id: 'stale', userId: 'u1' });
-    registerSocket(otherUser, { kind: 'session', id: 'fresh', userId: 'u2' });
+    registerSocket(first, { kind: 'session', id: 's1', userId: 'u1' });
+    registerSocket(second, { kind: 'session', id: 's2', userId: 'u1' });
+    registerSocket(otherUser, { kind: 'session', id: 's1', userId: 'u2' });
 
-    closeSessionSocketsForUser('u1', 'fresh');
+    closeSessionSocketsForUser('u1');
 
-    expect(replacement.closes).toEqual([]);
-    expect(getSocketState(replacement)).toBeDefined();
-    expect(stale.closes).toEqual([{ code: 4401, reason: 'Session revoked' }]);
+    expect(first.closes).toEqual([{ code: 4401, reason: 'Session revoked' }]);
+    expect(second.closes).toEqual([{ code: 4401, reason: 'Session revoked' }]);
     expect(otherUser.closes).toEqual([]);
+    expect(getSocketState(otherUser)).toBeDefined();
   });
 
   it('closeSocketsForCredential closes one session without touching the user other sessions', () => {
