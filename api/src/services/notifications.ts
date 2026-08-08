@@ -81,18 +81,28 @@ export interface Recipient {
 // deliberately the last of them: every caller runs after its transaction
 // committed, so access can have been revoked in between.
 //
-// `actorUserId` is a required argument rather than something each caller
-// remembers to filter, because this is the one gate every mailer passes
-// through: `notify` drops the actor too, but a publisher that builds its own
-// `Notification` and calls `notificationDelivery.deliver` never runs that, and
-// "acting on yourself never mails you" has to hold for those as well.
+// This is the one gate every mailer passes through, so the two rules that bound
+// who a single write can reach live here rather than only in `notify`: the actor
+// is dropped, and what is left is capped. `notify` applies both again before it
+// queues anything, but a publisher that builds its own `Notification` and calls
+// `notificationDelivery.deliver` runs none of that — and "acting on yourself
+// never mails you" and "one write mails at most a hundred people" have to hold
+// for those as well. `actorUserId` is a required argument for the same reason: a
+// mailer cannot forget to pass what it has no choice about.
+//
+// Both bound the ids asked for rather than the ones that survive the gates
+// below, so naming 150 people of whom 60 are unverified mails 40 and not 100.
+// That keeps the ceiling a bound on the fan-out of one write, which is the thing
+// worth bounding, rather than a quota to be filled.
 export async function eligibleRecipients(
   kind: NotificationKind,
   project: ProjectAccessFields,
   actorUserId: string,
   userIds: readonly string[]
 ): Promise<Recipient[]> {
-  const wanted = [...new Set(userIds)].filter((id) => id !== actorUserId);
+  const wanted = [...new Set(userIds)]
+    .filter((id) => id !== actorUserId)
+    .slice(0, MAX_NOTIFICATION_RECIPIENTS);
   if (wanted.length === 0) return [];
 
   const rows = await db
@@ -238,10 +248,10 @@ export type NotifyArgs = {
 );
 
 export async function notify(c: Pick<PublicContext, 'get'>, args: NotifyArgs): Promise<void> {
-  // The actor drops out again in `eligibleRecipients`, which is what makes the
-  // rule hold for every mailer; dropping them here too is what makes a write
-  // naming only yourself queue no hook at all, and keeps them from spending one
-  // of the slots the cap below hands out.
+  // Both rules are applied again in `eligibleRecipients`, which is what makes
+  // them hold for every mailer. Applying them here as well is what makes a write
+  // naming only yourself queue no hook at all, and what keeps the hundred ids
+  // this hands on from being a different hundred than the ones that get mail.
   const recipientUserIds = [...new Set(args.recipientUserIds)]
     .filter((id) => id !== args.actor.id)
     .slice(0, MAX_NOTIFICATION_RECIPIENTS);
