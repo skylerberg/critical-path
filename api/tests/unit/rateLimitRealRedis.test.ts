@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
-import {
-  consumeRateLimit,
-  resetRateLimiter,
-  withNotificationBudget,
-} from '../../src/middleware/rateLimit';
+import { consumeRateLimit, resetRateLimiter } from '../../src/services/rateLimit';
+import { withNotificationBudget } from '../../src/services/notificationBudget';
 import { logger } from '../../src/utils/logger';
 import { closeRealRedis, openRealRedis, realRedisPrefix, redisTestUrl } from '../helpers/realRedis';
 
@@ -138,7 +135,7 @@ describe.skipIf(!redisTestUrl)('the shipped rate limit scripts on a real Redis',
     }
 
     vi.resetModules();
-    const replica = await import('../../src/middleware/rateLimit');
+    const replica = await import('../../src/services/rateLimit');
 
     expect(await replica.consumeRateLimit(key, Date.now(), 3, 60_000)).toBe(false);
     expect(await replica.consumeRateLimit(named('untouched'), Date.now(), 3, 60_000)).toBe(true);
@@ -149,7 +146,7 @@ describe.skipIf(!redisTestUrl)('the shipped rate limit scripts on a real Redis',
     expect(await consumeRateLimit(key, Date.now(), 2, 60_000)).toBe(true);
 
     vi.resetModules();
-    const replica = await import('../../src/middleware/rateLimit');
+    const replica = await import('../../src/services/rateLimit');
 
     // One of two spent. A reply this cannot read as a number compares false
     // here and refuses every caller from now on, with nothing thrown to notice.

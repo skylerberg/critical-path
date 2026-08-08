@@ -3,7 +3,7 @@ import type { FileHandle } from 'fs/promises';
 import path from 'path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { isValidUuid } from '../../types/uuid';
+import { isValidUuid } from '../../utils/uuid';
 import type { StorageProvider, StoredObject } from './types';
 
 export class DiskStorageProvider implements StorageProvider {

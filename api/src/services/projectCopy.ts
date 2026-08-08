@@ -10,9 +10,8 @@ import { dueDateText } from './dateText';
 import { appendKeys } from './sortKey';
 import { recordTaskActivity } from './taskActivity';
 import { copySeries } from './taskSeries/copy';
-import type { TiptapDoc, TiptapNode } from '../schemas/index';
-
-const IMAGE_SRC_PREFIX = '/api/images/';
+import { imageIdFromSrc, imageSrc, mapTiptapDoc } from '../schemas/index';
+import type { TiptapDoc } from '../schemas/index';
 
 export interface CopyProjectInput {
   id: string;
@@ -22,25 +21,15 @@ export interface CopyProjectInput {
   createdBy: string;
 }
 
-function rewriteImageSrcs(node: TiptapNode, imageIdMap: Map<string, string>): TiptapNode {
-  const next: TiptapNode = { ...node };
-  if (next.type === 'image' && next.attrs && typeof next.attrs.src === 'string') {
-    const src = next.attrs.src;
-    if (src.startsWith(IMAGE_SRC_PREFIX)) {
-      const newId = imageIdMap.get(src.slice(IMAGE_SRC_PREFIX.length).toLowerCase());
-      if (newId) {
-        next.attrs = { ...next.attrs, src: `${IMAGE_SRC_PREFIX}${newId}` };
-      }
-    }
-  }
-  if (next.content) {
-    next.content = next.content.map((child) => rewriteImageSrcs(child, imageIdMap));
-  }
-  return next;
-}
-
 function rewriteDescriptionImageIds(doc: TiptapDoc, imageIdMap: Map<string, string>): TiptapDoc {
-  return rewriteImageSrcs(doc, imageIdMap) as TiptapDoc;
+  return mapTiptapDoc(doc, (node) => {
+    const src = node.type === 'image' ? node.attrs?.src : undefined;
+    const sourceId = typeof src === 'string' ? imageIdFromSrc(src) : null;
+    const copyId = sourceId === null ? undefined : imageIdMap.get(sourceId);
+    return copyId === undefined
+      ? node
+      : { ...node, attrs: { ...node.attrs, src: imageSrc(copyId) } };
+  });
 }
 
 export interface CopyTasksInput {

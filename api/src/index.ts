@@ -22,9 +22,9 @@ import { secureHeaders } from 'hono/secure-headers';
 import { sql } from 'kysely';
 import { swaggerUI } from '@hono/swagger-ui';
 import { generateSpecs } from 'hono-openapi';
-import { deduplicateOpenAPISpec } from './utils/openapi-dedupe';
-import { assertUniqueOperationIds } from './utils/openapi-assert-unique-operation-ids';
-import { buildSchemaNameRegistry } from './utils/schema-registry';
+import { deduplicateOpenAPISpec } from './spec/openapi-dedupe';
+import { assertUniqueOperationIds } from './spec/openapi-assert-unique-operation-ids';
+import { buildSchemaNameRegistry } from './spec/schema-registry';
 import { env, assertProxyConfig } from './config/env';
 import { APP_NAME } from './config/constants';
 import { corsMiddleware } from './middleware/cors';
@@ -35,12 +35,10 @@ import { assertPublicRoutes } from './utils/assert-public-routes';
 import { Variables } from './types/index';
 import { db } from './db/index';
 import { attachRealtime, initRedisBus, closeRedisBus } from './services/realtime/index';
-import { buildRealtimeEventsDocument } from './services/realtime/document';
+import { buildRealtimeEventsDocument } from './spec/realtime-events';
 import { closeRedis } from './services/redis';
 import { startJobWorker } from './services/jobs/index';
-import { registerAssignmentDigestJob } from './services/assignmentDigest';
-import { registerTaskSeriesJob } from './services/taskSeries/index';
-import { registerAttachmentUnfurlHandler } from './services/attachments/unfurl';
+import { registerJobHandlers } from './services/jobs/register';
 import { startWebhookWorker } from './services/webhooks/index';
 import { errorText } from './utils/errors';
 import { logger } from './utils/logger';
@@ -65,8 +63,6 @@ import feedbackRouter from './routes/feedback';
 import publicBoardsRouter from './routes/publicBoards';
 import webhooksRouter from './routes/webhooks';
 import taskSeriesRouter from './routes/taskSeries';
-
-registerAttachmentUnfurlHandler();
 
 export const app = new Hono<{ Variables: Variables }>();
 
@@ -253,8 +249,7 @@ if (isEntrypoint) {
 
   const realtime = attachRealtime(server);
   const webhookWorker = startWebhookWorker();
-  registerTaskSeriesJob();
-  registerAssignmentDigestJob();
+  registerJobHandlers();
   const jobWorker = startJobWorker();
 
   initRedisBus().catch((err: unknown) => {

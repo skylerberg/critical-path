@@ -1,6 +1,6 @@
 import { app } from '../../src/index';
 import { db } from '../../src/db/index';
-import { SIGNUP_IP_MAX_ATTEMPTS } from '../../src/middleware/rateLimit';
+import { SIGNUP_IP_MAX_ATTEMPTS } from '../../src/services/rateLimit';
 import { SESSION_COOKIE_NAME } from '../../src/services/sessionCookie';
 
 export interface TestUser {

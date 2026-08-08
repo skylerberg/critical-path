@@ -1,16 +1,20 @@
 import { toOpenAPISchema } from '@standard-community/standard-openapi';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import { ENVELOPE_VERSION } from '../webhooks/queue';
-import { REALTIME_EVENT_TYPES, eventScope, isWebhookEvent } from './eventCatalog';
-import type { RealtimeEventType } from './eventCatalog';
-import { REALTIME_PAYLOAD_SCHEMAS } from './payloads';
+import { ENVELOPE_VERSION } from '../services/webhooks/queue';
+import {
+  REALTIME_EVENT_TYPES,
+  eventScope,
+  isWebhookEvent,
+} from '../services/realtime/eventCatalog';
+import type { RealtimeEventType } from '../services/realtime/eventCatalog';
+import { REALTIME_PAYLOAD_SCHEMAS } from '../services/realtime/payloads';
 
 // `/ws` carries no HTTP request or response, so none of this can live in
 // openapi.json. This builds a second, standalone document describing the socket
 // and webhook envelopes, which the clients generate event types from exactly as
 // they generate their API client from openapi.json.
 
-// Mirrors the fallback in utils/schema-registry.ts: ArkType throws converting
+// Mirrors the fallback in ./schema-registry.ts: ArkType throws converting
 // any schema built with `.pipe(...)` without it.
 const TO_OPENAPI_OPTS = {
   options: { fallback: (ctx: { base: unknown }) => ctx.base },

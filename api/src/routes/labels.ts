@@ -1,11 +1,10 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import type { Kysely, Selectable } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
-import type { DB, Label } from '../db/types';
+import { assertLabelWrite, LABEL_NOT_FOUND } from '../services/labels';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import {
@@ -26,27 +25,6 @@ import {
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
-
-const LABEL_NOT_FOUND = 'Label not found';
-
-// 404 for a caller with no access to the label's project, so an inaccessible
-// label stays indistinguishable from a nonexistent one; 403 for a viewer.
-async function assertLabelWrite(
-  db: Kysely<DB>,
-  userId: string,
-  labelId: string
-): Promise<Selectable<Label>> {
-  const label = await db
-    .selectFrom('label')
-    .selectAll()
-    .where('id', '=', labelId)
-    .executeTakeFirst();
-  if (!label) {
-    throw new AppError(404, LABEL_NOT_FOUND);
-  }
-  await assertProjectWrite(db, userId, label.project_id, LABEL_NOT_FOUND);
-  return label;
-}
 
 const router: AppHono = new Hono();
 
@@ -142,7 +120,7 @@ router.patch(
         .returningAll()
         .executeTakeFirst();
       if (!label) {
-        throw new AppError(404, 'Label not found');
+        throw new AppError(404, LABEL_NOT_FOUND);
       }
       publishAfterCommit(c, 'label_updated', label.project_id, label);
       return c.json(label, 200);

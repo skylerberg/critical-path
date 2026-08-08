@@ -1,13 +1,9 @@
 import type { Kysely, Selectable } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
-import type { DB, Project, TaskSeries } from '../../db/types';
+import type { DB, TaskSeries } from '../../db/types';
 import type { TaskSeriesResponse, TiptapDoc } from '../../schemas/index';
-import { AppError } from '../../utils/errors';
-import { assertProjectWrite } from '../authorization';
 import { dateText } from '../dateText';
 import { presetFor, summarise } from './rule';
-
-const SERIES_NOT_FOUND = 'Series not found';
 
 // Fail closed: the column is plain text, so a value a newer release wrote — or
 // one nothing writes — reads as the state the materialiser's `status = 'active'`
@@ -145,26 +141,3 @@ export async function seriesSummaryForTask(db: Kysely<DB>, taskId: string): Prom
 }
 
 export type SeriesRow = Selectable<TaskSeries> & { start_date_text: string };
-
-async function loadSeriesRow(db: Kysely<DB>, seriesId: string): Promise<SeriesRow> {
-  const series = await db
-    .selectFrom('task_series')
-    .selectAll()
-    .select(dateText('task_series.start_date').as('start_date_text'))
-    .where('task_series.id', '=', seriesId)
-    .executeTakeFirst();
-  if (!series) {
-    throw new AppError(404, SERIES_NOT_FOUND);
-  }
-  return { ...series, start_date_text: series.start_date_text as string };
-}
-
-export async function assertSeriesWrite(
-  db: Kysely<DB>,
-  userId: string,
-  seriesId: string
-): Promise<{ series: SeriesRow; project: Selectable<Project> }> {
-  const series = await loadSeriesRow(db, seriesId);
-  const project = await assertProjectWrite(db, userId, series.project_id, SERIES_NOT_FOUND);
-  return { series, project };
-}

@@ -6,7 +6,7 @@ import {
   resetRateLimiter,
   VERIFY_IP_MAX_ATTEMPTS,
   VERIFY_USER_MAX_ATTEMPTS,
-} from '../../../src/middleware/rateLimit';
+} from '../../../src/services/rateLimit';
 import {
   createVerificationToken,
   VERIFICATION_TOKEN_TTL_MS,

@@ -1,16 +1,12 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import type { Kysely, Selectable } from 'kysely';
+import type { Selectable } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
-import {
-  assertCanWriteProject,
-  assertProjectAccess,
-  assertProjectWrite,
-  projectRole,
-} from '../services/authorization';
-import type { DB, ProjectWebhook, WebhookDelivery } from '../db/types';
+import { assertCanWriteProject, assertProjectAccess, projectRole } from '../services/authorization';
+import { assertWebhookAccess, assertWebhookWrite } from '../services/webhooks/access';
+import type { ProjectWebhook, WebhookDelivery } from '../db/types';
 import {
   MAX_WEBHOOKS_PER_PROJECT,
   assertRegistrableWebhookUrl,
@@ -82,44 +78,6 @@ function toDeliveryResponse(row: Selectable<WebhookDelivery>): WebhookDeliveryRe
     created_at: row.created_at.toISOString(),
     payload: row.payload,
   };
-}
-
-const WEBHOOK_NOT_FOUND = 'Webhook not found';
-
-async function loadWebhook(db: Kysely<DB>, webhookId: string): Promise<Selectable<ProjectWebhook>> {
-  const webhook = await db
-    .selectFrom('project_webhook')
-    .selectAll()
-    .where('id', '=', webhookId)
-    .executeTakeFirst();
-  if (!webhook) {
-    throw new AppError(404, WEBHOOK_NOT_FOUND);
-  }
-  return webhook;
-}
-
-// 404 for a caller with no access to the webhook's project, so an inaccessible
-// registration stays indistinguishable from a nonexistent one; 403 for a viewer.
-async function assertWebhookWrite(
-  db: Kysely<DB>,
-  userId: string,
-  webhookId: string
-): Promise<Selectable<ProjectWebhook>> {
-  const webhook = await loadWebhook(db, webhookId);
-  await assertProjectWrite(db, userId, webhook.project_id, WEBHOOK_NOT_FOUND);
-  return webhook;
-}
-
-// The delivery log is the one webhook route a viewer may reach, so this asserts
-// access rather than write.
-async function assertWebhookAccess(
-  db: Kysely<DB>,
-  userId: string,
-  webhookId: string
-): Promise<Selectable<ProjectWebhook>> {
-  const webhook = await loadWebhook(db, webhookId);
-  await assertProjectAccess(db, userId, webhook.project_id, WEBHOOK_NOT_FOUND);
-  return webhook;
 }
 
 const router: AppHono = new Hono();

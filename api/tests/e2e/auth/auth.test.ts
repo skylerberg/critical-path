@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll, afterEach, beforeEach } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
-import { resetRateLimiter, SIGNUP_IP_MAX_ATTEMPTS } from '../../../src/middleware/rateLimit';
+import { resetRateLimiter, SIGNUP_IP_MAX_ATTEMPTS } from '../../../src/services/rateLimit';
 
 async function accountCount(emailPrefix: string): Promise<number> {
   const rows = await db

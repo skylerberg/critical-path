@@ -2,7 +2,7 @@ import { Storage } from '@google-cloud/storage';
 import type { Bucket } from '@google-cloud/storage';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { isValidUuid } from '../../types/uuid';
+import { isValidUuid } from '../../utils/uuid';
 import type { StorageProvider, StoredObject } from './types';
 
 function isNotFound(err: unknown): boolean {
