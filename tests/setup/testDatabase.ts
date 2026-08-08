@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { Client } from 'pg';
 import {
@@ -52,6 +53,69 @@ async function withMaintenance<T>(work: (client: Client) => Promise<T>): Promise
   } finally {
     await client.end();
   }
+}
+
+export interface RunLock {
+  release(): Promise<void>;
+}
+
+// Advisory lock keys are signed 64-bit, which is exactly what the first eight
+// bytes of the digest read as. The name is in the key, so every run targeting
+// one database contends and runs targeting different ones never do.
+function runLockKey(name: string): string {
+  return createHash('sha256')
+    .update(`critical-path-api test run:${name}`)
+    .digest()
+    .readBigInt64BE(0)
+    .toString();
+}
+
+async function describeConflict(client: Client, name: string): Promise<string> {
+  const { rows } = await client.query<{ pid: number }>(
+    `select pid from pg_stat_activity
+     where datname = $1 and pid <> pg_backend_pid()
+     order by pid`,
+    [name]
+  );
+  const backends = rows.length > 0 ? ` Backends on it: ${rows.map((r) => r.pid).join(', ')}.` : '';
+  return (
+    `Another test run already holds ${name}, so this one refuses to start: the truncate it ` +
+    `is about to run would wipe that run's rows mid-flight and fail it somewhere unrelated.` +
+    `${backends} Wait for it to finish, or run from a separate worktree — vitest.config.ts ` +
+    'derives one database per checkout, which is what lets suites run side by side.'
+  );
+}
+
+// Session-scoped, and held on a client of its own: a pooled connection goes
+// back to the pool and takes the lock with it. A run that dies without
+// releasing drops the connection, which is itself the release.
+export async function acquireRunLock(name: string = resolveTestDatabaseName()): Promise<RunLock> {
+  assertResettableDatabaseName(name);
+  const key = runLockKey(name);
+  const client = await connectMaintenance();
+
+  try {
+    const { rows } = await client.query<{ locked: boolean }>(
+      'select pg_try_advisory_lock($1::bigint) as locked',
+      [key]
+    );
+    if (!rows[0].locked) {
+      throw new Error(await describeConflict(client, name));
+    }
+  } catch (error) {
+    await client.end();
+    throw error;
+  }
+
+  return {
+    async release() {
+      try {
+        await client.query('select pg_advisory_unlock($1::bigint)', [key]);
+      } finally {
+        await client.end();
+      }
+    },
+  };
 }
 
 export async function ensureTestDatabase(
