@@ -333,6 +333,28 @@ via a `sessions_revoked` entry naming the session (see
 [Realtime](#realtime)); the socket's own 30-second credential re-check is the
 backstop if that entry is ever missed.
 
+### Password change and reset
+
+Neither `POST /api/auth/change-password` nor `POST /api/auth/reset-password`
+touches the `session` table. Both answer 204, and every session that was signed
+in before the call is still signed in after it, including the one that made the
+call — a password change issues no replacement token because it invalidates
+nothing.
+
+This is a deliberate reversal of the usual "changing your password signs you
+out everywhere". That default predates the sessions list; now that a user can
+see each device and revoke it individually, an all-or-nothing revoke charges
+the phone and the laptop for what is usually a routine rotation. The cost is
+that recovering a compromised account is two steps rather than one: reset the
+password, then log in and revoke the sessions you do not recognise. The
+sessions list is the only lever for that — nothing else evicts a session but
+its own expiry.
+
+What both flows *do* rotate is `app_user.alternative_id`, which is the subject
+of the stateless reset-token HMAC. That makes the link that just got used
+single-use and invalidates every other outstanding reset email. It has no
+effect on sessions.
+
 ### Personal access tokens
 
 A personal access token (PAT) is a named, long-lived credential for scripts and
@@ -360,16 +382,17 @@ CRITICAL_PATH_TOKEN=cpat_… cpath board "My Project"
 ```
 
 A user may hold up to 100 tokens; the next create answers 422. Changing or
-resetting the password does **not** revoke personal access tokens (matching
-GitHub, so unattended agents survive a rotation) — a token planted by an
-attacker therefore outlives account recovery, which is why the account page
-lists every token and can revoke each one. A token can also mint further tokens
-— it authenticates `POST /api/auth/tokens` like any other credential — so an
+resetting the password revokes **no** credential of any kind — not tokens and
+not sessions (see [Password change and
+reset](#password-change-and-reset)) — so anything an attacker planted outlives
+account recovery, which is why the account page lists every session and every
+token and can revoke each one. A token can also mint further tokens — it
+authenticates `POST /api/auth/tokens` like any other credential — so an
 `expires_at` bounds only that one secret, not the access it was granted;
 revocation is the only reliable control. Revoking a token closes only the
-WebSockets authenticated with that token; a password change closes only session
-sockets. `POST /api/auth/logout` authenticated with a PAT is a no-op returning
-204: it deletes a session row by token hash and a PAT is not one.
+WebSockets authenticated with that token. `POST /api/auth/logout` authenticated
+with a PAT is a no-op returning 204: it deletes a session row by token hash and
+a PAT is not one.
 
 ### Task comments
 
@@ -1230,7 +1253,7 @@ Every mutation emits an event after its transaction commits. The envelope is
 | `project_changed`                                   | `{ id, actor_user_id }`                                                                            |
 | `invitations_changed`                               | `{ project_id }`                                                                                   |
 | `user_updated`                                      | public user `{ id, name, avatar_url }`                                                             |
-| `sessions_revoked`                                  | `{ user_id }`, optionally plus `personal_access_token_id`, `session_id` or `except_session_id`     |
+| `sessions_revoked`                                  | `{ user_id }`, optionally plus `personal_access_token_id` or `session_id`                          |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
 add/remove, by the cascade that strips assignees when a project member is
@@ -1314,17 +1337,12 @@ one.
 `sessions_revoked` is never delivered to a client: the transport intercepts it
 and closes sockets instead. A payload of `{ user_id }` closes that user's
 session sockets only; one that also carries `personal_access_token_id` closes
-only the sockets authenticated with that token; one carrying `session_id`
-closes only the sockets of that one session; and one carrying
-`except_session_id` closes the user's session sockets apart from that one. It
-is published by password change, password reset, session revocation, token
-revocation and account deletion — the last of which sends one user-scoped entry
-plus one per token, since the user-scoped form deliberately spares live
-personal access tokens. Password change is the sole publisher of
-`except_session_id`: it issues a replacement session in the same transaction,
-and without the exception the fan-out would close the socket that session is
-about to open, which reads as an offline blip on the device that just changed
-its own password.
+only the sockets authenticated with that token; and one carrying `session_id`
+closes only the sockets of that one session. It is published by session
+revocation, token revocation and account deletion — the last of which sends one
+user-scoped entry plus one per token, since the user-scoped form deliberately
+spares live personal access tokens. Password change and reset publish nothing:
+they revoke nothing.
 `user_updated` (emitted on avatar upload/removal and on `PATCH /api/auth/me`
 name/email changes, never from password or session flows) carries
 `project_id: null` and is broadcast to the changed user's own sockets (their
