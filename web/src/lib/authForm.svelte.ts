@@ -18,13 +18,6 @@ class AuthFormStore {
     this.email = '';
     this.password = '';
   }
-
-  // For the one screen that invalidates the password without ending the visit:
-  // after a reset, the address is still worth carrying to the login form and the
-  // password that was typed before it is the one that no longer works.
-  clearPassword(): void {
-    this.password = '';
-  }
 }
 
 export const authForm = new AuthFormStore();
