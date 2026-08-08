@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import type { Updateable } from 'kysely';
 import type { AppUser } from '../db/types';
 import { bearerToken, skipAuth } from '../middleware/auth';
@@ -77,6 +77,9 @@ import {
   createdPersonalAccessTokenSchema,
   personalAccessTokensResponseSchema,
   sessionsResponseSchema,
+  jsonResponse,
+  emptyResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
@@ -200,6 +203,8 @@ function callerTokenHash(c: AppContext): string | null {
   return token === null ? null : hashBearerToken(token);
 }
 
+const signupResponses = { 201: jsonResponse('Account created', authResponseSchema) };
+
 publicAuthRouter.post(
   '/signup',
   describeRoute({
@@ -213,14 +218,7 @@ publicAuthRouter.post(
       'Every unexpired invitation outstanding for the address, across every project, takes ' +
       'effect here and the account joins those boards at the invited role.',
     responses: {
-      201: {
-        description: 'Account created',
-        content: {
-          'application/json': {
-            schema: resolver(authResponseSchema),
-          },
-        },
-      },
+      ...signupResponses,
       ...validationErrorResponse,
       ...conflictErrorResponse,
       ...tooManyRequestsErrorResponse,
@@ -229,7 +227,7 @@ publicAuthRouter.post(
   }),
   skipAuth,
   jsonValidator(signupRequestSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof signupResponses>> => {
     const { id, email, password, name } = c.req.valid('json');
     await enforceSignupRateLimit(c);
     await enforceAuthRateLimit(c, email);
@@ -273,6 +271,8 @@ publicAuthRouter.post(
   }
 );
 
+const loginResponses = { 200: jsonResponse('Logged in', authResponseSchema) };
+
 publicAuthRouter.post(
   '/login',
   describeRoute({
@@ -280,14 +280,7 @@ publicAuthRouter.post(
     summary: 'Log in',
     description: 'Exchange email and password for a session token.',
     responses: {
-      200: {
-        description: 'Logged in',
-        content: {
-          'application/json': {
-            schema: resolver(authResponseSchema),
-          },
-        },
-      },
+      ...loginResponses,
       ...validationErrorResponse,
       ...unauthorizedErrorResponse,
       ...tooManyRequestsErrorResponse,
@@ -296,7 +289,7 @@ publicAuthRouter.post(
   }),
   skipAuth,
   jsonValidator(loginRequestSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof loginResponses>> => {
     const { email, password } = c.req.valid('json');
     await enforceAuthRateLimit(c, email);
 
@@ -337,6 +330,8 @@ publicAuthRouter.post(
   }
 );
 
+const logoutResponses = { 204: emptyResponse('Session deleted') };
+
 router.post(
   '/logout',
   describeRoute({
@@ -345,14 +340,12 @@ router.post(
     description: 'Delete the current session.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Session deleted',
-      },
+      ...logoutResponses,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof logoutResponses>> => {
     const hash = callerTokenHash(c);
     if (hash !== null) {
       await deleteSessionByTokenHash(c.get('db'), hash);
@@ -362,6 +355,8 @@ router.post(
   }
 );
 
+const getMeResponses = { 200: jsonResponse('Authenticated user', meSchema) };
+
 router.get(
   '/me',
   describeRoute({
@@ -370,22 +365,17 @@ router.get(
     description: 'Return the authenticated user.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Authenticated user',
-        content: {
-          'application/json': {
-            schema: resolver(meSchema),
-          },
-        },
-      },
+      ...getMeResponses,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof getMeResponses>> => {
     return c.json(c.get('user'), 200);
   }
 );
+
+const patchMeResponses = { 200: jsonResponse('Updated user', meSchema) };
 
 router.patch(
   '/me',
@@ -400,14 +390,7 @@ router.patch(
       '429 and changes nothing.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated user',
-        content: {
-          'application/json': {
-            schema: resolver(meSchema),
-          },
-        },
-      },
+      ...patchMeResponses,
       ...unauthorizedErrorResponse,
       ...conflictErrorResponse,
       ...validationErrorResponse,
@@ -416,7 +399,7 @@ router.patch(
     },
   }),
   jsonValidator(patchMeSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchMeResponses>> => {
     const { name, email } = c.req.valid('json');
     const user = c.get('user');
     const db = c.get('db');
@@ -493,6 +476,14 @@ router.patch(
   }
 );
 
+const deleteAccountResponses = {
+  204: emptyResponse('Account deleted'),
+  409: jsonResponse(
+    'The caller still owns projects that have other members',
+    deleteAccountConflictSchema
+  ),
+};
+
 router.delete(
   '/me',
   describeRoute({
@@ -510,24 +501,14 @@ router.delete(
       'delete it, and retry. Deletion cannot be undone.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Account deleted',
-      },
+      ...deleteAccountResponses,
       ...unauthorizedErrorResponse,
-      409: {
-        description: 'The caller still owns projects that have other members',
-        content: {
-          'application/json': {
-            schema: resolver(deleteAccountConflictSchema),
-          },
-        },
-      },
       ...validationErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   jsonValidator(deleteAccountSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteAccountResponses>> => {
     const { password } = c.req.valid('json');
     const user = c.get('user');
     const db = c.get('db');
@@ -636,6 +617,13 @@ router.delete(
   }
 );
 
+const createPersonalAccessTokenResponses = {
+  201: jsonResponse(
+    'Token created; the secret is in this response only',
+    createdPersonalAccessTokenSchema
+  ),
+};
+
 router.post(
   '/tokens',
   describeRoute({
@@ -648,14 +636,7 @@ router.post(
       'password changes and resets.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Token created; the secret is in this response only',
-        content: {
-          'application/json': {
-            schema: resolver(createdPersonalAccessTokenSchema),
-          },
-        },
-      },
+      ...createPersonalAccessTokenResponses,
       ...unauthorizedErrorResponse,
       ...conflictErrorResponse,
       ...validationOrUnprocessableErrorResponse,
@@ -663,7 +644,7 @@ router.post(
     },
   }),
   jsonValidator(createPersonalAccessTokenSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createPersonalAccessTokenResponses>> => {
     const { id, name, expires_at } = c.req.valid('json');
     const user = c.get('user');
     const db = c.get('db');
@@ -715,6 +696,10 @@ router.post(
   }
 );
 
+const listPersonalAccessTokensResponses = {
+  200: jsonResponse('Personal access tokens', personalAccessTokensResponseSchema),
+};
+
 router.get(
   '/tokens',
   describeRoute({
@@ -726,19 +711,12 @@ router.get(
       'token first authenticates, and is accurate to about a minute thereafter.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Personal access tokens',
-        content: {
-          'application/json': {
-            schema: resolver(personalAccessTokensResponseSchema),
-          },
-        },
-      },
+      ...listPersonalAccessTokensResponses,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof listPersonalAccessTokensResponses>> => {
     const rows = await c
       .get('db')
       .selectFrom('personal_access_token')
@@ -758,6 +736,8 @@ router.get(
   }
 );
 
+const revokePersonalAccessTokenResponses = { 204: emptyResponse('Token revoked') };
+
 router.delete(
   '/tokens/:id',
   describeRoute({
@@ -769,9 +749,7 @@ router.delete(
       'answers 404, the same as one that does not exist.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Token revoked',
-      },
+      ...revokePersonalAccessTokenResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -779,7 +757,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof revokePersonalAccessTokenResponses>> => {
     const { id } = c.req.valid('param');
     const user = c.get('user');
 
@@ -802,6 +780,8 @@ router.delete(
   }
 );
 
+const listSessionsResponses = { 200: jsonResponse('Live sessions', sessionsResponseSchema) };
+
 router.get(
   '/sessions',
   describeRoute({
@@ -819,19 +799,12 @@ router.get(
       'current, since a token is not a session.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Live sessions',
-        content: {
-          'application/json': {
-            schema: resolver(sessionsResponseSchema),
-          },
-        },
-      },
+      ...listSessionsResponses,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof listSessionsResponses>> => {
     const currentHash = callerTokenHash(c);
     const rows = await c
       .get('db')
@@ -864,6 +837,8 @@ router.get(
   }
 );
 
+const revokeSessionResponses = { 204: emptyResponse('Session revoked') };
+
 router.delete(
   '/sessions/:id',
   describeRoute({
@@ -877,9 +852,7 @@ router.delete(
       'exist.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Session revoked',
-      },
+      ...revokeSessionResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -887,7 +860,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof revokeSessionResponses>> => {
     const { id } = c.req.valid('param');
     const user = c.get('user');
 
@@ -907,6 +880,8 @@ router.delete(
   }
 );
 
+const changePasswordResponses = { 204: emptyResponse('Password changed') };
+
 router.post(
   '/change-password',
   describeRoute({
@@ -918,16 +893,14 @@ router.post(
       'from GET /api/auth/sessions.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Password changed',
-      },
+      ...changePasswordResponses,
       ...unauthorizedErrorResponse,
       ...validationErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   jsonValidator(changePasswordSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof changePasswordResponses>> => {
     const { current_password, new_password } = c.req.valid('json');
     const user = c.get('user');
 
@@ -949,6 +922,8 @@ router.post(
   }
 );
 
+const forgotPasswordResponses = { 204: emptyResponse('Accepted') };
+
 publicAuthRouter.post(
   '/forgot-password',
   describeRoute({
@@ -958,16 +933,14 @@ publicAuthRouter.post(
       'Email a password-reset link if an account with that address exists. Always responds ' +
       '204 so the response never reveals whether the email is registered.',
     responses: {
-      204: {
-        description: 'Accepted',
-      },
+      ...forgotPasswordResponses,
       ...validationErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   skipAuth,
   jsonValidator(forgotPasswordSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof forgotPasswordResponses>> => {
     const { email } = c.req.valid('json');
 
     if (await enforceResetRateLimit(c, email)) {
@@ -997,6 +970,8 @@ publicAuthRouter.post(
   }
 );
 
+const resetPasswordResponses = { 204: emptyResponse('Password reset') };
+
 publicAuthRouter.post(
   '/reset-password',
   describeRoute({
@@ -1007,16 +982,14 @@ publicAuthRouter.post(
       'outstanding reset token is invalidated. Existing sessions stay signed in; revoke ' +
       'them individually from GET /api/auth/sessions.',
     responses: {
-      204: {
-        description: 'Password reset',
-      },
+      ...resetPasswordResponses,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   skipAuth,
   jsonValidator(resetPasswordSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof resetPasswordResponses>> => {
     const { token, new_password } = c.req.valid('json');
 
     const verification = verifyResetTokenDetailed(token);
@@ -1044,6 +1017,8 @@ publicAuthRouter.post(
   }
 );
 
+const verifyEmailResponses = { 204: emptyResponse('Address verified') };
+
 publicAuthRouter.post(
   '/verify-email',
   describeRoute({
@@ -1057,16 +1032,14 @@ publicAuthRouter.post(
       'A token stops working once the account moves to a different address, and expires ' +
       '24 hours after it was issued.',
     responses: {
-      204: {
-        description: 'Address verified',
-      },
+      ...verifyEmailResponses,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   skipAuth,
   jsonValidator(emailTokenRequestSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof verifyEmailResponses>> => {
     const { token } = c.req.valid('json');
 
     const verification = verifyVerificationToken(token);
@@ -1128,6 +1101,10 @@ publicAuthRouter.post(
   }
 );
 
+const resendVerificationEmailResponses = {
+  204: emptyResponse('Verification email sent, or already verified'),
+};
+
 router.post(
   '/verify-email/resend',
   describeRoute({
@@ -1141,15 +1118,13 @@ router.post(
       'no endpoint that reveals whether an address has an account.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Verification email sent, or already verified',
-      },
+      ...resendVerificationEmailResponses,
       ...unauthorizedErrorResponse,
       ...tooManyRequestsErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof resendVerificationEmailResponses>> => {
     const user = c.get('user');
     if (user.email_verified) {
       return c.body(null, 204);
@@ -1161,6 +1136,10 @@ router.post(
     return c.body(null, 204);
   }
 );
+
+const exportAccountResponses = {
+  200: jsonResponse('Account export manifest', accountExportSchema),
+};
 
 router.get(
   '/me/export',
@@ -1189,19 +1168,12 @@ router.get(
       'resolving once the account is gone; fetch the bytes before deleting the account.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Account export manifest',
-        content: {
-          'application/json': {
-            schema: resolver(accountExportSchema),
-          },
-        },
-      },
+      ...exportAccountResponses,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof exportAccountResponses>> => {
     // One reading, so the manifest timestamp and the filename date agree.
     const now = new Date();
 
@@ -1218,6 +1190,10 @@ router.get(
   }
 );
 
+const getNotificationSettingsResponses = {
+  200: jsonResponse('Current notification settings', notificationSettingsSchema),
+};
+
 router.get(
   '/me/notification-settings',
   describeRoute({
@@ -1229,19 +1205,12 @@ router.get(
       'published to everyone sharing a project and a preference is private.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Current notification settings',
-        content: {
-          'application/json': {
-            schema: resolver(notificationSettingsSchema),
-          },
-        },
-      },
+      ...getNotificationSettingsResponses,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof getNotificationSettingsResponses>> => {
     const row = await c
       .get('db')
       .selectFrom('app_user')
@@ -1260,6 +1229,10 @@ router.get(
   }
 );
 
+const setNotificationSettingsResponses = {
+  200: jsonResponse('Updated notification settings', notificationSettingsSchema),
+};
+
 router.put(
   '/me/notification-settings',
   describeRoute({
@@ -1271,21 +1244,14 @@ router.put(
       'either way — so the toggles are never forced off.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated notification settings',
-        content: {
-          'application/json': {
-            schema: resolver(notificationSettingsSchema),
-          },
-        },
-      },
+      ...setNotificationSettingsResponses,
       ...unauthorizedErrorResponse,
       ...validationErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   jsonValidator(notificationSettingsSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof setNotificationSettingsResponses>> => {
     const settings = c.req.valid('json');
 
     await c
@@ -1303,6 +1269,10 @@ router.put(
   }
 );
 
+const unsubscribeResponses = {
+  200: jsonResponse('The notification kind that was switched off', unsubscribeResponseSchema),
+};
+
 publicAuthRouter.post(
   '/unsubscribe',
   describeRoute({
@@ -1317,26 +1287,21 @@ publicAuthRouter.post(
       'replayed link harmless, and it must not be weakened by adding one. The response is the ' +
       'same whether or not the account still exists, so nothing here reveals that.',
     responses: {
-      200: {
-        description: 'The notification kind that was switched off',
-        content: {
-          'application/json': {
-            schema: resolver(unsubscribeResponseSchema),
-          },
-        },
-      },
+      ...unsubscribeResponses,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   skipAuth,
   jsonValidator(emailTokenRequestSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof unsubscribeResponses>> => {
     const { token } = c.req.valid('json');
     const kind = await applyUnsubscribe(c, token);
     return c.json({ kind }, 200);
   }
 );
+
+const unsubscribeAllResponses = { 204: emptyResponse('All notification email switched off') };
 
 publicAuthRouter.post(
   '/unsubscribe/all',
@@ -1348,16 +1313,14 @@ publicAuthRouter.post(
       'token itself carries. Same properties as the single-kind form: unauthenticated, ' +
       'idempotent, and incapable of switching anything on.',
     responses: {
-      204: {
-        description: 'All notification email switched off',
-      },
+      ...unsubscribeAllResponses,
       ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   skipAuth,
   jsonValidator(emailTokenRequestSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof unsubscribeAllResponses>> => {
     const { token } = c.req.valid('json');
     const { account } = await unsubscribeTarget(c, token);
     if (account !== null) {
@@ -1367,6 +1330,8 @@ publicAuthRouter.post(
     return c.body(null, 204);
   }
 );
+
+const unsubscribeOneClickResponses = { 204: emptyResponse('Notification kind switched off') };
 
 publicAuthRouter.post(
   '/unsubscribe/one-click',
@@ -1387,15 +1352,13 @@ publicAuthRouter.post(
       },
     ],
     responses: {
-      204: {
-        description: 'Notification kind switched off',
-      },
+      ...unsubscribeOneClickResponses,
       ...unprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   skipAuth,
-  async (c) => {
+  async (c): Promise<Returned<typeof unsubscribeOneClickResponses>> => {
     await applyUnsubscribe(c, c.req.query('token') ?? '');
     return c.body(null, 204);
   }

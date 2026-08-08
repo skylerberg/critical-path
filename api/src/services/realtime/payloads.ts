@@ -1,4 +1,5 @@
 import { type } from 'arktype';
+import type { Type } from 'arktype';
 import {
   archivedTaskSchema,
   attachmentSchema,
@@ -14,14 +15,42 @@ import {
   taskSeriesSchema,
   userSchema,
 } from '../../schemas/index';
-import { isWebhookEvent } from './eventCatalog';
-import type { AccountEventType, RealtimeEventType, WebhookEventType } from './eventCatalog';
+import { carriesActor, isWebhookEvent } from './eventCatalog';
+import type {
+  AccountEventType,
+  ActorEventType,
+  RealtimeEventType,
+  WebhookEventType,
+} from './eventCatalog';
 
 // Never re-export this module from src/schemas/index.ts: the OpenAPI schema-name
 // registry hashes every schema in that barrel and throws on two that produce
 // identical JSON Schema, which the bare `{ id }` payloads below would.
 
 const idOnly = type({ id: 'string' });
+
+const actorField = { actor_user_id: 'string | null' } as const;
+
+type ActorField = { actor_user_id: string | null };
+
+type PayloadRows = Record<RealtimeEventType, { infer: unknown }>;
+
+type WithActor<T extends PayloadRows> = {
+  [K in keyof T]: K extends ActorEventType ? Type<T[K]['infer'] & ActorField> : T[K];
+};
+
+// Merged from the catalogue rather than restated on each of the twenty-eight
+// rows that want it: the row that says a type names its actor is then the same
+// row publishAfterCommit reads to fill it in, so a type cannot get one without
+// the other.
+function withActor<T extends PayloadRows>(rows: T): WithActor<T> {
+  return Object.fromEntries(
+    Object.entries(rows).map(([eventType, schema]) => [
+      eventType,
+      carriesActor(eventType) ? (schema as unknown as Type<object>).merge(actorField) : schema,
+    ])
+  ) as WithActor<T>;
+}
 
 const checklistCounts = {
   checklist_item_count: 'number',
@@ -37,15 +66,16 @@ const projectListItemEvent = projectSchema.merge({
   done_task_count: 'number',
 });
 
-export const REALTIME_PAYLOAD_SCHEMAS = {
+export const REALTIME_PAYLOAD_SCHEMAS = withActor({
   project_created: projectListItemEvent,
   project_updated: projectListItemEvent,
   project_deleted: idOnly,
   project_position_updated: type({ id: 'string', sort_key: 'string' }),
   project_seen: idOnly,
-  // Null when a schedule materialised the change with no caller behind it. The
-  // dot ignores its own actor, so a client compares this against its user id.
-  project_changed: type({ id: 'string', actor_user_id: 'string | null' }),
+  // The actor comes from the catalogue like every other one; it is null when a
+  // schedule materialised the change with no caller behind it. The dot ignores
+  // its own actor, so a client compares it against its user id.
+  project_changed: idOnly,
   invitations_changed: type({ project_id: 'string' }),
 
   column_created: columnSchema,
@@ -115,11 +145,19 @@ export const REALTIME_PAYLOAD_SCHEMAS = {
   // The subject's own record — the same shape GET /api/auth/me answers with,
   // which is exactly why it is delivered to no socket but theirs.
   account_updated: meSchema,
-} satisfies Record<RealtimeEventType, unknown>;
+} satisfies Record<RealtimeEventType, unknown>);
 
 export type RealtimePayloads = {
   [K in RealtimeEventType]: (typeof REALTIME_PAYLOAD_SCHEMAS)[K]['infer'];
 };
+
+// What a publish site provides. publishAfterCommit fills actor_user_id in from
+// the session, so a caller that restated it would be restating something it
+// cannot get wrong. publish() still takes the whole payload, which is what makes
+// the two publishers outside a request name someone by hand.
+export type CallerPayload<T extends RealtimeEventType> = T extends ActorEventType
+  ? Omit<RealtimePayloads[T], 'actor_user_id'>
+  : RealtimePayloads[T];
 
 // The project id belongs to the pairing an event type implies: an account event
 // carries null, a project event a string.

@@ -62,6 +62,7 @@ export function boardTaskPayload(
 ): RealtimePayloads['task_updated'] {
   return {
     id,
+    actor_user_id: null,
     column_id: newId(),
     title: 'Fixture task',
     description: null,

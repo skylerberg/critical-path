@@ -9,6 +9,13 @@ import { presetFor, summarise } from './rule';
 
 const SERIES_NOT_FOUND = 'Series not found';
 
+// Fail closed: the column is plain text, so a value a newer release wrote — or
+// one nothing writes — reads as the state the materialiser's `status = 'active'`
+// claim already puts it in, rather than as a schedule a client thinks is live.
+function narrowSeriesStatus(status: string): TaskSeriesResponse['status'] {
+  return status === 'active' || status === 'paused' ? status : 'ended';
+}
+
 export interface FetchSeriesFilter {
   projectId?: string;
   ids?: readonly string[];
@@ -105,7 +112,7 @@ export async function fetchSeries(
     summary: summarise(row.rrule, row.start_date as string),
     start_date: row.start_date as string,
     timezone: row.timezone,
-    status: row.status,
+    status: narrowSeriesStatus(row.status),
     next_occurrence_date: row.next_occurrence_date,
     last_occurrence_date: row.last_occurrence_date,
     missed_occurrence_count: row.missed_occurrence_count,

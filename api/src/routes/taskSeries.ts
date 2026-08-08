@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -22,6 +22,9 @@ import {
   taskSeriesListResponseSchema,
   taskSeriesSchema,
   idSchema,
+  jsonResponse,
+  emptyResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
@@ -43,6 +46,10 @@ const RECURRENCE_MODEL =
   'existence — a card carries the template’s own `due_date`, never the occurrence date. ' +
   'Cards already created are ordinary cards and never change when the series does.';
 
+const listTaskSeriesResponses = {
+  200: jsonResponse('Recurring series for the project', taskSeriesListResponseSchema),
+};
+
 router.get(
   '/',
   describeRoute({
@@ -54,10 +61,7 @@ router.get(
       'it. Ordered by the next occurrence, soonest first, with paused and finished series last.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Recurring series for the project',
-        content: { 'application/json': { schema: resolver(taskSeriesListResponseSchema) } },
-      },
+      ...listTaskSeriesResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -65,7 +69,7 @@ router.get(
     },
   }),
   queryValidator(projectIdQuerySchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof listTaskSeriesResponses>> => {
     const { project_id } = c.req.valid('query');
     const db = c.get('db');
     const user = c.get('user');
@@ -75,6 +79,10 @@ router.get(
     return c.json({ series }, 200);
   }
 );
+
+const createTaskSeriesResponses = {
+  201: jsonResponse('Created series', taskSeriesCreateResponseSchema),
+};
 
 router.post(
   '/',
@@ -92,10 +100,7 @@ router.post(
       'supplies the id; a duplicate returns 409.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Created series',
-        content: { 'application/json': { schema: resolver(taskSeriesCreateResponseSchema) } },
-      },
+      ...createTaskSeriesResponses,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
@@ -105,7 +110,7 @@ router.post(
     },
   }),
   jsonValidator(createTaskSeriesSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createTaskSeriesResponses>> => {
     const body = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -155,6 +160,8 @@ router.post(
   }
 );
 
+const patchTaskSeriesResponses = { 200: jsonResponse('Updated series', taskSeriesSchema) };
+
 router.patch(
   '/:id',
   describeRoute({
@@ -171,10 +178,7 @@ router.patch(
       'or by being deleted.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated series',
-        content: { 'application/json': { schema: resolver(taskSeriesSchema) } },
-      },
+      ...patchTaskSeriesResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -185,7 +189,7 @@ router.patch(
   }),
   paramValidator(idSchema),
   jsonValidator(patchTaskSeriesSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchTaskSeriesResponses>> => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
@@ -203,6 +207,8 @@ router.patch(
   }
 );
 
+const deleteTaskSeriesResponses = { 204: emptyResponse('Series ended') };
+
 router.delete(
   '/:id',
   describeRoute({
@@ -213,7 +219,7 @@ router.delete(
       'are, with their comments and history; they simply stop naming the series they came from.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: { description: 'Series ended' },
+      ...deleteTaskSeriesResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -222,7 +228,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteTaskSeriesResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');

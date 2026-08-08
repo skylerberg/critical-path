@@ -13,6 +13,15 @@ import {
 
 const noop = () => Promise.resolve();
 
+// Synthetic kinds, deliberately outside the payload catalogue: what these cases
+// check is the registry's own guards, which are kind-agnostic.
+const register = registerJobHandler as unknown as (handler: {
+  kind: string;
+  timeoutMs: number;
+  intervalSeconds?: number;
+  run: () => Promise<void>;
+}) => void;
+
 afterEach(() => {
   for (const kind of registeredJobKinds()) unregisterJobHandler(kind);
 });
@@ -27,35 +36,33 @@ describe('lease budget', () => {
 describe('registerJobHandler', () => {
   it('refuses a timeout the lease cannot absorb, and admits one at the limit', () => {
     expect(() =>
-      registerJobHandler({ kind: 'unit_slow', timeoutMs: MAX_HANDLER_TIMEOUT_MS + 1, run: noop })
+      register({ kind: 'unit_slow', timeoutMs: MAX_HANDLER_TIMEOUT_MS + 1, run: noop })
     ).toThrow(/timeoutMs/);
-    expect(() => registerJobHandler({ kind: 'unit_zero', timeoutMs: 0, run: noop })).toThrow(
-      /timeoutMs/
-    );
+    expect(() => register({ kind: 'unit_zero', timeoutMs: 0, run: noop })).toThrow(/timeoutMs/);
     expect(registeredJobKinds()).toEqual([]);
 
-    registerJobHandler({ kind: 'unit_limit', timeoutMs: MAX_HANDLER_TIMEOUT_MS, run: noop });
+    register({ kind: 'unit_limit', timeoutMs: MAX_HANDLER_TIMEOUT_MS, run: noop });
     expect(registeredJobKinds()).toEqual(['unit_limit']);
   });
 
   it('refuses a second handler for a kind', () => {
-    registerJobHandler({ kind: 'unit_dup', timeoutMs: 100, run: noop });
-    expect(() => registerJobHandler({ kind: 'unit_dup', timeoutMs: 100, run: noop })).toThrow(
+    register({ kind: 'unit_dup', timeoutMs: 100, run: noop });
+    expect(() => register({ kind: 'unit_dup', timeoutMs: 100, run: noop })).toThrow(
       /already registered/
     );
   });
 
   it('refuses a non-positive interval', () => {
     expect(() =>
-      registerJobHandler({ kind: 'unit_interval', timeoutMs: 100, intervalSeconds: 0, run: noop })
+      register({ kind: 'unit_interval', timeoutMs: 100, intervalSeconds: 0, run: noop })
     ).toThrow(/intervalSeconds/);
   });
 });
 
 describe('periodicJobs', () => {
   it('lists only the kinds that carry an interval', () => {
-    registerJobHandler({ kind: 'unit_once', timeoutMs: 100, run: noop });
-    registerJobHandler({ kind: 'unit_sweep', timeoutMs: 100, intervalSeconds: 60, run: noop });
+    register({ kind: 'unit_once', timeoutMs: 100, run: noop });
+    register({ kind: 'unit_sweep', timeoutMs: 100, intervalSeconds: 60, run: noop });
     expect(periodicJobs()).toEqual([{ kind: 'unit_sweep', intervalSeconds: 60 }]);
   });
 });

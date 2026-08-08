@@ -9,6 +9,8 @@ import { assertAvatarReadable } from '../services/avatars';
 import { logger } from '../utils/logger';
 import {
   idSchema,
+  rawResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
@@ -17,6 +19,17 @@ import {
 import { PublicHono } from '../types/index';
 
 const router: PublicHono = new Hono();
+
+const getAvatarResponses = {
+  200: rawResponse({
+    description: 'Avatar bytes (Content-Type reflects the stored image format)',
+    content: {
+      'application/octet-stream': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  }),
+};
 
 router.get(
   '/:id',
@@ -31,14 +44,7 @@ router.get(
       'fresh key, so responses are immutable and cacheable forever.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Avatar bytes (Content-Type reflects the stored image format)',
-        content: {
-          'application/octet-stream': {
-            schema: { type: 'string', format: 'binary' },
-          },
-        },
-      },
+      ...getAvatarResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -47,7 +53,7 @@ router.get(
   }),
   optionalAuth,
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof getAvatarResponses>> => {
     const { id } = c.req.valid('param');
 
     await assertAvatarReadable(c.get('db'), c.get('user'), id);

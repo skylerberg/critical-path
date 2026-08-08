@@ -146,6 +146,54 @@ describe('Realtime end to end', () => {
     }
   });
 
+  it('names the acting user on a board change, to the actor as well as everyone else', async () => {
+    const taskId = newId();
+    expect(
+      (
+        await ctx.request(userA.token).post('/api/tasks', {
+          id: taskId,
+          project_id: projectId,
+          column_id: columnId,
+          title: 'Attributed',
+          sort_key: rankKey(),
+        })
+      ).status
+    ).toBe(201);
+
+    // Not withheld from its own author: their other devices still have to apply
+    // it, and it is the client that decides to ignore its own.
+    for (const client of [clientA, clientB]) {
+      const created = await client.waitForEvent(
+        (e) => e.type === 'task_created' && e.data.id === taskId
+      );
+      expect(created.data.actor_user_id).toBe(userA.id);
+    }
+
+    // The acting user, not the project's owner: userB is a member here, and a
+    // payload built from the row rather than the request would name userA again.
+    const commentId = newId();
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'mine' }] }],
+    };
+    expect(
+      (
+        await ctx
+          .request(userB.token)
+          .post('/api/comments', { id: commentId, task_id: taskId, body })
+      ).status
+    ).toBe(201);
+    const comment = await clientA.waitForEvent(
+      (e) => e.type === 'comment_created' && e.data.id === commentId
+    );
+    expect(comment.data.actor_user_id).toBe(userB.id);
+
+    // The shared project's task counts are asserted further down, so the card
+    // has to leave again — and only an archived one can be deleted.
+    expect((await ctx.request(userA.token).post(`/api/tasks/${taskId}/archive`)).status).toBe(200);
+    expect((await ctx.request(userA.token).delete(`/api/tasks/${taskId}`)).status).toBe(204);
+  });
+
   it('delivers one task_created per task in a batch', async () => {
     const ids = [newId(), newId(), newId()];
     try {
@@ -248,6 +296,7 @@ describe('Realtime end to end', () => {
       assignee_ids: [],
       blocker_ids: [],
       open_cross_project_blocker_count: 0,
+      actor_user_id: userA.id,
     });
   });
 
@@ -563,6 +612,7 @@ describe('Realtime end to end', () => {
       id: imageId,
       task_id: taskId,
       attachment_count: 0,
+      actor_user_id: userA.id,
       cover_image_url: null,
     });
   });
@@ -597,6 +647,7 @@ describe('Realtime end to end', () => {
       id: otherId,
       task_id: taskId,
       attachment_count: 1,
+      actor_user_id: userA.id,
       cover_image_url: `/api/images/${coverId}`,
     });
   });
@@ -640,7 +691,12 @@ describe('Realtime end to end', () => {
     expect(deleteRes.status).toBe(204);
     const deletedEvent = await clientB.waitForEvent((e) => e.type === 'comment_deleted');
     expect(deletedEvent.project_id).toBe(projectId);
-    expect(deletedEvent.data).toEqual({ id: commentId, task_id: taskId, comment_count: 0 });
+    expect(deletedEvent.data).toEqual({
+      id: commentId,
+      task_id: taskId,
+      comment_count: 0,
+      actor_user_id: userA.id,
+    });
 
     await settle();
     expect(clientC.events).toEqual([]);
@@ -654,7 +710,7 @@ describe('Realtime end to end', () => {
       (e) => e.type === 'task_deleted' && e.data.id === task2Id
     );
     expect(event.project_id).toBe(projectId);
-    expect(event.data).toEqual({ id: task2Id });
+    expect(event.data).toEqual({ id: task2Id, actor_user_id: userA.id });
   });
 
   // The shared project's task counts are asserted further down, so anything

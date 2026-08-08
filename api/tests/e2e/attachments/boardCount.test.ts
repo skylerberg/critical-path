@@ -80,6 +80,7 @@ describe('attachment_count on the board', () => {
       task_id: taskId,
       cover_image_url: null,
       attachment_count: 0,
+      actor_user_id: user.id,
     });
   });
 

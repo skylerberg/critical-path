@@ -1,14 +1,23 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { getMyTasks } from '../services/myTasks';
 import {
   myTasksResponseSchema,
+  jsonResponse,
+  type Returned,
   unauthorizedErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
+
+const getMyTasksResponses = {
+  200: jsonResponse(
+    'Assigned tasks with buckets and person-level dependency groups',
+    myTasksResponseSchema
+  ),
+};
 
 router.get(
   '/',
@@ -27,19 +36,12 @@ router.get(
       'from the blockers, which alone can carry an unassigned group.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Assigned tasks with buckets and person-level dependency groups',
-        content: {
-          'application/json': {
-            schema: resolver(myTasksResponseSchema),
-          },
-        },
-      },
+      ...getMyTasksResponses,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof getMyTasksResponses>> => {
     const user = c.get('user');
     return c.json(await getMyTasks(c.get('db'), user.id), 200);
   }
