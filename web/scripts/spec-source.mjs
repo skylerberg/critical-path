@@ -33,7 +33,7 @@ function mainCheckout() {
   }
 }
 
-function findDumped(filename) {
+function findApiRoot() {
   const roots = [];
   for (let dir = __dirname; ; ) {
     roots.push(dir);
@@ -44,49 +44,85 @@ function findDumped(filename) {
   const main = mainCheckout();
   if (main !== null) roots.push(main, dirname(main));
   for (const dir of roots) {
-    const candidate = resolve(dir, API_REPO_DIR, filename);
-    if (existsSync(candidate)) return candidate;
+    const candidate = resolve(dir, API_REPO_DIR);
+    if (existsSync(resolve(candidate, 'package.json'))) return candidate;
   }
   return null;
 }
 
-// A stale spec silently drops whole endpoints from the client, and the result
+// Which npm script in the api repo produces each document.
+const DUMP_SCRIPTS = {
+  'openapi.json': 'openapi:dump',
+  'realtime-events.json': 'realtime:dump',
+};
+
+// Re-dumping beats deciding whether the dump is stale. Both dumps are pure
+// functions of the api repo's source — no database, under two seconds — so
+// producing one on the spot is cheaper than being wrong about it, and it is the
+// only answer that cannot be a false alarm in either direction.
+//
+// Best-effort: a checkout without node_modules or without .env cannot run it,
+// and that is not a reason to fail. The freshness check still runs on whatever
+// dump is already there.
+function redump(apiRoot, filename) {
+  const script = DUMP_SCRIPTS[filename];
+  if (script === undefined) return false;
+  try {
+    execFileSync('npm', ['run', script], {
+      cwd: apiRoot,
+      stdio: 'pipe',
+      timeout: 120_000,
+    });
+    // Writing into a sibling checkout is a side effect worth naming, even though
+    // the file is gitignored there.
+    console.log(`Re-dumped ${API_REPO_DIR}/${filename}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A stale document silently drops whole endpoints from the client, and the result
 // only fails under svelte-check — never under vitest, which strips types.
 //
-// Both documents are gitignored in the api repo — local dumps, never committed — so
-// freshness is
-// its mtime against the newest file that determines it. Comparing against the
-// HEAD commit date instead calls a good dump stale after any merge or pull, since
-// HEAD moves whether or not anything under src/ did.
-async function assertIsFresh(path) {
+// `redumped` says the file was just produced from this checkout, which settles
+// the question exactly; the mtime comparison below is only for when that was not
+// possible. It reads the dump's mtime against the newest file that determines it.
+// Comparing against the HEAD commit date instead calls a good dump stale after
+// any merge or pull, since HEAD moves whether or not anything under src/ did —
+// and even against the sources it is only a proxy, because reverting a file
+// rewrites it without changing what it says.
+async function assertIsFresh(path, { redumped }) {
   const apiRoot = dirname(path);
   const git = (args) => execFileSync('git', ['-C', apiRoot, ...args], { encoding: 'utf8' }).trim();
 
-  let sources;
-  try {
-    sources = git(['ls-files', 'src']).split('\n').filter(Boolean);
-  } catch {
-    return;
-  }
+  if (!redumped) {
+    let sources;
+    try {
+      sources = git(['ls-files', 'src']).split('\n').filter(Boolean);
+    } catch {
+      return;
+    }
 
-  const { mtime } = await stat(path);
-  let newest = null;
-  for (const relative of sources) {
-    const stats = await stat(resolve(apiRoot, relative)).catch(() => null);
-    if (stats !== null && (newest === null || stats.mtime > newest.mtime)) {
-      newest = { mtime: stats.mtime, relative };
+    const { mtime } = await stat(path);
+    let newest = null;
+    for (const relative of sources) {
+      const stats = await stat(resolve(apiRoot, relative)).catch(() => null);
+      if (stats !== null && (newest === null || stats.mtime > newest.mtime)) {
+        newest = { mtime: stats.mtime, relative };
+      }
+    }
+    if (newest !== null && mtime < newest.mtime) {
+      throw new Error(
+        `${path} was written ${mtime.toISOString()}, older than ${newest.relative} ` +
+          `(${newest.mtime.toISOString()}), and it could not be re-dumped automatically.\n` +
+          `Re-dump it in the api repo first, or the generated output will be missing things.`
+      );
     }
   }
-  if (newest !== null && mtime < newest.mtime) {
-    throw new Error(
-      `${path} was written ${mtime.toISOString()}, older than ${newest.relative} ` +
-        `(${newest.mtime.toISOString()}).\n` +
-        `Re-dump it in the api repo first, or the generated output will be missing things.`
-    );
-  }
 
-  // A dump only ever reflects the checkout, so fetching without pulling produces a
-  // spec that is newer than HEAD and still missing everything merged upstream.
+  // Survives a re-dump: dumping a checkout that is behind produces a confidently
+  // wrong document rather than a stale one, which is worse.
   let behind;
   try {
     behind = git(['rev-list', '--count', 'HEAD..origin/main']);
@@ -96,7 +132,7 @@ async function assertIsFresh(path) {
   if (behind !== '0') {
     throw new Error(
       `${apiRoot} is ${behind} commit(s) behind origin/main, so ${path} cannot describe them.\n` +
-        `Run \`git pull\` there, then re-dump, then regenerate.`
+        `Run \`git pull\` there, then regenerate.`
     );
   }
 }
@@ -111,14 +147,20 @@ export async function loadDocument({ filename, urlPath, path, url }) {
   // header of a committed generated file does not record one machine's checkout.
   const label = `${API_REPO_DIR}/${filename}`;
   if (path) {
-    await assertIsFresh(path);
+    await assertIsFresh(path, { redumped: redump(dirname(path), filename) });
     return { doc: JSON.parse(await readFile(path, 'utf8')), source: label };
   }
   if (!url) {
-    const dumped = findDumped(filename);
-    if (dumped) {
-      await assertIsFresh(dumped);
-      return { doc: JSON.parse(await readFile(dumped, 'utf8')), source: label };
+    const apiRoot = findApiRoot();
+    if (apiRoot !== null) {
+      const dumped = resolve(apiRoot, filename);
+      const redumped = redump(apiRoot, filename);
+      // A repo that has never been dumped and could not be dumped now has
+      // nothing to read, so fall through to the network rather than failing.
+      if (redumped || existsSync(dumped)) {
+        await assertIsFresh(dumped, { redumped });
+        return { doc: JSON.parse(await readFile(dumped, 'utf8')), source: label };
+      }
     }
   }
   const target = url || `${API_ORIGIN}${urlPath}`;
