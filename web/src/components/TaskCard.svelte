@@ -1,6 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { isDirectPointerEvent, isTextEntry, suppressTouchContextMenu } from '../lib/actions';
+  import {
+    isDirectPointerEvent,
+    isTextEntry,
+    revealInList,
+    suppressTouchContextMenu,
+  } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import type { BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, focusCard } from '../lib/card-menu.svelte';
@@ -8,6 +13,7 @@
   import { isDragPlaceholder, publicTaskHref, taskHref } from '../lib/short-links';
   import { selection } from '../lib/selection.svelte';
   import { isCalendarDate } from '../lib/dates';
+  import { motion } from '../lib/motion.svelte';
   import { outbox } from '../lib/outbox.svelte';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
   import { users } from '../lib/users.svelte';
@@ -64,9 +70,18 @@
     }
   });
 
+  // focus() would reveal the textarea by scrolling every ancestor, one of which is
+  // the board's horizontal snap scroller. The only reveal a rename wants is
+  // vertical, inside this card's own list — and it is wanted: the two-row textarea
+  // is taller than the title it replaces, so a card at the bottom fold grows past it.
   const focusAndSelect = (node: HTMLTextAreaElement): void => {
-    node.focus();
+    node.focus({ preventScroll: true });
     node.select();
+    const list = node.closest<HTMLElement>('[data-task-list]');
+    const card = node.closest<HTMLElement>('[data-task-id]');
+    if (list !== null && card !== null) {
+      revealInList(list, card, !motion.reduced);
+    }
   };
 
   function commitRename(): void {

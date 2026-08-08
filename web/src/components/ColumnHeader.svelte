@@ -56,8 +56,10 @@
     }
   }
 
+  // The header sits above the column's scrolling card list, in no vertical
+  // scroller of its own, so the only scroll focus() could perform is the board pan.
   const focusAndSelect = (node: HTMLInputElement): void => {
-    node.focus();
+    node.focus({ preventScroll: true });
     node.select();
   };
 

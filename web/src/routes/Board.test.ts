@@ -5,11 +5,13 @@ import { tick } from 'svelte';
 import { SHADOW_PLACEHOLDER_ITEM_ID, SOURCES, TRIGGERS, type Options } from 'svelte-dnd-action';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
+import { MOMENTUM_WINDOW_MS } from '../lib/board-scroll';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';
 import { selection } from '../lib/selection.svelte';
 import { session } from '../lib/session.svelte';
+import { shortcuts } from '../lib/shortcuts.svelte';
 import { publicTaskHref, taskHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
 import type { BoardTask } from '../lib/board-types';
@@ -368,8 +370,13 @@ describe('Board snapping', () => {
       'md:scroll-p-3',
       'lg:scroll-p-4'
     );
+    // `snap-always` (scroll-snap-stop: always) is the primary cap on a fling, and
+    // the JS fallback below it only fires for an engine that ignores it. The tile
+    // is asserted too: it is a snap target the columns' own bookkeeping cannot
+    // see, hence data-snap-target rather than a query for sections.
     for (const target of [column(), addColumnTile()]) {
       expect(target).toHaveClass('snap-center', 'snap-always', 'md:snap-start');
+      expect(target).toHaveAttribute('data-snap-target');
     }
   });
 
@@ -807,6 +814,40 @@ describe('Board pointer drops', () => {
     ];
   }
 
+  // A keyboard drag is scrolled by svelte-dnd-action itself, which focuses the
+  // moved element after every arrow press. Dropping snap for one buys nothing and
+  // costs the re-arm: mandatory snap comes back wherever that focus left the
+  // scroll, and jumps to the nearest column.
+  it('keeps the board snapping through a keyboard drag', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const resting = scroller().className;
+
+    void fireEvent(
+      taskList('Todo tasks'),
+      new CustomEvent('consider', {
+        detail: {
+          items: board.tasksInColumn('c1'),
+          info: { trigger: TRIGGERS.DRAG_STARTED, id: T1, source: SOURCES.KEYBOARD },
+        },
+      })
+    );
+    await tick();
+
+    expect(scroller().className).toBe(resting);
+    expect(scroller().className).toContain('snap-mandatory');
+  });
+
+  it('drops snap for a pointer drag', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+
+    pickUp(T1);
+    await tick();
+
+    expect(scroller().className).toContain('overflow-x-hidden');
+  });
+
   // Long-pressing a card for its menu unwinds the drag the press already armed
   // through exactly this path, and a card put back where it was is not a move.
   it('writes nothing when a card is dropped where it was picked up', async () => {
@@ -1017,21 +1058,25 @@ describe('Board column drops', () => {
   });
 });
 
-// The one-column cap exists for mobile browsers that ignore scroll-snap-stop, and
-// a finger is the only thing that should arm it: `scrollend` cannot distinguish a
-// fling from a trackpad scroll, our own centering slide, or the browser re-snapping
-// after a layout change.
+// `scroll-snap-stop: always` is what caps a fling at one column; this fallback is
+// for an engine that ignores it, and it may only act on a scroll it watched end to
+// end — from a board at rest, through a finger it saw go down and come up, to a
+// settle inside that lift's momentum. Everything else is somebody else's scroll:
+// a trackpad flick, our own centering slide, the browser re-snapping after a
+// layout change, or a second swipe chained onto the first.
 describe('Board swipe pagination', () => {
-  // `centered` is the column index sitting under the board's midpoint; moving it
-  // and firing scrollend is how a settled scroll is modelled without any layout.
+  // `centered` is the snap-target index sitting under the board's midpoint; moving
+  // it and firing scrollend is how a settled scroll is modelled without any layout.
   let centered = 0;
 
   function stubGeometry(): void {
     vi.spyOn(scroller(), 'getBoundingClientRect').mockImplementation(
       () => new DOMRect(0, 0, 300, 600)
     );
-    for (const [index, section] of [...document.querySelectorAll('section')].entries()) {
-      vi.spyOn(section, 'getBoundingClientRect').mockImplementation(
+    for (const [index, target] of [
+      ...document.querySelectorAll<HTMLElement>('[data-snap-target]'),
+    ].entries()) {
+      vi.spyOn(target, 'getBoundingClientRect').mockImplementation(
         () => new DOMRect((index - centered) * 300 + 6, 0, 288, 600)
       );
     }
@@ -1039,8 +1084,20 @@ describe('Board swipe pagination', () => {
 
   // The handlers read nothing off the event, so a plain Event sidesteps jsdom's
   // TouchEvent constructor entirely.
-  const swipeStart = () => fireEvent(scroller(), new Event('touchstart'));
+  const touchStart = () => fireEvent(scroller(), new Event('touchstart'));
+  const touchEnd = () => fireEvent(scroller(), new Event('touchend'));
+  const scroll = () => fireEvent(scroller(), new Event('scroll'));
   const settle = () => fireEvent(scroller(), new Event('scrollend'));
+
+  // One whole gesture: finger down on a resting board, a drag that scrolls, the
+  // finger up, then momentum carrying it to `landing` before it settles.
+  async function fling(landing: number): Promise<void> {
+    await touchStart();
+    await scroll();
+    await touchEnd();
+    centered = landing;
+    await settle();
+  }
 
   // jsdom applies no stylesheet, so it computes `scroll-snap-type: none` for
   // everything — which is exactly what the guardrail treats as "desktop, leave it
@@ -1087,12 +1144,10 @@ describe('Board swipe pagination', () => {
   it('pulls a touch fling back to one column', async () => {
     const scrollTo = await mount();
 
-    await swipeStart();
-    centered = 3;
-    await settle();
+    await fling(3);
 
     expect(scrollTo).toHaveBeenCalledTimes(1);
-    // With column 3 centered, column 1 sits at x=-594; the 12px scroll padding
+    // With target 3 centered, target 1 sits at x=-594; the 12px scroll padding
     // shifts the landing so its left edge clears the board's gutter.
     expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: -606 }));
   });
@@ -1100,9 +1155,70 @@ describe('Board swipe pagination', () => {
   it('leaves a one-column swipe alone', async () => {
     const scrollTo = await mount();
 
-    await swipeStart();
+    await fling(1);
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  // The reported bug. iOS dispatches no touchstart for the finger that halts
+  // momentum, so a rapid double-swipe used to look like one gesture from the
+  // FIRST swipe's origin — and the board yanked back a column the user had
+  // deliberately swiped past. Whichever half of the quirk applies, the sequence
+  // is no longer one gesture and must be left alone.
+  it('leaves a second swipe chained onto the first alone', async () => {
+    const scrollTo = await mount();
+
+    await touchStart();
+    await scroll();
+    await touchEnd();
+    // The second finger lands before the first fling settled. Both readings are
+    // covered: the touchstart iOS may swallow, and the scroll it cannot.
     centered = 1;
+    await scroll();
+    await touchStart();
+    await scroll();
+    await touchEnd();
+    centered = 3;
     await settle();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  // A finger that scrolled nothing is a tap. It used to arm the correction, which
+  // then sat waiting for any later scrollend — a re-snap after a column arrived
+  // over the wire — and blamed it on that stale origin.
+  it('leaves a scroll that follows a tap alone', async () => {
+    const scrollTo = await mount();
+
+    await touchStart();
+    await touchEnd();
+    centered = 3;
+    await scroll();
+    await settle();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('leaves a scroll that settles with the finger still down alone', async () => {
+    const scrollTo = await mount();
+
+    await touchStart();
+    await scroll();
+    centered = 3;
+    await settle();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  // Momentum decays in well under a second. A settle that arrives later belongs to
+  // something else that moved the board since.
+  it('leaves a scroll settling long after the finger lifted alone', async () => {
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(0) // the lift
+      .mockReturnValueOnce(MOMENTUM_WINDOW_MS + 1); // the settle
+    const scrollTo = await mount();
+
+    await fling(3);
 
     expect(scrollTo).not.toHaveBeenCalled();
   });
@@ -1110,9 +1226,7 @@ describe('Board swipe pagination', () => {
   it('does not correct its own correction', async () => {
     const scrollTo = await mount();
 
-    await swipeStart();
-    centered = 3;
-    await settle();
+    await fling(3);
     centered = 1;
     await settle();
 
@@ -1122,9 +1236,50 @@ describe('Board swipe pagination', () => {
   it('does not paginate where the board is not snapping', async () => {
     const scrollTo = await mount('none');
 
-    await swipeStart();
-    centered = 3;
-    await settle();
+    await fling(3);
+
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+});
+
+// The shortcut can name a column nowhere near the viewport, so something must
+// reveal it — but not focus(), which scrolls to wherever the input happens to sit
+// and leaves a mandatory-snap board between two snap points, free to resolve onto
+// a neighbour. The reveal goes through the same snap-aware slide a pointer drop uses.
+describe('Board quick-add shortcut', () => {
+  afterEach(() => {
+    shortcuts.quickAddColumn = null;
+  });
+
+  async function target(columnRect: DOMRect): Promise<ReturnType<typeof vi.spyOn>> {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    vi.spyOn(scroller(), 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 390, 600));
+    vi.spyOn(column(), 'getBoundingClientRect').mockReturnValue(columnRect);
+    return scrollTo;
+  }
+
+  it('slides a column the user cannot see whole into view, without focus scrolling', async () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    const scrollTo = await target(new DOMRect(420, 0, 288, 600));
+
+    shortcuts.quickAddColumn = 'c1';
+    await tick();
+    await tick();
+
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    await screen.findByLabelText('Task title');
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(focus).not.toHaveBeenCalledWith();
+  });
+
+  it('leaves the board alone for a column already on screen', async () => {
+    const scrollTo = await target(new DOMRect(16, 0, 288, 600));
+
+    shortcuts.quickAddColumn = 'c1';
+    await tick();
+    await tick();
 
     expect(scrollTo).not.toHaveBeenCalled();
   });

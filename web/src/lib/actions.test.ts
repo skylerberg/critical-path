@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { suppressTouchContextMenu } from './actions';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { focusIf, revealInList, suppressTouchContextMenu } from './actions';
 
 function anchor(guarded = true): HTMLAnchorElement {
   const element = document.createElement('a');
@@ -19,6 +19,9 @@ function contextMenu(target: Element, pointerType: string): boolean {
 
 afterEach(() => {
   document.body.innerHTML = '';
+  // vi.spyOn hands back the existing spy when a method is already mocked, so
+  // without this a later test inherits an earlier one's call count.
+  vi.restoreAllMocks();
 });
 
 describe('suppressTouchContextMenu', () => {
@@ -108,5 +111,83 @@ describe('suppressTouchContextMenu', () => {
 
       expect(mouseContextMenu(element)).toBe(false);
     });
+  });
+});
+
+// focus() reveals a node by scrolling every scrollable ancestor on both axes, and
+// one ancestor of every form this action opens is the board's horizontal snap
+// scroller — which it pans, and which then resolves that pan onto another column.
+// Each call site opens in place from a button the user can already see, so there
+// is nothing the suppressed scroll was revealing.
+describe('focusIf', () => {
+  function input(): HTMLInputElement {
+    const element = document.createElement('input');
+    document.body.append(element);
+    return element;
+  }
+
+  it('focuses without scrolling when the user opened the form', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    const element = input();
+    let focused = 0;
+
+    focusIf(element, { active: true, onfocused: () => (focused += 1) });
+
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(element).toHaveFocus();
+    expect(focused).toBe(1);
+  });
+
+  it('leaves focus alone for a restored draft', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    let focused = 0;
+
+    focusIf(input(), { active: false, onfocused: () => (focused += 1) });
+
+    expect(focus).not.toHaveBeenCalled();
+    expect(focused).toBe(0);
+  });
+});
+
+// The board scroller is a scrollable ancestor of every card, so a reveal that
+// delegates to it pans the board sideways. This one moves the list and nothing else.
+describe('revealInList', () => {
+  function list(cardTop: number): { list: HTMLElement; card: HTMLElement } {
+    const listEl = document.createElement('div');
+    const card = document.createElement('div');
+    listEl.append(card);
+    document.body.append(listEl);
+    vi.spyOn(listEl, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 288, 400));
+    vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, cardTop, 288, 60));
+    return { list: listEl, card };
+  }
+
+  it('scrolls the list the least needed to show the card', () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    const { list: listEl, card } = list(380);
+    listEl.scrollTop = 120;
+
+    revealInList(listEl, card, true);
+
+    expect(scrollTo.mock.contexts[0]).toBe(listEl);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 160, behavior: 'smooth' });
+  });
+
+  it('jumps rather than glides when motion is reduced', () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    const { list: listEl, card } = list(380);
+
+    revealInList(listEl, card, false);
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 40, behavior: 'auto' });
+  });
+
+  it('scrolls nothing when the card already fits', () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    const { list: listEl, card } = list(100);
+
+    revealInList(listEl, card, true);
+
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 });

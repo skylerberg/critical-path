@@ -37,6 +37,10 @@ process.on('SIGTERM', () => process.exit(143));
 
 const PROBE = new URL('scripts/board-probe.html', server.resolvedUrls.local[0]).href;
 
+// Read from the module the component uses, so the probe's timing cannot drift
+// from the window the swipe fallback actually applies.
+const { MOMENTUM_WINDOW_MS } = await server.ssrLoadModule('/src/lib/board-scroll.ts');
+
 const browser = await createBrowser();
 if (!browser) {
   console.warn('check:layout:real — skipped (Playwright Chromium not installed).');
@@ -162,10 +166,12 @@ for (const c of CASES) {
 // --- Scroll behaviour ---
 // The board must move only when the user moved it. jsdom models no scrolling at
 // all, so these are the only tests that can see the real thing: whether it drifts
-// on arrival, and whether a scroll the user did not make with a finger gets
-// paginated back. A real wheel would need page.mouse.wheel, which the browser
-// helper doesn't expose; a programmatic scrollTo is a faithful stand-in because
-// the bug is precisely that the board cannot tell the two apart.
+// on arrival, and which of the gestures below the swipe fallback will act on.
+//
+// The browser helper exposes no page.touchscreen, so a real fling — and with it
+// scroll-snap-stop end to end — cannot be driven here. Synthetic touch events
+// plus a programmatic scrollTo model the gesture *shapes* the fallback keys off,
+// which is what these assert; `snapStopAll` asserts the CSS contract instead.
 const SCROLL_PROBE = `(async () => {
   const board = [...document.querySelectorAll('div')].find(
     (el) => getComputedStyle(el).overflowX === 'auto'
@@ -189,14 +195,6 @@ const SCROLL_PROBE = `(async () => {
   await pause(700);
   const afterWheel = board.scrollLeft;
 
-  board.scrollTo({ left: 0, behavior: 'auto' });
-  await settle();
-  board.dispatchEvent(new Event('touchstart'));
-  jump();
-  await settle();
-  await pause(700);
-  const afterTouch = board.scrollLeft;
-
   // Every snap target must be reachable. The end ones are where that fails:
   // aligning them needs half a viewport of space beyond the board's gutter, and
   // without it the ideal scroll position is off the scrollable range entirely —
@@ -209,16 +207,101 @@ const SCROLL_PROBE = `(async () => {
     const b = board.getBoundingClientRect();
     return Math.round(Math.abs((r.left + r.width / 2) - (b.left + board.clientWidth / 2)));
   };
+  // Distance to the NEAREST snap target's centre: zero exactly when the board is
+  // parked on a snap position. Parked between two, it is one layout change away
+  // from resolving onto a neighbour.
+  const offSnap = () => (targets.length ? Math.min(...targets.map(offBy)) : null);
+  const landedOffSnap = offSnap();
+
+  // One whole gesture, in the order a fling really happens: finger down on a
+  // resting board, a drag that scrolls it a little, the finger up, and only then
+  // the travel momentum contributes — which the jump stands in for. Putting the
+  // jump before the lift would model a deliberate drag across several columns,
+  // a scroll the fallback is supposed to leave alone.
+  //
+  // 'drag' dispatches the scroll a finger drag produces rather than performing
+  // one. A real drag pans the content freely and snaps only when it ends, but a
+  // programmatic scrollTo is re-snapped immediately — under mandatory snap a
+  // sub-column scrollTo moves nothing and fires no event at all, so it cannot
+  // stand in for the part of the gesture that happens before the lift.
+  const gesture = async (steps) => {
+    board.scrollTo({ left: 0, behavior: 'auto' });
+    await settle();
+    for (const step of steps) {
+      if (step === 'down') board.dispatchEvent(new Event('touchstart'));
+      else if (step === 'up') board.dispatchEvent(new Event('touchend'));
+      else if (step === 'drag') board.dispatchEvent(new Event('scroll'));
+      else if (step === 'jump') jump();
+      else await pause(step);
+    }
+    await settle();
+    await pause(700);
+    return board.scrollLeft;
+  };
+
+  const afterTouch = await gesture(['down', 'drag', 'up', 'jump']);
+  const afterLateSettle = await gesture(['down', 'drag', 'up', ${MOMENTUM_WINDOW_MS + 300}, 'jump']);
+  const afterSecondSwipe = await gesture(['down', 'drag', 'up', 'down', 'drag', 'up', 'jump']);
+  const afterHeldFinger = await gesture(['down', 'drag', 'jump']);
+
+  board.scrollTo({ left: 0, behavior: 'auto' });
+  await settle();
+  board.dispatchEvent(new Event('scrollend'));
+  await pause(700);
+  const afterBareScrollEnd = board.scrollLeft;
+
   board.scrollTo({ left: 0, behavior: 'auto' });
   await settle();
   const firstOffCenter = targets.length ? offBy(targets[0]) : null;
+  const restingOffSnap = offSnap();
   board.scrollTo({ left: board.scrollWidth, behavior: 'auto' });
   await settle();
   const lastOffCenter = targets.length ? offBy(targets[targets.length - 1]) : null;
 
+  // LAST, because it mutates the board: a teammate's column arriving over the
+  // wire while the user is only reading. The container must re-snap after the
+  // layout change, and animate:flip is transforming the very sections that define
+  // its snap positions while it does.
+  //
+  // The invariant is the column under the user, not the scroll offset: one
+  // arriving BEFORE theirs must carry the board along to keep it centred, so a
+  // scrollLeft that holds still there is the bug, not the fix. Only for one
+  // arriving after does nothing ahead of them change, and the offset must hold too.
+  const centred = () => {
+    const b = board.getBoundingClientRect();
+    const mid = b.left + board.clientWidth / 2;
+    let best = null;
+    let bestDist = Infinity;
+    for (const el of board.querySelectorAll('[data-column-id]')) {
+      const r = el.getBoundingClientRect();
+      const d = Math.abs(r.left + r.width / 2 - mid);
+      if (d < bestDist) { bestDist = d; best = el.dataset.columnId; }
+    }
+    return best;
+  };
+
+  board.scrollTo({ left: Math.round(board.clientWidth * 1.5), behavior: 'auto' });
+  await settle();
+  const beforeInsert = board.scrollLeft;
+  const columnBeforeAppend = centred();
+  window.__addColumn('end');
+  await pause(900);
+  const afterInsert = board.scrollLeft;
+  const columnAfterAppend = centred();
+
+  const columnBeforePrepend = centred();
+  window.__addColumn('start');
+  await pause(900);
+  const columnAfterPrepend = centred();
+
   return {
-    drift, resting, landed, afterWheel, afterTouch,
+    drift, resting, landed, afterWheel,
+    afterTouch, afterLateSettle, afterSecondSwipe, afterHeldFinger, afterBareScrollEnd,
+    beforeInsert, afterInsert,
+    columnBeforeAppend, columnAfterAppend, columnBeforePrepend, columnAfterPrepend,
     snapTargets: targets.length,
+    snapStopAll: targets.every((el) => getComputedStyle(el).scrollSnapStop === 'always'),
+    restingOffSnap, landedOffSnap,
     firstOffCenter, lastOffCenter,
     step: board.clientWidth,
   };
@@ -230,15 +313,46 @@ function checkScroll(s, mobile) {
   if (mobile && s.resting > 2) f.push(`board did not arrive at the first column (${s.resting})`);
   if (Math.abs(s.afterWheel - s.landed) > 2)
     f.push(`untouched scroll was paginated (landed=${s.landed} -> ${s.afterWheel})`);
+  // Every one of these moved the board after the fact under the old corrector,
+  // which armed on any touch and stayed armed until some later scrollend.
+  if (s.afterSecondSwipe < s.afterWheel - 2)
+    f.push(`a second swipe was pulled back (${s.afterSecondSwipe} of ${s.afterWheel})`);
+  if (s.afterLateSettle < s.afterWheel - 2)
+    f.push(`a settle past the momentum window was corrected (${s.afterLateSettle})`);
+  if (s.afterHeldFinger < s.afterWheel - 2)
+    f.push(`a scroll settling with the finger down was corrected (${s.afterHeldFinger})`);
+  if (s.afterBareScrollEnd > 2)
+    f.push(`a scrollend with no scroll behind it moved the board (${s.afterBareScrollEnd})`);
+  if (Math.abs(s.afterInsert - s.beforeInsert) > 2)
+    f.push(
+      `a column arriving after the viewed one moved the board (${s.beforeInsert} -> ${s.afterInsert})`
+    );
+  if (s.columnAfterAppend !== s.columnBeforeAppend)
+    f.push(
+      `a column arriving over the wire changed the viewed column (${s.columnBeforeAppend} -> ${s.columnAfterAppend})`
+    );
   if (mobile) {
-    // The guardrail must still be alive where scroll-snap-stop can be ignored:
+    // The fallback must still be alive where scroll-snap-stop can be ignored:
     // one column advanced, not the two and a half the scroll asked for.
     if (s.afterTouch >= s.afterWheel - 2)
       f.push(`touch swipe was not capped at one column (${s.afterTouch} of ${s.afterWheel})`);
     if (s.afterTouch <= 2) f.push(`touch swipe advanced nothing (${s.afterTouch})`);
+    if (s.snapTargets < 2) f.push(`board exposed ${s.snapTargets} snap targets`);
+    // The primary cap, now that the JS fallback refuses everything it cannot
+    // attribute to one gesture. If this lapses, nothing replaces it.
+    if (!s.snapStopAll) f.push('a snap target is missing scroll-snap-stop: always');
+    // A mandatory-snap board must come to rest ON a snap position.
+    if (s.restingOffSnap > 2) f.push(`board rests between columns (off by ${s.restingOffSnap}px)`);
+    // Snap-target tracking is what keeps the user's column under them when one
+    // arrives ahead of it. A non-snapping board holds its offset instead and
+    // silently shows them the previous column — which is why this is mobile-only.
+    if (s.columnAfterPrepend !== s.columnBeforePrepend)
+      f.push(
+        `a column arriving before the viewed one displaced it (${s.columnBeforePrepend} -> ${s.columnAfterPrepend})`
+      );
+    if (s.landedOffSnap > 2) f.push(`board settled between columns (off by ${s.landedOffSnap}px)`);
     // Phones center their columns, so scrolling to either end must land the end
     // target dead center. A non-zero reading is space the layout never made.
-    if (s.snapTargets < 2) f.push(`board exposed ${s.snapTargets} snap targets`);
     if (s.firstOffCenter > 2)
       f.push(`first column cannot reach center (off by ${s.firstOffCenter}px)`);
     if (s.lastOffCenter > 2)

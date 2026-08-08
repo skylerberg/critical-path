@@ -1,4 +1,5 @@
 import type { ActionReturn } from 'svelte/action';
+import { verticalRevealDelta } from './board-scroll';
 
 interface FocusIfParams {
   active: boolean;
@@ -9,12 +10,28 @@ interface FocusIfParams {
  * Focus on mount only when the user opened this form; a restored draft must not
  * steal focus. Firing `onfocused` makes it one-shot, so a remount caused by
  * anything other than the user reopening the form stays quiet.
+ *
+ * `preventScroll`, because every call site here is already on screen — the form
+ * replaces the visible button that opened it — while focus()'s reveal would
+ * scroll every ancestor, including the board's horizontal snap scroller.
  */
 export function focusIf(node: HTMLElement, { active, onfocused }: FocusIfParams): void {
   if (active) {
-    node.focus();
+    node.focus({ preventScroll: true });
     onfocused?.();
   }
+}
+
+/**
+ * Scroll `list` — and nothing else — the least needed to show `target`.
+ * `scrollTo` rather than `scrollBy`: jsdom implements no `scrollBy` at all.
+ */
+export function revealInList(list: HTMLElement, target: HTMLElement, smooth: boolean): void {
+  const delta = verticalRevealDelta(list.getBoundingClientRect(), target.getBoundingClientRect());
+  if (delta === 0) {
+    return;
+  }
+  list.scrollTo({ top: list.scrollTop + delta, behavior: smooth ? 'smooth' : 'auto' });
 }
 
 const TOUCH_CONTEXT_MENU_MARKER = 'data-no-touch-context-menu';

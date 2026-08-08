@@ -46,7 +46,23 @@ async function batchResponse(request: Request): Promise<Response> {
   });
 }
 
+// The reveal scrolls the column's own list, so the stub has to be that list with
+// the card inside it, and rects — jsdom lays nothing out. The card is parked
+// below the fold by default so a reveal has something to do.
+function stubColumnList(taskId: string, cardTop = 380): HTMLElement {
+  const list = document.createElement('div');
+  list.setAttribute('data-task-list', 'c1');
+  const card = document.createElement('div');
+  card.setAttribute('data-task-id', taskId);
+  list.appendChild(card);
+  document.body.appendChild(list);
+  vi.spyOn(list, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 288, 400));
+  vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, cardTop, 288, 60));
+  return list;
+}
+
 afterEach(() => {
+  document.querySelectorAll('[data-task-list]').forEach((el) => el.remove());
   vi.restoreAllMocks();
 });
 
@@ -108,8 +124,13 @@ describe('QuickAddTask', () => {
     expect(await request.json()).toMatchObject({ title: 'Sketch icons', column_id: 'c1' });
   });
 
+  // scrollIntoView is the assertion that matters as much as the scroll itself: it
+  // walks every scrollable ancestor, and one of a card's ancestors is the board's
+  // horizontal snap scroller — which it pans, and which then resolves that pan
+  // onto some other column. Adding a card may move nothing but its own list.
   it('scrolls the created card into view without stealing focus', async () => {
-    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
     render(QuickAddTask, { columnId: 'c1' });
     await fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
     const input = screen.getByLabelText('Task title');
@@ -120,24 +141,21 @@ describe('QuickAddTask', () => {
     const submitted = fireEvent.submit(input.closest('form')!);
     const created = board.tasks.find((t) => t.title === 'Scroll me');
     expect(created).toBeDefined();
-    const card = document.createElement('div');
-    card.setAttribute('data-task-id', created!.id);
-    document.body.appendChild(card);
+    const list = stubColumnList(created!.id);
     await submitted;
 
     await waitFor(() => {
-      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
     });
-    expect(scrollSpy.mock.contexts[0]).toBe(card);
-    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    expect(scrollTo.mock.contexts[0]).toBe(list);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 40, behavior: 'smooth' });
+    expect(scrollIntoView).not.toHaveBeenCalled();
     expect(input).toHaveFocus();
-    card.remove();
-    scrollSpy.mockRestore();
   });
 
   it('jumps the created card into view when motion is reduced', async () => {
     motion.reduced = true;
-    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     render(QuickAddTask, { columnId: 'c1' });
     await fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
     const input = screen.getByLabelText('Task title');
@@ -146,19 +164,30 @@ describe('QuickAddTask', () => {
     const submitted = fireEvent.submit(input.closest('form')!);
     const created = board.tasks.find((t) => t.title === 'Jump me');
     expect(created).toBeDefined();
-    const card = document.createElement('div');
-    card.setAttribute('data-task-id', created!.id);
-    document.body.appendChild(card);
+    const list = stubColumnList(created!.id);
     await submitted;
 
     await waitFor(() => {
-      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
     });
-    expect(scrollSpy.mock.contexts[0]).toBe(card);
-    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'auto' });
+    expect(scrollTo.mock.contexts[0]).toBe(list);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 40, behavior: 'auto' });
     expect(input).toHaveFocus();
-    card.remove();
-    scrollSpy.mockRestore();
+  });
+
+  it('leaves the list alone when the created card already fits', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(QuickAddTask, { columnId: 'c1' });
+    await fireEvent.click(screen.getByRole('button', { name: '+ Add task' }));
+    const input = screen.getByLabelText('Task title');
+    await fireEvent.input(input, { target: { value: 'Already here' } });
+
+    const submitted = fireEvent.submit(input.closest('form')!);
+    const created = board.tasks.find((t) => t.title === 'Already here');
+    stubColumnList(created!.id, 100);
+    await submitted;
+
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 
   it('ignores empty submissions', async () => {
@@ -281,10 +310,8 @@ describe('QuickAddTask multi-line paste', () => {
     await waitFor(() => {
       expect(toasts.toasts.map((t) => t.message)).toContain('Added 2 tasks');
     });
-    const card = document.createElement('div');
-    card.setAttribute('data-task-id', board.tasksInColumn('c1').at(-1)!.id);
-    document.body.appendChild(card);
-    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    stubColumnList(board.tasksInColumn('c1').at(-1)!.id);
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
 
     const lines = Array.from({ length: 101 }, (_, i) => `T${i}`).join('\n');
     await fireEvent(input, pasteEvent(input, lines));
@@ -292,14 +319,13 @@ describe('QuickAddTask multi-line paste', () => {
     await waitFor(() => {
       expect(toasts.toasts.some((t) => t.message.includes('at most 100'))).toBe(true);
     });
-    expect(scrollSpy).not.toHaveBeenCalled();
+    expect(scrollTo).not.toHaveBeenCalled();
     expect(board.tasksInColumn('c1')).toHaveLength(2);
-    card.remove();
-    scrollSpy.mockRestore();
   });
 
   it('scrolls the last created card into view', async () => {
-    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
     const input = await openComposer();
 
     // The paste handler yields at tick() before its DOM query, so the card stub
@@ -307,18 +333,15 @@ describe('QuickAddTask multi-line paste', () => {
     const pasted = fireEvent(input, pasteEvent(input, 'Alpha\nBeta\nGamma'));
     const last = board.tasksInColumn('c1').at(-1);
     expect(last?.title).toBe('Gamma');
-    const card = document.createElement('div');
-    card.setAttribute('data-task-id', last!.id);
-    document.body.appendChild(card);
+    const list = stubColumnList(last!.id);
     await pasted;
 
     await waitFor(() => {
-      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
     });
-    expect(scrollSpy.mock.contexts[0]).toBe(card);
-    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
-    card.remove();
-    scrollSpy.mockRestore();
+    expect(scrollTo.mock.contexts[0]).toBe(list);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 40, behavior: 'smooth' });
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });
 

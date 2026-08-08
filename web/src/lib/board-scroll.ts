@@ -61,6 +61,74 @@ export function fitsHorizontally(view: Span, target: Span): boolean {
   );
 }
 
+interface VerticalSpan {
+  top: number;
+  bottom: number;
+}
+
+/**
+ * The `scrollTop` delta bringing `target` inside `view`, moving as little as
+ * possible — `scrollIntoView({ block: 'nearest' })` for one element, on one
+ * axis. The real thing walks EVERY scrollable ancestor, one of which is the
+ * board's horizontal snap scroller: it pans the board, which then re-resolves
+ * onto a different column.
+ *
+ * A target taller than the view aligns to its top, as `nearest` does.
+ */
+export function verticalRevealDelta(view: VerticalSpan, target: VerticalSpan): number {
+  if (target.top < view.top || target.bottom - target.top > view.bottom - view.top) {
+    return target.top - view.top;
+  }
+  if (target.bottom > view.bottom) {
+    return target.bottom - view.bottom;
+  }
+  return 0;
+}
+
+/**
+ * How long after the finger lifts a scroll may still be attributed to that
+ * gesture's momentum. A single fling settles well inside this; a second swipe
+ * chained onto the first spans another drag as well, and lands outside it.
+ */
+export const MOMENTUM_WINDOW_MS = 800;
+
+/**
+ * Which snap target a fling that sailed past several should be pulled back to,
+ * or `null` to leave the scroll where it landed.
+ *
+ * `scroll-snap-stop: always` is what caps a swipe at one column; this is the
+ * fallback for an engine that ignores it during momentum, as WebKit did before
+ * Safari 15. It has no true positives on any engine that also has `scrollend`,
+ * so every guard here is deliberately biased toward doing nothing.
+ *
+ * @param origin   Index the board rested at when the finger went down.
+ * @param atLift   Index it had reached when the finger came up.
+ * @param settled  Index it came to rest at.
+ * @param sinceLiftMs Time from the lift to the settle.
+ */
+export function overshootTarget(
+  origin: number,
+  atLift: number,
+  settled: number,
+  sinceLiftMs: number
+): number | null {
+  // Already capped, so nothing to correct.
+  if (Math.abs(settled - origin) <= 1) {
+    return null;
+  }
+  // The drag itself crossed a column: the user moved it there deliberately, and
+  // only travel that came purely from momentum is the bug.
+  if (Math.abs(atLift - origin) >= 1) {
+    return null;
+  }
+  // Too late to be one momentum run, so the sequence held more than one gesture
+  // — a second swipe iOS never reported, or a re-snap after a layout change.
+  if (sinceLiftMs > MOMENTUM_WINDOW_MS) {
+    return null;
+  }
+  return origin + Math.sign(settled - origin);
+}
+
 /** Inline-axis `scroll-snap-align` of a column. The board uses both. */
 export type SnapAlign = 'start' | 'center';
 
