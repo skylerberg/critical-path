@@ -73,6 +73,13 @@ export const REALTIME_PAYLOAD_SCHEMAS = {
   task_deleted: idOnly,
   task_archived: archivedTaskSchema,
 
+  // Deliberately just the recount: this event crosses into a project whose
+  // members may have no access to the blocker that moved, so it names nothing
+  // about the far side.
+  cross_project_blockers_changed: type({
+    tasks: type({ task_id: 'string', open_cross_project_blocker_count: 'number' }).array(),
+  }),
+
   bulk_tasks_moved: type({ moved_tasks: movedTaskSchema.array() }),
   bulk_tasks_relations_set: type({ tasks: bulkTaskRelationsSchema.array() }),
   bulk_tasks_archived: type({ tasks: archivedTaskSchema.array() }),

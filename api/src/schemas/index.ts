@@ -20,6 +20,7 @@ export * from './search';
 export * from './labels';
 export * from './images';
 export * from './comments';
+export * from './crossProjectDependencies';
 export * from './checklists';
 export * from './attachments';
 export * from './activity';

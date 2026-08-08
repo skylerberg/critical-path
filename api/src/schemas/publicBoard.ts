@@ -30,6 +30,10 @@ export const publicBoardTaskSchema = type({
   label_ids: 'string[]',
   assignee_ids: 'string[]',
   blocker_ids: 'string[]',
+  // open_cross_project_blocker_count is deliberately absent. It is a live
+  // measurement of a project that never agreed to be published: a stranger
+  // watching it fall learns that another team finished something. The cost is
+  // that a card blocked only from another project reads here as ready.
   cover_image_url: 'string | null',
   attachment_count: 'number',
   comment_count: 'number',

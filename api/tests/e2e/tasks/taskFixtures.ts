@@ -6,19 +6,23 @@ export class ProjectFixtures {
   private projectIds: string[] = [];
   private ownedUserIds: string[] = [];
 
-  private async fallbackOwner(): Promise<string> {
+  async createUser(label = 'fixture-owner'): Promise<string> {
     const id = newId();
     await db
       .insertInto('app_user')
       .values({
         id,
-        email: uniqueEmail('fixture-owner'),
+        email: uniqueEmail(label),
         password_hash: 'x',
-        name: 'fixture owner',
+        name: label,
       })
       .execute();
     this.ownedUserIds.push(id);
     return id;
+  }
+
+  private async fallbackOwner(): Promise<string> {
+    return await this.createUser();
   }
 
   async createProject(

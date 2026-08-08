@@ -65,6 +65,9 @@
             "$ref": "#/components/schemas/CommentUpdatedEvent"
           },
           {
+            "$ref": "#/components/schemas/CrossProjectBlockersChangedEvent"
+          },
+          {
             "$ref": "#/components/schemas/InvitationsChangedEvent"
           },
           {
@@ -1128,6 +1131,9 @@
                         "type": "string"
                       }
                     },
+                    "open_cross_project_blocker_count": {
+                      "type": "number"
+                    },
                     "sort_key": {
                       "type": "string"
                     },
@@ -1154,6 +1160,7 @@
                     "due_date",
                     "id",
                     "label_ids",
+                    "open_cross_project_blocker_count",
                     "sort_key",
                     "title",
                     "updated_at"
@@ -1257,6 +1264,9 @@
                         "type": "string"
                       }
                     },
+                    "open_cross_project_blocker_count": {
+                      "type": "number"
+                    },
                     "task_id": {
                       "type": "string"
                     }
@@ -1265,6 +1275,7 @@
                     "assignee_ids",
                     "blocker_ids",
                     "label_ids",
+                    "open_cross_project_blocker_count",
                     "task_id"
                   ]
                 }
@@ -1992,6 +2003,9 @@
                         "type": "string"
                       }
                     },
+                    "open_cross_project_blocker_count": {
+                      "type": "number"
+                    },
                     "sort_key": {
                       "type": "string"
                     },
@@ -2018,6 +2032,7 @@
                     "due_date",
                     "id",
                     "label_ids",
+                    "open_cross_project_blocker_count",
                     "sort_key",
                     "title",
                     "updated_at"
@@ -2622,6 +2637,50 @@
           "type",
           "project_id",
           "created_at",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "CrossProjectBlockersChangedEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "cross_project_blockers_changed"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "open_cross_project_blocker_count": {
+                      "type": "number"
+                    },
+                    "task_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "open_cross_project_blocker_count",
+                    "task_id"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tasks"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "project_id",
           "data"
         ],
         "additionalProperties": false
@@ -4093,6 +4152,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "sort_key": {
                 "type": "string"
               },
@@ -4119,6 +4181,7 @@
               "due_date",
               "id",
               "label_ids",
+              "open_cross_project_blocker_count",
               "sort_key",
               "title",
               "updated_at"
@@ -4243,6 +4306,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "sort_key": {
                 "type": "string"
               },
@@ -4269,6 +4335,7 @@
               "due_date",
               "id",
               "label_ids",
+              "open_cross_project_blocker_count",
               "sort_key",
               "title",
               "updated_at"
@@ -4381,6 +4448,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "sort_key": {
                 "type": "string"
               },
@@ -4406,6 +4476,7 @@
               "due_date",
               "id",
               "label_ids",
+              "open_cross_project_blocker_count",
               "sort_key",
               "title",
               "updated_at"
@@ -4527,6 +4598,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "sort_key": {
                 "type": "string"
               },
@@ -4552,6 +4626,7 @@
               "due_date",
               "id",
               "label_ids",
+              "open_cross_project_blocker_count",
               "sort_key",
               "title",
               "updated_at"
@@ -4672,6 +4747,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "task_id": {
                 "type": "string"
               }
@@ -4680,6 +4758,7 @@
               "assignee_ids",
               "blocker_ids",
               "label_ids",
+              "open_cross_project_blocker_count",
               "task_id"
             ]
           }
@@ -4734,6 +4813,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "task_id": {
                 "type": "string"
               }
@@ -4742,6 +4824,7 @@
               "assignee_ids",
               "blocker_ids",
               "label_ids",
+              "open_cross_project_blocker_count",
               "task_id"
             ]
           }
@@ -4852,6 +4935,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "sort_key": {
                 "type": "string"
               },
@@ -4877,6 +4963,7 @@
               "due_date",
               "id",
               "label_ids",
+              "open_cross_project_blocker_count",
               "sort_key",
               "title",
               "updated_at"
@@ -4998,6 +5085,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "sort_key": {
                 "type": "string"
               },
@@ -5023,6 +5113,7 @@
               "due_date",
               "id",
               "label_ids",
+              "open_cross_project_blocker_count",
               "sort_key",
               "title",
               "updated_at"
@@ -5135,6 +5226,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "sort_key": {
                 "type": "string"
               },
@@ -5160,6 +5254,7 @@
               "due_date",
               "id",
               "label_ids",
+              "open_cross_project_blocker_count",
               "sort_key",
               "title",
               "updated_at"
@@ -5281,6 +5376,9 @@
                   "type": "string"
                 }
               },
+              "open_cross_project_blocker_count": {
+                "type": "number"
+              },
               "sort_key": {
                 "type": "string"
               },
@@ -5306,6 +5404,7 @@
               "due_date",
               "id",
               "label_ids",
+              "open_cross_project_blocker_count",
               "sort_key",
               "title",
               "updated_at"

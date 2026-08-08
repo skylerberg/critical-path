@@ -39,6 +39,7 @@ const BOARD_TASK_KEYS = [
   'label_ids',
   'assignee_ids',
   'blocker_ids',
+  'open_cross_project_blocker_count',
   'cover_image_url',
   'comment_count',
   'attachment_count',

@@ -927,6 +927,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/tasks/{id}/cross-project-dependencies': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get a task’s dependencies in other projects
+     * @description The task’s dependency edges whose other end lives in a different project, fetched separately from the board because the board payload deliberately carries no identity for the remote side — only `open_cross_project_blocker_count`. `blocked_by` names the tasks blocking this one and `blocking` the tasks it blocks; both carry the remote title, project and done state, and both omit archived remote tasks exactly as `blocker_ids` does. An edge whose other end is in a project the caller cannot access is never listed: it is added to `hidden_blocked_by_count` or `hidden_blocking_count` instead, and only while it is open, so the counts reconcile with `open_cross_project_blocker_count` and never reveal that an unreadable task is done. A task the caller cannot read is 404.
+     */
+    get: operations['getApiTasksByIdCrossProjectDependencies'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/tasks/{id}/archive': {
     parameters: {
       query?: never;
@@ -1940,6 +1960,7 @@ export interface components {
       due_date: string | null;
       id: string;
       label_ids: string[];
+      open_cross_project_blocker_count: number;
       sort_key: string;
       title: string;
       updated_at: string;
@@ -1984,6 +2005,7 @@ export interface components {
       due_date: string | null;
       id: string;
       label_ids: string[];
+      open_cross_project_blocker_count: number;
       sort_key: string;
       title: string;
       updated_at: string;
@@ -2032,6 +2054,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -2193,6 +2216,7 @@ export interface components {
       id: string;
       images: components['schemas']['ImageResponse'][];
       label_ids: string[];
+      open_cross_project_blocker_count: number;
       project_id: string;
       series_summary: string | null;
       sort_key: string;
@@ -2291,6 +2315,19 @@ export interface components {
       name?: string;
       text?: string;
     };
+    CrossProjectDependenciesResponse: {
+      blocked_by: components['schemas']['CrossProjectDependency'][];
+      blocking: components['schemas']['CrossProjectDependency'][];
+      hidden_blocked_by_count: number;
+      hidden_blocking_count: number;
+    };
+    CrossProjectDependency: {
+      is_done: boolean;
+      project_id: string;
+      project_name: string;
+      task_id: string;
+      title: string;
+    };
     SetTaskLabels: {
       label_ids: string[];
     };
@@ -2305,8 +2342,8 @@ export interface components {
       error: string;
     };
     CycleTask: {
-      id: string;
-      title: string;
+      id: string | null;
+      title: string | null;
     };
     AddBlocker: {
       /** Format: uuid */
@@ -2340,6 +2377,7 @@ export interface components {
       assignee_ids: string[];
       blocker_ids: string[];
       label_ids: string[];
+      open_cross_project_blocker_count: number;
       task_id: string;
     };
     BulkTaskLabels: {
@@ -2368,6 +2406,8 @@ export interface components {
       /** @enum {unknown} */
       bucket: 'blocked' | 'blocking' | 'ready';
       column_name: string;
+      hidden_blocked_by_count: number;
+      hidden_blocking_count: number;
       id: string;
       project_id: string;
       project_name: string;
@@ -5989,6 +6029,64 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['TaskActivityResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Authentication required or failed */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
+  getApiTasksByIdCrossProjectDependencies: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Cross-project dependencies in both directions, plus the hidden counts */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CrossProjectDependenciesResponse'];
         };
       };
       /** @description Bad Request */

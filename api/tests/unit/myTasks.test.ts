@@ -23,6 +23,8 @@ function row(
     assignees?: string[];
     blocking?: ReturnType<typeof linkRow>[];
     blockedBy?: ReturnType<typeof linkRow>[];
+    hiddenBlockedBy?: number;
+    hiddenBlocking?: number;
   } = {}
 ): MyTaskRow {
   return {
@@ -34,6 +36,8 @@ function row(
     assignee_rows: (options.assignees ?? [ME]).map((user_id) => ({ user_id })),
     blocked_by_rows: options.blockedBy ?? [],
     blocking_rows: options.blocking ?? [],
+    hidden_blocked_by_count: options.hiddenBlockedBy ?? 0,
+    hidden_blocking_count: options.hiddenBlocking ?? 0,
   };
 }
 
@@ -45,6 +49,20 @@ describe('bucketAndOrder', () => {
     );
     expect(task.bucket).toBe('blocked');
     expect(task.waiting_user_ids).toEqual(['user-bob']);
+  });
+
+  it('files a task with only an unreadable blocker as blocked', () => {
+    const [task] = bucketAndOrder([row('a', { hiddenBlockedBy: 1 })], ME);
+    expect(task.bucket).toBe('blocked');
+    expect(task.blocked_by).toEqual([]);
+    expect(task.hidden_blocked_by_count).toBe(1);
+  });
+
+  it('leaves a task with only an unreadable dependent out of the blocking bucket', () => {
+    const [task] = bucketAndOrder([row('a', { hiddenBlocking: 2 })], ME);
+    expect(task.bucket).toBe('ready');
+    expect(task.waiting_user_ids).toEqual([]);
+    expect(task.hidden_blocking_count).toBe(2);
   });
 
   it('files a task whose dependent belongs to someone else as blocking', () => {

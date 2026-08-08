@@ -527,6 +527,7 @@ describe('Bulk actions on a selection', () => {
         label_ids: [labelId],
         assignee_ids: [],
         blocker_ids: [],
+        open_cross_project_blocker_count: 0,
       });
       expect((await activityOf(ids[0]!)).map((entry) => entry.kind)).toEqual([
         'label_removed',

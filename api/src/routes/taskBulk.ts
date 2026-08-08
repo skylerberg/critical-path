@@ -7,6 +7,7 @@ import { recordBulkAssignments } from '../services/assignmentDigest';
 import { assertProjectWrite, projectAccessIdsAmong } from '../services/authorization';
 import { assertColumnInProject, lockColumnTail } from '../services/boardColumns';
 import { getArchivedTasksByIds } from '../services/boardPayload';
+import { syncCrossProjectBlockers } from '../services/crossProjectBlockers';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordAssigneeChanges, recordTaskActivity } from '../services/taskActivity';
 import { fetchTaskRelations } from '../services/taskRelations';
@@ -64,12 +65,15 @@ function changedTaskIds(delta: SetDelta, order: readonly string[]): string[] {
 // The relations reader carries the project id for the per-task publisher; the
 // batched event is already scoped to one project, so it never reaches a client.
 function toRelations(rows: Awaited<ReturnType<typeof fetchTaskRelations>>): BulkTaskRelations[] {
-  return rows.map(({ task_id, label_ids, assignee_ids, blocker_ids }) => ({
-    task_id,
-    label_ids,
-    assignee_ids,
-    blocker_ids,
-  }));
+  return rows.map(
+    ({ task_id, label_ids, assignee_ids, blocker_ids, open_cross_project_blocker_count }) => ({
+      task_id,
+      label_ids,
+      assignee_ids,
+      blocker_ids,
+      open_cross_project_blocker_count,
+    })
+  );
 }
 
 router.post(
@@ -122,6 +126,9 @@ router.post(
     }
 
     const moved_tasks = await relocateSelectedTasks(db, user.id, project.id, rows, target);
+    // A selection can span columns on both sides of the done line, so unlike the
+    // column-scoped moves there is no single before-state to compare against.
+    await syncCrossProjectBlockers(c, db, { taskIds: moved_tasks.map((task) => task.id) });
     publishAfterCommit(c, 'bulk_tasks_moved', project.id, { moved_tasks });
     return c.json({ moved_tasks, skipped_task_ids: skipped }, 200);
   }
@@ -181,6 +188,8 @@ router.post(
       user.id,
       taskIds.map((taskId) => ({ taskId, kind: 'archived' as const }))
     );
+
+    await syncCrossProjectBlockers(c, db, { taskIds });
 
     const tasks = await getArchivedTasksByIds(db, project.id, taskIds);
     publishAfterCommit(c, 'bulk_tasks_archived', project.id, { tasks });

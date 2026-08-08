@@ -12,6 +12,7 @@ export type BoardColumn = components['schemas']['BoardColumn'];
 export type BoardTask = components['schemas']['BoardTask'];
 export type BoardLabel = components['schemas']['BoardLabel'];
 export type ArchivedTask = components['schemas']['ArchivedTask'];
+export type CrossProjectDependency = components['schemas']['CrossProjectDependency'];
 export type MyTask = components['schemas']['MyTask'];
 export type MyTaskLink = components['schemas']['MyTaskLink'];
 export type MyTaskPersonGroup = components['schemas']['MyTaskPersonGroup'];
