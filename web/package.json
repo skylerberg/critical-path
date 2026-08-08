@@ -25,7 +25,7 @@
     "format:check": "prettier --check src",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate:api": "node scripts/generate-api-types.mjs",
+    "generate:api": "node scripts/generate-api-types.mjs && prettier --write src/api/api.generated.ts",
     "generate:realtime": "node scripts/generate-realtime-types.mjs && prettier --write src/api/realtime.generated.ts",
     "prepare": "node scripts/setup-hooks.mjs"
   },
