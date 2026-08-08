@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, relative, resolve } from 'node:path';
 import openapiTS, { astToString } from 'openapi-typescript';
+import { redump } from './redump.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SPEC_URL = process.env.SPEC_URL;
@@ -28,6 +29,9 @@ async function loadSpec() {
       throw new Error(`Failed to fetch ${SPEC_URL}: HTTP ${res.status}`);
     }
     return res.json();
+  }
+  if (process.env.SPEC_PATH === undefined && redump('openapi:dump')) {
+    console.log('Re-dumped openapi.json');
   }
   return JSON.parse(await readFile(SPEC_PATH, 'utf8'));
 }

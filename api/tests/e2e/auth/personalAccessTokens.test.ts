@@ -4,7 +4,8 @@ import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId } from '../../helpers/fixtures';
 import { createResetToken } from '../../../src/services/resetToken';
-import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
+import { SESSIONS_REVOKED } from '../../../src/services/realtime/bus';
+import { collectBusEntries } from '../../helpers/bus';
 import {
   LAST_USED_THROTTLE_MS,
   MAX_PERSONAL_ACCESS_TOKENS_PER_USER,
@@ -38,17 +39,6 @@ async function backdateLastUsed(id: string, at: Date): Promise<void> {
     .set({ last_used_at: at })
     .where('id', '=', id)
     .execute();
-}
-
-async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
-  const seen: BusEntry[] = [];
-  const unsubscribe = subscribeBus((entry) => seen.push(entry));
-  try {
-    await run();
-  } finally {
-    unsubscribe();
-  }
-  return seen;
 }
 
 describe('Personal access tokens', () => {
