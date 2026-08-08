@@ -125,12 +125,11 @@ function announce(result: MaterializeResult, webhookEvents: WebhookEvent[]): voi
     }
     if (result.boardTasks.length === 0) return;
     for (const boardTask of result.boardTasks) {
-      publish({ type: 'task_created', project_id: result.projectId, data: boardTask });
-      webhookEvents.push({
-        type: 'task_created',
-        project_id: result.projectId,
-        data: boardTask,
-      });
+      // A schedule has no session for publishAfterCommit to read an actor from,
+      // so the card names whoever set the schedule up.
+      const data = { ...boardTask, actor_user_id: result.actorUserId };
+      publish({ type: 'task_created', project_id: result.projectId, data });
+      webhookEvents.push({ type: 'task_created', project_id: result.projectId, data });
     }
     // The actor rides along so the unread dot agrees with the one a board read
     // computes from the activity log: with no actor there is no activity row

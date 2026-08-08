@@ -728,6 +728,7 @@ describe('Checklists API', () => {
           task_id: taskId,
           checklist_item_count: 0,
           checklist_done_count: 0,
+          actor_user_id: owner.id,
         });
       } finally {
         client.close();

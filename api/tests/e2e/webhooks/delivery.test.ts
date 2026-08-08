@@ -203,7 +203,7 @@ describe('Webhook delivery', () => {
       type: string;
       project_id: string;
       created_at: string;
-      data: { id: string };
+      data: { id: string; actor_user_id: string | null };
     };
     expect(envelope).toMatchObject({
       id: queued[0].id,
@@ -212,6 +212,9 @@ describe('Webhook delivery', () => {
       project_id: project.id,
     });
     expect(envelope.data.id).toBe(taskId);
+    // The delivered body is the realtime data verbatim, so a board mutation's
+    // actor reaches a consumer too. Deliberate, and additive to version 1.
+    expect(envelope.data.actor_user_id).toBe(user.id);
     expect(Number.isNaN(Date.parse(envelope.created_at))).toBe(false);
 
     const headers = received[0].headers;
