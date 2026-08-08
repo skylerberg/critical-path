@@ -652,9 +652,6 @@ so an open card can say it repeats. It is null for an ordinary card and for one
 whose series has since been deleted. Board payloads deliberately do not carry
 it: a join and a rule render per card, for a line one open card at a time shows.
 
-**Known gap:** a recurring card that assigns someone notifies nobody, where a
-manual assignment does.
-
 **Rollback runbook.** If a release carrying this is rolled back, the periodic
 `job` row survives with no handler anywhere. It is never claimed, but it appears
 in the recurring `unregisteredKindBacklog` warning forever. Clear it with
@@ -681,10 +678,14 @@ because a 422 would make an autosaving editor retry forever with nothing to
 point at. The writer is never a recipient of their own mention, and one
 request resolves at most 25 people.
 
-**Nothing is delivered yet.** A resolved mention is handed to a post-commit
-seam that does nothing: notification email covers assignment and board
-membership only, and a mention is deliberately not one of its kinds. Until that
-changes, mentions are a rendering and resolution feature only.
+**A resolved mention sends email.** It is the `mentioned` notification kind and
+goes through the same layer as every other one — the same per-recipient gates,
+the same three budgets, the same unsubscribe footer — rather than a mailer of
+its own. The message names the board and the card and says which of the two
+places the mention was in, because the card is the finest thing a link can
+address and a comment has no URL of its own. The repeat budget is keyed on the
+card, so a thread that names the same person on the same card all afternoon is
+one email an hour and not one per message.
 
 ### Task activity
 
@@ -1914,11 +1915,11 @@ editor typed that address.
 
 ### Notification email
 
-Three events, and only three, produce email: `task_assigned`,
-`bulk_task_assigned` and `added_to_project`. All are direct-address — somebody
-put your name on something — which is why none needs a per-project mute.
-Everything else (mentions, unblocks, activity summaries) is deliberately not
-built.
+Four events, and only four, produce email: `task_assigned`,
+`bulk_task_assigned`, `added_to_project` and `mentioned`. All are
+direct-address — somebody put your name on something — which is why none needs
+a per-project mute. Everything else (unblocks, activity summaries, anything a
+board does on its own) is deliberately not built.
 
 `bulk_task_assigned` is the one digest. A selection assigned in one action
 would otherwise be one email per card, which is the pattern that trains people
@@ -2000,19 +2001,30 @@ Three rules bound what is sent:
   removing a member and transferring ownership all send nothing.
 - **Copying is not writing.** Duplicating a card carries its assignees but
   notifies nobody, and neither does copying a whole board.
+- **Only a person.** A card a recurring schedule materialises carries the
+  series' assignees and mails none of them. The actor on that write is whoever
+  set the schedule up, months ago and for every occurrence at once; a card
+  arriving because Tuesday came round is not somebody putting your name on
+  something, which is the whole of what this mail is for.
 
 One write mails at most 100 people. Sends run as post-commit hooks, so a
 mutation that rolls back after queuing its notification sends nothing, and a
 failed send never affects the response; one recipient's failure does not stop
 the sends queued behind it, and leaves a log line as its only trace.
 
-Preferences are three booleans, all defaulting to true:
+Preferences are one boolean per kind, all defaulting to true:
 
 - `GET /api/auth/me/notification-settings` and
   `PUT /api/auth/me/notification-settings` (authenticated,
-  `{ task_assigned, bulk_task_assigned, added_to_project }`). They are
-  deliberately not part of `PATCH /api/auth/me`, which publishes to everyone
-  sharing a project.
+  `{ task_assigned, bulk_task_assigned, added_to_project, mentioned }`). They
+  are deliberately not part of `PATCH /api/auth/me`, which publishes to
+  everyone sharing a project.
+
+Every key of the `PUT` body is optional and it changes only the ones the body
+names, returning the whole set either way. That is what lets a client send the
+toggle the user just moved rather than the set it happens to be holding, and it
+is what stops the release that adds a kind from refusing every save made by a
+client that predates it — a browser tab loaded before the deploy included.
 
 The digest has its own toggle rather than riding on `task_assigned`: the set is
 per kind, and someone who wants to hear about a card handed to them personally
@@ -2199,7 +2211,7 @@ address, and this one would land in a logged response header.
   "account": { "id", "name", "email", "avatar_url", "created_at",
                "email_verified_at",
                "notification_settings": { "task_assigned", "bulk_task_assigned",
-                                          "added_to_project" } },
+                                          "added_to_project", "mentioned" } },
   "sessions":                [ { "id", "user_agent", "created_at", "expires_at" } ],
   "personal_access_tokens":  [ { "id", "name", "created_at", "expires_at" } ],
   "feedback":                [ { "id", "message", "page_path", "created_at" } ],
@@ -2263,8 +2275,8 @@ marked in or out, so a new user-keyed table fails the suite until someone
 decides. A second census does the same for every column of the four
 account-owned tables the export reads (`app_user`, `session`,
 `personal_access_token`, `feedback`), because a new column on one of those is
-the likelier rot — `notify_task_assigned` and `notify_added_to_project` arrived
-exactly that way. `project` and `project_member` are left out of it: the export
+the likelier rot — `notify_task_assigned`, `notify_added_to_project` and
+`notify_mentioned` all arrived exactly that way. `project` and `project_member` are left out of it: the export
 takes a pointer list from them, so their columns churn for board reasons.
 
 Both see the catalog only: a table that holds personal data keyed by email

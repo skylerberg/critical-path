@@ -5,12 +5,9 @@ import { db, waitForLockWaiters } from '../../helpers/database';
 import { newId, uniqueEmail, rankKey } from '../../helpers/fixtures';
 import { errorHandler } from '../../../src/middleware/errorHandler';
 import { transactionMiddleware } from '../../../src/middleware/transaction';
-import {
-  MAX_MENTION_RECIPIENTS,
-  notifyMentions,
-  setMentionDeliverer,
-} from '../../../src/services/mentions';
-import type { MentionNotification } from '../../../src/services/mentions';
+import { MAX_MENTION_RECIPIENTS, notifyMentions } from '../../../src/services/mentions';
+import type { MentionSource } from '../../../src/services/mentions';
+import { notificationDelivery, type Notification } from '../../../src/services/notifications';
 import type { Variables } from '../../../src/types/index';
 
 interface BoardPayload {
@@ -51,10 +48,17 @@ function textDoc(text: string): Record<string, unknown> {
   return { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] };
 }
 
+const PROJECT_NAME = 'Mention project';
+const TASK_TITLE = 'mention task';
+
 describe('Mentions', () => {
   const ctx = new TestContext();
   const projectIds: string[] = [];
-  const delivered: MentionNotification[] = [];
+  // Captured at the delivery seam rather than at the email sender: the fixture
+  // members below have no verified address, so every eligibility gate would
+  // filter them out before a message existed to count.
+  const delivered: Notification[] = [];
+  const realDeliver = notificationDelivery.deliver;
   // One more member than the cap, inserted directly because signup hashes a
   // password each time.
   const crowd = Array.from({ length: MAX_MENTION_RECIPIENTS + 1 }, () => newId());
@@ -64,6 +68,22 @@ describe('Mentions', () => {
   let projectId: string;
   let columnId: string;
 
+  function expectedMention(args: {
+    actor: TestUser;
+    taskId: string;
+    source: MentionSource;
+    recipientUserIds: string[];
+  }): Notification {
+    return {
+      kind: 'mentioned',
+      actor: { id: args.actor.id, name: args.actor.name },
+      project: { id: projectId, name: PROJECT_NAME, created_by: owner.id },
+      task: { id: args.taskId, title: TASK_TITLE },
+      source: args.source,
+      recipientUserIds: args.recipientUserIds,
+    };
+  }
+
   async function createTask(
     token: string,
     description: Record<string, unknown> | null
@@ -72,7 +92,7 @@ describe('Mentions', () => {
       id: newId(),
       project_id: projectId,
       column_id: columnId,
-      title: 'mention task',
+      title: TASK_TITLE,
       sort_key: rankKey(1000),
       description,
     });
@@ -111,7 +131,7 @@ describe('Mentions', () => {
     projectIds.push(projectId);
     const res = await ctx
       .request(owner.token)
-      .post('/api/projects', { id: projectId, name: 'Mention project' });
+      .post('/api/projects', { id: projectId, name: PROJECT_NAME });
     expect(res.status).toBe(201);
     const board = (await res.json()) as BoardPayload;
     columnId = board.columns[0].id;
@@ -136,9 +156,13 @@ describe('Mentions', () => {
       .values(crowd.map((id) => ({ project_id: projectId, user_id: id })))
       .execute();
 
-    setMentionDeliverer(async (notification) => {
-      delivered.push(notification);
-    });
+    // Only mentions: this file asserts "nothing was delivered" in a dozen
+    // places, and an unrelated kind arriving there would read as a mention bug.
+    notificationDelivery.deliver = async (notification) => {
+      if (notification.kind === 'mentioned') {
+        delivered.push(notification);
+      }
+    };
   });
 
   beforeEach(() => {
@@ -146,7 +170,7 @@ describe('Mentions', () => {
   });
 
   afterAll(async () => {
-    setMentionDeliverer(null);
+    notificationDelivery.deliver = realDeliver;
     if (projectIds.length > 0) {
       await db.deleteFrom('project').where('id', 'in', projectIds).execute();
     }
@@ -158,13 +182,12 @@ describe('Mentions', () => {
     it('resolves one mention added by a new task', async () => {
       const task = await createTask(owner.token, mentionDoc(member.id));
       expect(delivered).toEqual([
-        {
-          actorUserId: owner.id,
-          projectId,
+        expectedMention({
+          actor: owner,
           taskId: task.id,
           source: 'description',
           recipientUserIds: [member.id],
-        },
+        }),
       ]);
     });
 
@@ -177,7 +200,7 @@ describe('Mentions', () => {
       });
       expect(delivered).toHaveLength(1);
       expect(delivered[0]).toMatchObject({
-        actorUserId: member.id,
+        actor: { id: member.id },
         recipientUserIds: [owner.id],
       });
     });
@@ -289,13 +312,12 @@ describe('Mentions', () => {
       const comment = await postComment(owner.token, task.id, mentionDoc(member.id));
 
       expect(delivered).toEqual([
-        {
-          actorUserId: owner.id,
-          projectId,
+        expectedMention({
+          actor: owner,
           taskId: task.id,
           source: 'comment',
           recipientUserIds: [member.id],
-        },
+        }),
       ]);
       expect(comment.task_id).toBe(task.id);
     });
@@ -323,8 +345,8 @@ describe('Mentions', () => {
       expect(patched.status).toBe(200);
       expect(delivered).toHaveLength(1);
       expect(delivered[0]).toMatchObject({
-        actorUserId: member.id,
-        taskId: task.id,
+        actor: { id: member.id },
+        task: { id: task.id },
         source: 'comment',
         recipientUserIds: [owner.id],
       });
@@ -423,15 +445,23 @@ describe('Mentions', () => {
   });
 
   describe('rollback', () => {
+    // A real card, because resolving the message reads its title and a mention
+    // on a card that is not there resolves nobody.
+    let rollbackTaskId: string;
+
+    beforeAll(async () => {
+      rollbackTaskId = (await createTask(owner.token, null)).id;
+    });
+
     function buildApp(failAfterNotify: boolean): Hono<{ Variables: Required<Variables> }> {
       const app = new Hono<{ Variables: Required<Variables> }>();
       app.use('*', transactionMiddleware);
       app.onError(errorHandler);
       app.post('/notify', async (c) => {
         await notifyMentions(c, {
-          actorUserId: owner.id,
-          project: { id: projectId, created_by: owner.id },
-          taskId: newId(),
+          actor: owner,
+          project: { id: projectId, name: PROJECT_NAME, created_by: owner.id },
+          taskId: rollbackTaskId,
           source: 'description',
           previous: null,
           next: mentionDoc(member.id),
