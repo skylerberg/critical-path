@@ -1258,11 +1258,11 @@ const setNotificationSettingsResponses = {
   200: jsonResponse('Updated notification settings', notificationSettingsSchema),
 };
 
-router.put(
+router.patch(
   '/me/notification-settings',
   describeRoute({
     tags: ['Auth'],
-    summary: 'Set notification settings',
+    summary: 'Update notification settings',
     description:
       'Change the notification preferences the body names and leave the rest alone, then ' +
       'return the full set. Every key is optional so a client can send only what it changed, ' +

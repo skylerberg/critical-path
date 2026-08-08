@@ -367,16 +367,16 @@ export interface paths {
      * @description Return which notification emails the authenticated user has switched on. All default to true. They are read here rather than on the user record because that record is published to everyone sharing a project and a preference is private.
      */
     get: operations['getApiAuthMeNotificationSettings'];
-    /**
-     * Set notification settings
-     * @description Change the notification preferences the body names and leave the rest alone, then return the full set. Every key is optional so a client can send only what it changed, and so a kind added to a later release does not start refusing saves from a client that predates it. A preference stays meaningful while the address is unverified — no mail is sent then either way — so the toggles are never forced off.
-     */
-    put: operations['putApiAuthMeNotificationSettings'];
+    put?: never;
     post?: never;
     delete?: never;
     options?: never;
     head?: never;
-    patch?: never;
+    /**
+     * Update notification settings
+     * @description Change the notification preferences the body names and leave the rest alone, then return the full set. Every key is optional so a client can send only what it changed, and so a kind added to a later release does not start refusing saves from a client that predates it. A preference stays meaningful while the address is unverified — no mail is sent then either way — so the toggles are never forced off.
+     */
+    patch: operations['patchApiAuthMeNotificationSettings'];
     trace?: never;
   };
   '/api/auth/me/avatar': {
@@ -3699,7 +3699,7 @@ export interface operations {
       };
     };
   };
-  putApiAuthMeNotificationSettings: {
+  patchApiAuthMeNotificationSettings: {
     parameters: {
       query?: never;
       header?: never;

@@ -77,18 +77,28 @@ export interface Recipient {
   name: string;
 }
 
-// Both mailers gate on the same three things, and the access re-check is
+// Both mailers gate on the same four things, and the access re-check is
 // deliberately the last of them: every caller runs after its transaction
 // committed, so access can have been revoked in between.
+//
+// `actorUserId` is a required argument rather than something each caller
+// remembers to filter, because this is the one gate every mailer passes
+// through: `notify` drops the actor too, but a publisher that builds its own
+// `Notification` and calls `notificationDelivery.deliver` never runs that, and
+// "acting on yourself never mails you" has to hold for those as well.
 export async function eligibleRecipients(
   kind: NotificationKind,
   project: ProjectAccessFields,
+  actorUserId: string,
   userIds: readonly string[]
 ): Promise<Recipient[]> {
+  const wanted = [...new Set(userIds)].filter((id) => id !== actorUserId);
+  if (wanted.length === 0) return [];
+
   const rows = await db
     .selectFrom('app_user')
     .select(['id', 'email', 'name'])
-    .where('id', 'in', [...userIds])
+    .where('id', 'in', wanted)
     .where('email_verified_at', 'is not', null)
     .where(NOTIFY_COLUMN[kind], '=', true)
     .execute();
@@ -192,6 +202,7 @@ export const notificationDelivery: {
     const recipients = await eligibleRecipients(
       notification.kind,
       notification.project,
+      notification.actor.id,
       notification.recipientUserIds
     );
 
@@ -227,8 +238,10 @@ export type NotifyArgs = {
 );
 
 export async function notify(c: Pick<PublicContext, 'get'>, args: NotifyArgs): Promise<void> {
-  // Here rather than at the call sites so every future kind inherits it: acting
-  // on yourself never mails you.
+  // The actor drops out again in `eligibleRecipients`, which is what makes the
+  // rule hold for every mailer; dropping them here too is what makes a write
+  // naming only yourself queue no hook at all, and keeps them from spending one
+  // of the slots the cap below hands out.
   const recipientUserIds = [...new Set(args.recipientUserIds)]
     .filter((id) => id !== args.actor.id)
     .slice(0, MAX_NOTIFICATION_RECIPIENTS);

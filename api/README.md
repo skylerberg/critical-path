@@ -1928,13 +1928,14 @@ to filter this app's mail, so the cards are queued in
 into a single "Skyler assigned you 20 cards in Roadmap". See below for the
 window it waits.
 
-Delivery is gated per recipient in the notification layer on three conditions:
-the address must be verified, the recipient must not have switched that kind
-off, and the recipient must still have access to the project. The gates are
-**not** in the email sender, which is what keeps account-access mail —
-verification, password reset, feedback — sending unconditionally. Because they
-run per recipient, one unverified, opted-out or since-evicted person on a board
-never suppresses mail to the others.
+Delivery is gated per recipient in the notification layer on four conditions:
+the recipient must not be the person who caused the write, the address must be
+verified, the recipient must not have switched that kind off, and the recipient
+must still have access to the project. The gates are **not** in the email
+sender, which is what keeps account-access mail — verification, password reset,
+feedback — sending unconditionally. Because they run per recipient, one
+unverified, opted-out or since-evicted person on a board never suppresses mail
+to the others.
 
 The recipient list is snapshotted inside the transaction, so the access gate is
 re-evaluated at send time rather than trusted from that snapshot: a member
@@ -1995,8 +1996,12 @@ ten distinct senders an hour.
 Three rules bound what is sent:
 
 - **Never the actor.** Assigning yourself a task or adding yourself to a board
-  sends nothing. The rule lives in the notification layer, so every future kind
-  inherits it.
+  sends nothing. `notify` drops the actor before it queues anything, so a write
+  naming only yourself costs nothing at all — and the eligibility gate drops
+  them again at send time, which is what makes the rule hold for a publisher
+  that builds its own notification and never runs `notify`. The actor is a
+  required argument there rather than something each mailer remembers, because
+  the mailers that skip `notify` are exactly the ones written last.
 - **Only additions.** Re-saving the same assignee set, changing a role,
   removing a member and transferring ownership all send nothing.
 - **Copying is not writing.** Duplicating a card carries its assignees but
@@ -2015,16 +2020,18 @@ the sends queued behind it, and leaves a log line as its only trace.
 Preferences are one boolean per kind, all defaulting to true:
 
 - `GET /api/auth/me/notification-settings` and
-  `PUT /api/auth/me/notification-settings` (authenticated,
+  `PATCH /api/auth/me/notification-settings` (authenticated,
   `{ task_assigned, bulk_task_assigned, added_to_project, mentioned }`). They
   are deliberately not part of `PATCH /api/auth/me`, which publishes to
   everyone sharing a project.
 
-Every key of the `PUT` body is optional and it changes only the ones the body
-names, returning the whole set either way. That is what lets a client send the
-toggle the user just moved rather than the set it happens to be holding, and it
-is what stops the release that adds a kind from refusing every save made by a
-client that predates it — a browser tab loaded before the deploy included.
+Every key of the body is optional and it changes only the ones the body names,
+returning the whole set either way — `PATCH` rather than `PUT` because that is
+what it does. A body naming nothing is a read. That shape is what lets a client
+send the toggle the user just moved rather than the set it happens to be
+holding, and it is what stops the release that adds a kind from refusing every
+save made by a client that predates it — a browser tab loaded before the deploy
+included.
 
 The digest has its own toggle rather than riding on `task_assigned`: the set is
 per kind, and someone who wants to hear about a card handed to them personally
