@@ -17,7 +17,9 @@
 
   let newPassword = $state('');
   let confirmPassword = $state('');
-  let error = $state('');
+  let passwordError = $state('');
+  let confirmError = $state('');
+  let formError = $state('');
   let invalidToken = $state(false);
   let submitting = $state(false);
 
@@ -27,15 +29,14 @@
       invalidToken = true;
       return;
     }
-    if (newPassword.length < 8) {
-      error = 'Password must be at least 8 characters';
+    // Both, rather than the first to fail: a short password that also does not
+    // match otherwise reports the length, then the mismatch on the next attempt.
+    passwordError = newPassword.length < 8 ? 'Password must be at least 8 characters' : '';
+    confirmError = newPassword !== confirmPassword ? 'Passwords do not match' : '';
+    formError = '';
+    if (passwordError !== '' || confirmError !== '') {
       return;
     }
-    if (newPassword !== confirmPassword) {
-      error = 'Passwords do not match';
-      return;
-    }
-    error = '';
     submitting = true;
     try {
       const data = assertOk(
@@ -49,7 +50,7 @@
       if (err instanceof ApiError && err.status === 422) {
         invalidToken = true;
       } else {
-        error = apiMessage(err);
+        formError = apiMessage(err);
       }
       submitting = false;
     }
@@ -75,7 +76,7 @@
           name="new-password"
           autocomplete="new-password"
           bind:value={newPassword}
-          error={error !== '' ? error : undefined}
+          error={passwordError}
         />
         <Input
           label="Confirm new password"
@@ -83,7 +84,11 @@
           name="confirm-password"
           autocomplete="new-password"
           bind:value={confirmPassword}
+          error={confirmError}
         />
+        {#if formError !== ''}
+          <p role="alert" class="text-sm text-danger">{formError}</p>
+        {/if}
         <Button type="submit" disabled={submitting} class="w-full">Reset password</Button>
       </form>
       <p class="mt-4 text-center text-sm text-muted">

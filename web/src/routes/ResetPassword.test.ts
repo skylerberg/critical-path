@@ -83,7 +83,9 @@ describe('ResetPassword', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('requires the passwords to match', async () => {
+  // Under the field it is about. The mismatch used to render beneath "New
+  // password", pointing at the one field that was not wrong.
+  it('requires the passwords to match, and says so on the confirm field', async () => {
     render(ResetPassword, { token: 'tok-123' });
 
     await fireEvent.input(screen.getByLabelText('New password'), {
@@ -95,7 +97,49 @@ describe('ResetPassword', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
 
     expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
+    expect(screen.getByLabelText('Confirm new password')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('New password')).not.toHaveAttribute('aria-invalid');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('puts the length rule on the password field', async () => {
+    render(ResetPassword, { token: 'tok-123' });
+
+    await fillPasswords('short');
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
+
+    expect(await screen.findByText('Password must be at least 8 characters')).toBeInTheDocument();
+    expect(screen.getByLabelText('New password')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Confirm new password')).not.toHaveAttribute('aria-invalid');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Both at once, so fixing the length does not then reveal the mismatch.
+  it('reports a too-short password and a mismatch together', async () => {
+    render(ResetPassword, { token: 'tok-123' });
+
+    await fireEvent.input(screen.getByLabelText('New password'), { target: { value: 'short' } });
+    await fireEvent.input(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'different' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
+
+    expect(await screen.findByText('Password must be at least 8 characters')).toBeInTheDocument();
+    expect(screen.getByText('Passwords do not match')).toBeInTheDocument();
+  });
+
+  it('reports a failed request away from both fields', async () => {
+    fetchMock.mockRejectedValue(new TypeError('network down'));
+    render(ResetPassword, { token: 'tok-123' });
+
+    await fillPasswords('newpass12');
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not reach the server. Check your connection and try again.'
+    );
+    expect(screen.getByLabelText('New password')).not.toHaveAttribute('aria-invalid');
+    expect(screen.getByLabelText('Confirm new password')).not.toHaveAttribute('aria-invalid');
   });
 
   it('empties the credentials carried in from the signed-out screens', async () => {
