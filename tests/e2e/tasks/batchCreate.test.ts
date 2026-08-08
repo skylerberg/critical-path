@@ -43,7 +43,7 @@ describe('POST /api/tasks/batch', () => {
     return { id, title, sort_key: rankKey(rank) };
   }
 
-  function batchBody(tasks: { id: string; title: string; sort_key: string }[], overrides = {}) {
+  function batchBody(tasks: { id: string; title: string; sort_key?: string }[], overrides = {}) {
     return { project_id: projectId, column_id: columnId, tasks, ...overrides };
   }
 
@@ -251,6 +251,62 @@ describe('POST /api/tasks/batch', () => {
     const onBoard = await boardTaskIds();
     expect(onBoard).not.toContain(repeated);
     expect(onBoard).not.toContain(sent[2].id);
+  });
+
+  it('ranks two items that ask for the same key apart from each other', async () => {
+    const column = await fixtures.createColumn(projectId, { name: 'Same key twice' });
+    const wanted = rankKey(1000);
+    const sent = [
+      { id: newId(), title: 'First', sort_key: wanted },
+      { id: newId(), title: 'Second', sort_key: wanted },
+    ];
+
+    const res = await ctx
+      .request(user.token)
+      .post('/api/tasks/batch', batchBody(sent, { column_id: column }));
+    expect(res.status).toBe(201);
+
+    const keys = ((await res.json()) as { tasks: BatchTask[] }).tasks.map((task) => task.sort_key);
+    expect(new Set(keys).size).toBe(2);
+    expect(keys[0]).toBe(wanted);
+    expect(keys[1]! > wanted).toBe(true);
+  });
+
+  it('ranks an item past the key an archived card in the column is holding', async () => {
+    const column = await fixtures.createColumn(projectId, { name: 'Batch onto archived' });
+    const takenKey = rankKey(500);
+    await fixtures.createTaskRow(projectId, column, 'archived squatter', {
+      sortKey: takenKey,
+      archivedAt: new Date(),
+    });
+
+    const res = await ctx.request(user.token).post(
+      '/api/tasks/batch',
+      batchBody([{ id: newId(), title: 'Pasted', sort_key: takenKey }], {
+        column_id: column,
+      })
+    );
+    expect(res.status).toBe(201);
+
+    const [task] = ((await res.json()) as { tasks: BatchTask[] }).tasks;
+    expect(task!.sort_key > takenKey).toBe(true);
+  });
+
+  it('appends keyless items above everything the same batch claimed', async () => {
+    const column = await fixtures.createColumn(projectId, { name: 'Mixed batch' });
+    const high = rankKey(9000);
+    const sent = [
+      { id: newId(), title: 'Ranked high', sort_key: high },
+      { id: newId(), title: 'Unranked' },
+    ];
+
+    const res = await ctx
+      .request(user.token)
+      .post('/api/tasks/batch', batchBody(sent, { column_id: column }));
+    expect(res.status).toBe(201);
+
+    const keys = ((await res.json()) as { tasks: BatchTask[] }).tasks.map((task) => task.sort_key);
+    expect(keys[1]! > keys[0]!).toBe(true);
   });
 
   it('accepts a batch from a project member who is not the creator', async () => {

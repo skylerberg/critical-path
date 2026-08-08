@@ -9,8 +9,6 @@ import {
 } from '../../src/services/realtime/bus';
 import type { BusEntry } from '../../src/services/realtime/bus';
 
-// task_deleted because its payload really is just an id: these tests are about
-// routing, and the fixture should still be a valid envelope for its type.
 const entry: BusEntry = { type: 'task_deleted', project_id: 'p1', data: { id: 't1' } };
 
 describe('realtime bus remote publishing', () => {

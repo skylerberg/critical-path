@@ -1335,8 +1335,8 @@ every other token's sockets connected.
 
 Every mutation emits an event after its transaction commits. The envelope is
 `{ type, project_id, data }`. The table below summarises each payload; the
-machine-readable version is `realtime-events.json` in this repo, generated from
-the same declarations the server publishes against, so a client can generate
+machine-readable version is served at `GET /api/realtime-events.json`, generated
+from the same declarations the server publishes against, so a client can generate
 types for the envelope instead of asserting shapes off the wire. `project_id` is
 a string for every event except the three account-scoped ones, where it is `null`.
 
@@ -1534,8 +1534,8 @@ Every request body is one envelope:
 ```
 
 `data` is exactly the realtime `data` for that type — one declaration produces
-both, so the two cannot drift. `realtime-events.json` describes this body too,
-as `WebhookEvent`. Headers:
+both, so the two cannot drift. `GET /api/realtime-events.json` describes this
+body too, as `WebhookEvent`. Headers:
 `X-Critical-Path-Event`, `X-Critical-Path-Delivery` (the envelope `id`),
 `X-Critical-Path-Webhook`, `X-Critical-Path-Timestamp` (unix seconds) and
 `X-Critical-Path-Signature: v1=<hex>`, an HMAC-SHA256 over

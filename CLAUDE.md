@@ -19,9 +19,10 @@ for the frontend's conventions.
 
 Realtime and webhook event types come from a second document,
 `realtime-events.json`, because `/ws` has no HTTP request or response to put in
-the OpenAPI spec — see convention 14. The CLI generates from it; the web app
-does not yet, and until it does its realtime `data` stays `unknown` behind
-hand-written casts.
+the OpenAPI spec — see convention 14. It is dumped locally and gitignored, the
+same as `openapi.json`, and served at `GET /api/realtime-events.json` so a client
+can generate against a deployed API without a checkout of this repo. Both the
+web app and the CLI generate from it.
 
 # Conventions
 
@@ -113,10 +114,25 @@ hand-written casts.
     `src/schemas/index.ts`: the OpenAPI schema-name registry throws on two
     schemas with identical JSON Schema, which the bare `{ id }` payloads are.
     After changing a payload run `npm run realtime:dump` and
-    `npm run --prefix cli generate-realtime`, and commit
-    `realtime-events.json` with the change — a unit test fails when that file is
-    stale. `/ws` is not in openapi.json, so this is the only document the
-    clients can generate realtime types from.
+    `npm run --prefix cli generate-realtime`, and commit the regenerated
+    `cli/src/api/realtime.generated.ts`. The dump itself is gitignored like
+    `openapi.json`; what the clients check is that theirs is not older than this
+    repo's HEAD.
+15. Every `sort_key` is unique within its scope, and the `task` index spans
+    archived rows on purpose, so a key a client computed — ranked against only
+    the rows that client can see — is a request, not a value to store. The
+    column type is `ResolvedSortKey`, a branded string defined in
+    `src/db/types.ts`, and the request schemas produce a plain `string`: the
+    only way across is `resolveSortKey`, `resolveSortKeys` (a run of keys
+    resolved against each other as well as the scope, for a batch insert) or
+    `appendKeys`. Writing a client's key straight into the row is what used to
+    answer 500 on the rows it could not see; it is now a type error at the
+    write site rather than a rule each new handler has to remember. Keep the
+    residual `isUniqueViolation` → 409 anyway: resolving reads the scope, and
+    nothing holds it until the write. Raw `sql` writes bypass the brand — the
+    bulk paths that use them take the column's tail advisory lock instead, and
+    a new one must do the same, in that order (tail lock, then task rows) or it
+    deadlocks against the bulk move.
 
 # Realtime, email, and password reset
 
@@ -179,6 +195,46 @@ npm run --prefix cli generate-api` and commit the regenerated
 `npm run realtime:dump && npm run --prefix cli generate-realtime` and commit
 `cli/src/api/realtime.generated.ts` alongside it.
 
+# Staying current with main
+
+`main` moves fast — several PRs an hour when more than one agent is working — so a
+branch cut an hour ago is routinely behind, and *nothing tells you* until a rebase
+conflicts or CI fails on a rule your base predates. Rebase onto `main` (not merge:
+branches are rebased, only the PR itself lands as a merge commit) and check at
+three points:
+
+```sh
+git fetch origin && git rev-list --count HEAD..origin/main   # 0 means current
+```
+
+1. **Before starting.** A stale base means writing against code that has moved,
+   and it is also where duplicated work comes from: run `gh pr list` and
+   `git branch -a` too, because the fix you are about to write may already be
+   open. That has happened.
+2. **Before the full suite.** A 4-minute run against a stale base proves nothing
+   about the merge, and re-running after the rebase costs the same 4 minutes
+   twice.
+3. **Before pushing, and again before merging.** `gh pr view <n> --json
+   mergeStateStatus` reports `CLEAN` only for a branch that still applies.
+
+After any rebase, re-run the checks rather than trusting the pre-rebase pass, and
+re-run whatever generation the change involves (`openapi:dump`,
+`realtime:dump`, the client generators) — a rebase can bring in a schema change
+that silently invalidates a committed generated file.
+
+Two ways a stale base has produced *wrong* conclusions here, both worth guarding
+against directly:
+
+- **Comments about build configuration go stale.** `tsc` covers `src`, `tests`,
+  `scripts` and `vitest.config.ts`; a comment claiming tests are unchecked was
+  true when written and false a release later. Read `package.json` and
+  `tsconfig.json` rather than a comment describing them.
+- **"No diff" is not a passing check.** `git diff --quiet <file>` is vacuously
+  clean for a gitignored file, and for one a failed command never wrote —
+  `openapi.json` and `realtime-events.json` are both gitignored. Assert the
+  positive: the command exited 0, the file was written, the content is what you
+  expected.
+
 # Running things
 
 - `npm run dev` — API on port 3001.
@@ -234,3 +290,8 @@ the running code still reads; do that in a follow-up release).
 2. `npm run migrate` and `npm run migrate:test`.
 3. Regenerate committed types:
    `DATABASE_URL=postgres://skylerberg@127.0.0.1:5432/game_dev npm run kysely-codegen`.
+   That writes `src/db/types.generated.ts`. `src/db/types.ts` is hand-written
+   and is what the app imports: it re-exports the generated module and
+   overrides `DB` to brand every `sort_key` column (convention 15). A new
+   ordering scope needs its scope column added to `SCOPES` in
+   `src/services/sortKey.ts`; the brand follows from the column name.

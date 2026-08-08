@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateKeyBetween, BASE_62_DIGITS } from 'fractional-indexing';
+import type { ResolvedSortKey } from '../../src/db/types';
 import {
   SORT_KEY_MAX_LENGTH,
   isValidSortKey,
@@ -86,7 +87,7 @@ describe('sort key invariants', () => {
   });
 
   it('keeps bulk keys sorted and inside their bounds', () => {
-    const [low, high] = keysBetween(null, null, 2) as [string, string];
+    const [low, high] = keysBetween(null, null, 2) as [ResolvedSortKey, ResolvedSortKey];
 
     for (const count of [1, 2, 7, 64, 500]) {
       const keys = keysBetween(low, high, count);
@@ -105,7 +106,7 @@ describe('sort key invariants', () => {
   // needs n bits somewhere. This pins the rate so a regression in the alphabet
   // or the generator shows up as a change in insertion budget.
   it('grows about a character per five same-neighbour inserts', () => {
-    const [low, high] = keysBetween(null, null, 2) as [string, string];
+    const [low, high] = keysBetween(null, null, 2) as [ResolvedSortKey, ResolvedSortKey];
     const steps = 2_000;
     let current = low;
     for (let step = 0; step < steps; step++) {
