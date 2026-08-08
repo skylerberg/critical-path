@@ -17,6 +17,12 @@ then `npm run generate:api` in `../critical-path-web` and
 `npm run --prefix cli generate-api` here. See `../critical-path-web/CLAUDE.md`
 for the frontend's conventions.
 
+Realtime and webhook event types come from a second document,
+`realtime-events.json`, because `/ws` has no HTTP request or response to put in
+the OpenAPI spec — see convention 14. The CLI generates from it; the web app
+does not yet, and until it does its realtime `data` stays `unknown` behind
+hand-written casts.
+
 # Conventions
 
 1. All POST/PUT/PATCH/DELETE handlers run inside a database transaction via
@@ -83,13 +89,27 @@ for the frontend's conventions.
     published on rollback). Events about rows or access that are gone
     post-commit (`project_deleted`, membership-removal evictions) must
     snapshot `recipientUserIds` inside the transaction; events about live rows
-    rely on the delivery layer's per-event access re-check. Payload shapes are
-    in README.md; every other fact about a type — that it exists, whether it
-    reaches webhook registrations, whether it raises the unseen-changes dot,
-    and whether it carries a project — is one row of the table in
-    `src/services/realtime/eventCatalog.ts`. Adding a type there is what makes
-    it publishable, so the classification cannot be left half-done, and a
-    unit test holds the README table to the same set.
+    rely on the delivery layer's per-event access re-check. Every fact about a
+    type — that it exists, whether it reaches webhook registrations, whether it
+    raises the unseen-changes dot, and whether it carries a project — is one row
+    of the table in `src/services/realtime/eventCatalog.ts`. Adding a type there
+    is what makes it publishable, so the classification cannot be left
+    half-done, and a unit test holds the README table to the same set.
+14. A type's **payload shape** is one row of a second table,
+    `src/services/realtime/payloads.ts`, and the two tables are pinned to each
+    other: a type in the catalogue with no payload row does not compile.
+    `publishAfterCommit` and `publish` are generic over the event type, so a
+    payload that disagrees with its row is a type error at the publish site
+    rather than a README row that drifts. Reuse the request/response schema the
+    payload actually is (`boardTaskSchema`, `columnSchema`, …) instead of
+    restating its fields, and never re-export this module from
+    `src/schemas/index.ts`: the OpenAPI schema-name registry throws on two
+    schemas with identical JSON Schema, which the bare `{ id }` payloads are.
+    After changing a payload run `npm run realtime:dump` and
+    `npm run --prefix cli generate-realtime`, and commit
+    `realtime-events.json` with the change — a unit test fails when that file is
+    stale. `/ws` is not in openapi.json, so this is the only document the
+    clients can generate realtime types from.
 
 # Realtime, email, and password reset
 
@@ -124,10 +144,8 @@ for the frontend's conventions.
   them is what stops one family's token being spent as another's: the type is a
   required argument to both `encodeSignedToken` and `decodeSignedToken`, not a
   claim each caller remembers to check, and it is reserved from the claims
-  object at the type level. A new family is a new type string. Reset tokens
-  additionally pass `acceptUntyped` to stay valid across the rolling deploy
-  that introduced the claim; that flag is transitional and should be dropped in
-  a later release.
+  object at the type level. A new family is a new type string, and a token
+  naming no type at all verifies for nobody.
 - Neither `change-password` nor `reset-password` revokes anything: both answer
   204 and leave every session and token signed in, so a change-password issues
   no replacement token. Sessions are revoked only from the sessions list
@@ -150,7 +168,9 @@ against `cli/package.json` instead of the root's, and it is unrelated to npm
 workspaces, which this repo still must not use. After changing the API
 surface, run `npm run openapi:dump &&
 npm run --prefix cli generate-api` and commit the regenerated
-`cli/src/api/api.generated.ts`.
+`cli/src/api/api.generated.ts`; after changing a realtime payload, run
+`npm run realtime:dump && npm run --prefix cli generate-realtime` and commit
+`cli/src/api/realtime.generated.ts` alongside it.
 
 # Running things
 

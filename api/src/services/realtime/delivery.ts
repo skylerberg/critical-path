@@ -24,12 +24,11 @@ function sendTo(
 // Capped to self plus project-sharers: that is exactly the set allowed to read
 // the changed user's record at all, so nobody else may learn it changed.
 async function deliverUserUpdated(
-  entry: BusEntry,
+  entry: Extract<BusEntry, { type: typeof USER_UPDATED }>,
   message: string,
   dbc: Kysely<DB>
 ): Promise<void> {
-  const changedUserId = (entry.data as { id?: unknown } | null)?.id;
-  if (typeof changedUserId !== 'string') return;
+  const changedUserId = entry.data.id;
 
   const candidates = authedSocketEntries();
   if (candidates.length === 0) return;

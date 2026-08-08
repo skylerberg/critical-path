@@ -28,15 +28,10 @@ describe('encodeSignedToken / decodeSignedToken', () => {
   it('refuses to decode a token minted under another type', () => {
     const token = encodeSignedToken(SECRET, 'alpha', { uid: 'u1' });
     expect(decodeSignedToken(SECRET, 'beta', token)).toBeNull();
-    expect(decodeSignedToken(SECRET, 'beta', token, { acceptUntyped: true })).toBeNull();
   });
 
-  it('rejects an untyped token unless the caller opts in', () => {
-    const untyped = forge(SECRET, { uid: 'u1' });
-    expect(decodeSignedToken(SECRET, 'alpha', untyped)).toBeNull();
-    expect(decodeSignedToken(SECRET, 'alpha', untyped, { acceptUntyped: true })).toEqual({
-      uid: 'u1',
-    });
+  it('rejects a correctly signed token that names no type', () => {
+    expect(decodeSignedToken(SECRET, 'alpha', forge(SECRET, { uid: 'u1' }))).toBeNull();
   });
 
   it('rejects a tampered payload and a tampered signature', () => {

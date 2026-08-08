@@ -113,6 +113,14 @@ export const WEBHOOK_EVENT_TYPES: ReadonlySet<WebhookEventType> = new Set(
   REALTIME_EVENT_TYPES.filter(isWebhookEvent)
 );
 
+// Null for a type outside the catalogue, so one call answers both "is this a
+// real event type" and "which scope does it belong to" — which is what
+// validating an envelope that arrived from another replica needs.
+export function eventScope(type: string): 'account' | 'project' | null {
+  const event: (typeof EVENTS)[RealtimeEventType] | undefined = EVENTS[type as RealtimeEventType];
+  return event?.scope ?? null;
+}
+
 // Takes the whole union rather than ProjectEventType so callers that have not
 // yet narrowed on the project id need no cast: an account event carries no
 // project and so can never raise a dot.

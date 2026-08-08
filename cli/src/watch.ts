@@ -1,4 +1,27 @@
 import { ApiError } from './api/errors';
+import type { components } from './api/realtime.generated';
+
+type RealtimeEvent = components['schemas']['RealtimeEvent'];
+
+// The only events this file reads a payload from. Naming them through the
+// generated envelope means a renamed event type, or one that stops carrying the
+// project id, fails the build here instead of silently never subscribing.
+type ProjectListEvent = Extract<
+  RealtimeEvent,
+  { type: 'project_created' | 'project_updated' | 'project_deleted' }
+>;
+
+function isProjectListEventType(type: string): type is ProjectListEvent['type'] {
+  return type === 'project_created' || type === 'project_updated' || type === 'project_deleted';
+}
+
+// Validated rather than cast: a frame off the wire is untrusted. What the
+// generated type contributes is which field to read and that it is a string.
+function projectIdFromPayload(data: unknown): ProjectListEvent['data']['id'] | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const { id } = data as Partial<ProjectListEvent['data']>;
+  return typeof id === 'string' ? id : null;
+}
 
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
@@ -176,8 +199,9 @@ export function watchEvents(options: WatchOptions): Promise<void> {
     // does not close, the window in which the new project's own events are missed.
     function trackSubscriptions(type: string, data: unknown): void {
       if (options.projectId !== null) return;
-      const id = (data as { id?: unknown } | null | undefined)?.id;
-      if (typeof id !== 'string') return;
+      if (!isProjectListEventType(type)) return;
+      const id = projectIdFromPayload(data);
+      if (id === null) return;
       if (type === 'project_created' || type === 'project_updated') {
         if (!tracked.has(id)) {
           tracked.add(id);

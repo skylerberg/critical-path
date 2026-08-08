@@ -136,10 +136,7 @@ function announce(result: MaterializeResult, webhookEvents: WebhookEvent[]): voi
     publish({
       type: PROJECT_CHANGED,
       project_id: result.projectId,
-      data: {
-        id: result.projectId,
-        ...(result.actorUserId === null ? {} : { actor_user_id: result.actorUserId }),
-      },
+      data: { id: result.projectId, actor_user_id: result.actorUserId },
       broadcast: true,
     });
   } catch (err) {

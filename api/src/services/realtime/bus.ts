@@ -3,14 +3,10 @@ import { logger } from '../../utils/logger';
 // Imported from the modules directly, not the barrel, so the sender and its
 // node:http / node:dns dependencies stay out of every module that touches the bus.
 import { enqueueDeliveries } from '../webhooks/queue';
-import { isWebhookEvent, raisesUnseenDot } from './eventCatalog';
+import { eventScope, raisesUnseenDot } from './eventCatalog';
 import type { AccountEventType, ProjectEventType, RealtimeEventType } from './eventCatalog';
-
-interface RealtimeEnvelope {
-  type: RealtimeEventType;
-  project_id: string | null;
-  data: unknown;
-}
+import { isWebhookEnvelope } from './payloads';
+import type { RealtimeEnvelope, RealtimePayloads } from './payloads';
 
 export interface PublishOptions {
   // Exact recipients, no access re-check — for delete/removal events whose
@@ -24,7 +20,7 @@ export interface PublishOptions {
   editorsOnly?: boolean;
 }
 
-export interface BusEntry extends RealtimeEnvelope, PublishOptions {}
+export type BusEntry = RealtimeEnvelope & PublishOptions;
 
 export type BusSubscriber = (entry: BusEntry) => void;
 
@@ -38,6 +34,29 @@ const subscribers = new Set<BusSubscriber>();
 export type RemotePublisher = (entry: BusEntry) => Promise<void>;
 
 let remotePublish: RemotePublisher | null = null;
+
+// The one place an envelope enters from outside this process, and so the one
+// place the union is an assumption rather than something the publish site
+// proved. The payload is deliberately not re-validated: a schema that drifted
+// from its publisher would then drop live events on every replica at once.
+// A type outside the catalogue is refused, though, because handleBusEntry and
+// deliver() dispatch on it.
+export function parseBusEntry(raw: unknown): BusEntry | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const {
+    type,
+    project_id: projectId,
+    data,
+  } = raw as { type?: unknown; project_id?: unknown; data?: unknown };
+  if (typeof type !== 'string') return null;
+  const scope = eventScope(type);
+  if (scope === null) return null;
+  if (scope === 'account' ? projectId !== null : typeof projectId !== 'string') return null;
+  // Every payload in the table is an object, so this is the shape check that
+  // costs nothing; the fields inside it are what go unverified.
+  if (typeof data !== 'object' || data === null) return null;
+  return raw as BusEntry;
+}
 
 export function deliverLocal(entry: BusEntry): void {
   for (const subscriber of subscribers) {
@@ -81,33 +100,41 @@ export function resetBus(): void {
 
 // Split by scope so the project id cannot disagree with the type: an account
 // event published against a project, or a project event published with null,
-// would silently skip both the unseen dot and the webhook queue.
-export function publishAfterCommit(
+// would silently skip both the unseen dot and the webhook queue. Generic over
+// the event type so `data` is checked against that type's row in
+// REALTIME_PAYLOAD_SCHEMAS rather than accepted as unknown.
+export function publishAfterCommit<T extends AccountEventType>(
   c: Pick<PublicContext, 'get'>,
-  type: AccountEventType,
+  type: T,
   projectId: null,
-  data: unknown,
+  data: RealtimePayloads[T],
   opts?: PublishOptions
 ): void;
-export function publishAfterCommit(
+export function publishAfterCommit<T extends ProjectEventType>(
   c: Pick<PublicContext, 'get'>,
-  type: ProjectEventType,
+  type: T,
   projectId: string,
-  data: unknown,
+  data: RealtimePayloads[T],
   opts?: PublishOptions
 ): void;
 export function publishAfterCommit(
   c: Pick<PublicContext, 'get'>,
   type: RealtimeEventType,
   projectId: string | null,
-  data: unknown,
+  data: RealtimePayloads[RealtimeEventType],
   opts?: PublishOptions
 ): void {
+  // The overloads are what check that type, projectId and data agree. An
+  // implementation signature necessarily sees the three widened independently,
+  // and no single non-generic type can restate their pairing, so this is the one
+  // place the envelope is asserted rather than inferred.
+  const entry = { type, project_id: projectId, data, ...opts } as BusEntry;
+
   const hooks = c.get('postCommitHooks');
   // A separate hook from the webhook flush below: the runner catches each hook
   // independently, so an enqueue failure can never suppress the publish.
   hooks.push(async () => {
-    publish({ type, project_id: projectId, data, ...opts });
+    publish(entry);
   });
 
   if (projectId === null) {
@@ -138,7 +165,7 @@ export function publishAfterCommit(
     }
   }
 
-  if (!isWebhookEvent(type)) {
+  if (!isWebhookEnvelope(entry)) {
     return;
   }
   // A post-commit hook rather than a bus subscriber: with Redis every replica
@@ -148,5 +175,8 @@ export function publishAfterCommit(
   if (pending.length === 0) {
     hooks.push(() => enqueueDeliveries(pending));
   }
-  pending.push({ type, project_id: projectId, data });
+  // The whole entry, publish options included: only the correlated value carries
+  // a payload the compiler can still match to its type. Nothing leaks, because
+  // enqueueDeliveries builds the delivered body field by field.
+  pending.push(entry);
 }
