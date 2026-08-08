@@ -249,10 +249,18 @@ export function registerAuth(program: Command, deps: CliDeps): void {
       .action(
         withCtx(deps, async (ctx, opts) => {
           const email = await resolveEmail(ctx, opts);
-          assertOk(await ctx.api.POST('/api/auth/forgot-password', { body: { email } }));
-          ctx.out.data({ requested: true }, () =>
-            ctx.out.line('If that account exists, a reset email was sent')
-          );
+          try {
+            assertOk(await ctx.api.POST('/api/auth/forgot-password', { body: { email } }));
+          } catch (err) {
+            if (err instanceof ApiError && err.status === 404) {
+              throw new CliError(`No account exists for ${email}`, EXIT.notFound);
+            }
+            if (err instanceof ApiError && err.status === 429) {
+              throw new CliError('Too many password reset requests, try again later', EXIT.auth);
+            }
+            throw err;
+          }
+          ctx.out.data({ sent: true }, () => ctx.out.line(`Reset email sent to ${email}`));
         })
       )
   );

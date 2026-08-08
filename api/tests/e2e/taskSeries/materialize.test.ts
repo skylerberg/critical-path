@@ -63,6 +63,7 @@ interface SeriesBody {
   open_occurrence_count: number;
   last_error: string | null;
   ended_at: string | null;
+  created_at: string;
 }
 
 interface TaskRow {
@@ -87,6 +88,10 @@ describe('Recurring series materialisation', () => {
 
   let projectId: string;
   let columnId: string;
+  // Only ever a start date, never an expected value: a start date has to be on
+  // or before today and every case that cares leaves days of slack, so one read
+  // for the file is safe where a read to compare against would not be.
+  let seriesStart: string;
 
   async function createProject(name: string): Promise<[string, string]> {
     const id = newId();
@@ -97,11 +102,23 @@ describe('Recurring series materialisation', () => {
     return [id, body.columns[0].id];
   }
 
-  async function todayIn(timezone: string): Promise<string> {
-    const { rows } = await sql<{
-      today: string;
-    }>`select to_char((now() at time zone ${timezone})::date, 'YYYY-MM-DD') as today`.execute(db);
+  async function todayIn(timezone: string, at?: Date): Promise<string> {
+    const { rows } = await sql<{ today: string }>`
+      select to_char((coalesce(${at ?? null}::timestamptz, now()) at time zone ${timezone})::date, 'YYYY-MM-DD')
+        as today
+    `.execute(db);
     return rows[0].today;
+  }
+
+  // Noon is as far from midnight, and from every DST transition, as an instant
+  // gets, so this lands unambiguously on `date` in `timezone`. Pinning a sweep
+  // to it is what stops the calendar day rolling over between the request that
+  // produced a date and the assertion made against it.
+  async function noonIn(date: string, timezone: string): Promise<Date> {
+    const { rows } = await sql<{ at: Date }>`
+      select ((${date}::date + interval '12 hours') at time zone ${timezone}) as at
+    `.execute(db);
+    return rows[0].at;
   }
 
   async function createSeries(overrides: Record<string, unknown> = {}): Promise<SeriesBody> {
@@ -111,7 +128,7 @@ describe('Recurring series materialisation', () => {
       column_id: columnId,
       title: 'Weekly review',
       preset: 'daily',
-      start_date: await todayIn('UTC'),
+      start_date: seriesStart,
       timezone: 'UTC',
       ...overrides,
     };
@@ -120,12 +137,22 @@ describe('Recurring series materialisation', () => {
     return (await res.json()) as SeriesBody;
   }
 
-  async function forceDue(seriesId: string, occurrenceDate: string): Promise<void> {
+  // A series starting in the past is scheduled on the day the server read inside
+  // that one request, so the 201 body is where a test takes "today" from.
+  function todayOf(series: SeriesBody): string {
+    expect(series.next_occurrence_date).not.toBeNull();
+    return series.next_occurrence_date as string;
+  }
+
+  // A minute before the instant the sweep is pinned to, so one run claims the
+  // series once: the schedule the run then writes is either further back than
+  // this — and so behind the keyset cursor — or past `at` and out of the batch.
+  async function forceDue(seriesId: string, occurrenceDate: string, at: Date): Promise<void> {
     await db
       .updateTable('task_series')
       .set({
         next_occurrence_date: occurrenceDate,
-        next_occurrence_at: sql<Date>`now() - interval '1 minute'`,
+        next_occurrence_at: sql<Date>`${at}::timestamptz - interval '1 minute'`,
       })
       .where('id', '=', seriesId)
       .execute();
@@ -174,6 +201,7 @@ describe('Recurring series materialisation', () => {
     owner = await ctx.createUser('mat-owner');
     member = await ctx.createUser('mat-member');
     outsider = await ctx.createUser('mat-outsider');
+    seriesStart = await todayIn('UTC');
 
     [projectId, columnId] = await createProject('materialise project');
     const members = await ctx.request(owner.token).put(`/api/projects/${projectId}/members`, {
@@ -208,7 +236,6 @@ describe('Recurring series materialisation', () => {
   });
 
   it('materialises one ordinary card carrying the whole template', async () => {
-    const today = await todayIn('UTC');
     const labelId = newId();
     await ctx
       .request(owner.token)
@@ -237,8 +264,9 @@ describe('Recurring series materialisation', () => {
       assignee_ids: [member.id],
       checklist_items: [{ text: 'first' }, { text: 'second' }],
     });
+    const today = todayOf(series);
 
-    expect(await runSeriesSweep()).toBe(1);
+    expect(await runSeriesSweep({ now: await noonIn(today, 'UTC') })).toBe(1);
 
     const cards = await tasksOf(series.id);
     expect(cards).toHaveLength(1);
@@ -295,7 +323,7 @@ describe('Recurring series materialisation', () => {
       column_id: columnId,
       title: 'Outlives its author',
       preset: 'daily',
-      start_date: await todayIn('UTC'),
+      start_date: seriesStart,
       timezone: 'UTC',
     });
     expect(res.status, await res.clone().text()).toBe(201);
@@ -324,7 +352,6 @@ describe('Recurring series materialisation', () => {
   });
 
   it('carries an active series into a copied project and schedules it from today', async () => {
-    const today = await todayIn('UTC');
     const [sourceProject, sourceColumn] = await createProject('series copy source');
     const joined = await ctx.request(owner.token).put(`/api/projects/${sourceProject}/members`, {
       user_ids: [member.id],
@@ -354,7 +381,8 @@ describe('Recurring series materialisation', () => {
     });
     // A schedule the source itself has already fallen behind on: the copy must
     // not inherit the stale day and fire it on arrival.
-    await forceDue(source.id, addDays(today, -3));
+    const sourceToday = todayOf(source);
+    await forceDue(source.id, addDays(sourceToday, -3), await noonIn(sourceToday, 'UTC'));
 
     const copyId = newId();
     projectIds.push(copyId);
@@ -380,10 +408,13 @@ describe('Recurring series materialisation', () => {
     // The copy starts personal, so the source's other editor has no access to it.
     expect(copy.assignee_ids).toEqual([owner.id]);
     expect(copy.checklist_items.map((item) => item.text)).toEqual(['agenda']);
-    expect(copy.next_occurrence_date).toBe(today);
+    // The copy row and the day it was scheduled on both come from the copying
+    // transaction's now(), so its own created_at is the day it started from.
+    const today = todayOf(copy);
+    expect(today).toBe(await todayIn('UTC', new Date(copy.created_at)));
     expect(copy.missed_occurrence_count).toBe(0);
 
-    await runSeriesSweep();
+    await runSeriesSweep({ now: await noonIn(today, 'UTC') });
     const cards = await tasksOf(copy.id);
     expect(cards).toHaveLength(1);
     expect(cards[0]).toMatchObject({
@@ -455,8 +486,9 @@ describe('Recurring series materialisation', () => {
 
   it('creates nothing before the day the occurrence falls on', async () => {
     const today = await todayIn('UTC');
+    const at = await noonIn(today, 'UTC');
     const series = await createSeries({ preset: 'weekly', start_date: addDays(today, 3) });
-    expect(await runSeriesSweep()).toBe(0);
+    expect(await runSeriesSweep({ now: at })).toBe(0);
     expect(await tasksOf(series.id)).toHaveLength(0);
     expect((await seriesRow(series.id)).next_occurrence_date).toBe(addDays(today, 3));
   });
@@ -475,13 +507,14 @@ describe('Recurring series materialisation', () => {
   });
 
   it('lets the unique index catch a rewound schedule without failing the run', async () => {
-    const today = await todayIn('UTC');
     const series = await createSeries();
-    await runSeriesSweep();
+    const today = todayOf(series);
+    const at = await noonIn(today, 'UTC');
+    await runSeriesSweep({ now: at });
     expect(await tasksOf(series.id)).toHaveLength(1);
 
-    await forceDue(series.id, today);
-    await expect(runSeriesSweep()).resolves.toBe(1);
+    await forceDue(series.id, today, at);
+    await expect(runSeriesSweep({ now: at })).resolves.toBe(1);
 
     expect(await tasksOf(series.id)).toHaveLength(1);
     const after = await seriesRow(series.id);
@@ -490,11 +523,12 @@ describe('Recurring series materialisation', () => {
   });
 
   it('skips a backlog forward instead of spawning stale cards', async () => {
-    const today = await todayIn('UTC');
-    const series = await createSeries({ start_date: addDays(today, -30) });
-    await forceDue(series.id, addDays(today, -3));
+    const series = await createSeries({ start_date: addDays(seriesStart, -30) });
+    const today = todayOf(series);
+    const at = await noonIn(today, 'UTC');
+    await forceDue(series.id, addDays(today, -3), at);
 
-    expect(await runSeriesSweep()).toBe(1);
+    expect(await runSeriesSweep({ now: at })).toBe(1);
 
     const cards = await tasksOf(series.id);
     expect(cards).toHaveLength(1);
@@ -506,15 +540,16 @@ describe('Recurring series materialisation', () => {
   });
 
   it('records no misses for a sweep that merely ran late', async () => {
-    const today = await todayIn('UTC');
     const series = await createSeries();
+    const today = todayOf(series);
+    const at = await noonIn(today, 'UTC');
     await db
       .updateTable('task_series')
-      .set({ next_occurrence_at: sql<Date>`now() - interval '90 seconds'` })
+      .set({ next_occurrence_at: sql<Date>`${at}::timestamptz - interval '90 seconds'` })
       .where('id', '=', series.id)
       .execute();
 
-    await runSeriesSweep();
+    await runSeriesSweep({ now: at });
     expect(await tasksOf(series.id)).toHaveLength(1);
     const after = await seriesRow(series.id);
     expect(after.missed_occurrence_count).toBe(0);
@@ -522,18 +557,19 @@ describe('Recurring series materialisation', () => {
   });
 
   it('converges after a backlog longer than one scan', async () => {
-    const today = await todayIn('UTC');
     const backlog = MAX_CATCHUP_SCAN + 100;
-    const series = await createSeries({ start_date: addDays(today, -(backlog + 10)) });
-    await forceDue(series.id, addDays(today, -backlog));
+    const series = await createSeries({ start_date: addDays(seriesStart, -(backlog + 10)) });
+    const today = todayOf(series);
+    const at = await noonIn(today, 'UTC');
+    await forceDue(series.id, addDays(today, -backlog), at);
 
-    await runSeriesSweep();
+    await runSeriesSweep({ now: at });
     expect(await tasksOf(series.id)).toHaveLength(0);
     const midway = await seriesRow(series.id);
     expect(midway.missed_occurrence_count).toBe(MAX_CATCHUP_SCAN);
     expect(midway.next_occurrence_date).toBe(addDays(today, -(backlog - MAX_CATCHUP_SCAN)));
 
-    await runSeriesSweep();
+    await runSeriesSweep({ now: at });
     const cards = await tasksOf(series.id);
     expect(cards).toHaveLength(1);
     expect(cards[0].series_occurrence_date).toBe(today);
@@ -541,11 +577,14 @@ describe('Recurring series materialisation', () => {
   });
 
   it('still creates today’s card when the backlog fills the scan exactly', async () => {
-    const today = await todayIn('UTC');
-    const series = await createSeries({ start_date: addDays(today, -(MAX_CATCHUP_SCAN + 10)) });
-    await forceDue(series.id, addDays(today, -(MAX_CATCHUP_SCAN - 1)));
+    const series = await createSeries({
+      start_date: addDays(seriesStart, -(MAX_CATCHUP_SCAN + 10)),
+    });
+    const today = todayOf(series);
+    const at = await noonIn(today, 'UTC');
+    await forceDue(series.id, addDays(today, -(MAX_CATCHUP_SCAN - 1)), at);
 
-    expect(await runSeriesSweep()).toBe(1);
+    expect(await runSeriesSweep({ now: at })).toBe(1);
 
     const cards = await tasksOf(series.id);
     expect(cards).toHaveLength(1);
@@ -556,19 +595,19 @@ describe('Recurring series materialisation', () => {
   });
 
   it('materialises exactly the occurrence that fell today and nothing beyond it', async () => {
-    const today = await todayIn('UTC');
     const daily = await createSeries();
-    await runSeriesSweep();
+    const today = todayOf(daily);
+    await runSeriesSweep({ now: await noonIn(today, 'UTC') });
     expect((await tasksOf(daily.id)).map((task) => task.series_occurrence_date)).toEqual([today]);
     expect((await seriesRow(daily.id)).next_occurrence_date).toBe(addDays(today, 1));
   });
 
   it('copies the template due date onto every card and derives none from the occurrence', async () => {
-    const today = await todayIn('UTC');
     const undated = await createSeries();
     const dated = await createSeries({ due_date: '2027-06-15' });
+    const today = todayOf(dated);
 
-    await runSeriesSweep();
+    await runSeriesSweep({ now: await noonIn(today, 'UTC') });
 
     const [plain] = await tasksOf(undated.id);
     expect(plain.series_occurrence_date).toBe(today);
@@ -580,9 +619,10 @@ describe('Recurring series materialisation', () => {
   });
 
   it('creates the next occurrence even while the previous card is still open', async () => {
-    const today = await todayIn('UTC');
     const series = await createSeries();
-    await runSeriesSweep();
+    const today = todayOf(series);
+    const at = await noonIn(today, 'UTC');
+    await runSeriesSweep({ now: at });
     const [first] = await tasksOf(series.id);
 
     // Re-labels the card the sweep just made as yesterday's, so today's is a
@@ -592,45 +632,54 @@ describe('Recurring series materialisation', () => {
       .set({ series_occurrence_date: addDays(today, -1) })
       .where('id', '=', first.id)
       .execute();
-    await forceDue(series.id, today);
+    await forceDue(series.id, today, at);
 
-    await runSeriesSweep();
+    await runSeriesSweep({ now: at });
     expect(await tasksOf(series.id)).toHaveLength(2);
     expect((await seriesRow(series.id)).open_occurrence_count).toBe(2);
   });
 
   it('never sweeps a paused or ended series', async () => {
-    const today = await todayIn('UTC');
     for (const status of ['paused', 'ended']) {
       const series = await createSeries();
+      const today = todayOf(series);
+      const at = await noonIn(today, 'UTC');
       await db
         .updateTable('task_series')
         .set({
           status,
           next_occurrence_date: today,
-          next_occurrence_at: sql<Date>`now() - interval '1 minute'`,
+          next_occurrence_at: sql<Date>`${at}::timestamptz - interval '1 minute'`,
         })
         .where('id', '=', series.id)
         .execute();
-      expect(await runSeriesSweep()).toBe(0);
+      expect(await runSeriesSweep({ now: at })).toBe(0);
       expect(await tasksOf(series.id)).toHaveLength(0);
       await db.deleteFrom('task_series').where('id', '=', series.id).execute();
     }
   });
 
   it('ends a series whose rule is exhausted', async () => {
-    const today = await todayIn('UTC');
-    const series = await createSeries({ preset: undefined, rrule: 'FREQ=DAILY;COUNT=1' });
-    await runSeriesSweep();
+    // A day out rather than today: the rule has exactly one occurrence, and
+    // which day that is then does not depend on whether the calendar rolled
+    // over between reading today and the request that stores the rule.
+    const day = addDays(await todayIn('UTC'), 1);
+    const series = await createSeries({
+      preset: undefined,
+      rrule: 'FREQ=DAILY;COUNT=1',
+      start_date: day,
+    });
+    const at = await noonIn(day, 'UTC');
+    await runSeriesSweep({ now: at });
 
     expect(await tasksOf(series.id)).toHaveLength(1);
     const after = await seriesRow(series.id);
     expect(after.status).toBe('ended');
     expect(after.ended_at).not.toBeNull();
     expect(after.next_occurrence_date).toBeNull();
-    expect(after.last_occurrence_date).toBe(today);
+    expect(after.last_occurrence_date).toBe(day);
 
-    expect(await runSeriesSweep()).toBe(0);
+    expect(await runSeriesSweep({ now: at })).toBe(0);
     expect(await tasksOf(series.id)).toHaveLength(1);
   });
 
@@ -695,16 +744,17 @@ describe('Recurring series materialisation', () => {
   });
 
   it('isolates a broken series and pauses it after repeated failures', async () => {
-    const today = await todayIn('UTC');
     const healthy = await createSeries({ title: 'healthy' });
     const poison = await createSeries({ title: 'poison' });
+    const today = todayOf(poison);
+    const at = await noonIn(today, 'UTC');
     await db
       .updateTable('task_series')
       .set({ rrule: 'not a rule at all' })
       .where('id', '=', poison.id)
       .execute();
 
-    await expect(runSeriesSweep()).resolves.toBe(2);
+    await expect(runSeriesSweep({ now: at })).resolves.toBe(2);
     expect(await tasksOf(healthy.id)).toHaveLength(1);
     expect(await tasksOf(poison.id)).toHaveLength(0);
 
@@ -718,8 +768,8 @@ describe('Recurring series materialisation', () => {
     expect(row.status).toBe('active');
 
     for (let attempt = 2; attempt <= MAX_CONSECUTIVE_FAILURES; attempt++) {
-      await forceDue(poison.id, today);
-      await runSeriesSweep();
+      await forceDue(poison.id, today, at);
+      await runSeriesSweep({ now: at });
     }
 
     row = await db
@@ -732,12 +782,14 @@ describe('Recurring series materialisation', () => {
   });
 
   it('bounds one run to a single batch and finishes the rest on the next', async () => {
-    const created: string[] = [];
+    const batch: SeriesBody[] = [];
     for (let i = 0; i < SWEEP_BATCH + 1; i++) {
-      created.push((await createSeries({ title: `batched ${String(i)}` })).id);
+      batch.push(await createSeries({ title: `batched ${String(i)}` }));
     }
+    const created = batch.map((series) => series.id);
+    const at = await noonIn(todayOf(batch[batch.length - 1]), 'UTC');
 
-    expect(await runSeriesSweep()).toBe(SWEEP_BATCH);
+    expect(await runSeriesSweep({ now: at })).toBe(SWEEP_BATCH);
     const afterFirst = await db
       .selectFrom('task')
       .select((eb) => eb.fn.countAll<string>().as('count'))
@@ -745,7 +797,7 @@ describe('Recurring series materialisation', () => {
       .executeTakeFirstOrThrow();
     expect(Number(afterFirst.count)).toBe(SWEEP_BATCH);
 
-    expect(await runSeriesSweep()).toBe(1);
+    expect(await runSeriesSweep({ now: at })).toBe(1);
     const afterSecond = await db
       .selectFrom('task')
       .select((eb) => eb.fn.countAll<string>().as('count'))
@@ -757,17 +809,21 @@ describe('Recurring series materialisation', () => {
   it('reads the calendar day in each series own timezone', async () => {
     const ahead = 'Pacific/Kiritimati';
     const behind = 'Pacific/Niue';
-    const aheadToday = await todayIn(ahead);
-    const behindToday = await todayIn(behind);
+    // Behind first, because the instant pinned below comes from the ahead
+    // series: its day in the behind zone is only guaranteed to be on or after
+    // the day a behind series created before it was scheduled on.
+    const second = await createSeries({ timezone: behind, start_date: addDays(seriesStart, -10) });
+    const first = await createSeries({ timezone: ahead, start_date: addDays(seriesStart, -10) });
+    expect(todayOf(second)).toBe(await todayIn(behind, new Date(second.created_at)));
+    expect(todayOf(first)).toBe(await todayIn(ahead, new Date(first.created_at)));
+
+    const at = await noonIn(todayOf(first), ahead);
+    const aheadToday = await todayIn(ahead, at);
+    const behindToday = await todayIn(behind, at);
     // The two zones are 25 hours apart, so their calendar days never coincide.
     expect(aheadToday > behindToday).toBe(true);
 
-    const first = await createSeries({ timezone: ahead, start_date: addDays(aheadToday, -10) });
-    const second = await createSeries({ timezone: behind, start_date: addDays(behindToday, -10) });
-    expect((await seriesRow(first.id)).next_occurrence_date).toBe(aheadToday);
-    expect((await seriesRow(second.id)).next_occurrence_date).toBe(behindToday);
-
-    await runSeriesSweep();
+    await runSeriesSweep({ now: at });
     expect((await tasksOf(first.id))[0].series_occurrence_date).toBe(aheadToday);
     expect((await tasksOf(second.id))[0].series_occurrence_date).toBe(behindToday);
   });
@@ -781,7 +837,8 @@ describe('Recurring series materialisation', () => {
     const from = subscriber.events.length;
 
     const series = await createSeries({ title: 'pushed' });
-    await runSeriesSweep();
+    const today = todayOf(series);
+    await runSeriesSweep({ now: await noonIn(today, 'UTC') });
 
     const created = await subscriber.waitForEvent((event) => event.type === 'task_created', {
       from,
@@ -806,7 +863,7 @@ describe('Recurring series materialisation', () => {
       { from }
     );
     expect(advanced.project_id).toBe(projectId);
-    expect(advanced.data.next_occurrence_date).toBe(addDays(await todayIn('UTC'), 1));
+    expect(advanced.data.next_occurrence_date).toBe(addDays(today, 1));
     expect(advanced.data.open_occurrence_count).toBe(1);
 
     await settle();
@@ -827,10 +884,11 @@ describe('Recurring series materialisation', () => {
     const from = subscriber.events.length;
 
     const today = await todayIn('UTC');
+    const at = await noonIn(today, 'UTC');
     const series = await createSeries({ preset: 'weekly', start_date: addDays(today, -60) });
-    await forceDue(series.id, addDays(today, -4));
+    await forceDue(series.id, addDays(today, -4), at);
 
-    expect(await runSeriesSweep()).toBe(1);
+    expect(await runSeriesSweep({ now: at })).toBe(1);
     expect(await tasksOf(series.id)).toHaveLength(0);
 
     const advanced = await subscriber.waitForEvent(
@@ -853,15 +911,16 @@ describe('Recurring series materialisation', () => {
     await settle();
     const from = subscriber.events.length;
 
-    const today = await todayIn('UTC');
     const poison = await createSeries({ title: 'broadcast poison' });
+    const today = todayOf(poison);
+    const at = await noonIn(today, 'UTC');
     await db
       .updateTable('task_series')
       .set({ rrule: 'not a rule at all' })
       .where('id', '=', poison.id)
       .execute();
 
-    await runSeriesSweep();
+    await runSeriesSweep({ now: at });
     const failed = await subscriber.waitForEvent(
       (event) => event.type === 'series_updated' && event.data.id === poison.id,
       { from }
@@ -870,8 +929,8 @@ describe('Recurring series materialisation', () => {
     expect(failed.data.status).toBe('active');
 
     for (let attempt = 2; attempt <= MAX_CONSECUTIVE_FAILURES; attempt++) {
-      await forceDue(poison.id, today);
-      await runSeriesSweep();
+      await forceDue(poison.id, today, at);
+      await runSeriesSweep({ now: at });
     }
 
     await subscriber.waitForEvent(

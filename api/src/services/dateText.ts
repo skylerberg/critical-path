@@ -13,7 +13,11 @@ export function dateText<T extends string | null = string | null>(
 export const dueDateText = dateText('task.due_date');
 
 // Takes the zone as a bound value or a column reference, so the same expression
-// serves a caller who knows the zone and a query that reads it per row.
-export function todayInZone(zone: string | RawBuilder<string>): RawBuilder<string> {
-  return dateText<string>(sql`(now() at time zone ${zone})::date`);
+// serves a caller who knows the zone and a query that reads it per row. `at`
+// exists because the calendar day is otherwise read afresh on every statement:
+// a caller that has to compare two reads of it, or that means a specific day,
+// has no way to say so and gets a different answer either side of midnight.
+export function todayInZone(zone: string | RawBuilder<string>, at?: Date): RawBuilder<string> {
+  const instant = at === undefined ? sql`now()` : sql`${at}::timestamptz`;
+  return dateText<string>(sql`(${instant} at time zone ${zone})::date`);
 }

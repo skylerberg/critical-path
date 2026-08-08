@@ -1,7 +1,7 @@
 import { sql } from 'kysely';
 import { db } from '../../db/index';
 import type { BoardTask, TaskSeriesResponse } from '../../schemas/index';
-import { CHECKLIST_INSERT_CHUNK } from '../../config/constants';
+import { BULK_INSERT_CHUNK } from '../../config/constants';
 import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { projectAccessIdsAmong } from '../authorization';
@@ -12,6 +12,7 @@ import { keysBetween } from '../sortKey';
 import { fetchBoardTaskRows } from '../boardPayload';
 import { PROJECT_CHANGED, publish } from '../realtime/bus';
 import { recordTaskActivity } from '../taskActivity';
+import { assertTaskCapacity } from '../taskCap';
 import { enqueueDeliveries } from '../webhooks/queue';
 import type { WebhookEvent } from '../webhooks/events';
 import { SERIES_UPDATED } from './events';
@@ -43,7 +44,8 @@ interface Candidate {
 async function claimCandidates(
   cursorAt: Date | null,
   cursorId: string | null,
-  limit: number
+  limit: number,
+  now: Date | null
 ): Promise<Candidate[]> {
   // Keyset rather than OFFSET or a bare LIMIT: a series another replica holds
   // stays at the head of the result set, and an offsetless re-query would spin
@@ -55,7 +57,7 @@ async function claimCandidates(
     where s.status = 'active'
       and s.column_id is not null
       and s.next_occurrence_at is not null
-      and s.next_occurrence_at <= now()
+      and s.next_occurrence_at <= coalesce(${now}::timestamptz, now())
       and p.archived_at is null
       and (
         ${cursorAt}::timestamptz is null
@@ -67,15 +69,23 @@ async function claimCandidates(
   return rows;
 }
 
-export async function runSeriesSweep(opts: { budgetMs?: number } = {}): Promise<number> {
+// `now` pins which instant — and so which calendar day in each series' own zone
+// — the run is about. Production passes nothing and reads the clock per
+// statement; a caller that has to know the answer in advance passes the instant
+// it computed it from, rather than racing midnight between one statement and
+// the next.
+export async function runSeriesSweep(
+  opts: { budgetMs?: number; now?: Date } = {}
+): Promise<number> {
   const deadline = Date.now() + (opts.budgetMs ?? SWEEP_BUDGET_MS);
+  const now = opts.now ?? null;
   const webhookEvents: WebhookEvent[] = [];
   let cursorAt: Date | null = null;
   let cursorId: string | null = null;
   let processed = 0;
 
   while (processed < SWEEP_BATCH && Date.now() < deadline) {
-    const candidates = await claimCandidates(cursorAt, cursorId, SWEEP_BATCH - processed);
+    const candidates = await claimCandidates(cursorAt, cursorId, SWEEP_BATCH - processed, now);
     if (candidates.length === 0) break;
 
     for (const candidate of candidates) {
@@ -85,7 +95,7 @@ export async function runSeriesSweep(opts: { budgetMs?: number } = {}): Promise<
 
       let result: MaterializeResult | null = null;
       try {
-        result = await materializeSeries(candidate.id);
+        result = await materializeSeries(candidate.id, now);
       } catch (err) {
         await recordSeriesFailure(candidate.id, err);
       }
@@ -183,7 +193,11 @@ async function recordSeriesFailure(seriesId: string, err: unknown): Promise<void
   }
 }
 
-async function materializeSeries(seriesId: string): Promise<MaterializeResult | null> {
+async function materializeSeries(
+  seriesId: string,
+  now: Date | null
+): Promise<MaterializeResult | null> {
+  const at = sql<Date>`coalesce(${now}::timestamptz, now())`;
   return db.transaction().execute(async (trx) => {
     // The job lease covers the job row, and one row drives every series, so it
     // offers no per-series exclusion at all; this is what does.
@@ -194,12 +208,12 @@ async function materializeSeries(seriesId: string): Promise<MaterializeResult | 
         dateText<string>('task_series.start_date').as('start_date_text'),
         dateText('task_series.next_occurrence_date').as('next_text'),
         dateText('task_series.due_date').as('due_date_text'),
-        todayInZone(sql.ref('task_series.timezone')).as('today_text'),
+        todayInZone(sql.ref('task_series.timezone'), now ?? undefined).as('today_text'),
       ])
       .where('task_series.id', '=', seriesId)
       .where('task_series.status', '=', 'active')
       .where('task_series.column_id', 'is not', null)
-      .where('task_series.next_occurrence_at', '<=', sql<Date>`now()`)
+      .where('task_series.next_occurrence_at', '<=', at)
       .forUpdate()
       .skipLocked()
       .executeTakeFirst();
@@ -249,6 +263,15 @@ async function materializeSeries(seriesId: string): Promise<MaterializeResult | 
       missedDates = window.filter((date) => date < today);
       next = nextOccurrenceAfter(series.rrule, series.start_date_text, window[window.length - 1]);
     }
+
+    // Refused whole rather than filled to the ceiling: creating the occurrences
+    // that fit and advancing the schedule past the rest would drop cards with no
+    // trace anywhere. Throwing hands the series to recordSeriesFailure, which is
+    // what puts the reason in `last_error`, raises `consecutive_failures`, and
+    // pauses the series once a full board has stayed full for
+    // MAX_CONSECUTIVE_FAILURES sweeps. Until then it keeps retrying, so a board
+    // pruned back under the cap resumes on its own.
+    await assertTaskCapacity(trx, series.project_id, due.length);
 
     // A series outlives the account that set it up.
     const actorUserId = series.created_by ?? project.created_by;
@@ -392,11 +415,11 @@ async function createOccurrences(
         .values(assigneeIds.map((user_id) => ({ task_id: taskId, user_id })))
         .execute();
     }
-    for (let start = 0; start < checklistRows.length; start += CHECKLIST_INSERT_CHUNK) {
+    for (let start = 0; start < checklistRows.length; start += BULK_INSERT_CHUNK) {
       await trx
         .insertInto('checklist_item')
         .values(
-          checklistRows.slice(start, start + CHECKLIST_INSERT_CHUNK).map((row, index) => ({
+          checklistRows.slice(start, start + BULK_INSERT_CHUNK).map((row, index) => ({
             id: crypto.randomUUID(),
             task_id: taskId,
             text: row.text,

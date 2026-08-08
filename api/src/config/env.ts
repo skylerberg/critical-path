@@ -35,6 +35,27 @@ export function assertProxyConfig(): void {
   parseStrictHops('TRUST_PROXY_HOPS', process.env.TRUST_PROXY_HOPS, 1);
 }
 
+// Every send runs inside a post-commit hook, where a throw is caught and logged
+// and the request still answers 2xx. A deploy missing either of these therefore
+// looks healthy while mailing nothing at all, so it has to fail at boot instead.
+export function assertEmailConfig(): void {
+  if ((process.env.EMAIL_DRIVER || 'console') !== 'ses') {
+    return;
+  }
+  if (!process.env.SES_FROM_ADDRESS) {
+    throw new Error('SES_FROM_ADDRESS is required when EMAIL_DRIVER=ses');
+  }
+  // The SDK reads a region from AWS_REGION or AWS_DEFAULT_REGION when SES_REGION
+  // names none, and fails its first send with "Region is missing" when all three
+  // are absent. Asserting the three together is what keeps a deployment that
+  // supplies the region the AWS way working.
+  if (!process.env.SES_REGION && !process.env.AWS_REGION && !process.env.AWS_DEFAULT_REGION) {
+    throw new Error(
+      'SES_REGION (or AWS_REGION / AWS_DEFAULT_REGION) is required when EMAIL_DRIVER=ses'
+    );
+  }
+}
+
 const rawEnvironment = process.env.ENVIRONMENT;
 const environment: 'development' | 'test' | 'production' =
   rawEnvironment === 'production'

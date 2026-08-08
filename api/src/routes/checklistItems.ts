@@ -11,6 +11,8 @@ import { fetchBoardTaskRows } from '../services/boardPayload';
 import { publishAfterCommit } from '../services/realtime/index';
 import { appendKeys, resolveSortKey } from '../services/sortKey';
 import { recordTaskActivity } from '../services/taskActivity';
+import { assertTaskCapacity } from '../services/taskCap';
+import { MAX_TASKS_PER_PROJECT } from '../config/constants';
 import {
   idSchema,
   duplicateSchema,
@@ -28,6 +30,7 @@ import {
   conflictErrorResponse,
   positionConflictErrorResponse,
   validationErrorResponse,
+  validationOrUnprocessableErrorResponse,
   internalServerErrorResponse,
   type ChecklistItemResponse,
 } from '../schemas/index';
@@ -326,7 +329,9 @@ router.post(
       'nothing else is carried over — no labels, assignees, due date or dependency edge. The ' +
       'item is removed. The client supplies the new task id and its position; a duplicate id ' +
       'returns 409 and the item survives. Promoting the same item twice returns 404 the second ' +
-      'time and creates exactly one card.',
+      'time and creates exactly one card. A project already holding ' +
+      `${String(MAX_TASKS_PER_PROJECT)} tasks, archived ones included, returns 422 and keeps ` +
+      'the item.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...promoteChecklistItemResponses,
@@ -335,7 +340,7 @@ router.post(
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
-      ...validationErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -348,6 +353,10 @@ router.post(
     const actorId = c.get('user').id;
 
     const { task_id, project } = await assertChecklistItemWrite(db, actorId, id);
+
+    // Ahead of the delete below, so a board at the ceiling keeps the item rather
+    // than losing it to a card that was never going to be created.
+    await assertTaskCapacity(db, project.id, 1);
 
     // Delete first: a second concurrent promote blocks on this row lock, then
     // matches nothing and answers 404 having created no card. Inserting first

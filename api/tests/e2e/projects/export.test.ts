@@ -528,17 +528,19 @@ describe('GET /api/projects/:id/export', () => {
   });
 
   describe('zip archive', () => {
+    // The date comes from the manifest the same request produced, not from a
+    // second reading of the clock here: the route stamps both from one `new
+    // Date()`, so comparing against a locally computed today would disagree with
+    // it for the few milliseconds a day that straddle midnight UTC.
     it('serves an attachment named after the project with an ASCII slug and the export date', async () => {
-      const res = await ctx.request(owner.token).get(`/api/projects/${projectId}/export`);
+      const { response, files } = await exportZip(projectId, owner.token);
 
-      expect(res.status).toBe(200);
-      expect(res.headers.get('content-type')).toBe('application/zip');
-      expect(res.headers.get('cache-control')).toBe('no-store');
-      const today = new Date().toISOString().slice(0, 10);
-      expect(res.headers.get('content-disposition')).toMatch(
-        new RegExp(`^attachment; filename="my-project-\\d{4}-\\d{2}-\\d{2}\\.zip"$`)
+      expect(response.headers.get('content-type')).toBe('application/zip');
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      const manifest = JSON.parse(decode(files['project.json'])) as ProjectExport;
+      expect(response.headers.get('content-disposition')).toBe(
+        `attachment; filename="my-project-${manifest.exported_at.slice(0, 10)}.zip"`
       );
-      expect(res.headers.get('content-disposition')).toContain(today);
     });
 
     it('holds the manifest, the csv, and the real bytes of every image', async () => {
