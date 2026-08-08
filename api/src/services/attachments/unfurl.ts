@@ -1,7 +1,6 @@
 import sharp from 'sharp';
 import { sql } from 'kysely';
 import { db } from '../../db/index';
-import type { JsonValue } from '../../db/types';
 import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { registerJobHandler } from '../jobs/handlers';
@@ -204,15 +203,8 @@ export function registerAttachmentUnfurlHandler(): void {
   registerJobHandler({
     kind: ATTACHMENT_UNFURL_KIND,
     timeoutMs: 15_000,
-    run: async (payload: JsonValue) => {
-      const attachmentId =
-        typeof payload === 'object' && payload !== null && !Array.isArray(payload)
-          ? payload.attachment_id
-          : undefined;
-      if (typeof attachmentId !== 'string') {
-        throw new Error('attachment_unfurl payload needs an attachment_id');
-      }
-      await runAttachmentUnfurl(attachmentId);
+    run: async ({ attachment_id }) => {
+      await runAttachmentUnfurl(attachment_id);
     },
   });
 }

@@ -79,6 +79,10 @@ import {
   projectInvitationsResponseSchema,
   projectExportQuerySchema,
   projectExportSchema,
+  jsonResponse,
+  emptyResponse,
+  rawResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
@@ -133,6 +137,10 @@ async function removeMembers(
 
 const router: AppHono = new Hono();
 
+const listProjectsResponses = {
+  200: jsonResponse('Accessible projects with task counts', projectsListResponseSchema),
+};
+
 router.get(
   '/',
   describeRoute({
@@ -148,19 +156,12 @@ router.get(
       'then — so a board the caller has never opened reports false, not everything.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Accessible projects with task counts',
-        content: {
-          'application/json': {
-            schema: resolver(projectsListResponseSchema),
-          },
-        },
-      },
+      ...listProjectsResponses,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
-  async (c) => {
+  async (c): Promise<Returned<typeof listProjectsResponses>> => {
     const user = c.get('user');
     const rows = await c
       .get('db')
@@ -234,6 +235,10 @@ router.get(
   }
 );
 
+const createProjectResponses = {
+  201: jsonResponse('Created project as a full board payload', boardResponseSchema),
+};
+
 router.post(
   '/',
   describeRoute({
@@ -251,14 +256,7 @@ router.post(
       'reference an existing project and 404 when it references a project the caller cannot access.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Created project as a full board payload',
-        content: {
-          'application/json': {
-            schema: resolver(boardResponseSchema),
-          },
-        },
-      },
+      ...createProjectResponses,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
@@ -267,7 +265,7 @@ router.post(
     },
   }),
   jsonValidator(createProjectSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createProjectResponses>> => {
     const body = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -348,6 +346,8 @@ router.post(
   }
 );
 
+const getBoardResponses = { 200: jsonResponse('Board payload', boardResponseSchema) };
+
 router.get(
   '/:id',
   describeRoute({
@@ -362,14 +362,7 @@ router.get(
       'empty for a caller who never has. Reading the board does not stamp it.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Board payload',
-        content: {
-          'application/json': {
-            schema: resolver(boardResponseSchema),
-          },
-        },
-      },
+      ...getBoardResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -377,7 +370,7 @@ router.get(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof getBoardResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');
@@ -389,6 +382,10 @@ router.get(
     return c.json({ ...payload, changed_task_ids: await changedTaskIds(db, id, user.id) }, 200);
   }
 );
+
+const listArchivedTasksResponses = {
+  200: jsonResponse('Archived tasks, newest first', archivedTasksResponseSchema),
+};
 
 router.get(
   '/:id/archived-tasks',
@@ -402,14 +399,7 @@ router.get(
       'themselves, the same way they do the board payload.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Archived tasks, newest first',
-        content: {
-          'application/json': {
-            schema: resolver(archivedTasksResponseSchema),
-          },
-        },
-      },
+      ...listArchivedTasksResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -417,7 +407,7 @@ router.get(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof listArchivedTasksResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
@@ -426,6 +416,20 @@ router.get(
     return c.json({ tasks: await getArchivedTasks(db, id) }, 200);
   }
 );
+
+const exportProjectResponses = {
+  200: rawResponse({
+    description: 'Project export archive, or the manifest alone with format=json',
+    content: {
+      'application/json': {
+        schema: resolver(projectExportSchema),
+      },
+      'application/zip': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  }),
+};
 
 router.get(
   '/:id/export',
@@ -450,17 +454,7 @@ router.get(
       'image bytes — fetch those from GET /api/images/{id}, one per tasks[].images[].id.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Project export archive, or the manifest alone with format=json',
-        content: {
-          'application/json': {
-            schema: resolver(projectExportSchema),
-          },
-          'application/zip': {
-            schema: { type: 'string', format: 'binary' },
-          },
-        },
-      },
+      ...exportProjectResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -470,7 +464,7 @@ router.get(
   }),
   paramValidator(idSchema),
   queryValidator(projectExportQuerySchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof exportProjectResponses>> => {
     const { id } = c.req.valid('param');
     const { format } = c.req.valid('query');
     const db = c.get('db');
@@ -512,6 +506,8 @@ router.get(
   }
 );
 
+const patchProjectResponses = { 200: jsonResponse('Updated project', projectSchema) };
+
 router.patch(
   '/:id',
   describeRoute({
@@ -529,14 +525,7 @@ router.patch(
       'Editors only: a viewer gets 403 and non-accessors 404.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated project',
-        content: {
-          'application/json': {
-            schema: resolver(projectSchema),
-          },
-        },
-      },
+      ...patchProjectResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -547,7 +536,7 @@ router.patch(
   }),
   paramValidator(idSchema),
   jsonValidator(patchProjectSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchProjectResponses>> => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
@@ -586,6 +575,8 @@ router.patch(
   }
 );
 
+const deleteProjectResponses = { 204: emptyResponse('Project deleted') };
+
 router.delete(
   '/:id',
   describeRoute({
@@ -597,9 +588,7 @@ router.delete(
       'commit.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Project deleted',
-      },
+      ...deleteProjectResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -608,7 +597,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteProjectResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');
@@ -654,6 +643,8 @@ router.delete(
   }
 );
 
+const setProjectPositionResponses = { 204: emptyResponse('Position set') };
+
 router.put(
   '/:id/position',
   describeRoute({
@@ -667,9 +658,7 @@ router.put(
       'project_position_updated event carries the key that was stored.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Position set',
-      },
+      ...setProjectPositionResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -680,7 +669,7 @@ router.put(
   }),
   paramValidator(idSchema),
   jsonValidator(setProjectPositionSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof setProjectPositionResponses>> => {
     const { id } = c.req.valid('param');
     const { sort_key } = c.req.valid('json');
     const db = c.get('db');
@@ -721,6 +710,8 @@ router.put(
   }
 );
 
+const markProjectSeenResponses = { 204: emptyResponse('Marker moved') };
+
 router.put(
   '/:id/seen',
   describeRoute({
@@ -734,9 +725,7 @@ router.put(
       'cannot clear somebody else’s dot.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Marker moved',
-      },
+      ...markProjectSeenResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -744,7 +733,7 @@ router.put(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof markProjectSeenResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');
@@ -770,6 +759,8 @@ router.put(
   }
 );
 
+const setProjectMembersResponses = { 204: emptyResponse('Members set') };
+
 router.put(
   '/:id/members',
   describeRoute({
@@ -788,9 +779,7 @@ router.put(
       'invitations sent by anyone this leaves without write access are revoked with it.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Members set',
-      },
+      ...setProjectMembersResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -801,7 +790,7 @@ router.put(
   }),
   paramValidator(idSchema),
   jsonValidator(setProjectMembersSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof setProjectMembersResponses>> => {
     const { id } = c.req.valid('param');
     const { user_ids, roles } = c.req.valid('json');
     const db = c.get('db');
@@ -930,6 +919,13 @@ router.put(
   }
 );
 
+const addProjectMemberByEmailResponses = {
+  200: jsonResponse(
+    'The added member, or the pending invitation that was created',
+    addMemberByEmailResponseSchema
+  ),
+};
+
 router.post(
   '/:id/members/by-email',
   describeRoute({
@@ -961,14 +957,7 @@ router.post(
       'and non-accessors 404.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'The added member, or the pending invitation that was created',
-        content: {
-          'application/json': {
-            schema: resolver(addMemberByEmailResponseSchema),
-          },
-        },
-      },
+      ...addProjectMemberByEmailResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -980,7 +969,7 @@ router.post(
   }),
   paramValidator(idSchema),
   jsonValidator(addProjectMemberByEmailSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof addProjectMemberByEmailResponses>> => {
     const { id } = c.req.valid('param');
     const { email, role } = c.req.valid('json');
     const db = c.get('db');
@@ -1120,6 +1109,10 @@ router.post(
   }
 );
 
+const listProjectInvitationsResponses = {
+  200: jsonResponse('The project’s pending invitations', projectInvitationsResponseSchema),
+};
+
 router.get(
   '/:id/invitations',
   describeRoute({
@@ -1133,14 +1126,7 @@ router.get(
       'addresses that only editors can create, so a viewer gets 403 and non-accessors 404.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'The project’s pending invitations',
-        content: {
-          'application/json': {
-            schema: resolver(projectInvitationsResponseSchema),
-          },
-        },
-      },
+      ...listProjectInvitationsResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -1149,7 +1135,7 @@ router.get(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof listProjectInvitationsResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
@@ -1167,6 +1153,8 @@ router.get(
   }
 );
 
+const revokeProjectInvitationResponses = { 204: emptyResponse('Invitation revoked') };
+
 router.delete(
   '/:id/invitations/:invitationId',
   describeRoute({
@@ -1178,9 +1166,7 @@ router.delete(
       'consults the row. 404 when the project has no such invitation. Editors only.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Invitation revoked',
-      },
+      ...revokeProjectInvitationResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -1189,7 +1175,7 @@ router.delete(
     },
   }),
   paramValidator(projectInvitationParamsSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof revokeProjectInvitationResponses>> => {
     const { id, invitationId } = c.req.valid('param');
     const db = c.get('db');
 
@@ -1210,6 +1196,8 @@ router.delete(
   }
 );
 
+const resendProjectInvitationResponses = { 204: emptyResponse('Invitation resent') };
+
 router.post(
   '/:id/invitations/:invitationId/resend',
   describeRoute({
@@ -1223,9 +1211,7 @@ router.post(
       'budget of invitation emails. Editors only.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Invitation resent',
-      },
+      ...resendProjectInvitationResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -1235,7 +1221,7 @@ router.post(
     },
   }),
   paramValidator(projectInvitationParamsSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof resendProjectInvitationResponses>> => {
     const { id, invitationId } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');
@@ -1273,6 +1259,10 @@ router.post(
   }
 );
 
+const transferProjectOwnerResponses = {
+  200: jsonResponse('The project with its new owner', projectSchema),
+};
+
 router.put(
   '/:id/owner',
   describeRoute({
@@ -1287,14 +1277,7 @@ router.put(
       'PUT /:id/members. Passing your own id is a no-op. Task assignments are unaffected.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'The project with its new owner',
-        content: {
-          'application/json': {
-            schema: resolver(projectSchema),
-          },
-        },
-      },
+      ...transferProjectOwnerResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -1305,7 +1288,7 @@ router.put(
   }),
   paramValidator(idSchema),
   jsonValidator(setProjectOwnerSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof transferProjectOwnerResponses>> => {
     const { id } = c.req.valid('param');
     const { user_id } = c.req.valid('json');
     const db = c.get('db');

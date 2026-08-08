@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import type { Kysely, Selectable } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
@@ -30,6 +30,9 @@ import {
   type WebhookResponse,
   type WebhookDeliveryResponse,
   idSchema,
+  jsonResponse,
+  emptyResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
@@ -57,12 +60,19 @@ function toWebhookResponse(row: Selectable<ProjectWebhook>, includeSecret = true
   };
 }
 
+// Fail closed: the column is plain text, so a value the queue never writes is
+// reported as the terminal state it already is — the claim only ever takes rows
+// whose status is exactly 'pending', so nothing else is still going anywhere.
+function narrowDeliveryStatus(status: string): WebhookDeliveryResponse['status'] {
+  return status === 'pending' || status === 'delivered' ? status : 'failed';
+}
+
 function toDeliveryResponse(row: Selectable<WebhookDelivery>): WebhookDeliveryResponse {
   return {
     id: row.id,
     webhook_id: row.webhook_id,
     event_type: row.event_type,
-    status: row.status,
+    status: narrowDeliveryStatus(row.status),
     attempt_count: row.attempt_count,
     redelivery_count: row.redelivery_count,
     last_status_code: row.last_status_code,
@@ -114,6 +124,8 @@ async function assertWebhookAccess(
 
 const router: AppHono = new Hono();
 
+const createWebhookResponses = { 201: jsonResponse('Webhook registered', webhookSchema) };
+
 router.post(
   '/',
   describeRoute({
@@ -129,10 +141,7 @@ router.post(
       'only: a viewer gets 403. Returns 404 when the project is unknown or inaccessible.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Webhook registered',
-        content: { 'application/json': { schema: resolver(webhookSchema) } },
-      },
+      ...createWebhookResponses,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
@@ -142,7 +151,7 @@ router.post(
     },
   }),
   jsonValidator(createWebhookSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createWebhookResponses>> => {
     const { id, project_id, url } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -191,6 +200,10 @@ router.post(
   }
 );
 
+const listWebhooksResponses = {
+  200: jsonResponse('Webhook registrations', webhooksListResponseSchema),
+};
+
 router.get(
   '/',
   describeRoute({
@@ -201,10 +214,7 @@ router.get(
       'for an editor; the secret is omitted for a viewer.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Webhook registrations',
-        content: { 'application/json': { schema: resolver(webhooksListResponseSchema) } },
-      },
+      ...listWebhooksResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -212,7 +222,7 @@ router.get(
     },
   }),
   queryValidator(webhooksQuerySchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof listWebhooksResponses>> => {
     const { project_id } = c.req.valid('query');
     const db = c.get('db');
     const user = c.get('user');
@@ -231,6 +241,8 @@ router.get(
   }
 );
 
+const patchWebhookResponses = { 200: jsonResponse('Updated webhook', webhookSchema) };
+
 router.patch(
   '/:id',
   describeRoute({
@@ -242,10 +254,7 @@ router.patch(
       'sending null re-enables it and clears its consecutive failure count.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated webhook',
-        content: { 'application/json': { schema: resolver(webhookSchema) } },
-      },
+      ...patchWebhookResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -257,7 +266,7 @@ router.patch(
   }),
   paramValidator(idSchema),
   jsonValidator(patchWebhookSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchWebhookResponses>> => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
@@ -313,6 +322,8 @@ router.patch(
   }
 );
 
+const deleteWebhookResponses = { 204: emptyResponse('Webhook deleted') };
+
 router.delete(
   '/:id',
   describeRoute({
@@ -321,7 +332,7 @@ router.delete(
     description: 'Delete a registration. Its delivery log goes with it by cascade.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: { description: 'Webhook deleted' },
+      ...deleteWebhookResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -330,7 +341,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteWebhookResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');
@@ -341,6 +352,10 @@ router.delete(
     return c.body(null, 204);
   }
 );
+
+const rotateWebhookSecretResponses = {
+  200: jsonResponse('Webhook with its new secret', webhookSchema),
+};
 
 router.post(
   '/:id/rotate-secret',
@@ -353,10 +368,7 @@ router.post(
       'or tolerate one rejected delivery, which then retries under the new secret.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Webhook with its new secret',
-        content: { 'application/json': { schema: resolver(webhookSchema) } },
-      },
+      ...rotateWebhookSecretResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -365,7 +377,7 @@ router.post(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof rotateWebhookSecretResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');
@@ -382,6 +394,10 @@ router.post(
   }
 );
 
+const listWebhookDeliveriesResponses = {
+  200: jsonResponse('Delivery log', webhookDeliveriesResponseSchema),
+};
+
 router.get(
   '/:id/deliveries',
   describeRoute({
@@ -392,10 +408,7 @@ router.get(
       'response code and the last error. Terminal entries are kept for seven days.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Delivery log',
-        content: { 'application/json': { schema: resolver(webhookDeliveriesResponseSchema) } },
-      },
+      ...listWebhookDeliveriesResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -404,7 +417,7 @@ router.get(
   }),
   paramValidator(idSchema),
   queryValidator(webhookDeliveriesQuerySchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof listWebhookDeliveriesResponses>> => {
     const { id } = c.req.valid('param');
     const { limit } = c.req.valid('query');
     const db = c.get('db');
@@ -424,6 +437,10 @@ router.get(
   }
 );
 
+const redeliverWebhookDeliveryResponses = {
+  204: emptyResponse('Delivery queued for another attempt'),
+};
+
 router.post(
   '/:id/deliveries/:deliveryId/redeliver',
   describeRoute({
@@ -435,7 +452,7 @@ router.post(
       'idempotency key still matches. Re-sent deliveries never count toward auto-disable.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: { description: 'Delivery queued for another attempt' },
+      ...redeliverWebhookDeliveryResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -445,7 +462,7 @@ router.post(
     },
   }),
   paramValidator(webhookDeliveryParamsSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof redeliverWebhookDeliveryResponses>> => {
     const { id, deliveryId } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');

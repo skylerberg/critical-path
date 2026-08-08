@@ -54,7 +54,7 @@ export const webhookDeliverySchema = type({
   id: 'string',
   webhook_id: 'string',
   event_type: 'string',
-  status: 'string',
+  status: "'pending' | 'delivered' | 'failed'",
   attempt_count: 'number',
   redelivery_count: 'number',
   last_status_code: 'number | null',

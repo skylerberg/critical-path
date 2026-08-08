@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { DB, Project } from '../db/types';
 import { jsonValidator } from '../middleware/jsonValidator';
@@ -13,6 +13,9 @@ import {
   createCommentSchema,
   patchCommentSchema,
   commentSchema,
+  jsonResponse,
+  emptyResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
@@ -99,6 +102,8 @@ async function bodyBeforeMentionEdit(
   return row?.body ?? null;
 }
 
+const createCommentResponses = { 201: jsonResponse('Comment created', commentSchema) };
+
 router.post(
   '/',
   describeRoute({
@@ -110,14 +115,7 @@ router.post(
       'mention is rejected. Returns 404 when the task is unknown or inaccessible.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Comment created',
-        content: {
-          'application/json': {
-            schema: resolver(commentSchema),
-          },
-        },
-      },
+      ...createCommentResponses,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
@@ -126,7 +124,7 @@ router.post(
     },
   }),
   jsonValidator(createCommentSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createCommentResponses>> => {
     const { id, task_id, body } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -165,6 +163,8 @@ router.post(
   }
 );
 
+const patchCommentResponses = { 200: jsonResponse('Updated comment', commentSchema) };
+
 router.patch(
   '/:id',
   describeRoute({
@@ -175,14 +175,7 @@ router.patch(
       'the same as one that does not exist.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated comment',
-        content: {
-          'application/json': {
-            schema: resolver(commentSchema),
-          },
-        },
-      },
+      ...patchCommentResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -192,7 +185,7 @@ router.patch(
   }),
   paramValidator(idSchema),
   jsonValidator(patchCommentSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchCommentResponses>> => {
     const { id } = c.req.valid('param');
     const { body } = c.req.valid('json');
     const db = c.get('db');
@@ -228,6 +221,8 @@ router.patch(
   }
 );
 
+const deleteCommentResponses = { 204: emptyResponse('Comment deleted') };
+
 router.delete(
   '/:id',
   describeRoute({
@@ -238,9 +233,7 @@ router.delete(
       'that does not exist.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Comment deleted',
-      },
+      ...deleteCommentResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -248,7 +241,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteCommentResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 

@@ -3749,7 +3749,22 @@
               "preset": {
                 "anyOf": [
                   {
-                    "type": "string"
+                    "const": "daily"
+                  },
+                  {
+                    "const": "monthly_date"
+                  },
+                  {
+                    "const": "monthly_weekday"
+                  },
+                  {
+                    "const": "weekdays"
+                  },
+                  {
+                    "const": "weekly"
+                  },
+                  {
+                    "const": "yearly"
                   },
                   {
                     "type": "null"
@@ -3766,7 +3781,11 @@
                 "type": "string"
               },
               "status": {
-                "type": "string"
+                "enum": [
+                  "active",
+                  "ended",
+                  "paused"
+                ]
               },
               "summary": {
                 "type": "string"
@@ -4005,7 +4024,22 @@
               "preset": {
                 "anyOf": [
                   {
-                    "type": "string"
+                    "const": "daily"
+                  },
+                  {
+                    "const": "monthly_date"
+                  },
+                  {
+                    "const": "monthly_weekday"
+                  },
+                  {
+                    "const": "weekdays"
+                  },
+                  {
+                    "const": "weekly"
+                  },
+                  {
+                    "const": "yearly"
                   },
                   {
                     "type": "null"
@@ -4022,7 +4056,11 @@
                 "type": "string"
               },
               "status": {
-                "type": "string"
+                "enum": [
+                  "active",
+                  "ended",
+                  "paused"
+                ]
               },
               "summary": {
                 "type": "string"

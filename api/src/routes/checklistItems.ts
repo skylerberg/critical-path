@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { DB, Project } from '../db/types';
 import { jsonValidator } from '../middleware/jsonValidator';
@@ -17,6 +17,9 @@ import {
   patchChecklistItemSchema,
   checklistItemSchema,
   boardTaskSchema,
+  jsonResponse,
+  emptyResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
@@ -95,6 +98,10 @@ async function assertItemWrite(
   return { task_id: row.task_id, project };
 }
 
+const createChecklistItemResponses = {
+  201: jsonResponse('Checklist item created', checklistItemSchema),
+};
+
 router.post(
   '/',
   describeRoute({
@@ -107,14 +114,7 @@ router.post(
       'checked flag lets an already-ticked item be imported in one call.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Checklist item created',
-        content: {
-          'application/json': {
-            schema: resolver(checklistItemSchema),
-          },
-        },
-      },
+      ...createChecklistItemResponses,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
@@ -124,7 +124,7 @@ router.post(
     },
   }),
   jsonValidator(createChecklistItemSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createChecklistItemResponses>> => {
     const { id, task_id, text, sort_key, checked } = c.req.valid('json');
     const db = c.get('db');
     const actorId = c.get('user').id;
@@ -167,6 +167,10 @@ router.post(
   }
 );
 
+const patchChecklistItemResponses = {
+  200: jsonResponse('Updated checklist item', checklistItemSchema),
+};
+
 router.patch(
   '/:id',
   describeRoute({
@@ -183,14 +187,7 @@ router.patch(
       'than failing, so the echoed sort_key is not always the one that was sent.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated checklist item',
-        content: {
-          'application/json': {
-            schema: resolver(checklistItemSchema),
-          },
-        },
-      },
+      ...patchChecklistItemResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -202,7 +199,7 @@ router.patch(
   }),
   paramValidator(idSchema),
   jsonValidator(patchChecklistItemSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchChecklistItemResponses>> => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
@@ -288,6 +285,8 @@ router.patch(
   }
 );
 
+const deleteChecklistItemResponses = { 204: emptyResponse('Checklist item deleted') };
+
 router.delete(
   '/:id',
   describeRoute({
@@ -296,9 +295,7 @@ router.delete(
     description: 'Remove one item from a task’s checklist. Deleting it twice returns 404.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Checklist item deleted',
-      },
+      ...deleteChecklistItemResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -307,7 +304,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteChecklistItemResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const actorId = c.get('user').id;
@@ -336,6 +333,10 @@ router.delete(
   }
 );
 
+const promoteChecklistItemResponses = {
+  201: jsonResponse('The new task, in board-payload shape', boardTaskSchema),
+};
+
 router.post(
   '/:id/promote',
   describeRoute({
@@ -349,14 +350,7 @@ router.post(
       'time and creates exactly one card.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'The new task, in board-payload shape',
-        content: {
-          'application/json': {
-            schema: resolver(boardTaskSchema),
-          },
-        },
-      },
+      ...promoteChecklistItemResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -368,7 +362,7 @@ router.post(
   }),
   paramValidator(idSchema),
   jsonValidator(duplicateSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof promoteChecklistItemResponses>> => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');

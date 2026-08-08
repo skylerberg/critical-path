@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import type { Kysely, Selectable } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
@@ -13,6 +13,9 @@ import {
   patchLabelSchema,
   labelSchema,
   idSchema,
+  jsonResponse,
+  emptyResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
@@ -47,6 +50,8 @@ async function assertLabelWrite(
 
 const router: AppHono = new Hono();
 
+const createLabelResponses = { 201: jsonResponse('Label created', labelSchema) };
+
 router.post(
   '/',
   describeRoute({
@@ -57,14 +62,7 @@ router.post(
       'project. Returns 404 when the referenced project is unknown or inaccessible.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Label created',
-        content: {
-          'application/json': {
-            schema: resolver(labelSchema),
-          },
-        },
-      },
+      ...createLabelResponses,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
@@ -74,7 +72,7 @@ router.post(
     },
   }),
   jsonValidator(createLabelSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createLabelResponses>> => {
     const { id, project_id, name, color } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -98,6 +96,8 @@ router.post(
   }
 );
 
+const patchLabelResponses = { 200: jsonResponse('Updated label', labelSchema) };
+
 router.patch(
   '/:id',
   describeRoute({
@@ -106,14 +106,7 @@ router.patch(
     description: 'Rename or recolor a label. Label names are unique per project.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated label',
-        content: {
-          'application/json': {
-            schema: resolver(labelSchema),
-          },
-        },
-      },
+      ...patchLabelResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -125,7 +118,7 @@ router.patch(
   }),
   paramValidator(idSchema),
   jsonValidator(patchLabelSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchLabelResponses>> => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
@@ -162,6 +155,8 @@ router.patch(
   }
 );
 
+const deleteLabelResponses = { 204: emptyResponse('Label deleted') };
+
 router.delete(
   '/:id',
   describeRoute({
@@ -170,9 +165,7 @@ router.delete(
     description: 'Delete a label. Its task associations are removed by cascade.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Label deleted',
-      },
+      ...deleteLabelResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -181,7 +174,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteLabelResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');
