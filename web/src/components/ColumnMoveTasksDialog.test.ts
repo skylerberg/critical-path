@@ -8,21 +8,18 @@ import type { BoardColumn, BoardTask } from '../lib/board-types';
 const TODO: BoardColumn = {
   id: 'c1',
   name: 'Todo',
-  position: 1000,
   sort_key: 'V0000010001',
   is_done: false,
 };
 const DONE: BoardColumn = {
   id: 'c2',
   name: 'Done',
-  position: 2000,
   sort_key: 'V0000020001',
   is_done: true,
 };
 const EMPTY: BoardColumn = {
   id: 'c3',
   name: 'Empty',
-  position: 3000,
   sort_key: 'V0000030001',
   is_done: false,
 };
@@ -33,7 +30,6 @@ function task(id: string, columnId: string, title = id): BoardTask {
     column_id: columnId,
     title,
     description: null,
-    position: 1000,
     sort_key: 'V0000010001',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -41,7 +37,6 @@ function task(id: string, columnId: string, title = id): BoardTask {
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,

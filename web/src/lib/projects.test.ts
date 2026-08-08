@@ -6,7 +6,7 @@ import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
 
-function project(overrides: Partial<Project> = {}): Project {
+function project({ rank, ...overrides }: Partial<Project> & { rank?: number } = {}): Project {
   const memberIds = overrides.member_ids ?? [];
   const base: Project = {
     id: 'p-1',
@@ -21,16 +21,15 @@ function project(overrides: Partial<Project> = {}): Project {
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
-    position: null,
     sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
     ...overrides,
   };
-  // A positioned project is a ranked one; leaving the key off would send every
-  // reorder down the re-stamp branch.
-  if (base.sort_key === null && base.position !== null) {
-    base.sort_key = `V0${String(base.position).padStart(8, '0')}1`;
+  // A ranked project needs a key; leaving it off would send every reorder down
+  // the re-stamp branch.
+  if (base.sort_key === null && rank !== undefined) {
+    base.sort_key = `V0${String(rank).padStart(8, '0')}1`;
   }
   return base;
 }
@@ -39,12 +38,7 @@ function projectRow(
   item: Project
 ): Omit<
   Project,
-  | 'open_task_count'
-  | 'done_task_count'
-  | 'position'
-  | 'sort_key'
-  | 'last_seen_at'
-  | 'has_unseen_changes'
+  'open_task_count' | 'done_task_count' | 'sort_key' | 'last_seen_at' | 'has_unseen_changes'
 > {
   return {
     id: item.id,
@@ -75,8 +69,8 @@ function boardPayload(id: string, name: string, tasksInColumns: string[] = []): 
       created_at: '2026-03-01T00:00:00.000Z',
     },
     columns: [
-      { id: 'col-open', name: 'To Do', position: 1000, sort_key: 'V0000010001', is_done: false },
-      { id: 'col-done', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
+      { id: 'col-open', name: 'To Do', sort_key: 'V0000010001', is_done: false },
+      { id: 'col-done', name: 'Done', sort_key: 'V0000020001', is_done: true },
     ],
     tasks: tasksInColumns.map((columnId, index) => ({ id: `t-${index}`, column_id: columnId })),
     labels: [],
@@ -646,16 +640,14 @@ describe('projects store', () => {
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
   });
 
-  it('sorts positioned projects first, then nulls by created_at then id', async () => {
+  it('sorts ranked projects first, then nulls by created_at then id', async () => {
     const second = project({
       id: 'p-second',
-      position: 2000,
       sort_key: 'V0000020001',
       created_at: '2026-01-01T00:00:00.000Z',
     });
     const first = project({
       id: 'p-first',
-      position: 1000,
       sort_key: 'V0000010001',
       created_at: '2026-01-09T00:00:00.000Z',
     });
@@ -671,22 +663,22 @@ describe('projects store', () => {
     ]);
   });
 
-  it('sets a position optimistically and PUTs it', async () => {
+  it('sets a rank optimistically and PUTs it', async () => {
     await loadWith([project()]);
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
-    const pending = projects.setPosition('p-1', 1500, 'V3');
-    expect(projects.projects[0]!.position).toBe(1500);
+    const pending = projects.setPosition('p-1', 'V3');
+    expect(projects.projects[0]!.sort_key).toBe('V3');
 
     await pending;
 
     expect(requestAt(1).method).toBe('PUT');
     expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-1/position');
-    expect(await bodyOf(requestAt(1))).toEqual({ position: 1500, sort_key: expect.any(String) });
+    expect(await bodyOf(requestAt(1))).toEqual({ sort_key: 'V3' });
     expect(toasts.toasts).toEqual([]);
   });
 
-  it('toasts and refetches when setting a position fails', async () => {
+  it('toasts and refetches when setting a rank fails', async () => {
     const item = project();
     await loadWith([item]);
     fetchMock.mockImplementation(async (input) => {
@@ -696,16 +688,16 @@ describe('projects store', () => {
       return jsonResponse(200, { projects: [item] });
     });
 
-    await projects.setPosition('p-1', 1500, 'V3');
+    await projects.setPosition('p-1', 'V3');
 
-    expect(projects.projects[0]!.position).toBeNull();
+    expect(projects.projects[0]!.sort_key).toBeNull();
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
   });
 
-  it('reorders with a single midpoint PUT when every project is positioned', async () => {
-    const a = project({ id: 'p-a', position: 1000 });
-    const b = project({ id: 'p-b', position: 2000 });
-    const c = project({ id: 'p-c', position: 3000 });
+  it('reorders with a single midpoint PUT when every project is ranked', async () => {
+    const a = project({ id: 'p-a', rank: 1000 });
+    const b = project({ id: 'p-b', rank: 2000 });
+    const c = project({ id: 'p-c', rank: 3000 });
     await loadWith([a, b, c]);
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
@@ -714,12 +706,12 @@ describe('projects store', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(requestAt(1).method).toBe('PUT');
     expect(new URL(requestAt(1).url).pathname).toBe('/api/projects/p-c/position');
-    expect(await bodyOf(requestAt(1))).toEqual({ position: 1500, sort_key: expect.any(String) });
+    expect(await bodyOf(requestAt(1))).toEqual({ sort_key: expect.any(String) });
     expect(projects.active.map((p) => p.id)).toEqual(['p-a', 'p-c', 'p-b']);
   });
 
-  it('normalizes the whole list when any position is null', async () => {
-    const a = project({ id: 'p-a', position: 1000 });
+  it('normalizes the whole list when any rank is null', async () => {
+    const a = project({ id: 'p-a', rank: 1000 });
     const b = project({ id: 'p-b', created_at: '2026-01-02T00:00:00.000Z' });
     const c = project({ id: 'p-c', created_at: '2026-01-03T00:00:00.000Z' });
     await loadWith([a, b, c]);
@@ -735,9 +727,9 @@ describe('projects store', () => {
     }
     expect(puts).toEqual(
       new Map<string, unknown>([
-        ['/api/projects/p-a/position', { position: 1000, sort_key: expect.any(String) }],
-        ['/api/projects/p-c/position', { position: 2000, sort_key: expect.any(String) }],
-        ['/api/projects/p-b/position', { position: 3000, sort_key: expect.any(String) }],
+        ['/api/projects/p-a/position', { sort_key: expect.any(String) }],
+        ['/api/projects/p-c/position', { sort_key: expect.any(String) }],
+        ['/api/projects/p-b/position', { sort_key: expect.any(String) }],
       ])
     );
     expect(projects.active.map((p) => p.id)).toEqual(['p-a', 'p-c', 'p-b']);
@@ -755,8 +747,8 @@ describe('projects store', () => {
     expect(projects.projects[0]!.sort_key).toBe('V0000007501');
   });
 
-  it('preserves position through a project_updated merge', async () => {
-    await loadWith([project({ position: 500 })]);
+  it('preserves the rank through a project_updated merge', async () => {
+    await loadWith([project({ rank: 500 })]);
 
     projects.applyRealtime({
       type: 'project_updated',
@@ -764,12 +756,12 @@ describe('projects store', () => {
       data: { id: 'p-1', name: 'Renamed' },
     });
 
-    expect(projects.projects[0]!.position).toBe(500);
+    expect(projects.projects[0]!.sort_key).toBe('V0000005001');
     expect(projects.projects[0]!.name).toBe('Renamed');
   });
 
-  it('keeps the caller position when a PATCH response lacks it', async () => {
-    const item = project({ position: 500, sort_key: 'V0000005001', name: 'Old' });
+  it('keeps the caller rank when a PATCH response lacks it', async () => {
+    const item = project({ sort_key: 'V0000005001', name: 'Old' });
     await loadWith([item]);
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, { ...projectRow(item), name: 'New' })
@@ -777,7 +769,7 @@ describe('projects store', () => {
 
     await projects.rename('p-1', 'New');
 
-    expect(projects.projects[0]!.position).toBe(500);
+    expect(projects.projects[0]!.sort_key).toBe('V0000005001');
     expect(projects.projects[0]!.name).toBe('New');
   });
 });

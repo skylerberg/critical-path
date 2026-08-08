@@ -94,7 +94,6 @@ describe('QuickAddTask', () => {
     const created = board.tasks.find((t) => t.title === 'Sketch icons');
     expect(created).toBeDefined();
     expect(created?.column_id).toBe('c1');
-    expect(created?.position).toBe(1000);
     expect(input).toHaveValue('');
     expect(screen.getByLabelText('Task title')).toBeInTheDocument();
     expect(drafts.get(draftKey.quickAddTask('c1'))).toBe('');
@@ -204,7 +203,6 @@ describe('QuickAddTask multi-line paste', () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(board.tasksInColumn('c1').map((t) => t.title)).toEqual(['Alpha', 'Beta', 'Gamma']);
-    expect(board.tasksInColumn('c1').map((t) => t.position)).toEqual([1000, 2000, 3000]);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -216,9 +214,9 @@ describe('QuickAddTask multi-line paste', () => {
       project_id: 'p1',
       column_id: 'c1',
       tasks: [
-        { title: 'Alpha', position: 1000 },
-        { title: 'Beta', position: 2000 },
-        { title: 'Gamma', position: 3000 },
+        { title: 'Alpha', sort_key: expect.any(String) },
+        { title: 'Beta', sort_key: expect.any(String) },
+        { title: 'Gamma', sort_key: expect.any(String) },
       ],
     });
 

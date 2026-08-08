@@ -13,7 +13,6 @@ function task(id: string, columnId: string, title: string, position: number): Bo
     column_id: columnId,
     title,
     description: null,
-    position,
     sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -21,7 +20,6 @@ function task(id: string, columnId: string, title: string, position: number): Bo
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -31,6 +29,9 @@ function task(id: string, columnId: string, title: string, position: number): Bo
   };
 }
 
+const CUT_CARDS_KEY = 'V0000010001';
+const PRINT_RULES_KEY = 'V0000020001';
+
 let onclose: ReturnType<typeof vi.fn<() => void>>;
 let moveTask: MockInstance<typeof board.moveTask>;
 
@@ -39,9 +40,9 @@ beforeEach(() => {
   announcer.clear();
   board.currentProjectId = 'p1';
   board.columns = [
-    { id: 'todo', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-    { id: 'doing', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
-    { id: 'done', name: 'Done', position: 3000, sort_key: 'V0000030001', is_done: true },
+    { id: 'todo', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+    { id: 'doing', name: 'Doing', sort_key: 'V0000020001', is_done: false },
+    { id: 'done', name: 'Done', sort_key: 'V0000030001', is_done: true },
   ];
   board.tasks = [
     task('t1', 'todo', 'Design cards', 1000),
@@ -135,20 +136,25 @@ describe('QuickMoveMenu', () => {
     expect(rowLabels('Positions')).toEqual(['Top (before "Cut cards")']);
   });
 
+  // The slot is asserted as a rank against the cards already in Doing —
+  // 'Cut cards' then 'Print rules' — rather than an exact key, which the
+  // generator is free to choose.
   it.each([
-    ['Top (before "Cut cards")', 0],
-    ['Before "Print rules"', 1500],
-    ['Bottom (after "Print rules")', 3000],
-  ])('places the card at %s', async (row, position) => {
+    ['Top (before "Cut cards")', null, CUT_CARDS_KEY],
+    ['Before "Print rules"', CUT_CARDS_KEY, PRINT_RULES_KEY],
+    ['Bottom (after "Print rules")', PRINT_RULES_KEY, null],
+  ])('places the card at %s', async (row, after, before) => {
     open();
     await chooseColumn('Doing');
 
     await fireEvent.click(screen.getByRole('button', { name: row }));
 
     expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
-      position: position,
       sort_key: expect.any(String),
     });
+    const placed = moveTask.mock.calls[0]![2].sort_key;
+    if (after !== null) expect(placed > after).toBe(true);
+    if (before !== null) expect(placed < before).toBe(true);
   });
 
   it('skips the position step for a destination with no other cards', async () => {
@@ -157,7 +163,6 @@ describe('QuickMoveMenu', () => {
     await chooseColumn('Done');
 
     expect(moveTask).toHaveBeenCalledWith('t1', 'done', {
-      position: 1000,
       sort_key: expect.any(String),
     });
     expect(onclose).toHaveBeenCalledTimes(1);
@@ -184,7 +189,6 @@ describe('QuickMoveMenu', () => {
     await fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
-      position: 1500,
       sort_key: expect.any(String),
     });
   });
@@ -214,7 +218,6 @@ describe('QuickMoveMenu', () => {
     await fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
-      position: 1500,
       sort_key: expect.any(String),
     });
     await waitFor(() => {
@@ -233,7 +236,6 @@ describe('QuickMoveMenu', () => {
     anchorRow.click();
 
     expect(moveTask).toHaveBeenCalledWith('t1', 'doing', {
-      position: 2000,
       sort_key: expect.any(String),
     });
   });

@@ -57,7 +57,6 @@ function task(
     column_id: columnId,
     title,
     description: null,
-    position: 1000,
     sort_key: 'V0000010001',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-02T00:00:00Z',
@@ -65,7 +64,6 @@ function task(
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -153,18 +151,17 @@ beforeEach(() => {
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [
-    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-    { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
+    { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+    { id: 'c2', name: 'Done', sort_key: 'V0000020001', is_done: true },
   ];
   board.tasks = [
     task(T1, 'c1', 'Design cards', {
       label_ids: ['l1'],
       assignee_ids: ['u1'],
       blocker_ids: [T2, T3],
-      image_count: 1,
     }),
     task(T2, 'c1', 'Cut prototype'),
-    task(T3, 'c2', 'Buy sleeves', { position: 5000 }),
+    task(T3, 'c2', 'Buy sleeves', { sort_key: 'V0000050001' }),
     task(T4, 'c1', 'Playtest session', { blocker_ids: [T1] }),
   ];
   board.labels = [
@@ -239,7 +236,6 @@ function teammateVersion(): BoardTask {
     label_ids: ['l1'],
     assignee_ids: ['u1'],
     blocker_ids: [T2, T3],
-    image_count: 1,
     updated_at: '2026-05-05T00:00:00Z',
     description: {
       type: 'doc',
@@ -557,7 +553,6 @@ describe('TaskDetail', () => {
     await fireEvent.change(screen.getByLabelText('Column'), { target: { value: 'c2' } });
 
     expect(spy).toHaveBeenCalledWith(T1, 'c2', {
-      position: 6000,
       sort_key: expect.any(String),
     });
   });
@@ -1021,7 +1016,6 @@ describe('TaskDetail', () => {
         created_at: '2026-01-01T00:00:00Z',
         open_task_count: 0,
         done_task_count: 0,
-        position: null,
         sort_key: null,
         last_seen_at: null,
         has_unseen_changes: false,

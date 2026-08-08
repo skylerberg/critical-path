@@ -35,7 +35,6 @@ function listedProject(memberIds: string[]): Project {
     ...boardProject(memberIds),
     open_task_count: 0,
     done_task_count: 0,
-    position: null,
     sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,

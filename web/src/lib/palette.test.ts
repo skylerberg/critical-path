@@ -418,7 +418,6 @@ describe('advertised keys really are bound', () => {
       column_id: columnId,
       title,
       description: null,
-      position,
       sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
@@ -427,7 +426,6 @@ describe('advertised keys really are bound', () => {
       assignee_ids: [],
       blocker_ids: [],
       attachment_count: 0,
-      image_count: 0,
       cover_image_url: null,
       due_date: null,
       comment_count: 0,
@@ -465,8 +463,8 @@ describe('advertised keys really are bound', () => {
       created_at: '2026-01-01T00:00:00Z',
     };
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-      { id: 'done', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
+      { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+      { id: 'done', name: 'Done', sort_key: 'V0000020001', is_done: true },
     ];
     board.tasks = [task(TASK_ID, 'c1', 1000, 'Design cards')];
     router.navigate(projectHref(PROJECT_ID, 'Colori'), { replace: true });

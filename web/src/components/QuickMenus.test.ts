@@ -40,7 +40,6 @@ function task(id: string, columnId: string, title: string, position = 1000): Boa
     column_id: columnId,
     title,
     description: null,
-    position,
     sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
@@ -48,7 +47,6 @@ function task(id: string, columnId: string, title: string, position = 1000): Boa
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -73,8 +71,8 @@ function payload(projectId: string, name: string, tasks: BoardTask[]): BoardPayl
       created_at: '2026-07-15T00:00:00Z',
     },
     columns: [
-      { id: `${projectId}-todo`, name: 'To Do', position: 1000, sort_key: 'V0', is_done: false },
-      { id: `${projectId}-done`, name: 'Done', position: 2000, sort_key: 'V1', is_done: true },
+      { id: `${projectId}-todo`, name: 'To Do', sort_key: 'V0', is_done: false },
+      { id: `${projectId}-done`, name: 'Done', sort_key: 'V1', is_done: true },
     ],
     tasks,
     labels: [{ id: `${projectId}-lab`, name: 'Urgent', color: '#ef4444' }],
@@ -96,7 +94,6 @@ function projectRow(id: string, name: string) {
     created_at: '2026-07-15T00:00:00Z',
     open_task_count: 0,
     done_task_count: 0,
-    position: null,
     sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
@@ -272,7 +269,6 @@ describe('quick menus on a project route', () => {
     await fireEvent.click(within(menu).getByRole('button', { name: /^Bottom/ }));
 
     expect(moveTask).toHaveBeenCalledWith(T1, `${OPEN_PROJECT}-done`, {
-      position: 3000,
       sort_key: expect.any(String),
     });
     expect(shortcuts.moveMenu).toBeNull();
@@ -373,7 +369,6 @@ describe('quick menus for a card outside the open board', () => {
     await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
 
     expect(moveTask).toHaveBeenCalledWith(AWAY_TASK, `${AWAY_PROJECT}-done`, {
-      position: expect.any(Number),
       sort_key: expect.any(String),
     });
   });

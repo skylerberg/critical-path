@@ -14,7 +14,6 @@ function task(id: string): BoardTask {
     column_id: 'c1',
     title: id,
     description: null,
-    position: 1000,
     sort_key: 'V0000010001',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -22,7 +21,6 @@ function task(id: string): BoardTask {
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -294,10 +292,8 @@ describe('open and close', () => {
         color: null,
         created_at: '2026-01-01T00:00:00Z',
       };
-      board.columns = [
-        { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-      ];
-      board.tasks = [task('t1'), { ...task('t2'), position: 2000 }];
+      board.columns = [{ id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false }];
+      board.tasks = [task('t1'), { ...task('t2'), sort_key: 'V0000020001' }];
     });
 
     afterEach(() => {

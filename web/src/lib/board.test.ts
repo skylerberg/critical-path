@@ -56,7 +56,6 @@ function serverChecklistItem(
     task_id: 't1',
     text,
     checked,
-    position,
     sort_key: sortKey ?? `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: SERVER_CREATED_AT,
     updated_at: SERVER_CREATED_AT,
@@ -69,7 +68,6 @@ function task(id: string, columnId: string, position: number, title: string) {
     column_id: columnId,
     title,
     description: null,
-    position,
     sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -102,9 +100,9 @@ function payload(): BoardPayload {
       created_at: '2026-01-01T00:00:00Z',
     },
     columns: [
-      { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
-      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-      { id: 'c3', name: 'Empty', position: 3000, sort_key: 'V0000030001', is_done: false },
+      { id: 'c2', name: 'Done', sort_key: 'V0000020001', is_done: true },
+      { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+      { id: 'c3', name: 'Empty', sort_key: 'V0000030001', is_done: false },
     ],
     tasks: [task('t2', 'c1', 2000, 'B'), task('t1', 'c1', 1000, 'A'), task('t3', 'c2', 1000, 'C')],
     labels: [{ id: 'l1', name: 'art', color: '#ff0000' }],
@@ -145,11 +143,12 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
     if (request.method === 'POST' && url.pathname === '/api/tasks/batch') {
       const body = (await request.clone().json()) as {
         column_id: string;
-        tasks: { id: string; title: string; position: number }[];
+        tasks: { id: string; title: string; sort_key: string }[];
       };
       return jsonResponse(201, {
         tasks: body.tasks.map((item) => ({
-          ...task(item.id, body.column_id, item.position, item.title),
+          ...task(item.id, body.column_id, 1000, item.title),
+          sort_key: item.sort_key,
           created_at: SERVER_CREATED_AT,
           updated_at: SERVER_UPDATED_AT,
         })),
@@ -159,11 +158,12 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
       const body = (await request.clone().json()) as {
         id: string;
         column_id: string;
-        position: number;
+        sort_key: string;
         title: string;
       };
       return jsonResponse(201, {
-        ...task(body.id, body.column_id, body.position, body.title),
+        ...task(body.id, body.column_id, 1000, body.title),
+        sort_key: body.sort_key,
         created_at: SERVER_CREATED_AT,
         updated_at: SERVER_UPDATED_AT,
       });
@@ -171,12 +171,11 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
     const duplicatedTask = /^\/api\/tasks\/([^/]+)\/duplicate$/.exec(url.pathname);
     if (request.method === 'POST' && duplicatedTask !== null) {
       const source = board.tasks.find((t) => t.id === duplicatedTask[1]!)!;
-      const body = (await request.clone().json()) as { id: string; position: number };
+      const body = (await request.clone().json()) as { id: string; sort_key: string };
       return jsonResponse(201, {
         ...source,
         id: body.id,
-        position: body.position,
-        sort_key: `V0${String(Math.round(body.position)).padStart(8, '0')}1`,
+        sort_key: body.sort_key,
         blocker_ids: [],
         comment_count: 0,
         created_at: SERVER_CREATED_AT,
@@ -189,14 +188,13 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
     if (request.method === 'POST' && duplicatedColumn !== null) {
       const sourceId = duplicatedColumn[1]!;
       const source = board.columns.find((c) => c.id === sourceId)!;
-      const body = (await request.clone().json()) as { id: string; position: number };
+      const body = (await request.clone().json()) as { id: string; sort_key: string };
       return jsonResponse(201, {
         column: {
           id: body.id,
           project_id: 'p1',
           name: source.name,
-          position: body.position,
-          sort_key: `V0${String(Math.round(body.position)).padStart(8, '0')}1`,
+          sort_key: body.sort_key,
           is_done: source.is_done,
           created_at: SERVER_CREATED_AT,
         },
@@ -213,7 +211,6 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
         moved_tasks: body.task_ids.map((id, index) => ({
           id,
           column_id: columnId,
-          position: (index + 1) * 1000,
           sort_key: `V0${String((index + 1) * 1000).padStart(8, '0')}1`,
         })),
       });
@@ -255,9 +252,10 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
     }
     const promotedItem = /^\/api\/checklist-items\/([^/]+)\/promote$/.exec(url.pathname);
     if (request.method === 'POST' && promotedItem !== null) {
-      const body = (await request.clone().json()) as { id: string; position: number };
+      const body = (await request.clone().json()) as { id: string; sort_key: string };
       return jsonResponse(201, {
-        ...task(body.id, 'c1', body.position, 'promoted'),
+        ...task(body.id, 'c1', 1000, 'promoted'),
+        sort_key: body.sort_key,
         created_at: SERVER_CREATED_AT,
         updated_at: SERVER_UPDATED_AT,
       });
@@ -473,7 +471,6 @@ describe('board store readonly mode', () => {
         column_id: 'c1',
         title: 'A',
         description: null,
-        position: 1000,
         sort_key: 'V0000010001',
         label_ids: ['l1'],
         assignee_ids: ['u-ada'],
@@ -490,7 +487,6 @@ describe('board store readonly mode', () => {
         column_id: 'c1',
         title: 'B',
         description: null,
-        position: 2000,
         sort_key: 'V0000020001',
         label_ids: [],
         assignee_ids: [],
@@ -731,18 +727,16 @@ describe('board store mutations', () => {
   });
 
   it('moveTask applies optimistically and sends exactly one PATCH', async () => {
-    await board.moveTask('t1', 'c2', { position: 3000, sort_key: 'V3000' });
+    await board.moveTask('t1', 'c2', { sort_key: 'V3000' });
 
     const moved = board.tasks.find((t) => t.id === 't1');
     expect(moved?.column_id).toBe('c2');
-    expect(moved?.position).toBe(3000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const request = requestAt(0);
     expect(request.method).toBe('PATCH');
     expect(new URL(request.url).pathname).toBe('/api/tasks/t1');
     expect(await request.json()).toEqual({
       column_id: 'c2',
-      position: 3000,
       sort_key: expect.any(String),
     });
   });
@@ -752,22 +746,21 @@ describe('board store mutations', () => {
       request.method === 'PATCH' ? jsonResponse(422, { error: 'nope' }) : undefined
     );
 
-    await board.moveTask('t1', 'c2', { position: 3000, sort_key: 'V3000' });
+    await board.moveTask('t1', 'c2', { sort_key: 'V3000' });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(requestAt(1).method).toBe('GET');
     const reverted = board.tasks.find((t) => t.id === 't1');
     expect(reverted?.column_id).toBe('c1');
-    expect(reverted?.position).toBe(1000);
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
   });
 
-  it('createTask appends at the end of the column and POSTs the position', async () => {
+  it('createTask appends at the end of the column and POSTs the sort key', async () => {
     await board.createTask('c1', 'New task');
 
     const created = board.tasks.find((t) => t.title === 'New task');
     expect(created?.column_id).toBe('c1');
-    expect(created?.position).toBe(3000);
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', created?.id]);
     const request = requestAt(0);
     expect(request.method).toBe('POST');
     expect(new URL(request.url).pathname).toBe('/api/tasks');
@@ -776,7 +769,6 @@ describe('board store mutations', () => {
       project_id: 'p1',
       column_id: 'c1',
       title: 'New task',
-      position: 3000,
       sort_key: expect.any(String),
     });
   });
@@ -793,7 +785,6 @@ describe('board store mutations', () => {
     const ids = await board.createTasks('c1', ['X', 'Y']);
 
     expect(board.tasksInColumn('c1').map((t) => t.title)).toEqual(['A', 'B', 'X', 'Y']);
-    expect(board.tasksInColumn('c1').map((t) => t.position)).toEqual([1000, 2000, 3000, 4000]);
     expect(ids).toEqual(
       board
         .tasksInColumn('c1')
@@ -809,8 +800,8 @@ describe('board store mutations', () => {
       project_id: 'p1',
       column_id: 'c1',
       tasks: [
-        { id: ids![0], title: 'X', position: 3000, sort_key: expect.any(String) },
-        { id: ids![1], title: 'Y', position: 4000, sort_key: expect.any(String) },
+        { id: ids![0], title: 'X', sort_key: expect.any(String) },
+        { id: ids![1], title: 'Y', sort_key: expect.any(String) },
       ],
     });
   });
@@ -925,7 +916,7 @@ describe('board store mutations', () => {
 
     const moved = board.tasks.find((t) => t.id === 't1');
     expect(moved?.column_id).toBe('c2');
-    expect(moved?.position).toBe(2000);
+    expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1']);
   });
 
   it('markTaskDone declines and issues nothing when no column is done', () => {
@@ -961,13 +952,12 @@ describe('board store mutations', () => {
     expect(requestAt(1).method).toBe('GET');
   });
 
-  it('duplicateTask inserts the copy below the source and POSTs the id and position', async () => {
+  it('duplicateTask inserts the copy below the source and POSTs the id and sort key', async () => {
     const id = await board.duplicateTask('t1');
 
     expect(id).not.toBeNull();
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', id, 't2']);
     const copy = board.tasks.find((t) => t.id === id);
-    expect(copy?.position).toBe(1500);
     expect(copy?.title).toBe('A');
     expect(copy?.label_ids).toEqual(['l1']);
     expect(copy?.created_at).toBe(SERVER_CREATED_AT);
@@ -977,13 +967,12 @@ describe('board store mutations', () => {
     const request = requestAt(0);
     expect(request.method).toBe('POST');
     expect(new URL(request.url).pathname).toBe('/api/tasks/t1/duplicate');
-    expect(await request.json()).toEqual({ id, position: 1500, sort_key: expect.any(String) });
+    expect(await request.json()).toEqual({ id, sort_key: expect.any(String) });
   });
 
   it('duplicateTask appends when the source is the last card in its column', async () => {
     const id = await board.duplicateTask('t2');
 
-    expect(board.tasks.find((t) => t.id === id)?.position).toBe(3000);
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2', id]);
   });
 
@@ -1059,12 +1048,7 @@ describe('board store mutations', () => {
   it('duplicateColumn shows the empty copy beside the source, then merges its cards', async () => {
     const pending = board.duplicateColumn('c1');
 
-    expect(board.columns.map((c) => [c.name, c.position])).toEqual([
-      ['Todo', 1000],
-      ['Todo', 1500],
-      ['Done', 2000],
-      ['Empty', 3000],
-    ]);
+    expect(board.columns.map((c) => c.name)).toEqual(['Todo', 'Todo', 'Done', 'Empty']);
     const copyId = board.columns[1]!.id;
     expect(board.tasks.filter((t) => t.column_id === copyId)).toEqual([]);
 
@@ -1076,7 +1060,6 @@ describe('board store mutations', () => {
     expect(new URL(request.url).pathname).toBe('/api/columns/c1/duplicate');
     expect(await request.json()).toEqual({
       id: copyId,
-      position: 1500,
       sort_key: expect.any(String),
     });
   });
@@ -1135,19 +1118,11 @@ describe('board store mutations', () => {
     const pending = board.deleteColumn('c1', 'c2');
 
     expect(board.columns.map((c) => c.id)).toEqual(['c2', 'c3']);
-    expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
-      ['t3', 1000],
-      ['t1', 2000],
-      ['t2', 3000],
-    ]);
+    expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1', 't2']);
 
     await pending;
 
-    expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
-      ['t3', 1000],
-      ['t1', 4000],
-      ['t2', 5000],
-    ]);
+    expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1', 't2']);
     const request = requestAt(0);
     expect(request.method).toBe('DELETE');
     const url = new URL(request.url);
@@ -1695,12 +1670,13 @@ describe('sortColumn', () => {
     ];
   });
 
-  it('rewrites positions to match the sort, one-shot', async () => {
+  it('rewrites sort keys to match the sort, one-shot', async () => {
     await board.sortColumn('c1', 'title-asc');
 
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
-    // Positions are evenly re-stamped, not midpoints.
-    expect(board.tasksInColumn('c1').map((t) => t.position)).toEqual([1000, 2000, 3000]);
+    // The whole column is re-stamped, not just the cards that moved.
+    const keys = board.tasksInColumn('c1').map((t) => t.sort_key);
+    expect([...keys].sort()).toEqual(keys);
   });
 
   it('posts the ordered ids to the reorder endpoint', async () => {
@@ -1719,7 +1695,7 @@ describe('sortColumn', () => {
 
     await board.sortColumn('c1', 'title-asc');
 
-    expect(board.tasksInColumn('c1').map((t) => [t.id, t.position])).toEqual([['solo', 7777]]);
+    expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['solo']);
     expect(
       fetchMock.mock.calls.some((call) =>
         new URL((call[0] as Request).url).pathname.endsWith('/c1/reorder')
@@ -2087,7 +2063,7 @@ describe('archive', () => {
   });
 
   it('deleteColumn relocates archived cards with the live ones, and drops them without a target', async () => {
-    board.archivedTasks = [{ ...archivedTask('t9', 'c1', 'Old'), position: 1500 }];
+    board.archivedTasks = [{ ...archivedTask('t9', 'c1', 'Old'), sort_key: 'V0000015001' }];
     mockRoutes((request, url) =>
       request.method === 'DELETE' && url.pathname === '/api/columns/c1'
         ? jsonResponse(200, {
@@ -2100,11 +2076,11 @@ describe('archive', () => {
         : undefined
     );
 
-    // t1 (1000), t9 (1500), t2 (2000) relocate in position order after t3 (1000).
+    // t1, t9 and t2 relocate in rank order after t3.
     const pending = board.deleteColumn('c1', 'c2');
-    expect(board.archivedTasks[0]).toMatchObject({ column_id: 'c2', position: 3000 });
+    expect(board.archivedTasks[0]).toMatchObject({ column_id: 'c2' });
     await pending;
-    expect(board.archivedTasks[0]).toMatchObject({ column_id: 'c2', position: 5000 });
+    expect(board.archivedTasks[0]).toMatchObject({ column_id: 'c2', sort_key: 'V0000050001' });
 
     board.archivedTasks = [archivedTask('t8', 'c3', 'Gone')];
     await board.deleteColumn('c3');
@@ -2153,7 +2129,6 @@ describe('archive', () => {
       expect.objectContaining({
         id: 't9',
         column_id: 'c2',
-        position: 7000,
         sort_key: 'V0000070001',
       }),
     ]);
@@ -2218,11 +2193,7 @@ describe('column bulk actions', () => {
     const pending = board.moveTasksToColumn('c1', 'c2');
 
     expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
-    expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
-      ['t3', 1000],
-      ['t1', 2000],
-      ['t2', 3000],
-    ]);
+    expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1', 't2']);
     expect(board.tasksInColumn('c1')).toEqual([]);
 
     await pending;
@@ -2249,11 +2220,7 @@ describe('column bulk actions', () => {
 
     await board.moveTasksToColumn('c1', 'c2');
 
-    expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
-      ['t3', 1000],
-      ['t1', 8000],
-      ['t2', 9000],
-    ]);
+    expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1', 't2']);
     expect(pathsRequested()).toEqual(['/api/columns/c1/move-tasks']);
   });
 
@@ -2406,11 +2373,7 @@ describe('column bulk actions', () => {
     });
 
     expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
-    expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
-      ['t3', 1000],
-      ['t1', 4000],
-      ['t2', 5000],
-    ]);
+    expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1', 't2']);
   });
 
   it('applyRealtime column_tasks_archived drops the cards once, even on a self-echo', async () => {
@@ -2508,11 +2471,7 @@ describe('selection bulk actions', () => {
 
       const pending = board.bulkMoveTasks(['t2', 't1'], 'c2');
 
-      expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
-        ['t3', 1000],
-        ['t2', 2000],
-        ['t1', 3000],
-      ]);
+      expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't2', 't1']);
 
       await pending;
 
@@ -2521,11 +2480,7 @@ describe('selection bulk actions', () => {
         task_ids: ['t2', 't1'],
         column_id: 'c2',
       });
-      expect(board.tasksInColumn('c2').map((t) => [t.id, t.position])).toEqual([
-        ['t3', 1000],
-        ['t2', 7000],
-        ['t1', 8000],
-      ]);
+      expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't2', 't1']);
       expect(pathsRequested()).toEqual(['/api/tasks/bulk-move']);
     });
 
@@ -3029,7 +2984,6 @@ describe('board store comments', () => {
     await board.loadTaskDetail('t1');
 
     expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(1);
-    expect(board.tasks.find((t) => t.id === 't1')?.image_count).toBe(0);
     expect(board.tasks.find((t) => t.id === 't1')?.cover_image_url).toBeNull();
   });
 
@@ -3194,7 +3148,7 @@ describe('board store checklists', () => {
     expect(board.taskChecklists.t1!.map((i) => i.created_at)).toEqual([SERVER_CREATED_AT]);
     const request = requestAt(0);
     expect(new URL(request.url).pathname).toBe('/api/checklist-items');
-    expect((await request.json()).position).toBe(1000);
+    expect((await request.json()).sort_key).toEqual(expect.any(String));
   });
 
   it('addChecklistItem re-inserts the server row when a detail fetch replaces the list mid-flight', async () => {
@@ -3264,7 +3218,7 @@ describe('board store checklists', () => {
       vi.advanceTimersByTime(1000);
       fetchMock.mockClear();
 
-      await board.moveChecklistItem('t1', 'ci1', { position: 3000, sort_key: 'V3' });
+      await board.moveChecklistItem('t1', 'ci1', { sort_key: 'V3' });
       await vi.runAllTimersAsync();
 
       expect(board.taskChecklists.t1!.map((i) => i.text)).toEqual(['b', 'a']);
@@ -3463,7 +3417,7 @@ describe('board store activity refresh', () => {
   it('refetches after a move, an archive and a blocker change', async () => {
     await openLog();
 
-    await board.moveTask('t1', 'c2', { position: 3000, sort_key: 'V3000' });
+    await board.moveTask('t1', 'c2', { sort_key: 'V3000' });
     vi.advanceTimersByTime(1000);
     await board.removeBlocker('t1', 't2');
     vi.advanceTimersByTime(1000);
@@ -3513,84 +3467,88 @@ describe('board store activity refresh', () => {
 });
 
 describe('placementAfterDrop', () => {
-  it('drops into an empty zone at the base position', () => {
-    expect(placementAfterDrop([{ id: 'm', position: 500, sort_key: 'V1' }], 'm').position).toBe(
-      1000
+  it('drops into an empty zone with a usable key', () => {
+    expect(placementAfterDrop([{ id: 'm', sort_key: 'V1' }], 'm').sort_key.length).toBeGreaterThan(
+      0
     );
   });
 
-  it('drops between two tasks at their midpoint', () => {
+  it('drops between two tasks, ranking strictly between them', () => {
     const items = [
-      { id: 'a', position: 1000, sort_key: 'V2' },
-      { id: 'm', position: 9999, sort_key: 'V9' },
-      { id: 'b', position: 2000, sort_key: 'V3' },
+      { id: 'a', sort_key: 'V2' },
+      { id: 'm', sort_key: 'V9' },
+      { id: 'b', sort_key: 'V3' },
     ];
-    expect(placementAfterDrop(items, 'm').position).toBe(1500);
+    const placed = placementAfterDrop(items, 'm');
+    expect(placed.sort_key > 'V2').toBe(true);
+    expect(placed.sort_key < 'V3').toBe(true);
   });
 
   it('drops at the start before the first task', () => {
     const items = [
-      { id: 'm', position: 9999, sort_key: 'V9' },
-      { id: 'a', position: 1000, sort_key: 'V2' },
-      { id: 'b', position: 2000, sort_key: 'V3' },
+      { id: 'm', sort_key: 'V9' },
+      { id: 'a', sort_key: 'V2' },
+      { id: 'b', sort_key: 'V3' },
     ];
-    expect(placementAfterDrop(items, 'm').position).toBe(0);
+    expect(placementAfterDrop(items, 'm').sort_key < 'V2').toBe(true);
   });
 
   it('drops at the end after the last task', () => {
     const items = [
-      { id: 'a', position: 1000, sort_key: 'V2' },
-      { id: 'b', position: 2000, sort_key: 'V3' },
-      { id: 'm', position: 500, sort_key: 'V1' },
+      { id: 'a', sort_key: 'V2' },
+      { id: 'b', sort_key: 'V3' },
+      { id: 'm', sort_key: 'V1' },
     ];
-    expect(placementAfterDrop(items, 'm').position).toBe(3000);
+    expect(placementAfterDrop(items, 'm').sort_key > 'V3').toBe(true);
   });
 
   it('appends when the moved id is not in the items', () => {
     const items = [
-      { id: 'a', position: 1000, sort_key: 'V2' },
-      { id: 'b', position: 2000, sort_key: 'V3' },
+      { id: 'a', sort_key: 'V2' },
+      { id: 'b', sort_key: 'V3' },
     ];
-    expect(placementAfterDrop(items, 'missing').position).toBe(3000);
+    expect(placementAfterDrop(items, 'missing').sort_key > 'V3').toBe(true);
   });
 
-  it('lands between the card above and the next real position in an unsorted display array', () => {
+  it('lands between the card above and the next real key in an unsorted display array', () => {
     const items = [
-      { id: 'match', position: 1000, sort_key: 'V2' },
-      { id: 'm', position: 9999, sort_key: 'V9' },
-      { id: 'dim1', position: 3000, sort_key: 'V4' },
-      { id: 'dim2', position: 2000, sort_key: 'V3' },
+      { id: 'match', sort_key: 'V2' },
+      { id: 'm', sort_key: 'V9' },
+      { id: 'dim1', sort_key: 'V4' },
+      { id: 'dim2', sort_key: 'V3' },
     ];
-    expect(placementAfterDrop(items, 'm').position).toBe(1500);
+    const placed = placementAfterDrop(items, 'm');
+    expect(placed.sort_key > 'V2').toBe(true);
+    expect(placed.sort_key < 'V3').toBe(true);
   });
 
-  it('prepends over all positions when dropped at the display top of an unsorted array', () => {
+  it('prepends under every key when dropped at the display top of an unsorted array', () => {
     const items = [
-      { id: 'm', position: 9999, sort_key: 'V9' },
-      { id: 'match', position: 5000, sort_key: 'V5' },
-      { id: 'dim', position: 2000, sort_key: 'V3' },
+      { id: 'm', sort_key: 'V9' },
+      { id: 'match', sort_key: 'V5' },
+      { id: 'dim', sort_key: 'V3' },
     ];
-    expect(placementAfterDrop(items, 'm').position).toBe(1000);
+    expect(placementAfterDrop(items, 'm').sort_key < 'V3').toBe(true);
   });
 
-  it('appends after the max-position card even when it is not displayed last', () => {
+  it('appends after the highest-ranked card even when it is not displayed last', () => {
     const items = [
-      { id: 'match', position: 5000, sort_key: 'V5' },
-      { id: 'm', position: 9999, sort_key: 'V9' },
-      { id: 'dim1', position: 2000, sort_key: 'V3' },
-      { id: 'dim2', position: 3000, sort_key: 'V4' },
+      { id: 'match', sort_key: 'V5' },
+      { id: 'm', sort_key: 'V9' },
+      { id: 'dim1', sort_key: 'V3' },
+      { id: 'dim2', sort_key: 'V4' },
     ];
-    expect(placementAfterDrop(items, 'm').position).toBe(6000);
+    expect(placementAfterDrop(items, 'm').sort_key > 'V5').toBe(true);
   });
 
   // Two rows can share a key until the unique index lands. The drop still has
   // to rank strictly between the card above it and the next one along.
   it('ranks between the neighbours when two of them share a key', () => {
     const items = [
-      { id: 'a', position: 1000, sort_key: 'V2' },
-      { id: 'm', position: 9999, sort_key: 'V9' },
-      { id: 'b', position: 1000, sort_key: 'V2' },
-      { id: 'c', position: 2000, sort_key: 'V3' },
+      { id: 'a', sort_key: 'V2' },
+      { id: 'm', sort_key: 'V9' },
+      { id: 'b', sort_key: 'V2' },
+      { id: 'c', sort_key: 'V3' },
     ];
     const placed = placementAfterDrop(items, 'm');
     expect(placed.sort_key > 'V2').toBe(true);
@@ -3735,7 +3693,7 @@ describe('board store canEdit', () => {
       return undefined;
     });
 
-    await board.moveTask('t1', 'c2', { position: 1000, sort_key: 'V1000' });
+    await board.moveTask('t1', 'c2', { sort_key: 'V1000' });
 
     expect(toasts.toasts.map((t) => t.message)).toContain('Read-only access to this project');
     expect(board.canEdit).toBe(false);
@@ -3878,7 +3836,6 @@ describe('what changed since you last looked', () => {
                 column_id: 'c1',
                 title: 'A',
                 description: null,
-                position: 1000,
                 sort_key: 'V0000010001',
                 label_ids: [],
                 assignee_ids: [],

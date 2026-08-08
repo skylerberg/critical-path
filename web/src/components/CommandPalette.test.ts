@@ -44,7 +44,6 @@ function task(id: string, columnId: string, position: number, title: string): Bo
     column_id: columnId,
     title,
     description: null,
-    position,
     sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -53,7 +52,6 @@ function task(id: string, columnId: string, position: number, title: string): Bo
     assignee_ids: [],
     blocker_ids: [],
     attachment_count: 0,
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -76,7 +74,6 @@ function project(id: string, name: string) {
     created_at: '2026-01-01T00:00:00Z',
     open_task_count: 0,
     done_task_count: 0,
-    position: null,
     sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
@@ -175,8 +172,8 @@ beforeEach(() => {
     created_at: '2026-01-01T00:00:00Z',
   };
   board.columns = [
-    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-    { id: 'done', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
+    { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+    { id: 'done', name: 'Done', sort_key: 'V0000020001', is_done: true },
   ];
   board.labels = [
     { id: 'l1', name: 'art', color: '#ff0000' },
@@ -272,9 +269,7 @@ describe('rendering and grouping', () => {
   });
 
   it('drops Mark done on a board with no done column to move it to', () => {
-    board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-    ];
+    board.columns = [{ id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false }];
 
     open();
 
@@ -616,8 +611,8 @@ describe('keyboard', () => {
 
   it('holds the highlight on its row when rows shift underneath it', async () => {
     projects.projects = [
-      { ...project(PROJECT_ID, 'Game'), position: 1000 },
-      { ...project(OTHER_PROJECT_ID, 'Atlas'), position: 2000 },
+      { ...project(PROJECT_ID, 'Game'), sort_key: 'V0000010001' },
+      { ...project(OTHER_PROJECT_ID, 'Atlas'), sort_key: 'V0000020001' },
     ];
     open();
     const rows = screen.queryAllByRole('option');
@@ -628,7 +623,7 @@ describe('keyboard', () => {
 
     projects.projects = [
       ...projects.projects,
-      { ...project(testUuid('p3'), 'Aardvark'), position: 1500 },
+      { ...project(testUuid('p3'), 'Aardvark'), sort_key: 'V0000015001' },
     ];
     await tick();
 

@@ -23,6 +23,7 @@ import {
   between,
   byRank,
   placeAtIndex,
+  restack,
   type Placement,
   type Ranked,
 } from './positions';
@@ -104,7 +105,6 @@ function optimisticTask(
     column_id: columnId,
     title,
     description: null,
-    position: placement.position,
     sort_key: placement.sort_key,
     due_date: null,
     created_at: now,
@@ -113,7 +113,6 @@ function optimisticTask(
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
-    image_count: 0,
     cover_image_url: null,
     comment_count: 0,
     checklist_item_count: 0,
@@ -584,8 +583,7 @@ class BoardStore {
             tasks: created.map((task) => ({
               id: task.id,
               title: task.title,
-              position: task.position,
-              sort_key: task.sort_key ?? undefined,
+              sort_key: task.sort_key,
             })),
           },
         })
@@ -607,7 +605,7 @@ class BoardStore {
     const placement = placeAtIndex(siblings, siblings.findIndex((task) => task.id === taskId) + 1);
     const id = newId();
     const now = new Date().toISOString();
-    // Labels, assignees and image_count come along because the server copies them.
+    // Labels and assignees come along because the server copies them.
     // Edges, comments and attachments it does not copy, so they start empty.
     const optimistic: BoardTask = {
       ...source,
@@ -922,7 +920,6 @@ class BoardStore {
           ? {
               id: data.column.id,
               name: data.column.name,
-              position: data.column.position,
               sort_key: data.column.sort_key,
               is_done: data.column.is_done,
             }
@@ -950,11 +947,7 @@ class BoardStore {
       );
       const run = appendRun(this.tasksInColumn(moveTasksTo), relocating.length);
       const movedPositions = new Map(relocating.map((task, index) => [task.id, run[index]!]));
-      const place = <
-        T extends { id: string; column_id: string; position: number; sort_key: string | null },
-      >(
-        task: T
-      ): T => {
+      const place = <T extends { id: string; column_id: string; sort_key: string }>(task: T): T => {
         const placement = movedPositions.get(task.id);
         return placement === undefined ? task : { ...task, column_id: moveTasksTo, ...placement };
       };
@@ -975,9 +968,7 @@ class BoardStore {
       );
       if (data !== undefined) {
         const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
-        const apply = <
-          T extends { id: string; column_id: string; position: number; sort_key: string | null },
-        >(
+        const apply = <T extends { id: string; column_id: string; sort_key: string }>(
           task: T
         ): T => {
           const movedTask = byId.get(task.id);
@@ -986,7 +977,6 @@ class BoardStore {
             : {
                 ...task,
                 column_id: movedTask.column_id,
-                position: movedTask.position,
                 sort_key: movedTask.sort_key,
               };
         };
@@ -1030,7 +1020,6 @@ class BoardStore {
           : {
               ...task,
               column_id: movedTask.column_id,
-              position: movedTask.position,
               sort_key: movedTask.sort_key,
             };
       });
@@ -1050,21 +1039,22 @@ class BoardStore {
     }
   }
 
-  // A one-shot sort: rewrite the column's positions to match the key once, then
-  // manual order resumes. Positions are re-stamped evenly so later drags have
+  // A one-shot sort: rewrite the column's sort keys to match the key once, then
+  // manual order resumes. The whole column is re-stamped so later drags have
   // room, and the server is the source of truth on the echoed values.
   async sortColumn(columnId: string, sort: ColumnSort): Promise<void> {
     if (this.currentProjectId === null) {
       return;
     }
-    const orderedIds = sortTasks(this.tasksInColumn(columnId), sort).map((task) => task.id);
-    if (orderedIds.length <= 1) {
+    const ordered = sortTasks(this.tasksInColumn(columnId), sort);
+    if (ordered.length <= 1) {
       return;
     }
-    const optimistic = new Map(orderedIds.map((id, index) => [id, (index + 1) * 1000] as const));
+    const orderedIds = ordered.map((task) => task.id);
+    const optimistic = new Map(restack(ordered).map(({ id, sort_key }) => [id, sort_key]));
     this.tasks = this.tasks.map((task) => {
-      const position = optimistic.get(task.id);
-      return position === undefined ? task : { ...task, position };
+      const sortKey = optimistic.get(task.id);
+      return sortKey === undefined ? task : { ...task, sort_key: sortKey };
     });
     try {
       const data = assertOk(
@@ -1076,9 +1066,7 @@ class BoardStore {
       const byId = new Map(data.moved_tasks.map((task) => [task.id, task]));
       this.tasks = this.tasks.map((task) => {
         const movedTask = byId.get(task.id);
-        return movedTask === undefined
-          ? task
-          : { ...task, position: movedTask.position, sort_key: movedTask.sort_key };
+        return movedTask === undefined ? task : { ...task, sort_key: movedTask.sort_key };
       });
     } catch (error) {
       await this.#mutationFailed(error);
@@ -1145,7 +1133,7 @@ class BoardStore {
         const moved = byId.get(task.id);
         return moved === undefined
           ? task
-          : { ...task, column_id: moved.column_id, position: moved.position };
+          : { ...task, column_id: moved.column_id, sort_key: moved.sort_key };
       });
       if (
         this.#bulkSkipped('Moved', taskIds, data.skipped_task_ids) ||
@@ -1651,7 +1639,6 @@ class BoardStore {
         task.id === taskId
           ? {
               ...task,
-              image_count: data.image_count,
               comment_count: data.comment_count ?? 0,
               checklist_item_count: data.checklist_item_count ?? 0,
               checklist_done_count: data.checklist_done_count ?? 0,
@@ -2010,7 +1997,7 @@ class BoardStore {
   async #patchChecklistItem(
     taskId: string,
     itemId: string,
-    body: { text?: string; checked?: boolean; position?: number },
+    body: { text?: string; checked?: boolean; sort_key?: string },
     logged: boolean
   ): Promise<void> {
     try {
@@ -2182,21 +2169,16 @@ class BoardStore {
           moved_tasks: {
             id: string;
             column_id: string;
-            position: number;
-            sort_key: string | null;
+            sort_key: string;
           }[];
         };
         this.columns = this.columns.filter((c) => c.id !== d.id);
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
-        const relocate = <
-          T extends { id: string; column_id: string; position: number; sort_key: string | null },
-        >(
+        const relocate = <T extends { id: string; column_id: string; sort_key: string }>(
           task: T
         ): T => {
           const m = moved.get(task.id);
-          return m === undefined
-            ? task
-            : { ...task, column_id: m.column_id, position: m.position, sort_key: m.sort_key };
+          return m === undefined ? task : { ...task, column_id: m.column_id, sort_key: m.sort_key };
         };
         this.tasks = this.tasks.map(relocate).filter((t) => t.column_id !== d.id);
         this.archivedTasks = this.archivedTasks.map(relocate).filter((t) => t.column_id !== d.id);
@@ -2211,16 +2193,13 @@ class BoardStore {
           moved_tasks: {
             id: string;
             column_id: string;
-            position: number;
-            sort_key: string | null;
+            sort_key: string;
           }[];
         };
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         this.tasks = this.tasks.map((t) => {
           const m = moved.get(t.id);
-          return m === undefined
-            ? t
-            : { ...t, column_id: m.column_id, position: m.position, sort_key: m.sort_key };
+          return m === undefined ? t : { ...t, column_id: m.column_id, sort_key: m.sort_key };
         });
         for (const movedTask of d.moved_tasks) {
           taskActivity.invalidate(movedTask.id);
@@ -2230,12 +2209,12 @@ class BoardStore {
       case 'column_tasks_reordered': {
         // No column change, so only positions move; no activity to invalidate.
         const d = event.data as {
-          moved_tasks: { id: string; position: number; sort_key: string | null }[];
+          moved_tasks: { id: string; sort_key: string }[];
         };
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         this.tasks = this.tasks.map((t) => {
           const m = moved.get(t.id);
-          return m === undefined ? t : { ...t, position: m.position, sort_key: m.sort_key };
+          return m === undefined ? t : { ...t, sort_key: m.sort_key };
         });
         break;
       }
@@ -2373,7 +2352,6 @@ class BoardStore {
           task_id: d.task_id,
           text: d.text,
           checked: d.checked,
-          position: d.position,
           sort_key: d.sort_key,
           created_at: d.created_at,
           updated_at: d.updated_at,

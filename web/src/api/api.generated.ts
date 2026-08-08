@@ -74,7 +74,7 @@ export interface paths {
         put?: never;
         /**
          * Reset password
-         * @description Set a new password using a token from a password-reset email. On success every session is revoked and outstanding reset tokens are invalidated.
+         * @description Set a new password using a token from a password-reset email. On success every outstanding reset token is invalidated. Existing sessions stay signed in; revoke them individually from GET /api/auth/sessions.
          */
         post: operations["postApiAuthResetPassword"];
         delete?: never;
@@ -306,7 +306,7 @@ export interface paths {
         put?: never;
         /**
          * Change password
-         * @description Change the password of the authenticated user. Requires the current password; on success every existing session is revoked and a fresh session token is returned, keeping this client logged in.
+         * @description Change the password of the authenticated user. Requires the current password. Existing sessions are left signed in, including this one; revoke them individually from GET /api/auth/sessions.
          */
         post: operations["postApiAuthChangePassword"];
         delete?: never;
@@ -1067,26 +1067,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tasks/{id}/images": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload task image
-         * @description Attach an image to a task via multipart form data. The stored content type is determined solely by magic-byte sniffing (PNG, JPEG, GIF, or WebP); the client-declared MIME type is ignored. Maximum file size 10 MB. An optional `id` field supplies the image id (server-generated when omitted).
-         */
-        post: operations["postApiTasksByIdImages"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/tasks/bulk-move": {
         parameters: {
             query?: never;
@@ -1373,11 +1353,7 @@ export interface paths {
         get: operations["getApiImagesById"];
         put?: never;
         post?: never;
-        /**
-         * Delete image
-         * @description Delete an image row; the stored object is removed after the transaction commits.
-         */
-        delete: operations["deleteApiImagesById"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1900,7 +1876,6 @@ export interface components {
             members: components["schemas"]["ProjectMember"][];
             name: string;
             open_task_count: number;
-            position: number | null;
             sort_key: string | null;
         };
         NullableProjectAccent: "amber" | "emerald" | "fuchsia" | "lime" | "rose" | "sky" | "slate" | "violet" | null;
@@ -1920,9 +1895,7 @@ export interface components {
             id: string;
             is_done: boolean;
             name: string;
-            /** @description a finite number */
-            position: number;
-            sort_key: string | null;
+            sort_key: string;
         };
         BoardLabel: {
             color: string;
@@ -1955,11 +1928,8 @@ export interface components {
             description: components["schemas"]["NullableTiptapDoc"];
             due_date: string | null;
             id: string;
-            image_count: number;
             label_ids: string[];
-            /** @description a finite number */
-            position: number;
-            sort_key: string | null;
+            sort_key: string;
             title: string;
             updated_at: string;
         };
@@ -2002,11 +1972,8 @@ export interface components {
             description: components["schemas"]["NullableTiptapDoc"];
             due_date: string | null;
             id: string;
-            image_count: number;
             label_ids: string[];
-            /** @description a finite number */
-            position: number;
-            sort_key: string | null;
+            sort_key: string;
             title: string;
             updated_at: string;
         };
@@ -2042,8 +2009,7 @@ export interface components {
                 checklist_items: {
                     checked: boolean;
                     id: string;
-                    position: number;
-                    sort_key: string | null;
+                    sort_key: string;
                     text: string;
                 }[];
                 column_id: string;
@@ -2055,9 +2021,7 @@ export interface components {
                 due_date: string | null;
                 id: string;
                 label_ids: string[];
-                /** @description a finite number */
-                position: number;
-                sort_key: string | null;
+                sort_key: string;
                 title: string;
                 updated_at: string;
             }[];
@@ -2066,10 +2030,8 @@ export interface components {
         };
         AttachmentsUnfurlstate: "failed" | "ok" | "pending" | null;
         SetProjectPosition: {
-            /** @description a finite number */
-            position: number;
             /** @description a sort key */
-            sort_key?: string;
+            sort_key: string;
         };
         SetProjectMembers: {
             roles?: components["schemas"]["ProjectMemberRoleEntry"][];
@@ -2124,17 +2086,13 @@ export interface components {
             id: string;
             is_done: boolean;
             name: string;
-            /** @description a finite number */
-            position: number;
             project_id: string;
-            sort_key: string | null;
+            sort_key: string;
         };
         CreateColumn: {
             /** Format: uuid */
             id: string;
             name: string;
-            /** @description a finite number */
-            position: number;
             /** Format: uuid */
             project_id: string;
             is_done?: boolean;
@@ -2148,16 +2106,12 @@ export interface components {
         Duplicate: {
             /** Format: uuid */
             id: string;
-            /** @description a finite number */
-            position: number;
             /** @description a sort key */
             sort_key?: string;
         };
         PatchColumn: {
             is_done?: boolean;
             name?: string;
-            /** @description a finite number */
-            position?: number;
             /** @description a sort key */
             sort_key?: string;
         };
@@ -2167,9 +2121,7 @@ export interface components {
         MovedTask: {
             column_id: string;
             id: string;
-            /** @description a finite number */
-            position: number;
-            sort_key: string | null;
+            sort_key: string;
         };
         MoveColumnTasks: {
             /** Format: uuid */
@@ -2183,8 +2135,6 @@ export interface components {
             column_id: string;
             /** Format: uuid */
             id: string;
-            /** @description a finite number */
-            position: number;
             /** Format: uuid */
             project_id: string;
             title: string;
@@ -2208,8 +2158,6 @@ export interface components {
         CreateTasksBatchItem: {
             /** Format: uuid */
             id: string;
-            /** @description a finite number */
-            position: number;
             title: string;
             /** @description a sort key */
             sort_key?: string;
@@ -2232,14 +2180,11 @@ export interface components {
             description: components["schemas"]["NullableTiptapDoc"];
             due_date: string | null;
             id: string;
-            image_count: number;
             images: components["schemas"]["ImageResponse"][];
             label_ids: string[];
-            /** @description a finite number */
-            position: number;
             project_id: string;
             series_summary: string | null;
-            sort_key: string | null;
+            sort_key: string;
             title: string;
             updated_at: string;
         };
@@ -2266,9 +2211,7 @@ export interface components {
             checked: boolean;
             created_at: string;
             id: string;
-            /** @description a finite number */
-            position: number;
-            sort_key: string | null;
+            sort_key: string;
             task_id: string;
             text: string;
             updated_at: string;
@@ -2295,8 +2238,6 @@ export interface components {
             description?: components["schemas"]["NullableTiptapDoc"];
             due_date?: string | null;
             expected_updated_at?: string;
-            /** @description a finite number */
-            position?: number;
             /** @description a sort key */
             sort_key?: string;
             title?: string;
@@ -2455,8 +2396,6 @@ export interface components {
         CreateChecklistItem: {
             /** Format: uuid */
             id: string;
-            /** @description a finite number */
-            position: number;
             /** Format: uuid */
             task_id: string;
             text: string;
@@ -2466,8 +2405,6 @@ export interface components {
         };
         PatchChecklistItem: {
             checked?: boolean;
-            /** @description a finite number */
-            position?: number;
             /** @description a sort key */
             sort_key?: string;
             text?: string;
@@ -2566,8 +2503,6 @@ export interface components {
         };
         TaskSeriesChecklistItem: {
             id: string;
-            /** @description a finite number */
-            position: number;
             text: string;
         };
         TaskSeriesCreateResponse: {
@@ -2618,8 +2553,6 @@ export interface components {
             rrule?: string;
         };
         RequestBodyChecklistitems: {
-            /** @description a finite number */
-            position: number;
             text: string;
         };
         PatchTaskSeries: {
@@ -2653,9 +2586,7 @@ export interface components {
         PublicBoardChecklistItem: {
             checked: boolean;
             id: string;
-            /** @description a finite number */
-            position: number;
-            sort_key: string | null;
+            sort_key: string;
             task_id: string;
             text: string;
         };
@@ -2676,11 +2607,8 @@ export interface components {
             description: components["schemas"]["NullableTiptapDoc"];
             due_date: string | null;
             id: string;
-            image_count: number;
             label_ids: string[];
-            /** @description a finite number */
-            position: number;
-            sort_key: string | null;
+            sort_key: string;
             title: string;
         };
     };
@@ -2865,7 +2793,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Password reset and all sessions revoked */
+            /** @description Password reset */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -3515,14 +3443,12 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Password changed, all prior sessions revoked, new session issued */
-            200: {
+            /** @description Password changed */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["AuthResponse"];
-                };
+                content?: never;
             };
             /** @description Authentication required or failed */
             401: {
@@ -6585,112 +6511,6 @@ export interface operations {
             };
         };
     };
-    postApiTasksByIdImages: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": {
-                    /** Format: binary */
-                    file: string;
-                    /**
-                     * Format: uuid
-                     * @description Optional client-supplied image id
-                     */
-                    id?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Image uploaded */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImageResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Authentication required or failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden - insufficient permissions */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Conflict - resource already exists */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Payload Too Large */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unprocessable request */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     postApiTasksBulkMove: {
         parameters: {
             query?: never;
@@ -7852,71 +7672,6 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    deleteApiImagesById: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Image deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Authentication required or failed */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden - insufficient permissions */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
