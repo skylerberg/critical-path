@@ -16,6 +16,7 @@ interface ExportedToken {
   name: string;
   created_at: string;
   expires_at: string | null;
+  last_used_at: string | null;
 }
 
 interface ExportedFeedback {
@@ -126,7 +127,8 @@ describe('GET /api/auth/me/export', () => {
     userId: string,
     name: string,
     createdAt: Date,
-    expiresAt: Date | null
+    expiresAt: Date | null,
+    lastUsedAt: Date | null = null
   ): Promise<void> {
     await db
       .insertInto('personal_access_token')
@@ -137,6 +139,7 @@ describe('GET /api/auth/me/export', () => {
         token_hash: crypto.randomBytes(32).toString('hex'),
         created_at: createdAt,
         expires_at: expiresAt,
+        last_used_at: lastUsedAt,
       })
       .execute();
   }
@@ -294,7 +297,7 @@ describe('GET /api/auth/me/export', () => {
     await insertSession(user.id, { user_agent: 'OlderAgent/1.0', created_at: older });
     await insertSession(user.id, { user_agent: 'NewerAgent/2.0', created_at: newer });
     await insertToken(user.id, 'older key', older, null);
-    await insertToken(user.id, 'newer key', newer, tokenExpiry);
+    await insertToken(user.id, 'newer key', newer, tokenExpiry, newer);
     await insertFeedback(user.id, 'older note', older);
     await insertFeedback(user.id, 'newer note', newer);
 
@@ -312,12 +315,14 @@ describe('GET /api/auth/me/export', () => {
         name: 'newer key',
         created_at: newer.toISOString(),
         expires_at: tokenExpiry.toISOString(),
+        last_used_at: newer.toISOString(),
       },
       {
         id: expect.any(String),
         name: 'older key',
         created_at: older.toISOString(),
         expires_at: null,
+        last_used_at: null,
       },
     ]);
     expect(body.feedback.map((entry) => [entry.message, entry.created_at])).toEqual([

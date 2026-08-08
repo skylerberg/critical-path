@@ -95,12 +95,14 @@ function toTokenResponse(row: {
   name: string;
   created_at: Date;
   expires_at: Date | null;
+  last_used_at: Date | null;
 }): PersonalAccessTokenResponse {
   return {
     id: row.id,
     name: row.name,
     created_at: row.created_at.toISOString(),
     expires_at: row.expires_at === null ? null : row.expires_at.toISOString(),
+    last_used_at: row.last_used_at === null ? null : row.last_used_at.toISOString(),
   };
 }
 
@@ -699,7 +701,7 @@ router.post(
           token_hash: hashBearerToken(token),
           expires_at: expiresAt,
         })
-        .returning(['id', 'name', 'created_at', 'expires_at'])
+        .returning(['id', 'name', 'created_at', 'expires_at', 'last_used_at'])
         .executeTakeFirstOrThrow();
       return c.json({ token, personal_access_token: toTokenResponse(row) }, 201);
     } catch (err) {
@@ -718,7 +720,8 @@ router.get(
     summary: 'List personal access tokens',
     description:
       "List the caller's personal access tokens, newest first. Secrets are never returned. " +
-      'Expired tokens stay listed until they are revoked.',
+      'Expired tokens stay listed until they are revoked. `last_used_at` is null until the ' +
+      'token first authenticates, and is accurate to about a minute thereafter.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: {
@@ -742,6 +745,7 @@ router.get(
         'personal_access_token.name',
         'personal_access_token.created_at',
         'personal_access_token.expires_at',
+        'personal_access_token.last_used_at',
       ])
       .where('personal_access_token.user_id', '=', c.get('user').id)
       .orderBy('personal_access_token.created_at', 'desc')

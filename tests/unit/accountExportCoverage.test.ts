@@ -55,6 +55,7 @@ const DECIDED_COLUMNS: Record<string, 'in' | 'out'> = {
   'personal_access_token.created_at': 'in',
   'personal_access_token.expires_at': 'in',
   'personal_access_token.id': 'in',
+  'personal_access_token.last_used_at': 'in',
   'personal_access_token.name': 'in',
   'personal_access_token.token_hash': 'out',
   'personal_access_token.user_id': 'out',

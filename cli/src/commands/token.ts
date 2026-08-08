@@ -63,8 +63,14 @@ export function registerToken(program: Command, deps: CliDeps): void {
               return;
             }
             ctx.out.table(
-              ['ID', 'NAME', 'CREATED', 'EXPIRES'],
-              tokens.map((t) => [t.id.slice(0, 8), t.name, day(t.created_at), expiryLabel(t)])
+              ['ID', 'NAME', 'CREATED', 'EXPIRES', 'LAST USED'],
+              tokens.map((t) => [
+                t.id.slice(0, 8),
+                t.name,
+                day(t.created_at),
+                expiryLabel(t),
+                t.last_used_at == null ? 'never' : day(t.last_used_at),
+              ])
             );
           });
         })

@@ -6,6 +6,7 @@ export const personalAccessTokenSchema = type({
   name: 'string',
   created_at: 'string',
   expires_at: 'string | null',
+  last_used_at: 'string | null',
 });
 
 export type PersonalAccessTokenResponse = typeof personalAccessTokenSchema.infer;

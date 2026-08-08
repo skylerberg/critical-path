@@ -99,6 +99,7 @@ export interface PersonalAccessToken {
   created_at: Generated<Timestamp>;
   expires_at: Timestamp | null;
   id: string;
+  last_used_at: Timestamp | null;
   name: string;
   token_hash: string;
   user_id: string;
