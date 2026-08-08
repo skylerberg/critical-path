@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { errorText } from '../utils/errors';
 
 export interface WorkerOptions {
   name: string;
@@ -16,7 +17,7 @@ export function startWorker(options: WorkerOptions): { close: () => void } {
   const logFailure = (err: unknown): void => {
     logger.error({
       msg: `${options.name} worker tick failed`,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
   };
 

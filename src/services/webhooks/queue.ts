@@ -3,15 +3,20 @@ import { sql, type Kysely, type Selectable } from 'kysely';
 import { db } from '../../db/index';
 import type { DB, WebhookDelivery } from '../../db/types';
 import type { WebhookEvent } from './events';
+import {
+  BACKOFF_SECONDS,
+  LEASE_SECONDS,
+  MAX_ATTEMPTS,
+  MAX_CONSECUTIVE_FAILURES,
+  MAX_ERROR_CHARS,
+} from '../retryPolicy';
 
-export const BACKOFF_SECONDS = [30, 120, 600, 3600, 21600];
-export const MAX_ATTEMPTS = BACKOFF_SECONDS.length + 1;
-export const MAX_CONSECUTIVE_FAILURES = 5;
+export { BACKOFF_SECONDS, MAX_ATTEMPTS, MAX_CONSECUTIVE_FAILURES };
+
 export const CLAIM_BATCH = 20;
 export const MAX_PER_WEBHOOK_PER_TICK = 5;
 export const MAX_CONCURRENT_SENDS = 4;
 export const MAX_WEBHOOKS_PER_PROJECT = 10;
-const LEASE_SECONDS = 60;
 export const SEND_TIMEOUT_MS = 10_000;
 export const MAX_ERROR_BODY_BYTES = 2048;
 const RETENTION_DAYS = 7;
@@ -20,7 +25,6 @@ const RETENTION_DAYS = 7;
 export const ENVELOPE_VERSION = 1;
 
 const INSERT_CHUNK = 500;
-const MAX_ERROR_CHARS = 2000;
 
 export type DeliveryRow = Selectable<WebhookDelivery>;
 

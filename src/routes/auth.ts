@@ -13,7 +13,6 @@ import {
   enforceVerificationRateLimit,
 } from '../middleware/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
-import { logger } from '../utils/logger';
 import { passwordResetLink } from '../services/webLinks';
 import { APP_NAME } from '../config/constants';
 import { isValidUuid } from '../types/uuid';
@@ -49,7 +48,7 @@ import {
   USER_UPDATED,
   publishAfterCommit,
 } from '../services/realtime/index';
-import { storage } from '../services/storage/index';
+import { deleteStoredObjectsAfterCommit } from '../services/storage/cleanup';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import {
   MAX_PERSONAL_ACCESS_TOKENS_PER_USER,
@@ -115,27 +114,6 @@ function toTokenResponse(row: {
     expires_at: row.expires_at === null ? null : row.expires_at.toISOString(),
     last_used_at: row.last_used_at === null ? null : row.last_used_at.toISOString(),
   };
-}
-
-const STORAGE_DELETE_BATCH = 25;
-
-// An account's keys are every image of every board it created, so unlike the
-// per-board cleanups these are batched and settled: once the rows are gone, a
-// key that fails is only recoverable from this log line.
-async function deleteStorageObjects(keys: string[]): Promise<void> {
-  for (let start = 0; start < keys.length; start += STORAGE_DELETE_BATCH) {
-    const batch = keys.slice(start, start + STORAGE_DELETE_BATCH);
-    const results = await Promise.allSettled(batch.map((key) => storage.delete(key)));
-    results.forEach((result, index) => {
-      if (result.status === 'rejected') {
-        logger.error({
-          msg: 'Account deletion left a stored object behind',
-          key: batch[index],
-          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-        });
-      }
-    });
-  }
 }
 
 const INVALID_UNSUBSCRIBE_MESSAGE = 'This unsubscribe link is not valid';
@@ -652,9 +630,7 @@ router.delete(
       });
     }
 
-    if (storageKeys.length > 0) {
-      c.get('postCommitHooks').push(() => deleteStorageObjects(storageKeys));
-    }
+    deleteStoredObjectsAfterCommit(c, storageKeys);
 
     return c.body(null, 204);
   }

@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { getConnInfo } from '@hono/node-server/conninfo';
-import { AppError } from '../utils/errors';
+import { AppError, errorText } from '../utils/errors';
 import { env } from '../config/env';
 import { getRedis, redisConfigured } from '../services/redis';
 import { logger, type LogFields } from '../utils/logger';
@@ -93,7 +93,7 @@ async function runShared(
   } catch (err) {
     logger.warn({
       msg: 'Shared rate limit unavailable; using per-process fallback',
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
     return null;
   }
@@ -161,7 +161,7 @@ async function peekRateLimitShared(key: string, maxAttempts: number): Promise<bo
   } catch (err) {
     logger.warn({
       msg: 'Shared rate limit unavailable; using per-process fallback',
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
     return null;
   }

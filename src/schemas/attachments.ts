@@ -1,17 +1,10 @@
 import { type } from 'arktype';
+import { hasAsciiControlCharacter } from '../utils/controlCharacters';
 import { optionalText, uuid } from './common';
 
 export const ATTACHMENT_TITLE_MAX_LENGTH = 300;
 export const ATTACHMENT_DESCRIPTION_MAX_LENGTH = 1000;
 export const ATTACHMENT_URL_MAX_LENGTH = 2048;
-
-function hasControlCharacter(s: string): boolean {
-  for (let i = 0; i < s.length; i++) {
-    const code = s.charCodeAt(i);
-    if (code < 0x20 || code === 0x7f) return true;
-  }
-  return false;
-}
 
 // The storage gate, not the SSRF gate: its job is to guarantee that nothing
 // which could become a javascript: or data: href ever reaches the database.
@@ -24,7 +17,7 @@ export const attachmentLinkUrl = type('string').pipe((s, ctx) => {
   if (trimmed.length > ATTACHMENT_URL_MAX_LENGTH) {
     return ctx.error(`at most ${ATTACHMENT_URL_MAX_LENGTH} characters`);
   }
-  if (hasControlCharacter(trimmed)) {
+  if (hasAsciiControlCharacter(trimmed)) {
     return ctx.error('free of control characters');
   }
   let url: URL;

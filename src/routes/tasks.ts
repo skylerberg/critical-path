@@ -4,6 +4,7 @@ import { sql, type Kysely } from 'kysely';
 import type { DB, ResolvedSortKey } from '../db/types';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
+import { dedupe } from '../utils/arrays';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
   accessibleProjectsFilter,
@@ -11,8 +12,6 @@ import {
   assertProjectWrite,
   assertTaskAccess,
   assertTaskWrite,
-  projectAccessIdsAmong,
-  type ProjectAccessFields,
 } from '../services/authorization';
 import {
   attachmentStorageKeys,
@@ -23,11 +22,13 @@ import { setTaskCoverImage } from '../services/attachments/images';
 import { assertColumnInProject } from '../services/boardColumns';
 import { appendKeys, resolveSortKey, resolveSortKeys } from '../services/sortKey';
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
-import { dueDateText } from '../services/dueDate';
+import { dueDateText } from '../services/dateText';
+import { serializeDescription } from '../services/description';
 import { notifyMentions } from '../services/mentions';
 import { notify } from '../services/notifications';
 import { copyTasks } from '../services/projectCopy';
-import { storage } from '../services/storage/index';
+import { assertAssigneesHaveProjectAccess, assertLabelsInProject } from '../services/projectScope';
+import { deleteStoredObjectsAfterCommit } from '../services/storage/cleanup';
 import {
   findDependencyCyclePath,
   lockDependencyProjects,
@@ -90,46 +91,6 @@ const BLOCKER_UNREACHABLE = 'blocker_task_id must reference a task in a project 
 
 async function fetchBoardTask(db: Kysely<DB>, taskId: string): Promise<BoardTaskRow | undefined> {
   return (await fetchBoardTaskRows(db, [taskId]))[0];
-}
-
-async function assertLabelsInProject(
-  db: Kysely<DB>,
-  labelIds: string[],
-  projectId: string
-): Promise<void> {
-  if (labelIds.length === 0) {
-    return;
-  }
-  const rows = await db
-    .selectFrom('label')
-    .select('label.id')
-    .where('label.id', 'in', labelIds)
-    .where('label.project_id', '=', projectId)
-    .execute();
-  if (rows.length !== labelIds.length) {
-    throw new AppError(422, 'label_ids must reference labels in the project');
-  }
-}
-
-async function assertAssigneesHaveProjectAccess(
-  db: Kysely<DB>,
-  userIds: string[],
-  project: ProjectAccessFields
-): Promise<void> {
-  const withAccess = await projectAccessIdsAmong(db, project, userIds);
-  if (withAccess.length !== userIds.length) {
-    throw new AppError(422, 'assignee user ids must reference users with access to the project');
-  }
-}
-
-function dedupe(ids: string[]): string[] {
-  return [...new Set(ids)];
-}
-
-// The generated Json column type has an index signature the TiptapDoc interface
-// cannot satisfy; jsonb parses the text back into the same document.
-function serializeDescription(description: TiptapDoc | null | undefined): string | null {
-  return description == null ? null : JSON.stringify(description);
 }
 
 router.post(
@@ -928,12 +889,7 @@ router.delete(
       await refreshCrossProjectBlockerCounts(db, [...remoteDependentIds])
     );
 
-    const keys = attachmentKeys;
-    if (keys.length > 0) {
-      c.get('postCommitHooks').push(async () => {
-        await Promise.all(keys.map((key) => storage.delete(key)));
-      });
-    }
+    deleteStoredObjectsAfterCommit(c, attachmentKeys);
 
     publishAfterCommit(c, 'task_deleted', project.id, { id });
     return c.body(null, 204);

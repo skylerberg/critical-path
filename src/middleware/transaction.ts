@@ -2,6 +2,7 @@ import { createMiddleware } from 'hono/factory';
 import { db } from '../db/index';
 import type { Variables } from '../types/index';
 import { logger } from '../utils/logger';
+import { errorText } from '../utils/errors';
 
 const TRANSACTIONAL_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -43,7 +44,7 @@ export const transactionMiddleware = createMiddleware<{ Variables: Variables }>(
       logger.error({
         msg: 'Post-commit hook failed',
         path: c.req.path,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorText(err),
       })
     );
   }

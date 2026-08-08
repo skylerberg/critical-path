@@ -1,17 +1,13 @@
-import { sql, type Kysely, type Selectable } from 'kysely';
+import type { Kysely, Selectable } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB, Project, TaskSeries } from '../../db/types';
 import type { TaskSeriesResponse, TiptapDoc } from '../../schemas/index';
 import { AppError } from '../../utils/errors';
 import { assertProjectWrite } from '../authorization';
+import { dateText } from '../dateText';
 import { presetFor, summarise } from './rule';
 
 const SERIES_NOT_FOUND = 'Series not found';
-
-// node-pg parses a `date` into a JS Date at local midnight, which serializes
-// back out as the previous day anywhere east of UTC.
-const seriesDateText = (column: string) =>
-  sql<string | null>`to_char(${sql.ref(column)}, 'YYYY-MM-DD')`;
 
 export interface FetchSeriesFilter {
   projectId?: string;
@@ -33,15 +29,15 @@ export async function fetchSeries(
       'task_series.column_id',
       'task_series.title',
       'task_series.description',
-      seriesDateText('task_series.due_date').as('due_date'),
+      dateText('task_series.due_date').as('due_date'),
       'task_series.rrule',
-      seriesDateText('task_series.start_date').as('start_date'),
+      dateText('task_series.start_date').as('start_date'),
       'task_series.timezone',
       'task_series.status',
-      seriesDateText('task_series.next_occurrence_date').as('next_occurrence_date'),
-      seriesDateText('task_series.last_occurrence_date').as('last_occurrence_date'),
+      dateText('task_series.next_occurrence_date').as('next_occurrence_date'),
+      dateText('task_series.last_occurrence_date').as('last_occurrence_date'),
       'task_series.missed_occurrence_count',
-      seriesDateText('task_series.last_missed_date').as('last_missed_date'),
+      dateText('task_series.last_missed_date').as('last_missed_date'),
       'task_series.last_error',
       'task_series.ended_at',
       'task_series.created_by',
@@ -132,7 +128,7 @@ export async function seriesSummaryForTask(db: Kysely<DB>, taskId: string): Prom
   const row = await db
     .selectFrom('task')
     .innerJoin('task_series', 'task_series.id', 'task.series_id')
-    .select(['task_series.rrule', seriesDateText('task_series.start_date').as('start_date')])
+    .select(['task_series.rrule', dateText('task_series.start_date').as('start_date')])
     .where('task.id', '=', taskId)
     .executeTakeFirst();
   if (!row) {
@@ -147,7 +143,7 @@ async function loadSeriesRow(db: Kysely<DB>, seriesId: string): Promise<SeriesRo
   const series = await db
     .selectFrom('task_series')
     .selectAll()
-    .select(seriesDateText('task_series.start_date').as('start_date_text'))
+    .select(dateText('task_series.start_date').as('start_date_text'))
     .where('task_series.id', '=', seriesId)
     .executeTakeFirst();
   if (!series) {

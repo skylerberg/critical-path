@@ -2,19 +2,17 @@ import crypto from 'crypto';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import { db } from '../../db/index';
 import type { DB, Job, JsonValue } from '../../db/types';
+import { BACKOFF_SECONDS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_ERROR_CHARS } from '../retryPolicy';
 
-export const BACKOFF_SECONDS = [30, 120, 600, 3600, 21600];
-export const MAX_ATTEMPTS = BACKOFF_SECONDS.length + 1;
+export { BACKOFF_SECONDS, LEASE_SECONDS, MAX_ATTEMPTS };
+
 export const PERIODIC_MAX_BACKOFF_SECONDS = 600;
-export const LEASE_SECONDS = 60;
 export const CLAIM_BATCH = 8;
 export const MAX_CONCURRENT_JOBS = 4;
 export const MAX_HANDLER_TIMEOUT_MS = 20_000;
 // How many handlers deep a claimed row can queue, which is what turns the
 // handler timeout into a bound on the whole tick.
 export const ROUNDS_PER_TICK = Math.ceil(CLAIM_BATCH / MAX_CONCURRENT_JOBS);
-
-const MAX_ERROR_CHARS = 2000;
 
 export type JobRow = Selectable<Job>;
 

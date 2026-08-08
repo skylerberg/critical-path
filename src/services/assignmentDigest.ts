@@ -4,11 +4,11 @@ import { APP_NAME } from '../config/constants';
 import { projectLink, taskLink } from './webLinks';
 import { db } from '../db/index';
 import { withNotificationBudget } from '../middleware/rateLimit';
+import { errorText } from '../utils/errors';
 import { logger } from '../utils/logger';
-import { projectAccessIdsAmong } from './authorization';
 import { getEmailSender } from './email/index';
 import { registerJobHandler } from './jobs/handlers';
-import { NOTIFY_COLUMN, unsubscribeLinks } from './notifications';
+import { eligibleRecipients, unsubscribeLinks } from './notifications';
 import type { EmailMessage } from './email/types';
 import type { PublicContext } from '../types/index';
 
@@ -149,7 +149,7 @@ function digestMessage(
   project: { id: string; name: string },
   tasks: { id: string; title: string }[]
 ): EmailMessage {
-  const { page, oneClick } = unsubscribeLinks(recipient, 'bulk_task_assigned');
+  const { page, headers } = unsubscribeLinks(recipient, 'bulk_task_assigned');
   const actor = oneLine(actorName);
   const board = oneLine(project.name);
   const count = tasks.length;
@@ -174,10 +174,7 @@ function digestMessage(
     to: recipient.email,
     subject: `${actor} assigned you ${cards} in ${board}`,
     text: `${lines.join('\n')}\n\nTo stop receiving these emails: ${page}\n`,
-    headers: {
-      'List-Unsubscribe': `<${oneClick}>`,
-      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-    },
+    headers,
   };
 }
 
@@ -201,15 +198,6 @@ export const assignmentDigestDelivery: {
     // Every gate is re-evaluated rather than trusted from the write that queued
     // the rows: the window is minutes wide, and access, assignment and the
     // preference itself can all have moved inside it.
-    const recipient = await db
-      .selectFrom('app_user')
-      .select(['id', 'email'])
-      .where('id', '=', digest.recipientUserId)
-      .where('email_verified_at', 'is not', null)
-      .where(NOTIFY_COLUMN.bulk_task_assigned, '=', true)
-      .executeTakeFirst();
-    if (!recipient) return;
-
     const project = await db
       .selectFrom('project')
       .select(['id', 'name', 'created_by'])
@@ -217,8 +205,10 @@ export const assignmentDigestDelivery: {
       .executeTakeFirst();
     if (!project) return;
 
-    const accessible = await projectAccessIdsAmong(db, project, [recipient.id]);
-    if (accessible.length === 0) return;
+    const [recipient] = await eligibleRecipients('bulk_task_assigned', project, [
+      digest.recipientUserId,
+    ]);
+    if (recipient === undefined) return;
 
     const actor = await db
       .selectFrom('app_user')
@@ -273,7 +263,7 @@ export async function runAssignmentDigestSweep(opts: { budgetMs?: number } = {})
         logger.error({
           msg: 'Assignment digest could not be claimed',
           project_id: group.project_id,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorText(err),
         });
       }
       if (digest === null) continue;
@@ -288,7 +278,7 @@ export async function runAssignmentDigestSweep(opts: { budgetMs?: number } = {})
         logger.error({
           msg: 'Assignment digest email failed',
           project_id: digest.projectId,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorText(err),
         });
       }
       if (Date.now() >= deadline) break;

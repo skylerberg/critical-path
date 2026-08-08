@@ -60,7 +60,7 @@ import { publishAfterCommit } from '../services/realtime/index';
 import { keysBetween, resolveSortKey } from '../services/sortKey';
 import { recordAssigneeChanges } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
-import { storage } from '../services/storage/index';
+import { deleteStoredObjectsAfterCommit } from '../services/storage/cleanup';
 import type { DB, Project } from '../db/types';
 import {
   idSchema,
@@ -647,12 +647,7 @@ router.delete(
       )
     );
 
-    const keys = attachmentKeys;
-    if (keys.length > 0) {
-      c.get('postCommitHooks').push(async () => {
-        await Promise.all(keys.map((key) => storage.delete(key)));
-      });
-    }
+    deleteStoredObjectsAfterCommit(c, attachmentKeys);
 
     publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: [...recipients] });
     return c.body(null, 204);

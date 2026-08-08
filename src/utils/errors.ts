@@ -10,6 +10,12 @@ export class AppError extends Error {
   }
 }
 
+// A caught value is `unknown`, and everything that logs or records one wants the
+// same string out of it.
+export function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function isUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === '23505';
 }

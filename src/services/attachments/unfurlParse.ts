@@ -2,6 +2,7 @@ import {
   ATTACHMENT_DESCRIPTION_MAX_LENGTH,
   ATTACHMENT_TITLE_MAX_LENGTH,
 } from '../../schemas/attachments';
+import { isUnicodeControlCode } from '../../utils/controlCharacters';
 
 export interface HeadMetadata {
   title: string | null;
@@ -56,7 +57,7 @@ function clean(value: string | null, max: number): string | null {
   let text = '';
   for (const char of decodeEntities(value)) {
     const code = char.codePointAt(0) as number;
-    text += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? ' ' : char;
+    text += isUnicodeControlCode(code) ? ' ' : char;
   }
   text = text.replace(/\s+/g, ' ').trim().slice(0, max).trim();
   return text === '' ? null : text;
