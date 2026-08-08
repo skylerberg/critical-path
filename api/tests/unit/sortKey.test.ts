@@ -58,7 +58,7 @@ describe('sort key invariants', () => {
     assertStrictlySorted(keys);
   });
 
-  it('survives repeated insertion against the same neighbour', () => {
+  it('survives repeated insertion against the same neighbor', () => {
     const outer = keysBetween(null, null, 2);
     let low = outer[0]!;
     const high = outer[1]!;
@@ -101,11 +101,11 @@ describe('sort key invariants', () => {
     expect(keysBetween(null, null, 0)).toEqual([]);
   });
 
-  // Repeatedly inserting against the same neighbour costs a fixed amount of key
+  // Repeatedly inserting against the same neighbor costs a fixed amount of key
   // per insert -- unavoidable, since distinguishing n insertions at one spot
   // needs n bits somewhere. This pins the rate so a regression in the alphabet
   // or the generator shows up as a change in insertion budget.
-  it('grows about a character per five same-neighbour inserts', () => {
+  it('grows about a character per five same-neighbor inserts', () => {
     const [low, high] = keysBetween(null, null, 2) as [ResolvedSortKey, ResolvedSortKey];
     const steps = 2_000;
     let current = low;

@@ -2,7 +2,7 @@ import type { RouterRoute } from 'hono/types';
 import { optionalAuth, skipAuth } from '../middleware/auth';
 
 // Every route that serves without a token, decided once. The marker is what the
-// runtime honours and this list is what pins it: a route that gains the marker
+// runtime honors and this list is what pins it: a route that gains the marker
 // without being listed fails at boot instead of quietly serving unauthenticated,
 // and a listed route that loses it fails too rather than 401ing in production.
 const PUBLIC_ROUTES: ReadonlySet<string> = new Set([

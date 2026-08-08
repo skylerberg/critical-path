@@ -381,7 +381,7 @@ describe('Tasks CRUD', () => {
         sortKey: rankKey(2300),
       });
       const takenKey = rankKey(500);
-      await fixtures.createTaskRow(projectId, column, 'neighbour', { sortKey: takenKey });
+      await fixtures.createTaskRow(projectId, column, 'neighbor', { sortKey: takenKey });
       const created = await ctx
         .request(user.token)
         .post('/api/tasks', taskBody({ column_id: column }));

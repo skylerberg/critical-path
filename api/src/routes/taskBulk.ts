@@ -220,7 +220,7 @@ router.post(
       'common. At least one of add_label_ids and remove_label_ids must be non-empty and the two ' +
       'must not overlap; both are 422. Ids in add_label_ids must be labels of the project (422 ' +
       'otherwise); ids in remove_label_ids are not validated, since removing an absent label is ' +
-      'a no-op. Archived cards are labelled rather than skipped. A card the call applied to but ' +
+      'a no-op. Archived cards are labeled rather than skipped. A card the call applied to but ' +
       'did not change — it already carried the label — appears in neither list and writes no ' +
       'activity. The response carries the full label, assignee and blocker sets of every card ' +
       'that changed. Emits one bulk_tasks_relations_set event and no per-task events. ' +

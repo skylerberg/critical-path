@@ -149,7 +149,7 @@ export async function claimInvitations(
     return project !== undefined && project.created_by !== userId && !heldRole.has(row.project_id);
   });
 
-  // Consumed before it is honoured, and only rows this statement removed are: a
+  // Consumed before it is honored, and only rows this statement removed are: a
   // revoke already holding the row wins rather than being overtaken by a grant
   // that read the row before it was withdrawn.
   const consumed =
