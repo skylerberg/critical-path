@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { skipAuth } from '../middleware/auth';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError } from '../utils/errors';
@@ -7,6 +7,8 @@ import { getPublicBoard } from '../services/boardPayload';
 import {
   idSchema,
   publicBoardSchema,
+  jsonResponse,
+  type Returned,
   badRequestErrorResponse,
   notFoundErrorResponse,
   internalServerErrorResponse,
@@ -14,6 +16,10 @@ import {
 import { PublicHono } from '../types/index';
 
 const router: PublicHono = new Hono();
+
+const getPublicBoardResponses = {
+  200: jsonResponse('Public board payload', publicBoardSchema),
+};
 
 router.get(
   '/projects/:id/board',
@@ -29,14 +35,7 @@ router.get(
       'Member ids, the creator, task timestamps, and the activity log are never included. ' +
       'Projects that are private, unknown, or deleted are all 404.',
     responses: {
-      200: {
-        description: 'Public board payload',
-        content: {
-          'application/json': {
-            schema: resolver(publicBoardSchema),
-          },
-        },
-      },
+      ...getPublicBoardResponses,
       ...badRequestErrorResponse,
       ...notFoundErrorResponse,
       ...internalServerErrorResponse,
@@ -44,7 +43,7 @@ router.get(
   }),
   skipAuth,
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof getPublicBoardResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 

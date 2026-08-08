@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { Kysely } from 'kysely';
 import { db } from '../../../src/db/index';
 import {
   BACKOFF_SECONDS,
@@ -19,14 +20,30 @@ import {
   syncPeriodicJobs,
   unregisterJobHandler,
   unregisteredKindBacklog,
-  type JobHandler,
+  type EnqueueJobOptions,
   type JobRow,
 } from '../../../src/services/jobs/index';
+import type { DB, JsonValue } from '../../../src/db/types';
 import { logger } from '../../../src/utils/logger';
 
-function register(handler: JobHandler): void {
-  registerJobHandler(handler);
-}
+// The payload catalogue is a production guarantee: every kind the app enqueues
+// has a row in it, and both entry points are generic over its keys. What this
+// file covers is the queue underneath — claiming, leasing, backoff, schedules —
+// which is kind-agnostic on purpose, so it drives that with synthetic kinds that
+// deliberately have no row.
+const register = registerJobHandler as unknown as (handler: {
+  kind: string;
+  timeoutMs: number;
+  intervalSeconds?: number;
+  run: (payload: JsonValue) => Promise<void>;
+}) => void;
+
+const enqueue = enqueueJob as unknown as (
+  connection: Kysely<DB>,
+  kind: string,
+  payload: JsonValue,
+  options?: EnqueueJobOptions
+) => Promise<string>;
 
 function jobRow(kind: string): Promise<JobRow> {
   return db.selectFrom('job').selectAll().where('kind', '=', kind).executeTakeFirstOrThrow();
@@ -60,7 +77,7 @@ describe('enqueueJob', () => {
   it('queues nothing when the transaction that enqueued it rolls back', async () => {
     await expect(
       db.transaction().execute(async (trx) => {
-        await enqueueJob(trx, 'test_rollback', { task_id: 'abc' });
+        await enqueue(trx, 'test_rollback', { task_id: 'abc' });
         throw new Error('caller failed after enqueue');
       })
     ).rejects.toThrow('caller failed after enqueue');
@@ -71,7 +88,7 @@ describe('enqueueJob', () => {
   it('queues the job when that transaction commits', async () => {
     const id = await db
       .transaction()
-      .execute((trx) => enqueueJob(trx, 'test_commit', { task_id: 'abc' }));
+      .execute((trx) => enqueue(trx, 'test_commit', { task_id: 'abc' }));
 
     const row = await db
       .selectFrom('job')
@@ -85,10 +102,10 @@ describe('enqueueJob', () => {
   });
 
   it('refuses a payload carrying contact details and writes nothing', async () => {
-    await expect(enqueueJob(db, 'test_pii', { to: 'someone@example.com' })).rejects.toThrow(
+    await expect(enqueue(db, 'test_pii', { to: 'someone@example.com' })).rejects.toThrow(
       /email address/
     );
-    await expect(enqueueJob(db, 'test_pii', { recipient: { email: null } })).rejects.toThrow(
+    await expect(enqueue(db, 'test_pii', { recipient: { email: null } })).rejects.toThrow(
       /contact field/
     );
     expect(await jobRows('test_pii')).toHaveLength(0);
@@ -97,7 +114,7 @@ describe('enqueueJob', () => {
 
 describe('claimDueJobs', () => {
   it('leases a claimed job so a second claim cannot take it', async () => {
-    await enqueueJob(db, 'test_leased', {});
+    await enqueue(db, 'test_leased', {});
 
     const first = await claimDueJobs(['test_leased'], 10);
     expect(first).toHaveLength(1);
@@ -118,7 +135,7 @@ describe('runDueJobs', () => {
         return Promise.resolve();
       },
     });
-    await enqueueJob(db, 'test_once', { task_id: 'abc' });
+    await enqueue(db, 'test_once', { task_id: 'abc' });
 
     expect(await runDueJobs()).toBe(1);
     expect(seen).toEqual([{ task_id: 'abc' }]);
@@ -136,7 +153,7 @@ describe('runDueJobs', () => {
         return Promise.resolve();
       },
     });
-    await enqueueJob(db, 'test_deferred', {}, { runAt: new Date(Date.now() + 60_000) });
+    await enqueue(db, 'test_deferred', {}, { runAt: new Date(Date.now() + 60_000) });
 
     expect(await runDueJobs()).toBe(0);
     expect(runs).toBe(0);
@@ -144,8 +161,8 @@ describe('runDueJobs', () => {
 
   it('leaves a kind this process has no handler for untouched', async () => {
     register({ kind: 'test_current_release', timeoutMs: 1000, run: () => Promise.resolve() });
-    await enqueueJob(db, 'test_current_release', {});
-    await enqueueJob(db, 'test_future_release', {});
+    await enqueue(db, 'test_current_release', {});
+    await enqueue(db, 'test_future_release', {});
 
     expect(await runDueJobs()).toBe(1);
 
@@ -160,7 +177,7 @@ describe('runDueJobs', () => {
       timeoutMs: 1000,
       run: () => Promise.reject(new Error('handler blew up')),
     });
-    await enqueueJob(db, 'test_backoff', {});
+    await enqueue(db, 'test_backoff', {});
 
     expect(await runDueJobs()).toBe(1);
 
@@ -177,7 +194,7 @@ describe('runDueJobs', () => {
       timeoutMs: 1000,
       run: () => Promise.reject(new Error('handler blew up')),
     });
-    await enqueueJob(db, 'test_poison', {});
+    await enqueue(db, 'test_poison', {});
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       expect(await runDueJobs()).toBe(1);
@@ -216,7 +233,7 @@ describe('runDueJobs', () => {
         live -= 1;
       },
     });
-    for (let i = 0; i < CLAIM_BATCH + 4; i++) await enqueueJob(db, 'test_burst', {});
+    for (let i = 0; i < CLAIM_BATCH + 4; i++) await enqueue(db, 'test_burst', {});
 
     expect(await runDueJobs()).toBe(CLAIM_BATCH);
     expect(peak).toBe(MAX_CONCURRENT_JOBS);
@@ -240,7 +257,7 @@ describe('runDueJobs', () => {
         live -= 1;
       },
     });
-    for (let i = 0; i < CLAIM_BATCH + 4; i++) await enqueueJob(db, 'test_overlap', {});
+    for (let i = 0; i < CLAIM_BATCH + 4; i++) await enqueue(db, 'test_overlap', {});
 
     const overrunning = runDueJobs();
     try {
@@ -265,8 +282,8 @@ describe('runDueJobs', () => {
       },
     });
     register({ kind: 'test_vanished', timeoutMs: 1000, run: () => Promise.resolve() });
-    await enqueueJob(db, 'test_unregisters', {}, { runAt: new Date(Date.now() - 1000) });
-    await enqueueJob(db, 'test_vanished', {});
+    await enqueue(db, 'test_unregisters', {}, { runAt: new Date(Date.now() - 1000) });
+    await enqueue(db, 'test_vanished', {});
 
     expect(await runDueJobs()).toBe(2);
 
@@ -276,9 +293,30 @@ describe('runDueJobs', () => {
     expect(row.last_error).toBe('No handler registered for kind test_vanished');
   });
 
+  it('fails the job rather than the tick when a payload does not match its kind', async () => {
+    let runs = 0;
+    register({
+      kind: 'attachment_unfurl',
+      timeoutMs: 1000,
+      run: () => {
+        runs += 1;
+        return Promise.resolve();
+      },
+    });
+    await enqueue(db, 'attachment_unfurl', { attachment_id: 7 });
+
+    expect(await runDueJobs()).toBe(1);
+
+    expect(runs).toBe(0);
+    const row = await jobRow('attachment_unfurl');
+    expect(row.status).toBe('pending');
+    expect(row.attempts).toBe(1);
+    expect(row.last_error).toContain('does not match kind attachment_unfurl');
+  });
+
   it('gives up on a handler that overruns its timeout and records the failure', async () => {
     register({ kind: 'test_slow', timeoutMs: 50, run: () => new Promise<void>(() => undefined) });
-    await enqueueJob(db, 'test_slow', {});
+    await enqueue(db, 'test_slow', {});
 
     expect(await runDueJobs()).toBe(1);
 
@@ -375,7 +413,7 @@ describe('periodic jobs', () => {
 
   it('retires only the schedule, never a queued one-shot of the same kind', async () => {
     await syncPeriodicJobs([{ kind: 'test_mixed', intervalSeconds: 60 }], ['test_mixed']);
-    await enqueueJob(db, 'test_mixed', { task_id: 'abc' });
+    await enqueue(db, 'test_mixed', { task_id: 'abc' });
 
     await syncPeriodicJobs([], ['test_mixed']);
 
@@ -388,10 +426,10 @@ describe('periodic jobs', () => {
 describe('unregisteredKindBacklog', () => {
   it('counts pending rows whose kind nothing in this process handles', async () => {
     register({ kind: 'test_known', timeoutMs: 1000, run: () => Promise.resolve() });
-    await enqueueJob(db, 'test_known', {});
-    await enqueueJob(db, 'test_orphan', {});
-    await enqueueJob(db, 'test_orphan', {});
-    const retired = await enqueueJob(db, 'test_orphan', {});
+    await enqueue(db, 'test_known', {});
+    await enqueue(db, 'test_orphan', {});
+    await enqueue(db, 'test_orphan', {});
+    const retired = await enqueue(db, 'test_orphan', {});
     await db.updateTable('job').set({ status: 'failed' }).where('id', '=', retired).execute();
 
     expect(await unregisteredKindBacklog(registeredJobKinds())).toEqual([
@@ -400,8 +438,8 @@ describe('unregisteredKindBacklog', () => {
   });
 
   it('counts every pending kind when this process registered none', async () => {
-    await enqueueJob(db, 'test_a', {});
-    await enqueueJob(db, 'test_b', {});
+    await enqueue(db, 'test_a', {});
+    await enqueue(db, 'test_b', {});
 
     const backlog = await unregisteredKindBacklog([]);
 
@@ -414,7 +452,7 @@ describe('unregisteredKindBacklog', () => {
 
 describe('recordJobFailure', () => {
   it('backs a row off from the first step when the caller never claimed it', async () => {
-    await enqueueJob(db, 'test_unclaimed', {});
+    await enqueue(db, 'test_unclaimed', {});
     const row = await jobRow('test_unclaimed');
     expect(row.attempts).toBe(0);
 
@@ -430,9 +468,9 @@ describe('reportJobBacklog', () => {
   it('warns about pending kinds nothing handles and rows parked in failed', async () => {
     const warnings = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     register({ kind: 'test_handled', timeoutMs: 1000, run: () => Promise.resolve() });
-    await enqueueJob(db, 'test_handled', {});
-    await enqueueJob(db, 'test_stranded', {});
-    const parked = await enqueueJob(db, 'test_handled', {});
+    await enqueue(db, 'test_handled', {});
+    await enqueue(db, 'test_stranded', {});
+    const parked = await enqueue(db, 'test_handled', {});
     await db.updateTable('job').set({ status: 'failed' }).where('id', '=', parked).execute();
 
     await reportJobBacklog();
@@ -448,7 +486,7 @@ describe('reportJobBacklog', () => {
   it('says nothing when every pending row has a handler and none are parked', async () => {
     const warnings = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     register({ kind: 'test_handled', timeoutMs: 1000, run: () => Promise.resolve() });
-    await enqueueJob(db, 'test_handled', {});
+    await enqueue(db, 'test_handled', {});
 
     await reportJobBacklog();
 
@@ -465,7 +503,7 @@ describe('runJobMaintenance', () => {
       intervalSeconds: 60,
       run: () => Promise.resolve(),
     });
-    await enqueueJob(db, 'test_boot_stranded', {});
+    await enqueue(db, 'test_boot_stranded', {});
 
     await runJobMaintenance();
 

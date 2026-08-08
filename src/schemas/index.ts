@@ -2,6 +2,7 @@
 // registry derives component names from this barrel's named exports.
 export * from './common';
 export * from './errors';
+export * from './responses';
 export * from './auth';
 export * from './sessions';
 export * from './personalAccessTokens';
