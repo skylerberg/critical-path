@@ -4,7 +4,7 @@ import { boardAnnouncer } from './board-announcer.svelte';
 import { board } from './board.svelte';
 import type { BoardColumn, BoardTask } from './board-types';
 import { realtimeEvent } from './realtime-test-events';
-import type { RealtimeEvent } from './realtime-types';
+import type { PayloadOf, RealtimeEvent, RealtimeEventType } from './realtime-types';
 import { router } from './router.svelte';
 import { session } from './session.svelte';
 import { projectHref, taskHref } from './short-links';
@@ -56,12 +56,16 @@ async function fire(...events: RealtimeEvent[]): Promise<void> {
   await vi.advanceTimersByTimeAsync(1500);
 }
 
-function theirs<T extends RealtimeEvent['type']>(
+// The payload is typed, not Record<string, unknown>: that is the whole point of
+// realtimeEvent, and a helper that widened it here would hand every caller below
+// the unchecked shape the builder exists to prevent. The cast covers only the
+// merged actor, which no generic T can prove is part of its own payload.
+function theirs<T extends RealtimeEventType>(
   type: T,
-  data: Record<string, unknown>,
-  actorId = THEM
+  data: Partial<PayloadOf<T>>,
+  actorId: string | null = THEM
 ): RealtimeEvent {
-  return realtimeEvent(type, { ...data, actor_user_id: actorId } as never, PROJECT);
+  return realtimeEvent(type, { ...data, actor_user_id: actorId } as Partial<PayloadOf<T>>, PROJECT);
 }
 
 beforeEach(() => {
@@ -176,7 +180,7 @@ describe('announcing a teammate’s board changes', () => {
 
   it('says nothing when the event names no actor', async () => {
     await fire(realtimeEvent('task_created', task('t1'), PROJECT));
-    await fire(theirs('task_created', task('t2'), null as unknown as string));
+    await fire(theirs('task_created', task('t2'), null));
 
     expect(boardAnnouncer.message).toBe('');
   });
