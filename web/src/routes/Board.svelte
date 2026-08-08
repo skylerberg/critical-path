@@ -15,7 +15,12 @@
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, TOUCH_DRAG_DELAY_MS } from '../lib/card-menu.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
-  import { edgeScrollSpeed, fitsHorizontally, snapScrollLeft } from '../lib/board-scroll';
+  import {
+    edgeScrollSpeed,
+    fitsHorizontally,
+    overshootTarget,
+    snapScrollLeft,
+  } from '../lib/board-scroll';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { truncateTitle } from '../lib/titles';
@@ -108,6 +113,11 @@
 
   let columnDragging = $state(false);
   let taskDragging = $state(false);
+  // svelte-dnd-action drives a keyboard drag by focusing the moved element after
+  // every arrow press, so the board already follows it. Dropping snap for one
+  // only means re-arming it afterwards wherever that focus left the scroll, which
+  // a mandatory-snap container resolves with a jump to a neighbouring column.
+  let keyboardDragging = $state(false);
   let dragOrigin: { columnId: string; index: number } | null = null;
   let columnDragOrigin: number | null = null;
 
@@ -117,6 +127,7 @@
   let columnFormOpenedHere = $state(false);
 
   const dragging = $derived(columnDragging || taskDragging);
+  const pointerDragging = $derived(dragging && !keyboardDragging);
 
   $effect(() => {
     board.dragging = dragging;
@@ -139,18 +150,28 @@
   // Column to center after a pointer drop. While set, snap stays off so the
   // centering slide isn't fought by scroll-snap.
   let centeringTarget = $state<string | null>(null);
-  const snapActive = $derived(!dragging && centeringTarget === null);
+  // Set by the edge scroller. A drag that moved the board left it wherever the
+  // pointer stopped, which is almost never a snap position, so it has to land on
+  // one deliberately even when the destination is already fully visible.
+  let dragScrolled = false;
+  const snapActive = $derived(!pointerDragging && centeringTarget === null);
 
   function columnSections(scroller: HTMLElement): HTMLElement[] {
     return Array.from(scroller.querySelectorAll<HTMLElement>('section'));
   }
 
-  function nearestColumnIndex(scroller: HTMLElement): number {
+  // Every snap target, not just the columns: the "+ Add column" tile is one too,
+  // so leaving it out puts the index off by one whenever it is involved.
+  function snapTargets(scroller: HTMLElement): HTMLElement[] {
+    return Array.from(scroller.querySelectorAll<HTMLElement>('[data-snap-target]'));
+  }
+
+  function nearestSnapIndex(scroller: HTMLElement): number {
     const view = scroller.getBoundingClientRect();
     const mid = view.left + view.width / 2;
     let best = 0;
     let bestDist = Infinity;
-    columnSections(scroller).forEach((el, i) => {
+    snapTargets(scroller).forEach((el, i) => {
       const rect = el.getBoundingClientRect();
       const dist = Math.abs(rect.left + rect.width / 2 - mid);
       if (dist < bestDist) {
@@ -180,13 +201,14 @@
     });
   }
 
-  // Slow, continuous edge scroll while dragging.
+  // Slow, continuous edge scroll while dragging. Pointer drags only: a keyboard
+  // drag leaves snap on, and a stray mouse move during one would then run the
+  // per-frame scrollBy below against a snapping container — a fling per tick.
   $effect(() => {
     const scroller = boardScroller;
-    if (!scroller || !dragging) {
+    if (!scroller || !pointerDragging) {
       return;
     }
-    centeringTarget = null; // a new drag cancels any pending drop-center
     // A long press arms this drag before it opens the card menu, and the menu is
     // anchored to the finger: a press held near a column edge must not drift the
     // board while it waits, nor once the menu is sitting on top of it.
@@ -221,6 +243,7 @@
           DRAG_SCROLL_SPEED_PX_PER_S
         );
         if (speed !== 0) {
+          dragScrolled = true;
           scroller.scrollBy(speed * dt, 0);
         }
       }
@@ -238,7 +261,8 @@
   // A column the user can already see whole is left exactly where it is: moving a
   // card must not move the board out from under them. That makes this a no-op on
   // any screen wide enough to show the destination, and on a reorder within the
-  // column they are already looking at.
+  // column they are already looking at — unless the drag scrolled, in which case
+  // the board is parked off-snap and re-arming there would jump.
   //
   // The decision is made here rather than in the drop handlers because this runs
   // after Svelte has committed the DOM: a column reorder moves the very column
@@ -250,9 +274,12 @@
       return;
     }
     const section = columnSections(scroller).find((el) => el.dataset.columnId === target);
+    const scrolled = dragScrolled;
+    dragScrolled = false;
     if (
       section === undefined ||
-      fitsHorizontally(scroller.getBoundingClientRect(), section.getBoundingClientRect())
+      (!scrolled &&
+        fitsHorizontally(scroller.getBoundingClientRect(), section.getBoundingClientRect()))
     ) {
       centeringTarget = null;
       return;
@@ -276,48 +303,92 @@
   });
 
   // --- A touch swipe moves at most one column ---
-  // Each column has scroll-snap-stop: always (snap-always), which is meant to cap
-  // a fling at one column, but it isn't honored on every mobile browser, so a
-  // vigorous swipe can sail past several. When one does, slide it back to exactly
-  // one.
-  //
-  // Only a finger arms this. `scrollend` cannot tell a fling from a wheel or
-  // trackpad scroll, from our own centering slide, or from the browser re-snapping
-  // after a layout change — and paginating those is what yanked the board back
-  // mid-scroll on desktop and panned it across the board on arrival. Sampling the
-  // origin on touchstart rather than up front also means it is never read off a
-  // board that hasn't laid out yet. Our own correction lands disarmed, so it can
-  // never trigger a second one.
+  // `snap-always` (scroll-snap-stop: always) is what caps a fling; this is the
+  // fallback for an engine that ignores it, and it may only act on a scroll it
+  // watched end to end: from a resting board, through a finger it saw go down and
+  // come up, to a settle inside that lift's momentum. Everything else — a wheel
+  // or trackpad scroll, our own centering slide, the browser re-snapping after a
+  // layout change, a second swipe chained onto the first — is left alone.
+  // `overshootTarget` holds the judgment; this only feeds it.
   $effect(() => {
     const scroller = boardScroller;
     if (!scroller || !snapActive) {
       return;
     }
-    let from: number | null = null;
+    let origin: number | null = null;
+    let atLift: number | null = null;
+    let liftedAt = 0;
+    let fingers = 0;
+    let scrolling = false;
+    let dragMoved = false;
+    const disarm = () => {
+      origin = null;
+      atLift = null;
+      dragMoved = false;
+    };
     const onTouchStart = () => {
+      fingers += 1;
+      // Only a board at rest has an origin worth sampling. A finger landing
+      // mid-scroll is either a second swipe chained onto the first — iOS reports
+      // no touchstart at all for the one that halts momentum, so this is the
+      // charitable half of that case — or a grab at our own centering slide.
+      // Either way the sequence no longer describes one gesture.
+      if (scrolling || origin !== null) {
+        disarm();
+        return;
+      }
       // Nothing to compensate for where the board doesn't snap (lg and up).
-      from =
-        getComputedStyle(scroller).scrollSnapType === 'none' ? null : nearestColumnIndex(scroller);
+      if (getComputedStyle(scroller).scrollSnapType !== 'none') {
+        origin = nearestSnapIndex(scroller);
+      }
+    };
+    const onScroll = () => {
+      scrolling = true;
+      if (fingers > 0) {
+        dragMoved = true;
+      }
+    };
+    const onTouchEnd = () => {
+      fingers = Math.max(0, fingers - 1);
+      if (fingers > 0 || origin === null) {
+        return;
+      }
+      // A touch that scrolled nothing is a tap, and must not leave a correction
+      // armed against whatever moves the board next.
+      if (!dragMoved) {
+        disarm();
+        return;
+      }
+      liftedAt = performance.now();
+      atLift = nearestSnapIndex(scroller);
     };
     const onScrollEnd = () => {
-      const start = from;
-      from = null;
-      if (start === null) {
-        return;
-      }
-      const delta = nearestColumnIndex(scroller) - start;
-      if (Math.abs(delta) <= 1) {
-        return;
-      }
-      const section = columnSections(scroller)[start + Math.sign(delta)];
+      scrolling = false;
+      const target =
+        origin === null || atLift === null
+          ? null
+          : overshootTarget(
+              origin,
+              atLift,
+              nearestSnapIndex(scroller),
+              performance.now() - liftedAt
+            );
+      disarm();
+      const section = target === null ? undefined : snapTargets(scroller)[target];
       if (section !== undefined) {
         slideColumnIntoView(scroller, section);
       }
     };
     scroller.addEventListener('touchstart', onTouchStart, { passive: true });
+    scroller.addEventListener('touchend', onTouchEnd, { passive: true });
+    scroller.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    scroller.addEventListener('scroll', onScroll, { passive: true });
     scroller.addEventListener('scrollend', onScrollEnd);
     return () => {
       scroller.removeEventListener('touchstart', onTouchStart);
+      scroller.removeEventListener('touchend', onTouchEnd);
+      scroller.removeEventListener('touchcancel', onTouchEnd);
+      scroller.removeEventListener('scroll', onScroll);
       scroller.removeEventListener('scrollend', onScrollEnd);
     };
   });
@@ -330,10 +401,16 @@
     }
     untrack(() => {
       shortcuts.quickAddColumn = null;
-      const host = document.querySelector(`[data-quick-add="${columnId}"]`);
+      // The shortcut can name a column nowhere near the viewport, so something has
+      // to reveal it — but not focus(), which scrolls to wherever the input sits
+      // and leaves a mandatory-snap board between two snap points, free to resolve
+      // onto a neighbour. This is the slide a pointer drop uses: it lands on the
+      // snap position and is a no-op for a column already fully visible.
+      centeringTarget = columnId;
+      const host = document.querySelector(`[data-quick-add="${CSS.escape(columnId)}"]`);
       const input = host?.querySelector('input');
       if (input instanceof HTMLInputElement) {
-        input.focus();
+        input.focus({ preventScroll: true });
       } else {
         host?.querySelector('button')?.click();
       }
@@ -389,6 +466,8 @@
   // finalize, so the dragging flags must reset here too.
   function handleColumnConsider(event: CustomEvent<DndEvent<BoardColumn>>): void {
     if (event.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
+      keyboardDragging = event.detail.info.source === SOURCES.KEYBOARD;
+      centeringTarget = null; // a new drag cancels any pending drop-center
       columnDragOrigin = localColumns.findIndex((column) => column.id === event.detail.info.id);
     }
     columnDragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
@@ -419,6 +498,8 @@
 
   function handleTaskConsider(columnId: string, event: CustomEvent<DndEvent<BoardTask>>): void {
     if (event.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
+      keyboardDragging = event.detail.info.source === SOURCES.KEYBOARD;
+      centeringTarget = null; // a new drag cancels any pending drop-center
       dragOrigin = {
         columnId,
         index: (localTasks.get(columnId) ?? []).findIndex(
@@ -529,6 +610,7 @@
       {#each localColumns as column (column.id)}
         <section
           data-column-id={column.id}
+          data-snap-target
           animate:flip={{ duration: flipMs }}
           aria-label={column.name}
           class="flex max-h-full w-[var(--cp-board-col-w)] shrink-0 snap-center snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start"
@@ -541,6 +623,7 @@
           />
           <div
             class="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2"
+            data-task-list={column.id}
             aria-label="{column.name} tasks"
             use:scrollToTopOn={board.filterSignature}
             use:dndzone={{
@@ -589,7 +672,10 @@
       {/each}
     </div>
     {#if !readonly}
-      <div class="w-[var(--cp-board-col-w)] shrink-0 snap-center snap-always md:snap-start">
+      <div
+        data-snap-target
+        class="w-[var(--cp-board-col-w)] shrink-0 snap-center snap-always md:snap-start"
+      >
         {#if addingColumn}
           <form
             onsubmit={submitNewColumn}

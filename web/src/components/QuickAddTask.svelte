@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { focusIf } from '../lib/actions';
+  import { focusIf, revealInList } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { motion } from '../lib/motion.svelte';
@@ -27,15 +27,22 @@
 
   // The store pushes its optimistic rows synchronously, so the column's bottom
   // card is the newest one; awaiting the API would stall the scroll behind it.
+  //
+  // Scoped to this column's own list rather than scrollIntoView, whose `inline`
+  // defaults to 'nearest' and which walks every scrollable ancestor: a card the
+  // board has clipped horizontally makes it pan the board too, and a
+  // mandatory-snap board then resolves that pan onto some other column.
   async function scrollToNewestCard(): Promise<void> {
     const created = board.tasksInColumn(columnId).at(-1);
     if (created === undefined) {
       return;
     }
     await tick();
-    document
-      .querySelector(`[data-task-id="${created.id}"]`)
-      ?.scrollIntoView({ block: 'nearest', behavior: motion.reduced ? 'auto' : 'smooth' });
+    const list = document.querySelector<HTMLElement>(`[data-task-list="${CSS.escape(columnId)}"]`);
+    const card = list?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(created.id)}"]`);
+    if (list != null && card != null) {
+      revealInList(list, card, !motion.reduced);
+    }
   }
 
   async function submit(event: SubmitEvent): Promise<void> {
@@ -47,7 +54,7 @@
     void board.createTask(columnId, trimmed);
     // Only the text is cleared: this composer stays open for rapid entry.
     drafts.set(key, '');
-    input?.focus();
+    input?.focus({ preventScroll: true });
     await scrollToNewestCard();
   }
 

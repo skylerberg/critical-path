@@ -34,7 +34,9 @@
       * { box-sizing: border-box; }
       html, body { margin: 0; }
       body { font-family: system-ui, sans-serif; }
-      :root { --cp-bottom-nav-h: 3.5rem; } /* env(safe-area-inset-bottom) is 0 in headless */
+      /* --cp-board-col-w must match src/app.css: the track padding is derived
+         from it, so the two disagreeing is what makes the end columns unreachable. */
+      :root { --cp-bottom-nav-h: 3.5rem; --cp-board-col-w: min(85vw, 18rem); }
 
       /* --- Tailwind-equivalent utilities used by the board chain --- */
       .flex { display: flex; }
@@ -49,6 +51,8 @@
       .overscroll-x-contain { overscroll-behavior-x: contain; }
       .snap-x { scroll-snap-type: x mandatory; } /* .snap-mandatory folded in; no layout effect */
       .snap-start { scroll-snap-align: start; }
+      .snap-center { scroll-snap-align: center; }
+      .snap-always { scroll-snap-stop: always; }
       .items-stretch { align-items: stretch; }
       .items-center { align-items: center; }
       .gap-1 { gap: 0.25rem; }
@@ -59,12 +63,15 @@
       .pt-0 { padding-top: 0; }
       .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
       .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+      .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
       .shrink-0 { flex-shrink: 0; }
       .min-h-11 { min-height: 2.75rem; }
       .min-h-14 { min-height: 3.5rem; }
       .min-h-16 { min-height: 4rem; }
-      .w-85vw { width: 85vw; }
-      .max-w-72 { max-width: 18rem; }
+      .w-col { width: var(--cp-board-col-w); }
+      .w-max { width: max-content; }
+      .px-half { padding-left: calc(50% - var(--cp-board-col-w) / 2);
+                 padding-right: calc(50% - var(--cp-board-col-w) / 2); }
       .border { border: 1px solid #e5e5e5; }
       .border-b { border-bottom: 1px solid #e5e5e5; }
       .border-t { border-top: 1px solid #e5e5e5; }
@@ -123,7 +130,7 @@
         <div class="board-scroller" data-board-scroller>
           <div class="row" data-row>
             <div class="flex items-stretch gap-3" aria-label="Columns" data-columns></div>
-            <div class="w-85vw max-w-72 shrink-0 snap-start" data-add-column>
+            <div class="w-col shrink-0 snap-center snap-always" data-snap-target data-add-column>
               <button class="viewbtn" style="border:1px dashed #ddd;width:100%;justify-content:center;color:#737373;">+ Add column</button>
             </div>
           </div>
@@ -150,15 +157,16 @@
       } else {
         scroller.className =
           'board-scroller relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x';
-        row.className = 'row flex min-h-0 flex-1 items-stretch gap-3 p-3';
+        row.className = 'row flex w-max min-h-0 flex-1 items-stretch gap-3 px-half py-3';
       }
 
       const colsHost = document.querySelector('[data-columns]');
       for (let c = 0; c < COLS; c++) {
         const section = document.createElement('section');
         section.className =
-          'flex max-h-full w-85vw max-w-72 shrink-0 snap-start flex-col border';
+          'flex max-h-full w-col shrink-0 snap-center snap-always flex-col border';
         section.setAttribute('aria-label', `Column ${c + 1}`);
+        section.setAttribute('data-snap-target', '');
         // Faithful to ColumnHeader.svelte: the count badge wraps an sr-only label.
         // The sr-only is position:absolute with NO inset, so when nothing up the
         // tree is positioned its containing block is the viewport and it sits at

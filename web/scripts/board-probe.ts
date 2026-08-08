@@ -122,6 +122,22 @@ mount(Board, {
   props: { projectId: PROJECT_ID, readonly: READONLY },
 });
 
+// A mandatory-snap container must re-snap after a layout change, and animate:flip
+// transforms the very sections that define its snap positions. The check script
+// uses this to append a column mid-board — a teammate's, arriving over the wire —
+// and measure whether the board a user is reading moves under them.
+(window as unknown as { __addColumn: (where: 'start' | 'end') => void }).__addColumn = (where) => {
+  const columns = (board as unknown as { columns: unknown[] }).columns;
+  const arrived = {
+    id: `c-arrived-${where}`,
+    name: 'Arrived',
+    position: where === 'start' ? -1000 : COLS * 1000,
+    is_done: false,
+  };
+  (board as unknown as { columns: unknown[] }).columns =
+    where === 'start' ? [arrived, ...columns] : [...columns, arrived];
+};
+
 // A board that pans on its own after arrival is a time series, not a state, so
 // the samples have to start before the first frame — the check script reads
 // them back and asserts the spread is zero.

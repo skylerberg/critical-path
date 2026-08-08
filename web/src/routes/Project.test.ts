@@ -286,10 +286,15 @@ describe('Project', () => {
     }
   });
 
-  it('scrolls the card created by quick-add into view', async () => {
+  // Against the real board, where the card's ancestors include the horizontal
+  // snap scroller. scrollIntoView walks every one of them, so reaching for it here
+  // pans the board and lets a mandatory-snap container resolve that pan onto some
+  // other column. jsdom lays nothing out, so the reveal itself is a no-op — that
+  // it delegates to no ancestor is the whole assertion.
+  it('scrolls the card created by quick-add without touching the board scroller', async () => {
     const projectId = testUuid('p-board-scroll');
     mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
-    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
 
     render(Project, { props: { projectId, view: 'board' } });
     await screen.findByText('Design cards');
@@ -302,12 +307,12 @@ describe('Project', () => {
 
     const created = board.tasks.find((t) => t.title === 'Scroll target');
     expect(created).toBeDefined();
+    // The card resolves through the column's own list, not the document.
+    const list = column.querySelector('[data-task-list]');
     await waitFor(() => {
-      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(list?.querySelector(`[data-task-id="${created!.id}"]`)).not.toBeNull();
     });
-    const receiver = scrollSpy.mock.contexts[0] as Element;
-    expect(receiver.getAttribute('data-task-id')).toBe(created!.id);
-    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    expect(scrollIntoView).not.toHaveBeenCalled();
     expect(input).toHaveFocus();
   });
 
