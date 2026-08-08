@@ -1,5 +1,5 @@
 import type { Kysely, Selectable } from 'kysely';
-import type { BoardColumn, DB } from '../db/types';
+import type { BoardColumn, DB, ResolvedSortKey } from '../db/types';
 import type { MovedTask } from '../schemas/index';
 import { AppError } from '../utils/errors';
 import { AdvisoryLock, takeAdvisoryLock } from './advisoryLock';
@@ -68,13 +68,19 @@ export async function lockColumnTail(db: Kysely<DB>, columnId: string): Promise<
   await takeAdvisoryLock(db, AdvisoryLock.columnTail, columnId);
 }
 
+// A `MovedTask` whose key is still branded, so a caller can write it back
+// rather than only serialize it into a response.
+export interface AppendedTask extends MovedTask {
+  sort_key: ResolvedSortKey;
+}
+
 // The probe spans archived rows too, so an appended task never collides with
 // one that is only hidden.
 export async function appendPositions(
   db: Kysely<DB>,
   targetColumnId: string,
   taskIds: readonly string[]
-): Promise<MovedTask[]> {
+): Promise<AppendedTask[]> {
   await lockColumnTail(db, targetColumnId);
 
   const { maxKey } = await db

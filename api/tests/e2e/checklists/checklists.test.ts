@@ -23,6 +23,7 @@ interface BoardTaskBody {
   id: string;
   title: string;
   column_id: string;
+  sort_key: string;
   updated_at: string;
   checklist_item_count: number;
   checklist_done_count: number;
@@ -465,6 +466,18 @@ describe('Checklists API', () => {
       expect((await detail(taskId)).checklist_items).toEqual([]);
       expect(await boardTask(taskId)).toMatchObject({ checklist_item_count: 0 });
       expect((await activity(newTaskId)).map((entry) => entry.kind)).toEqual(['created']);
+    });
+
+    it('ranks the new card past a key a card in the column is holding', async () => {
+      const taskId = await createTask();
+      const item = await addItem(taskId, 'promote onto a taken key');
+      const takenKey = (await boardTask(taskId)).sort_key;
+
+      const res = await ctx
+        .request(owner.token)
+        .post(`/api/checklist-items/${item.id}/promote`, { id: newId(), sort_key: takenKey });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as BoardTaskBody).sort_key > takenKey).toBe(true);
     });
 
     it('promotes once in sequence: the second call is 404 and creates no second card', async () => {
