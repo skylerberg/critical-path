@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
-import { imageUploadPath, newId } from '../../helpers/fixtures';
+import { newId } from '../../helpers/fixtures';
 import { cleanupProjects, createTaskFixture, uploadPath } from '../attachments/helpers';
 
 const PNG_1X1 = Buffer.from(
@@ -30,10 +30,12 @@ describe('image and file attachment isolation', () => {
     imageId = newId();
     const image = await ctx
       .request(user.token)
-      .postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
+      .postBytes(uploadPath(taskId, { filename: 'pixel.png', id: imageId }), PNG_1X1);
     expect(image.status).toBe(201);
 
-    const upload = await ctx.request(user.token).postBytes(uploadPath(taskId, 'spec.pdf'), PDF);
+    const upload = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'spec.pdf' }), PDF);
     expect(upload.status).toBe(201);
     fileId = ((await upload.json()) as { id: string }).id;
   });

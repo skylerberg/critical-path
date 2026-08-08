@@ -182,8 +182,15 @@ npm run --prefix cli generate-api` and commit the regenerated
 # Running things
 
 - `npm run dev` — API on port 3001.
-- `npm test` — full suite (loads `.env.test`, migrates + truncates). Single
-  file: `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>`.
+- **Run only the tests your change touches; let CI run the rest.** A single
+  file or directory is
+  `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>` and
+  takes seconds. The full `npm test` is ~3 minutes, and running it after every
+  edit is most of the wall-clock in a long session for almost no extra signal —
+  CI runs it on every push, sharded. Reach for the full suite once, before
+  opening the PR, and when a change is broad enough that you cannot name the
+  files it affects (a shared helper, middleware, a schema everything imports).
+- `npm test` — full suite (loads `.env.test`, migrates + truncates).
 - The test database name is derived, never configured: `vitest.config.ts`
   appends this checkout's directory name and a hash of its path to the
   `_test`-suffixed base in `.env.test`, and `globalSetup` creates it. That is
@@ -200,9 +207,13 @@ npm run --prefix cli generate-api` and commit the regenerated
   `REDIS_URL` in `.env.test` — that puts the whole suite on one shared signup
   budget and it collapses into 429s.
 - `npm run type-check`, `npm run lint`, `npm run format`. `type-check` covers
-  `src/`, `tests/`, `scripts/` and `vitest.config.ts` — the root
+  `src/`, `tests/`, `scripts/`, `vitest.config.ts` and `cli/` — the root
   `tsconfig.json` is the check-everything project and emits nothing; `npm run
-  build` uses `tsconfig.build.json`, which is `src/` only. In tests
+  build` uses `tsconfig.build.json`, which is `src/` only. `cli/` is in that
+  project despite being a separate npm package, so an editor resolves its files
+  against real options; left out, every file under `cli/` falls back to an
+  inferred project and reads as a wall of "cannot find module" that has nothing
+  to do with the code. In tests
   `res.json()` is deliberately `any` (`JsonBody` in
   `tests/setup/testContext.ts`): a parsed body has no compile-time link to the
   route that produced it, so name the shape with `res.json<T>()` where it

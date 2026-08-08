@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { uploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects, insertTask, insertTaskImage } from './helpers';
 
 const PNG_1X1 = Buffer.from(
@@ -139,7 +139,7 @@ describe('project access control', () => {
         }),
         b.patch(`/api/labels/${labelId}`, { name: 'stolen label' }),
         b.delete(`/api/labels/${labelId}`),
-        b.postBytes(imageUploadPath(taskId, 'p.png'), PNG_1X1),
+        b.postBytes(uploadPath(taskId, { filename: 'p.png' }), PNG_1X1),
         b.delete(`/api/attachments/${imageId}`),
       ];
 
