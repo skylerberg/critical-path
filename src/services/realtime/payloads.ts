@@ -73,7 +73,7 @@ export const REALTIME_PAYLOAD_SCHEMAS = withActor({
   project_position_updated: type({ id: 'string', sort_key: 'string' }),
   project_seen: idOnly,
   // The actor comes from the catalogue like every other one; it is null when a
-  // schedule materialised the change with no caller behind it. The dot ignores
+  // schedule materialized the change with no caller behind it. The dot ignores
   // its own actor, so a client compares it against its user id.
   project_changed: idOnly,
   invitations_changed: type({ project_id: 'string' }),

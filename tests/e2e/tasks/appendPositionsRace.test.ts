@@ -72,7 +72,7 @@ describe('concurrent moves into one column', () => {
 
   // Each transaction does what relocateColumnTasks does: probe the column's tail, then
   // write. The second is released only once the first has committed, so an
-  // unserialised probe reads a stale max and stamps a duplicate.
+  // unserialized probe reads a stale max and stamps a duplicate.
   it('gives each mover its own sort key', async () => {
     const firstHasProbed = deferred();
     const secondHasProbed = deferred();
@@ -102,7 +102,7 @@ describe('concurrent moves into one column', () => {
     const second = move(movedB, firstHasProbed.promise, secondHasProbed.resolve, null);
 
     // The first mover holds its write back until the second has either finished
-    // its probe (unserialised: both read the same stale max) or blocked on the
+    // its probe (unserialized: both read the same stale max) or blocked on the
     // lock (serialized). Waiting only for the former would deadlock once the
     // lock exists; only for the latter would never fire without it.
     await Promise.race([

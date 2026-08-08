@@ -3,7 +3,7 @@ import {
   MAX_RRULE_LENGTH,
   addDays,
   assertUsableRrule,
-  canonicalise,
+  canonicalize,
   firstOccurrenceOnOrAfter,
   nextOccurrenceAfter,
   occurrencesBetween,
@@ -221,7 +221,7 @@ describe('presetFor', () => {
         'monthly_weekday',
         'yearly',
       ] as const) {
-        const rule = canonicalise(rruleForPreset(preset, startDate));
+        const rule = canonicalize(rruleForPreset(preset, startDate));
         expect(presetFor(rule, startDate), `${preset} @ ${startDate}`).toBe(preset);
       }
     }

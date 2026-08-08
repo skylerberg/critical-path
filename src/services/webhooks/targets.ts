@@ -40,7 +40,7 @@ for (const [network, prefix] of [
   ['fe80::', 10],
   ['ff00::', 8],
   // NAT64, 6to4 and Teredo all embed an IPv4 address; without them a
-  // synthesised prefix tunnels straight to a private v4 target.
+  // synthesized prefix tunnels straight to a private v4 target.
   ['64:ff9b::', 96],
   ['2002::', 16],
   ['2001::', 32],

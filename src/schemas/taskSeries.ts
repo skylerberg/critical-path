@@ -5,7 +5,7 @@ import { nullableTiptapDocSchema } from './tiptap';
 export const MAX_SERIES_PER_PROJECT = 50;
 export const MAX_SERIES_CHECKLIST_ITEMS = 100;
 export const MAX_TIMEZONE_LENGTH = 100;
-// Must stay equal to the task title maximum: materialising a card writes this
+// Must stay equal to the task title maximum: materializing a card writes this
 // text straight into a title by direct insert, past that schema, and the column
 // has no length CHECK.
 export const SERIES_TITLE_MAX_LENGTH = 2000;

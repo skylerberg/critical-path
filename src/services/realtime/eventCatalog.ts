@@ -200,7 +200,7 @@ const EVENTS = {
   // A schedule writes no activity row, so a board read reports nothing changed
   // and the dot would be one no amount of looking at the board clears. No actor
   // either: the sweep publishes these from a cron job, and the one that reports
-  // a failed materialisation has nobody to name at all.
+  // a failed materialization has nobody to name at all.
   series_created: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },
   series_updated: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },
   series_deleted: { scope: 'project', webhook: false, raisesUnseenDot: false, carriesActor: false },

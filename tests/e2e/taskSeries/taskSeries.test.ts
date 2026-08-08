@@ -463,7 +463,7 @@ describe('Recurring series API', () => {
           id: taskId,
           project_id: projectId,
           column_id: columnId,
-          title: 'materialised',
+          title: 'materialized',
           sort_key: rankKey(1000),
           series_id: created.id,
           series_occurrence_date: '2026-02-02',

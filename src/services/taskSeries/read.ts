@@ -6,7 +6,7 @@ import { dateText } from '../dateText';
 import { presetFor, summarize } from './rule';
 
 // Fail closed: the column is plain text, so a value a newer release wrote — or
-// one nothing writes — reads as the state the materialiser's `status = 'active'`
+// one nothing writes — reads as the state the materializer's `status = 'active'`
 // claim already puts it in, rather than as a schedule a client thinks is live.
 function narrowSeriesStatus(status: string): TaskSeriesResponse['status'] {
   return status === 'active' || status === 'paused' ? status : 'ended';
