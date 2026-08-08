@@ -3,6 +3,7 @@ import type { DB } from '../../db/types';
 import type { AccountExport } from '../../schemas/index';
 import { avatarUrl } from '../avatars';
 import { normalizeProjectRole } from '../authorization';
+import { NOTIFY_COLUMNS, toNotificationSettings } from '../notifications';
 
 const ACCOUNT_EXPORT_FORMAT = 'critical-path-account-export';
 const ACCOUNT_EXPORT_VERSION = 1;
@@ -28,9 +29,7 @@ export async function buildAccountExport(
         'avatar_storage_key',
         'created_at',
         'email_verified_at',
-        'notify_task_assigned',
-        'notify_added_to_project',
-        'notify_bulk_task_assigned',
+        ...NOTIFY_COLUMNS,
       ])
       .where('id', '=', userId)
       .executeTakeFirstOrThrow(),
@@ -91,11 +90,7 @@ export async function buildAccountExport(
       avatar_url: avatarUrl(account.avatar_storage_key),
       created_at: account.created_at.toISOString(),
       email_verified_at: account.email_verified_at?.toISOString() ?? null,
-      notification_settings: {
-        task_assigned: account.notify_task_assigned,
-        added_to_project: account.notify_added_to_project,
-        bulk_task_assigned: account.notify_bulk_task_assigned,
-      },
+      notification_settings: toNotificationSettings(account),
     },
     sessions: sessions.map((row) => ({
       id: row.id,

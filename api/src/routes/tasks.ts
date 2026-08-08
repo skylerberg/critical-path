@@ -182,9 +182,8 @@ router.post(
       { taskId: body.id, kind: 'created', newValue: { text: body.title } },
     ]);
 
-    // Notifies nobody today: no mention deliverer is registered.
     await notifyMentions(c, {
-      actorUserId: user.id,
+      actor: user,
       project,
       taskId: body.id,
       source: 'description',
@@ -767,9 +766,8 @@ router.patch(
     }
 
     if ('description' in body && before !== null) {
-      // Notifies nobody today: no mention deliverer is registered.
       await notifyMentions(c, {
-        actorUserId: actorId,
+        actor: c.get('user'),
         project,
         taskId: id,
         source: 'description',

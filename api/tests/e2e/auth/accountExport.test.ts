@@ -48,6 +48,7 @@ interface AccountExportBody {
       task_assigned: boolean;
       added_to_project: boolean;
       bulk_task_assigned: boolean;
+      mentioned: boolean;
     };
   };
   sessions: ExportedSession[];
@@ -337,6 +338,7 @@ describe('GET /api/auth/me/export', () => {
       task_assigned: false,
       added_to_project: true,
       bulk_task_assigned: false,
+      mentioned: false,
     });
     expect(saved.status).toBe(200);
 
@@ -346,6 +348,7 @@ describe('GET /api/auth/me/export', () => {
       task_assigned: false,
       added_to_project: true,
       bulk_task_assigned: false,
+      mentioned: false,
     });
   });
 
@@ -556,6 +559,7 @@ describe('GET /api/auth/me/export', () => {
         task_assigned: true,
         added_to_project: true,
         bulk_task_assigned: true,
+        mentioned: true,
       },
     });
     expect(body.sessions).toHaveLength(1);
