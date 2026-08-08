@@ -4,7 +4,7 @@ import { db } from '../../helpers/database';
 import { uniqueEmail } from '../../helpers/fixtures';
 import { resetRateLimiter } from '../../../src/middleware/rateLimit';
 import { createResetToken } from '../../../src/services/resetToken';
-import { subscribeBus, type BusEntry } from '../../../src/services/realtime/bus';
+import { collectBusEntries } from '../../helpers/bus';
 
 async function sessionCountOf(userId: string): Promise<number> {
   const { count } = await db
@@ -22,17 +22,6 @@ async function alternativeIdOf(userId: string): Promise<string> {
     .where('id', '=', userId)
     .executeTakeFirstOrThrow();
   return row.alternative_id;
-}
-
-async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
-  const seen: BusEntry[] = [];
-  const unsubscribe = subscribeBus((entry) => seen.push(entry));
-  try {
-    await run();
-  } finally {
-    unsubscribe();
-  }
-  return seen;
 }
 
 describe('Account management', () => {

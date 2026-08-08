@@ -13,23 +13,8 @@ import {
 } from '../../../src/services/emailToken';
 import { sentEmails, clearSentEmails } from '../../../src/services/email/index';
 import { env } from '../../../src/config/env';
-import {
-  subscribeBus,
-  ACCOUNT_UPDATED,
-  USER_UPDATED,
-  type BusEntry,
-} from '../../../src/services/realtime/bus';
-
-async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
-  const seen: BusEntry[] = [];
-  const unsubscribe = subscribeBus((entry) => seen.push(entry));
-  try {
-    await run();
-  } finally {
-    unsubscribe();
-  }
-  return seen;
-}
+import { ACCOUNT_UPDATED, USER_UPDATED } from '../../../src/services/realtime/bus';
+import { collectBusEntries } from '../../helpers/bus';
 
 async function verifiedAtOf(userId: string): Promise<Date | null> {
   const row = await db
@@ -533,14 +518,10 @@ describe('Email verification', () => {
       const token = extractToken(sentEmails()[0].text);
       expect((await ctx.request().post('/api/auth/verify-email', { token })).status).toBe(204);
 
-      const seen: BusEntry[] = [];
-      const unsubscribe = subscribeBus((entry) => seen.push(entry));
-      try {
+      const seen = await collectBusEntries(async () => {
         const res = await ctx.request(user.token).patch('/api/auth/me', { name: 'Leak Check' });
         expect(res.status).toBe(200);
-      } finally {
-        unsubscribe();
-      }
+      });
 
       const published = seen.filter((entry) => entry.type === USER_UPDATED);
       expect(published).toHaveLength(1);
