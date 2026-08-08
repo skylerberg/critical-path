@@ -35,6 +35,7 @@ describe('realtime events document', () => {
     };
 
     expect(schemas.UserUpdatedEvent.properties.project_id.type).toBe('null');
+    expect(schemas.AccountUpdatedEvent.properties.project_id.type).toBe('null');
     expect(schemas.TaskCreatedEvent.properties.project_id.type).toBe('string');
   });
 });

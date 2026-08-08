@@ -13,7 +13,23 @@ import {
 } from '../../../src/services/emailToken';
 import { sentEmails, clearSentEmails } from '../../../src/services/email/index';
 import { env } from '../../../src/config/env';
-import { subscribeBus, USER_UPDATED, type BusEntry } from '../../../src/services/realtime/bus';
+import {
+  subscribeBus,
+  ACCOUNT_UPDATED,
+  USER_UPDATED,
+  type BusEntry,
+} from '../../../src/services/realtime/bus';
+
+async function collectBusEntries(run: () => Promise<void>): Promise<BusEntry[]> {
+  const seen: BusEntry[] = [];
+  const unsubscribe = subscribeBus((entry) => seen.push(entry));
+  try {
+    await run();
+  } finally {
+    unsubscribe();
+  }
+  return seen;
+}
 
 async function verifiedAtOf(userId: string): Promise<Date | null> {
   const row = await db
@@ -167,6 +183,36 @@ describe('Email verification', () => {
       expect((await verifiedAtOf(user.id))?.getTime()).toBe(first?.getTime());
     });
 
+    it('publishes account_updated to the subject alone, and nothing on a replay', async () => {
+      clearSentEmails();
+      const user = await ctx.createUser('verify-publish');
+      const token = extractToken(sentEmails()[0].text);
+
+      const first = await collectBusEntries(async () => {
+        expect((await ctx.request().post('/api/auth/verify-email', { token })).status).toBe(204);
+      });
+      expect(first).toEqual([
+        {
+          type: ACCOUNT_UPDATED,
+          project_id: null,
+          data: {
+            id: user.id,
+            name: user.name,
+            avatar_url: null,
+            email: user.email,
+            email_verified: true,
+          },
+          recipientUserIds: [user.id],
+        },
+      ]);
+
+      // The replay matches no row, so there is no verification to announce.
+      const replay = await collectBusEntries(async () => {
+        expect((await ctx.request().post('/api/auth/verify-email', { token })).status).toBe(204);
+      });
+      expect(replay).toEqual([]);
+    });
+
     // The interleave is forced with a held row lock rather than raced: the handler's
     // read is a plain select and runs to completion, then its write blocks until the
     // address has already moved underneath it.
@@ -195,11 +241,13 @@ describe('Email verification', () => {
           .execute();
       });
 
-      const redeeming = ctx.request().post('/api/auth/verify-email', { token });
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      release();
-      await mover;
-      await redeeming;
+      const seen = await collectBusEntries(async () => {
+        const redeeming = ctx.request().post('/api/auth/verify-email', { token });
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        release();
+        await mover;
+        await redeeming;
+      });
 
       const row = await db
         .selectFrom('app_user')
@@ -208,6 +256,8 @@ describe('Email verification', () => {
         .executeTakeFirstOrThrow();
       expect(row.email).toBe(moved);
       expect(row.email_verified_at).toBeNull();
+      // Nothing flipped, so nothing may claim the address was confirmed.
+      expect(seen).toEqual([]);
     });
 
     it('treats every outstanding token for the address as equivalent', async () => {
@@ -402,6 +452,59 @@ describe('Email verification', () => {
       expect(sentEmails()).toEqual([]);
     });
 
+    // The publish is gated on the stored address moving, which is a wider
+    // condition than the one gating the mail: a change of letter case sends
+    // nothing and keeps verification, but still persists a different string,
+    // and this is the only event that carries it.
+    it('publishes account_updated whenever the address moves, letter case included', async () => {
+      clearSentEmails();
+      const user = await ctx.createUser('patch-publish');
+
+      const nameOnly = await collectBusEntries(async () => {
+        const res = await ctx.request(user.token).patch('/api/auth/me', { name: 'Publish Check' });
+        expect(res.status).toBe(200);
+      });
+      expect(nameOnly.map((entry) => entry.type)).toEqual([USER_UPDATED]);
+
+      const cased = user.email.toUpperCase();
+      const caseOnly = await collectBusEntries(async () => {
+        const res = await ctx.request(user.token).patch('/api/auth/me', { email: cased });
+        expect(res.status).toBe(200);
+      });
+      expect(caseOnly.map((entry) => entry.type)).toEqual([USER_UPDATED, ACCOUNT_UPDATED]);
+      expect(caseOnly[1]).toEqual({
+        type: ACCOUNT_UPDATED,
+        project_id: null,
+        data: {
+          id: user.id,
+          name: 'Publish Check',
+          avatar_url: null,
+          email: cased,
+          email_verified: false,
+        },
+        recipientUserIds: [user.id],
+      });
+
+      const newEmail = uniqueEmail('patch-publish-to');
+      const moved = await collectBusEntries(async () => {
+        const res = await ctx.request(user.token).patch('/api/auth/me', { email: newEmail });
+        expect(res.status).toBe(200);
+      });
+      expect(moved.map((entry) => entry.type)).toEqual([USER_UPDATED, ACCOUNT_UPDATED]);
+      expect(moved[1]).toEqual({
+        type: ACCOUNT_UPDATED,
+        project_id: null,
+        data: {
+          id: user.id,
+          name: 'Publish Check',
+          avatar_url: null,
+          email: newEmail,
+          email_verified: false,
+        },
+        recipientUserIds: [user.id],
+      });
+    });
+
     it('answers 429 and changes nothing when the send budget is spent', async () => {
       clearSentEmails();
       const user = await ctx.createUser('patch-throttled');
@@ -447,6 +550,45 @@ describe('Email verification', () => {
         avatar_url: null,
       });
       expect(JSON.stringify(published[0])).not.toContain(user.email);
+    });
+
+    // The other half of the same rule: the address does ride account_updated,
+    // and what keeps that safe is the recipient list, so pin the list itself.
+    it('addresses account_updated to the subject alone, never to a project-sharer', async () => {
+      clearSentEmails();
+      const subject = await ctx.createUser('leak-au-subject');
+      const sharer = await ctx.createUser('leak-au-sharer');
+      const token = extractToken(sentEmails().find((e) => e.to === subject.email)!.text);
+
+      const projectId = newId();
+      expect(
+        (
+          await ctx
+            .request(subject.token)
+            .post('/api/projects', { id: projectId, name: 'leak au board' })
+        ).status
+      ).toBe(201);
+      expect(
+        (
+          await ctx
+            .request(subject.token)
+            .put(`/api/projects/${projectId}/members`, { user_ids: [sharer.id] })
+        ).status
+      ).toBe(204);
+
+      const seen = await collectBusEntries(async () => {
+        expect((await ctx.request().post('/api/auth/verify-email', { token })).status).toBe(204);
+      });
+
+      expect(seen).toHaveLength(1);
+      const [entry] = seen;
+      expect(entry.type).toBe(ACCOUNT_UPDATED);
+      // An exact recipient list of one, which the delivery layer applies before
+      // any project is consulted. broadcast or editorsOnly would route it
+      // through the project-scoped path instead and widen it.
+      expect(entry.recipientUserIds).toEqual([subject.id]);
+      expect(entry.broadcast).toBeUndefined();
+      expect(entry.editorsOnly).toBeUndefined();
     });
 
     it('keeps email and email_verified out of every record describing other people', async () => {

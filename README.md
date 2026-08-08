@@ -1262,7 +1262,7 @@ Every mutation emits an event after its transaction commits. The envelope is
 machine-readable version is `realtime-events.json` in this repo, generated from
 the same declarations the server publishes against, so a client can generate
 types for the envelope instead of asserting shapes off the wire. `project_id` is
-a string for every event except the two account-scoped ones, where it is `null`.
+a string for every event except the three account-scoped ones, where it is `null`.
 
 | type                                                | data                                                                                               |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -1299,6 +1299,7 @@ a string for every event except the two account-scoped ones, where it is `null`.
 | `invitations_changed`                               | `{ project_id }`                                                                                   |
 | `user_updated`                                      | public user `{ id, name, avatar_url }`                                                             |
 | `sessions_revoked`                                  | `{ user_id }`, optionally plus `personal_access_token_id` or `session_id`                          |
+| `account_updated`                                   | caller's own `{ id, name, avatar_url, email, email_verified }`                                     |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
 add/remove, by the cascade that strips assignees when a project member is
@@ -1397,6 +1398,28 @@ event with a single query over the connected users. That recipient set is
 the visibility set of the global `GET /api/users` listing (the per-project mode can be broader via task assignees; those extra viewers simply do not receive live updates), so the event
 never tells anyone about a user they could not already fetch. The payload
 carries no email address: no user record does.
+`account_updated` is the one **self-only** event. It carries the `Me` record —
+`{ id, name, avatar_url, email, email_verified }` — and is published with an
+exact recipient list naming the subject alone, so the delivery layer's
+exact-recipient shortcut sends it to that account's own sockets and to no other
+socket at all, project-sharers included. That is why it may carry the address
+where `user_updated` may not: `user_updated` fans out to everyone sharing a
+project and so may describe one person to another only in public fields, while
+this one never leaves the account it describes. It has exactly two publishers,
+which are the two ways the private half of that record moves. `POST
+/api/auth/verify-email` publishes it only when the redemption really flipped
+`email_verified_at` from null — a replayed token, or one whose address moved
+underneath it, updates no row and announces nothing. `PATCH /api/auth/me`
+publishes it whenever the stored address changes, a change of letter case
+included, because that is the field only this event carries; the verification
+reset and the fresh verification email still happen only for a move to a
+genuinely different mailbox. Avatar upload and removal publish nothing here, and
+neither does a name-only edit: `name` and `avatar_url` are public and already
+reach the subject's own sockets on `user_updated`, and a second event would put
+an address on the wire for a change that never touched one. A client holding a
+`Me` record therefore applies both events to it. Signup and login need no event
+— each answers with the record — and password change, password reset and
+account deletion move no field in it.
 
 ### Outbound webhooks
 
@@ -1478,8 +1501,9 @@ which is also the event for publishing or unpublishing a board's public link.
 Task activity writes no event of its own, so it arrives as the mutation that
 caused it.
 
-**Never delivered.** `user_updated` and `sessions_revoked` are not project data
-and carry an email address. `project_position_updated` and `project_seen` are
+**Never delivered.** `user_updated`, `account_updated` and `sessions_revoked`
+are not project data, and two of the three carry an email address.
+`project_position_updated` and `project_seen` are
 per-user, and `project_changed` only restates a change that already went out
 under its own type. The three `series_*` types describe board configuration
 rather than board data, and the card an occurrence produces arrives as an
@@ -1718,8 +1742,10 @@ themselves** — the `Me` shape, used by signup, login, `GET`/`PATCH
 /api/auth/me`, change-password and the avatar routes. Both are absent from the
 `User` shape that describes other people, and therefore from `GET /api/users`,
 project member lists, the project export manifest and the `user_updated`
-realtime payload, which fans out to everyone who shares a project. No user
-record discloses one person's address to another, on private boards or
+realtime payload, which fans out to everyone who shares a project. The one
+realtime payload carrying the address is `account_updated`, which is the `Me`
+shape and which is delivered to the subject's own sockets and nowhere else. No
+user record discloses one person's address to another, on private boards or
 anywhere else; the one place an address is on the wire between two people is a
 pending invitation, which only editors may read and which exists because an
 editor typed that address.
@@ -2443,8 +2469,10 @@ errors) goes to stderr, so `cpath watch | jq …` is the intended shape.
 does **not** fall back to `CRITICAL_PATH_PROJECT` or the configured
 `default-project` — without the flag, `watch` follows every accessible
 project, including ones created while it runs, and each line's `project_id`
-disambiguates. Scoping to a project also drops the `user_updated` event,
-which carries `project_id: null` and belongs to no project.
+disambiguates. Scoping to a project also drops the account-scoped events —
+`user_updated` and `account_updated` — which carry `project_id: null` and belong
+to no project. Unscoped, note that `account_updated` puts your own email address
+on stdout; it is the only event `watch` prints that contains one.
 
 The connection reconnects on its own with exponential backoff (1s doubling to
 30s) and resubscribes each time, re-listing projects first when it is

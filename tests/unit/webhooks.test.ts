@@ -274,6 +274,7 @@ describe('webhook event catalogue', () => {
       'project_deleted',
       'project_position_updated',
       'user_updated',
+      'account_updated',
       'sessions_revoked',
       'invitations_changed',
       'not_a_real_event',

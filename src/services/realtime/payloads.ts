@@ -8,6 +8,7 @@ import {
   columnSchema,
   commentSchema,
   labelSchema,
+  meSchema,
   movedTaskSchema,
   projectSchema,
   taskSeriesSchema,
@@ -112,6 +113,9 @@ export const REALTIME_PAYLOAD_SCHEMAS = {
     'session_id?': 'string',
   }),
   user_updated: userSchema,
+  // The subject's own record — the same shape GET /api/auth/me answers with,
+  // which is exactly why it is delivered to no socket but theirs.
+  account_updated: meSchema,
   // Both directions are load-bearing: a missing key fails the mapped type
   // below, and an excess one fails this check.
 } satisfies Record<RealtimeEventType, unknown>;
