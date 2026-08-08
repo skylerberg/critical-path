@@ -43,6 +43,9 @@ const DECIDED_COLUMNS: Record<string, 'in' | 'out'> = {
   'app_user.email_verified_at': 'in',
   'app_user.id': 'in',
   'app_user.name': 'in',
+  // Generated from name, which is already exported; the tsvector itself is an
+  // index artifact and holds nothing name does not.
+  'app_user.name_search_vector': 'out',
   'app_user.notify_added_to_project': 'in',
   'app_user.notify_bulk_task_assigned': 'in',
   'app_user.notify_mentioned': 'in',
