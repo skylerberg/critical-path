@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { queryValidator } from '../middleware/requestValidator';
 import { SEARCH_RESULT_LIMIT, searchTasks } from '../services/search';
 import {
@@ -7,6 +7,8 @@ import {
   SEARCH_QUERY_MIN_LENGTH,
   searchQuerySchema,
   searchResponseSchema,
+  jsonResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   internalServerErrorResponse,
@@ -14,6 +16,10 @@ import {
 import { AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
+
+const searchTasksResponses = {
+  200: jsonResponse('Matching tasks, most relevant first', searchResponseSchema),
+};
 
 router.get(
   '/',
@@ -33,21 +39,14 @@ router.get(
       `${SEARCH_RESULT_LIMIT} results with truncated set when more matched.`,
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Matching tasks, most relevant first',
-        content: {
-          'application/json': {
-            schema: resolver(searchResponseSchema),
-          },
-        },
-      },
+      ...searchTasksResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
   queryValidator(searchQuerySchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof searchTasksResponses>> => {
     const { q } = c.req.valid('query');
     const user = c.get('user');
     return c.json(await searchTasks(c.get('db'), user.id, q), 200);

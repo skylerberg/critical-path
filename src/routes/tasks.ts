@@ -67,6 +67,9 @@ import {
   crossProjectDependenciesResponseSchema,
   boardTaskSchema,
   duplicateSchema,
+  jsonResponse,
+  emptyResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
@@ -93,6 +96,10 @@ async function fetchBoardTask(db: Kysely<DB>, taskId: string): Promise<BoardTask
   return (await fetchBoardTaskRows(db, [taskId]))[0];
 }
 
+const createTaskResponses = {
+  201: jsonResponse('Created task in board-payload shape', boardTaskSchema),
+};
+
 router.post(
   '/',
   describeRoute({
@@ -106,14 +113,7 @@ router.post(
       'and no timezone); anything else returns 422.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Created task in board-payload shape',
-        content: {
-          'application/json': {
-            schema: resolver(boardTaskSchema),
-          },
-        },
-      },
+      ...createTaskResponses,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
@@ -123,7 +123,7 @@ router.post(
     },
   }),
   jsonValidator(createTaskSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createTaskResponses>> => {
     const body = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -204,6 +204,10 @@ router.post(
   }
 );
 
+const duplicateTaskResponses = {
+  201: jsonResponse('The copy, in board-payload shape', boardTaskSchema),
+};
+
 router.post(
   '/:id/duplicate',
   describeRoute({
@@ -219,14 +223,7 @@ router.post(
       'client supplies the new id and its position; a duplicate id returns 409.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'The copy, in board-payload shape',
-        content: {
-          'application/json': {
-            schema: resolver(boardTaskSchema),
-          },
-        },
-      },
+      ...duplicateTaskResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -238,7 +235,7 @@ router.post(
   }),
   paramValidator(idSchema),
   jsonValidator(duplicateSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof duplicateTaskResponses>> => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
@@ -288,6 +285,13 @@ router.post(
   }
 );
 
+const createTasksBatchResponses = {
+  201: jsonResponse(
+    'Created tasks in board-payload shape, in request order',
+    tasksBatchResponseSchema
+  ),
+};
+
 router.post(
   '/batch',
   describeRoute({
@@ -304,14 +308,7 @@ router.post(
       'gets its own created activity entry and its own task_created event.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Created tasks in board-payload shape, in request order',
-        content: {
-          'application/json': {
-            schema: resolver(tasksBatchResponseSchema),
-          },
-        },
-      },
+      ...createTasksBatchResponses,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
@@ -321,7 +318,7 @@ router.post(
     },
   }),
   jsonValidator(createTasksBatchSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createTasksBatchResponses>> => {
     const body = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -485,6 +482,10 @@ router.get(
   }
 );
 
+const getTaskActivityResponses = {
+  200: jsonResponse('Activity entries, oldest first', taskActivityResponseSchema),
+};
+
 router.get(
   '/:id/activity',
   describeRoute({
@@ -503,14 +504,7 @@ router.get(
       'single entry whose old value is the text from before that session.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Activity entries, oldest first',
-        content: {
-          'application/json': {
-            schema: resolver(taskActivityResponseSchema),
-          },
-        },
-      },
+      ...getTaskActivityResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -518,7 +512,7 @@ router.get(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof getTaskActivityResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
@@ -527,6 +521,13 @@ router.get(
     return c.json({ activity: await fetchTaskActivity(db, id) }, 200);
   }
 );
+
+const getCrossProjectDependenciesResponses = {
+  200: jsonResponse(
+    'Cross-project dependencies in both directions, plus the hidden counts',
+    crossProjectDependenciesResponseSchema
+  ),
+};
 
 router.get(
   '/:id/cross-project-dependencies',
@@ -546,14 +547,7 @@ router.get(
       'A task the caller cannot read is 404.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Cross-project dependencies in both directions, plus the hidden counts',
-        content: {
-          'application/json': {
-            schema: resolver(crossProjectDependenciesResponseSchema),
-          },
-        },
-      },
+      ...getCrossProjectDependenciesResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -561,7 +555,7 @@ router.get(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof getCrossProjectDependenciesResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const userId = c.get('user').id;
@@ -571,6 +565,10 @@ router.get(
     return c.json(await getCrossProjectDependencies(db, userId, id), 200);
   }
 );
+
+const patchTaskResponses = {
+  200: jsonResponse('Updated task in board-payload shape', boardTaskSchema),
+};
 
 router.patch(
   '/:id',
@@ -593,14 +591,7 @@ router.patch(
       'precondition that does not match the stored updated_at returns 409 and writes nothing.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated task in board-payload shape',
-        content: {
-          'application/json': {
-            schema: resolver(boardTaskSchema),
-          },
-        },
-      },
+      ...patchTaskResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -612,7 +603,7 @@ router.patch(
   }),
   paramValidator(idSchema),
   jsonValidator(patchTaskSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchTaskResponses>> => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
@@ -800,6 +791,8 @@ router.patch(
   }
 );
 
+const deleteTaskResponses = { 204: emptyResponse('Task deleted') };
+
 router.delete(
   '/:id',
   describeRoute({
@@ -812,9 +805,7 @@ router.delete(
       'and images cascade; stored image objects are removed after commit.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Task deleted',
-      },
+      ...deleteTaskResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -824,7 +815,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteTaskResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const actorId = c.get('user').id;
@@ -896,6 +887,10 @@ router.delete(
   }
 );
 
+const archiveTaskResponses = {
+  200: jsonResponse('Archived task in board-payload shape plus archived_at', archivedTaskSchema),
+};
+
 router.post(
   '/:id/archive',
   describeRoute({
@@ -909,14 +904,7 @@ router.post(
       'did not change.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Archived task in board-payload shape plus archived_at',
-        content: {
-          'application/json': {
-            schema: resolver(archivedTaskSchema),
-          },
-        },
-      },
+      ...archiveTaskResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -925,7 +913,7 @@ router.post(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof archiveTaskResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
@@ -956,6 +944,10 @@ router.post(
   }
 );
 
+const restoreTaskResponses = {
+  200: jsonResponse('Restored task in board-payload shape', boardTaskSchema),
+};
+
 router.post(
   '/:id/restore',
   describeRoute({
@@ -967,14 +959,7 @@ router.post(
       'an idempotent 200 that changes nothing.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Restored task in board-payload shape',
-        content: {
-          'application/json': {
-            schema: resolver(boardTaskSchema),
-          },
-        },
-      },
+      ...restoreTaskResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -983,7 +968,7 @@ router.post(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof restoreTaskResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
@@ -1031,6 +1016,8 @@ router.post(
   }
 );
 
+const setTaskLabelsResponses = { 204: emptyResponse('Labels set') };
+
 router.put(
   '/:id/labels',
   describeRoute({
@@ -1041,9 +1028,7 @@ router.put(
       'project; violations return 422 with a plain error body.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Labels set',
-      },
+      ...setTaskLabelsResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -1054,7 +1039,7 @@ router.put(
   }),
   paramValidator(idSchema),
   jsonValidator(setTaskLabelsSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof setTaskLabelsResponses>> => {
     const { id } = c.req.valid('param');
     const { label_ids } = c.req.valid('json');
     const db = c.get('db');
@@ -1113,6 +1098,8 @@ router.put(
   }
 );
 
+const setTaskAssigneesResponses = { 204: emptyResponse('Assignees set') };
+
 router.put(
   '/:id/assignees',
   describeRoute({
@@ -1124,9 +1111,7 @@ router.put(
       'assigned are never re-validated, so echoing the current set always succeeds.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Assignees set',
-      },
+      ...setTaskAssigneesResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -1137,7 +1122,7 @@ router.put(
   }),
   paramValidator(idSchema),
   jsonValidator(setTaskAssigneesSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof setTaskAssigneesResponses>> => {
     const { id } = c.req.valid('param');
     const { user_ids } = c.req.valid('json');
     const db = c.get('db');
@@ -1191,6 +1176,8 @@ router.put(
   }
 );
 
+const setTaskCoverResponses = { 204: emptyResponse('Cover set or cleared') };
+
 router.put(
   '/:id/cover',
   describeRoute({
@@ -1204,9 +1191,7 @@ router.put(
       'presentation, not content, so it leaves updated_at untouched.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Cover set or cleared',
-      },
+      ...setTaskCoverResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -1218,7 +1203,7 @@ router.put(
   }),
   paramValidator(idSchema),
   jsonValidator(setTaskCoverSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof setTaskCoverResponses>> => {
     const { id } = c.req.valid('param');
     const { image_id } = c.req.valid('json');
     const db = c.get('db');
@@ -1269,6 +1254,8 @@ router.put(
   }
 );
 
+const addBlockerResponses = { 204: emptyResponse('Blocker added (or already present)') };
+
 router.post(
   '/:id/blockers',
   describeRoute({
@@ -1286,9 +1273,7 @@ router.post(
       'recoverable.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Blocker added (or already present)',
-      },
+      ...addBlockerResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -1300,7 +1285,7 @@ router.post(
   }),
   paramValidator(idSchema),
   jsonValidator(addBlockerSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof addBlockerResponses>> => {
     const { id } = c.req.valid('param');
     const { blocker_task_id } = c.req.valid('json');
     const db = c.get('db');
@@ -1370,6 +1355,8 @@ router.post(
   }
 );
 
+const removeBlockerResponses = { 204: emptyResponse('Blocker removed (or already absent)') };
+
 router.delete(
   '/:id/blockers/:blockerTaskId',
   describeRoute({
@@ -1378,9 +1365,7 @@ router.delete(
     description: 'Remove a dependency. Idempotent: removing an absent blocker still returns 204.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: {
-        description: 'Blocker removed (or already absent)',
-      },
+      ...removeBlockerResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -1389,7 +1374,7 @@ router.delete(
     },
   }),
   paramValidator(taskBlockerParamsSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof removeBlockerResponses>> => {
     const { id, blockerTaskId } = c.req.valid('param');
     const db = c.get('db');
 

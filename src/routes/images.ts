@@ -9,6 +9,8 @@ import { assertAttachmentReadable } from '../services/attachments/index';
 import { logger } from '../utils/logger';
 import {
   idSchema,
+  rawResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   notFoundErrorResponse,
@@ -21,6 +23,17 @@ import { PublicHono } from '../types/index';
 // because /api/images/<uuid> is embedded in every description and comment body
 // that holds a picture, so the URL has to keep resolving.
 export const publicImagesRouter: PublicHono = new Hono();
+
+const getImageResponses = {
+  200: rawResponse({
+    description: 'Image bytes (Content-Type reflects the stored image format)',
+    content: {
+      'application/octet-stream': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  }),
+};
 
 publicImagesRouter.get(
   '/:id',
@@ -35,14 +48,7 @@ publicImagesRouter.get(
       'tag cannot carry an Authorization header.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Image bytes (Content-Type reflects the stored image format)',
-        content: {
-          'application/octet-stream': {
-            schema: { type: 'string', format: 'binary' },
-          },
-        },
-      },
+      ...getImageResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -51,7 +57,7 @@ publicImagesRouter.get(
   }),
   optionalAuth,
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof getImageResponses>> => {
     const { id } = c.req.valid('param');
 
     await assertAttachmentReadable(c.get('db'), c.get('user'), id);

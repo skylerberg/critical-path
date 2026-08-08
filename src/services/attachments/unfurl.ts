@@ -1,7 +1,6 @@
 import sharp from 'sharp';
 import { sql } from 'kysely';
 import { db } from '../../db/index';
-import type { JsonValue } from '../../db/types';
 import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { registerJobHandler } from '../jobs/handlers';
@@ -193,7 +192,9 @@ export async function runAttachmentUnfurl(attachmentId: string): Promise<void> {
   const fresh = await fetchAttachmentRow(db, attachmentId);
   if (!fresh) return;
 
-  const data = toAttachmentResponse(fresh);
+  // Nobody to name: a background job has no session, and the attachment row
+  // records no uploader to fall back to.
+  const data = { ...toAttachmentResponse(fresh), actor_user_id: null };
   // No request context outside a route, so publishAfterCommit is unavailable
   // and the webhook fan-out it normally performs has to be done by hand.
   publish({ type: 'attachment_updated', project_id: row.project_id, data });
@@ -204,15 +205,8 @@ export function registerAttachmentUnfurlHandler(): void {
   registerJobHandler({
     kind: ATTACHMENT_UNFURL_KIND,
     timeoutMs: 15_000,
-    run: async (payload: JsonValue) => {
-      const attachmentId =
-        typeof payload === 'object' && payload !== null && !Array.isArray(payload)
-          ? payload.attachment_id
-          : undefined;
-      if (typeof attachmentId !== 'string') {
-        throw new Error('attachment_unfurl payload needs an attachment_id');
-      }
-      await runAttachmentUnfurl(attachmentId);
+    run: async ({ attachment_id }) => {
+      await runAttachmentUnfurl(attachment_id);
     },
   });
 }

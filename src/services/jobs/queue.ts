@@ -1,8 +1,9 @@
 import crypto from 'crypto';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import { db } from '../../db/index';
-import type { DB, Job, JsonValue } from '../../db/types';
+import type { DB, Job } from '../../db/types';
 import { BACKOFF_SECONDS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_ERROR_CHARS } from '../retryPolicy';
+import type { JobKind, JobPayloads } from './payloads';
 
 export { BACKOFF_SECONDS, LEASE_SECONDS, MAX_ATTEMPTS };
 
@@ -22,7 +23,7 @@ const CONTACT_KEY = /e-?mail/i;
 // Nothing reads this column and nothing reviews what enters it, so an address
 // written here would outlive every consent and access check that authorised it.
 // Payloads carry ids; handlers re-resolve.
-export function assertJobPayload(value: JsonValue, path = 'payload'): void {
+export function assertJobPayload(value: unknown, path = 'payload'): void {
   if (typeof value === 'string') {
     if (EMAIL_LIKE.test(value)) {
       throw new Error(`Job payload carries an email address at ${path}`);
@@ -49,10 +50,10 @@ export interface EnqueueJobOptions {
 
 // Takes the caller's connection so the enqueue commits or rolls back with the
 // mutation that caused it.
-export async function enqueueJob(
+export async function enqueueJob<K extends JobKind>(
   connection: Kysely<DB>,
-  kind: string,
-  payload: JsonValue,
+  kind: K,
+  payload: JobPayloads[K],
   options: EnqueueJobOptions = {}
 ): Promise<string> {
   assertJobPayload(payload);

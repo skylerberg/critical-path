@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { env } from '../config/env';
@@ -8,6 +8,8 @@ import { getEmailSender } from '../services/email/index';
 import {
   createFeedbackSchema,
   feedbackResponseSchema,
+  jsonResponse,
+  type Returned,
   unauthorizedErrorResponse,
   conflictErrorResponse,
   validationErrorResponse,
@@ -16,6 +18,10 @@ import {
 import { AppHono } from '../types/index';
 
 const router: AppHono = new Hono();
+
+const createFeedbackResponses = {
+  201: jsonResponse('Feedback stored', feedbackResponseSchema),
+};
 
 router.post(
   '/',
@@ -27,14 +33,7 @@ router.post(
       'The client supplies the feedback id.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Feedback stored',
-        content: {
-          'application/json': {
-            schema: resolver(feedbackResponseSchema),
-          },
-        },
-      },
+      ...createFeedbackResponses,
       ...unauthorizedErrorResponse,
       ...conflictErrorResponse,
       ...validationErrorResponse,
@@ -42,7 +41,7 @@ router.post(
     },
   }),
   jsonValidator(createFeedbackSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createFeedbackResponses>> => {
     const { id, message, page_path } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');

@@ -604,7 +604,7 @@ outright, and changes `open_occurrence_count` — an open panel showing the
 occurrence it just consumed as still upcoming is wrong, not merely stale. So
 does the per-series failure absorber, which is what surfaces `last_error` and
 the pause at five without a reload. Materialisation additionally publishes a
-real `task_created` for the card plus the `project_changed` dot, with the
+real `task_created` for the card plus the `project_changed` dot, both naming the
 series creator as the actor so the live dot and the dot a board read computes
 from the activity log agree.
 
@@ -1340,6 +1340,13 @@ from the same declarations the server publishes against, so a client can generat
 types for the envelope instead of asserting shapes off the wire. `project_id` is
 a string for every event except the three account-scoped ones, where it is `null`.
 
+Every board mutation's `data` also carries `actor_user_id` — the user whose
+request made the change, or `null` when a schedule or a background job did. It is
+what lets a client tell a teammate's change from an echo of its own, so the actor
+is sent their own events rather than being withheld them. The project-list,
+per-user, invitation, series and account events carry none; the table below lists
+the rest of each payload, and `realtime-events.json` is the per-type answer.
+
 | type                                                | data                                                                                               |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `task_created` / `task_updated`                     | board task shape                                                                                   |
@@ -1426,8 +1433,9 @@ must never reach other members.
 only that something happened in a project, once per request however many
 mutations it made, so that a member sitting on the project list — subscribed to
 no room at all — can raise the unseen dot without polling. It carries
-`actor_user_id` rather than being withheld from its own actor, because the
-actor's _other_ devices still need it; only the dot ignores its own. Nothing
+`actor_user_id` — the same field, from the same classification, as every board
+mutation — rather than being withheld from its own actor, because the actor's
+_other_ devices still need it; only the dot ignores its own. Nothing
 per-reader may ever ride in it, `has_unseen_changes` least of all: one
 recipient's answer would be wrong for every other member of the same board.
 The same rule is why the `project_updated` broadcast carries the projects-list
@@ -1534,7 +1542,9 @@ Every request body is one envelope:
 ```
 
 `data` is exactly the realtime `data` for that type — one declaration produces
-both, so the two cannot drift. `GET /api/realtime-events.json` describes this
+both, so the two cannot drift. That includes `actor_user_id` on every board
+mutation, which is additive to version 1 and is `null` for a schedule's or a
+background job's write. `GET /api/realtime-events.json` describes this
 body too, as `WebhookEvent`. Headers:
 `X-Critical-Path-Event`, `X-Critical-Path-Delivery` (the envelope `id`),
 `X-Critical-Path-Webhook`, `X-Critical-Path-Timestamp` (unix seconds) and
