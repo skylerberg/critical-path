@@ -346,8 +346,8 @@ and are accepted anywhere a session token is, including the `/ws` handshake.
   `{ token, personal_access_token }` and is the **only** time the secret is
   returned — only its sha256 hash is stored. Secrets are prefixed `cpat_`.
 - `GET /api/auth/tokens` lists the caller's tokens (`{ id, name, created_at,
-expires_at }`), newest first, never the secret. Expired tokens stay listed
-  until revoked so they can be seen and cleaned up.
+expires_at, last_used_at }`), newest first, never the secret. Expired tokens
+  stay listed until revoked so they can be seen and cleaned up.
 - `DELETE /api/auth/tokens/:id` revokes one. Someone else's token id answers
   404, the same as an unknown one.
 
@@ -358,6 +358,15 @@ curl -X POST http://localhost:3001/api/auth/tokens \
 
 CRITICAL_PATH_TOKEN=cpat_… cpath board "My Project"
 ```
+
+`last_used_at` is `null` until the token first authenticates and is then stamped
+on every successful authentication — a REST request, a `/ws` handshake, or the
+30-second heartbeat of a socket already open, so an agent that only listens
+still reads as active. The write is throttled to one per token per minute and
+happens on the pool rather than inside the request's transaction, so it neither
+holds the token's row lock for the length of a mutation nor disappears when that
+mutation rolls back. That makes the value accurate to the minute and no finer,
+which is what the account page shows and all it claims.
 
 A user may hold up to 100 tokens; the next create answers 422. Changing or
 resetting the password does **not** revoke personal access tokens (matching

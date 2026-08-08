@@ -45,7 +45,7 @@ export async function buildAccountExport(
       .execute(),
     db
       .selectFrom('personal_access_token')
-      .select(['id', 'name', 'created_at', 'expires_at'])
+      .select(['id', 'name', 'created_at', 'expires_at', 'last_used_at'])
       .where('user_id', '=', userId)
       .orderBy('created_at', 'desc')
       .orderBy('id')
@@ -108,6 +108,7 @@ export async function buildAccountExport(
       name: row.name,
       created_at: row.created_at.toISOString(),
       expires_at: row.expires_at?.toISOString() ?? null,
+      last_used_at: row.last_used_at?.toISOString() ?? null,
     })),
     feedback: feedback.map((row) => ({
       id: row.id,

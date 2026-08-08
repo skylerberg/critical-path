@@ -98,6 +98,29 @@ describe('token commands', () => {
     expect(res.exitCode).toBe(4);
   });
 
+  it('list reports last use, and never for a token that has not authenticated', async () => {
+    const created = await h.runCli(['token', 'create', 'watcher', '--json']);
+    const secret = created.json<CreatedPersonalAccessToken>().token;
+
+    function watcher(stdout: string): PersonalAccessToken {
+      const found = (JSON.parse(stdout) as PersonalAccessToken[]).find((t) => t.name === 'watcher');
+      expect(found).toBeDefined();
+      return found!;
+    }
+
+    const before = await h.runCli(['token', 'list', '--json']);
+    expect(watcher(before.stdout).last_used_at).toBeNull();
+
+    const table = await h.runCli(['token', 'list']);
+    expect(table.stdout).toContain('LAST USED');
+    expect(table.stdout).toMatch(/watcher\s+\d{4}-\d{2}-\d{2}\s+never\s+never/);
+
+    expect((await h.runCli(['whoami'], { env: { CRITICAL_PATH_TOKEN: secret } })).exitCode).toBe(0);
+
+    const after = await h.runCli(['token', 'list', '--json']);
+    expect(watcher(after.stdout).last_used_at).not.toBeNull();
+  });
+
   it('list reports an empty account plainly', async () => {
     const fresh = await tc.createUser('cli-token-empty');
     const emptyHarness = await createCliHarness();
