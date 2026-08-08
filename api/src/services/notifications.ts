@@ -2,8 +2,9 @@ import { APP_NAME } from '../config/constants';
 import { projectLink, taskLink, unsubscribeLink, unsubscribeOneClickUrl } from './webLinks';
 import { db } from '../db/index';
 import { withNotificationBudget } from '../middleware/rateLimit';
+import { errorText } from '../utils/errors';
 import { logger } from '../utils/logger';
-import { projectAccessIdsAmong } from './authorization';
+import { projectAccessIdsAmong, type ProjectAccessFields } from './authorization';
 import { getEmailSender } from './email/index';
 import { createUnsubscribeToken } from './emailToken';
 import type { EmailMessage } from './email/types';
@@ -30,10 +31,37 @@ export interface Notification {
   recipientUserIds: string[];
 }
 
-interface Recipient {
+export interface Recipient {
   id: string;
   email: string;
   name: string;
+}
+
+// Both mailers gate on the same three things, and the access re-check is
+// deliberately the last of them: every caller runs after its transaction
+// committed, so access can have been revoked in between.
+export async function eligibleRecipients(
+  kind: NotificationKind,
+  project: ProjectAccessFields,
+  userIds: readonly string[]
+): Promise<Recipient[]> {
+  const rows = await db
+    .selectFrom('app_user')
+    .select(['id', 'email', 'name'])
+    .where('id', 'in', [...userIds])
+    .where('email_verified_at', 'is not', null)
+    .where(NOTIFY_COLUMN[kind], '=', true)
+    .execute();
+  if (rows.length === 0) return [];
+
+  const accessible = new Set(
+    await projectAccessIdsAmong(
+      db,
+      project,
+      rows.map((recipient) => recipient.id)
+    )
+  );
+  return rows.filter((recipient) => accessible.has(recipient.id));
 }
 
 // Deliberately no actor: otherwise a loop only has to alternate who performs
@@ -42,24 +70,29 @@ function repeatKey(notification: Notification): string {
   return `${notification.kind}:${notification.project.id}:${notification.task?.id ?? ''}`;
 }
 
+// `headers` rather than the one-click URL it wraps, so no mailer can build a
+// message that carries the footer link without the RFC 8058 header pair.
 export function unsubscribeLinks(
   recipient: { id: string; email: string },
   kind: NotificationKind
 ): {
   page: string;
-  oneClick: string;
+  headers: Record<string, string>;
 } {
   // The web app and this service share an origin, so the app's base is also
   // what a mail client has to post back to.
   const token = encodeURIComponent(createUnsubscribeToken(recipient.id, recipient.email, kind));
   return {
     page: unsubscribeLink(token),
-    oneClick: unsubscribeOneClickUrl(token),
+    headers: {
+      'List-Unsubscribe': `<${unsubscribeOneClickUrl(token)}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    },
   };
 }
 
 function messageFor(notification: Notification, recipient: Recipient): EmailMessage {
-  const { page, oneClick } = unsubscribeLinks(recipient, notification.kind);
+  const { page, headers } = unsubscribeLinks(recipient, notification.kind);
   const subject =
     notification.task === undefined
       ? `${notification.actor.name} added you to ${notification.project.name}`
@@ -76,10 +109,7 @@ function messageFor(notification: Notification, recipient: Recipient): EmailMess
     to: recipient.email,
     subject,
     text: `${body}\n\nTo stop receiving these emails: ${page}\n`,
-    headers: {
-      'List-Unsubscribe': `<${oneClick}>`,
-      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-    },
+    headers,
   };
 }
 
@@ -94,25 +124,11 @@ export const notificationDelivery: {
     //
     // Every gate here is per recipient, so one unverified, opted-out,
     // since-evicted or throttled recipient never suppresses mail to the rest.
-    const rows = await db
-      .selectFrom('app_user')
-      .select(['id', 'email', 'name'])
-      .where('id', 'in', notification.recipientUserIds)
-      .where('email_verified_at', 'is not', null)
-      .where(NOTIFY_COLUMN[notification.kind], '=', true)
-      .execute();
-    if (rows.length === 0) return;
-
-    // The recipient list was snapshotted inside the transaction; access can
-    // have been revoked between the commit and this hook.
-    const accessible = new Set(
-      await projectAccessIdsAmong(
-        db,
-        notification.project,
-        rows.map((recipient) => recipient.id)
-      )
+    const recipients = await eligibleRecipients(
+      notification.kind,
+      notification.project,
+      notification.recipientUserIds
     );
-    const recipients = rows.filter((recipient) => accessible.has(recipient.id));
 
     const sender = getEmailSender();
     const key = repeatKey(notification);
@@ -128,7 +144,7 @@ export const notificationDelivery: {
         logger.error({
           msg: 'Notification email failed',
           kind: notification.kind,
-          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+          error: errorText(result.reason),
         });
       }
     }

@@ -6,9 +6,13 @@ import type {
   TiptapDoc,
   TiptapNode,
 } from '../../schemas/index';
+import { dedupe } from '../../utils/arrays';
 import { AppError } from '../../utils/errors';
-import { projectAccessIdsAmong, type ProjectAccessFields } from '../authorization';
+import type { ProjectAccessFields } from '../authorization';
 import { assertColumnInProject } from '../boardColumns';
+import { todayInZone } from '../dateText';
+import { serializeDescription } from '../description';
+import { assertAssigneesHaveProjectAccess, assertLabelsInProject } from '../projectScope';
 import { keysBetween } from '../sortKey';
 import {
   assertUsableRrule,
@@ -58,42 +62,6 @@ function stripDescriptionImages(description: TiptapDoc | null | undefined): Stri
   return { description: node as TiptapDoc, droppedImageCount: dropped };
 }
 
-function serializeDescription(description: TiptapDoc | null): string | null {
-  return description === null ? null : JSON.stringify(description);
-}
-
-function dedupe(ids: string[]): string[] {
-  return [...new Set(ids)];
-}
-
-async function assertLabelsInProject(
-  db: Kysely<DB>,
-  labelIds: string[],
-  projectId: string
-): Promise<void> {
-  if (labelIds.length === 0) return;
-  const rows = await db
-    .selectFrom('label')
-    .select('label.id')
-    .where('label.id', 'in', labelIds)
-    .where('label.project_id', '=', projectId)
-    .execute();
-  if (rows.length !== labelIds.length) {
-    throw new AppError(422, 'label_ids must reference labels in the project');
-  }
-}
-
-async function assertAssigneesHaveProjectAccess(
-  db: Kysely<DB>,
-  userIds: string[],
-  project: ProjectAccessFields
-): Promise<void> {
-  const withAccess = await projectAccessIdsAmong(db, project, userIds);
-  if (withAccess.length !== userIds.length) {
-    throw new AppError(422, 'assignee_ids must reference users with access to the project');
-  }
-}
-
 async function assertKnownTimezone(db: Kysely<DB>, timezone: string): Promise<void> {
   const row = await db
     .selectNoFrom(
@@ -106,11 +74,7 @@ async function assertKnownTimezone(db: Kysely<DB>, timezone: string): Promise<vo
 }
 
 export async function todayIn(db: Kysely<DB>, timezone: string): Promise<string> {
-  const row = await db
-    .selectNoFrom(
-      sql<string>`to_char((now() at time zone ${timezone})::date, 'YYYY-MM-DD')`.as('today')
-    )
-    .executeTakeFirstOrThrow();
+  const row = await db.selectNoFrom(todayInZone(timezone).as('today')).executeTakeFirstOrThrow();
   return row.today;
 }
 

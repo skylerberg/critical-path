@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { sql } from 'kysely';
 import { db } from '../../db/index';
 import type { JsonValue } from '../../db/types';
+import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { registerJobHandler } from '../jobs/handlers';
 import { publish } from '../realtime/bus';
@@ -68,7 +69,7 @@ async function reclaim(keys: (string | null)[]): Promise<void> {
           logger.error({
             msg: 'Failed to reclaim an unfurl image object',
             storageKey: key,
-            error: err instanceof Error ? err.message : String(err),
+            error: errorText(err),
           });
         })
       )
@@ -135,7 +136,7 @@ async function attempt(url: string): Promise<UnfurlOutcome> {
     // with the attempts exhausted and the row spinning at 'pending' for good.
     logger.error({
       msg: 'Unfurl failed while reading a fetched page',
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
     return FAILED;
   }

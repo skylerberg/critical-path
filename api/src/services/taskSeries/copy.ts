@@ -1,6 +1,7 @@
 import { sql, type Kysely } from 'kysely';
 import type { DB } from '../../db/types';
 import { projectAccessIdsAmong, type ProjectAccessFields } from '../authorization';
+import { dateText } from '../dateText';
 import { scheduleFrom, todayIn } from './write';
 
 export interface CopySeriesInput {
@@ -15,8 +16,8 @@ export async function copySeries(db: Kysely<DB>, input: CopySeriesInput): Promis
   const sources = await db
     .selectFrom('task_series')
     .selectAll('task_series')
-    .select(sql<string>`to_char(task_series.start_date, 'YYYY-MM-DD')`.as('start_date_text'))
-    .select(sql<string | null>`to_char(task_series.due_date, 'YYYY-MM-DD')`.as('due_date_text'))
+    .select(dateText<string>('task_series.start_date').as('start_date_text'))
+    .select(dateText('task_series.due_date').as('due_date_text'))
     .where('task_series.project_id', '=', input.sourceProjectId)
     .execute();
   if (sources.length === 0) return;

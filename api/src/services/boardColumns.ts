@@ -1,4 +1,4 @@
-import type { Kysely, Selectable } from 'kysely';
+import { sql, type Kysely, type RawBuilder, type Selectable } from 'kysely';
 import type { BoardColumn, DB, ResolvedSortKey } from '../db/types';
 import type { MovedTask } from '../schemas/index';
 import { AppError } from '../utils/errors';
@@ -101,4 +101,14 @@ export async function appendPositions(
     column_id: targetColumnId,
     sort_key: keys[index]!,
   }));
+}
+
+// The `from (values …) as v(id, sort_key)` body every bulk position write joins
+// against, so a batch is one statement rather than one per card. The casts are
+// not optional: a bind parameter inside a VALUES list has no type Postgres can
+// infer for the column.
+export function positionValues(tasks: readonly MovedTask[]): RawBuilder<unknown> {
+  return sql`(values ${sql.join(
+    tasks.map((task) => sql`(${task.id}::uuid, ${task.sort_key}::text)`)
+  )}) as v(id, sort_key)`;
 }

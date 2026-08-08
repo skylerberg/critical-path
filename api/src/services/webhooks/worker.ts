@@ -12,6 +12,7 @@ import {
 } from './queue';
 import { sendDelivery } from './sender';
 import { targetPolicy, type LookupAll, type TargetPolicy } from './targets';
+import { errorText } from '../../utils/errors';
 
 export interface RunDueDeliveriesOptions {
   policy?: TargetPolicy;
@@ -96,7 +97,7 @@ async function deliverOne(
     logger.error({
       msg: 'Webhook delivery failed to record',
       delivery_id: delivery.id,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
     return false;
   }

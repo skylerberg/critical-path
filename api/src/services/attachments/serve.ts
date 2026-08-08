@@ -1,3 +1,5 @@
+import { isUnicodeControlCode } from '../../utils/controlCharacters';
+
 const MAX_FILENAME_LENGTH = 255;
 const MAX_CONTENT_TYPE_LENGTH = 127;
 const FALLBACK_FILENAME = 'attachment';
@@ -5,10 +7,6 @@ export const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 
 const MIME_TOKEN = "[a-z0-9!#$%&'*+.^_`|~-]+";
 const MIME_PATTERN = new RegExp(`^${MIME_TOKEN}/${MIME_TOKEN}$`);
-
-function isControlCharacter(code: number): boolean {
-  return code < 0x20 || (code >= 0x7f && code <= 0x9f);
-}
 
 // Multipart filenames never pass through arktype, so this is the only thing
 // standing between an attacker-chosen name and a Postgres text bind that
@@ -20,7 +18,7 @@ export function sanitizeUploadFilename(raw: string): string {
   let cleaned = '';
   for (const char of base) {
     const code = char.codePointAt(0) as number;
-    if (isControlCharacter(code)) continue;
+    if (isUnicodeControlCode(code)) continue;
     if (char === '"' || char === '\\') continue;
     cleaned += char;
   }

@@ -1,9 +1,13 @@
 import { sql } from 'kysely';
 import { db } from '../../db/index';
 import type { BoardTask, TaskSeriesResponse } from '../../schemas/index';
+import { CHECKLIST_INSERT_CHUNK } from '../../config/constants';
+import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { projectAccessIdsAmong } from '../authorization';
 import { lockColumnTail } from '../boardColumns';
+import { dateText, todayInZone } from '../dateText';
+import { MAX_CONSECUTIVE_FAILURES, MAX_ERROR_CHARS } from '../retryPolicy';
 import { keysBetween } from '../sortKey';
 import { fetchBoardTaskRows } from '../boardPayload';
 import { PROJECT_CHANGED, publish } from '../realtime/bus';
@@ -15,16 +19,14 @@ import { fetchSeries } from './read';
 import { firstOccurrenceOnOrAfter, nextOccurrenceAfter, occurrencesBetween } from './rule';
 import { occurrenceInstant } from './write';
 
+export { MAX_CONSECUTIVE_FAILURES };
+
 export const TASK_SERIES_JOB_KIND = 'task_series_materialize';
 export const SWEEP_INTERVAL_SECONDS = 60;
 export const SWEEP_TIMEOUT_MS = 15_000;
 export const SWEEP_BATCH = 25;
 const SWEEP_BUDGET_MS = 10_000;
 export const MAX_CATCHUP_SCAN = 500;
-export const MAX_CONSECUTIVE_FAILURES = 5;
-
-const CHECKLIST_INSERT_CHUNK = 5000;
-const MAX_ERROR_CHARS = 2000;
 
 interface MaterializeResult {
   projectId: string;
@@ -104,7 +106,7 @@ export async function runSeriesSweep(opts: { budgetMs?: number } = {}): Promise<
     } catch (err) {
       logger.error({
         msg: 'Recurring series webhook enqueue failed',
-        error: err instanceof Error ? err.message : String(err),
+        error: errorText(err),
       });
     }
   }
@@ -143,7 +145,7 @@ function announce(result: MaterializeResult, webhookEvents: WebhookEvent[]): voi
     logger.error({
       msg: 'Recurring series realtime publish failed',
       project_id: result.projectId,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
   }
 }
@@ -151,7 +153,7 @@ function announce(result: MaterializeResult, webhookEvents: WebhookEvent[]): voi
 // A periodic job row is never retired on failure, so a handler that throws would
 // stall every project's schedules behind its backoff.
 async function recordSeriesFailure(seriesId: string, err: unknown): Promise<void> {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorText(err);
   logger.error({ msg: 'Recurring series could not be materialised', series_id: seriesId, message });
   try {
     await db
@@ -177,7 +179,7 @@ async function recordSeriesFailure(seriesId: string, err: unknown): Promise<void
     logger.error({
       msg: 'Recurring series failure could not be recorded',
       series_id: seriesId,
-      error: recordErr instanceof Error ? recordErr.message : String(recordErr),
+      error: errorText(recordErr),
     });
   }
 }
@@ -190,12 +192,10 @@ async function materializeSeries(seriesId: string): Promise<MaterializeResult | 
       .selectFrom('task_series')
       .selectAll('task_series')
       .select([
-        sql<string>`to_char(task_series.start_date, 'YYYY-MM-DD')`.as('start_date_text'),
-        sql<string | null>`to_char(task_series.next_occurrence_date, 'YYYY-MM-DD')`.as('next_text'),
-        sql<string | null>`to_char(task_series.due_date, 'YYYY-MM-DD')`.as('due_date_text'),
-        sql<string>`to_char((now() at time zone task_series.timezone)::date, 'YYYY-MM-DD')`.as(
-          'today_text'
-        ),
+        dateText<string>('task_series.start_date').as('start_date_text'),
+        dateText('task_series.next_occurrence_date').as('next_text'),
+        dateText('task_series.due_date').as('due_date_text'),
+        todayInZone(sql.ref('task_series.timezone')).as('today_text'),
       ])
       .where('task_series.id', '=', seriesId)
       .where('task_series.status', '=', 'active')

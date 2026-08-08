@@ -11,6 +11,7 @@ import {
   assertColumnInProject,
   assertColumnWrite,
   lockColumnTail,
+  positionValues,
   type ColumnInProject,
 } from '../services/boardColumns';
 import { syncCrossProjectBlockers } from '../services/crossProjectBlockers';
@@ -78,6 +79,11 @@ async function loadMoveTarget(
   });
 }
 
+// Every task named here already sits in one column of one project and is moving
+// out of it — `loadMoveTarget` refuses a target equal to the source — so unlike
+// `relocateSelectedTasks` there is no same-column case to keep a column_since
+// for, and no client-supplied id needing the project and archived predicates.
+// Archived cards move too: the column is about to be deleted underneath them.
 async function relocateTasks(
   db: Kysely<DB>,
   actorUserId: string,
@@ -96,9 +102,7 @@ async function relocateTasks(
     set column_id = ${target.id}::uuid,
         sort_key = v.sort_key,
         column_since = now()
-    from (values ${sql.join(
-      movedTasks.map((task) => sql`(${task.id}::uuid, ${task.sort_key}::text)`)
-    )}) as v(id, sort_key)
+    from ${positionValues(movedTasks)}
     where task.id = v.id
   `.execute(db);
 
@@ -157,9 +161,7 @@ async function reorderTasks(
   await sql`
     update task
     set sort_key = v.sort_key
-    from (values ${sql.join(
-      movedTasks.map((task) => sql`(${task.id}::uuid, ${task.sort_key}::text)`)
-    )}) as v(id, sort_key)
+    from ${positionValues(movedTasks)}
     where task.id = v.id
       and task.column_id = ${column.id}
       and task.archived_at is null

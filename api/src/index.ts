@@ -1,7 +1,7 @@
 process.on('uncaughtException', (error) => {
   logger.error({
     msg: 'Uncaught exception',
-    error: error instanceof Error ? error.message : String(error),
+    error: errorText(error),
     stack: error instanceof Error ? error.stack : undefined,
   });
 });
@@ -9,7 +9,7 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason) => {
   logger.error({
     msg: 'Unhandled rejection',
-    error: reason instanceof Error ? reason.message : String(reason),
+    error: errorText(reason),
     stack: reason instanceof Error ? reason.stack : undefined,
   });
 });
@@ -42,6 +42,7 @@ import { registerAssignmentDigestJob } from './services/assignmentDigest';
 import { registerTaskSeriesJob } from './services/taskSeries/index';
 import { registerAttachmentUnfurlHandler } from './services/attachments/unfurl';
 import { startWebhookWorker } from './services/webhooks/index';
+import { errorText } from './utils/errors';
 import { logger } from './utils/logger';
 
 import authRouter, { publicAuthRouter } from './routes/auth';
@@ -259,7 +260,7 @@ if (isEntrypoint) {
   initRedisBus().catch((err: unknown) => {
     logger.error({
       msg: 'Redis bus init failed; realtime stays in-process',
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
   });
 

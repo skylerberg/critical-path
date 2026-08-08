@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { sql } from 'kysely';
 import { db } from '../db/index';
 import { logger } from '../utils/logger';
+import { errorText } from '../utils/errors';
 
 export const PERSONAL_ACCESS_TOKEN_PREFIX = 'cpat_';
 export const MAX_PERSONAL_ACCESS_TOKENS_PER_USER = 100;
@@ -41,7 +42,7 @@ export async function recordPersonalAccessTokenUse(id: string): Promise<void> {
   } catch (err) {
     logger.warn({
       msg: 'Failed to record personal access token use',
-      error: err instanceof Error ? err.message : String(err),
+      error: errorText(err),
     });
   }
 }

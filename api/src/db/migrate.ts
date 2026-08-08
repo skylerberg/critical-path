@@ -5,6 +5,7 @@ import { FileMigrationProvider, Migrator, type MigrationResultSet } from 'kysely
 import { sql, type Kysely } from 'kysely';
 import type { DB } from './types';
 import { logger } from '../utils/logger';
+import { errorText } from '../utils/errors';
 
 // Well under deadlock_timeout, so a migration that cannot get a table aborts
 // itself rather than letting the deadlock detector choose between it and a
@@ -86,7 +87,7 @@ if (isEntrypoint) {
   if (error) {
     logger.error({
       msg: 'Migration run failed',
-      error: error instanceof Error ? error.message : String(error),
+      error: errorText(error),
     });
     await db.destroy();
     process.exit(1);
