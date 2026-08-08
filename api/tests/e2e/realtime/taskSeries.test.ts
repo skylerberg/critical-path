@@ -136,6 +136,13 @@ describe('Recurring series realtime events', () => {
       .patch(`/api/projects/${projectId}`, { is_public: true });
     expect(published.status).toBe(200);
 
+    // Five tests below patch this series and assert on the events that follow.
+    // Built before the clients connect, so its own series_created reaches none
+    // of their buffers — the publish is a post-commit hook, so it can land
+    // after a test has taken its mark — and a create that breaks fails this
+    // hook once rather than leaving those five to patch an undefined id.
+    seriesId = await createSeries({ title: 'Shared series' });
+
     ownerClient = await connect(owner.token);
     editorClient = await connect(editor.token);
     viewerClient = await connect(viewer.token);
@@ -164,7 +171,7 @@ describe('Recurring series realtime events', () => {
   it('publishes series_created carrying the whole row, to viewers as well as editors', async () => {
     const from = marks();
 
-    seriesId = await createSeries({ title: 'Pay the invoices' });
+    const createdId = await createSeries({ title: 'Pay the invoices' });
 
     const event = await ownerClient.waitForEvent((e) => e.type === SERIES_CREATED, {
       from: from[0],
@@ -172,7 +179,7 @@ describe('Recurring series realtime events', () => {
     expect(Object.keys(event).sort()).toEqual(['data', 'project_id', 'type']);
     expect(event.project_id).toBe(projectId);
     expect(Object.keys(event.data).sort()).toEqual([...SERIES_KEYS].sort());
-    expect(event.data.id).toBe(seriesId);
+    expect(event.data.id).toBe(createdId);
     expect(event.data.title).toBe('Pay the invoices');
     expect(event.data.status).toBe('active');
     // The create response's extra field is not part of the row every other
