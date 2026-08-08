@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
+import type { Kysely, Selectable } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
+import type { DB, Label } from '../db/types';
 import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import {
@@ -21,6 +23,27 @@ import {
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
+
+const LABEL_NOT_FOUND = 'Label not found';
+
+// 404 for a caller with no access to the label's project, so an inaccessible
+// label stays indistinguishable from a nonexistent one; 403 for a viewer.
+async function assertLabelWrite(
+  db: Kysely<DB>,
+  userId: string,
+  labelId: string
+): Promise<Selectable<Label>> {
+  const label = await db
+    .selectFrom('label')
+    .selectAll()
+    .where('id', '=', labelId)
+    .executeTakeFirst();
+  if (!label) {
+    throw new AppError(404, LABEL_NOT_FOUND);
+  }
+  await assertProjectWrite(db, userId, label.project_id, LABEL_NOT_FOUND);
+  return label;
+}
 
 const router: AppHono = new Hono();
 
@@ -108,15 +131,7 @@ router.patch(
     const db = c.get('db');
     const user = c.get('user');
 
-    const existing = await db
-      .selectFrom('label')
-      .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!existing) {
-      throw new AppError(404, 'Label not found');
-    }
-    await assertProjectWrite(db, user.id, existing.project_id, 'Label not found');
+    const existing = await assertLabelWrite(db, user.id, id);
 
     const updates: { name?: string; color?: string } = {};
     if (body.name !== undefined) updates.name = body.name;
@@ -171,15 +186,7 @@ router.delete(
     const db = c.get('db');
     const user = c.get('user');
 
-    const label = await db
-      .selectFrom('label')
-      .select(['project_id', 'name'])
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!label) {
-      throw new AppError(404, 'Label not found');
-    }
-    await assertProjectWrite(db, user.id, label.project_id, 'Label not found');
+    const label = await assertLabelWrite(db, user.id, id);
 
     // Read before the delete, which takes the associations with it by cascade.
     const attached = await db

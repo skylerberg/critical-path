@@ -6,8 +6,10 @@ import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertProjectWrite } from '../services/authorization';
 import {
+  COLUMN_NOT_FOUND,
   appendPositions,
   assertColumnInProject,
+  assertColumnWrite,
   type ColumnInProject,
 } from '../services/boardColumns';
 import { publishAfterCommit } from '../services/realtime/index';
@@ -265,15 +267,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const source = await db
-      .selectFrom('board_column')
-      .select(COLUMN_COLUMNS)
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!source) {
-      throw new AppError(404, 'Column not found');
-    }
-    await assertProjectWrite(db, user.id, source.project_id, 'Column not found');
+    const source = await assertColumnWrite(db, user.id, id);
 
     let inserted;
     try {
@@ -353,15 +347,7 @@ router.patch(
     const db = c.get('db');
     const user = c.get('user');
 
-    const existing = await db
-      .selectFrom('board_column')
-      .select(COLUMN_COLUMNS)
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!existing) {
-      throw new AppError(404, 'Column not found');
-    }
-    await assertProjectWrite(db, user.id, existing.project_id, 'Column not found');
+    const existing = await assertColumnWrite(db, user.id, id);
 
     const updates: Partial<{ name: string; sort_key: string; is_done: boolean }> = {};
     if (name !== undefined) updates.name = name;
@@ -379,7 +365,7 @@ router.patch(
             .executeTakeFirst();
 
     if (!column) {
-      throw new AppError(404, 'Column not found');
+      throw new AppError(404, COLUMN_NOT_FOUND);
     }
 
     publishAfterCommit(c, 'column_updated', column.project_id, serializeColumn(column));
@@ -432,15 +418,7 @@ router.delete(
     const db = c.get('db');
     const user = c.get('user');
 
-    const column = await db
-      .selectFrom('board_column')
-      .select(['id', 'project_id', 'name'])
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!column) {
-      throw new AppError(404, 'Column not found');
-    }
-    await assertProjectWrite(db, user.id, column.project_id, 'Column not found');
+    const column = await assertColumnWrite(db, user.id, id);
 
     const target =
       move_tasks_to === undefined
@@ -531,15 +509,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const column = await db
-      .selectFrom('board_column')
-      .select(['id', 'project_id', 'name'])
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!column) {
-      throw new AppError(404, 'Column not found');
-    }
-    await assertProjectWrite(db, user.id, column.project_id, 'Column not found');
+    const column = await assertColumnWrite(db, user.id, id);
 
     const target = await loadMoveTarget(
       db,
@@ -617,15 +587,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const column = await db
-      .selectFrom('board_column')
-      .select(['id', 'project_id'])
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!column) {
-      throw new AppError(404, 'Column not found');
-    }
-    await assertProjectWrite(db, user.id, column.project_id, 'Column not found');
+    const column = await assertColumnWrite(db, user.id, id);
 
     const movedTasks = await reorderTasks(db, column, task_ids);
 
@@ -673,15 +635,7 @@ router.post(
     const db = c.get('db');
     const user = c.get('user');
 
-    const column = await db
-      .selectFrom('board_column')
-      .select(['id', 'project_id'])
-      .where('id', '=', id)
-      .executeTakeFirst();
-    if (!column) {
-      throw new AppError(404, 'Column not found');
-    }
-    await assertProjectWrite(db, user.id, column.project_id, 'Column not found');
+    const column = await assertColumnWrite(db, user.id, id);
 
     const archived = await db
       .updateTable('task')
