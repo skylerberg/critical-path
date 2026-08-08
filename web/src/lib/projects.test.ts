@@ -748,11 +748,11 @@ describe('projects store', () => {
 
     projects.applyRealtime({
       type: 'project_position_updated',
-      project_id: null,
-      data: { id: 'p-1', position: 750 },
+      project_id: 'p-1',
+      data: { id: 'p-1', sort_key: 'V0000007501' },
     });
 
-    expect(projects.projects[0]!.position).toBe(750);
+    expect(projects.projects[0]!.sort_key).toBe('V0000007501');
   });
 
   it('preserves position through a project_updated merge', async () => {

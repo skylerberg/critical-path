@@ -346,8 +346,11 @@ class ProjectsStore {
       return;
     }
     if (event.type === 'project_position_updated') {
-      const { id, position } = event.data as { id: string; position: number };
-      this.#update(id, (p) => ({ ...p, position }));
+      // The server stopped carrying `position` when ordering moved to sort keys,
+      // so reading it here left every reorder from another device applying
+      // `undefined` — the list only caught up on the next full load.
+      const { id, sort_key } = event.data as { id: string; sort_key: string };
+      this.#update(id, (p) => ({ ...p, sort_key }));
       return;
     }
     if (event.type === 'project_created' || event.type === 'project_updated') {
