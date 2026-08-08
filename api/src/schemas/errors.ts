@@ -73,6 +73,10 @@ export const preconditionConflictErrorResponse = errorResponse(
   409,
   'Conflict - the task changed since it was loaded'
 );
+export const positionConflictErrorResponse = errorResponse(
+  409,
+  'Conflict - the position was taken while the move was in flight'
+);
 export const dependencyCycleErrorResponse = errorResponse(
   409,
   'Conflict - the blocker would close a dependency cycle',

@@ -313,6 +313,33 @@ describe('Checklists API', () => {
       expect((await detail(taskId)).checklist_items.map((item) => item.text)).toEqual(['b', 'a']);
     });
 
+    it('reorders onto a key a sibling item is holding', async () => {
+      const taskId = await createTask();
+      const first = await addItem(taskId, 'a', 1000);
+      const second = await addItem(taskId, 'b', 2000);
+
+      const res = await ctx
+        .request(owner.token)
+        .patch(`/api/checklist-items/${first.id}`, { sort_key: second.sort_key });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as ChecklistItemBody).sort_key > second.sort_key).toBe(true);
+      expect((await detail(taskId)).checklist_items.map((item) => item.text)).toEqual(['b', 'a']);
+    });
+
+    it('leaves a key free on the task alone, even when a sibling task holds it', async () => {
+      const otherTask = await createTask();
+      const elsewhere = await addItem(otherTask, 'elsewhere', 4000);
+
+      const taskId = await createTask();
+      const item = await addItem(taskId, 'mine', 1000);
+
+      const res = await ctx
+        .request(owner.token)
+        .patch(`/api/checklist-items/${item.id}`, { sort_key: elsewhere.sort_key });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as ChecklistItemBody).sort_key).toBe(elsewhere.sort_key);
+    });
+
     it('changes nothing on an empty body', async () => {
       const taskId = await createTask();
       const item = await addItem(taskId, 'unchanged');
