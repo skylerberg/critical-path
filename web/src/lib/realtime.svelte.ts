@@ -315,11 +315,17 @@ class RealtimeClient {
       }
     } else if (event.type === 'project_changed') {
       // Delivered to the actor's own devices too, because their other tabs still
-      // have to update the board — only the dot ignores its own. An event from a
-      // pod that predates the actor field carries none and is treated the same
-      // way: a missed dot self-heals on the next load, a false one on your own
-      // edit does not. The open board is skipped for the same reason — a dot on
-      // what you are already looking at is one you cannot act on.
+      // have to update the board — only the dot ignores its own. The open board
+      // is skipped for the same reason: a dot on what you are already looking at
+      // is one you cannot act on.
+      //
+      // The undefined check is not dead code, however required the generated
+      // type says the field is. A frame is asserted rather than validated where
+      // it arrives, so a pod that predates the field really does deliver none,
+      // and that is the case being skipped here: a missed dot self-heals on the
+      // next load, a false one on your own edit does not. A null actor is a
+      // different thing and does dot — it means a schedule or a background job
+      // made the change, which is nobody's own edit.
       const { actor_user_id: actor } = event.data;
       if (
         event.project_id !== null &&

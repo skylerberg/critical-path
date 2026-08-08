@@ -644,11 +644,7 @@ describe('canonical URL', () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
 
       tasks[0] = task(T1, 'todo', 'Final boss fight');
-      board.applyRealtime({
-        type: 'task_updated',
-        project_id: projectId,
-        data: { ...tasks[0] },
-      } as never);
+      board.applyRealtime(realtimeEvent('task_updated', { ...tasks[0] }, projectId));
 
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(board.tasks.find((t) => t.id === T1)?.title).toBe('Final boss fight');
@@ -667,11 +663,7 @@ describe('canonical URL', () => {
     try {
       await screen.findByRole('heading', { name: PROJECT_NAME });
 
-      board.applyRealtime({
-        type: 'project_updated',
-        project_id: projectId,
-        data: { name: 'Playbook' },
-      } as never);
+      board.applyRealtime(realtimeEvent('project_updated', { name: 'Playbook' }, projectId));
 
       await waitFor(() => {
         expect(router.path).toBe(projectHref(projectId, 'Playbook'));
