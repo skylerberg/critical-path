@@ -70,7 +70,7 @@ describe('concurrent moves into one column', () => {
     await db.deleteFrom('app_user').where('id', '=', userId).execute();
   });
 
-  // Each transaction does what relocateTasks does: probe the column's tail, then
+  // Each transaction does what relocateColumnTasks does: probe the column's tail, then
   // write. The second is released only once the first has committed, so an
   // unserialised probe reads a stale max and stamps a duplicate.
   it('gives each mover its own sort key', async () => {

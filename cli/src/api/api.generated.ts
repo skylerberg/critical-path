@@ -504,7 +504,7 @@ export interface paths {
     };
     /**
      * Export project
-     * @description Download everything in a project. The default zip holds project.json (the manifest below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes of every attached image, so the archive survives losing the account. Archived cards are exported too, after the live ones, each carrying the archived_at that marks it and the column_id it was archived from; a live card has archived_at null. Pass format=json for the manifest alone. The manifest is the documented, stable interchange format the importer reads back: format identifies it, version is bumped only on a breaking shape change, and ids are the original server ids — created_by, member_ids and assignee_ids resolve against users[], label_ids against labels[], column_id against columns[], and blocker_ids against tasks[]. Task descriptions are stored verbatim, so their embedded /api/images/<uuid> sources resolve by id against the flattened tasks[].images[]. Each image entry carries the archive-relative path of its file. Every project member may export; the export is free and never gated. A project whose images would exceed the 4 GiB zip ceiling answers 413 and must be exported with format=json, which carries no image bytes — fetch those from GET /api/images/{id}, one per tasks[].images[].id.
+     * @description Download everything in a project. The default zip holds project.json (the manifest below), tasks.csv (one row per task, for spreadsheets), and images/ with the real bytes of every attached image, so the archive survives losing the account. Archived cards are exported too, after the live ones, each carrying the archived_at that marks it and the column_id it was archived from; a live card has archived_at null. Pass format=json for the manifest alone. The manifest is the documented, stable interchange format the importer reads back: format identifies it, version is bumped only on a breaking shape change, and ids are the original server ids — created_by, member_ids and assignee_ids resolve against users[], label_ids against labels[], column_id against columns[], and blocker_ids against tasks[]. Task descriptions are stored verbatim, so their embedded /api/images/<uuid> sources resolve by id against the entries of tasks[].attachments[] whose kind is image, and each such entry carries the archive-relative path of its file. Every project member may export; the export is free and never gated. A project whose images would exceed the 4 GiB zip ceiling answers 413 and must be exported with format=json, which carries no stored bytes — fetch each image from GET /api/images/{id} by the id of its tasks[].attachments[] entry.
      */
     get: operations['getApiProjectsByIdExport'];
     put?: never;
@@ -888,7 +888,7 @@ export interface paths {
     };
     /**
      * Get task detail
-     * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), images, its full comment stream oldest first, and its checklist in list order. Archived tasks are readable here even though they are absent from every board payload. `series_summary` names the recurrence in English for a card a recurring series created, and is null for every other card — including one whose series has since been deleted.
+     * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), its attachments, its full comment stream oldest first, and its checklist in list order. Archived tasks are readable here even though they are absent from every board payload. `series_summary` names the recurrence in English for a card a recurring series created, and is null for every other card — including one whose series has since been deleted.
      */
     get: operations['getApiTasksById'];
     put?: never;
@@ -2214,7 +2214,6 @@ export interface components {
       description: components['schemas']['NullableTiptapDoc'];
       due_date: string | null;
       id: string;
-      images: components['schemas']['ImageResponse'][];
       label_ids: string[];
       open_cross_project_blocker_count: number;
       project_id: string;
@@ -2258,14 +2257,6 @@ export interface components {
       task_id: string;
       updated_at: string;
       user_id: string;
-    };
-    ImageResponse: {
-      content_type: string;
-      created_at: string;
-      filename: string;
-      id: string;
-      size_bytes: number;
-      url: string;
     };
     PatchTask: {
       /** Format: uuid */

@@ -1,6 +1,6 @@
 import { db } from '../../db/index';
 import { logger } from '../../utils/logger';
-import { startWorker } from '../worker';
+import { startWorker } from '../tickWorker';
 import {
   CLAIM_BATCH,
   MAX_CONCURRENT_SENDS,

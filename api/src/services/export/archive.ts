@@ -10,9 +10,9 @@ const MANIFEST_NAME = 'project.json';
 const CSV_NAME = 'tasks.csv';
 const TOO_LARGE_MESSAGE =
   'This project is too large to package as a zip archive. Export it with ?format=json, ' +
-  'which carries no image bytes, and fetch each one from GET /api/images/<id> using the ids ' +
-  'in tasks[].images[]. File attachments work the same way: the JSON export lists them under ' +
-  'tasks[].attachments[] and each one is fetched from GET /api/attachments/<id>/download.';
+  'which carries no stored bytes, and fetch each entry the manifest lists under ' +
+  'tasks[].attachments[]: one whose kind is image from GET /api/images/<id>, and any other ' +
+  'from GET /api/attachments/<id>/download.';
 
 export function exportFilename(projectName: string, now: Date): string {
   const slug =

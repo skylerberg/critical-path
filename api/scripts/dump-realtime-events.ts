@@ -1,6 +1,6 @@
 import { writeFile } from 'fs/promises';
 import path from 'path';
-import { buildRealtimeEventsDocument } from '../src/services/realtime/document';
+import { buildRealtimeEventsDocument } from '../src/spec/realtime-events';
 
 // No --env-file, unlike dump-openapi: the document is built from the two
 // declaration tables alone and reads neither the database nor a config value,

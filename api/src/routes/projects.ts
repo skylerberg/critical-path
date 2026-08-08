@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql } from 'kysely';
-import type { Kysely, Updateable } from 'kysely';
+import type { Updateable } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { jsonValidator } from '../middleware/jsonValidator';
 import {
@@ -9,7 +9,7 @@ import {
   enforceInvitationLookupRateLimit,
   enforceInvitationResendRateLimit,
   enforceInvitationSendRateLimit,
-} from '../middleware/rateLimit';
+} from '../services/rateLimit';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
@@ -30,7 +30,6 @@ import {
   refreshCrossProjectBlockerCounts,
 } from '../services/crossProjectBlockers';
 import { avatarUrl } from '../services/avatars';
-import { stripAssigneesForRemovedMembers } from '../services/assigneeStrip';
 import { getArchivedTasks, getBoardPayload } from '../services/boardPayload';
 import { exportFilename, projectExportArchive } from '../services/export/archive';
 import { buildProjectExport } from '../services/export/payload';
@@ -53,15 +52,13 @@ import {
   publishProjectListItem,
   toMemberEntries,
   toProjectResponse,
-  type ProjectRow,
 } from '../services/projectListItem';
+import { removeProjectMembers } from '../services/projectMembers';
 import { changedTaskIds, hasUnseenChanges } from '../services/projectSeen';
 import { publishAfterCommit } from '../services/realtime/index';
 import { keysBetween, resolveSortKey } from '../services/sortKey';
-import { recordAssigneeChanges } from '../services/taskActivity';
-import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import { deleteStoredObjectsAfterCommit } from '../services/storage/cleanup';
-import type { DB, Project } from '../db/types';
+import type { Project } from '../db/types';
 import {
   idSchema,
   projectSchema,
@@ -103,37 +100,6 @@ const DEFAULT_COLUMNS = [
   { name: 'In Progress', is_done: false },
   { name: 'Done', is_done: true },
 ];
-
-async function removeMembers(
-  c: Parameters<typeof publishAfterCommit>[0],
-  db: Kysely<DB>,
-  project: ProjectRow,
-  actorUserId: string,
-  removed: string[]
-): Promise<void> {
-  await db
-    .deleteFrom('project_member')
-    .where('project_id', '=', project.id)
-    .where('user_id', 'in', removed)
-    .execute();
-  await db
-    .deleteFrom('project_user_seen')
-    .where('project_id', '=', project.id)
-    .where('user_id', 'in', removed)
-    .execute();
-  const stripped = await stripAssigneesForRemovedMembers(db, project.id, removed);
-  await recordAssigneeChanges(
-    db,
-    actorUserId,
-    stripped.map((entry) => ({
-      taskId: entry.task_id,
-      kind: 'assignee_removed' as const,
-      userId: entry.user_id,
-    }))
-  );
-  const strippedTaskIds = [...new Set(stripped.map((entry) => entry.task_id))];
-  publishTaskRelationsSet(c, await fetchTaskRelations(db, strippedTaskIds));
-}
 
 const router: AppHono = new Hono();
 
@@ -447,11 +413,12 @@ router.get(
       'change, and ids are the original server ids — created_by, member_ids and assignee_ids ' +
       'resolve against users[], label_ids against labels[], column_id against columns[], and ' +
       'blocker_ids against tasks[]. Task descriptions are stored verbatim, so their embedded ' +
-      '/api/images/<uuid> sources resolve by id against the flattened tasks[].images[]. Each ' +
-      'image entry carries the archive-relative path of its file. Every project member may ' +
-      'export; the export is free and never gated. A project whose images would exceed the ' +
-      '4 GiB zip ceiling answers 413 and must be exported with format=json, which carries no ' +
-      'image bytes — fetch those from GET /api/images/{id}, one per tasks[].images[].id.',
+      '/api/images/<uuid> sources resolve by id against the entries of tasks[].attachments[] ' +
+      'whose kind is image, and each such entry carries the archive-relative path of its file. ' +
+      'Every project member may export; the export is free and never gated. A project whose ' +
+      'images would exceed the 4 GiB zip ceiling answers 413 and must be exported with ' +
+      'format=json, which carries no stored bytes — fetch each image from GET /api/images/{id} ' +
+      'by the id of its tasks[].attachments[] entry.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...exportProjectResponses,
@@ -815,7 +782,7 @@ router.put(
       if (user_ids === undefined || user_ids.includes(user.id) || roles !== undefined) {
         throw new AppError(403, READ_ONLY_MESSAGE);
       }
-      await removeMembers(c, db, project, user.id, [user.id]);
+      await removeProjectMembers(c, db, project, user.id, [user.id]);
       publishAfterCommit(c, 'project_deleted', id, { id }, { recipientUserIds: [user.id] });
       const remaining = await fetchMembers(db, id);
       await revokeInvitationsFromNonEditors(c, db, id, project.created_by, remaining);
@@ -866,7 +833,7 @@ router.put(
     }
 
     if (removed.length > 0) {
-      await removeMembers(c, db, project, user.id, removed);
+      await removeProjectMembers(c, db, project, user.id, removed);
     }
 
     if (added.length > 0) {

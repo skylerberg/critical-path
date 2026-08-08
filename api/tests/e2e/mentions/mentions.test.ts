@@ -7,8 +7,8 @@ import { errorHandler } from '../../../src/middleware/errorHandler';
 import { transactionMiddleware } from '../../../src/middleware/transaction';
 import {
   MAX_MENTION_RECIPIENTS,
-  mentionDelivery,
   notifyMentions,
+  setMentionDeliverer,
 } from '../../../src/services/mentions';
 import type { MentionNotification } from '../../../src/services/mentions';
 import type { Variables } from '../../../src/types/index';
@@ -136,9 +136,9 @@ describe('Mentions', () => {
       .values(crowd.map((id) => ({ project_id: projectId, user_id: id })))
       .execute();
 
-    mentionDelivery.deliver = async (notification) => {
+    setMentionDeliverer(async (notification) => {
       delivered.push(notification);
-    };
+    });
   });
 
   beforeEach(() => {
@@ -146,7 +146,7 @@ describe('Mentions', () => {
   });
 
   afterAll(async () => {
-    mentionDelivery.deliver = async () => {};
+    setMentionDeliverer(null);
     if (projectIds.length > 0) {
       await db.deleteFrom('project').where('id', 'in', projectIds).execute();
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildRealtimeEventsDocument } from '../../src/services/realtime/document';
+import { buildRealtimeEventsDocument } from '../../src/spec/realtime-events';
 import {
   REALTIME_EVENT_TYPES,
   WEBHOOK_EVENT_TYPES,

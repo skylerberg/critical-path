@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
-import { resetRateLimiter, RESET_EMAIL_MAX_ATTEMPTS } from '../../../src/middleware/rateLimit';
+import { resetRateLimiter, RESET_EMAIL_MAX_ATTEMPTS } from '../../../src/services/rateLimit';
 import { createResetToken, RESET_TOKEN_TTL_MS } from '../../../src/services/resetToken';
 import { sentEmails, clearSentEmails } from '../../../src/services/email/index';
 import { env } from '../../../src/config/env';

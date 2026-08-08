@@ -1,6 +1,6 @@
 import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
-import { startWorker } from '../worker';
+import { startWorker } from '../tickWorker';
 import {
   jobHandler,
   periodicJobs,

@@ -4,7 +4,8 @@ import type { MovedTask } from '../schemas/index';
 import { AppError } from '../utils/errors';
 import { AdvisoryLock, takeAdvisoryLock } from './advisoryLock';
 import { assertProjectWrite } from './authorization';
-import { keysBetween } from './sortKey';
+import { appendKeys, keysBetween } from './sortKey';
+import { recordTaskActivity } from './taskActivity';
 
 export interface ColumnInProject {
   id: string;
@@ -111,4 +112,96 @@ export function positionValues(tasks: readonly MovedTask[]): RawBuilder<unknown>
   return sql`(values ${sql.join(
     tasks.map((task) => sql`(${task.id}::uuid, ${task.sort_key}::text)`)
   )}) as v(id, sort_key)`;
+}
+
+// Empties one column into another. Every task named here already sits in the
+// source column and is moving out of it — the routes refuse a target equal to
+// the source — so unlike `relocateSelectedTasks` in ./taskBulk there is no
+// same-column case to keep a column_since for, and no client-supplied id needing
+// the project and archived predicates. Archived cards move too: the column is
+// about to be deleted underneath them.
+export async function relocateColumnTasks(
+  db: Kysely<DB>,
+  actorUserId: string,
+  taskIds: readonly string[],
+  source: { id: string; name: string },
+  target: { id: string; name: string }
+): Promise<MovedTask[]> {
+  if (taskIds.length === 0) {
+    return [];
+  }
+
+  const movedTasks = await appendPositions(db, target.id, taskIds);
+
+  await sql`
+    update task
+    set column_id = ${target.id}::uuid,
+        sort_key = v.sort_key,
+        column_since = now()
+    from ${positionValues(movedTasks)}
+    where task.id = v.id
+  `.execute(db);
+
+  await recordTaskActivity(
+    db,
+    actorUserId,
+    movedTasks.map((task) => ({
+      taskId: task.id,
+      kind: 'column_changed' as const,
+      oldValue: { id: source.id, name: source.name },
+      newValue: { id: target.id, name: target.name },
+    }))
+  );
+
+  return movedTasks;
+}
+
+// A one-shot reorder within a single column: re-stamps evenly spaced positions
+// so the result commits to manual order. No column change, no activity entry,
+// no column_since bump.
+export async function reorderColumnTasks(
+  db: Kysely<DB>,
+  column: { id: string },
+  taskIds: readonly string[]
+): Promise<MovedTask[]> {
+  if (new Set(taskIds).size !== taskIds.length) {
+    throw new AppError(422, 'task_ids must not contain duplicates');
+  }
+  const rows = await db
+    .selectFrom('task')
+    .select('id')
+    .where('column_id', '=', column.id)
+    .where('archived_at', 'is', null)
+    .where('id', 'in', [...taskIds])
+    .execute();
+  // The schema guarantees a non-empty, all-unique id list, so a short read
+  // means an id is archived, in another column, or unknown.
+  if (rows.length !== taskIds.length) {
+    throw new AppError(422, 'task_ids must reference unarchived tasks in this column');
+  }
+
+  // Allocated after the column's tail rather than from scratch: the unique index
+  // spans archived rows, and a run starting at the first key would collide with
+  // whatever an archived card is still holding.
+  const keys = await appendKeys(db, 'task', column.id, taskIds.length);
+
+  // The check above is a read, so a card can still leave the column before the
+  // write lands; without the predicates below its position would be stamped into
+  // whatever column it moved to.
+  const movedTasks = taskIds.map((taskId, index) => ({
+    id: taskId,
+    column_id: column.id,
+    sort_key: keys[index]!,
+  }));
+
+  await sql`
+    update task
+    set sort_key = v.sort_key
+    from ${positionValues(movedTasks)}
+    where task.id = v.id
+      and task.column_id = ${column.id}
+      and task.archived_at is null
+  `.execute(db);
+
+  return movedTasks;
 }

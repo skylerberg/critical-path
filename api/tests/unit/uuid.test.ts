@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isValidUuid, toUuid } from '../../src/types/uuid';
+import { isValidUuid, toUuid } from '../../src/utils/uuid';
 
 describe('isValidUuid', () => {
   it('returns true for valid lowercase UUID', () => {

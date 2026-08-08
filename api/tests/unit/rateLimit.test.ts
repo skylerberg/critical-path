@@ -10,7 +10,7 @@ import {
   RESET_IP_MAX_ATTEMPTS,
   RESET_EMAIL_MAX_ATTEMPTS,
   SIGNUP_IP_MAX_ATTEMPTS,
-} from '../../src/middleware/rateLimit';
+} from '../../src/services/rateLimit';
 import { errorHandler } from '../../src/middleware/errorHandler';
 
 describe('consumeRateLimit', () => {

@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
 import { queryValidator } from '../middleware/requestValidator';
+import { assertProjectAccess } from '../services/authorization';
+import { avatarUrl } from '../services/avatars';
 import {
-  assertProjectAccess,
   matchesEmailFilter,
   sharesProjectFilter,
   usersWithProjectAccess,
-} from '../services/authorization';
-import { avatarUrl } from '../services/avatars';
+} from '../services/userDirectory';
 import {
   usersQuerySchema,
   usersResponseSchema,

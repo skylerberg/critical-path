@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import { sql, type Kysely, type Selectable } from 'kysely';
-import type { DB, Project } from '../db/types';
+import { sql, type Kysely } from 'kysely';
+import type { DB } from '../db/types';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
-import { assertProjectAccess, assertTaskAccess } from '../services/authorization';
+import { assertTaskAccess } from '../services/authorization';
+import { assertOwnComment, COMMENT_NOT_FOUND } from '../services/comments';
 import { collectMentionIds, notifyMentions } from '../services/mentions';
 import { publishAfterCommit } from '../services/realtime/index';
 import {
@@ -57,29 +58,6 @@ async function countForTask(db: Kysely<DB>, taskId: string): Promise<number> {
     .where('task_comment.task_id', '=', taskId)
     .executeTakeFirstOrThrow();
   return Number(count);
-}
-
-// Edit and delete are author-only; another member's comment answers 404 rather
-// than 403 so the response cannot confirm it exists.
-async function assertOwnComment(
-  db: Kysely<DB>,
-  userId: string,
-  commentId: string
-): Promise<{ task_id: string; project: Selectable<Project> }> {
-  const row = await db
-    .selectFrom('task_comment')
-    .innerJoin('task', 'task.id', 'task_comment.task_id')
-    .select(['task_comment.task_id', 'task_comment.user_id', 'task.project_id'])
-    .where('task_comment.id', '=', commentId)
-    .executeTakeFirst();
-  if (!row) {
-    throw new AppError(404, 'Comment not found');
-  }
-  const project = await assertProjectAccess(db, userId, row.project_id, 'Comment not found');
-  if (row.user_id !== userId) {
-    throw new AppError(404, 'Comment not found');
-  }
-  return { task_id: row.task_id, project };
 }
 
 // Only a body carrying a mention can have added one, so an edit that mentions
@@ -145,6 +123,7 @@ router.post(
       throw err;
     }
 
+    // Notifies nobody today: no mention deliverer is registered.
     await notifyMentions(c, {
       actorUserId: user.id,
       project,
@@ -203,9 +182,10 @@ router.patch(
       .executeTakeFirst();
     // The row can still vanish between the ownership check and this update.
     if (!row) {
-      throw new AppError(404, 'Comment not found');
+      throw new AppError(404, COMMENT_NOT_FOUND);
     }
 
+    // Notifies nobody today: no mention deliverer is registered.
     await notifyMentions(c, {
       actorUserId: user.id,
       project,

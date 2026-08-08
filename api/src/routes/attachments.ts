@@ -6,7 +6,7 @@ import { env } from '../config/env';
 import { optionalAuth } from '../middleware/auth';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
-import { enforceLinkAttachmentRateLimit } from '../middleware/rateLimit';
+import { enforceLinkAttachmentRateLimit } from '../services/rateLimit';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertTaskWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
