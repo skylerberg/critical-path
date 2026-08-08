@@ -228,7 +228,31 @@ const SCROLL_PROBE = `(async () => {
   await pause(700);
   const afterTouch = board.scrollLeft;
 
-  return { drift, resting, landed, afterWheel, afterTouch, step: board.clientWidth };
+  // Every snap target must be reachable. The end ones are where that fails:
+  // aligning them needs half a viewport of space beyond the board's gutter, and
+  // without it the ideal scroll position is off the scrollable range entirely —
+  // whereupon a mandatory-snap container resolves to some other column.
+  const targets = [...board.querySelectorAll('*')].filter(
+    (el) => getComputedStyle(el).scrollSnapAlign.split(' ').pop() !== 'none'
+  );
+  const offBy = (el) => {
+    const r = el.getBoundingClientRect();
+    const b = board.getBoundingClientRect();
+    return Math.round(Math.abs((r.left + r.width / 2) - (b.left + board.clientWidth / 2)));
+  };
+  board.scrollTo({ left: 0, behavior: 'auto' });
+  await settle();
+  const firstOffCenter = targets.length ? offBy(targets[0]) : null;
+  board.scrollTo({ left: board.scrollWidth, behavior: 'auto' });
+  await settle();
+  const lastOffCenter = targets.length ? offBy(targets[targets.length - 1]) : null;
+
+  return {
+    drift, resting, landed, afterWheel, afterTouch,
+    snapTargets: targets.length,
+    firstOffCenter, lastOffCenter,
+    step: board.clientWidth,
+  };
 })()`;
 
 function checkScroll(s, mobile) {
@@ -243,6 +267,13 @@ function checkScroll(s, mobile) {
     if (s.afterTouch >= s.afterWheel - 2)
       f.push(`touch swipe was not capped at one column (${s.afterTouch} of ${s.afterWheel})`);
     if (s.afterTouch <= 2) f.push(`touch swipe advanced nothing (${s.afterTouch})`);
+    // Phones center their columns, so scrolling to either end must land the end
+    // target dead center. A non-zero reading is space the layout never made.
+    if (s.snapTargets < 2) f.push(`board exposed ${s.snapTargets} snap targets`);
+    if (s.firstOffCenter > 2)
+      f.push(`first column cannot reach center (off by ${s.firstOffCenter}px)`);
+    if (s.lastOffCenter > 2)
+      f.push(`last column cannot reach center (off by ${s.lastOffCenter}px)`);
   } else if (Math.abs(s.afterTouch - s.afterWheel) > 2) {
     f.push(`touch swipe was paginated where the board does not snap (${s.afterTouch})`);
   }
