@@ -36,7 +36,6 @@ function project(overrides: Partial<Project> = {}): Project {
     created_at: '2026-01-01T00:00:00Z',
     open_task_count: 0,
     done_task_count: 0,
-    position: null,
     sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
@@ -55,7 +54,6 @@ function task(
     column_id: 'c1',
     title,
     description: null,
-    position: 1000,
     sort_key: 'V0000010001',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -63,7 +61,6 @@ function task(
     label_ids: labelIds,
     assignee_ids: assigneeIds,
     blocker_ids: [],
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -120,9 +117,7 @@ beforeEach(() => {
     color: null,
     created_at: '2026-01-01T00:00:00Z',
   };
-  board.columns = [
-    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-  ];
+  board.columns = [{ id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false }];
   board.labels = [{ id: 'l1', name: 'art', color: '#ff0000' }];
   board.tasks = [task('t1', 'Design cards', ['l1'], ['u1'])];
   users.users = [me];

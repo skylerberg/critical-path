@@ -53,7 +53,6 @@ function task(id: string, overrides: Partial<BoardTask> = {}): BoardTask {
     column_id: 'c1',
     title: id,
     description: null,
-    position: 1000,
     sort_key: 'V0000010001',
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
@@ -61,7 +60,6 @@ function task(id: string, overrides: Partial<BoardTask> = {}): BoardTask {
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -78,7 +76,6 @@ function item(id: string, text: string, position: number, checked = false): Chec
     task_id: T1,
     text,
     checked,
-    position,
     sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-07-15T00:00:00Z',
     updated_at: '2026-07-15T00:00:00Z',
@@ -148,12 +145,10 @@ beforeEach(() => {
   motion.reduced = false;
   board.reset();
   board.currentProjectId = PROJECT_ID;
-  board.columns = [
-    { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-  ];
+  board.columns = [{ id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false }];
   board.tasks = [
     task(T1, { checklist_item_count: 3, checklist_done_count: 1 }),
-    task(T2, { position: 2000 }),
+    task(T2, { sort_key: 'V0000020001' }),
   ];
   board.taskChecklists = { [T1]: [A, B, C], [T2]: [] };
 });
@@ -216,7 +211,6 @@ describe('TaskChecklist reordering', () => {
 
     expect(move).toHaveBeenCalledTimes(1);
     const placed = move.mock.calls[0]![2];
-    expect(Number.isFinite(placed.position)).toBe(true);
     expect(placed.sort_key > A.sort_key!).toBe(true);
     expect(placed.sort_key < B.sort_key!).toBe(true);
     expect(move).toHaveBeenCalledWith(T1, C.id, placed);

@@ -56,7 +56,7 @@ const A_ID = testUuid('p-a');
 const B_ID = testUuid('p-b');
 const C_ID = testUuid('p-c');
 
-function project(overrides: Partial<Project> = {}): Project {
+function project({ rank, ...overrides }: Partial<Project> & { rank?: number } = {}): Project {
   const memberIds = overrides.member_ids ?? [];
   const base: Project = {
     id: testUuid('p-1'),
@@ -71,16 +71,15 @@ function project(overrides: Partial<Project> = {}): Project {
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
-    position: null,
     sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
     ...overrides,
   };
-  // A positioned project is a ranked one; without the key every reorder would
-  // take the re-stamp branch and PUT the whole sidebar.
-  if (base.sort_key === null && base.position !== null) {
-    base.sort_key = `V0${String(base.position).padStart(8, '0')}1`;
+  // A ranked project needs a key; without one every reorder would take the
+  // re-stamp branch and PUT the whole sidebar.
+  if (base.sort_key === null && rank !== undefined) {
+    base.sort_key = `V0${String(rank).padStart(8, '0')}1`;
   }
   return base;
 }
@@ -165,8 +164,8 @@ describe('Nav sidebar', () => {
   // what an indexed palette lookup dies on — and the death lands mid-drag.
   it('survives a drag placeholder that carries no colour at all', async () => {
     projects.projects = [
-      project({ id: A_ID, name: 'A', position: 1000, sort_key: 'V0000010001', color: 'sky' }),
-      project({ id: B_ID, name: 'B', position: 2000 }),
+      project({ id: A_ID, name: 'A', sort_key: 'V0000010001', color: 'sky' }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
     ];
 
     render(Nav);
@@ -182,11 +181,11 @@ describe('Nav sidebar', () => {
     expect(sidebarProjectNames()).toEqual(['B']);
   });
 
-  it('renders sidebar projects in position order with nulls last', async () => {
+  it('renders sidebar projects in rank order with nulls last', async () => {
     projects.projects = [
       project({ id: testUuid('p-legacy'), name: 'Legacy', created_at: '2026-01-01T00:00:00.000Z' }),
-      project({ id: testUuid('p-2'), name: 'Second', position: 2000 }),
-      project({ id: testUuid('p-1'), name: 'First', position: 1000 }),
+      project({ id: testUuid('p-2'), name: 'Second', rank: 2000 }),
+      project({ id: testUuid('p-1'), name: 'First', rank: 1000 }),
     ];
 
     render(Nav);
@@ -195,11 +194,11 @@ describe('Nav sidebar', () => {
     expect(sidebarProjectNames()).toEqual(['First', 'Second', 'Legacy']);
   });
 
-  it('commits a drop by PUTting the computed midpoint position', async () => {
+  it('commits a drop by PUTting the computed midpoint key', async () => {
     projects.projects = [
-      project({ id: A_ID, name: 'A', position: 1000 }),
-      project({ id: B_ID, name: 'B', position: 2000 }),
-      project({ id: C_ID, name: 'C', position: 3000 }),
+      project({ id: A_ID, name: 'A', rank: 1000 }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
+      project({ id: C_ID, name: 'C', rank: 3000 }),
     ];
     fetchMock.mockImplementation(async () => jsonResponse(204));
 
@@ -217,7 +216,6 @@ describe('Nav sidebar', () => {
     expect(requestAt(0).method).toBe('PUT');
     expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${C_ID}/position`);
     expect(await requestAt(0).clone().json()).toEqual({
-      position: 1500,
       sort_key: expect.any(String),
     });
     await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['A', 'C', 'B']));
@@ -229,9 +227,9 @@ describe('Nav sidebar', () => {
   // nowhere, and the drop never reaches the store.
   it('swaps the held project for the placeholder in the rendered sidebar', async () => {
     projects.projects = [
-      project({ id: A_ID, name: 'A', position: 1000 }),
-      project({ id: B_ID, name: 'B', position: 2000 }),
-      project({ id: C_ID, name: 'C', position: 3000 }),
+      project({ id: A_ID, name: 'A', rank: 1000 }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
+      project({ id: C_ID, name: 'C', rank: 3000 }),
     ];
 
     render(Nav);
@@ -253,9 +251,9 @@ describe('Nav sidebar', () => {
   describe('keyboard reordering', () => {
     beforeEach(() => {
       projects.projects = [
-        project({ id: A_ID, name: 'A', position: 1000 }),
-        project({ id: B_ID, name: 'B', position: 2000 }),
-        project({ id: C_ID, name: 'C', position: 3000 }),
+        project({ id: A_ID, name: 'A', rank: 1000 }),
+        project({ id: B_ID, name: 'B', rank: 2000 }),
+        project({ id: C_ID, name: 'C', rank: 3000 }),
       ];
       fetchMock.mockImplementation(async () => jsonResponse(204));
     });
@@ -308,7 +306,6 @@ describe('Nav sidebar', () => {
       expect(requestAt(0).method).toBe('PUT');
       expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${A_ID}/position`);
       expect(await requestAt(0).clone().json()).toEqual({
-        position: 2500,
         sort_key: expect.any(String),
       });
 
@@ -316,7 +313,6 @@ describe('Nav sidebar', () => {
       await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['B', 'C', 'A']));
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
       expect(await requestAt(1).clone().json()).toEqual({
-        position: 4000,
         sort_key: expect.any(String),
       });
 
@@ -328,7 +324,7 @@ describe('Nav sidebar', () => {
 
       // A stuck projectDragging flag would freeze the store->DOM mirror here.
       projects.projects = [
-        project({ id: testUuid('p-z'), name: 'Z', position: 500 }),
+        project({ id: testUuid('p-z'), name: 'Z', rank: 500 }),
         ...projects.projects,
       ];
       await vi.waitFor(() => expect(sidebarProjectNames()).toEqual(['Z', 'B', 'C', 'A']));
@@ -419,7 +415,7 @@ describe('Nav sidebar', () => {
   });
 
   it('keeps the long-press that starts a project drag from raising the link menu', () => {
-    projects.projects = [project({ id: A_ID, name: 'A', position: 1000 })];
+    projects.projects = [project({ id: A_ID, name: 'A', rank: 1000 })];
 
     render(Nav);
 
@@ -465,9 +461,9 @@ describe('Nav sidebar', () => {
 describe('Nav reduced motion', () => {
   beforeEach(() => {
     projects.projects = [
-      project({ id: A_ID, name: 'A', position: 1000 }),
-      project({ id: B_ID, name: 'B', position: 2000 }),
-      project({ id: C_ID, name: 'C', position: 3000 }),
+      project({ id: A_ID, name: 'A', rank: 1000 }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
+      project({ id: C_ID, name: 'C', rank: 3000 }),
     ];
     fetchMock.mockImplementation(async () => jsonResponse(204));
   });
@@ -510,7 +506,6 @@ describe('Nav reduced motion', () => {
     expect(requestAt(0).method).toBe('PUT');
     expect(new URL(requestAt(0).url).pathname).toBe(`/api/projects/${A_ID}/position`);
     expect(await requestAt(0).clone().json()).toEqual({
-      position: 2500,
       sort_key: expect.any(String),
     });
     expectEveryZone(0, true);
@@ -550,18 +545,16 @@ describe('Nav unseen changes dot', () => {
       project({
         id: A_ID,
         name: 'A',
-        position: 1000,
         sort_key: 'V0000010001',
         has_unseen_changes: true,
       }),
       project({
         id: B_ID,
         name: 'B',
-        position: 2000,
         sort_key: 'V0000020001',
         has_unseen_changes: true,
       }),
-      project({ id: C_ID, name: 'C', position: 3000 }),
+      project({ id: C_ID, name: 'C', rank: 3000 }),
     ];
     router.navigate(projectHref(B_ID, 'B'));
 
@@ -583,11 +576,10 @@ describe('Nav unseen changes dot', () => {
       project({
         id: A_ID,
         name: 'A',
-        position: 1000,
         sort_key: 'V0000010001',
         has_unseen_changes: true,
       }),
-      project({ id: B_ID, name: 'B', position: 2000 }),
+      project({ id: B_ID, name: 'B', rank: 2000 }),
     ];
 
     render(Nav);

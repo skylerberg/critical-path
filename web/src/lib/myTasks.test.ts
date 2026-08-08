@@ -17,7 +17,6 @@ function project(overrides: Partial<Project> = {}): Project {
     created_at: '2026-01-01T00:00:00.000Z',
     open_task_count: 0,
     done_task_count: 0,
-    position: null,
     sort_key: null,
     last_seen_at: null,
     has_unseen_changes: false,
@@ -157,12 +156,11 @@ describe('myTasks store', () => {
   it('orders tasks within each bucket to match the project list', async () => {
     // p-1 sits above p-2 on the Projects page; archived p-3 follows both.
     projects.projects = [
-      project({ id: 'p-1', name: 'Alpha', position: 100 }),
-      project({ id: 'p-2', name: 'Bravo', position: 200 }),
+      project({ id: 'p-1', name: 'Alpha', sort_key: 'V0000001001' }),
+      project({ id: 'p-2', name: 'Bravo', sort_key: 'V0000002001' }),
       project({
         id: 'p-3',
         name: 'Charlie',
-        position: 50,
         sort_key: 'V0000000501',
         archived_at: '2026-01-02T00:00:00.000Z',
       }),
@@ -196,8 +194,8 @@ describe('myTasks store', () => {
 
   it('sorts the tasks inside a waiting-on group by project order', async () => {
     projects.projects = [
-      project({ id: 'p-1', name: 'Alpha', position: 100 }),
-      project({ id: 'p-2', name: 'Bravo', position: 200 }),
+      project({ id: 'p-1', name: 'Alpha', sort_key: 'V0000001001' }),
+      project({ id: 'p-2', name: 'Bravo', sort_key: 'V0000002001' }),
     ];
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, {

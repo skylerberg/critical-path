@@ -1,9 +1,10 @@
 import type { BoardTask } from './board-types';
+import { byRank } from './positions';
 
 /**
- * A one-shot sort key. The board is always in manual (position) order; picking
- * one of these rewrites a column's positions once to match the key, then manual
- * order resumes — like sorting files on a desktop.
+ * A one-shot sort key. The board is always in manual order; picking one of
+ * these rewrites a column's sort keys once to match, then manual order
+ * resumes — like sorting files on a desktop.
  */
 export type ColumnSort =
   | 'title-asc'
@@ -29,21 +30,21 @@ export const COLUMN_SORT_OPTIONS: readonly ColumnSortOption[] = [
   { value: 'column_since-asc', label: 'Added to column (oldest first)' },
 ];
 
-// The position tiebreak keeps cards that share a timestamp in their existing
-// board order, so the sort never reshuffles equal-keyed cards.
+// The rank tiebreak keeps cards that share a timestamp in their existing board
+// order, so the sort never reshuffles equal-keyed cards.
 function byTimestamp(
   a: BoardTask,
   b: BoardTask,
   key: 'created_at' | 'updated_at' | 'column_since',
   dir: 1 | -1
 ): number {
-  return a[key].localeCompare(b[key]) * dir || a.position - b.position;
+  return a[key].localeCompare(b[key]) * dir || byRank(a, b);
 }
 
 export function sortTasks(tasks: readonly BoardTask[], sort: ColumnSort): BoardTask[] {
   switch (sort) {
     case 'title-asc':
-      return [...tasks].sort((a, b) => a.title.localeCompare(b.title) || a.position - b.position);
+      return [...tasks].sort((a, b) => a.title.localeCompare(b.title) || byRank(a, b));
     case 'created-desc':
       return [...tasks].sort((a, b) => byTimestamp(a, b, 'created_at', -1));
     case 'created-asc':

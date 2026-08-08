@@ -24,21 +24,14 @@ function byCreation(a: Project, b: Project): number {
   return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
 }
 
-// A project the caller has never reordered has neither key nor position, and
-// sorts after every one that does. `position` still decides between two rows
-// that predate the key, so a board ordered by the old scheme keeps its order
-// until the next drag re-ranks it.
+// A project the caller has never reordered has no key, and sorts after every
+// one that does rather than interleaving.
 function byPosition(a: Project, b: Project): number {
   if (a.sort_key !== null && b.sort_key !== null) {
     return a.sort_key < b.sort_key ? -1 : a.sort_key > b.sort_key ? 1 : byCreation(a, b);
   }
   if (a.sort_key !== null) return -1;
   if (b.sort_key !== null) return 1;
-  if (a.position !== null && b.position !== null) {
-    return a.position - b.position || byCreation(a, b);
-  }
-  if (a.position !== null) return -1;
-  if (b.position !== null) return 1;
   return byCreation(a, b);
 }
 
@@ -289,13 +282,13 @@ class ProjectsStore {
     }
   }
 
-  async setPosition(id: string, position: number, sortKey: string): Promise<void> {
-    this.#update(id, (p) => ({ ...p, position, sort_key: sortKey }));
+  async setPosition(id: string, sortKey: string): Promise<void> {
+    this.#update(id, (p) => ({ ...p, sort_key: sortKey }));
     try {
       assertOk(
         await api.PUT('/api/projects/{id}/position', {
           params: { path: { id } },
-          body: { position, sort_key: sortKey },
+          body: { sort_key: sortKey },
         })
       );
     } catch (error) {
@@ -307,9 +300,7 @@ class ProjectsStore {
     const byId = new Map(this.projects.map((p) => [p.id, p]));
     const ordered = orderedIds.flatMap((id) => byId.get(id) ?? []);
     const updates = reorderRankUpdates(ordered, movedId);
-    await Promise.all(
-      updates.map(({ id, position, sort_key }) => this.setPosition(id, position, sort_key))
-    );
+    await Promise.all(updates.map(({ id, sort_key }) => this.setPosition(id, sort_key)));
   }
 
   // No toast and no resync on failure, unlike every other write here: nobody
@@ -369,7 +360,6 @@ class ProjectsStore {
         created_at: new Date().toISOString(),
         open_task_count: 0,
         done_task_count: 0,
-        position: null,
         sort_key: null,
         last_seen_at: null,
         has_unseen_changes: false,
@@ -395,7 +385,6 @@ class ProjectsStore {
       created_at: new Date().toISOString(),
       open_task_count: 0,
       done_task_count: 0,
-      position: null,
       sort_key: null,
       last_seen_at: null,
       has_unseen_changes: false,
@@ -437,7 +426,6 @@ class ProjectsStore {
       ...payload.project,
       open_task_count: payload.tasks.length - doneCount,
       done_task_count: doneCount,
-      position: existing?.position ?? null,
       sort_key: existing?.sort_key ?? null,
       last_seen_at: existing?.last_seen_at ?? null,
       has_unseen_changes: false,

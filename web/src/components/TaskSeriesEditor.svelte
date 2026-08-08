@@ -83,10 +83,7 @@
       start_date: startDate,
       label_ids: labelIds,
       assignee_ids: assigneeIds,
-      checklist_items: checklistLines.map((text, index) => ({
-        text,
-        position: (index + 1) * 1000,
-      })),
+      checklist_items: checklistLines.map((text) => ({ text })),
       // Absent for a rule that arrived outside the curated set, so editing the
       // rest of the template keeps the rule it already has.
       ...(preset === null ? {} : { preset }),

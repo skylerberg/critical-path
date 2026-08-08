@@ -60,8 +60,8 @@ beforeEach(() => {
     color: null,
   };
   board.columns = [
-    { id: 'c-1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-    { id: 'c-2', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
+    { id: 'c-1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+    { id: 'c-2', name: 'Doing', sort_key: 'V0000020001', is_done: false },
   ];
   board.labels = [];
   // The users store fetches the project roster on mount.
@@ -122,7 +122,7 @@ describe('TaskSeriesEditor', () => {
       start_date: '2026-03-31',
       preset: 'monthly_date',
       due_date: '2026-04-15',
-      checklist_items: [{ text: 'Check VAT', position: 1000 }],
+      checklist_items: [{ text: 'Check VAT' }],
     });
     expect(typeof posted.timezone).toBe('string');
   });

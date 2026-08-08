@@ -8,15 +8,13 @@ function makeTask(partial: Partial<BoardTask> & Pick<BoardTask, 'id'>): BoardTas
     column_id: partial.column_id ?? 'c1',
     title: partial.title ?? partial.id,
     description: null,
-    position: partial.position ?? 0,
-    sort_key: null,
+    sort_key: partial.sort_key ?? 'V0000000001',
     created_at: partial.created_at ?? '2026-01-01T00:00:00Z',
     updated_at: partial.updated_at ?? '2026-01-01T00:00:00Z',
     column_since: partial.column_since ?? '2026-01-01T00:00:00Z',
     label_ids: partial.label_ids ?? [],
     assignee_ids: partial.assignee_ids ?? [],
     blocker_ids: partial.blocker_ids ?? [],
-    image_count: partial.image_count ?? 0,
     cover_image_url: partial.cover_image_url ?? null,
     due_date: partial.due_date ?? null,
     comment_count: partial.comment_count ?? 0,
@@ -30,21 +28,18 @@ const tasks: BoardTask[] = [
   makeTask({
     id: 'b',
     title: 'Banana',
-    position: 3000,
     sort_key: 'V0000030001',
     created_at: '2026-03-01T00:00:00Z',
   }),
   makeTask({
     id: 'a',
     title: 'apple',
-    position: 1000,
     sort_key: 'V0000010001',
     created_at: '2026-01-01T00:00:00Z',
   }),
   makeTask({
     id: 'c',
     title: 'Cherry',
-    position: 2000,
     sort_key: 'V0000020001',
     created_at: '2026-02-01T00:00:00Z',
   }),
@@ -67,13 +62,11 @@ describe('sortTasks', () => {
     const withUpdates = [
       makeTask({
         id: 'x',
-        position: 1,
         sort_key: 'V0000000011',
         updated_at: '2026-05-01T00:00:00Z',
       }),
       makeTask({
         id: 'y',
-        position: 2,
         sort_key: 'V0000000021',
         updated_at: '2026-01-01T00:00:00Z',
       }),
@@ -86,13 +79,11 @@ describe('sortTasks', () => {
     const added = [
       makeTask({
         id: 'old',
-        position: 1,
         sort_key: 'V0000000011',
         column_since: '2026-01-01T00:00:00Z',
       }),
       makeTask({
         id: 'new',
-        position: 2,
         sort_key: 'V0000000021',
         column_since: '2026-09-01T00:00:00Z',
       }),
@@ -101,17 +92,15 @@ describe('sortTasks', () => {
     expect(sortTasks(added, 'column_since-asc').map((t) => t.id)).toEqual(['old', 'new']);
   });
 
-  it('breaks timestamp ties by position (manual order)', () => {
+  it('breaks timestamp ties by rank (manual order)', () => {
     const tied = [
       makeTask({
         id: 'second',
-        position: 2000,
         sort_key: 'V0000020001',
         created_at: '2026-01-01T00:00:00Z',
       }),
       makeTask({
         id: 'first',
-        position: 1000,
         sort_key: 'V0000010001',
         created_at: '2026-01-01T00:00:00Z',
       }),

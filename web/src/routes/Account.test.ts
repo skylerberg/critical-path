@@ -122,7 +122,6 @@ function seedProject(overrides: Partial<Project>): void {
       created_at: '2026-01-01T00:00:00.000Z',
       open_task_count: 0,
       done_task_count: 0,
-      position: null,
       sort_key: null,
       last_seen_at: null,
       has_unseen_changes: false,

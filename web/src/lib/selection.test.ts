@@ -52,7 +52,6 @@ function task(id: string, columnId: string, position: number): BoardTask {
     column_id: columnId,
     title: id,
     description: null,
-    position,
     sort_key: `V0${String(Math.round(position)).padStart(8, '0')}1`,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -60,7 +59,6 @@ function task(id: string, columnId: string, position: number): BoardTask {
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -100,8 +98,8 @@ describe('selection store', () => {
       toasts.dismiss(toast.id);
     }
     board.columns = [
-      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-      { id: 'c2', name: 'Doing', position: 2000, sort_key: 'V0000020001', is_done: false },
+      { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Doing', sort_key: 'V0000020001', is_done: false },
     ];
     board.tasks = [task('t1', 'c1', 1000), task('t2', 'c1', 2000), task('t3', 'c2', 1000)];
     makeEditable();
