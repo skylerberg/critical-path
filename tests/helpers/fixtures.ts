@@ -1,3 +1,4 @@
+import type { RealtimePayloads } from '../../src/services/realtime/payloads';
 export function newId(): string {
   return crypto.randomUUID();
 }
@@ -35,4 +36,51 @@ export function imageUploadPath(taskId: string, filename = 'pixel.png', id?: str
     params.set('id', id);
   }
   return `/api/attachments/files?${params.toString()}`;
+}
+
+// Realtime payloads are typed per event type, so an envelope built in a test has
+// to carry a whole valid payload even where the test only cares about routing.
+// Typed against the payload map rather than restated, so a field added there
+// fails here instead of leaving fixtures describing a shape nothing sends.
+export function boardTaskPayload(
+  id: string,
+  overrides: Partial<RealtimePayloads['task_updated']> = {}
+): RealtimePayloads['task_updated'] {
+  return {
+    id,
+    column_id: newId(),
+    title: 'Fixture task',
+    description: null,
+    sort_key: rankKey(),
+    due_date: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    column_since: '2026-01-01T00:00:00.000Z',
+    label_ids: [],
+    assignee_ids: [],
+    blocker_ids: [],
+    cover_image_url: null,
+    comment_count: 0,
+    checklist_item_count: 0,
+    checklist_done_count: 0,
+    attachment_count: 0,
+    ...overrides,
+  };
+}
+
+export function projectListPayload(id: string): RealtimePayloads['project_updated'] {
+  return {
+    id,
+    name: 'Fixture project',
+    description: '',
+    archived_at: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    created_by: null,
+    member_ids: [],
+    members: [],
+    is_public: false,
+    color: null,
+    open_task_count: 0,
+    done_task_count: 0,
+  };
 }
