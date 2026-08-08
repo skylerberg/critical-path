@@ -46,14 +46,17 @@ describe('attachment downloads over a real socket', () => {
   }
 
   async function upload(bytes: Buffer, filename: string): Promise<string> {
-    const res = (await fetch(url(uploadPath(taskId, filename, 'application/octet-stream')), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${user.token}`,
-        'Content-Type': 'application/octet-stream',
-      },
-      body: new Uint8Array(bytes),
-    })) as TestResponse;
+    const res = (await fetch(
+      url(uploadPath(taskId, { filename: filename, contentType: 'application/octet-stream' })),
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${user.token}`,
+          'Content-Type': 'application/octet-stream',
+        },
+        body: new Uint8Array(bytes),
+      }
+    )) as TestResponse;
     expect(res.status).toBe(201);
     return (await res.json()).id;
   }
