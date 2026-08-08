@@ -15,7 +15,9 @@ const LEASE_SECONDS = 60;
 export const SEND_TIMEOUT_MS = 10_000;
 export const MAX_ERROR_BODY_BYTES = 2048;
 const RETENTION_DAYS = 7;
-const ENVELOPE_VERSION = 1;
+// Exported for realtime/document.ts, which pins the same version into the
+// generated description of the webhook body.
+export const ENVELOPE_VERSION = 1;
 
 const INSERT_CHUNK = 500;
 const MAX_ERROR_CHARS = 2000;

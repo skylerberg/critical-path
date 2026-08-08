@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   deliverLocal,
+  parseBusEntry,
   publish,
   resetBus,
   setRemotePublisher,
@@ -8,7 +9,9 @@ import {
 } from '../../src/services/realtime/bus';
 import type { BusEntry } from '../../src/services/realtime/bus';
 
-const entry: BusEntry = { type: 'task_updated', project_id: 'p1', data: { id: 't1' } };
+// task_deleted because its payload really is just an id: these tests are about
+// routing, and the fixture should still be a valid envelope for its type.
+const entry: BusEntry = { type: 'task_deleted', project_id: 'p1', data: { id: 't1' } };
 
 describe('realtime bus remote publishing', () => {
   beforeEach(() => {
@@ -65,5 +68,36 @@ describe('realtime bus remote publishing', () => {
 
     expect(remote).not.toHaveBeenCalled();
     expect(received).toEqual([entry]);
+  });
+});
+
+// Redis is the one path where an envelope is not built by a publish site, so it
+// is the one path where the typed union could be a lie. Anything that would
+// reach handleBusEntry or deliver() as a fabricated event is refused here.
+describe('parseBusEntry', () => {
+  it('accepts a well-formed project and account envelope', () => {
+    expect(parseBusEntry(entry)).toEqual(entry);
+    const account = { type: 'user_updated', project_id: null, data: { id: 'u1' } };
+    expect(parseBusEntry(account)).toEqual(account);
+  });
+
+  it('refuses a type outside the catalogue', () => {
+    expect(parseBusEntry({ type: 'task_exfiltrated', project_id: 'p1', data: {} })).toBeNull();
+  });
+
+  it('refuses a project id that disagrees with the event scope', () => {
+    expect(
+      parseBusEntry({ type: 'task_deleted', project_id: null, data: { id: 't1' } })
+    ).toBeNull();
+    expect(
+      parseBusEntry({ type: 'user_updated', project_id: 'p1', data: { id: 'u1' } })
+    ).toBeNull();
+  });
+
+  it('refuses anything that is not an envelope carrying an object payload', () => {
+    expect(parseBusEntry(null)).toBeNull();
+    expect(parseBusEntry('task_deleted')).toBeNull();
+    expect(parseBusEntry({ type: 'task_deleted', project_id: 'p1' })).toBeNull();
+    expect(parseBusEntry({ type: 'task_deleted', project_id: 'p1', data: 'nope' })).toBeNull();
   });
 });
