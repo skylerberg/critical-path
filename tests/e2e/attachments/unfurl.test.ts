@@ -120,6 +120,9 @@ describe('Link unfurl', () => {
       unfurl_state: 'ok',
       preview_url: `/api/attachments/${id}/preview`,
       favicon_url: `/api/attachments/${id}/favicon`,
+      // A background job names nobody: it has no session, and the attachment
+      // row records no uploader to blame for a preview it never asked for.
+      actor_user_id: null,
     });
 
     const preview = await ctx.request(user.token).get(`/api/attachments/${id}/preview`);

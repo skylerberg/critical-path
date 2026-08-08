@@ -270,6 +270,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "attachment_count": {
                 "type": "number"
               },
@@ -403,6 +413,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "attachment_count",
               "content_type",
               "created_at",
@@ -455,6 +466,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "attachment_count": {
                 "type": "number"
               },
@@ -588,6 +609,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "attachment_count",
               "content_type",
               "created_at",
@@ -631,6 +653,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "attachment_count": {
                 "type": "number"
               },
@@ -652,6 +684,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "attachment_count",
               "cover_image_url",
               "id",
@@ -691,6 +724,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "attachment_count": {
                 "type": "number"
               },
@@ -712,6 +755,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "attachment_count",
               "cover_image_url",
               "id",
@@ -742,6 +786,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "content_type": {
                 "anyOf": [
                   {
@@ -872,6 +926,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "content_type",
               "created_at",
               "description",
@@ -923,6 +978,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "content_type": {
                 "anyOf": [
                   {
@@ -1053,6 +1118,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "content_type",
               "created_at",
               "description",
@@ -1095,6 +1161,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "tasks": {
                 "type": "array",
                 "items": {
@@ -1224,6 +1300,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "tasks"
             ]
           }
@@ -1248,6 +1325,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "moved_tasks": {
                 "type": "array",
                 "items": {
@@ -1272,6 +1359,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "moved_tasks"
             ]
           }
@@ -1296,6 +1384,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "tasks": {
                 "type": "array",
                 "items": {
@@ -1337,6 +1435,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "tasks"
             ]
           }
@@ -1361,6 +1460,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "checked": {
                 "type": "boolean"
               },
@@ -1390,6 +1499,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "checked",
               "checklist_done_count",
               "checklist_item_count",
@@ -1434,6 +1544,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "checked": {
                 "type": "boolean"
               },
@@ -1463,6 +1583,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "checked",
               "checklist_done_count",
               "checklist_item_count",
@@ -1498,6 +1619,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "checklist_done_count": {
                 "type": "number"
               },
@@ -1512,6 +1643,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "checklist_done_count",
               "checklist_item_count",
               "id",
@@ -1551,6 +1683,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "checklist_done_count": {
                 "type": "number"
               },
@@ -1565,6 +1707,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "checklist_done_count",
               "checklist_item_count",
               "id",
@@ -1595,6 +1738,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "checked": {
                 "type": "boolean"
               },
@@ -1624,6 +1777,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "checked",
               "checklist_done_count",
               "checklist_item_count",
@@ -1668,6 +1822,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "checked": {
                 "type": "boolean"
               },
@@ -1697,6 +1861,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "checked",
               "checklist_done_count",
               "checklist_item_count",
@@ -1732,6 +1897,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "created_at": {
                 "type": "string"
               },
@@ -1752,6 +1927,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "created_at",
               "id",
               "is_done",
@@ -1793,6 +1969,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "created_at": {
                 "type": "string"
               },
@@ -1813,6 +1999,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "created_at",
               "id",
               "is_done",
@@ -1845,6 +2032,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "id": {
                 "type": "string"
               },
@@ -1872,6 +2069,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "id",
               "moved_tasks"
             ]
@@ -1909,6 +2107,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "id": {
                 "type": "string"
               },
@@ -1936,6 +2144,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "id",
               "moved_tasks"
             ]
@@ -1964,6 +2173,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "column_id": {
                 "type": "string"
               },
@@ -2096,6 +2315,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "column_id",
               "tasks"
             ]
@@ -2121,6 +2341,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "column_id": {
                 "type": "string"
               },
@@ -2151,6 +2381,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "column_id",
               "moved_tasks",
               "target_column_id"
@@ -2177,6 +2408,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "column_id": {
                 "type": "string"
               },
@@ -2204,6 +2445,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "column_id",
               "moved_tasks"
             ]
@@ -2229,6 +2471,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "created_at": {
                 "type": "string"
               },
@@ -2249,6 +2501,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "created_at",
               "id",
               "is_done",
@@ -2290,6 +2543,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "created_at": {
                 "type": "string"
               },
@@ -2310,6 +2573,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "created_at",
               "id",
               "is_done",
@@ -2342,6 +2606,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "body": {
                 "type": "object",
                 "properties": {
@@ -2376,6 +2650,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "body",
               "comment_count",
               "created_at",
@@ -2418,6 +2693,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "body": {
                 "type": "object",
                 "properties": {
@@ -2452,6 +2737,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "body",
               "comment_count",
               "created_at",
@@ -2485,6 +2771,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "comment_count": {
                 "type": "number"
               },
@@ -2496,6 +2792,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "comment_count",
               "id",
               "task_id"
@@ -2534,6 +2831,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "comment_count": {
                 "type": "number"
               },
@@ -2545,6 +2852,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "comment_count",
               "id",
               "task_id"
@@ -2574,6 +2882,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "body": {
                 "type": "object",
                 "properties": {
@@ -2605,6 +2923,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "body",
               "created_at",
               "id",
@@ -2646,6 +2965,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "body": {
                 "type": "object",
                 "properties": {
@@ -2677,6 +3006,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "body",
               "created_at",
               "id",
@@ -2782,6 +3112,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "color": {
                 "type": "string"
               },
@@ -2796,6 +3136,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "color",
               "id",
               "name",
@@ -2835,6 +3176,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "color": {
                 "type": "string"
               },
@@ -2849,6 +3200,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "color",
               "id",
               "name",
@@ -2879,11 +3231,22 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "id": {
                 "type": "string"
               }
             },
             "required": [
+              "actor_user_id",
               "id"
             ]
           }
@@ -2920,11 +3283,22 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "id": {
                 "type": "string"
               }
             },
             "required": [
+              "actor_user_id",
               "id"
             ]
           }
@@ -2952,6 +3326,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "color": {
                 "type": "string"
               },
@@ -2966,6 +3350,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "color",
               "id",
               "name",
@@ -3005,6 +3390,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "color": {
                 "type": "string"
               },
@@ -3019,6 +3414,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "color",
               "id",
               "name",
@@ -4159,6 +4555,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "archived_at": {
                 "type": "string"
               },
@@ -4259,6 +4665,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "archived_at",
               "assignee_ids",
               "attachment_count",
@@ -4313,6 +4720,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "archived_at": {
                 "type": "string"
               },
@@ -4413,6 +4830,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "archived_at",
               "assignee_ids",
               "attachment_count",
@@ -4458,6 +4876,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "assignee_ids": {
                 "type": "array",
                 "items": {
@@ -4555,6 +4983,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "assignee_ids",
               "attachment_count",
               "blocker_ids",
@@ -4608,6 +5037,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "assignee_ids": {
                 "type": "array",
                 "items": {
@@ -4705,6 +5144,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "assignee_ids",
               "attachment_count",
               "blocker_ids",
@@ -4749,11 +5189,22 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "id": {
                 "type": "string"
               }
             },
             "required": [
+              "actor_user_id",
               "id"
             ]
           }
@@ -4790,11 +5241,22 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "id": {
                 "type": "string"
               }
             },
             "required": [
+              "actor_user_id",
               "id"
             ]
           }
@@ -4822,6 +5284,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "assignee_ids": {
                 "type": "array",
                 "items": {
@@ -4848,6 +5320,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "assignee_ids",
               "blocker_ids",
               "label_ids",
@@ -4888,6 +5361,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "assignee_ids": {
                 "type": "array",
                 "items": {
@@ -4914,6 +5397,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "assignee_ids",
               "blocker_ids",
               "label_ids",
@@ -4945,6 +5429,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "assignee_ids": {
                 "type": "array",
                 "items": {
@@ -5042,6 +5536,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "assignee_ids",
               "attachment_count",
               "blocker_ids",
@@ -5095,6 +5590,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "assignee_ids": {
                 "type": "array",
                 "items": {
@@ -5192,6 +5697,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "assignee_ids",
               "attachment_count",
               "blocker_ids",
@@ -5236,6 +5742,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "assignee_ids": {
                 "type": "array",
                 "items": {
@@ -5333,6 +5849,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "assignee_ids",
               "attachment_count",
               "blocker_ids",
@@ -5386,6 +5903,16 @@
           "data": {
             "type": "object",
             "properties": {
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "assignee_ids": {
                 "type": "array",
                 "items": {
@@ -5483,6 +6010,7 @@
               }
             },
             "required": [
+              "actor_user_id",
               "assignee_ids",
               "attachment_count",
               "blocker_ids",
