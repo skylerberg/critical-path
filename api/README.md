@@ -656,7 +656,7 @@ from the activity log agree.
 **Deleting a column publishes `series_updated`** for every series that pointed
 at it, since the `SET NULL` above is what turns a live schedule into one asking
 for a new destination. Outbound webhooks still carry none of the three: a
-series is not board data, and the catalogue is a public surface.
+series is not board data, and the catalog is a public surface.
 
 **Copying a project copies its series**, template and all, with every
 project-scoped id remapped to the copy's own columns and labels and every
@@ -1595,7 +1595,7 @@ account deletion move no field in it.
 ### Outbound webhooks
 
 A project can register up to ten HTTP(S) endpoints that receive a signed `POST`
-for every board event it emits. The vocabulary is the realtime catalogue above —
+for every board event it emits. The vocabulary is the realtime catalog above —
 there is no second event language.
 
 | Method   | Path                                                 | Purpose                                                                       |
@@ -2683,7 +2683,7 @@ usage/ambiguous reference, 3 auth, 4 not found, 5 conflict, 6 invalid input.
 `cpath watch` opens the `/ws` connection described under
 [Realtime](#realtime) and prints every delivered event to stdout as
 newline-delimited JSON — one compact object per line, exactly the frame the
-server sent, in the `{ type, project_id, data }` envelope catalogued in the
+server sent, in the `{ type, project_id, data }` envelope cataloged in the
 event table above. Everything else (the startup summary, connection notices,
 errors) goes to stderr, so `cpath watch | jq …` is the intended shape.
 `--json` and `--no-color` have no effect: the output is always NDJSON.

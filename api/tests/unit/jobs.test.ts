@@ -13,7 +13,7 @@ import {
 
 const noop = () => Promise.resolve();
 
-// Synthetic kinds, deliberately outside the payload catalogue: what these cases
+// Synthetic kinds, deliberately outside the payload catalog: what these cases
 // check is the registry's own guards, which are kind-agnostic.
 const register = registerJobHandler as unknown as (handler: {
   kind: string;

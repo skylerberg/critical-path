@@ -39,7 +39,7 @@ type WithActor<T extends PayloadRows> = {
   [K in keyof T]: K extends ActorEventType ? Type<T[K]['infer'] & ActorField> : T[K];
 };
 
-// Merged from the catalogue rather than restated on each of the twenty-eight
+// Merged from the catalog rather than restated on each of the twenty-eight
 // rows that want it: the row that says a type names its actor is then the same
 // row publishAfterCommit reads to fill it in, so a type cannot get one without
 // the other.
@@ -72,7 +72,7 @@ export const REALTIME_PAYLOAD_SCHEMAS = withActor({
   project_deleted: idOnly,
   project_position_updated: type({ id: 'string', sort_key: 'string' }),
   project_seen: idOnly,
-  // The actor comes from the catalogue like every other one; it is null when a
+  // The actor comes from the catalog like every other one; it is null when a
   // schedule materialized the change with no caller behind it. The dot ignores
   // its own actor, so a client compares it against its user id.
   project_changed: idOnly,

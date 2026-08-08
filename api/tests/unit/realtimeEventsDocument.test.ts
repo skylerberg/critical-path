@@ -6,7 +6,7 @@ import {
 } from '../../src/services/realtime/eventCatalog';
 
 describe('realtime events document', () => {
-  it('describes every event the catalogue publishes, socket and webhook', async () => {
+  it('describes every event the catalog publishes, socket and webhook', async () => {
     const { schemas } = (await buildRealtimeEventsDocument()).components as {
       schemas: Record<string, { oneOf?: unknown[] }>;
     };
