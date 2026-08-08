@@ -84,7 +84,19 @@ export async function createCliHarness(): Promise<CliHarness> {
       exitCode,
       stdout,
       stderr,
-      json: <T = unknown>() => JSON.parse(stdout) as T,
+      // Bare "Unexpected end of JSON input" names neither the command nor what
+      // it printed instead, which is most of the cost of chasing a rare one.
+      json: <T = unknown>() => {
+        try {
+          return JSON.parse(stdout) as T;
+        } catch (error) {
+          throw new Error(
+            `cpath ${argv.join(' ')} exited ${String(exitCode)} without JSON on stdout.\n` +
+              `stdout: ${JSON.stringify(stdout)}\nstderr: ${JSON.stringify(stderr)}`,
+            { cause: error }
+          );
+        }
+      },
     }));
     return {
       output: () => stdout,

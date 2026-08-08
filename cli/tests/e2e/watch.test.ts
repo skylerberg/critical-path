@@ -29,13 +29,14 @@ function eventLines(handle: CliRunHandle): EventLine[] {
 
 async function waitForLine(
   handle: CliRunHandle,
-  predicate: (event: EventLine) => boolean
+  predicate: (event: EventLine) => boolean,
+  label = 'a matching event line'
 ): Promise<EventLine> {
   let found: EventLine | undefined;
   await waitFor(async () => {
     found = eventLines(handle).find(predicate);
     return found !== undefined;
-  }, 10_000);
+  }, label);
   return found as EventLine;
 }
 
@@ -64,7 +65,7 @@ describe('watch command', () => {
   async function stopWatch(handle: CliRunHandle): Promise<CliRunResult> {
     handle.interrupt();
     const result = await handle.done;
-    await waitFor(async () => socketsForUser(user.id).length === 0);
+    await waitFor(async () => socketsForUser(user.id).length === 0, 'the watch socket to drain');
     return result;
   }
 
@@ -116,7 +117,7 @@ describe('watch command', () => {
 
   it('streams a scoped project as NDJSON and exits 0 on interrupt', async () => {
     const handle = h.startCli(['watch', '--project', 'CLI Watch Alpha'], { env: baseEnv });
-    await waitFor(async () => projectSockets(alpha.id).length === 1);
+    await waitFor(async () => projectSockets(alpha.id).length === 1, 'alpha subscribed');
 
     await createTask(alpha, 'Watched task');
     const event = await waitForLine(handle, (e) => e.type === 'task_created');
@@ -134,7 +135,7 @@ describe('watch command', () => {
 
   it('drops events from projects other than the scoped one', async () => {
     const handle = h.startCli(['watch', '--project', 'CLI Watch Alpha'], { env: baseEnv });
-    await waitFor(async () => projectSockets(alpha.id).length === 1);
+    await waitFor(async () => projectSockets(alpha.id).length === 1, 'alpha subscribed');
 
     await createTask(beta, 'Beta only task');
     // A project rename is broadcast to every authenticated socket regardless of its
@@ -155,7 +156,8 @@ describe('watch command', () => {
   it('follows every accessible project when no --project is given', async () => {
     const handle = h.startCli(['watch'], { env: baseEnv });
     await waitFor(
-      async () => projectSockets(alpha.id).length === 1 && projectSockets(beta.id).length === 1
+      async () => projectSockets(alpha.id).length === 1 && projectSockets(beta.id).length === 1,
+      'alpha and beta subscribed'
     );
 
     await createTask(alpha, 'Alpha broad task');
@@ -174,7 +176,8 @@ describe('watch command', () => {
       env: { ...baseEnv, CRITICAL_PATH_PROJECT: 'CLI Watch Alpha' },
     });
     await waitFor(
-      async () => projectSockets(alpha.id).length === 1 && projectSockets(beta.id).length === 1
+      async () => projectSockets(alpha.id).length === 1 && projectSockets(beta.id).length === 1,
+      'alpha and beta subscribed'
     );
 
     await createTask(alpha, 'Alpha unscoped task');
@@ -190,11 +193,12 @@ describe('watch command', () => {
 
   it('reconnects and resubscribes after the server drops the socket', async () => {
     const handle = h.startCli(['watch', '--project', 'CLI Watch Alpha'], { env: baseEnv });
-    await waitFor(async () => projectSockets(alpha.id).length === 1);
+    await waitFor(async () => projectSockets(alpha.id).length === 1, 'alpha subscribed');
 
     socketsForUser(user.id)[0].close(1001, 'dropped by the test');
-    await waitFor(async () => socketsForUser(user.id).length === 0);
-    await waitFor(async () => projectSockets(alpha.id).length === 1, 10_000);
+    await waitFor(async () => socketsForUser(user.id).length === 0, 'the drop to land');
+    // A full reconnect: the client's first backoff is a second on its own.
+    await waitFor(async () => projectSockets(alpha.id).length === 1, 'alpha resubscribed', 15_000);
 
     await createTask(alpha, 'Post reconnect task');
     const event = await waitForLine(handle, (e) => e.data.title === 'Post reconnect task');
@@ -206,12 +210,12 @@ describe('watch command', () => {
 
   it('subscribes to projects created while it is running', async () => {
     const handle = h.startCli(['watch'], { env: baseEnv });
-    await waitFor(async () => projectSockets(alpha.id).length === 1);
+    await waitFor(async () => projectSockets(alpha.id).length === 1, 'alpha subscribed');
 
     const late = await createProject('CLI Watch Latecomer');
     await waitForLine(handle, (e) => e.type === 'project_created' && e.data.id === late.id);
     // The subscribe frame round-trips independently of the emitted line.
-    await waitFor(async () => projectSockets(late.id).length === 1);
+    await waitFor(async () => projectSockets(late.id).length === 1, 'latecomer subscribed');
 
     await createTask(late, 'Latecomer task');
     const event = await waitForLine(handle, (e) => e.data.title === 'Latecomer task');
@@ -232,7 +236,7 @@ describe('watch command', () => {
     expect(cliToken).not.toBeNull();
 
     const handle = rh.startCli(['watch'], { env: baseEnv });
-    await waitFor(async () => socketsForUser(revoked.id).length === 1);
+    await waitFor(async () => socketsForUser(revoked.id).length === 1, 'the socket to open');
 
     // Plain logout only deletes the session row; the socket would not notice until the
     // heartbeat re-check. Revoking the session publishes the revocation immediately.

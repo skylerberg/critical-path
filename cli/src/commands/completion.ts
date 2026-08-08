@@ -10,7 +10,7 @@ import {
 import { SHELLS, completionScript, type Shell } from '../completion/scripts';
 import { createContext, type CliDeps } from '../context';
 
-const COMPLETION_TIMEOUT_MS = 1500;
+export const COMPLETION_TIMEOUT_MS = 1500;
 
 // A stalled request would freeze the user's terminal, so completion fetches give up early.
 // One signal per run rather than per request, so chained requests share the deadline.

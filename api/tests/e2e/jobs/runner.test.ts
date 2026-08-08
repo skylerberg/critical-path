@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { db } from '../../../src/db/index';
 import {
   BACKOFF_SECONDS,
@@ -41,6 +41,14 @@ function jobRows(kind: string): Promise<JobRow[]> {
 async function makeDue(kind: string): Promise<void> {
   await db.updateTable('job').set({ run_at: new Date() }).where('kind', '=', kind).execute();
 }
+
+// Counting rows and claiming due work are both table-wide, so this file owns
+// the queue outright. afterEach alone left the first test reading whatever an
+// earlier file's post-commit hooks had enqueued — invisible in the default file
+// order, and a failure as soon as sharding or a new file changes it.
+beforeAll(async () => {
+  await db.deleteFrom('job').execute();
+});
 
 afterEach(async () => {
   vi.restoreAllMocks();
