@@ -4,7 +4,12 @@ import { logger } from '../../utils/logger';
 // node:http / node:dns dependencies stay out of every module that touches the bus.
 import { enqueueDeliveries } from '../webhooks/queue';
 import { eventScope, raisesUnseenDot } from './eventCatalog';
-import type { AccountEventType, ProjectEventType, RealtimeEventType } from './eventCatalog';
+import type {
+  DispatchedEventType,
+  NamedRecipientEventType,
+  ProjectEventType,
+  RealtimeEventType,
+} from './eventCatalog';
 import { isWebhookEnvelope } from './payloads';
 import type { RealtimeEnvelope, RealtimePayloads } from './payloads';
 
@@ -18,6 +23,15 @@ export interface PublishOptions {
   // For events whose subject only editors may read. The delivery layer applies
   // it, so no publisher can widen it and none has to be trusted to scope it.
   editorsOnly?: boolean;
+}
+
+// What an account event may carry. broadcast and editorsOnly are project-scoped
+// answers — both route the entry through deliverProjectScoped, which returns on
+// the null project id — so offering them here would only be offering two more
+// ways to publish into a void. recipientUserIds is required rather than
+// optional, because for these types it is the whole delivery mechanism.
+export interface NamedRecipientOptions {
+  recipientUserIds: string[];
 }
 
 export type BusEntry = RealtimeEnvelope & PublishOptions;
@@ -104,12 +118,25 @@ export function resetBus(): void {
 // would silently skip both the unseen dot and the webhook queue. Generic over
 // the event type so `data` is checked against that type's row in
 // REALTIME_PAYLOAD_SCHEMAS rather than accepted as unknown.
-export function publishAfterCommit<T extends AccountEventType>(
+//
+// The account half is split again by the catalogue's delivery column, because
+// the two kinds have opposite requirements and the failure is silent either
+// way: a namedRecipients type published without a recipient list falls through
+// to deliverProjectScoped and is dropped on the null project id, while a
+// dispatched type published *with* one would take the exact-recipient shortcut
+// and bypass the branch that is supposed to decide its audience.
+export function publishAfterCommit<T extends NamedRecipientEventType>(
   c: Pick<PublicContext, 'get'>,
   type: T,
   projectId: null,
   data: RealtimePayloads[T],
-  opts?: PublishOptions
+  opts: NamedRecipientOptions
+): void;
+export function publishAfterCommit<T extends DispatchedEventType>(
+  c: Pick<PublicContext, 'get'>,
+  type: T,
+  projectId: null,
+  data: RealtimePayloads[T]
 ): void;
 export function publishAfterCommit<T extends ProjectEventType>(
   c: Pick<PublicContext, 'get'>,
