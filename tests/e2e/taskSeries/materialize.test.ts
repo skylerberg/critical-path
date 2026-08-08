@@ -28,6 +28,7 @@ import { RtClient, settle } from '../realtime/helpers';
 
 const BOARD_TASK_KEYS = [
   'id',
+  'actor_user_id',
   'column_id',
   'title',
   'description',
@@ -788,6 +789,9 @@ describe('Recurring series materialisation', () => {
     expect(Object.keys(created.data).sort()).toEqual([...BOARD_TASK_KEYS].sort());
     expect(created.data.title).toBe('pushed');
     expect(created.project_id).toBe(projectId);
+    // A sweep has no session to read an actor from, so the card names whoever
+    // set the schedule up rather than nobody.
+    expect(created.data.actor_user_id).toBe(owner.id);
 
     const changed = await subscriber.waitForEvent((event) => event.type === 'project_changed', {
       from,
