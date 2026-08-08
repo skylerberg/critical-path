@@ -332,7 +332,6 @@ describe('GET /api/public/projects/:id/board', () => {
         title: task.title,
         description: task.description,
         sort_key: task.sort_key,
-        sort_key: task.sort_key,
         due_date: task.due_date,
         label_ids: task.label_ids,
         assignee_ids: task.assignee_ids,

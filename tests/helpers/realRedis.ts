@@ -29,7 +29,7 @@ export async function openRealRedis(): Promise<RealRedis> {
     throw new Error('REDIS_TEST_URL is not set');
   }
   assertLoopback(redisTestUrl);
-  const client = createClient({
+  const client: RealRedis = createClient({
     url: redisTestUrl,
     disableOfflineQueue: true,
     // The one place this parts company with the client the app builds:

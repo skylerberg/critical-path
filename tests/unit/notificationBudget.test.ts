@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi, type MockInstance } from 'vitest';
 import {
   withNotificationBudget,
   resetRateLimiter,
@@ -39,7 +39,7 @@ describe.each([
   ['with the per-process window', false],
 ])('the notification budgets %s', (_name, shared) => {
   let redis: FakeRedis;
-  let warnings: ReturnType<typeof vi.spyOn>;
+  let warnings: MockInstance<typeof logger.warn>;
 
   beforeEach(() => {
     resetRateLimiter();

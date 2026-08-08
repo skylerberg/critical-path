@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { app } from '../../src/index';
+import type { JsonBody } from '../setup/testContext';
+
+async function fetchSpec(): Promise<JsonBody> {
+  const res = await app.request('/api/openapi.json');
+  expect(res.status).toBe(200);
+  return res.json();
+}
 
 describe('GET /api/openapi.json', () => {
   it('builds a spec containing the auth and users routes', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     expect(spec.openapi).toBeTypeOf('string');
 
     const paths = Object.keys(spec.paths);
@@ -36,10 +40,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('documents both 422 body shapes on routes with body validation plus domain rules', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     const ref = '#/components/schemas/ValidationOrUnprocessableError';
     expect(
       spec.paths['/api/tasks'].post.responses['422'].content['application/json'].schema
@@ -57,10 +58,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('documents the cycle path on the add-blocker 409', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     expect(
       spec.paths['/api/tasks/{id}/blockers'].post.responses['409'].content['application/json']
         .schema
@@ -79,10 +77,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('documents account deletion with a request body and a structured 409', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     const operation = spec.paths['/api/auth/me'].delete;
     expect(Object.keys(operation.responses).sort()).toEqual(['204', '401', '409', '422', '500']);
     expect(operation.requestBody.content['application/json'].schema).toEqual({
@@ -102,10 +97,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('documents the ownership-transfer route, its 403, and its request body', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     const operation = spec.paths['/api/projects/{id}/owner'].put;
     expect(operation.responses['403'].content['application/json'].schema).toEqual({
       $ref: '#/components/schemas/Error',
@@ -120,10 +112,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('documents the owner-only 403 on project deletion', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     const operation = spec.paths['/api/projects/{id}'].delete;
     expect(operation.responses['403'].content['application/json'].schema).toEqual({
       $ref: '#/components/schemas/Error',
@@ -132,10 +121,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('marks the public board route unauthenticated and the private one authenticated', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     const publicOperation = spec.paths['/api/public/projects/{id}/board'].get;
     expect(publicOperation).toBeDefined();
     expect(publicOperation.security).toBeUndefined();
@@ -145,10 +131,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('documents the project export route and its manifest schema', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     expect(Object.keys(spec.paths)).toContain('/api/projects/{id}/export');
 
     const content = spec.paths['/api/projects/{id}/export'].get.responses['200'].content;
@@ -175,10 +158,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('documents the task activity route and its one-shape value schema', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     expect(Object.keys(spec.paths)).toContain('/api/tasks/{id}/activity');
     expect(
       spec.paths['/api/tasks/{id}/activity'].get.responses['200'].content['application/json'].schema
@@ -197,10 +177,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('leaves the webhook delivery payload untyped so clients can read the envelope', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     expect(
       spec.paths['/api/webhooks/{id}/deliveries'].get.responses['200'].content['application/json']
         .schema
@@ -213,10 +190,7 @@ describe('GET /api/openapi.json', () => {
   });
 
   it('has unique operationIds across all operations', async () => {
-    const res = await app.request('/api/openapi.json');
-    expect(res.status).toBe(200);
-
-    const spec = await res.json();
+    const spec = await fetchSpec();
     const operationIds: string[] = [];
     for (const pathItem of Object.values(spec.paths) as Record<string, unknown>[]) {
       for (const operation of Object.values(pathItem)) {

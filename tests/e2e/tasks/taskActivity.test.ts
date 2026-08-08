@@ -46,7 +46,7 @@ describe('Task activity', () => {
     columnId = await fixtures.createColumn(projectId, { name: 'Backlog' });
     otherColumnId = await fixtures.createColumn(projectId, {
       name: 'In Progress',
-      sort_key: rankKey(2000),
+      sortKey: rankKey(2000),
     });
   });
 

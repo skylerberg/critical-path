@@ -22,8 +22,8 @@ describe('Lock order of a bulk move', () => {
   beforeAll(async () => {
     owner = await ctx.createUser('bulk-lock-order');
     projectId = await fixtures.createProject('bulk lock order', { createdBy: owner.id });
-    source = await fixtures.createColumn(projectId, { name: 'Source', sort_key: rankKey(1000) });
-    target = await fixtures.createColumn(projectId, { name: 'Target', sort_key: rankKey(2000) });
+    source = await fixtures.createColumn(projectId, { name: 'Source', sortKey: rankKey(1000) });
+    target = await fixtures.createColumn(projectId, { name: 'Target', sortKey: rankKey(2000) });
     taskId = await fixtures.createTaskRow(projectId, source, 'contended');
   });
 
