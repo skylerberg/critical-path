@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { daysUntil, dueStatus, formatDue, formatFullDate, isCalendarDate, todayISO } from './dates';
+import {
+  daysUntil,
+  dueStatus,
+  formatDue,
+  formatFullDate,
+  formatTimestamp,
+  isCalendarDate,
+  todayISO,
+} from './dates';
 
 const TODAY = '2026-08-03';
 
@@ -80,5 +88,25 @@ describe('formatFullDate', () => {
   it('always names the year, and never slips to the previous day', () => {
     expect(formatFullDate('2026-08-03')).toBe(absolute('2026-08-03', true));
     expect(formatFullDate('2026-01-01')).toContain('2026');
+  });
+});
+
+describe('formatTimestamp', () => {
+  it('names the date and the time of day', () => {
+    expect(formatTimestamp('2026-08-03T19:30:00Z')).toBe(
+      new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date('2026-08-03T19:30:00Z')
+      )
+    );
+  });
+
+  // The suite runs in America/Los_Angeles: an instant just after UTC midnight is
+  // still the previous evening locally, which a UTC-pinned formatter would hide.
+  it('reads the instant in the local zone, not UTC', () => {
+    expect(formatTimestamp('2026-08-04T02:00:00Z')).toBe(
+      new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date(2026, 7, 3, 19, 0)
+      )
+    );
   });
 });

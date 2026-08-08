@@ -1,5 +1,6 @@
 import { untrack } from 'svelte';
 import { board } from './board.svelte';
+import { boardAnnouncer } from './board-announcer.svelte';
 import { invitations } from './invitations.svelte';
 import { projects } from './projects.svelte';
 import { taskSeries } from './taskSeries.svelte';
@@ -113,6 +114,7 @@ class RealtimeClient {
     this.#hasSyncedOnce = false;
     this.#queue = [];
     this.#needsBoardRefetch = false;
+    boardAnnouncer.reset();
     this.#disposeEffects?.();
     this.#disposeEffects = null;
     this.status = 'offline';
@@ -218,6 +220,10 @@ class RealtimeClient {
   }
 
   #healReads(): void {
+    // The refetches below replace the board wholesale rather than applying
+    // events, so anything still buffered describes changes about to arrive as
+    // a whole new board.
+    boardAnnouncer.reset();
     // account_updated is delivered, not replayed: one published while this
     // socket was down is gone, and nothing else re-reads the account until a
     // page load. Every other store below heals the same gap the same way.
@@ -315,6 +321,9 @@ class RealtimeClient {
         this.#queue.push(event);
         return;
       }
+      // Before the apply, not after: the words for a deleted card or column live
+      // only in the state this is about to overwrite.
+      boardAnnouncer.record(event);
       board.applyRealtime(event);
     } else if (PROJECT_EVENTS.has(event.type)) {
       projects.applyRealtime(event);
@@ -326,11 +335,17 @@ class RealtimeClient {
       }
     } else if (event.type === 'project_changed') {
       // Delivered to the actor's own devices too, because their other tabs still
-      // have to update the board — only the dot ignores its own. An event from a
-      // pod that predates the actor field carries none and is treated the same
-      // way: a missed dot self-heals on the next load, a false one on your own
-      // edit does not. The open board is skipped for the same reason — a dot on
-      // what you are already looking at is one you cannot act on.
+      // have to update the board — only the dot ignores its own. The open board
+      // is skipped for the same reason: a dot on what you are already looking at
+      // is one you cannot act on.
+      //
+      // The undefined check is not dead code, however required the generated
+      // type says the field is. A frame is asserted rather than validated where
+      // it arrives, so a pod that predates the field really does deliver none,
+      // and that is the case being skipped here: a missed dot self-heals on the
+      // next load, a false one on your own edit does not. A null actor is a
+      // different thing and does dot — it means a schedule or a background job
+      // made the change, which is nobody's own edit.
       const { actor_user_id: actor } = event.data;
       if (
         event.project_id !== null &&
@@ -374,10 +389,14 @@ class RealtimeClient {
       this.#needsBoardRefetch = false;
       // This branch discards the whole queued batch, archive events included, so
       // it has to reload the archive as well as the board.
+      boardAnnouncer.reset();
       void board.resync();
       return;
     }
     for (const event of queued) {
+      // Per event inside the loop, so each snapshot is taken against the board
+      // that event is about to change rather than the one the drag ended on.
+      boardAnnouncer.record(event);
       board.applyRealtime(event);
     }
   }

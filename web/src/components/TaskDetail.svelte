@@ -1,31 +1,29 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { board, type TaskUpdateOutcome } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
   import { conflictDrafts, type TaskVersion } from '../lib/conflictDrafts.svelte';
-  import { isCalendarDate } from '../lib/dates';
+  import { formatFullDate, isCalendarDate } from '../lib/dates';
+  import { docDraftKey, drafts } from '../lib/drafts.svelte';
   import { currentProjectMentionCandidates } from '../lib/mentions';
-  import { append } from '../lib/ranks';
   import { router } from '../lib/router.svelte';
-  import { shortcuts } from '../lib/shortcuts.svelte';
   import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
   import { contentAuthorAt, taskActivity } from '../lib/taskActivity.svelte';
   import { sameDoc } from '../lib/tiptap';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
   import { users } from '../lib/users.svelte';
-  import AssigneePicker from './AssigneePicker.svelte';
-  import DependencyList from './DependencyList.svelte';
-  import DependencyPicker from './DependencyPicker.svelte';
-  import DueDatePicker from './DueDatePicker.svelte';
-  import LabelPicker from './LabelPicker.svelte';
-  import RichTextEditor from './RichTextEditor.svelte';
-  import TaskActivity from './TaskActivity.svelte';
+  import RichTextEditor, { type SaveState } from './RichTextEditor.svelte';
+  import TaskAssignees from './TaskAssignees.svelte';
   import TaskAttachments from './TaskAttachments.svelte';
   import TaskChecklist from './TaskChecklist.svelte';
+  import TaskComments from './TaskComments.svelte';
   import TaskConflictDialog from './TaskConflictDialog.svelte';
+  import TaskDependencies from './TaskDependencies.svelte';
+  import TaskHistory from './TaskHistory.svelte';
+  import TaskLabels from './TaskLabels.svelte';
+  import TaskQuickActions from './TaskQuickActions.svelte';
   import Announcer from './ui/Announcer.svelte';
   import { announcer } from '../lib/announcer.svelte';
-  import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
 
   type TiptapDoc = NonNullable<BoardTask['description']>;
@@ -42,15 +40,6 @@
   let { taskId, closePath, taskPath, readonly = false }: Props = $props();
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
-  const taskById = $derived(new Map(board.tasks.map((t) => [t.id, t])));
-  const doneColumnIds = $derived(board.doneColumnIds);
-  const blockers = $derived((task?.blocker_ids ?? []).flatMap((id) => taskById.get(id) ?? []));
-  const openBlockerCount = $derived(
-    blockers.filter((blocker) => !doneColumnIds.has(blocker.column_id)).length +
-      (task?.open_cross_project_blocker_count ?? 0)
-  );
-  const dependents = $derived(board.tasks.filter((t) => t.blocker_ids.includes(taskId)));
-
   const columnName = $derived(board.columns.find((c) => c.id === task?.column_id)?.name ?? '');
   const seriesSummary = $derived(board.taskSeriesSummaries[taskId] ?? null);
   const mentionUsers = $derived(currentProjectMentionCandidates());
@@ -59,8 +48,7 @@
   // is served a payload whose identity and timestamp fields are placeholders.
   const anonymous = $derived(board.readonly);
 
-  const crossEntry = $derived(crossProjectDeps.get(taskId));
-  const cross = $derived(crossEntry?.deps ?? null);
+  const cross = $derived(crossProjectDeps.get(taskId)?.deps ?? null);
   // The same idiom as TaskAttachments: the card already knows how many rows are
   // coming, so the list can reserve them before the fetch answers. The count is
   // of open blocked-by edges only, so a task whose cross-project edges are all
@@ -98,6 +86,47 @@
   let editorRef = $state<ReturnType<typeof RichTextEditor>>();
   let pendingWrite: Promise<unknown> = Promise.resolve();
 
+  let descriptionSaveState = $state<SaveState>('idle');
+  // A checklist or an attachment list with nothing in it has nothing to show, so
+  // the quick bar asks for one and the section stays until the card is closed.
+  // Neither ever hides something the card actually holds.
+  let checklistRevealed = $state(false);
+  let attachmentsRevealed = $state(false);
+  let commentsOpen = $state(false);
+  let historyOpen = $state(false);
+  let quickActions = $state<ReturnType<typeof TaskQuickActions>>();
+  let checklistRef = $state<ReturnType<typeof TaskChecklist>>();
+  let attachmentsRef = $state<ReturnType<typeof TaskAttachments>>();
+
+  const showChecklist = $derived(checklistRevealed || (task?.checklist_item_count ?? 0) > 0);
+  const showAttachments = $derived(attachmentsRevealed || (task?.attachment_count ?? 0) > 0);
+  const hasDependencies = $derived(
+    (task?.blocker_ids.length ?? 0) > 0 ||
+      board.tasks.some((t) => t.blocker_ids.includes(taskId)) ||
+      crossTotal > 0
+  );
+
+  async function reveal(section: 'checklist' | 'attachments'): Promise<void> {
+    if (section === 'checklist') {
+      checklistRevealed = true;
+      await tick();
+      checklistRef?.focusAddItem();
+      return;
+    }
+    attachmentsRevealed = true;
+    await tick();
+  }
+
+  async function attach(how: 'file' | 'link'): Promise<void> {
+    attachmentsRevealed = true;
+    await tick();
+    if (how === 'file') {
+      attachmentsRef?.pickFile();
+    } else {
+      attachmentsRef?.openLinkForm();
+    }
+  }
+
   // The rejected edit is the conflict: one store owns both the banner and the text
   // it promises is safe, so they cannot disagree, and neither dies with the overlay.
   const draft = $derived(conflictDrafts.get(taskId));
@@ -130,10 +159,17 @@
       baseDescription = null;
       reviewOpen = false;
       pendingWrite = Promise.resolve();
+      descriptionSaveState = 'idle';
+      checklistRevealed = false;
+      attachmentsRevealed = false;
+      // An unsent comment is the one thing that opens a disclosure by itself:
+      // restoring the draft behind a collapsed header would hide the very text
+      // the user came back to finish.
+      commentsOpen = drafts.getDoc(docDraftKey.taskComment(id)) !== null;
+      historyOpen = false;
       if (authed) {
         board.clearChanged(id);
         void board.loadTaskDetail(id);
-        void taskActivity.load(id);
         // refresh, not ensure: a remote task changes on its own project's
         // channel, which this client does not subscribe to, so reopening the
         // panel is the moment to revalidate. Cached rows stay painted while it
@@ -142,6 +178,15 @@
         announcedCrossFor = null;
       }
     });
+  });
+
+  // Deferred, unlike the detail fetch: History opens collapsed and only the
+  // conflict banner's byline reads the log otherwise, so an unopened one would
+  // spend a request per card.
+  $effect(() => {
+    if ((historyOpen || conflicted) && !anonymous) {
+      void taskActivity.load(taskId);
+    }
   });
 
   // Rows swapping in for skeletons is a silent change otherwise. Announced once
@@ -379,12 +424,6 @@
     return uploaded?.image_url ?? null;
   }
 
-  function changeColumn(event: Event & { currentTarget: EventTarget & HTMLSelectElement }): void {
-    const columnId = event.currentTarget.value;
-    if (task === undefined || columnId === task.column_id) return;
-    void board.moveTask(taskId, columnId, append(board.tasksInColumn(columnId)));
-  }
-
   // Queued behind the title and description writes, so the server copies the text the
   // user just typed rather than whatever an in-flight PATCH is about to replace.
   // navigate, not redirect, so Back returns to the original card.
@@ -410,17 +449,12 @@
     await board.archiveTask(taskId);
     close();
   }
-
-  const dateFormat = new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
 </script>
 
 <dialog
   bind:this={dialog}
   aria-label={task === undefined ? 'Task not found' : truncateTitle(task.title)}
-  class="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto bg-surface p-0 text-ink backdrop:bg-black/50 lg:m-auto lg:h-auto lg:max-h-[90dvh] lg:w-full lg:max-w-2xl lg:rounded-lg lg:border lg:border-edge lg:shadow-xl"
+  class="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto bg-surface p-0 text-ink backdrop:bg-black/50 lg:m-auto lg:h-fit lg:max-h-[90dvh] lg:w-full lg:max-w-2xl lg:rounded-lg lg:border lg:border-edge lg:shadow-xl"
   oncancel={(event) => {
     event.preventDefault();
     // Escape discards the title edit, matching the inline column rename.
@@ -428,7 +462,9 @@
     close();
   }}
   onclick={(event) => {
-    if (event.target === dialog) close();
+    // A click that lands on the backdrop while a quick-action panel is up is
+    // dismissing the panel, not the card.
+    if (event.target === dialog && quickActions?.isOpen() !== true) close();
   }}
 >
   <div class="flex flex-col gap-6 p-4 lg:p-6">
@@ -464,12 +500,25 @@
         <Button variant="ghost" aria-label="Close" onclick={close}>✕</Button>
       </div>
 
-      {#if seriesSummary !== null}
-        <p
-          class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
-        >
-          Repeats: {seriesSummary}
-        </p>
+      {#if readonly || seriesSummary !== null}
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- The quick bar's own button carries the column for anyone who can move
+               the card; a reader has no bar, and still needs to know where it sits. -->
+          {#if readonly}
+            <p
+              class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
+            >
+              {columnName}
+            </p>
+          {/if}
+          {#if seriesSummary !== null}
+            <p
+              class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
+            >
+              Repeats: {seriesSummary}
+            </p>
+          {/if}
+        </div>
       {/if}
 
       {#if draft !== null}
@@ -489,30 +538,29 @@
         </div>
       {/if}
 
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-semibold text-muted">Column</h3>
-        {#if readonly}
-          <p class="text-sm">{columnName}</p>
-        {:else}
-          <div class="flex flex-wrap items-center gap-2">
-            <select
-              aria-label="Column"
-              value={task.column_id}
-              onchange={changeColumn}
-              class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
-            >
-              {#each board.columns as column (column.id)}
-                <option value={column.id}>{column.name}</option>
-              {/each}
-            </select>
-            <Button variant="secondary" onclick={() => (shortcuts.moveMenu = taskId)}>Move…</Button>
-          </div>
-        {/if}
-      </section>
+      {#if !readonly}
+        <TaskQuickActions
+          bind:this={quickActions}
+          {taskId}
+          onreveal={(section) => void reveal(section)}
+          onattach={(how) => void attach(how)}
+        />
+      {/if}
 
       {#if !readonly || task.description !== null}
         <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold text-muted">Description</h3>
+          <div class="flex items-baseline justify-between gap-2">
+            <h3 class="text-sm font-semibold text-muted">Description</h3>
+            {#if descriptionSaveState !== 'idle'}
+              <span role="status" aria-live="polite" class="text-xs text-muted">
+                {descriptionSaveState === 'saving'
+                  ? 'Saving…'
+                  : descriptionSaveState === 'saved'
+                    ? 'Saved'
+                    : 'Not saved — retrying'}
+              </span>
+            {/if}
+          </div>
           {#key taskId}
             {#if readonly}
               <RichTextEditor content={task.description} readonly />
@@ -523,6 +571,7 @@
                    surrounding key already scopes to one task. -->
               <RichTextEditor
                 bind:this={editorRef}
+                bind:saveState={descriptionSaveState}
                 content={draft === null ? task.description : draft.mine.description}
                 onSave={saveDescription}
                 {uploadImage}
@@ -533,128 +582,99 @@
         </section>
       {/if}
 
-      {#if !readonly || (task.checklist_item_count ?? 0) > 0}
+      {#if showChecklist}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Checklist</h3>
-          <TaskChecklist {taskId} {readonly} {taskPath} />
+          <TaskChecklist bind:this={checklistRef} {taskId} {readonly} {taskPath} />
         </section>
       {/if}
 
-      {#if !readonly || task.label_ids.length > 0}
+      {#if task.label_ids.length > 0}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Labels</h3>
-          <LabelPicker {taskId} {readonly} />
+          <TaskLabels {taskId} {readonly} onemptied={() => quickActions?.focusButton('labels')} />
         </section>
       {/if}
 
-      {#if !readonly || task.assignee_ids.length > 0}
+      {#if task.assignee_ids.length > 0}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Assignees</h3>
-          <AssigneePicker {taskId} {readonly} />
+          <TaskAssignees
+            {taskId}
+            {readonly}
+            onemptied={() => quickActions?.focusButton('assign')}
+          />
         </section>
       {/if}
 
-      {#if !readonly || isCalendarDate(task.due_date)}
+      {#if isCalendarDate(task.due_date)}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Due date</h3>
-          <DueDatePicker {taskId} {readonly} />
+          <p class="text-sm">{formatFullDate(task.due_date)}</p>
         </section>
       {/if}
 
-      {#if !readonly || blockers.length > 0 || crossBlockedByCount > 0}
-        <section class="flex flex-col gap-2">
-          <div class="flex items-center gap-2">
-            <h3 class="text-sm font-semibold text-muted">Blocked by</h3>
-            {#if openBlockerCount > 0}
-              <Badge variant="danger">
-                {openBlockerCount} open task{openBlockerCount === 1 ? '' : 's'}
-              </Badge>
-            {/if}
-          </div>
-          <DependencyList
-            {taskId}
-            direction="blocker"
-            local={blockers}
-            remote={cross?.blocked_by ?? []}
-            hiddenCount={cross?.hidden_blocked_by_count ?? 0}
-            skeletonCount={crossSkeletons}
-            loading={crossPending}
-            {doneColumnIds}
-            {readonly}
-          />
-          {#if crossEntry?.error === true}
-            <p class="text-sm text-muted">
-              Dependencies in other projects could not be loaded.
-              <button
-                type="button"
-                onclick={() => crossProjectDeps.refresh(taskId)}
-                class="cursor-pointer underline focus-visible:outline-2 focus-visible:outline-accent"
-              >
-                Try again
-              </button>
-            </p>
-          {/if}
-          {#if !readonly}
-            <DependencyPicker {taskId} direction="blocker" />
-          {/if}
-        </section>
+      {#if hasDependencies}
+        <TaskDependencies {taskId} {readonly} />
       {/if}
 
-      {#if !readonly || dependents.length > 0 || crossBlockingCount > 0}
-        <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold text-muted">Blocks</h3>
-          <DependencyList
-            {taskId}
-            direction="blocked"
-            local={dependents}
-            remote={cross?.blocking ?? []}
-            hiddenCount={cross?.hidden_blocking_count ?? 0}
-            skeletonCount={0}
-            loading={crossPending}
-            {doneColumnIds}
-            {readonly}
-          />
-          {#if !readonly}
-            <DependencyPicker {taskId} direction="blocked" />
-          {/if}
-        </section>
-      {/if}
-
-      {#if !anonymous}
+      {#if !anonymous && showAttachments}
         <section class="flex flex-col gap-2">
           <h3 class="text-sm font-semibold text-muted">Attachments</h3>
-          <TaskAttachments {taskId} {readonly} />
+          <TaskAttachments bind:this={attachmentsRef} {taskId} {readonly} />
         </section>
       {/if}
 
       {#if !anonymous || task.comment_count > 0}
-        <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold text-muted">{anonymous ? 'Comments' : 'Activity'}</h3>
-          <TaskActivity {taskId} {anonymous} />
-        </section>
+        <!-- Driven from state rather than the browser default, so the body stays
+             unmounted while collapsed and no editor is built for a card nobody
+             opened the comments on. -->
+        <details class="border-t border-edge pt-4" open={commentsOpen}>
+          <summary
+            onclick={(event) => {
+              event.preventDefault();
+              commentsOpen = !commentsOpen;
+            }}
+            class="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-muted"
+          >
+            Comments ({task.comment_count})
+          </summary>
+          {#if commentsOpen}
+            <div class="flex flex-col gap-4 pt-2">
+              <TaskComments {taskId} {anonymous} />
+            </div>
+          {/if}
+        </details>
       {/if}
 
       {#if !anonymous}
-        <div
-          class="flex flex-col gap-3 border-t border-edge pt-4 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <p class="text-xs text-muted">
-            Created {dateFormat.format(new Date(task.created_at))} · Updated {dateFormat.format(
-              new Date(task.updated_at)
-            )}
-          </p>
-          {#if !readonly}
-            <div class="flex gap-2">
-              <Button
-                variant="secondary"
-                disabled={duplicating}
-                onclick={() => void handleDuplicate()}>Duplicate</Button
-              >
-              <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
+        <details class="border-t border-edge pt-4" open={historyOpen}>
+          <summary
+            onclick={(event) => {
+              event.preventDefault();
+              historyOpen = !historyOpen;
+            }}
+            class="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-muted"
+          >
+            History
+          </summary>
+          {#if historyOpen}
+            <div class="flex flex-col gap-4 pt-2">
+              <TaskHistory {taskId} />
             </div>
           {/if}
+        </details>
+      {/if}
+
+      {#if !anonymous && !readonly}
+        <div class="flex gap-2 border-t border-edge pt-4">
+          <Button variant="secondary" disabled={duplicating} onclick={() => void handleDuplicate()}>
+            Duplicate
+          </Button>
+          <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
         </div>
       {/if}
+
       <!-- Last, so the card's own editor stays the first one in the document: the
            resolver renders read-only copies of the same component. -->
       {#if draft !== null && reviewOpen}
@@ -667,7 +687,9 @@
         />
       {/if}
     {/if}
-    <!-- The shell's copy is inert behind this dialog, so the overlay needs its own. -->
-    <Announcer />
+    <!-- The shell's copy is inert behind this dialog, so the overlay needs its own.
+         Only the local channel: remote board changes go unspoken while any dialog is
+         open, so a second region for them would never hold anything. -->
+    <Announcer message={announcer.message} />
   </div>
 </dialog>

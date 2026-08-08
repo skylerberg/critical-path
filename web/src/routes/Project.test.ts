@@ -6,6 +6,8 @@ import Project from './Project.svelte';
 import ProjectRoute from './ProjectRoute.svelte';
 import QuickMenus from '../components/QuickMenus.svelte';
 import { announcer } from '../lib/announcer.svelte';
+import { boardAnnouncer } from '../lib/board-announcer.svelte';
+import { realtimeEvent } from '../lib/realtime-test-events';
 import { board } from '../lib/board.svelte';
 import { noFilters } from '../lib/board-filters';
 import { drafts } from '../lib/drafts.svelte';
@@ -464,6 +466,39 @@ describe('Project', () => {
       expect(announcer.message).toBe('');
     });
   });
+
+  it('drops a pending remote announcement when the shell switches project', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const id = /^\/api\/projects\/(.+)$/.exec(new URL((input as Request).url).pathname)?.[1];
+      if (id === undefined) {
+        return jsonResponse(200, { users: [] });
+      }
+      return jsonResponse(200, payload(id, [task(T1, 'todo', 'Design cards')]));
+    });
+
+    const projectId = testUuid('p-shell-board-announcer-clear');
+    const view = render(Project, { props: { projectId, view: 'board' } });
+    await screen.findByText('Design cards');
+
+    // Fake timers only around the window, so the buffered change is still
+    // pending when the switch happens and would otherwise be spoken after it.
+    vi.useFakeTimers();
+    try {
+      boardAnnouncer.record(
+        realtimeEvent(
+          'task_created',
+          { ...task(T2, 'todo', 'Theirs'), actor_user_id: 'u-them' },
+          projectId
+        )
+      );
+      await view.rerender({ projectId: testUuid('p-shell-board-announcer-next'), view: 'board' });
+      await vi.advanceTimersByTimeAsync(1500);
+
+      expect(boardAnnouncer.message).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('Project filters from the URL', () => {
@@ -609,11 +644,7 @@ describe('canonical URL', () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
 
       tasks[0] = task(T1, 'todo', 'Final boss fight');
-      board.applyRealtime({
-        type: 'task_updated',
-        project_id: projectId,
-        data: { ...tasks[0] },
-      } as never);
+      board.applyRealtime(realtimeEvent('task_updated', { ...tasks[0] }, projectId));
 
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(board.tasks.find((t) => t.id === T1)?.title).toBe('Final boss fight');
@@ -632,11 +663,7 @@ describe('canonical URL', () => {
     try {
       await screen.findByRole('heading', { name: PROJECT_NAME });
 
-      board.applyRealtime({
-        type: 'project_updated',
-        project_id: projectId,
-        data: { name: 'Playbook' },
-      } as never);
+      board.applyRealtime(realtimeEvent('project_updated', { name: 'Playbook' }, projectId));
 
       await waitFor(() => {
         expect(router.path).toBe(projectHref(projectId, 'Playbook'));
@@ -964,7 +991,7 @@ describe('Project shell for a viewer', () => {
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     // The identity-backed half of the overlay survives the demotion.
-    expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
+    expect(screen.getByText(/^Comments \(/)).toBeInTheDocument();
   });
 });
 

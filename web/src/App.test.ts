@@ -312,9 +312,12 @@ describe('App chrome', () => {
     expect(screen.queryByRole('combobox', { name: 'Command palette' })).toBeNull();
   });
 
-  // A live region created in the same flush as its text is not announced, so it has
-  // to be the shell's rather than any one screen's.
-  it('keeps one live region up on every signed-in screen', async () => {
+  // A live region created in the same flush as its text is not announced, so both
+  // have to be the shell's rather than any one screen's. Two, not one: the user's
+  // own feedback and a teammate's board change written in the same flush would
+  // otherwise overwrite each other before Svelte put either in the DOM. The local
+  // channel comes first, because assistive tech queues polite regions in DOM order.
+  it('keeps both live regions up on every signed-in screen, one per channel', async () => {
     localStorage.setItem('cp.token', 'token');
     router.navigate('/my-tasks', { replace: true });
 
@@ -322,12 +325,15 @@ describe('App chrome', () => {
     await screen.findByRole('heading', { name: 'My tasks' });
 
     const regions = container.querySelectorAll('[role="status"][aria-live="polite"]');
-    expect(regions).toHaveLength(1);
+    expect(regions).toHaveLength(2);
 
     await announcer.announce('Moved "Ship it" to Done, position 1 of 1');
 
     await vi.waitFor(() => {
-      expect(regions[0]!.textContent).toBe('Moved "Ship it" to Done, position 1 of 1');
+      expect([...regions].map((region) => region.textContent)).toEqual([
+        'Moved "Ship it" to Done, position 1 of 1',
+        '',
+      ]);
     });
   });
 

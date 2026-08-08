@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { announcer } from '../../lib/announcer.svelte';
+  interface Props {
+    message: string;
+  }
+
+  let { message }: Props = $props();
 </script>
 
-<div role="status" aria-live="polite" aria-atomic="true" class="sr-only">{announcer.message}</div>
+<div role="status" aria-live="polite" aria-atomic="true" class="sr-only">{message}</div>

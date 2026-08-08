@@ -46,21 +46,18 @@ async function patchBody(index = 0): Promise<unknown> {
 }
 
 describe('DueDatePicker', () => {
-  it('offers only the add affordance until it is used, with no field in the form', () => {
+  it('opens on the field, focused, ready to be typed into', () => {
     render(DueDatePicker, { taskId: 't1' });
 
-    expect(screen.getByRole('button', { name: '+ Add due date' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Due date')).not.toBeInTheDocument();
-  });
-
-  it('reveals the field on demand and patches the date it is given', async () => {
-    render(DueDatePicker, { taskId: 't1' });
-
-    await fireEvent.click(screen.getByRole('button', { name: '+ Add due date' }));
     const input = screen.getByLabelText('Due date');
     expect(input).toHaveValue('');
+    expect(input).toHaveFocus();
+  });
 
-    await fireEvent.change(input, { target: { value: '2026-08-03' } });
+  it('patches the date it is given', async () => {
+    render(DueDatePicker, { taskId: 't1' });
+
+    await fireEvent.change(screen.getByLabelText('Due date'), { target: { value: '2026-08-03' } });
 
     expect(await patchBody()).toEqual({ due_date: '2026-08-03' });
     await waitFor(() => {
@@ -68,26 +65,28 @@ describe('DueDatePicker', () => {
     });
   });
 
-  it('shows an existing date pre-filled, with no add affordance', () => {
+  it('shows an existing date pre-filled', () => {
     board.tasks = [{ ...task, due_date: '2026-08-03' }];
     render(DueDatePicker, { taskId: 't1' });
 
     expect(screen.getByLabelText('Due date')).toHaveValue('2026-08-03');
-    expect(screen.queryByRole('button', { name: '+ Add due date' })).not.toBeInTheDocument();
   });
 
-  it('clears the date, collapses back to the affordance and keeps focus', async () => {
+  it('clears the date and tells the caller the section is empty', async () => {
     board.tasks = [{ ...task, due_date: '2026-08-03' }];
-    render(DueDatePicker, { taskId: 't1' });
+    const oncleared = vi.fn();
+    render(DueDatePicker, { taskId: 't1', oncleared });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
 
     expect(await patchBody()).toEqual({ due_date: null });
-    const toggle = await screen.findByRole('button', { name: '+ Add due date' });
-    expect(screen.queryByLabelText('Due date')).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(toggle).toHaveFocus();
-    });
+    expect(oncleared).toHaveBeenCalledOnce();
+  });
+
+  it('offers nothing to clear when there is no date yet', () => {
+    render(DueDatePicker, { taskId: 't1' });
+
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
   });
 
   it('leaves the date alone while the field is empty mid-edit', async () => {
@@ -99,26 +98,5 @@ describe('DueDatePicker', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Due date')).toBeInTheDocument();
     expect(board.tasks[0]!.due_date).toBe('2026-08-03');
-  });
-
-  it('collapses the revealed field when the open task changes', async () => {
-    board.tasks = [{ ...task }, { ...task, id: 't2' }];
-    const { rerender } = render(DueDatePicker, { taskId: 't1' });
-
-    await fireEvent.click(screen.getByRole('button', { name: '+ Add due date' }));
-    expect(screen.getByLabelText('Due date')).toBeInTheDocument();
-
-    await rerender({ taskId: 't2' });
-    expect(screen.queryByLabelText('Due date')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '+ Add due date' })).toBeInTheDocument();
-  });
-
-  it('is read-only text on a public board, with nothing to press', () => {
-    board.tasks = [{ ...task, due_date: '2026-08-03' }];
-    render(DueDatePicker, { taskId: 't1', readonly: true });
-
-    expect(screen.queryByLabelText('Due date')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByText(/2026/)).toBeInTheDocument();
   });
 });

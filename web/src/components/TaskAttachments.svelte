@@ -38,6 +38,16 @@
     images.length === 0 && (attachments?.length ?? 0) === 0 && pending.length === 0
   );
 
+  // The quick bar offers both ways in, but the controls they drive live here.
+  export function pickFile(): void {
+    fileInput?.click();
+  }
+
+  export function openLinkForm(): void {
+    addingLink = true;
+    linkError = false;
+  }
+
   $effect(() => {
     void taskId;
     addingLink = false;
@@ -225,16 +235,8 @@
 >
   {#if !readonly}
     <div class="flex flex-wrap items-center gap-2">
-      <Button variant="secondary" onclick={() => fileInput?.click()}>Attach file</Button>
-      <Button
-        variant="secondary"
-        onclick={() => {
-          addingLink = true;
-          linkError = false;
-        }}
-      >
-        Add link
-      </Button>
+      <Button variant="secondary" onclick={pickFile}>Attach file</Button>
+      <Button variant="secondary" onclick={openLinkForm}>Add link</Button>
     </div>
   {/if}
 

@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { board } from './board.svelte';
+import { boardAnnouncer } from './board-announcer.svelte';
 import { invitations } from './invitations.svelte';
 import type { BoardPayload } from './board-types';
 import { outbox } from './outbox.svelte';
@@ -9,6 +10,9 @@ import { projects, type Project } from './projects.svelte';
 import { realtime } from './realtime.svelte';
 import { session } from './session.svelte';
 import { taskSeries } from './taskSeries.svelte';
+import { router } from './router.svelte';
+import { projectHref } from './short-links';
+import { testUuid } from './test-ids';
 import { users } from './users.svelte';
 import { realtimeEvent } from './realtime-test-events';
 
@@ -89,10 +93,12 @@ function comment(id: string, text: string) {
     id,
     task_id: 't1',
     user_id: 'u1',
-    body: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] },
+    body: {
+      type: 'doc' as const,
+      content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+    },
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
-    comment_count: 1,
   };
 }
 
@@ -162,6 +168,7 @@ beforeEach(async () => {
   FakeWebSocket.instances = [];
   realtime.disconnect();
   board.reset();
+  boardAnnouncer.reset();
   projects.reset();
   taskSeries.reset();
   localStorage.setItem('cp.token', 'test-token');
@@ -180,6 +187,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   realtime.disconnect();
+  boardAnnouncer.reset();
   vi.useRealTimers();
 });
 
@@ -441,7 +449,7 @@ describe('board event application', () => {
 
   it('ignores board events for a different project', async () => {
     const socket = await connectAndAuth('p1');
-    socket.receive({ type: 'task_created', project_id: 'p-other', data: task('tx') });
+    socket.receive(realtimeEvent('task_created', task('tx'), 'p-other'));
     expect(board.tasks).toHaveLength(0);
   });
 
@@ -450,22 +458,18 @@ describe('board event application', () => {
     board.taskComments = { t1: [] };
     const socket = await connectAndAuth('p1');
 
-    socket.receive({ type: 'comment_created', project_id: 'p1', data: comment('cm1', 'hello') });
+    socket.receive(
+      realtimeEvent('comment_created', { ...comment('cm1', 'hello'), comment_count: 1 }, 'p1')
+    );
     expect(board.taskComments['t1']!.map((c) => c.id)).toEqual(['cm1']);
     expect(board.tasks[0]!.comment_count).toBe(1);
 
-    socket.receive({
-      type: 'comment_updated',
-      project_id: 'p1',
-      data: { ...comment('cm1', 'edited'), comment_count: undefined },
-    });
+    socket.receive(realtimeEvent('comment_updated', comment('cm1', 'edited'), 'p1'));
     expect(JSON.stringify(board.taskComments['t1']![0]!.body)).toContain('edited');
 
-    socket.receive({
-      type: 'comment_deleted',
-      project_id: 'p1',
-      data: { id: 'cm1', task_id: 't1', comment_count: 0 },
-    });
+    socket.receive(
+      realtimeEvent('comment_deleted', { id: 'cm1', task_id: 't1', comment_count: 0 }, 'p1')
+    );
     expect(board.taskComments['t1']).toEqual([]);
     expect(board.tasks[0]!.comment_count).toBe(0);
   });
@@ -475,11 +479,13 @@ describe('board event application', () => {
     board.taskComments = { t1: [] };
     const socket = await connectAndAuth('p1');
 
-    socket.receive({
-      type: 'comment_created',
-      project_id: 'p-other',
-      data: comment('cm1', 'elsewhere'),
-    });
+    socket.receive(
+      realtimeEvent(
+        'comment_created',
+        { ...comment('cm1', 'elsewhere'), comment_count: 1 },
+        'p-other'
+      )
+    );
 
     expect(board.taskComments['t1']).toEqual([]);
     expect(board.tasks[0]!.comment_count).toBe(0);
@@ -525,16 +531,20 @@ describe('project event application', () => {
   it('merges the sort key from a project_position_updated wire event', async () => {
     projects.projects = [project()];
     const socket = await connectAndAuth(null);
-    socket.receive({
-      type: 'project_position_updated',
-      data: { id: 'p1', sort_key: 'V0000002501' },
-    });
+    socket.receive(
+      realtimeEvent('project_position_updated', { id: 'p1', sort_key: 'V0000002501' }, null)
+    );
     expect(projects.projects[0]!.sort_key).toBe('V0000002501');
   });
 });
 
 describe('series event application', () => {
-  const seriesRow = { id: 's1', project_id: 'p1', title: 'Weekly review', status: 'active' };
+  const seriesRow = {
+    id: 's1',
+    project_id: 'p1',
+    title: 'Weekly review',
+    status: 'active' as const,
+  };
 
   beforeEach(async () => {
     board.currentProjectId = 'p1';
@@ -546,28 +556,22 @@ describe('series event application', () => {
   it('routes the three series events off the wire into the series store', async () => {
     const socket = await connectAndAuth('p1');
 
-    socket.receive({ type: 'series_created', project_id: 'p1', data: seriesRow });
+    socket.receive(realtimeEvent('series_created', seriesRow, 'p1'));
     expect(taskSeries.list.map((row) => row.id)).toEqual(['s1']);
 
-    socket.receive({
-      type: 'series_updated',
-      project_id: 'p1',
-      data: { ...seriesRow, title: 'Renamed' },
-    });
+    socket.receive(realtimeEvent('series_updated', { ...seriesRow, title: 'Renamed' }, 'p1'));
     expect(taskSeries.list[0]!.title).toBe('Renamed');
 
-    socket.receive({ type: 'series_deleted', project_id: 'p1', data: { id: 's1' } });
+    socket.receive(realtimeEvent('series_deleted', { id: 's1' }, 'p1'));
     expect(taskSeries.list).toEqual([]);
   });
 
   it('ignores a series event for a different project', async () => {
     const socket = await connectAndAuth('p1');
 
-    socket.receive({
-      type: 'series_created',
-      project_id: 'p-other',
-      data: { ...seriesRow, project_id: 'p-other' },
-    });
+    socket.receive(
+      realtimeEvent('series_created', { ...seriesRow, project_id: 'p-other' }, 'p-other')
+    );
 
     expect(taskSeries.list).toEqual([]);
   });
@@ -576,7 +580,7 @@ describe('series event application', () => {
     const socket = await connectAndAuth('p1');
     board.dragging = true;
 
-    socket.receive({ type: 'series_created', project_id: 'p1', data: seriesRow });
+    socket.receive(realtimeEvent('series_created', seriesRow, 'p1'));
 
     expect(taskSeries.list.map((row) => row.id)).toEqual(['s1']);
     board.dragging = false;
@@ -620,7 +624,7 @@ describe('drag-aware queue', () => {
   it('holds board events while dragging and flushes after finalize', async () => {
     const socket = await connectAndAuth('p1');
     board.dragging = true;
-    socket.receive({ type: 'task_created', project_id: 'p1', data: task('t1') });
+    socket.receive(realtimeEvent('task_created', task('t1'), 'p1'));
     expect(board.tasks).toHaveLength(0);
     board.dragging = false;
     flushSync();
@@ -644,7 +648,7 @@ describe('drag-aware queue', () => {
     };
 
     board.detailDragging = true;
-    socket.receive({ type: 'checklist_item_created', project_id: 'p1', data: item });
+    socket.receive(realtimeEvent('checklist_item_created', item, 'p1'));
     expect(board.taskChecklists.t1).toEqual([]);
     expect(board.tasks[0]!.checklist_item_count).toBe(0);
 
@@ -659,11 +663,11 @@ describe('drag-aware queue', () => {
     const socket = await connectAndAuth('p1');
     const archived = { ...task('t1'), archived_at: '2026-03-01T00:00:00Z' };
 
-    socket.receive({ type: 'task_archived', project_id: 'p2', data: archived });
+    socket.receive(realtimeEvent('task_archived', archived, 'p2'));
     expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
 
     board.dragging = true;
-    socket.receive({ type: 'task_archived', project_id: 'p1', data: archived });
+    socket.receive(realtimeEvent('task_archived', archived, 'p1'));
     expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
 
     board.dragging = false;
@@ -747,12 +751,12 @@ describe('drag-aware queue', () => {
     board.archivedTasks = [{ ...task('t1'), archived_at: '2026-03-01T00:00:00Z' }];
     const socket = await connectAndAuth('p1');
 
-    socket.receive({ type: 'task_restored', project_id: 'p2', data: task('t1') });
+    socket.receive(realtimeEvent('task_restored', task('t1'), 'p2'));
     expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
     expect(board.tasks).toHaveLength(0);
 
     board.dragging = true;
-    socket.receive({ type: 'task_restored', project_id: 'p1', data: task('t1') });
+    socket.receive(realtimeEvent('task_restored', task('t1'), 'p1'));
     expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
 
     board.dragging = false;
@@ -802,7 +806,7 @@ describe('drag-aware queue', () => {
     const attachment = {
       id: 'att1',
       task_id: 't1',
-      kind: 'link',
+      kind: 'link' as const,
       title: null,
       description: null,
       filename: null,
@@ -811,23 +815,27 @@ describe('drag-aware queue', () => {
       url: 'https://example.com/doc',
       preview_url: null,
       favicon_url: null,
-      unfurl_state: 'pending',
+      unfurl_state: 'pending' as const,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     };
     board.taskAttachments = { t1: [] };
     const socket = await connectAndAuth('p1');
 
-    socket.receive({ type: 'attachment_created', project_id: 'p1', data: attachment });
+    socket.receive(realtimeEvent('attachment_created', attachment, 'p1'));
     expect(board.taskAttachments.t1!.map((a) => a.id)).toEqual(['att1']);
 
-    socket.receive({
-      type: 'attachment_updated',
-      project_id: 'p1',
-      data: { ...attachment, unfurl_state: 'ok', title: 'Fetched' },
-    });
+    socket.receive(
+      realtimeEvent(
+        'attachment_updated',
+        { ...attachment, unfurl_state: 'ok' as const, title: 'Fetched' },
+        'p1'
+      )
+    );
     expect(board.taskAttachments.t1![0]).toMatchObject({ title: 'Fetched', unfurl_state: 'ok' });
 
+    // Raw, not realtimeEvent: the point is a type the API does not publish, which
+    // the builder rightly refuses to construct.
     socket.receive({
       type: 'attachment_renamed',
       project_id: 'p1',
@@ -835,11 +843,7 @@ describe('drag-aware queue', () => {
     });
     expect(board.taskAttachments.t1![0]!.title).toBe('Fetched');
 
-    socket.receive({
-      type: 'attachment_deleted',
-      project_id: 'p1',
-      data: { id: 'att1', task_id: 't1' },
-    });
+    socket.receive(realtimeEvent('attachment_deleted', { id: 'att1', task_id: 't1' }, 'p1'));
     expect(board.taskAttachments.t1).toEqual([]);
   });
 
@@ -850,7 +854,7 @@ describe('drag-aware queue', () => {
     const attachment = {
       id: 'att1',
       task_id: 't1',
-      kind: 'file',
+      kind: 'file' as const,
       title: null,
       description: null,
       filename: 'spec.pdf',
@@ -865,7 +869,7 @@ describe('drag-aware queue', () => {
     };
 
     board.detailDragging = true;
-    socket.receive({ type: 'attachment_created', project_id: 'p1', data: attachment });
+    socket.receive(realtimeEvent('attachment_created', attachment, 'p1'));
     expect(board.taskAttachments.t1).toEqual([]);
 
     board.detailDragging = false;
@@ -879,7 +883,9 @@ describe('drag-aware queue', () => {
     const socket = await connectAndAuth('p1');
     board.dragging = true;
 
-    socket.receive({ type: 'comment_created', project_id: 'p1', data: comment('cm1', 'queued') });
+    socket.receive(
+      realtimeEvent('comment_created', { ...comment('cm1', 'queued'), comment_count: 1 }, 'p1')
+    );
     expect(board.taskComments['t1']).toEqual([]);
 
     board.dragging = false;
@@ -1202,17 +1208,19 @@ describe('user_updated dispatch', () => {
   it('merges into the users store, and into the session user when self', async () => {
     const socket = await connectAndAuth('p1');
 
-    socket.receive({
-      type: 'user_updated',
-      data: { id: 'u-peer', name: 'Peer', avatar_url: '/api/avatars/k' },
-    });
+    socket.receive(
+      realtimeEvent(
+        'user_updated',
+        { id: 'u-peer', name: 'Peer', avatar_url: '/api/avatars/k' },
+        null
+      )
+    );
     expect(users.byId('u-peer')?.avatar_url).toBe('/api/avatars/k');
     expect(session.user?.name).toBe('Me');
 
-    socket.receive({
-      type: 'user_updated',
-      data: { id: 'u1', name: 'Me Renamed', avatar_url: null },
-    });
+    socket.receive(
+      realtimeEvent('user_updated', { id: 'u1', name: 'Me Renamed', avatar_url: null }, null)
+    );
     expect(session.user?.name).toBe('Me Renamed');
   });
 
@@ -1220,10 +1228,13 @@ describe('user_updated dispatch', () => {
     const socket = await connectAndAuth('p1');
     session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
 
-    socket.receive({
-      type: 'user_updated',
-      data: { id: 'u1', name: 'Me Renamed', avatar_url: '/api/avatars/k' },
-    });
+    socket.receive(
+      realtimeEvent(
+        'user_updated',
+        { id: 'u1', name: 'Me Renamed', avatar_url: '/api/avatars/k' },
+        null
+      )
+    );
 
     expect(session.user?.name).toBe('Me Renamed');
     expect(session.user?.avatar_url).toBe('/api/avatars/k');
@@ -1238,10 +1249,9 @@ describe('user_updated dispatch', () => {
     const socket = await connectAndAuth('p1');
     session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
 
-    socket.receive({
-      type: 'user_updated',
-      data: { id: 'u1', name: 'Me Renamed', avatar_url: null },
-    });
+    socket.receive(
+      realtimeEvent('user_updated', { id: 'u1', name: 'Me Renamed', avatar_url: null }, null)
+    );
     // A macrotask, not a microtask: openapi-fetch dispatches after an awaited
     // middleware tick, so a refetch would still be pending at this point.
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1254,10 +1264,9 @@ describe('user_updated dispatch', () => {
     const socket = await connectAndAuth('p1');
     session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
 
-    socket.receive({
-      type: 'user_updated',
-      data: { id: 'u-peer', name: 'Peer', avatar_url: null },
-    });
+    socket.receive(
+      realtimeEvent('user_updated', { id: 'u-peer', name: 'Peer', avatar_url: null }, null)
+    );
 
     expect(session.user?.email).toBe('m@e.com');
     expect(session.user?.email_verified).toBe(true);
@@ -1343,11 +1352,13 @@ describe('project_updated reaches the open board', () => {
     };
     expect(board.canEdit).toBe(true);
 
-    socket.receive({
-      type: 'project_updated',
-      project_id: 'p1',
-      data: { id: 'p1', member_ids: [me.id], members: [{ user_id: me.id, role: 'viewer' }] },
-    });
+    socket.receive(
+      realtimeEvent(
+        'project_updated',
+        { id: 'p1', member_ids: [me.id], members: [{ user_id: me.id, role: 'viewer' }] },
+        'p1'
+      )
+    );
 
     expect(board.canEdit).toBe(false);
     expect(projects.projects).toHaveLength(1);
@@ -1368,15 +1379,16 @@ describe('project_changed raises the unseen dot', () => {
     return projects.projects.filter((p) => p.has_unseen_changes).map((p) => p.id);
   }
 
-  function changed(socket: FakeWebSocket, projectId: string, actorUserId?: string): void {
-    socket.receive({
-      type: 'project_changed',
-      project_id: projectId,
-      data:
+  function changed(socket: FakeWebSocket, projectId: string, actorUserId?: string | null): void {
+    socket.receive(
+      realtimeEvent(
+        'project_changed',
         actorUserId === undefined
           ? { id: projectId }
           : { id: projectId, actor_user_id: actorUserId },
-    });
+        projectId
+      )
+    );
   }
 
   it('dots a board a teammate changed while the caller is subscribed to no room', async () => {
@@ -1404,6 +1416,19 @@ describe('project_changed raises the unseen dot', () => {
 
     changed(socket, 'p1');
     changed(socket, 'p2', 'u-them');
+
+    expect(dotted()).toEqual(['p2']);
+  });
+
+  // The pair above and below are what keep the `!== undefined` guard from being
+  // read as dead code and deleted: the generated type says the field is required,
+  // but an older pod really does omit it, and omitted and null mean opposite
+  // things here.
+  it('dots a change no session made, which is nobody’s own edit', async () => {
+    seed();
+    const socket = await connectAndAuth(null);
+
+    changed(socket, 'p2', null);
 
     expect(dotted()).toEqual(['p2']);
   });
@@ -1449,7 +1474,7 @@ describe('invitations_changed dispatch', () => {
     await invitations.load('p1');
     const socket = await connectAndAuth('p1');
 
-    socket.receive({ type: 'invitations_changed', project_id: 'p1', data: { project_id: 'p1' } });
+    socket.receive(realtimeEvent('invitations_changed', { project_id: 'p1' }, 'p1'));
 
     await vi.waitFor(() =>
       expect(
@@ -1466,7 +1491,7 @@ describe('invitations_changed dispatch', () => {
     const socket = await connectAndAuth('p1');
     const before = fetchMock.mock.calls.length;
 
-    socket.receive({ type: 'invitations_changed', project_id: 'p2', data: { project_id: 'p2' } });
+    socket.receive(realtimeEvent('invitations_changed', { project_id: 'p2' }, 'p2'));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchMock.mock.calls).toHaveLength(before);
@@ -1492,5 +1517,68 @@ describe('invitations_changed dispatch', () => {
     await reconnect();
 
     expect(invitationRequests()).toBe(1);
+  });
+});
+
+describe('announcing a teammate’s board change', () => {
+  const PROJECT = testUuid('p1');
+
+  beforeEach(() => {
+    users.users = [{ id: 'u2', name: 'Ana', avatar_url: null }];
+    router.navigate(projectHref(PROJECT, 'Rulebook'), { replace: true });
+  });
+
+  // Only possible if record() ran before applyRealtime: the payload is an id,
+  // so the title exists nowhere but the store this event is about to change.
+  it('names a deleted card from the board as it stood before the event applied', async () => {
+    board.tasks = [task('t1')];
+    const socket = await connectAndAuth(PROJECT);
+
+    vi.useFakeTimers();
+    try {
+      socket.receive(realtimeEvent('task_deleted', { id: 't1', actor_user_id: 'u2' }, PROJECT));
+      expect(board.tasks).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(boardAnnouncer.message).toBe('Ana deleted "t1"');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for a drag to finish, then announces what landed behind it', async () => {
+    const socket = await connectAndAuth(PROJECT);
+    board.dragging = true;
+
+    vi.useFakeTimers();
+    try {
+      socket.receive(
+        realtimeEvent('task_created', { ...task('t1'), actor_user_id: 'u2' }, PROJECT)
+      );
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(boardAnnouncer.message).toBe('');
+
+      board.dragging = false;
+      flushSync();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(boardAnnouncer.message).toBe('Ana added "t1"');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Every other board-event case in this file builds payloads with no actor, so
+  // this is the invariant that keeps them all silent.
+  it('announces nothing and tints nothing for an event that names no actor', async () => {
+    const socket = await connectAndAuth(PROJECT);
+
+    vi.useFakeTimers();
+    try {
+      socket.receive(realtimeEvent('task_created', task('t1'), PROJECT));
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(boardAnnouncer.message).toBe('');
+      expect(board.changedTaskIds.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

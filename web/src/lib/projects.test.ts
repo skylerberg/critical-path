@@ -739,11 +739,9 @@ describe('projects store', () => {
   it('applies project_position_updated to a loaded project', async () => {
     await loadWith([project()]);
 
-    projects.applyRealtime({
-      type: 'project_position_updated',
-      project_id: 'p-1',
-      data: { id: 'p-1', sort_key: 'V0000007501' },
-    });
+    projects.applyRealtime(
+      realtimeEvent('project_position_updated', { id: 'p-1', sort_key: 'V0000007501' }, 'p-1')
+    );
 
     expect(projects.projects[0]!.sort_key).toBe('V0000007501');
   });
@@ -1007,7 +1005,7 @@ describe('what changed since you last looked', () => {
       project({ id: 'p-2', name: 'Beta', has_unseen_changes: true, last_seen_at: SEEN }),
     ]);
 
-    projects.applyRealtime({ type: 'project_seen', project_id: 'p-1', data: { id: 'p-1' } });
+    projects.applyRealtime(realtimeEvent('project_seen', { id: 'p-1' }, 'p-1'));
 
     expect(dotted()).toEqual(['p-2']);
     expect(projects.projects[0]!.last_seen_at).not.toBe(SEEN);

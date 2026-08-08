@@ -282,6 +282,21 @@ class BoardStore {
     this.changedTaskIds.delete(taskId);
   }
 
+  // A teammate's live change earns the same tint as the entry capture's, so a
+  // card that moved while the reader was looking elsewhere is still findable
+  // afterwards — which is the half a spoken announcement cannot do, since it
+  // cannot be re-read or navigated to. Deliberately ignores #lookedAtTaskIds:
+  // having opened a card earlier in this visit is no reason to hide that it has
+  // changed since.
+  markRemotelyChanged(taskIds: Iterable<string>): void {
+    if (this.readonly) {
+      return;
+    }
+    for (const id of taskIds) {
+      this.changedTaskIds.add(id);
+    }
+  }
+
   // `quiet` suppresses the error page for reads that merely supplement an action
   // that already succeeded.
   async refetch({ quiet = false }: { quiet?: boolean } = {}): Promise<void> {
@@ -695,21 +710,28 @@ class BoardStore {
       column_since: now,
     };
     this.tasks = [...this.tasks, optimistic];
-    try {
-      const created = assertOk(
-        await api.POST('/api/tasks/{id}/duplicate', {
-          params: { path: { id: taskId } },
-          body: { id, ...placement },
-        })
-      );
+    const result = await this.#send<BoardTask>({
+      entityId: id,
+      label: `Duplicated “${truncateTitle(source.title)}”`,
+      semantics: 'create',
+      request: {
+        method: 'POST',
+        path: '/api/tasks/{id}/duplicate',
+        pathParams: { id: taskId },
+        body: { id, ...placement },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
+      return null;
+    }
+    if (result.status === 'sent') {
+      const created = result.data;
       this.tasks = this.tasks.map((task) =>
         task.id === id ? mergeCopy(optimistic, task, created) : task
       );
-      return id;
-    } catch (error) {
-      await this.#mutationFailed(error);
-      return null;
     }
+    return id;
   }
 
   // Awaiting the create before addBlocker guarantees the row exists server-side, so
@@ -1019,15 +1041,18 @@ class BoardStore {
     }
     const is_done = !column.is_done;
     this.columns = this.columns.map((c) => (c.id === columnId ? { ...c, is_done } : c));
-    try {
-      assertOk(
-        await api.PATCH('/api/columns/{id}', {
-          params: { path: { id: columnId } },
-          body: { is_done },
-        })
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
+    const result = await this.#send({
+      entityId: columnId,
+      label: `Marked “${truncateTitle(column.name)}” as ${is_done ? 'done' : 'not done'}`,
+      request: {
+        method: 'PATCH',
+        path: '/api/columns/{id}',
+        pathParams: { id: columnId },
+        body: { is_done },
+      },
+    });
+    if (result.status === 'failed') {
+      await this.#mutationFailed(result.error);
     }
   }
 

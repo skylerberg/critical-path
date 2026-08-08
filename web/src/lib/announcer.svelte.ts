@@ -1,6 +1,10 @@
 import { tick } from 'svelte';
 
-class Announcer {
+// Exported so a second channel can own its own region. Two independent messages
+// rather than one: the blank-then-write below spans a flush, so a remote change
+// landing inside that gap would replace the user's own feedback before Svelte
+// ever put it in the DOM.
+export class Announcer {
   message = $state('');
 
   // Blank, then write a flush later: an identical repeat is only re-read if the

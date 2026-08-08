@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import TaskAttachments from './TaskAttachments.svelte';
 import { board, type TaskAttachment } from '../lib/board.svelte';
+import { realtimeEvent } from '../lib/realtime-test-events';
 import { testUuid } from '../lib/test-ids';
 import { toasts } from '../lib/toasts.svelte';
 import type { BoardTask } from '../lib/board-types';
@@ -250,14 +251,16 @@ describe('TaskAttachments link rows', () => {
       'https://figma.com/file/abc'
     );
 
-    board.applyRealtime({
-      type: 'attachment_updated',
-      project_id: PROJECT_ID,
-      data: link('a1', {
-        title: 'Filled in',
-        preview_url: `/api/attachments/${testUuid('a1')}/preview`,
-      }),
-    });
+    board.applyRealtime(
+      realtimeEvent(
+        'attachment_updated',
+        link('a1', {
+          title: 'Filled in',
+          preview_url: `/api/attachments/${testUuid('a1')}/preview`,
+        }),
+        PROJECT_ID
+      )
+    );
 
     await waitFor(() => expect(screen.getByRole('link', { name: 'Filled in' })).toBeVisible());
     expect(screen.queryByText('Fetching preview…')).not.toBeInTheDocument();
