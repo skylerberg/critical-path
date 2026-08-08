@@ -3,7 +3,7 @@
   "workspaces": {
     ".": {
       "entry": [
-        "scripts/{dump-openapi,prune-test-databases,setup-hooks,with-test-db}.{ts,mjs}",
+        "scripts/*.{ts,mjs}",
         "eslint-rules/no-unqualified-kysely-columns.js",
         "src/db/migrations/**/*.ts"
       ],
@@ -18,5 +18,5 @@
       "project": ["src/**/*.ts", "tests/**/*.ts", "bin/*.mjs", "scripts/*.mjs"]
     }
   },
-  "ignore": ["src/db/types.ts", "cli/src/api/api.generated.ts"]
+  "ignore": ["src/db/types.ts", "cli/src/api/*.generated.ts"]
 }
