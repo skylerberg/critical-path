@@ -77,6 +77,35 @@ describe('createResetToken / verifyResetToken', () => {
     expect(verifyResetToken(token)).toEqual({ alternative_id: ALT_ID });
   });
 
+  it('names its own token family', () => {
+    const claims = JSON.parse(
+      Buffer.from(createResetToken(ALT_ID).split('.')[0], 'base64url').toString('utf8')
+    ) as Record<string, unknown>;
+    expect(claims.t).toBe('reset');
+  });
+
+  it('still accepts an untyped token minted by the previous release', () => {
+    const payload = Buffer.from(
+      JSON.stringify({ alternative_id: ALT_ID, exp: Date.now() + RESET_TOKEN_TTL_MS })
+    ).toString('base64url');
+    const signature = crypto
+      .createHmac('sha256', 'dev-only-password-reset-secret')
+      .update(payload)
+      .digest('base64url');
+    expect(verifyResetToken(`${payload}.${signature}`)).toEqual({ alternative_id: ALT_ID });
+  });
+
+  it('rejects a correctly signed token belonging to another family', () => {
+    const payload = Buffer.from(
+      JSON.stringify({ t: 'verify', alternative_id: ALT_ID, exp: Date.now() + RESET_TOKEN_TTL_MS })
+    ).toString('base64url');
+    const signature = crypto
+      .createHmac('sha256', 'dev-only-password-reset-secret')
+      .update(payload)
+      .digest('base64url');
+    expect(verifyResetToken(`${payload}.${signature}`)).toBeNull();
+  });
+
   it('compares signatures with timingSafeEqual', () => {
     const spy = vi.spyOn(crypto, 'timingSafeEqual');
     const token = createResetToken(ALT_ID);
