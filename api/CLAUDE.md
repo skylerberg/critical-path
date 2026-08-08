@@ -12,10 +12,13 @@ first (`npm run dev`, port 3001), then the web app (`npm run dev` in
 
 Both the web app and the `cli/` package generate their API client from this
 repo's OpenAPI spec. A change to any request/response schema must regenerate
-the committed clients and commit them together: `npm run openapi:dump` here,
-then `npm run generate:api` in `../critical-path-web` and
-`npm run --prefix cli generate-api` here. See `../critical-path-web/CLAUDE.md`
-for the frontend's conventions.
+the committed clients and commit them together: `npm run --prefix cli
+generate-api` here and `npm run generate:api` in `../critical-path-web`.
+Neither needs `npm run openapi:dump` first — both generators re-dump before
+reading, because the dump is a pure function of `src/` (no database, under two
+seconds) and producing one is cheaper than reasoning about whether the old one
+is stale. See `../critical-path-web/CLAUDE.md` for the frontend's
+conventions.
 
 Realtime and webhook event types come from a second document,
 `realtime-events.json`, because `/ws` has no HTTP request or response to put in
@@ -182,11 +185,12 @@ format:check`. Knip is the exception that covers both from the root, because
 `cli` is a knip workspace in knip.json — that is what resolves CLI imports
 against `cli/package.json` instead of the root's, and it is unrelated to npm
 workspaces, which this repo still must not use. After changing the API
-surface, run `npm run openapi:dump &&
-npm run --prefix cli generate-api` and commit the regenerated
+surface, run `npm run --prefix cli generate-api` and commit the regenerated
 `cli/src/api/api.generated.ts`; after changing a realtime payload, run
-`npm run realtime:dump && npm run --prefix cli generate-realtime` and commit
-`cli/src/api/realtime.generated.ts` alongside it.
+`npm run --prefix cli generate-realtime` and commit
+`cli/src/api/realtime.generated.ts` alongside it. Both re-dump first, so
+`openapi:dump` and `realtime:dump` are only needed to refresh the dumps for
+something else.
 
 # Staying current with main
 
@@ -211,9 +215,9 @@ git fetch origin && git rev-list --count HEAD..origin/main   # 0 means current
    mergeStateStatus` reports `CLEAN` only for a branch that still applies.
 
 After any rebase, re-run the checks rather than trusting the pre-rebase pass, and
-re-run whatever generation the change involves (`openapi:dump`,
-`realtime:dump`, the client generators) — a rebase can bring in a schema change
-that silently invalidates a committed generated file.
+re-run whatever generation the change involves (the client generators, which
+re-dump for themselves) — a rebase can bring in a schema change that silently
+invalidates a committed generated file.
 
 Two ways a stale base has produced *wrong* conclusions here, both worth guarding
 against directly:
