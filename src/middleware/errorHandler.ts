@@ -1,6 +1,5 @@
 import { Context } from 'hono';
 import { HTTPResponseError } from 'hono/types';
-import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
@@ -19,7 +18,7 @@ export function errorHandler(err: Error | HTTPResponseError, c: Context) {
       method: c.req.method,
       userId,
     });
-    return c.json({ error: err.message, ...err.extra }, err.statusCode as ContentfulStatusCode);
+    return c.json({ error: err.message, ...err.extra }, err.statusCode);
   }
 
   logger.error({
