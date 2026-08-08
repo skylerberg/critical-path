@@ -107,6 +107,14 @@ describe('Bulk assignment digest', () => {
     `.execute(db);
   }
 
+  // The mirror of ageBy, for a test whose point is that nothing goes out yet:
+  // the window is measured from the sweep rather than from however long the
+  // requests above happened to take, so a stalled machine cannot age the rows
+  // past DIGEST_QUIET_SECONDS and turn a held-back digest into a sent one.
+  async function freshen(): Promise<void> {
+    await sql`update pending_assignment_notification set created_at = now()`.execute(db);
+  }
+
   // Access without going through the membership route, whose own mail is
   // delivered by a fire-and-forget hook that would land in the middle of the
   // measurement this file exists to make.
@@ -244,6 +252,7 @@ describe('Bulk assignment digest', () => {
       const taskIds = await createTasks(2);
       expect((await bulkAssign(taskIds, [member.id])).status).toBe(200);
 
+      await freshen();
       expect(await runAssignmentDigestSweep()).toBe(0);
       expect(sentEmails()).toEqual([]);
       expect(await pendingCount()).toBe(2);

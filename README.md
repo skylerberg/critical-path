@@ -62,6 +62,13 @@ the account and not a message. The ceiling is far above any real shared egress
 theoretical denial of registration behind a NAT that sustains fifty signups an
 hour.
 
+`POST /api/auth/forgot-password` is capped at **5 an hour per source IP** and
+**3 an hour per email address**, and answers `429` past either. It refuses
+visibly rather than withholding the mail silently: the route already
+distinguishes a registered address from an unregistered one (see [Password
+change and reset](#password-change-and-reset)), so a visible throttle is no
+longer an oracle for anything the route does not already answer outright.
+
 ### Project members and access
 
 Every project is shared per-project: it is visible to its creator and to the
@@ -334,6 +341,15 @@ via a `sessions_revoked` entry naming the session (see
 backstop if that entry is ever missed.
 
 ### Password change and reset
+
+`POST /api/auth/forgot-password` is informative: **204** when an account exists
+for the address and the reset mail has been queued, **404** when none does, and
+**429** past either reset budget (5 an hour per source address, 3 an hour per
+email). It used to answer 204 unconditionally so the response could not reveal
+whether an address was registered — but `POST /api/auth/signup` already answers
+`409 Email already in use` to anyone, unauthenticated, so that property was
+never actually held. All it bought was that someone who mistyped their address
+waited for mail that was never coming.
 
 Neither `POST /api/auth/change-password` nor `POST /api/auth/reset-password`
 touches the `session` table. Both answer 204, and every session that was signed
@@ -1058,6 +1074,46 @@ handle creates need no new code; a 100-card column therefore publishes 101
 envelopes and, for projects with webhooks, enqueues 101 deliveries per
 registration.
 
+### How many cards a project holds
+
+A project holds at most **5,000 tasks** (`MAX_TASKS_PER_PROJECT` in
+`src/config/constants.ts`). Every path that creates one enforces it and answers
+**422** past it: single create, `POST /api/tasks/batch`, a card duplicate, a
+column duplicate, promoting a checklist item, and a project copy — whose ceiling
+applies to the live cards the source would contribute, since the destination
+starts empty. Nothing else changes: an existing project over the cap reads,
+edits, archives, moves and exports exactly as before, and only creating a new
+card is refused.
+
+**Archived cards count.** They hold rows and sort keys just like live ones, so
+exempting them would leave the ceiling unbounded to anyone archiving as they go.
+
+The cap is a denial-of-service guard, not an invariant. The single-create path
+deliberately takes **no lock** on the project row, unlike the webhook and series
+caps: those gate a rare operation, while this gates the hottest write in the
+product, and serialising every card a board creates behind one row lock would
+cost far more than the overshoot it prevents. Concurrent creates may therefore
+land a handful of rows past the ceiling. The copy and duplicate paths do lock,
+because they are rare, already expensive, and each adds thousands of rows at
+once; the lock excludes other bulk copies of the same project rather than
+concurrent single creates.
+
+Before the cap, a project of ~9,300 cards broke the copy outright: the task
+insert bound seven parameters per row in one unchunked statement and Postgres
+caps a statement at 65,535, so the copy answered 500 rather than refusing.
+`src/services/projectCopy.ts` now writes tasks, task labels, assignees,
+dependencies and checklist items in `BULK_INSERT_CHUNK` batches like the
+checklist rows always did.
+
+**The recurring sweep at the ceiling.** A full board makes materialisation fail
+rather than silently create nothing: the occurrence batch is refused whole — a
+partial fill would advance the schedule past the rest and drop cards with no
+trace — and the throw goes through the machinery the series already has. The
+reason lands in `last_error`, `consecutive_failures` climbs, and after
+`MAX_CONSECUTIVE_FAILURES` sweeps of a board that stayed full the series parks
+in `paused` with `next_occurrence_at` cleared. Until then it keeps retrying, so
+a board pruned back under the cap resumes on its own.
+
 ### Bulk task create
 
 `POST /api/tasks/batch` (`{ project_id, column_id, tasks }`) creates 1 to 100
@@ -1755,9 +1811,20 @@ emails all go through the driver named by `EMAIL_DRIVER`:
 
 - `console` (default) — logs the full email; the reset link is usable from the
   server log in development.
-- `ses` — sends via AWS SES v2. Requires `SES_REGION`, `SES_FROM_ADDRESS`, and
+- `ses` — sends via AWS SES v2. Requires `SES_FROM_ADDRESS`, a region
+  (`SES_REGION`, or `AWS_REGION`/`AWS_DEFAULT_REGION` the SDK's own way), and
   standard AWS SDK credentials in the environment. The SDK is loaded on first
   send only.
+
+`assertEmailConfig` in `src/config/env.ts` checks that pair at boot, beside
+`assertProxyConfig`, and only when `EMAIL_DRIVER=ses` — console and memory
+deployments are untouched. It is a boot failure rather than a first-send failure
+because every send in the product runs inside a post-commit hook, where a throw
+is caught and logged and the request still answers 2xx: a production deploy
+missing `SES_FROM_ADDRESS` used to look perfectly healthy while sending no mail
+at all. `SesEmailSender.send` keeps its own check as a backstop, since both
+variables are read live from `process.env` and a process can enter SES mode
+after boot; the boot assertion only ever speaks for the configuration it saw.
 
 `POST /api/feedback` (authenticated) stores user-submitted feedback in the
 `feedback` table and emails it to `FEEDBACK_EMAIL_ADDRESS` (default
@@ -2386,11 +2453,19 @@ carrying no stamp — from before this scheme, or from another tool — are neve
 removed automatically; `npm run test:db:prune` lists them and `npm run
 test:db:prune -- --legacy` drops them.
 
-The in-process rate limiter is reset once per test file, so each file starts on
-a full budget rather than on whatever the file before it left. Every test
-request presents the same source IP, so a file shares one budget of 50 account
-creations; a file needing more than that has to call `resetRateLimiter()`
-between tests.
+`tests/setup/resetProcessState.ts` clears the process-global state no test owns
+— the in-process rate limiter's windows and the job runner's in-flight slot
+count — before every file and before every test, so neither the file above nor
+the test above can decide what a test starts from. Every test request presents
+the same source IP, so a budget of 50 account creations would otherwise be
+shared by a whole file.
+
+Three globals are deliberately left out of it: the realtime socket registry, the
+bus subscribers and the job handler registry. Several files open sockets,
+subscribe or register handlers once per file in `beforeAll`, and clearing those
+between tests would break those files rather than isolate them, so they stay
+each file's own responsibility. That is why `--sequence.shuffle.files` passes
+and plain `--sequence.shuffle` does not.
 
 ### Real Redis
 

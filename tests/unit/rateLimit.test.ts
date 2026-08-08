@@ -146,17 +146,13 @@ describe('enforceResetRateLimit', () => {
   const app = new Hono();
   app.onError(errorHandler);
   app.post('/forgot/:email', async (c) => {
-    const shouldSend = await enforceResetRateLimit(c, c.req.param('email'));
-    return c.json({ shouldSend }, 200);
+    await enforceResetRateLimit(c, c.req.param('email'));
+    return c.body(null, 204);
   });
 
-  async function attempt(
-    email: string,
-    headers: Record<string, string> = {}
-  ): Promise<{ status: number; shouldSend: boolean }> {
+  async function attempt(email: string, headers: Record<string, string> = {}): Promise<number> {
     const res = await app.request(`/forgot/${email}`, { method: 'POST', headers });
-    const body = (await res.json()) as { shouldSend: boolean };
-    return { status: res.status, shouldSend: body.shouldSend };
+    return res.status;
   }
 
   beforeEach(() => {
@@ -167,40 +163,33 @@ describe('enforceResetRateLimit', () => {
     delete process.env.TRUST_PROXY;
   });
 
-  it('returns false instead of erroring once the IP budget is spent', async () => {
+  it('refuses with 429 once the IP budget is spent', async () => {
     for (let i = 0; i < RESET_IP_MAX_ATTEMPTS; i++) {
-      const res = await attempt(`user-${i}@example.com`);
-      expect(res).toEqual({ status: 200, shouldSend: true });
+      expect(await attempt(`user-${i}@example.com`)).toBe(204);
     }
 
-    const throttled = await attempt('user-next@example.com');
-    expect(throttled).toEqual({ status: 200, shouldSend: false });
+    expect(await attempt('user-next@example.com')).toBe(429);
   });
 
   it('caps per email across distinct source IPs', async () => {
     process.env.TRUST_PROXY = 'true';
 
     for (let i = 0; i < RESET_EMAIL_MAX_ATTEMPTS; i++) {
-      const res = await attempt('victim@example.com', { 'X-Forwarded-For': `203.0.113.${i}` });
-      expect(res.shouldSend).toBe(true);
+      expect(await attempt('victim@example.com', { 'X-Forwarded-For': `203.0.113.${i}` })).toBe(
+        204
+      );
     }
 
-    const throttled = await attempt('Victim@Example.com', {
-      'X-Forwarded-For': '198.51.100.50',
-    });
-    expect(throttled.shouldSend).toBe(false);
+    expect(await attempt('Victim@Example.com', { 'X-Forwarded-For': '198.51.100.50' })).toBe(429);
 
-    const otherEmail = await attempt('other@example.com', {
-      'X-Forwarded-For': '198.51.100.51',
-    });
-    expect(otherEmail.shouldSend).toBe(true);
+    expect(await attempt('other@example.com', { 'X-Forwarded-For': '198.51.100.51' })).toBe(204);
   });
 
   it('uses buckets independent of the auth limiter', async () => {
     for (let i = 0; i < RESET_EMAIL_MAX_ATTEMPTS; i++) {
-      expect((await attempt('victim@example.com')).shouldSend).toBe(true);
+      expect(await attempt('victim@example.com')).toBe(204);
     }
-    expect((await attempt('victim@example.com')).shouldSend).toBe(false);
+    expect(await attempt('victim@example.com')).toBe(429);
 
     const authApp = new Hono();
     authApp.onError(errorHandler);

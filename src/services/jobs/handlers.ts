@@ -69,6 +69,10 @@ export function unregisterJobHandler(kind: string): void {
   handlers.delete(kind);
 }
 
+export function resetJobHandlers(): void {
+  handlers.clear();
+}
+
 export function jobHandler(kind: string): RegisteredJobHandler | undefined {
   return handlers.get(kind);
 }

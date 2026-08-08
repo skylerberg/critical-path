@@ -2,7 +2,11 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { TestContext } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId, uniqueEmail } from '../../helpers/fixtures';
-import { resetRateLimiter, RESET_EMAIL_MAX_ATTEMPTS } from '../../../src/services/rateLimit';
+import {
+  resetRateLimiter,
+  RESET_EMAIL_MAX_ATTEMPTS,
+  RESET_IP_MAX_ATTEMPTS,
+} from '../../../src/services/rateLimit';
 import { createResetToken, RESET_TOKEN_TTL_MS } from '../../../src/services/resetToken';
 import { sentEmails, clearSentEmails } from '../../../src/services/email/index';
 import { env } from '../../../src/config/env';
@@ -52,12 +56,13 @@ describe('Password reset', () => {
   });
 
   describe('POST /api/auth/forgot-password', () => {
-    it('returns 204 for an unknown email and sends nothing', async () => {
+    it('returns 404 for an unknown email and sends nothing', async () => {
       const res = await ctx
         .request()
         .post('/api/auth/forgot-password', { email: uniqueEmail('nobody') });
 
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(404);
+      expect((await res.json()).error).toBe('No account exists for that email address');
       expect(sentEmails()).toEqual([]);
     });
 
@@ -88,7 +93,7 @@ describe('Password reset', () => {
       expect(emails[0].to).toBe(user.email);
     });
 
-    it('still returns 204 when rate limited, without sending', async () => {
+    it('returns 429 when rate limited, without sending', async () => {
       const user = await createUser('forgot-limit');
       for (let i = 0; i < RESET_EMAIL_MAX_ATTEMPTS; i++) {
         const res = await ctx.request().post('/api/auth/forgot-password', { email: user.email });
@@ -99,8 +104,27 @@ describe('Password reset', () => {
       const throttled = await ctx
         .request()
         .post('/api/auth/forgot-password', { email: user.email });
-      expect(throttled.status).toBe(204);
+      expect(throttled.status).toBe(429);
+      expect((await throttled.json()).error).toBe(
+        'Too many password reset requests, please try again later'
+      );
       expect(sentEmails()).toHaveLength(RESET_EMAIL_MAX_ATTEMPTS);
+    });
+
+    // The throttle answers before the lookup, so it cannot become the answer
+    // about an address the caller has run out of budget to ask about.
+    it('returns 429 rather than 404 for an unknown email once the budget is spent', async () => {
+      for (let i = 0; i < RESET_IP_MAX_ATTEMPTS; i++) {
+        const res = await ctx
+          .request()
+          .post('/api/auth/forgot-password', { email: uniqueEmail(`ip-budget-${String(i)}`) });
+        expect(res.status).toBe(404);
+      }
+
+      const throttled = await ctx
+        .request()
+        .post('/api/auth/forgot-password', { email: uniqueEmail('ip-budget-next') });
+      expect(throttled.status).toBe(429);
     });
 
     it('returns 422 for an invalid email', async () => {

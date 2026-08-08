@@ -130,10 +130,15 @@ describe('Recurring series API', () => {
     return res;
   }
 
-  async function todayInBerlin(): Promise<string> {
-    const { rows } = await sql<{
-      today: string;
-    }>`select to_char((now() at time zone ${TZ})::date, 'YYYY-MM-DD') as today`.execute(db);
+  // `at` is the instant the request that produced a schedule ran at, taken from
+  // the row's own created_at/updated_at. Both that column and the handler's
+  // "today" come from now(), which is the transaction's timestamp, so the day
+  // this reports is the day the server scheduled from — not the day it happens
+  // to be by the time the assertion runs.
+  async function todayInBerlin(at: Date): Promise<string> {
+    const { rows } = await sql<{ today: string }>`
+      select to_char((${at}::timestamptz at time zone ${TZ})::date, 'YYYY-MM-DD') as today
+    `.execute(db);
     return rows[0].today;
   }
 
@@ -399,22 +404,20 @@ describe('Recurring series API', () => {
 
   describe('forward-only scheduling', () => {
     it('never backfills a start date in the past', async () => {
-      const today = await todayInBerlin();
       const created = await create({ preset: 'daily', start_date: '2020-01-01' });
-      expect(created.next_occurrence_date).toBe(today);
+      expect(created.next_occurrence_date).toBe(await todayInBerlin(new Date(created.created_at)));
       expect(created.missed_occurrence_count).toBe(0);
       expect(created.last_occurrence_date).toBeNull();
     });
 
     it('never moves the next occurrence earlier than today on a rule change', async () => {
-      const today = await todayInBerlin();
       const created = await create({ preset: 'weekly', start_date: '2020-01-06' });
       const res = await ctx
         .request(owner.token)
         .patch(`/api/task-series/${created.id}`, { preset: 'daily', start_date: '2019-05-05' });
       expect(res.status).toBe(200);
       const updated = (await res.json()) as SeriesBody;
-      expect(updated.next_occurrence_date).toBe(today);
+      expect(updated.next_occurrence_date).toBe(await todayInBerlin(new Date(updated.updated_at)));
       expect(updated.rrule).toBe('FREQ=DAILY');
     });
   });
@@ -487,7 +490,6 @@ describe('Recurring series API', () => {
     });
 
     it('pauses and resumes, rescheduling from today rather than from the backlog', async () => {
-      const today = await todayInBerlin();
       const created = await create({ preset: 'daily' });
 
       const paused = await ctx
@@ -514,7 +516,7 @@ describe('Recurring series API', () => {
       expect(resumed.status).toBe(200);
       const body = (await resumed.json()) as SeriesBody;
       expect(body.status).toBe('active');
-      expect(body.next_occurrence_date).toBe(today);
+      expect(body.next_occurrence_date).toBe(await todayInBerlin(new Date(body.updated_at)));
       expect(body.missed_occurrence_count).toBe(0);
     });
 

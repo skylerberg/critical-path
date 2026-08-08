@@ -186,14 +186,20 @@ web app and the CLI generate from it.
   every replica delivers to its own sockets. Rate limits also share Redis
   counters then, falling back to per-process windows if Redis is unreachable.
 - Password-reset emails go through `src/services/email` (`EMAIL_DRIVER`:
-  `console` default, `ses` loads the AWS SDK on first send). Reset tokens are
+  `console` default, `ses` loads the AWS SDK on first send; `assertEmailConfig`
+  in `src/config/env.ts` fails the boot when `EMAIL_DRIVER=ses` names no from
+  address or no region, because every send runs in a post-commit hook where a
+  throw is caught and logged and the deploy looks healthy). Reset tokens are
   stateless HMAC (`PASSWORD_RESET_SECRET`, required in production), 15-minute
   TTL. Every link the server mails is built in `src/services/webLinks.ts` from
   `APP_URL_BASE`, never in the service that sends it: the paths are pinned there
   and again in the web app's `src/lib/router.test.ts`, which is what keeps a
   route rename from quietly turning mail into a not-found page. `POST
-  /api/auth/forgot-password` always answers 204 and enqueues the send as a
-  post-commit hook.
+  /api/auth/forgot-password` answers 204 and enqueues the send as a post-commit
+  hook for an address that has an account, 404 for one that does not, and 429
+  past either reset budget. It is deliberately informative: signup already
+  answers 409 for an address in use, unauthenticated, so a non-revealing
+  forgot-password bought nothing and cost every mistyped address a silent wait.
 - Every mailed-link token — password reset, email verification, unsubscribe —
   is one codec, `src/services/signedToken.ts`
   (`base64url(claims).base64url(hmac)`). The families share a secret
@@ -290,6 +296,14 @@ against directly:
   opening the PR, and when a change is broad enough that you cannot name the
   files it affects (a shared helper, middleware, a schema everything imports).
 - `npm test` — full suite (loads `.env.test`, migrates + truncates).
+- `tests/setup/resetProcessState.ts` clears the process-global state no test
+  owns — the rate limiter's windows and the job runner's in-flight count —
+  before every file and every test. The realtime socket registry, the bus
+  subscribers and the job handler registry are deliberately not in it: several
+  files set those up once per file in `beforeAll`, so clearing them per test
+  would break those files rather than isolate them, and they stay each file's
+  own responsibility. That is also why `--sequence.shuffle.files` passes and
+  plain `--sequence.shuffle` does not.
 - The test database name is derived, never configured: `vitest.config.ts`
   appends this checkout's directory name and a hash of its path to the
   `_test`-suffixed base in `.env.test`, and `globalSetup` creates it. That is

@@ -922,7 +922,7 @@ router.post(
   }
 );
 
-const forgotPasswordResponses = { 204: emptyResponse('Accepted') };
+const forgotPasswordResponses = { 204: emptyResponse('Reset email sent') };
 
 publicAuthRouter.post(
   '/forgot-password',
@@ -930,11 +930,16 @@ publicAuthRouter.post(
     tags: ['Auth'],
     summary: 'Request password reset',
     description:
-      'Email a password-reset link if an account with that address exists. Always responds ' +
-      '204 so the response never reveals whether the email is registered.',
+      'Email a password-reset link. Responds 204 when an account with that address exists and ' +
+      '404 when none does, so someone who mistyped their address is told so rather than left ' +
+      'waiting for mail that will never arrive. This is no more revealing than signup, which ' +
+      'already answers 409 for an address in use. Repeated requests are rate limited per ' +
+      'source address and per email and answer 429.',
     responses: {
       ...forgotPasswordResponses,
+      ...notFoundErrorResponse,
       ...validationErrorResponse,
+      ...tooManyRequestsErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -943,28 +948,30 @@ publicAuthRouter.post(
   async (c): Promise<Returned<typeof forgotPasswordResponses>> => {
     const { email } = c.req.valid('json');
 
-    if (await enforceResetRateLimit(c, email)) {
-      const user = await c
-        .get('db')
-        .selectFrom('app_user')
-        .select(['email', 'alternative_id'])
-        .where((eb) => eb(eb.fn<string>('lower', ['email']), '=', email.toLowerCase()))
-        .executeTakeFirst();
+    await enforceResetRateLimit(c, email);
 
-      if (user) {
-        const link = passwordResetLink(createResetToken(user.alternative_id));
-        c.get('postCommitHooks').push(() =>
-          getEmailSender().send({
-            to: user.email,
-            subject: `Reset your ${APP_NAME} password`,
-            text:
-              `We received a request to reset your ${APP_NAME} password.\n\n` +
-              `Reset it here (the link expires in 15 minutes): ${link}\n\n` +
-              'If you did not request this, you can ignore this email.',
-          })
-        );
-      }
+    const user = await c
+      .get('db')
+      .selectFrom('app_user')
+      .select(['email', 'alternative_id'])
+      .where((eb) => eb(eb.fn<string>('lower', ['email']), '=', email.toLowerCase()))
+      .executeTakeFirst();
+
+    if (!user) {
+      throw new AppError(404, 'No account exists for that email address');
     }
+
+    const link = passwordResetLink(createResetToken(user.alternative_id));
+    c.get('postCommitHooks').push(() =>
+      getEmailSender().send({
+        to: user.email,
+        subject: `Reset your ${APP_NAME} password`,
+        text:
+          `We received a request to reset your ${APP_NAME} password.\n\n` +
+          `Reset it here (the link expires in 15 minutes): ${link}\n\n` +
+          'If you did not request this, you can ignore this email.',
+      })
+    );
 
     return c.body(null, 204);
   }

@@ -3,7 +3,9 @@ import type { DB, ResolvedSortKey } from '../db/types';
 import { copyTaskAttachments } from './attachments/copy';
 import { IMAGE_KIND } from './attachments/index';
 import { storage } from './storage/index';
-import { CHECKLIST_INSERT_CHUNK } from '../config/constants';
+import { BULK_INSERT_CHUNK, MAX_TASKS_PER_PROJECT } from '../config/constants';
+import { chunk } from '../utils/arrays';
+import { taskCapMessage } from './taskCap';
 import { AppError, errorText } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { dueDateText } from './dateText';
@@ -105,25 +107,27 @@ export async function copyTasks(
   }
 
   if (tasks.length > 0) {
-    await db
-      .insertInto('task')
-      .values(
-        tasks.map((task) => ({
-          id: taskIdMap.get(task.id) as string,
-          project_id: input.projectId,
-          column_id: input.columnIdFor(task.column_id),
-          title: task.title,
-          description:
-            task.description === null
-              ? null
-              : JSON.stringify(
-                  rewriteDescriptionImageIds(task.description as unknown as TiptapDoc, imageIdMap)
-                ),
-          sort_key: destinationKeys.get(task.id) as ResolvedSortKey,
-          due_date: task.due_date,
-        }))
-      )
-      .execute();
+    for (const batch of chunk(tasks, BULK_INSERT_CHUNK)) {
+      await db
+        .insertInto('task')
+        .values(
+          batch.map((task) => ({
+            id: taskIdMap.get(task.id) as string,
+            project_id: input.projectId,
+            column_id: input.columnIdFor(task.column_id),
+            title: task.title,
+            description:
+              task.description === null
+                ? null
+                : JSON.stringify(
+                    rewriteDescriptionImageIds(task.description as unknown as TiptapDoc, imageIdMap)
+                  ),
+            sort_key: destinationKeys.get(task.id) as ResolvedSortKey,
+            due_date: task.due_date,
+          }))
+        )
+        .execute();
+    }
 
     // The copies are new cards whose history starts here.
     await recordTaskActivity(
@@ -143,11 +147,11 @@ export async function copyTasks(
     .where('task_label.task_id', 'in', input.sourceTaskIds)
     .execute();
 
-  if (taskLabels.length > 0) {
+  for (const batch of chunk(taskLabels, BULK_INSERT_CHUNK)) {
     await db
       .insertInto('task_label')
       .values(
-        taskLabels.map((row) => ({
+        batch.map((row) => ({
           task_id: taskIdMap.get(row.task_id) as string,
           label_id: labelIdFor(row.label_id),
         }))
@@ -162,11 +166,11 @@ export async function copyTasks(
       .where('task_assignee.task_id', 'in', input.sourceTaskIds)
       .execute();
 
-    if (assignees.length > 0) {
+    for (const batch of chunk(assignees, BULK_INSERT_CHUNK)) {
       await db
         .insertInto('task_assignee')
         .values(
-          assignees.map((row) => ({
+          batch.map((row) => ({
             task_id: taskIdMap.get(row.task_id) as string,
             user_id: row.user_id,
           }))
@@ -184,11 +188,11 @@ export async function copyTasks(
   // to a card nobody duplicated.
   const copyableDependencies = dependencies.filter((row) => taskIdMap.has(row.blocker_task_id));
 
-  if (copyableDependencies.length > 0) {
+  for (const batch of chunk(copyableDependencies, BULK_INSERT_CHUNK)) {
     await db
       .insertInto('task_dependency')
       .values(
-        copyableDependencies.map((row) => ({
+        batch.map((row) => ({
           blocker_task_id: taskIdMap.get(row.blocker_task_id) as string,
           blocked_task_id: taskIdMap.get(row.blocked_task_id) as string,
         }))
@@ -207,11 +211,11 @@ export async function copyTasks(
     .where('checklist_item.task_id', 'in', input.sourceTaskIds)
     .execute();
 
-  for (let start = 0; start < checklistItems.length; start += CHECKLIST_INSERT_CHUNK) {
+  for (const batch of chunk(checklistItems, BULK_INSERT_CHUNK)) {
     await db
       .insertInto('checklist_item')
       .values(
-        checklistItems.slice(start, start + CHECKLIST_INSERT_CHUNK).map((row) => ({
+        batch.map((row) => ({
           id: crypto.randomUUID(),
           task_id: taskIdMap.get(row.task_id) as string,
           text: row.text,
@@ -227,7 +231,7 @@ export async function copyTasks(
     sourceTaskIds: input.sourceTaskIds,
     taskIdMap,
     imageIdMap,
-    insertChunk: CHECKLIST_INSERT_CHUNK,
+    insertChunk: BULK_INSERT_CHUNK,
   });
 
   // Stored objects live outside the transaction, so a partial copy has to be
@@ -330,12 +334,19 @@ export async function copyProject(db: Kysely<DB>, input: CopyProjectInput): Prom
     labelIdFor: (labelId) => labelIdMap.get(labelId) as string,
   });
 
+  // The destination is brand new and holds nothing, so the ceiling applies to
+  // what the source will contribute. A source already over it — one that predates
+  // the cap — is copyable only by first pruning it, which is the same answer
+  // every other creating path gives.
   const sourceTasks = await db
     .selectFrom('task')
     .select('task.id')
     .where('task.project_id', '=', input.sourceProjectId)
     .where('task.archived_at', 'is', null)
     .execute();
+  if (sourceTasks.length > MAX_TASKS_PER_PROJECT) {
+    throw new AppError(422, taskCapMessage(sourceTasks.length));
+  }
 
   await copyTasks(db, {
     sourceTaskIds: sourceTasks.map((task) => task.id),

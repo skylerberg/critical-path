@@ -101,15 +101,21 @@ describe.skipIf(!redisTestUrl)('the shipped rate limit scripts on a real Redis',
     expect(await stored('slide')).toBe('2');
   });
 
+  // The window is a minute and the key is then expired outright, rather than a
+  // 250ms window slept through: two round trips racing a quarter-second budget
+  // decide this test on how loaded the machine is, and it is Redis dropping the
+  // key that it is actually about.
   it("lets the budget back once the server's own clock has passed the window", async () => {
-    expect(await consumeRateLimit(named('expiry'), Date.now(), 1, 250)).toBe(true);
-    expect(await consumeRateLimit(named('expiry'), Date.now(), 1, 250)).toBe(false);
+    expect(await consumeRateLimit(named('expiry'), Date.now(), 1, 60_000)).toBe(true);
+    expect(await consumeRateLimit(named('expiry'), Date.now(), 1, 60_000)).toBe(false);
     expect(await stored('expiry')).toBe('1');
 
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await client.pExpire(`ratelimit:${named('expiry')}`, 1);
+    await vi.waitFor(async () => {
+      expect(await stored('expiry')).toBeNull();
+    });
 
-    expect(await stored('expiry')).toBeNull();
-    expect(await consumeRateLimit(named('expiry'), Date.now(), 1, 250)).toBe(true);
+    expect(await consumeRateLimit(named('expiry'), Date.now(), 1, 60_000)).toBe(true);
   });
 
   // Nothing serializes these but the script itself, and each one is a real
