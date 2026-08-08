@@ -2,7 +2,6 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import QuickMenus from './QuickMenus.svelte';
-import Announcer from './ui/Announcer.svelte';
 import { announcer } from '../lib/announcer.svelte';
 import { awayBoard, board } from '../lib/board.svelte';
 import type { BoardPayload, BoardTask } from '../lib/board-types';
@@ -256,7 +255,6 @@ describe('quick menus on a project route', () => {
     ];
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
     render(QuickMenus);
-    render(Announcer);
     selection.set(T1);
 
     press('m');
@@ -272,10 +270,10 @@ describe('quick menus on a project route', () => {
       sort_key: expect.any(String),
     });
     expect(shortcuts.moveMenu).toBeNull();
+    // The store, not a region: Announcer takes its text as a prop now, so the
+    // wiring that puts it on screen belongs to the shell and is asserted there.
     await waitFor(() => {
-      expect(screen.getAllByRole('status').map((region) => region.textContent)).toContain(
-        'Moved "Design cards" to Done, position 3 of 3'
-      );
+      expect(announcer.message).toBe('Moved "Design cards" to Done, position 3 of 3');
     });
   });
 

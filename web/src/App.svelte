@@ -2,7 +2,9 @@
   import { router } from './lib/router.svelte';
   import { isAuthOptionalRoute, isPublicRoute, session } from './lib/session.svelte';
   import { users } from './lib/users.svelte';
+  import { announcer } from './lib/announcer.svelte';
   import { board } from './lib/board.svelte';
+  import { boardAnnouncer } from './lib/board-announcer.svelte';
   import { cardContext } from './lib/card-context.svelte';
   import { conflictDrafts } from './lib/conflictDrafts.svelte';
   import { drafts } from './lib/drafts.svelte';
@@ -55,6 +57,7 @@
       // Per-account caches must not survive into the next session in this tab.
       users.reset();
       board.reset();
+      boardAnnouncer.reset();
       cardContext.reset();
       invitations.reset();
       myTasks.reset();
@@ -152,8 +155,13 @@
   {/if}
   <QuickMenus />
   <!-- Outside every route branch: a region created in the same flush as its text is
-       not announced, and it has to outlive the menu that wrote to it. -->
-  <Announcer />
+       not announced, and it has to outlive the menu that wrote to it. Two of them,
+       one per channel: written in the same flush, a teammate's change and the user's
+       own feedback would overwrite each other before either reached the DOM. The
+       local one comes first, because assistive tech queues polite regions in DOM
+       order and your own action is the one you are waiting on. -->
+  <Announcer message={announcer.message} />
+  <Announcer message={boardAnnouncer.message} />
 {/if}
 
 <Toasts />

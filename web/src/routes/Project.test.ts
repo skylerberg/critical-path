@@ -6,6 +6,8 @@ import Project from './Project.svelte';
 import ProjectRoute from './ProjectRoute.svelte';
 import QuickMenus from '../components/QuickMenus.svelte';
 import { announcer } from '../lib/announcer.svelte';
+import { boardAnnouncer } from '../lib/board-announcer.svelte';
+import { realtimeEvent } from '../lib/realtime-test-events';
 import { board } from '../lib/board.svelte';
 import { noFilters } from '../lib/board-filters';
 import { drafts } from '../lib/drafts.svelte';
@@ -462,6 +464,39 @@ describe('Project', () => {
     await waitFor(() => {
       expect(announcer.message).toBe('');
     });
+  });
+
+  it('drops a pending remote announcement when the shell switches project', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const id = /^\/api\/projects\/(.+)$/.exec(new URL((input as Request).url).pathname)?.[1];
+      if (id === undefined) {
+        return jsonResponse(200, { users: [] });
+      }
+      return jsonResponse(200, payload(id, [task(T1, 'todo', 'Design cards')]));
+    });
+
+    const projectId = testUuid('p-shell-board-announcer-clear');
+    const view = render(Project, { props: { projectId, view: 'board' } });
+    await screen.findByText('Design cards');
+
+    // Fake timers only around the window, so the buffered change is still
+    // pending when the switch happens and would otherwise be spoken after it.
+    vi.useFakeTimers();
+    try {
+      boardAnnouncer.record(
+        realtimeEvent(
+          'task_created',
+          { ...task(T2, 'todo', 'Theirs'), actor_user_id: 'u-them' },
+          projectId
+        )
+      );
+      await view.rerender({ projectId: testUuid('p-shell-board-announcer-next'), view: 'board' });
+      await vi.advanceTimersByTimeAsync(1500);
+
+      expect(boardAnnouncer.message).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

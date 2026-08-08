@@ -25,6 +25,7 @@ export interface components {
       | components['schemas']['CommentCreatedEvent']
       | components['schemas']['CommentDeletedEvent']
       | components['schemas']['CommentUpdatedEvent']
+      | components['schemas']['CrossProjectBlockersChangedEvent']
       | components['schemas']['InvitationsChangedEvent']
       | components['schemas']['LabelCreatedEvent']
       | components['schemas']['LabelDeletedEvent']
@@ -86,6 +87,7 @@ export interface components {
       type: 'attachment_created';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         attachment_count: number;
         content_type: string | null;
         created_at: string;
@@ -117,6 +119,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         attachment_count: number;
         content_type: string | null;
         created_at: string;
@@ -142,6 +145,7 @@ export interface components {
       type: 'attachment_deleted';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         attachment_count: number;
         cover_image_url: string | null;
         id: string;
@@ -159,6 +163,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         attachment_count: number;
         cover_image_url: string | null;
         id: string;
@@ -170,6 +175,7 @@ export interface components {
       type: 'attachment_updated';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         content_type: string | null;
         created_at: string;
         description: string | null;
@@ -200,6 +206,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         content_type: string | null;
         created_at: string;
         description: string | null;
@@ -224,6 +231,7 @@ export interface components {
       type: 'bulk_tasks_archived';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         tasks: {
           archived_at: string;
           assignee_ids: string[];
@@ -244,6 +252,7 @@ export interface components {
           due_date: string | null;
           id: string;
           label_ids: string[];
+          open_cross_project_blocker_count: number;
           sort_key: string;
           title: string;
           updated_at: string;
@@ -255,6 +264,7 @@ export interface components {
       type: 'bulk_tasks_moved';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         moved_tasks: {
           column_id: string;
           id: string;
@@ -267,10 +277,12 @@ export interface components {
       type: 'bulk_tasks_relations_set';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         tasks: {
           assignee_ids: string[];
           blocker_ids: string[];
           label_ids: string[];
+          open_cross_project_blocker_count: number;
           task_id: string;
         }[];
       };
@@ -280,6 +292,7 @@ export interface components {
       type: 'checklist_item_created';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         checked: boolean;
         checklist_done_count: number;
         checklist_item_count: number;
@@ -302,6 +315,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         checked: boolean;
         checklist_done_count: number;
         checklist_item_count: number;
@@ -318,6 +332,7 @@ export interface components {
       type: 'checklist_item_deleted';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         checklist_done_count: number;
         checklist_item_count: number;
         id: string;
@@ -335,6 +350,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         checklist_done_count: number;
         checklist_item_count: number;
         id: string;
@@ -346,6 +362,7 @@ export interface components {
       type: 'checklist_item_updated';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         checked: boolean;
         checklist_done_count: number;
         checklist_item_count: number;
@@ -368,6 +385,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         checked: boolean;
         checklist_done_count: number;
         checklist_item_count: number;
@@ -384,6 +402,7 @@ export interface components {
       type: 'column_created';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         created_at: string;
         id: string;
         is_done: boolean;
@@ -403,6 +422,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         created_at: string;
         id: string;
         is_done: boolean;
@@ -416,6 +436,7 @@ export interface components {
       type: 'column_deleted';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         id: string;
         moved_tasks: {
           column_id: string;
@@ -435,6 +456,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         id: string;
         moved_tasks: {
           column_id: string;
@@ -448,6 +470,7 @@ export interface components {
       type: 'column_tasks_archived';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         column_id: string;
         tasks: {
           archived_at: string;
@@ -469,6 +492,7 @@ export interface components {
           due_date: string | null;
           id: string;
           label_ids: string[];
+          open_cross_project_blocker_count: number;
           sort_key: string;
           title: string;
           updated_at: string;
@@ -480,6 +504,7 @@ export interface components {
       type: 'column_tasks_moved';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         column_id: string;
         moved_tasks: {
           column_id: string;
@@ -494,6 +519,7 @@ export interface components {
       type: 'column_tasks_reordered';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         column_id: string;
         moved_tasks: {
           column_id: string;
@@ -507,6 +533,7 @@ export interface components {
       type: 'column_updated';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         created_at: string;
         id: string;
         is_done: boolean;
@@ -526,6 +553,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         created_at: string;
         id: string;
         is_done: boolean;
@@ -539,6 +567,7 @@ export interface components {
       type: 'comment_created';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         body: {
           /** @constant */
           type: 'doc';
@@ -563,6 +592,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         body: {
           /** @constant */
           type: 'doc';
@@ -581,6 +611,7 @@ export interface components {
       type: 'comment_deleted';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         comment_count: number;
         id: string;
         task_id: string;
@@ -597,6 +628,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         comment_count: number;
         id: string;
         task_id: string;
@@ -607,6 +639,7 @@ export interface components {
       type: 'comment_updated';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         body: {
           /** @constant */
           type: 'doc';
@@ -630,6 +663,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         body: {
           /** @constant */
           type: 'doc';
@@ -640,6 +674,17 @@ export interface components {
         task_id: string;
         updated_at: string;
         user_id: string;
+      };
+    };
+    CrossProjectBlockersChangedEvent: {
+      /** @constant */
+      type: 'cross_project_blockers_changed';
+      project_id: string;
+      data: {
+        tasks: {
+          open_cross_project_blocker_count: number;
+          task_id: string;
+        }[];
       };
     };
     InvitationsChangedEvent: {
@@ -655,6 +700,7 @@ export interface components {
       type: 'label_created';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         color: string;
         id: string;
         name: string;
@@ -672,6 +718,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         color: string;
         id: string;
         name: string;
@@ -683,6 +730,7 @@ export interface components {
       type: 'label_deleted';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         id: string;
       };
     };
@@ -697,6 +745,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         id: string;
       };
     };
@@ -705,6 +754,7 @@ export interface components {
       type: 'label_updated';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         color: string;
         id: string;
         name: string;
@@ -722,6 +772,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         color: string;
         id: string;
         name: string;
@@ -965,6 +1016,7 @@ export interface components {
       type: 'task_archived';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         archived_at: string;
         assignee_ids: string[];
         attachment_count: number;
@@ -984,6 +1036,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1000,6 +1053,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         archived_at: string;
         assignee_ids: string[];
         attachment_count: number;
@@ -1019,6 +1073,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1029,6 +1084,7 @@ export interface components {
       type: 'task_created';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         assignee_ids: string[];
         attachment_count: number;
         blocker_ids: string[];
@@ -1047,6 +1103,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1063,6 +1120,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         assignee_ids: string[];
         attachment_count: number;
         blocker_ids: string[];
@@ -1081,6 +1139,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1091,6 +1150,7 @@ export interface components {
       type: 'task_deleted';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         id: string;
       };
     };
@@ -1105,6 +1165,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         id: string;
       };
     };
@@ -1113,9 +1174,11 @@ export interface components {
       type: 'task_relations_set';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         assignee_ids: string[];
         blocker_ids: string[];
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         task_id: string;
       };
     };
@@ -1130,9 +1193,11 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         assignee_ids: string[];
         blocker_ids: string[];
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         task_id: string;
       };
     };
@@ -1141,6 +1206,7 @@ export interface components {
       type: 'task_restored';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         assignee_ids: string[];
         attachment_count: number;
         blocker_ids: string[];
@@ -1159,6 +1225,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1175,6 +1242,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         assignee_ids: string[];
         attachment_count: number;
         blocker_ids: string[];
@@ -1193,6 +1261,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1203,6 +1272,7 @@ export interface components {
       type: 'task_updated';
       project_id: string;
       data: {
+        actor_user_id: string | null;
         assignee_ids: string[];
         attachment_count: number;
         blocker_ids: string[];
@@ -1221,6 +1291,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;
@@ -1237,6 +1308,7 @@ export interface components {
       /** Format: date-time */
       created_at: string;
       data: {
+        actor_user_id: string | null;
         assignee_ids: string[];
         attachment_count: number;
         blocker_ids: string[];
@@ -1255,6 +1327,7 @@ export interface components {
         due_date: string | null;
         id: string;
         label_ids: string[];
+        open_cross_project_blocker_count: number;
         sort_key: string;
         title: string;
         updated_at: string;

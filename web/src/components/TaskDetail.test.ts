@@ -6,6 +6,7 @@ import type { Editor } from '@tiptap/core';
 import TaskDetail from './TaskDetail.svelte';
 import TaskDetailRouteHost from './TaskDetailRouteHost.svelte';
 import { board } from '../lib/board.svelte';
+import { realtimeEvent } from '../lib/realtime-test-events';
 import { conflictDrafts } from '../lib/conflictDrafts.svelte';
 import { drafts } from '../lib/drafts.svelte';
 import { projects } from '../lib/projects.svelte';
@@ -1203,7 +1204,7 @@ describe('TaskDetail', () => {
     mockConflict();
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    board.applyRealtime({ type: 'task_updated', project_id: PROJECT_ID, data: teammateVersion() });
+    board.applyRealtime(realtimeEvent('task_updated', teammateVersion(), PROJECT_ID));
     await tick();
     await editTitle('Design cards v2');
 
@@ -1226,7 +1227,7 @@ describe('TaskDetail', () => {
       taskPath: (id: string) => overlayTaskPath(id),
     });
 
-    board.applyRealtime({ type: 'task_updated', project_id: PROJECT_ID, data: teammateVersion() });
+    board.applyRealtime(realtimeEvent('task_updated', teammateVersion(), PROJECT_ID));
     await rerender({ route: { taskId: T1 } });
     await editTitle('Design cards v2');
 

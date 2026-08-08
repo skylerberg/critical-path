@@ -1,5 +1,6 @@
 import { untrack } from 'svelte';
 import { board } from './board.svelte';
+import { boardAnnouncer } from './board-announcer.svelte';
 import { invitations } from './invitations.svelte';
 import { projects } from './projects.svelte';
 import { taskSeries } from './taskSeries.svelte';
@@ -111,6 +112,7 @@ class RealtimeClient {
     this.#hasSyncedOnce = false;
     this.#queue = [];
     this.#needsBoardRefetch = false;
+    boardAnnouncer.reset();
     this.#disposeEffects?.();
     this.#disposeEffects = null;
     this.status = 'offline';
@@ -195,6 +197,10 @@ class RealtimeClient {
     // The very first connect follows the initial page load, which already
     // fetched everything; only a reconnect needs to self-heal the missed gap.
     if (this.#hasSyncedOnce) {
+      // The refetches below replace the board wholesale rather than applying
+      // events, so anything still buffered describes changes about to arrive as
+      // a whole new board.
+      boardAnnouncer.reset();
       // account_updated is delivered, not replayed: one published while this
       // socket was down is gone, and nothing else re-reads the account until a
       // page load. Every other store below heals the same gap the same way.
@@ -294,6 +300,9 @@ class RealtimeClient {
         this.#queue.push(event);
         return;
       }
+      // Before the apply, not after: the words for a deleted card or column live
+      // only in the state this is about to overwrite.
+      boardAnnouncer.record(event);
       board.applyRealtime(event);
     } else if (PROJECT_EVENTS.has(event.type)) {
       projects.applyRealtime(event);
@@ -353,10 +362,14 @@ class RealtimeClient {
       this.#needsBoardRefetch = false;
       // This branch discards the whole queued batch, archive events included, so
       // it has to reload the archive as well as the board.
+      boardAnnouncer.reset();
       void board.resync();
       return;
     }
     for (const event of queued) {
+      // Per event inside the loop, so each snapshot is taken against the board
+      // that event is about to change rather than the one the drag ended on.
+      boardAnnouncer.record(event);
       board.applyRealtime(event);
     }
   }

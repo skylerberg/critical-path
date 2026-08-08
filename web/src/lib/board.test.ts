@@ -76,6 +76,7 @@ function task(id: string, columnId: string, position: number, title: string) {
     label_ids: id === 't1' ? ['l1'] : [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     image_count: 0,
     cover_image_url: null,
     due_date: null,
@@ -2084,7 +2085,7 @@ describe('archive', () => {
 
   it('applyRealtime task_archived moves the card into the archive without duplicating it', () => {
     board.tasks = board.tasks.map((t) => (t.id === 't2' ? { ...t, blocker_ids: ['t1'] } : t));
-    const event = { type: 'task_archived', project_id: 'p1', data: archivedTask('t1') } as const;
+    const event = realtimeEvent('task_archived', archivedTask('t1'), 'p1');
 
     board.applyRealtime(event);
     board.applyRealtime(event);
@@ -2427,6 +2428,7 @@ describe('selection bulk actions', () => {
       label_ids: labelIds,
       assignee_ids: assigneeIds,
       blocker_ids: [],
+      open_cross_project_blocker_count: 0,
     };
   }
 
@@ -3696,6 +3698,35 @@ describe('board store canEdit', () => {
 });
 
 describe('what changed since you last looked', () => {
+  describe('marking cards a teammate changed while the reader watched', () => {
+    it('adds to the live set in place, so the template stays subscribed to it', () => {
+      const set = board.changedTaskIds;
+
+      board.markRemotelyChanged(['t1', 't2']);
+
+      expect(board.changedTaskIds).toBe(set);
+      expect([...board.changedTaskIds].sort()).toEqual(['t1', 't2']);
+    });
+
+    it('marks nothing on a board the reader may not edit', () => {
+      board.readonly = true;
+
+      board.markRemotelyChanged(['t1']);
+
+      expect(board.changedTaskIds.size).toBe(0);
+    });
+
+    // Deliberately unlike the entry capture, which #lookedAtTaskIds filters:
+    // having read a card is no reason to hide that it has changed since.
+    it('re-marks a card the reader had already opened this visit', () => {
+      board.clearChanged('t1');
+
+      board.markRemotelyChanged(['t1']);
+
+      expect(board.changedTaskIds.has('t1')).toBe(true);
+    });
+  });
+
   function stampedPaths(): string[] {
     return fetchMock.mock.calls
       .map((call) => call[0] as Request)
