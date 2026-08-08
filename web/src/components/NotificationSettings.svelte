@@ -5,6 +5,7 @@
   import { apiMessage } from '../lib/apiMessages';
   import { session } from '../lib/session.svelte';
   import Button from './ui/Button.svelte';
+  import OfflineNotice from './OfflineNotice.svelte';
 
   type Settings = components['schemas']['NotificationSettings'];
   type Status = { kind: 'success' | 'error'; message: string } | null;
@@ -55,6 +56,8 @@
     }
   }
 </script>
+
+<OfflineNotice />
 
 {#snippet status(value: Status)}
   {#if value !== null}

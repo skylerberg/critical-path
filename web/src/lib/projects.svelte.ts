@@ -3,6 +3,7 @@ import type { components } from '../api/api.generated';
 import type { ProjectAccent } from './accents';
 import { newId } from './ids';
 import { invitations } from './invitations.svelte';
+import { readProjectsSnapshot, saveProjectsSnapshot } from './offline-cache';
 import { reorderRankUpdates } from './ranks';
 import type { RealtimeEvent } from './realtime-types';
 import { canEditProject, type ProjectRole } from './roles';
@@ -73,11 +74,35 @@ class ProjectsStore {
         this.#stampedSinceLoad.has(p.id) ? { ...p, has_unseen_changes: false } : p
       );
       this.loaded = true;
+      const userId = session.user?.id;
+      if (userId !== undefined) {
+        void saveProjectsSnapshot(userId, this.projects);
+      }
     } catch (error) {
+      // Unreachable rather than refused: the sidebar is worth more filled in
+      // from the last visit than empty behind an error the user cannot act on.
+      if (!(error instanceof ApiError) && (await this.#hydrateFromCache())) {
+        return;
+      }
       this.loadError = error instanceof ApiError ? error.message : 'Failed to load projects';
     } finally {
       this.loading = false;
     }
+  }
+
+  async #hydrateFromCache(): Promise<boolean> {
+    const userId = session.user?.id;
+    if (userId === undefined) {
+      return false;
+    }
+    const cached = await readProjectsSnapshot(userId);
+    if (cached === null) {
+      return false;
+    }
+    this.projects = cached;
+    this.loaded = true;
+    this.loadError = null;
+    return true;
   }
 
   reset(): void {

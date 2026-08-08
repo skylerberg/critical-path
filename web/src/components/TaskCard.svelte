@@ -8,6 +8,7 @@
   import { isDragPlaceholder, publicTaskHref, taskHref } from '../lib/short-links';
   import { selection } from '../lib/selection.svelte';
   import { isCalendarDate } from '../lib/dates';
+  import { outbox } from '../lib/outbox.svelte';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
   import { users } from '../lib/users.svelte';
   import DueDatePill from './DueDatePill.svelte';
@@ -48,6 +49,7 @@
   // Only while a set exists, so the default board is pixel-identical.
   const selecting = $derived(selection.count > 0 && !readonly && board.canEdit);
   const attachmentCount = $derived(task.attachment_count ?? 0);
+  const unsent = $derived(outbox.isPending(task.id));
   const renaming = $derived(cardMenu.renamingTaskId === task.id);
   const shownTitle = $derived(truncateTitle(task.title));
   // Still drawn, only unlinked, so the gap it leaves keeps the card's size.
@@ -266,6 +268,17 @@
     ></textarea>
   {:else}
     <p class="text-sm font-medium break-words">{shownTitle}</p>
+  {/if}
+  {#if unsent}
+    <!-- At the point of the work, not only in the banner: the global indicator
+         says how many changes are waiting, and this says which cards they are on. -->
+    <p
+      class="relative z-10 mt-1 flex items-center gap-1 text-xs text-muted"
+      data-testid="card-unsent"
+    >
+      <span class="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
+      Not sent yet
+    </p>
   {/if}
   {#if dated || blockedCount > 0 || commentCount > 0 || attachmentCount > 0 || checklistTotal > 0 || assignees.length > 0}
     <!-- Raised above the overlay link so the badges keep their hover tooltips and

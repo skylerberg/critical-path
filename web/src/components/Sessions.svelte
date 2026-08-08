@@ -10,6 +10,7 @@
   import { describeDevice } from '../lib/userAgent';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
+  import OfflineNotice from './OfflineNotice.svelte';
 
   type AccountSession = components['schemas']['Session'];
 
@@ -114,6 +115,8 @@
     return confirming ? `Confirm revoke of ${subject}` : `Revoke ${subject}`;
   }
 </script>
+
+<OfflineNotice />
 
 {#if loadError !== null}
   <div class="flex flex-col items-start gap-3">

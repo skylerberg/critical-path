@@ -3,6 +3,7 @@
   import { board, type TaskAttachment } from '../lib/board.svelte';
   import Button from './ui/Button.svelte';
   import Spinner from './ui/Spinner.svelte';
+  import OfflineNotice from './OfflineNotice.svelte';
 
   interface Props {
     taskId: string;
@@ -207,6 +208,8 @@
   const actionClass =
     'flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent';
 </script>
+
+<OfflineNotice />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div

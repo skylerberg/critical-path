@@ -1,9 +1,11 @@
 <script lang="ts">
   import { router } from './lib/router.svelte';
-  import { isAuthOptionalRoute, isPublicRoute, session } from './lib/session.svelte';
+  import { isAuthOptionalRoute, isPublicRoute, isSignedIn, session } from './lib/session.svelte';
   import { users } from './lib/users.svelte';
   import { board } from './lib/board.svelte';
   import { cardContext } from './lib/card-context.svelte';
+  import { connectivity } from './lib/connectivity.svelte';
+  import { outbox } from './lib/outbox.svelte';
   import { conflictDrafts } from './lib/conflictDrafts.svelte';
   import { crossProjectDeps } from './lib/crossProjectDeps.svelte';
   import { drafts } from './lib/drafts.svelte';
@@ -38,6 +40,10 @@
   import Announcer from './components/ui/Announcer.svelte';
   import Spinner from './components/ui/Spinner.svelte';
 
+  // Long enough that a burst of edits writes once, short enough that a reload
+  // straight after a change still finds it.
+  const SNAPSHOT_DEBOUNCE_MS = 800;
+
   const route = $derived(router.current);
   const showNav = $derived(!isPublicRoute(route.name) && !isAuthOptionalRoute(route.name));
 
@@ -70,13 +76,43 @@
       realtime.disconnect();
       shortcuts.reset();
     }
-    if (session.status !== 'authed') {
+    if (!isSignedIn(session.status)) {
       return undefined;
     }
+    void outbox.hydrate();
+    // Connects in both states: the socket is the app's main way of noticing the
+    // network came back, and it backs off on its own until it does.
+    realtime.connect();
     const cancelUsers = users.loadWithRetry(() => toasts.error('Failed to load users'));
     void projects.load();
-    realtime.connect();
     return cancelUsers;
+  });
+
+  // Reachability is deduced from whether requests get answers, so the listeners
+  // that seed it have to be running before the first one is made.
+  connectivity.start();
+
+  // Once the queue lands, the board on screen is the user's optimistic state and
+  // the server's is the truth; this is the one place that reconciles them. Wired
+  // here rather than inside the outbox, which deliberately knows nothing about
+  // the board — every board mutation already depends on it.
+  outbox.onSettled = () => {
+    void board.resync();
+  };
+
+  // Persisted on a debounce rather than per keystroke, and from the store rather
+  // than from a response, so a reload while offline comes back holding unsent
+  // edits instead of a snapshot that predates them.
+  let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    // Read so the effect re-runs when any of it changes.
+    void board.project;
+    void board.columns;
+    void board.tasks;
+    void board.labels;
+    clearTimeout(snapshotTimer);
+    snapshotTimer = setTimeout(() => void board.persistSnapshot(), SNAPSHOT_DEBOUNCE_MS);
+    return () => clearTimeout(snapshotTimer);
   });
 
   // A session can end without this tab navigating — another tab logging out or

@@ -10,6 +10,7 @@
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';
   import Modal from './ui/Modal.svelte';
+  import OfflineNotice from './OfflineNotice.svelte';
 
   type PersonalAccessToken = components['schemas']['PersonalAccessToken'];
 
@@ -125,6 +126,8 @@
     return new Date(value).toLocaleDateString();
   }
 </script>
+
+<OfflineNotice />
 
 <form class="flex flex-col gap-3 sm:flex-row sm:items-end" novalidate onsubmit={create}>
   <div class="flex-1">

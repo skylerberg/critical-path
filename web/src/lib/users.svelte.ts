@@ -1,5 +1,7 @@
-import { api, assertOk } from '../api/client';
+import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
+import { readUsersSnapshot, saveUsersSnapshot } from './offline-cache';
+import { session } from './session.svelte';
 
 export type User = components['schemas']['User'];
 
@@ -142,9 +144,26 @@ class UsersStore {
   }
 
   async #fetch(): Promise<void> {
-    const data = assertOk(await api.GET('/api/users'));
-    this.users = [...data.users].sort(byName);
-    this.#loaded = true;
+    const userId = session.user?.id;
+    try {
+      const data = assertOk(await api.GET('/api/users'));
+      this.users = [...data.users].sort(byName);
+      this.#loaded = true;
+      if (userId !== undefined) {
+        void saveUsersSnapshot(userId, this.users);
+      }
+    } catch (error) {
+      // Names and avatars from the last visit beat blank placeholders on every
+      // assignee on the board. A refused read still fails, so the caller's retry
+      // and its error toast are unaffected.
+      const cached =
+        error instanceof ApiError || userId === undefined ? null : await readUsersSnapshot(userId);
+      if (cached === null) {
+        throw error;
+      }
+      this.users = cached;
+      this.#loaded = true;
+    }
   }
 
   async #fetchForProject(projectId: string): Promise<void> {

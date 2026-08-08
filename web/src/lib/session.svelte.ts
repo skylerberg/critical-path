@@ -2,6 +2,7 @@ import { api, ApiError, assertOk, setAuthHooks } from '../api/client';
 import type { components } from '../api/api.generated';
 import { newId } from './ids';
 import { clearMediaCaches } from './mediaCaches';
+import { clearOfflineCache } from './offline-cache';
 import { router, type Route } from './router.svelte';
 
 export type SessionUser = components['schemas']['Me'];
@@ -223,11 +224,21 @@ class SessionStore {
   }
 
   #clear(): void {
+    const departing = this.user?.id;
     this.#token = null;
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     this.user = null;
     this.status = 'anon';
+    if (departing !== undefined) {
+      // The cached board and anything still queued belong to the account that is
+      // leaving. Left behind, the board would be readable by whoever signs in
+      // next and the queue would replay one person's work as another's.
+      void clearOfflineCache(departing).catch(() => {
+        // Best effort, exactly as the media caches are: a storage layer that
+        // refuses is not worth reporting to someone on their way out.
+      });
+    }
   }
 
   #handleUnauthorized(): void {

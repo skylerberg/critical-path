@@ -13,10 +13,12 @@ import type {
   PublicBoardPayload,
 } from './board-types';
 import { type ColumnSort, sortTasks } from './column-sort';
+import { connectivity } from './connectivity.svelte';
 import { mergeVersion, type TaskVersion } from './conflictDrafts.svelte';
 import { saveBlob } from './export';
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
+import { readBoardSnapshot, saveBoardSnapshot } from './offline-cache';
 import type { SerializedRequest } from './outbox-ops';
 import { outbox, type SubmitInput, type SubmitResult } from './outbox.svelte';
 import type { RealtimeEvent } from './realtime-types';
@@ -186,6 +188,9 @@ class BoardStore {
   loading = $state(false);
   error = $state<string | null>(null);
   errorStatus = $state<number | null>(null);
+  // When the board on screen last came from the server. Read by the sync
+  // indicator so "offline" can say how stale it is rather than only that it is.
+  syncedAt = $state<string | null>(null);
   currentProjectId = $state<string | null>(null);
   readonly = $state(false);
   canEdit = $derived(this.project !== null && canEditProject(this.project, session.user?.id));
@@ -336,13 +341,62 @@ class BoardStore {
           void projects.markSeen(projectId);
         }
       }
+      this.syncedAt = new Date().toISOString();
     } catch (error) {
-      if (token !== this.#fetchToken || quiet) {
+      if (token !== this.#fetchToken) {
+        return;
+      }
+      // A server that refused is a real error. A server that could not be
+      // reached is not, as long as this device still has the board: showing the
+      // last known state and saying so beats an error page over data we have.
+      if (!(error instanceof ApiError) && (await this.#hydrateFromCache(projectId))) {
+        return;
+      }
+      if (quiet) {
         return;
       }
       this.error = error instanceof ApiError ? error.message : 'Failed to load board';
       this.errorStatus = error instanceof ApiError ? error.status : null;
     }
+  }
+
+  async #hydrateFromCache(projectId: string): Promise<boolean> {
+    const userId = session.user?.id;
+    if (userId === undefined || this.readonly) {
+      return false;
+    }
+    const cached = await readBoardSnapshot(userId, projectId);
+    if (cached === null || cached.payload.project.id !== projectId) {
+      return false;
+    }
+    this.project = cached.payload.project;
+    this.columns = [...cached.payload.columns].sort(byRank);
+    this.tasks = cached.payload.tasks;
+    this.labels = cached.payload.labels;
+    this.error = null;
+    this.errorStatus = null;
+    this.syncedAt = cached.savedAt;
+    this.setFilters(this.filters);
+    return true;
+  }
+
+  /**
+   * Writes what is on screen, not what the server last sent, so a reload while
+   * offline comes back holding the user's unsent edits rather than a snapshot
+   * that predates them. Called from the shell on a debounce; a board with no
+   * project loaded has nothing worth keeping.
+   */
+  async persistSnapshot(): Promise<void> {
+    const userId = session.user?.id;
+    if (userId === undefined || this.readonly || this.project === null) {
+      return;
+    }
+    await saveBoardSnapshot(userId, this.project.id, {
+      project: this.project,
+      columns: this.columns,
+      tasks: this.tasks,
+      labels: this.labels,
+    });
   }
 
   async loadArchived(): Promise<void> {
@@ -490,6 +544,7 @@ class BoardStore {
     this.taskSeriesSummaries = {};
     this.taskAttachments = {};
     this.loading = false;
+    this.syncedAt = null;
     this.error = null;
     this.errorStatus = null;
     this.dragging = false;
@@ -2627,6 +2682,14 @@ class BoardStore {
   }
 
   async #mutationFailed(error: unknown): Promise<void> {
+    // Queued mutations never reach here — they are held rather than failed. What
+    // is left is the handful the outbox does not carry, chiefly attachments, and
+    // "something went wrong" is a poor description of a missing network when the
+    // app already knows that is what happened.
+    if (!(error instanceof ApiError) && !connectivity.reachable) {
+      toasts.error('You are offline. This one could not be saved and was not queued.');
+      return;
+    }
     toasts.error(error instanceof ApiError ? error.message : 'Something went wrong');
     await this.resync();
   }
