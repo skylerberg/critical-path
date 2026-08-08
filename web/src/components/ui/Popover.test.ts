@@ -93,4 +93,17 @@ describe('Popover', () => {
     const { panel } = open();
     expect(panel).toHaveFocus();
   });
+
+  // The filter bar's panel opens because its search box took focus; taking it
+  // away would stop the typing that opened the panel in the first place.
+  it('leaves focus on the trigger when autofocus is off', () => {
+    const trigger = document.createElement('button');
+    document.body.append(trigger);
+    trigger.focus();
+    render(Popover, {
+      props: { trigger, label: 'Labels', autofocus: false, onclose: vi.fn(), children },
+    });
+
+    expect(trigger).toHaveFocus();
+  });
 });

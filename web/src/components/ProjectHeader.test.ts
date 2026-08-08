@@ -131,14 +131,21 @@ afterEach(() => {
 });
 
 describe('ProjectHeader', () => {
-  it('renders label chips, assignee chips, and the title search inline on the board view', () => {
+  // The bar carries the search box alone; the options only cost header room
+  // once someone reaches for them.
+  it('keeps the filter options behind the search box on the board view', async () => {
+    users.setForProject(PROJECT_ID, [me]);
     render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     expect(screen.getByLabelText('Filter tasks by title')).toBeInTheDocument();
-    expect(screen.getByText('art')).toBeInTheDocument();
-    expect(screen.getByTitle('Filter by Ada')).toBeInTheDocument();
+    expect(screen.queryByText('art')).toBeNull();
     expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Graph' })).toBeInTheDocument();
+
+    await fireEvent.focus(screen.getByLabelText('Filter tasks by title'));
+
+    expect(screen.getByRole('button', { name: /art/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Ada/ })).toBeInTheDocument();
   });
 
   it('flags a published board as soon as this tab publishes it, and clears it on unpublish', async () => {
@@ -225,13 +232,17 @@ describe('ProjectHeader', () => {
     expect(screen.queryByRole('button', { name: 'None' })).toBeNull();
   });
 
-  it('renders the same filter cluster on the graph view', () => {
+  it('renders the same filter cluster on the graph view', async () => {
+    users.setForProject(PROJECT_ID, [me]);
     render(ProjectHeader, { projectId: PROJECT_ID, view: 'graph' });
 
     expect(screen.getByLabelText('Filter tasks by title')).toBeInTheDocument();
-    expect(screen.getByText('art')).toBeInTheDocument();
-    expect(screen.getByTitle('Filter by Ada')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Graph' })).toBeInTheDocument();
+
+    await fireEvent.focus(screen.getByLabelText('Filter tasks by title'));
+
+    expect(screen.getByRole('button', { name: /art/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Ada/ })).toBeInTheDocument();
   });
 
   it('exposes an identical control inventory and title layout in both views', () => {

@@ -1,21 +1,35 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { board } from '../lib/board.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { users } from '../lib/users.svelte';
-  import Avatar from './ui/Avatar.svelte';
-  import LabelFilterChips from './LabelFilterChips.svelte';
+  import FilterMenu from './FilterMenu.svelte';
+  import Popover from './ui/Popover.svelte';
 
-  // Selected users stay listed even when they vanish from every task, so an
-  // active filter always has a visible, toggleable chip.
+  // The whole project roster, so a member can be filtered for before anyone has
+  // assigned them anything. A selected id missing from it stays listed, or an
+  // active filter would have no row to unpress.
   const assignees = $derived.by(() => {
-    const ids = [
-      ...new Set([...board.tasks.flatMap((task) => task.assignee_ids), ...board.filterAssigneeIds]),
+    const projectId = board.currentProjectId;
+    const roster = projectId === null ? [] : users.forProject(projectId);
+    const known = new Set(roster.map((user) => user.id));
+    return [
+      ...roster,
+      ...board.filterAssigneeIds.filter((id) => !known.has(id)).map((id) => users.displayFor(id)),
     ];
-    return ids.map((id) => users.displayFor(id));
   });
 
+  const hasOptions = $derived(board.labels.length > 0 || assignees.length > 0);
+  const optionCount = $derived(board.filterLabelIds.length + board.filterAssigneeIds.length);
+
+  const uid = $props.id();
+  const panelId = `${uid}-panel`;
+  const hintId = `${uid}-hint`;
+
   let searchInput = $state<HTMLInputElement | null>(null);
+  let fieldEl = $state<HTMLLabelElement>();
+  let menu = $state<ReturnType<typeof FilterMenu>>();
+  let open = $state(false);
 
   $effect(() => {
     if (!shortcuts.filterFocusRequested) {
@@ -33,10 +47,28 @@
   onDestroy(() => {
     shortcuts.filterFocusRequested = false;
   });
+
+  async function onkeydown(event: KeyboardEvent & { currentTarget: HTMLInputElement }) {
+    if (event.key === 'Escape') {
+      // blur() reports a null relatedTarget, which the popover deliberately
+      // ignores, so the panel has to be closed from here.
+      event.preventDefault();
+      open = false;
+      event.currentTarget.blur();
+    } else if (event.key === 'ArrowDown' && hasOptions) {
+      event.preventDefault();
+      open = true;
+      await tick();
+      menu?.focusFirst();
+    }
+  }
 </script>
 
+<!-- Deliberately not `relative`: the panel measures itself against the header
+     row, which is the full width of the screen. Anchored here instead, it would
+     inherit the search box's width — 82px on a phone. -->
 <div class="flex min-w-0 flex-1 items-center gap-2">
-  <label class="relative flex min-w-0 items-center">
+  <label bind:this={fieldEl} class="relative flex min-w-0 items-center">
     <svg
       class="pointer-events-none absolute left-2.5 size-4 text-muted"
       viewBox="0 0 24 24"
@@ -55,45 +87,41 @@
       type="search"
       value={board.filterQuery}
       oninput={(event) => board.setFilterQuery(event.currentTarget.value)}
-      onkeydown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          event.currentTarget.blur();
-        }
-      }}
+      onfocus={() => (open = hasOptions)}
+      {onkeydown}
       aria-label="Filter tasks by title"
+      aria-describedby={hasOptions ? hintId : undefined}
       placeholder="Filter tasks…"
-      class="min-h-11 w-36 min-w-0 rounded-md border border-edge bg-canvas pr-3 pl-8 text-sm outline-none focus:border-accent sm:w-48"
+      class="min-h-11 w-36 min-w-0 rounded-md border border-edge bg-canvas pl-8 text-sm outline-none focus:border-accent sm:w-48 {optionCount >
+      0
+        ? 'pr-9'
+        : 'pr-3'}"
     />
+    {#if optionCount > 0}
+      <span
+        aria-hidden="true"
+        class="pointer-events-none absolute right-2 rounded-full bg-accent-soft px-1.5 py-0.5 text-xs font-medium text-accent"
+      >
+        {optionCount}
+      </span>
+    {/if}
   </label>
-  {#if board.labels.length > 0 || assignees.length > 0}
-    <div
-      class="flex min-w-0 items-center overflow-x-auto"
-      role="group"
-      aria-label="Label and assignee filters"
+  {#if hasOptions}
+    <span id={hintId} class="sr-only">
+      {optionCount > 0 ? `${optionCount} selected. ` : ''}Label and assignee filters open below
+      while this field is focused.
+    </span>
+  {/if}
+  {#if open && hasOptions}
+    <Popover
+      trigger={fieldEl}
+      id={panelId}
+      label="Label and assignee filters"
+      autofocus={false}
+      onclose={() => (open = false)}
     >
-      <div class="flex w-max items-center gap-x-2 gap-y-1">
-        <LabelFilterChips />
-        {#each assignees as user (user.id)}
-          {@const selected = board.filterAssigneeIds.includes(user.id)}
-          <button
-            type="button"
-            aria-pressed={selected}
-            title="Filter by {user.name}"
-            onclick={() => board.toggleAssigneeFilter(user.id)}
-            class="flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center"
-          >
-            <span
-              class="rounded-full {selected
-                ? 'ring-2 ring-accent ring-offset-2 ring-offset-surface'
-                : 'opacity-70 hover:opacity-100'}"
-            >
-              <Avatar name={user.name} src={user.avatar_url} size="sm" />
-            </span>
-          </button>
-        {/each}
-      </div>
-    </div>
+      <FilterMenu bind:this={menu} {assignees} onexit={() => searchInput?.focus()} />
+    </Popover>
   {/if}
   {#if board.hasActiveFilters}
     <button

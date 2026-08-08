@@ -254,7 +254,7 @@ describe('Graph', () => {
 
     render(Project, { props: { projectId, view: 'graph' } });
 
-    expect(await screen.findByLabelText('Filter tasks by title')).toBeInTheDocument();
+    await fireEvent.focus(await screen.findByLabelText('Filter tasks by title'));
     expect(screen.getAllByText('art')).toHaveLength(1);
   });
 
@@ -689,6 +689,7 @@ describe('Graph dependency editing', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('[data-node-id]')).toHaveLength(2);
     });
+    await fireEvent.focus(screen.getByLabelText('Filter tasks by title'));
     await fireEvent.click(screen.getByRole('button', { name: /art/ }));
 
     await waitFor(() => {

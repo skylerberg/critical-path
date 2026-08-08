@@ -8,11 +8,14 @@
     label: string;
     // Owned by the caller, which needs it for the trigger's aria-controls.
     id?: string;
+    // False when the trigger keeps the caret: a panel opened by focusing a text
+    // field must leave focus where the typing is.
+    autofocus?: boolean;
     onclose: (opts?: { restoreFocus?: boolean }) => void;
     children: Snippet;
   }
 
-  let { trigger, label, id, onclose, children }: Props = $props();
+  let { trigger, label, id, autofocus = true, onclose, children }: Props = $props();
 
   let panelEl = $state<HTMLDivElement>();
   let left = $state(0);
@@ -37,7 +40,7 @@
   // run by the time effects do; this only catches a body that focuses nothing.
   $effect(() => {
     const panel = panelEl;
-    if (panel !== undefined && !panel.contains(document.activeElement)) {
+    if (autofocus && panel !== undefined && !panel.contains(document.activeElement)) {
       panel.focus({ preventScroll: true });
     }
   });
