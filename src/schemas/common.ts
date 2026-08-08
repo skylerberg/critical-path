@@ -1,5 +1,6 @@
 import { type } from 'arktype';
 import { isValidUuid, toUuid } from '../types/uuid';
+import { hasControlCharacterBesidesWhitespace } from '../utils/controlCharacters';
 import { isValidSortKey } from '../services/sortKey';
 
 // ctx.error's string form is the *expected* clause, which arktype already
@@ -13,20 +14,9 @@ export const uuid = type('string')
     return toUuid(s);
   });
 
-// Postgres refuses a NUL inside a text bind parameter, so a control character
-// that survives validation turns a bad request into a 500. Tab, newline and
-// carriage return stay legal: multi-line freeform text uses them.
-function hasControlCharacter(s: string): boolean {
-  for (let i = 0; i < s.length; i++) {
-    const code = s.charCodeAt(i);
-    if (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) return true;
-  }
-  return false;
-}
-
 export const email = type('string').pipe((s, ctx) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(s) || hasControlCharacter(s)) {
+  if (!emailRegex.test(s) || hasControlCharacterBesidesWhitespace(s)) {
     return ctx.error('a valid email address');
   }
   return s;
@@ -51,7 +41,7 @@ export const stringWithLength = (min: number, max: number) =>
     if (trimmed.length > max) {
       return ctx.error(`at most ${max} characters`);
     }
-    if (hasControlCharacter(trimmed)) {
+    if (hasControlCharacterBesidesWhitespace(trimmed)) {
       return ctx.error('free of control characters');
     }
     return trimmed;
@@ -67,7 +57,7 @@ export const optionalText = (max: number) =>
     if (trimmed.length > max) {
       return ctx.error(`at most ${max} characters`);
     }
-    if (hasControlCharacter(trimmed)) {
+    if (hasControlCharacterBesidesWhitespace(trimmed)) {
       return ctx.error('free of control characters');
     }
     return trimmed;

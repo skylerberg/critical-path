@@ -11,6 +11,7 @@ import { AppError, isUniqueViolation } from '../utils/errors';
 import { assertTaskWrite } from '../services/authorization';
 import { publishAfterCommit } from '../services/realtime/index';
 import { storage } from '../services/storage/index';
+import { deleteStoredObjectsAfterCommit } from '../services/storage/cleanup';
 import { storedObjectResponse } from '../services/storage/response';
 import { enqueueJob } from '../services/jobs/index';
 import { logger } from '../utils/logger';
@@ -409,11 +410,7 @@ router.delete(
       deleted.preview_storage_key,
       deleted.favicon_storage_key,
     ].filter((key): key is string => key !== null);
-    if (keys.length > 0) {
-      c.get('postCommitHooks').push(async () => {
-        await Promise.all(keys.map((key) => storage.delete(key)));
-      });
-    }
+    deleteStoredObjectsAfterCommit(c, keys);
 
     // The cover lives on the row, so deleting one can clear it. Reported here
     // because this is now the only event that says an attachment went away.

@@ -12,6 +12,7 @@ import type {
 } from './eventCatalog';
 import { isWebhookEnvelope } from './payloads';
 import type { RealtimeEnvelope, RealtimePayloads } from './payloads';
+import { errorText } from '../../utils/errors';
 
 export interface PublishOptions {
   // Exact recipients, no access re-check — for delete/removal events whose
@@ -86,7 +87,7 @@ export function publish(entry: BusEntry): void {
       logger.warn({
         msg: 'Remote bus publish failed; delivering locally',
         type: entry.type,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorText(err),
       });
       deliverLocal(entry);
     });

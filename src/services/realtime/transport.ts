@@ -5,6 +5,7 @@ import type { WebSocket } from 'ws';
 import { db } from '../../db/index';
 import { authenticateBearerToken, credentialIsLive } from '../credentials';
 import type { CredentialKind } from '../credentials';
+import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { recordPersonalAccessTokenUse } from '../personalAccessTokens';
 import { SESSIONS_REVOKED, subscribeBus } from './bus';
@@ -58,10 +59,6 @@ export function closeSessionSocketsForUser(userId: string): void {
 
 export function closeSocketsForCredential(kind: CredentialKind, id: string): void {
   closeSockets(socketsForCredential(kind, id));
-}
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 function handleConnection(ws: WebSocket): void {

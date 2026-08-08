@@ -1,3 +1,4 @@
+import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { startWorker } from '../worker';
 import { jobHandler, periodicJobs, registeredJobKinds, type JobHandler } from './handlers';
@@ -87,7 +88,7 @@ async function runJob(job: JobRow): Promise<void> {
     await recordJobSuccess(job);
     return;
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = errorText(err);
     const terminal = job.interval_seconds === null && job.attempts >= MAX_ATTEMPTS;
     const fields = {
       msg: terminal ? 'Job failed permanently' : 'Job attempt failed',
@@ -107,7 +108,7 @@ async function runJob(job: JobRow): Promise<void> {
       logger.error({
         msg: 'Job failure could not be recorded',
         job_id: job.id,
-        error: recordErr instanceof Error ? recordErr.message : String(recordErr),
+        error: errorText(recordErr),
       });
     }
   }
