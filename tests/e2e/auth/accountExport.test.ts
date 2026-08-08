@@ -334,7 +334,7 @@ describe('GET /api/auth/me/export', () => {
 
   it('reports the notification preferences the account stored, not the defaults', async () => {
     const user = await ctx.createUser('export-prefs');
-    const saved = await ctx.request(user.token).put('/api/auth/me/notification-settings', {
+    const saved = await ctx.request(user.token).patch('/api/auth/me/notification-settings', {
       task_assigned: false,
       added_to_project: true,
       bulk_task_assigned: false,
