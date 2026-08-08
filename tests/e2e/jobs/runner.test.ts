@@ -65,7 +65,7 @@ describe('enqueueJob', () => {
       })
     ).rejects.toThrow('caller failed after enqueue');
 
-    expect(await db.selectFrom('job').selectAll().execute()).toHaveLength(0);
+    expect(await jobRows('test_rollback')).toHaveLength(0);
   });
 
   it('queues the job when that transaction commits', async () => {
@@ -91,7 +91,7 @@ describe('enqueueJob', () => {
     await expect(enqueueJob(db, 'test_pii', { recipient: { email: null } })).rejects.toThrow(
       /contact field/
     );
-    expect(await db.selectFrom('job').selectAll().execute()).toHaveLength(0);
+    expect(await jobRows('test_pii')).toHaveLength(0);
   });
 });
 
@@ -122,7 +122,7 @@ describe('runDueJobs', () => {
 
     expect(await runDueJobs()).toBe(1);
     expect(seen).toEqual([{ task_id: 'abc' }]);
-    expect(await db.selectFrom('job').selectAll().execute()).toHaveLength(0);
+    expect(await jobRows('test_once')).toHaveLength(0);
     expect(await runDueJobs()).toBe(0);
   });
 
@@ -195,13 +195,24 @@ describe('runDueJobs', () => {
   it('claims a whole batch but runs only the concurrency limit at a time', async () => {
     let live = 0;
     let peak = 0;
+    // Gated rather than slept through: a fixed sleep only overlaps the handlers
+    // if the loop schedules them inside it, so on a slow or contended machine
+    // `peak` could come up short of the limit for no real reason. Holding the
+    // first arrivals until the limit is reached asserts the same cap without
+    // depending on timing; CLAIM_BATCH exceeds the limit, so enough handlers
+    // always arrive to open the gate.
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     register({
       kind: 'test_burst',
       timeoutMs: 1000,
       run: async () => {
         live += 1;
         peak = Math.max(peak, live);
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        if (live >= MAX_CONCURRENT_JOBS) release();
+        await gate;
         live -= 1;
       },
     });
