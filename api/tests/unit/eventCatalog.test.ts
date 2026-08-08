@@ -58,5 +58,6 @@ describe('realtime event catalogue', () => {
   it('never dots an account-scoped event, which carries no project to dot', () => {
     expect(raisesUnseenDot('sessions_revoked')).toBe(false);
     expect(raisesUnseenDot('user_updated')).toBe(false);
+    expect(raisesUnseenDot('account_updated')).toBe(false);
   });
 });

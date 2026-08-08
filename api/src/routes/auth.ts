@@ -38,7 +38,12 @@ import type { NotificationKind } from '../schemas/notifications';
 import { enqueueVerificationEmail } from '../services/emailVerification';
 import { claimInvitationsForNewAccount } from '../services/invitations';
 import { createResetToken, verifyResetTokenDetailed } from '../services/resetToken';
-import { SESSIONS_REVOKED, USER_UPDATED, publishAfterCommit } from '../services/realtime/index';
+import {
+  ACCOUNT_UPDATED,
+  SESSIONS_REVOKED,
+  USER_UPDATED,
+  publishAfterCommit,
+} from '../services/realtime/index';
 import { storage } from '../services/storage/index';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import {
@@ -479,17 +484,23 @@ router.patch(
         .executeTakeFirstOrThrow();
       const publicUser = { id: row.id, name: row.name, avatar_url: user.avatar_url };
       publishAfterCommit(c, USER_UPDATED, null, publicUser);
+      const me = {
+        ...publicUser,
+        email: row.email,
+        email_verified: newMailbox ? false : user.email_verified,
+      };
+      // Gated on the stored address moving at all rather than on newMailbox: a
+      // change of letter case alone persists a different string, and this is the
+      // only event carrying it, so gating it lower would leave the account's
+      // other devices on the old casing indefinitely. The mail and the
+      // verification reset stay newMailbox-only.
+      if (updates.email !== undefined) {
+        publishAfterCommit(c, ACCOUNT_UPDATED, null, me, { recipientUserIds: [row.id] });
+      }
       if (newMailbox) {
         enqueueVerificationEmail(c, row);
       }
-      return c.json(
-        {
-          ...publicUser,
-          email: row.email,
-          email_verified: newMailbox ? false : user.email_verified,
-        },
-        200
-      );
+      return c.json(me, 200);
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new AppError(409, 'Email already in use');
@@ -1083,14 +1094,38 @@ publicAuthRouter.post(
     // Re-asserted here, not just in the check above: an address change
     // committing between the two statements nulls email_verified_at itself, so
     // it would satisfy the null guard and stamp a mailbox nobody confirmed.
-    await db
+    //
+    // RETURNING is what makes the publish below conditional on a real flip: a
+    // replayed token, and one whose address moved underneath the read, each
+    // match no row, and neither may announce a verification that did not happen.
+    const verified = await db
       .updateTable('app_user')
       .set({ email_verified_at: new Date() })
       .where('id', '=', user.id)
       .where('email', '=', user.email)
       .where('email_verified_at', 'is', null)
-      .execute();
+      .returning(['id', 'name', 'email', 'avatar_storage_key'])
+      .executeTakeFirst();
 
+    // The recipient is the account the token names, never the caller, who on
+    // this unauthenticated route is nobody.
+    if (verified) {
+      publishAfterCommit(
+        c,
+        ACCOUNT_UPDATED,
+        null,
+        {
+          id: verified.id,
+          name: verified.name,
+          avatar_url: avatarUrl(verified.avatar_storage_key),
+          email: verified.email,
+          email_verified: true,
+        },
+        { recipientUserIds: [verified.id] }
+      );
+    }
+
+    // Outside the guard: redeeming a spent token is a success, not a conflict.
     return c.body(null, 204);
   }
 );
