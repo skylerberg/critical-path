@@ -368,7 +368,11 @@ describe('Project', () => {
 
     pressKey('q', projectId, 'board');
     expect(board.filterAssigneeIds).toEqual([me.id]);
-    expect(await screen.findByTitle('Filter by Ada')).toHaveAttribute('aria-pressed', 'true');
+    await fireEvent.focus(screen.getByLabelText('Filter tasks by title'));
+    expect(await screen.findByRole('button', { name: /Ada/ })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
     expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
 
     pressKey('x', projectId, 'board');
