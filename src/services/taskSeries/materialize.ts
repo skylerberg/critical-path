@@ -19,7 +19,7 @@ export const TASK_SERIES_JOB_KIND = 'task_series_materialize';
 export const SWEEP_INTERVAL_SECONDS = 60;
 export const SWEEP_TIMEOUT_MS = 15_000;
 export const SWEEP_BATCH = 25;
-export const SWEEP_BUDGET_MS = 10_000;
+const SWEEP_BUDGET_MS = 10_000;
 export const MAX_CATCHUP_SCAN = 500;
 export const MAX_CONSECUTIVE_FAILURES = 5;
 
@@ -185,7 +185,7 @@ async function recordSeriesFailure(seriesId: string, err: unknown): Promise<void
   }
 }
 
-export async function materializeSeries(seriesId: string): Promise<MaterializeResult | null> {
+async function materializeSeries(seriesId: string): Promise<MaterializeResult | null> {
   return db.transaction().execute(async (trx) => {
     // The job lease covers the job row, and one row drives every series, so it
     // offers no per-series exclusion at all; this is what does.

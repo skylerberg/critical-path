@@ -6,7 +6,7 @@ import { AppError } from '../../utils/errors';
 import { assertProjectWrite } from '../authorization';
 import { presetFor, summarise } from './rule';
 
-export const SERIES_NOT_FOUND = 'Series not found';
+const SERIES_NOT_FOUND = 'Series not found';
 
 // node-pg parses a `date` into a JS Date at local midnight, which serializes
 // back out as the previous day anywhere east of UTC.
@@ -143,7 +143,7 @@ export async function seriesSummaryForTask(db: Kysely<DB>, taskId: string): Prom
 
 export type SeriesRow = Selectable<TaskSeries> & { start_date_text: string };
 
-export async function loadSeriesRow(db: Kysely<DB>, seriesId: string): Promise<SeriesRow> {
+async function loadSeriesRow(db: Kysely<DB>, seriesId: string): Promise<SeriesRow> {
   const series = await db
     .selectFrom('task_series')
     .selectAll()

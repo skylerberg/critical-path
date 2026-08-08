@@ -16,7 +16,7 @@ export interface BulkTargets {
   skipped: string[];
 }
 
-export interface SetDeltaPair {
+interface SetDeltaPair {
   task_id: string;
   value: string;
 }

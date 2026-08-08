@@ -11,11 +11,11 @@ export const CLAIM_BATCH = 20;
 export const MAX_PER_WEBHOOK_PER_TICK = 5;
 export const MAX_CONCURRENT_SENDS = 4;
 export const MAX_WEBHOOKS_PER_PROJECT = 10;
-export const LEASE_SECONDS = 60;
+const LEASE_SECONDS = 60;
 export const SEND_TIMEOUT_MS = 10_000;
 export const MAX_ERROR_BODY_BYTES = 2048;
-export const RETENTION_DAYS = 7;
-export const ENVELOPE_VERSION = 1;
+const RETENTION_DAYS = 7;
+const ENVELOPE_VERSION = 1;
 
 const INSERT_CHUNK = 500;
 const MAX_ERROR_CHARS = 2000;

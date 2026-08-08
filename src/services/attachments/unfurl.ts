@@ -28,7 +28,7 @@ const IMAGE_ACCEPT = ['image/'];
 
 // https is not required even in production: the blocklist, not TLS, is the SSRF
 // defence here, and refusing a pasted http:// link buys no security.
-export function unfurlPolicy(): TargetPolicy {
+function unfurlPolicy(): TargetPolicy {
   return { allowPrivate: targetPolicy().allowPrivate, requireHttps: false };
 }
 
