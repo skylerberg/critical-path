@@ -52,7 +52,7 @@ import {
 } from '../services/projectListItem';
 import { changedTaskIds, hasUnseenChanges } from '../services/projectSeen';
 import { publishAfterCommit } from '../services/realtime/index';
-import { keysBetween } from '../services/sortKey';
+import { keysBetween, resolveSortKey } from '../services/sortKey';
 import { recordAssigneeChanges } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
 import { storage } from '../services/storage/index';
@@ -79,6 +79,7 @@ import {
   forbiddenErrorResponse,
   notFoundErrorResponse,
   conflictErrorResponse,
+  positionConflictErrorResponse,
   payloadTooLargeErrorResponse,
   validationErrorResponse,
   validationOrUnprocessableErrorResponse,
@@ -644,7 +645,10 @@ router.put(
     summary: 'Set project position',
     description:
       "Set the caller's personal sort position for a project. Positions are per user and " +
-      'order the project list for the caller only; other members are unaffected.',
+      'order the project list for the caller only; other members are unaffected. A sort_key ' +
+      'already taken among the caller’s positions ranks the project immediately after the one ' +
+      'holding it, so the stored key is not always the one that was sent; the ' +
+      'project_position_updated event carries the key that was stored.',
     security: [{ bearerAuth: [] }],
     responses: {
       204: {
@@ -653,6 +657,7 @@ router.put(
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
+      ...positionConflictErrorResponse,
       ...validationErrorResponse,
       ...internalServerErrorResponse,
     },
@@ -667,11 +672,25 @@ router.put(
 
     await assertProjectAccess(db, user.id, id);
 
-    await db
-      .insertInto('project_user_position')
-      .values({ user_id: user.id, project_id: id, sort_key })
-      .onConflict((oc) => oc.columns(['user_id', 'project_id']).doUpdateSet({ sort_key }))
-      .execute();
+    // The list the client ranks against carries the projects it has never
+    // positioned, which hold no key at all, so a drag routinely re-stamps the
+    // whole list and asks for keys its neighbours are still on.
+    const resolved = await resolveSortKey(db, 'project_user_position', user.id, sort_key);
+
+    try {
+      await db
+        .insertInto('project_user_position')
+        .values({ user_id: user.id, project_id: id, sort_key: resolved })
+        .onConflict((oc) =>
+          oc.columns(['user_id', 'project_id']).doUpdateSet({ sort_key: resolved })
+        )
+        .execute();
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new AppError(409, 'That position was taken while the move was in flight');
+      }
+      throw err;
+    }
 
     // Per-user data: exact recipients sync the caller's other devices without
     // reshuffling anything for other members.
@@ -679,7 +698,7 @@ router.put(
       c,
       'project_position_updated',
       id,
-      { id, sort_key },
+      { id, sort_key: resolved },
       { recipientUserIds: [user.id] }
     );
     return c.body(null, 204);
