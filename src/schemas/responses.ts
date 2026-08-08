@@ -32,7 +32,15 @@ export type Returned<D extends DeclaredResponses> = {
     : never;
 }[keyof D & number];
 
-export function jsonResponse<T extends Type>(description: string, schema: T) {
+// Annotated rather than inferred, like the two below: the inferred form names
+// types reachable only through `node_modules`, which `tsc --declaration` writes
+// into the .d.ts as a relative path. That path leaves the project root whenever
+// `node_modules` is a symlink — every worktree — and `npm run build` fails there
+// on code that is fine.
+export function jsonResponse<T extends Type>(
+  description: string,
+  schema: T
+): ResponsesWithResolver[string] & { [DECLARED]: T } {
   return {
     description,
     content: { 'application/json': { schema: resolver(schema) } },
