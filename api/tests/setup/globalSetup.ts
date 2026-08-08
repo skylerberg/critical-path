@@ -2,8 +2,15 @@ import { sql } from 'kysely';
 import { db } from '../../src/db/index';
 import { runMigrations } from '../../src/db/migrate';
 import { env } from '../../src/config/env';
-import { ensureTestDatabase, pruneAbandonedTestDatabases } from './testDatabase';
+import {
+  acquireRunLock,
+  ensureTestDatabase,
+  pruneAbandonedTestDatabases,
+  type RunLock,
+} from './testDatabase';
 import { resolveTestDatabaseName } from './testDatabaseName';
+
+let runLock: RunLock | null = null;
 
 export async function setup() {
   if (env.environment !== 'test') {
@@ -23,6 +30,14 @@ export async function setup() {
 
   // Before the first query: the pool points at a database that may not exist.
   await ensureTestDatabase(expected);
+
+  // Before the truncate below, which is unconditional: a database is per
+  // checkout but not per run, so two suites started from one checkout share
+  // it and the second one's truncate deletes the first one's rows out from
+  // under it. That surfaces as a single unrelated test failing on whatever
+  // the missing row turned into — a wrong exit code, a 404 — and passing on
+  // the rerun, which is the most expensive kind of failure to chase.
+  runLock = await acquireRunLock(expected);
 
   try {
     await sql`select 1`.execute(db);
@@ -56,5 +71,10 @@ export async function setup() {
 }
 
 export async function teardown() {
-  await db.destroy();
+  try {
+    await db.destroy();
+  } finally {
+    await runLock?.release();
+    runLock = null;
+  }
 }
