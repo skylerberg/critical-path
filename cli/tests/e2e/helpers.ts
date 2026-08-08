@@ -21,7 +21,7 @@ export interface CliRunHandle {
   done: Promise<CliRunResult>;
 }
 
-export interface CliRunOptions {
+interface CliRunOptions {
   stdin?: string;
   stdinIsTty?: boolean;
   env?: Record<string, string>;
