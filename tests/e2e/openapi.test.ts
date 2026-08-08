@@ -22,6 +22,7 @@ describe('GET /api/openapi.json', () => {
       '/api/auth/tokens',
       '/api/auth/tokens/{id}',
       '/api/users',
+      '/api/users/search',
       '/api/my-tasks',
       '/api/search',
       '/api/webhooks',
