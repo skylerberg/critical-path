@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import {
   type BoardTaskPayload,
@@ -56,7 +56,7 @@ describe('POST /api/tasks/:id/duplicate', () => {
         .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', 'in', projectIds)
         .execute();
-      await Promise.all(imageRows.map((row) => storage.delete(row.storage_key)));
+      await Promise.all(imageRows.map((row) => storage.delete(imageStorageKey(row.storage_key))));
     }
     await deleteProjects(projectIds);
     await ctx.cleanup();
@@ -153,7 +153,7 @@ describe('POST /api/tasks/:id/duplicate', () => {
     expect(newImage.id).not.toBe(imageId);
     expect(newImage.storage_key).not.toBe(storageKey);
     expect(newImage.filename).toBe('test.png');
-    expect(await storage.get(newImage.storage_key)).toEqual(imageBytes);
+    expect(await storage.get(imageStorageKey(newImage.storage_key))).toEqual(imageBytes);
     expect(await storage.get(storageKey)).toEqual(imageBytes);
 
     const copied = copy.description as DescriptionNode;

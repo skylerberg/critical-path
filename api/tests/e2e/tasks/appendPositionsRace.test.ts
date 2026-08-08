@@ -44,7 +44,6 @@ describe('concurrent moves into one column', () => {
           project_id: projectId,
           column_id: targetColumnId,
           title: 'already here',
-          sort_key: rankKey(1000),
           sort_key: 'V0',
         },
         {
@@ -82,7 +81,7 @@ describe('concurrent moves into one column', () => {
       waitFor: Promise<void> | null,
       probed: () => void,
       release: Promise<void> | null
-    ): Promise<number> {
+    ): Promise<string> {
       return db.transaction().execute(async (trx) => {
         if (waitFor) await waitFor;
         const [moved] = await appendPositions(trx, targetColumnId, [taskId]);

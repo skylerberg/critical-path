@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { BoardPayloadBody, deleteProjects, insertLabel, insertTaskImage } from './helpers';
 
@@ -119,8 +119,8 @@ describe('Viewer enforcement across every mutating route', () => {
     await deleteProjects(projectIds);
     await ctx.cleanup();
     await Promise.all(
-      [...new Set([...storageKeys, ...copied.map((row) => row.storage_key)])].map((key) =>
-        storage.delete(key)
+      [...new Set([...storageKeys, ...copied.map((row) => imageStorageKey(row.storage_key))])].map(
+        (key) => storage.delete(key)
       )
     );
   });

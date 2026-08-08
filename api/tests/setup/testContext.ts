@@ -10,6 +10,15 @@ export interface TestUser {
   token: string;
 }
 
+// A parsed body has no compile-time link to the route that produced it, so this
+// is unchecked on purpose; name the shape where it matters via res.json<T>().
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type JsonBody = any;
+
+export interface TestResponse extends Omit<Response, 'json'> {
+  json<T = JsonBody>(): Promise<T>;
+}
+
 export class TestContext {
   private users: TestUser[] = [];
 
@@ -80,49 +89,53 @@ export class TestApiClient {
     return headers;
   }
 
-  private async makeRequest(method: string, path: string, body?: unknown): Promise<Response> {
-    return app.request(path, {
+  private async send(path: string, init: RequestInit): Promise<TestResponse> {
+    return (await app.request(path, init)) as TestResponse;
+  }
+
+  private makeRequest(method: string, path: string, body?: unknown): Promise<TestResponse> {
+    return this.send(path, {
       method,
       headers: this.headers({ 'Content-Type': 'application/json' }),
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   }
 
-  get(path: string): Promise<Response> {
+  get(path: string): Promise<TestResponse> {
     return this.makeRequest('GET', path);
   }
 
-  post(path: string, body?: unknown): Promise<Response> {
+  post(path: string, body?: unknown): Promise<TestResponse> {
     return this.makeRequest('POST', path, body);
   }
 
-  put(path: string, body: unknown): Promise<Response> {
+  put(path: string, body: unknown): Promise<TestResponse> {
     return this.makeRequest('PUT', path, body);
   }
 
-  patch(path: string, body: unknown): Promise<Response> {
+  patch(path: string, body: unknown): Promise<TestResponse> {
     return this.makeRequest('PATCH', path, body);
   }
 
-  delete(path: string, body?: unknown): Promise<Response> {
+  delete(path: string, body?: unknown): Promise<TestResponse> {
     return this.makeRequest('DELETE', path, body);
   }
 
   // For JSON that JSON.stringify cannot produce, e.g. 1e999 (Infinity).
-  async sendRawJson(
+  sendRawJson(
     method: 'POST' | 'PUT' | 'PATCH',
     path: string,
     rawBody: string
-  ): Promise<Response> {
-    return app.request(path, {
+  ): Promise<TestResponse> {
+    return this.send(path, {
       method,
       headers: this.headers({ 'Content-Type': 'application/json' }),
       body: rawBody,
     });
   }
 
-  async postMultipart(path: string, formData: FormData): Promise<Response> {
-    return app.request(path, {
+  postMultipart(path: string, formData: FormData): Promise<TestResponse> {
+    return this.send(path, {
       method: 'POST',
       headers: this.headers(),
       body: formData,
@@ -131,8 +144,8 @@ export class TestApiClient {
 
   // A ReadableStream body carries no content-length, which is how a chunked
   // upload — the one a cap cannot be pre-checked against — is reproduced.
-  async postBytes(path: string, body: Buffer | ReadableStream<Uint8Array>): Promise<Response> {
-    return app.request(path, {
+  postBytes(path: string, body: Buffer | ReadableStream<Uint8Array>): Promise<TestResponse> {
+    return this.send(path, {
       method: 'POST',
       headers: this.headers({ 'Content-Type': 'application/octet-stream' }),
       body: body instanceof Buffer ? new Uint8Array(body) : body,

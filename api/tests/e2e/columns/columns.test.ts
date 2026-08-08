@@ -22,7 +22,7 @@ async function createProject(): Promise<string> {
 
 async function insertColumn(
   projectId: string,
-  opts: { name?: string; position?: number; is_done?: boolean } = {}
+  opts: { name?: string; sort_key?: string; is_done?: boolean } = {}
 ): Promise<string> {
   const id = newId();
   await db
@@ -31,7 +31,7 @@ async function insertColumn(
       id,
       project_id: projectId,
       name: opts.name ?? 'Column',
-      sort_key: rankKey(opts.position ?? 1000),
+      sort_key: opts.sort_key ?? rankKey(),
       is_done: opts.is_done ?? false,
     })
     .execute();
@@ -120,7 +120,6 @@ describe('POST /api/columns', () => {
       project_id: projectId,
       name: 'Review',
       sort_key: key2500,
-      sort_key: expect.any(String),
       is_done: false,
       created_at: expect.any(String),
     });
@@ -387,6 +386,7 @@ describe('DELETE /api/columns/:id', () => {
     const first = await insertTask(projectId, sourceId, 1000);
     const second = await insertTask(projectId, sourceId, 2000);
     const existingTarget = await insertTask(projectId, targetId, 5000);
+    const existingKey = (await tasksInColumn(targetId))[0]!.sort_key;
 
     const res = await ctx
       .request(token)
@@ -414,8 +414,7 @@ describe('DELETE /api/columns/:id', () => {
       {
         id: existingTarget,
         column_id: targetId,
-        sort_key: rankKey(5000),
-        sort_key: expect.any(String),
+        sort_key: existingKey,
       },
       { id: first, column_id: targetId, sort_key: expect.any(String) },
       { id: second, column_id: targetId, sort_key: expect.any(String) },
@@ -602,6 +601,7 @@ describe('POST /api/columns/:id/move-tasks', () => {
     const second = await insertTask(projectId, sourceId, 2000);
     const first = await insertTask(projectId, sourceId, 1000);
     const existingTarget = await insertTask(projectId, targetId, 5000);
+    const existingKey = (await tasksInColumn(targetId))[0]!.sort_key;
 
     const res = await ctx
       .request(token)
@@ -618,8 +618,7 @@ describe('POST /api/columns/:id/move-tasks', () => {
       {
         id: existingTarget,
         column_id: targetId,
-        sort_key: rankKey(5000),
-        sort_key: expect.any(String),
+        sort_key: existingKey,
       },
       { id: first, column_id: targetId, sort_key: expect.any(String) },
       { id: second, column_id: targetId, sort_key: expect.any(String) },

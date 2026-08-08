@@ -3,7 +3,7 @@ import path from 'path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { unzipSync } from 'fflate';
 import { TestContext, type TestUser } from '../../setup/testContext';
-import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { insertTaskImage } from './helpers';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
@@ -53,6 +53,15 @@ function decode(bytes: Uint8Array): string {
 
 function imagesOf(task: ProjectExport['tasks'][number]) {
   return task.attachments.filter((attachment) => attachment.kind === 'image');
+}
+
+// An image entry always names the archive path its bytes are packed at; the
+// manifest types path as nullable because link attachments carry no file.
+function archivePath(image: { path: string | null }): string {
+  if (image.path === null) {
+    throw new Error('export image entry has no archive path');
+  }
+  return image.path;
 }
 
 // A manifest entry with no file names bytes the archive does not carry; a file
@@ -210,7 +219,7 @@ async function reimport(
 
   for (const task of exportPayload.tasks) {
     for (const image of imagesOf(task)) {
-      const bytes = files[image.path];
+      const bytes = files[archivePath(image)];
       expect(bytes).toBeDefined();
       const res = await client.postBytes(
         imageUploadPath(
@@ -394,7 +403,9 @@ describe('GET /api/projects/:id/export', () => {
         .where('task.project_id', 'in', createdProjectIds)
         .execute();
       await Promise.all(
-        rows.map((row) => fs.rm(path.join(env.storageDiskRoot, row.storage_key), { force: true }))
+        rows.map((row) =>
+          fs.rm(path.join(env.storageDiskRoot, imageStorageKey(row.storage_key)), { force: true })
+        )
       );
       await db.deleteFrom('project').where('id', 'in', createdProjectIds).execute();
     }
@@ -799,7 +810,7 @@ describe('GET /api/projects/:id/export', () => {
 
       const copyZip = await exportZip(copyId, owner.token);
       for (const image of copiedImages) {
-        expect(Buffer.from(copyZip.files[image.path])).toEqual(
+        expect(Buffer.from(copyZip.files[archivePath(image)])).toEqual(
           image.content_type === 'image/png' ? PNG_1X1 : JPEG_1X1
         );
       }

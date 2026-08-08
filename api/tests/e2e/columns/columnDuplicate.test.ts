@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import {
   type BoardColumnPayload,
@@ -38,7 +38,7 @@ describe('POST /api/columns/:id/duplicate', () => {
 
   async function createColumn(
     projectId: string,
-    opts: { name?: string; position?: number; isDone?: boolean } = {}
+    opts: { name?: string; sortKey?: string; isDone?: boolean } = {}
   ): Promise<string> {
     const id = newId();
     await db
@@ -47,7 +47,7 @@ describe('POST /api/columns/:id/duplicate', () => {
         id,
         project_id: projectId,
         name: opts.name ?? 'Backlog',
-        sort_key: rankKey(opts.position ?? 1000),
+        sort_key: opts.sortKey ?? rankKey(),
         is_done: opts.isDone ?? false,
       })
       .execute();
@@ -69,7 +69,7 @@ describe('POST /api/columns/:id/duplicate', () => {
         .where('task_attachment.kind', '=', 'image')
         .where('task.project_id', 'in', projectIds)
         .execute();
-      await Promise.all(imageRows.map((row) => storage.delete(row.storage_key)));
+      await Promise.all(imageRows.map((row) => storage.delete(imageStorageKey(row.storage_key))));
     }
     await deleteProjects(projectIds);
     await ctx.cleanup();
@@ -88,7 +88,7 @@ describe('POST /api/columns/:id/duplicate', () => {
     const sourceColumnId = await createColumn(projectId, { name: 'Doing', isDone: true });
     const otherColumnId = await createColumn(projectId, {
       name: 'Elsewhere',
-      sort_key: rankKey(3000),
+      sortKey: rankKey(3000),
     });
     const labelId = await insertLabel({ projectId, name: 'art', color: '#123abc' });
 

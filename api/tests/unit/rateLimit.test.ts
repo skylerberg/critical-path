@@ -61,7 +61,7 @@ describe('enforceAuthRateLimit client IP derivation', () => {
     return c.body(null, 204);
   });
 
-  function attempt(headers: Record<string, string> = {}): Promise<Response> {
+  async function attempt(headers: Record<string, string> = {}): Promise<Response> {
     return app.request('/attempt', { method: 'POST', headers });
   }
 

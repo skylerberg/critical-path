@@ -322,7 +322,7 @@ describe('Tasks CRUD', () => {
     it('moves a task with column_id and position', async () => {
       const targetColumn = await fixtures.createColumn(projectId, {
         name: 'Done',
-        sort_key: rankKey(2000),
+        sortKey: rankKey(2000),
       });
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const { id } = await created.json();
@@ -452,7 +452,7 @@ describe('Tasks CRUD', () => {
     it('ignores expected_updated_at on a pure move', async () => {
       const targetColumn = await fixtures.createColumn(projectId, {
         name: 'Moved',
-        sort_key: rankKey(3000),
+        sortKey: rankKey(3000),
       });
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const original = await created.json();
@@ -474,7 +474,7 @@ describe('Tasks CRUD', () => {
     it('leaves updated_at untouched on a pure move but bumps column_since', async () => {
       const targetColumn = await fixtures.createColumn(projectId, {
         name: 'Move no bump',
-        sort_key: rankKey(4000),
+        sortKey: rankKey(4000),
       });
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const original = await created.json();
@@ -507,7 +507,7 @@ describe('Tasks CRUD', () => {
     it('keeps an open editor saveable after someone else moves the task', async () => {
       const targetColumn = await fixtures.createColumn(projectId, {
         name: 'Move then edit',
-        sort_key: rankKey(5000),
+        sortKey: rankKey(5000),
       });
       const created = await ctx.request(user.token).post('/api/tasks', taskBody());
       const original = await created.json();
