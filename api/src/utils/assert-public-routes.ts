@@ -9,6 +9,7 @@ const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   'GET /',
   'GET /health',
   'GET /api/openapi.json',
+  'GET /api/realtime-events.json',
   'GET /api/docs',
   'POST /api/auth/signup',
   'POST /api/auth/login',

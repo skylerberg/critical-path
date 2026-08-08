@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, sessionCookieFrom, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { imageUploadPath, newId } from '../../helpers/fixtures';
+import { uploadPath, newId } from '../../helpers/fixtures';
 import { cleanupProjects, createTaskFixture } from '../attachments/helpers';
 import { SESSION_COOKIE_NAME } from '../../../src/services/sessionCookie';
 
@@ -33,7 +33,7 @@ describe('image route authentication', () => {
     imageId = newId();
     const res = await ctx
       .request(owner.token)
-      .postBytes(imageUploadPath(fixture.taskId, 'pixel.png', imageId), PNG_1X1);
+      .postBytes(uploadPath(fixture.taskId, { filename: 'pixel.png', id: imageId }), PNG_1X1);
     expect(res.status).toBe(201);
 
     const login = await ctx

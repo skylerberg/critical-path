@@ -3,7 +3,7 @@ import path from 'path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { unzipSync } from 'fflate';
 import { TestContext, type TestUser } from '../../setup/testContext';
-import { imageStorageKey, imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, uploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { insertTaskImage } from './helpers';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
@@ -222,11 +222,10 @@ async function reimport(
       const bytes = files[archivePath(image)];
       expect(bytes).toBeDefined();
       const res = await client.postBytes(
-        imageUploadPath(
-          idMap.get(task.id) as string,
-          image.filename ?? 'image.png',
-          idMap.get(image.id) as string
-        ),
+        uploadPath(idMap.get(task.id) as string, {
+          filename: image.filename ?? 'image.png',
+          id: idMap.get(image.id) as string,
+        }),
         Buffer.from(bytes)
       );
       expect(res.status).toBe(201);
@@ -350,11 +349,20 @@ describe('GET /api/projects/:id/export', () => {
     pngImageId = newId();
     jpegImageId = newId();
     expect(
-      (await client.postBytes(imageUploadPath(mainTaskId, 'pixel.png', pngImageId), PNG_1X1)).status
+      (
+        await client.postBytes(
+          uploadPath(mainTaskId, { filename: 'pixel.png', id: pngImageId }),
+          PNG_1X1
+        )
+      ).status
     ).toBe(201);
     expect(
-      (await client.postBytes(imageUploadPath(mainTaskId, 'photo.jpg', jpegImageId), JPEG_1X1))
-        .status
+      (
+        await client.postBytes(
+          uploadPath(mainTaskId, { filename: 'photo.jpg', id: jpegImageId }),
+          JPEG_1X1
+        )
+      ).status
     ).toBe(201);
     // The jpeg: a cover no description embeds is only restorable from cover_image_url.
     expect(
@@ -705,13 +713,17 @@ describe('GET /api/projects/:id/export', () => {
       liveImageId = newId();
       archivedImageId = newId();
       expect(
-        (await client.postBytes(imageUploadPath(liveTaskId, 'live.png', liveImageId), PNG_1X1))
-          .status
+        (
+          await client.postBytes(
+            uploadPath(liveTaskId, { filename: 'live.png', id: liveImageId }),
+            PNG_1X1
+          )
+        ).status
       ).toBe(201);
       expect(
         (
           await client.postBytes(
-            imageUploadPath(archivedTaskId, 'shelved.jpg', archivedImageId),
+            uploadPath(archivedTaskId, { filename: 'shelved.jpg', id: archivedImageId }),
             JPEG_1X1
           )
         ).status

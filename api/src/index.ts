@@ -35,6 +35,7 @@ import { assertPublicRoutes } from './utils/assert-public-routes';
 import { Variables } from './types/index';
 import { db } from './db/index';
 import { attachRealtime, initRedisBus, closeRedisBus } from './services/realtime/index';
+import { buildRealtimeEventsDocument } from './services/realtime/document';
 import { closeRedis } from './services/redis';
 import { startJobWorker } from './services/jobs/index';
 import { registerAssignmentDigestJob } from './services/assignmentDigest';
@@ -174,6 +175,14 @@ export async function buildOpenApiSpec(): Promise<Record<string, unknown>> {
 
 app.get('/api/openapi.json', skipAuth, async (c) => {
   return c.json(await buildOpenApiSpec());
+});
+
+// Beside the spec rather than in it: /ws carries no HTTP request or response, so
+// the socket and webhook envelopes need their own document. Serving it is what
+// lets a client generate event types against a deployed API instead of needing a
+// checkout of this repo.
+app.get('/api/realtime-events.json', skipAuth, async (c) => {
+  return c.json(await buildRealtimeEventsDocument());
 });
 
 app.get('/api/docs', skipAuth, swaggerUI({ url: '/api/openapi.json' }));

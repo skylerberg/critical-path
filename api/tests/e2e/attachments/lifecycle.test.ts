@@ -39,7 +39,9 @@ describe('Attachment lifecycle', () => {
     token: string,
     taskId: string
   ): Promise<{ fileId: string; linkId: string; keys: string[] }> {
-    const upload = await ctx.request(token).postBytes(uploadPath(taskId, 'spec.pdf'), PDF);
+    const upload = await ctx
+      .request(token)
+      .postBytes(uploadPath(taskId, { filename: 'spec.pdf' }), PDF);
     expect(upload.status).toBe(201);
     const fileId = (await upload.json()).id;
 

@@ -30,7 +30,9 @@ describe('GET /api/attachments/:id/download', () => {
     filename: string,
     mimeType: string
   ): Promise<string> {
-    const res = await ctx.request(token).postBytes(uploadPath(taskId, filename, mimeType), bytes);
+    const res = await ctx
+      .request(token)
+      .postBytes(uploadPath(taskId, { filename: filename, contentType: mimeType }), bytes);
     expect(res.status).toBe(201);
     return (await res.json()).id;
   }

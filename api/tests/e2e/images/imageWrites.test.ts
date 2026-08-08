@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
-import { imageStorageKey, imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, uploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
 import { projectStorageAllowance } from '../../../src/services/attachments/quota';
@@ -104,7 +104,7 @@ describe('image writes', () => {
 
     const res = await ctx
       .request(user.token)
-      .postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
+      .postBytes(uploadPath(taskId, { filename: 'pixel.png', id: imageId }), PNG_1X1);
     expect(res.status).toBe(201);
 
     const rows = await imageRows(taskId);
@@ -141,7 +141,9 @@ describe('image writes', () => {
     const { taskId } = await createTaskFixture(user.id);
     const imageId = newId();
 
-    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
+    await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'pixel.png', id: imageId }), PNG_1X1);
     expect(await imageRows(taskId)).toHaveLength(1);
 
     const res = await ctx.request(user.token).delete(`/api/attachments/${imageId}`);
@@ -154,8 +156,12 @@ describe('image writes', () => {
     const first = newId();
     const second = newId();
 
-    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'one.png', first), PNG_1X1);
-    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'two.png', second), PNG_1X1);
+    await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'one.png', id: first }), PNG_1X1);
+    await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'two.png', id: second }), PNG_1X1);
 
     await ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id: first });
     expect((await imageRows(taskId)).filter((row) => row.is_cover).map((row) => row.id)).toEqual([
@@ -177,7 +183,9 @@ describe('image writes', () => {
     const { taskId } = await createTaskFixture(user.id);
     const imageId = newId();
 
-    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'pixel.png', imageId), PNG_1X1);
+    await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'pixel.png', id: imageId }), PNG_1X1);
     await ctx.request(user.token).put(`/api/tasks/${taskId}/cover`, { image_id: imageId });
 
     const copyId = newId();
@@ -205,7 +213,7 @@ describe('image writes', () => {
   it('surfaces as an attachment in the detail, the board count and the export', async () => {
     const { projectId, taskId } = await createTaskFixture(user.id);
 
-    await ctx.request(user.token).postBytes(imageUploadPath(taskId, 'pixel.png'), PNG_1X1);
+    await ctx.request(user.token).postBytes(uploadPath(taskId, { filename: 'pixel.png' }), PNG_1X1);
 
     const detail = (await (await ctx.request(user.token).get(`/api/tasks/${taskId}`)).json()) as {
       attachments: { kind: string; image_url: string; is_cover: boolean }[];

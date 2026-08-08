@@ -34,7 +34,9 @@ describe('attachment_count on the board', () => {
 
     expect(await boardTask(user.token, projectId, taskId)).toMatchObject({ attachment_count: 0 });
 
-    const file = await ctx.request(user.token).postBytes(uploadPath(taskId, 'spec.pdf'), PDF);
+    const file = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'spec.pdf' }), PDF);
     expect(file.status).toBe(201);
     expect(await boardTask(user.token, projectId, taskId)).toMatchObject({ attachment_count: 1 });
 
@@ -57,7 +59,9 @@ describe('attachment_count on the board', () => {
     const unsubscribe = subscribeBus((entry) => seen.push(entry));
     let attachmentId: string;
     try {
-      const created = await ctx.request(user.token).postBytes(uploadPath(taskId, 'a.pdf'), PDF);
+      const created = await ctx
+        .request(user.token)
+        .postBytes(uploadPath(taskId, { filename: 'a.pdf' }), PDF);
       expect(created.status).toBe(201);
       attachmentId = (await created.json()).id;
       expect(
@@ -83,7 +87,9 @@ describe('attachment_count on the board', () => {
     const user = await ctx.createUser('count-cascade');
     const { projectId, taskId } = await createTaskFixture(user.id, createdProjectIds);
 
-    const created = await ctx.request(user.token).postBytes(uploadPath(taskId, 'a.pdf'), PDF);
+    const created = await ctx
+      .request(user.token)
+      .postBytes(uploadPath(taskId, { filename: 'a.pdf' }), PDF);
     expect(created.status).toBe(201);
     expect(await boardTask(user.token, projectId, taskId)).toMatchObject({ attachment_count: 1 });
 

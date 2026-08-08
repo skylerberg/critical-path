@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
-import { imageStorageKey, imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, uploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { storage } from '../../../src/services/storage/index';
 import { BoardPayloadBody, deleteProjects, insertLabel, insertTaskImage } from './helpers';
 
@@ -240,7 +240,9 @@ describe('Viewer enforcement across every mutating route', () => {
       {
         name: 'POST /api/attachments/files',
         send: (t) => {
-          return ctx.request(t).postBytes(imageUploadPath(taskId, 'x.png'), Buffer.from([1, 2, 3]));
+          return ctx
+            .request(t)
+            .postBytes(uploadPath(taskId, { filename: 'x.png' }), Buffer.from([1, 2, 3]));
         },
       },
       {
