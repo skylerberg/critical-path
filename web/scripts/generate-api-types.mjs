@@ -2,132 +2,16 @@
 // Deprecated operations/schemas — and schemas only they referenced — are
 // filtered before codegen so stale call sites turn into TypeScript errors.
 
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import openapiTS, { astToString } from 'openapi-typescript';
+import { loadDocument } from './spec-source.mjs';
 
-const API_REPO_DIR = process.env.API_REPO_DIR || 'critical-path-api';
-const SPEC_URL = process.env.SPEC_URL;
-const SPEC_PATH = process.env.SPEC_PATH;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUTPUT_PATH = resolve(__dirname, '..', 'src', 'api', 'api.generated.ts');
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace']);
-
-// The API repo is a sibling of the *main* checkout, which a worktree outside the
-// repository cannot reach by walking up. Ask git where the main checkout is and
-// look beside that too, so a worktree anywhere on disk still finds the spec
-// rather than silently falling back to whatever is serving on SPEC_URL.
-function mainCheckout() {
-  try {
-    const gitDir = execFileSync(
-      'git',
-      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      {
-        cwd: __dirname,
-        encoding: 'utf8',
-      }
-    ).trim();
-    return gitDir === '' ? null : dirname(gitDir);
-  } catch {
-    return null;
-  }
-}
-
-function findDumpedSpec() {
-  const roots = [];
-  for (let dir = __dirname; ; ) {
-    roots.push(dir);
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  const main = mainCheckout();
-  if (main !== null) roots.push(main, dirname(main));
-  for (const dir of roots) {
-    const candidate = resolve(dir, API_REPO_DIR, 'openapi.json');
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-// A stale spec silently drops whole endpoints from the client, and the result
-// only fails under svelte-check — never under vitest, which strips types.
-//
-// openapi.json is gitignored — a local dump, never committed — so freshness is
-// its mtime against the newest file that determines it. The previous check
-// compared it against the HEAD commit date instead, which called a perfectly
-// good spec stale after any merge or pull: HEAD moves whether or not anything
-// under src/ did. Comparing against the inputs gets both cases right, because a
-// checkout only rewrites the files whose content actually changed.
-async function assertSpecIsFresh(specPath) {
-  const apiRoot = dirname(specPath);
-  const git = (args) => execFileSync('git', ['-C', apiRoot, ...args], { encoding: 'utf8' }).trim();
-
-  let sources;
-  try {
-    sources = git(['ls-files', 'src']).split('\n').filter(Boolean);
-  } catch {
-    return;
-  }
-
-  const { mtime } = await stat(specPath);
-  let newest = null;
-  for (const relative of sources) {
-    const stats = await stat(resolve(apiRoot, relative)).catch(() => null);
-    if (stats !== null && (newest === null || stats.mtime > newest.mtime)) {
-      newest = { mtime: stats.mtime, relative };
-    }
-  }
-  if (newest !== null && mtime < newest.mtime) {
-    throw new Error(
-      `${specPath} was written ${mtime.toISOString()}, older than ${newest.relative} ` +
-        `(${newest.mtime.toISOString()}).\n` +
-        `Run \`npm run openapi:dump\` in the api repo first, or the generated client will be ` +
-        `missing endpoints.`
-    );
-  }
-
-  // A dump only ever reflects the checkout, so fetching without pulling produces a
-  // spec that is newer than HEAD and still missing everything merged upstream.
-  let behind;
-  try {
-    behind = git(['rev-list', '--count', 'HEAD..origin/main']);
-  } catch {
-    return;
-  }
-  if (behind !== '0') {
-    throw new Error(
-      `${apiRoot} is ${behind} commit(s) behind origin/main, so ${specPath} cannot describe them.\n` +
-        `Run \`git pull\` there, then \`npm run openapi:dump\`, then regenerate.`
-    );
-  }
-}
-
-async function loadSpec() {
-  if (SPEC_PATH) {
-    await assertSpecIsFresh(SPEC_PATH);
-    return { spec: JSON.parse(await readFile(SPEC_PATH, 'utf8')), source: SPEC_PATH };
-  }
-  // The dev server is whatever build someone last started, and nothing here can tell
-  // how old it is. The dumped file can be freshness-checked, so it wins by default.
-  if (!SPEC_URL) {
-    const dumped = findDumpedSpec();
-    if (dumped) {
-      await assertSpecIsFresh(dumped);
-      return { spec: JSON.parse(await readFile(dumped, 'utf8')), source: dumped };
-    }
-  }
-  const url = SPEC_URL || 'http://localhost:3001/api/openapi.json';
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
-  }
-  return { spec: await res.json(), source: url };
-}
 
 function filterDeprecated(spec) {
   let removedOps = 0;
@@ -209,7 +93,12 @@ function pruneUnreachableSchemas(spec) {
 }
 
 async function main() {
-  const { spec, source } = await loadSpec();
+  const { doc: spec, source } = await loadDocument({
+    filename: 'openapi.json',
+    urlPath: '/api/openapi.json',
+    path: process.env.SPEC_PATH,
+    url: process.env.SPEC_URL,
+  });
   const { removedOps, removedSchemas } = filterDeprecated(spec);
   const ast = await openapiTS(spec);
   const header =

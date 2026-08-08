@@ -1,15 +1,12 @@
 import type { PayloadOf, RealtimeEvent, RealtimeEventType } from './realtime-types';
 
-// Test-only, and in src/lib beside bulkTestSetup.ts for the same reason: it is
-// imported by tests across both src/lib and src/components.
+// Test-only, in src/lib beside bulkTestSetup.ts because tests in both src/lib and
+// src/components import it.
 //
-// A test asserts about the two or three fields it is exercising, not the twenty
-// a board task carries, so the payload is a Partial of the real one. The field
-// *names* are still checked, which is the half that matters: a fixture naming
-// `position` on a project reorder — a field the API stopped sending — is a
-// compile error here, and it was a fixture exactly like that which let the web
-// app read `position` from `project_position_updated` for several releases while
-// its tests passed.
+// The payload is a Partial so a test can name the two or three fields it is
+// exercising, but the field *names* are still checked — a fixture naming one the
+// API does not send is a compile error, which is the drift that used to reach
+// production.
 export function realtimeEvent<T extends RealtimeEventType>(
   type: T,
   data: Partial<PayloadOf<T>>,
