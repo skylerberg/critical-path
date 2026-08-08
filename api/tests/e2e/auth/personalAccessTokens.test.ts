@@ -450,7 +450,7 @@ describe('Personal access tokens', () => {
         token: createResetToken(alternative_id),
         new_password: 'another-brand-new-password',
       });
-      expect(res.status).toBe(204);
+      expect(res.status).toBe(200);
 
       expect((await ctx.request(token).get('/api/auth/me')).status).toBe(200);
     });
