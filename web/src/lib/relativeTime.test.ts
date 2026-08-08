@@ -27,7 +27,7 @@ describe('formatRelativeTime', () => {
     expect(formatRelativeTime(ago(90 * 60_000), NOW)).toBe('1 hour ago');
   });
 
-  it('names the neighbouring day and month instead of counting one', () => {
+  it('names the neighboring day and month instead of counting one', () => {
     expect(formatRelativeTime(ago(86_400_000), NOW)).toBe('yesterday');
     expect(formatRelativeTime(ago(31 * 86_400_000), NOW)).toBe('last month');
   });

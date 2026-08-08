@@ -60,7 +60,7 @@ describe('TaskLabels', () => {
 
   // The clicked chip unmounts, so focus has to be handed somewhere before it goes
   // or it falls back to the dialog body.
-  it('hands focus to a neighbouring chip when one is removed', async () => {
+  it('hands focus to a neighboring chip when one is removed', async () => {
     vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
     render(TaskLabels, { taskId: 't1' });
 

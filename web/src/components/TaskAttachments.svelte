@@ -90,7 +90,7 @@
     return [formatBytes(attachment.size_bytes), typeLabel(attachment)].filter(Boolean).join(' · ');
   }
 
-  // Defence in depth: the server only ever stores http(s), but a stored value is
+  // Defense in depth: the server only ever stores http(s), but a stored value is
   // still the one thing on this row that could become an executable href.
   function safeHref(url: string | null): string | null {
     if (url === null) return null;

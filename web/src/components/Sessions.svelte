@@ -14,7 +14,7 @@
 
   type AccountSession = components['schemas']['Session'];
 
-  // Seconds would be noise, and the panel promises a moment you can recognise,
+  // Seconds would be noise, and the panel promises a moment you can recognize,
   // not one you can match to the millisecond.
   const momentFormat = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',

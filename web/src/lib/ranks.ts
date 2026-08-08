@@ -92,7 +92,7 @@ export function neighborsAfterDrop(items: readonly Ranked[], movedId: string): N
   if (index === 0) {
     return { afterId: null, beforeId: extreme(others, false)?.id ?? null };
   }
-  // Anchors on the visual neighbour above the drop, then takes the lowest-ranked
+  // Anchors on the visual neighbor above the drop, then takes the lowest-ranked
   // sibling above it, so the placement stays right when the display is a
   // filtered partition rather than the whole column.
   const previous = items[index - 1]!;
@@ -122,8 +122,8 @@ export function neighborsAtIndex(sorted: readonly Ranked[], index: number): Neig
 }
 
 /**
- * Turns neighbours back into a key against whatever the list looks like *now*.
- * `exact` is false when neither neighbour is still there — the card the user
+ * Turns neighbors back into a key against whatever the list looks like *now*.
+ * `exact` is false when neither neighbor is still there — the card the user
  * aimed at has been deleted or moved away, so the result is the end of the list
  * and a guess. Callers surface that rather than pretending the drop landed.
  */

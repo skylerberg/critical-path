@@ -63,7 +63,7 @@ describe('placeAtIndex', () => {
     expect(byRank(item('x', placed.sort_key), list[0]!)).toBeLessThan(0);
   });
 
-  it('ranks between the neighbours it lands on', () => {
+  it('ranks between the neighbors it lands on', () => {
     const placed = placeAtIndex(list, 1);
     const moved = item('x', placed.sort_key);
     expect(byRank(list[0]!, moved)).toBeLessThan(0);
@@ -77,9 +77,9 @@ describe('placeAtIndex', () => {
 });
 
 describe('between', () => {
-  // The whole point of the key: a float midpoint collapses onto a neighbour
+  // The whole point of the key: a float midpoint collapses onto a neighbor
   // after ~50 rounds, and the key does not.
-  it('never runs out of room against the same neighbour', () => {
+  it('never runs out of room against the same neighbor', () => {
     let low = item('a', 'V0');
     const high = item('z', 'V5');
     for (let step = 0; step < 500; step++) {
@@ -121,7 +121,7 @@ describe('restack', () => {
   });
 });
 
-describe('neighbours as the durable form of a drop', () => {
+describe('neighbors as the durable form of a drop', () => {
   const rows = (...keys: string[]) =>
     keys.map((sort_key, index) => ({ id: `t${String(index)}`, sort_key }));
 

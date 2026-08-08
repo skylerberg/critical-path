@@ -148,7 +148,7 @@
 
   // Back, a guard redirect, or another tab's logout can move the route out from
   // under an open palette. The query string is not such a move: the board rewrites
-  // it whenever it normalises its filters, and that screen is still the one behind.
+  // it whenever it normalizes its filters, and that screen is still the one behind.
   $effect(() => {
     if (splitPath(router.path).pathname !== openedPathname) {
       onclose();

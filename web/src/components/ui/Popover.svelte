@@ -24,7 +24,7 @@
   // whose overflow-y makes overflow-x compute to auto, so a panel wider than the
   // scrollport is clipped and one above its top edge is unreachable. offsetLeft,
   // clientWidth and offsetWidth all resolve against the same offsetParent, which
-  // is why the clamp needs no viewport or scroll maths.
+  // is why the clamp needs no viewport or scroll math.
   $effect(() => {
     const panel = panelEl;
     if (panel === undefined || trigger === undefined) {

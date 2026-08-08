@@ -210,7 +210,7 @@ describe('paletteGroups — projects', () => {
   const projects = [
     { id: testUuid('a'), name: 'Zeta' },
     { id: testUuid('b'), name: 'Colori' },
-    { id: testUuid('c'), name: 'Watercolour' },
+    { id: testUuid('c'), name: 'Watercolor' },
   ];
 
   it('is absent with no projects to show', () => {
@@ -221,20 +221,20 @@ describe('paletteGroups — projects', () => {
     expect(labels(paletteGroups(context({ projects })), 'projects')).toEqual([
       'Zeta',
       'Colori',
-      'Watercolour',
+      'Watercolor',
     ]);
   });
 
   it('ranks by tier and stays stable inside one', () => {
     const ranked = [
-      { id: testUuid('d'), name: 'Recolour' },
-      { id: testUuid('e'), name: 'Colouring' },
-      { id: testUuid('f'), name: 'Colour' },
+      { id: testUuid('d'), name: 'Recolor' },
+      { id: testUuid('e'), name: 'Coloring' },
+      { id: testUuid('f'), name: 'Color' },
     ];
 
     expect(
-      labels(paletteGroups(context({ projects: ranked, query: 'colour' })), 'projects')
-    ).toEqual(['Colour', 'Colouring', 'Recolour']);
+      labels(paletteGroups(context({ projects: ranked, query: 'color' })), 'projects')
+    ).toEqual(['Color', 'Coloring', 'Recolor']);
   });
 
   it('finds a project by an id prefix', () => {

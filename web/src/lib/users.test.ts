@@ -97,7 +97,7 @@ describe('users store', () => {
     }
   });
 
-  it('loadWithRetry stops retrying once cancelled', async () => {
+  it('loadWithRetry stops retrying once canceled', async () => {
     vi.useFakeTimers();
     try {
       fetchMock.mockImplementation(async () => jsonResponse(503, { error: 'down' }));

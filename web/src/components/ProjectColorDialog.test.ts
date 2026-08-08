@@ -45,7 +45,7 @@ describe('ProjectColorDialog', () => {
     expect(screen.getByRole('button', { name: 'None' })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('clears the colour to None', async () => {
+  it('clears the color to None', async () => {
     projects.projects = [project({ color: 'sky' })];
     fetchMock.mockResolvedValue(jsonResponse(200, project({ color: null })));
     const onclose = vi.fn();
@@ -59,7 +59,7 @@ describe('ProjectColorDialog', () => {
     expect(onclose).toHaveBeenCalled();
   });
 
-  it('closes without a request when the current colour is picked again', async () => {
+  it('closes without a request when the current color is picked again', async () => {
     projects.projects = [project({ color: 'sky' })];
     const onclose = vi.fn();
     render(ProjectColorDialog, { projectId: PROJECT_ID, current: 'sky', onclose });

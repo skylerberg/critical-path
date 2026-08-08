@@ -223,7 +223,7 @@ class OutboxStore {
   /**
    * Two edits to the same card while offline become one.
    *
-   * Not an optimisation — a correctness fix. Each guarded edit carries an
+   * Not an optimization — a correctness fix. Each guarded edit carries an
    * `expected_updated_at` naming the last version the server confirmed, and both
    * of these name the same one. Replayed separately the first would succeed and
    * bump the card's `updated_at`, and the second would then fail its
@@ -529,7 +529,7 @@ interface BoardTasks {
 }
 
 // Keeps the shadow board in step as moves land, so two queued moves into the
-// same column do not both compute against the same stale neighbours.
+// same column do not both compute against the same stale neighbors.
 function applyMoveLocally(
   board: BoardTasks,
   taskId: string,

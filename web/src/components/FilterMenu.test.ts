@@ -94,9 +94,9 @@ describe('FilterMenu', () => {
     document.body.append(outside);
     outside.focus();
 
-    const cancelled = !(await fireEvent.mouseDown(screen.getByRole('button', { name: 'art 2' })));
+    const canceled = !(await fireEvent.mouseDown(screen.getByRole('button', { name: 'art 2' })));
 
-    expect(cancelled).toBe(true);
+    expect(canceled).toBe(true);
     expect(document.activeElement).toBe(outside);
   });
 
@@ -150,10 +150,10 @@ describe('FilterMenu', () => {
     const first = rows()[0]!;
     first.focus();
 
-    const cancelled = !(await fireEvent.keyDown(first, { key: 'Escape' }));
+    const canceled = !(await fireEvent.keyDown(first, { key: 'Escape' }));
 
     expect(onexit).toHaveBeenCalled();
-    expect(cancelled).toBe(true);
+    expect(canceled).toBe(true);
   });
 
   it('renders only the assignee section when the project has no labels', () => {

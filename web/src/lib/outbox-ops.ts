@@ -19,14 +19,14 @@ export interface SerializedRequest {
 }
 
 /**
- * Only three behaviours differ once a queued request comes back, so the queue
+ * Only three behaviors differ once a queued request comes back, so the queue
  * carries that distinction rather than a arm-per-endpoint union that would have
  * to be extended in three places for every new board mutation:
  *
  * - `create` — the client supplies the id, so a duplicate on replay is this very
  *   op having already landed. That is a success, not a conflict.
  * - `move` — the stored `sort_key` was computed against the board as it looked
- *   offline. The intent is the neighbours, so the key is recomputed at replay.
+ *   offline. The intent is the neighbors, so the key is recomputed at replay.
  * - `contentEdit` — carries an `expected_updated_at` precondition and so can
  *   come back as a real conflict needing the user.
  * - `plain` — replay as recorded.

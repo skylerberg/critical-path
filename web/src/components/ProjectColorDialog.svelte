@@ -23,11 +23,11 @@
     'size-11 cursor-pointer rounded-md ring-offset-2 ring-offset-surface focus-visible:outline-2 focus-visible:outline-accent';
 </script>
 
-<Modal open title="Board colour" {onclose}>
+<Modal open title="Board color" {onclose}>
   <p class="text-sm text-muted">
     Marks this board wherever it is listed, for everyone who can see it.
   </p>
-  <div class="mt-4 flex flex-wrap gap-2" role="group" aria-label="Board colour">
+  <div class="mt-4 flex flex-wrap gap-2" role="group" aria-label="Board color">
     {#each ACCENT_KEYS as key (key)}
       <button
         type="button"

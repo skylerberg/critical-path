@@ -210,7 +210,7 @@ describe('ProjectMembersModal', () => {
     expect(screen.queryByRole('button', { name: /Make owner/ })).toBeNull();
   });
 
-  it('confirms before transferring, and cancelling sends nothing', async () => {
+  it('confirms before transferring, and canceling sends nothing', async () => {
     projects.projects = [project({ created_by: me.id, member_ids: [ada.id] })];
 
     render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });

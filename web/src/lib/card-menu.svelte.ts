@@ -44,7 +44,7 @@ function releaseArmedDrag(): void {
 /**
  * The press that opened the menu still ends in a click on the card's link, which
  * would open the task behind the menu. The timeout matters because an engine
- * that synthesises no click at all must not leave the next real one armed.
+ * that synthesizes no click at all must not leave the next real one armed.
  */
 function swallowNextClick(): void {
   function swallow(event: MouseEvent): void {

@@ -163,7 +163,7 @@ for (const c of CASES) {
   }
 }
 
-// --- Scroll behaviour ---
+// --- Scroll behavior ---
 // The board must move only when the user moved it. jsdom models no scrolling at
 // all, so these are the only tests that can see the real thing: whether it drifts
 // on arrival, and which of the gestures below the swipe fallback will act on.
@@ -207,9 +207,9 @@ const SCROLL_PROBE = `(async () => {
     const b = board.getBoundingClientRect();
     return Math.round(Math.abs((r.left + r.width / 2) - (b.left + board.clientWidth / 2)));
   };
-  // Distance to the NEAREST snap target's centre: zero exactly when the board is
+  // Distance to the NEAREST snap target's center: zero exactly when the board is
   // parked on a snap position. Parked between two, it is one layout change away
-  // from resolving onto a neighbour.
+  // from resolving onto a neighbor.
   const offSnap = () => (targets.length ? Math.min(...targets.map(offBy)) : null);
   const landedOffSnap = offSnap();
 
@@ -264,10 +264,10 @@ const SCROLL_PROBE = `(async () => {
   // its snap positions while it does.
   //
   // The invariant is the column under the user, not the scroll offset: one
-  // arriving BEFORE theirs must carry the board along to keep it centred, so a
+  // arriving BEFORE theirs must carry the board along to keep it centered, so a
   // scrollLeft that holds still there is the bug, not the fix. Only for one
   // arriving after does nothing ahead of them change, and the offset must hold too.
-  const centred = () => {
+  const centered = () => {
     const b = board.getBoundingClientRect();
     const mid = b.left + board.clientWidth / 2;
     let best = null;
@@ -283,16 +283,16 @@ const SCROLL_PROBE = `(async () => {
   board.scrollTo({ left: Math.round(board.clientWidth * 1.5), behavior: 'auto' });
   await settle();
   const beforeInsert = board.scrollLeft;
-  const columnBeforeAppend = centred();
+  const columnBeforeAppend = centered();
   window.__addColumn('end');
   await pause(900);
   const afterInsert = board.scrollLeft;
-  const columnAfterAppend = centred();
+  const columnAfterAppend = centered();
 
-  const columnBeforePrepend = centred();
+  const columnBeforePrepend = centered();
   window.__addColumn('start');
   await pause(900);
-  const columnAfterPrepend = centred();
+  const columnAfterPrepend = centered();
 
   return {
     drift, resting, landed, afterWheel,
@@ -368,7 +368,7 @@ const SCROLL_CASES = [
   { w: 1280, h: 800, cols: 12, tasks: 3 },
 ];
 
-console.log('\ncheck:layout:real — board scroll behaviour');
+console.log('\ncheck:layout:real — board scroll behavior');
 for (const c of SCROLL_CASES) {
   const mobile = c.w < 1024;
   await setViewport({ width: c.w, height: c.h, mobile });

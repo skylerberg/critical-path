@@ -1,7 +1,7 @@
 /**
  * What is being typed on the signed-out screens, shared so that moving between
  * log in, sign up and forgot-password keeps it. Someone who typed an address
- * and a password before realising they have no account — or before realising
+ * and a password before realizing they have no account — or before realizing
  * they have forgotten it — should not have to type either again to get where
  * they were going.
  *

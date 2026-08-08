@@ -349,10 +349,10 @@ describe('replaying a move made offline', () => {
     return body?.sort_key;
   }
 
-  // The whole point of storing neighbours rather than the key: someone else
+  // The whole point of storing neighbors rather than the key: someone else
   // moved things while this was waiting, and the card still has to land where
   // the user dropped it.
-  it('recomputes the key from the neighbours against the board as it looks now', async () => {
+  it('recomputes the key from the neighbors against the board as it looks now', async () => {
     await queueMove();
     serveBoard([
       { id: AFTER_ID, sort_key: 'V0' },
@@ -367,7 +367,7 @@ describe('replaying a move made offline', () => {
     expect(outbox.issues).toHaveLength(0);
   });
 
-  it('keeps the intent when only one of the two neighbours is left', async () => {
+  it('keeps the intent when only one of the two neighbors is left', async () => {
     await queueMove();
     serveBoard([
       { id: AFTER_ID, sort_key: 'V0' },
@@ -383,7 +383,7 @@ describe('replaying a move made offline', () => {
 
   // Falling back to the end of the column is a guess, and a guess the user is
   // told about rather than left to notice.
-  it('appends and says so when both neighbours are gone', async () => {
+  it('appends and says so when both neighbors are gone', async () => {
     await queueMove();
     serveBoard([{ id: testUuid('unrelated'), sort_key: 'V3' }]);
 

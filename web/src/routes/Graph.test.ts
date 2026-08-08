@@ -441,7 +441,7 @@ describe('Graph dependency editing', () => {
     expect(path.start).toEqual([c.left, c.centerY]);
     expect(path.end).toEqual([a.right, a.centerY]);
     // The last control point sits beyond the endpoint, so the arrowhead arrives
-    // travelling into the node instead of out of its far side.
+    // traveling into the node instead of out of its far side.
     expect(path.c2[0]).toBeGreaterThan(path.end[0]);
     // Midpoint of the cubic: the drawn curve, not just its controls, must clear the row.
     const apex =

@@ -593,7 +593,7 @@ describe('canonical URL', () => {
       await waitFor(() => {
         expect(router.path).toBe(taskHref(T1, 'Boss fight'));
       });
-      // A pushState canonicaliser looks identical on screen and breaks Back.
+      // A pushState canonicalizer looks identical on screen and breaks Back.
       expect(pushState).not.toHaveBeenCalled();
       expect(replaceState).toHaveBeenCalledTimes(1);
     } finally {

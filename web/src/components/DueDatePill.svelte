@@ -19,7 +19,7 @@
   const canComplete = $derived(!done && !readonly && board.doneColumnIds.size > 0);
 
   // Neutral carries the same box as the tinted states but no background, so it
-  // reads as one more badge in the row and a colour change never moves anything.
+  // reads as one more badge in the row and a color change never moves anything.
   const tone = {
     neutral: 'text-muted',
     soon: 'bg-warning/15 text-warning',

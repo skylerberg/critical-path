@@ -110,7 +110,7 @@ describe('long press', () => {
     expect(cardMenu.taskId).toBe('t1');
   });
 
-  it('drops the press when the finger lifts or the gesture is cancelled', () => {
+  it('drops the press when the finger lifts or the gesture is canceled', () => {
     for (const type of ['pointerup', 'pointercancel']) {
       cardMenu.pressStart(press(), 't1');
       document.dispatchEvent(new PointerEvent(type, { pointerType: 'touch' }));
@@ -256,7 +256,7 @@ describe('open and close', () => {
     expect(cardMenu.taskId).toBeNull();
   });
 
-  // The blur the menu's own focus causes is what saves it, so cancelling it here
+  // The blur the menu's own focus causes is what saves it, so canceling it here
   // would throw the user's typing away.
   it('leaves a rename in flight for the blur to commit', () => {
     cardMenu.rename('t1');

@@ -18,7 +18,7 @@
   const applied = $derived((task?.label_ids ?? []).flatMap((id) => labelById.get(id) ?? []));
 
   function remove(labelId: string, event: MouseEvent): void {
-    // The clicked chip unmounts, so hand focus to its neighbour rather than
+    // The clicked chip unmounts, so hand focus to its neighbor rather than
     // letting it fall back to the dialog body.
     const chip = event.currentTarget as HTMLElement;
     const next = chip.nextElementSibling ?? chip.previousElementSibling;

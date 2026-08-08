@@ -216,7 +216,7 @@ class ShortcutController {
   #handleSelectionKey(event: KeyboardEvent, projectId: string | null): boolean {
     const cursorId = selection.cursorTaskId;
     switch (event.key) {
-      // 'J' and 'K' are the same press with Shift held; the behaviour comes from
+      // 'J' and 'K' are the same press with Shift held; the behavior comes from
       // the modifier and never the character's case, as CapsLock inverts it.
       case 'j':
       case 'J':
@@ -355,7 +355,7 @@ class ShortcutController {
         board.clearFilters();
         break;
       // A modified press belongs to the browser or the OS (Cmd+L, Cmd+A, Cmd+B,
-      // Cmd+M minimises), not to us.
+      // Cmd+M minimizes), not to us.
       case 'l':
       case 'L':
         if (editTarget === null || event.metaKey || event.ctrlKey || event.altKey) {

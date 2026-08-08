@@ -67,7 +67,7 @@ describe('dueStatus', () => {
 });
 
 describe('formatDue', () => {
-  it('uses relative words for the neighbouring days', () => {
+  it('uses relative words for the neighboring days', () => {
     expect(formatDue('2026-08-02', TODAY)).toBe('Yesterday');
     expect(formatDue(TODAY, TODAY)).toBe('Today');
     expect(formatDue('2026-08-04', TODAY)).toBe('Tomorrow');

@@ -61,7 +61,7 @@ describe('TaskAssignees', () => {
     expect(setTaskAssignees).toHaveBeenCalledWith('t1', ['u-alan']);
   });
 
-  it('hands focus to a neighbour when one is unassigned', async () => {
+  it('hands focus to a neighbor when one is unassigned', async () => {
     vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
     render(TaskAssignees, { taskId: 't1' });
 

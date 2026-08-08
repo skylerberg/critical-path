@@ -78,7 +78,7 @@ export type TaskUpdateOutcome =
 
 // Anchors on the visual neighbor above the drop, so it stays correct when the
 // display order is a filtered partition rather than pure rank order. Both this
-// and the neighbours a queued move remembers come from `neighborsAfterDrop`, so
+// and the neighbors a queued move remembers come from `neighborsAfterDrop`, so
 // what gets sent now and what gets replayed later cannot describe different drops.
 export function placementAfterDrop(items: readonly Ranked[], movedId: string): Placement {
   const others = items.filter((item) => item.id !== movedId);
@@ -764,7 +764,7 @@ class BoardStore {
    * `intent` is the same drop expressed as the cards it landed between, and it
    * is what gets queued when this cannot be sent now. A `sort_key` is only
    * meaningful against the board it was computed from, so replaying one minutes
-   * later would drop the card wherever that key happens to fall; the neighbours
+   * later would drop the card wherever that key happens to fall; the neighbors
    * still mean what the user meant. Defaults to the end of the column, which is
    * what the callers that append actually intend.
    */
@@ -1911,7 +1911,7 @@ class BoardStore {
               content_type: file.type || 'application/octet-stream',
             },
           },
-          // The file is the body, so it is handed to fetch untouched: serialising
+          // The file is the body, so it is handed to fetch untouched: serializing
           // it would read the whole thing into memory on both ends of the wire.
           body: file as unknown as string,
           bodySerializer: (body: unknown) => body as BodyInit,
@@ -2687,7 +2687,7 @@ class BoardStore {
           created_by: d.created_by ?? project.created_by,
           members: d.members ?? project.members,
           member_ids: d.member_ids ?? project.member_ids,
-          // Not `??`: null is the colour "None", and coalescing it would keep
+          // Not `??`: null is the color "None", and coalescing it would keep
           // showing the old one after a teammate cleared it.
           color: d.color !== undefined ? d.color : project.color,
         };

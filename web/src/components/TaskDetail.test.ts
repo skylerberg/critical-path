@@ -1509,7 +1509,7 @@ describe('TaskDetail cross-project dependencies', () => {
     expect(within(list).queryAllByRole('link')).toEqual([]);
   });
 
-  it('pluralises the unreadable row without claiming they share a project', async () => {
+  it('pluralizes the unreadable row without claiming they share a project', async () => {
     crossProjectResponse = { ...crossProjectResponse, hidden_blocked_by_count: 3 };
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 

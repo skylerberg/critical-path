@@ -57,7 +57,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // The shape the API puts in email. It has no alias encoder — aliases are a
 // client concern, and giving the server a third copy of one is how the three
-// drift — so it links by uuid and the board canonicalises the address to
+// drift — so it links by uuid and the board canonicalizes the address to
 // /p/<alias>/<slug> once it loads. Lowercased because a uuid is case
 // insensitive while the id the rest of the app compares against is not.
 function matchUuids(pattern: string, pathname: string): Record<string, string> | null {

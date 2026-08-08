@@ -254,7 +254,7 @@ describe('board shortcuts', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
-  it('leaves modified m presses (Cmd+M minimises) to the browser', () => {
+  it('leaves modified m presses (Cmd+M minimizes) to the browser', () => {
     selection.set(TASK_1);
     for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
       const event = press('m', init);

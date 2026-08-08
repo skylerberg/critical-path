@@ -16,7 +16,7 @@ export const ACCENTS: Record<ProjectAccent, { label: string; cssVar: string }> =
 
 export const ACCENT_KEYS = Object.keys(ACCENTS) as ProjectAccent[];
 
-// Total on purpose. Most boards have no colour at all, a drag placeholder has no
+// Total on purpose. Most boards have no color at all, a drag placeholder has no
 // fields, and a newer release can serve a key this build has no token for — an
 // indexed lookup produces a broken value or a throw on all three. hasOwn, not a
 // truthiness check: 'toString' indexes to a function off the prototype.

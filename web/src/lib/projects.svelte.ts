@@ -138,7 +138,7 @@ class ProjectsStore {
   }
 
   async setColor(id: string, color: ProjectAccent | null): Promise<void> {
-    await this.#patch(id, { color }, 'Failed to update board colour');
+    await this.#patch(id, { color }, 'Failed to update board color');
   }
 
   async remove(id: string): Promise<void> {

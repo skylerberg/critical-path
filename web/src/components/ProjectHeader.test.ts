@@ -183,7 +183,7 @@ describe('ProjectHeader', () => {
     await waitFor(() => expect(screen.queryByText('Public')).toBeNull());
   });
 
-  it('paints the accent bar from the projects list and clears it when the colour is removed', async () => {
+  it('paints the accent bar from the projects list and clears it when the color is removed', async () => {
     projects.projects = [project({ color: 'amber' })];
     const { container } = render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
@@ -191,7 +191,7 @@ describe('ProjectHeader', () => {
       boxShadow: 'inset 0 3px 0 var(--cp-project-amber)',
     });
 
-    // The board payload keeps the old colour until a board refetch, so a `??`
+    // The board payload keeps the old color until a board refetch, so a `??`
     // chain off the list would never reach this "None" and the bar would stay.
     board.project = { ...board.project!, color: 'amber' };
     fetchMock.mockResolvedValueOnce(jsonResponse(200, project({ color: null })));
@@ -212,14 +212,14 @@ describe('ProjectHeader', () => {
     );
   });
 
-  it('opens the colour picker from the kebab and PATCHes the chosen key', async () => {
+  it('opens the color picker from the kebab and PATCHes the chosen key', async () => {
     projects.projects = [project()];
     fetchMock.mockResolvedValue(jsonResponse(200, project({ color: 'emerald' })));
 
     render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Board colour' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Board color' }));
 
     const none = screen.getByRole('button', { name: 'None' });
     expect(none).toHaveAttribute('aria-pressed', 'true');
@@ -467,10 +467,10 @@ describe('ProjectHeader for a viewer', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.queryByRole('menuitem', { name: /Labels/ })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: /Webhooks/ })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: /Board colour/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /Board color/ })).toBeNull();
   });
 
-  it('still shows a colour someone else chose', () => {
+  it('still shows a color someone else chose', () => {
     projects.projects = [project({ color: 'violet' })];
     const { container } = render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
@@ -527,7 +527,7 @@ describe('ProjectHeader browser chrome', () => {
     expect(meta.content).toBe(APP_ACCENT);
   });
 
-  it('restores the app default when the colour is taken off the board', async () => {
+  it('restores the app default when the color is taken off the board', async () => {
     projects.projects = [project({ color: 'violet' })];
     render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     await waitFor(() => expect(meta.content).toBe(VIOLET));
@@ -538,7 +538,7 @@ describe('ProjectHeader browser chrome', () => {
     await waitFor(() => expect(meta.content).toBe(APP_ACCENT));
   });
 
-  it('paints the app default for a board that has no colour', async () => {
+  it('paints the app default for a board that has no color', async () => {
     projects.projects = [project()];
     render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
 
