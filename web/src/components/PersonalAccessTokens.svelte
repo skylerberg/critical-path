@@ -4,6 +4,7 @@
   import type { components } from '../api/api.generated';
   import { apiMessage } from '../lib/apiMessages';
   import { newId } from '../lib/ids';
+  import { formatExactTime, formatRelativeTime } from '../lib/relativeTime';
   import { toasts } from '../lib/toasts.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
@@ -173,7 +174,17 @@
           <p class="text-sm text-muted">
             Created {formatDate(token.created_at)} · {token.expires_at === null
               ? 'never expires'
-              : `expires ${formatDate(token.expires_at)}`}
+              : `expires ${formatDate(token.expires_at)}`} ·
+            {#if token.last_used_at === null}
+              never used
+            {:else}
+              last used <time
+                datetime={token.last_used_at}
+                title={formatExactTime(token.last_used_at)}
+              >
+                {formatRelativeTime(token.last_used_at)}
+              </time>
+            {/if}
           </p>
         </div>
         <Button
