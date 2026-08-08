@@ -233,6 +233,14 @@ re-run whatever generation the change involves (the client generators, which
 re-dump for themselves) — a rebase can bring in a schema change that silently
 invalidates a committed generated file.
 
+One conflict is worth calling out because it resolves wrongly by default: a branch
+cut before `openapi.json` or `realtime-events.json` was untracked still carries the
+tracked copy, so merging main raises a modify/delete conflict on it. Keep the
+deletion — the file is a dump now. Taking "modified" instead, which is the side
+git's hint nudges you toward, silently puts a 140KB generated file back under
+version control, and `tests/unit/generatedDocuments.test.ts` is what fails when it
+does.
+
 Two ways a stale base has produced *wrong* conclusions here, both worth guarding
 against directly:
 
