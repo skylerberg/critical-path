@@ -8,6 +8,12 @@ import {
 } from '../../src/services/resetToken';
 
 const ALT_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+const DEV_SECRET = 'dev-only-password-reset-secret';
+
+function forge(claims: Record<string, unknown>): string {
+  const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
+  return `${payload}.${crypto.createHmac('sha256', DEV_SECRET).update(payload).digest('base64url')}`;
+}
 
 afterEach(() => {
   delete process.env.PASSWORD_RESET_SECRET;
@@ -60,12 +66,8 @@ describe('createResetToken / verifyResetToken', () => {
   });
 
   it('rejects a structurally valid payload missing required fields', () => {
-    const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 60_000 })).toString('base64url');
-    const signature = crypto
-      .createHmac('sha256', 'dev-only-password-reset-secret')
-      .update(payload)
-      .digest('base64url');
-    expect(verifyResetToken(`${payload}.${signature}`)).toBeNull();
+    expect(verifyResetToken(forge({ t: 'reset', exp: Date.now() + 60_000 }))).toBeNull();
+    expect(verifyResetToken(forge({ t: 'reset', alternative_id: ALT_ID }))).toBeNull();
   });
 
   it('rejects tokens signed with a different secret', () => {
@@ -84,26 +86,10 @@ describe('createResetToken / verifyResetToken', () => {
     expect(claims.t).toBe('reset');
   });
 
-  it('still accepts an untyped token minted by the previous release', () => {
-    const payload = Buffer.from(
-      JSON.stringify({ alternative_id: ALT_ID, exp: Date.now() + RESET_TOKEN_TTL_MS })
-    ).toString('base64url');
-    const signature = crypto
-      .createHmac('sha256', 'dev-only-password-reset-secret')
-      .update(payload)
-      .digest('base64url');
-    expect(verifyResetToken(`${payload}.${signature}`)).toEqual({ alternative_id: ALT_ID });
-  });
-
-  it('rejects a correctly signed token belonging to another family', () => {
-    const payload = Buffer.from(
-      JSON.stringify({ t: 'verify', alternative_id: ALT_ID, exp: Date.now() + RESET_TOKEN_TTL_MS })
-    ).toString('base64url');
-    const signature = crypto
-      .createHmac('sha256', 'dev-only-password-reset-secret')
-      .update(payload)
-      .digest('base64url');
-    expect(verifyResetToken(`${payload}.${signature}`)).toBeNull();
+  it('rejects a correctly signed token that names no family or another one', () => {
+    const exp = Date.now() + RESET_TOKEN_TTL_MS;
+    expect(verifyResetToken(forge({ alternative_id: ALT_ID, exp }))).toBeNull();
+    expect(verifyResetToken(forge({ t: 'verify', alternative_id: ALT_ID, exp }))).toBeNull();
   });
 
   it('compares signatures with timingSafeEqual', () => {

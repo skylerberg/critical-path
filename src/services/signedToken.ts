@@ -25,8 +25,7 @@ export function encodeSignedToken(secret: string, type: string, claims: TokenCla
 export function decodeSignedToken(
   secret: string,
   type: string,
-  token: string,
-  { acceptUntyped = false }: { acceptUntyped?: boolean } = {}
+  token: string
 ): Record<string, unknown> | null {
   const parts = token.split('.');
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
@@ -51,8 +50,7 @@ export function decodeSignedToken(
   }
 
   const claims = parsed as Record<string, unknown>;
-  const claimedType = claims[TYPE_CLAIM];
-  if (claimedType === undefined ? !acceptUntyped : claimedType !== type) {
+  if (claims[TYPE_CLAIM] !== type) {
     return null;
   }
   return claims;
