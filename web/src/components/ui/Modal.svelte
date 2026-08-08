@@ -4,12 +4,15 @@
   interface Props {
     open?: boolean;
     title?: string;
+    size?: 'md' | 'lg';
     onclose?: () => void;
     children?: Snippet;
     footer?: Snippet;
   }
 
-  let { open = false, title, onclose, children, footer }: Props = $props();
+  let { open = false, title, size = 'md', onclose, children, footer }: Props = $props();
+
+  const widths = { md: 'max-w-lg', lg: 'max-w-3xl' };
 
   let dialog = $state<HTMLDialogElement>();
 
@@ -38,7 +41,7 @@
   bind:this={dialog}
   data-modal
   aria-label={title}
-  class="m-auto w-full max-w-lg bg-transparent p-4 backdrop:bg-black/50"
+  class="m-auto w-full {widths[size]} bg-transparent p-4 backdrop:bg-black/50"
   oncancel={(event) => {
     event.preventDefault();
     onclose?.();

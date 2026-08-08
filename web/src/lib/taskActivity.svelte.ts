@@ -101,3 +101,26 @@ class TaskActivityStore {
 }
 
 export const taskActivity = new TaskActivityStore();
+
+/**
+ * Who last wrote the title or description a task's `updated_at` stands for, or
+ * null when the log cannot say so exactly.
+ *
+ * The API writes `task.updated_at` and the activity row's `created_at` from the
+ * same transaction timestamp, so a real content change matches to the character.
+ * Two things bump the timestamp without leaving a row that matches: a patch that
+ * rewrote a field with the value it already held, and a description reverted
+ * inside the five-minute window where the API coalesces an editing session into
+ * one entry and deletes it when the text lands back where it started. Naming the
+ * wrong person is worse than naming nobody, so those return null.
+ */
+export function contentAuthorAt(updatedAt: string): string | null {
+  const entry = [...taskActivity.entries]
+    .reverse()
+    .find(
+      (candidate) =>
+        (candidate.kind === 'description_changed' || candidate.kind === 'title_changed') &&
+        candidate.created_at === updatedAt
+    );
+  return entry?.actor_user_id ?? null;
+}
