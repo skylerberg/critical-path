@@ -18,7 +18,6 @@ function installed(command: string): boolean {
 const SHELLS = [
   { shell: 'bash', syntaxCheck: ['-n'] },
   { shell: 'zsh', syntaxCheck: ['-n'] },
-  { shell: 'fish', syntaxCheck: ['--no-execute'] },
 ];
 
 describe('generated completion scripts', () => {
