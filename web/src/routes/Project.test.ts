@@ -74,6 +74,7 @@ function task(id: string, columnId: string, title: string, position = 1000): Boa
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -998,7 +999,7 @@ describe('Project shell for a viewer', () => {
     expect(screen.queryByLabelText('Task title')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
     // The identity-backed half of the overlay survives the demotion.
-    expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
+    expect(screen.getByText(/^Comments \(/)).toBeInTheDocument();
   });
 });
 

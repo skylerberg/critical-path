@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { draftKey, drafts } from './drafts.svelte';
+import { docDraftKey, draftKey, drafts } from './drafts.svelte';
 
 beforeEach(() => {
   drafts.clearAll();
@@ -47,5 +47,34 @@ describe('drafts', () => {
 
     expect(new Set(keys).size).toBe(keys.length);
     expect(draftKey.quickAddTask('c1')).not.toBe(draftKey.quickAddTask('c2'));
+  });
+
+  it('holds a rich-text draft alongside the text ones', () => {
+    const key = docDraftKey.taskComment('t1');
+    expect(drafts.getDoc(key)).toBeNull();
+
+    const doc = { type: 'doc' as const, content: [{ type: 'paragraph' }] };
+    drafts.setDoc(key, doc);
+    expect(drafts.getDoc(key)).toEqual(doc);
+
+    drafts.clearDoc(key);
+    expect(drafts.getDoc(key)).toBeNull();
+  });
+
+  it('keys rich-text drafts by task', () => {
+    const doc = { type: 'doc' as const, content: [{ type: 'paragraph' }] };
+    drafts.setDoc(docDraftKey.taskComment('t1'), doc);
+
+    expect(drafts.getDoc(docDraftKey.taskComment('t2'))).toBeNull();
+  });
+
+  it('drops rich-text drafts on clearAll too', () => {
+    drafts.setDoc(docDraftKey.taskComment('t1'), { type: 'doc' as const, content: [] });
+    drafts.set(draftKey.addColumn('p1'), 'Doing');
+
+    drafts.clearAll();
+
+    expect(drafts.getDoc(docDraftKey.taskComment('t1'))).toBeNull();
+    expect(drafts.get(draftKey.addColumn('p1'))).toBeNull();
   });
 });

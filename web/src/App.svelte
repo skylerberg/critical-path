@@ -7,6 +7,7 @@
   import { boardAnnouncer } from './lib/board-announcer.svelte';
   import { cardContext } from './lib/card-context.svelte';
   import { conflictDrafts } from './lib/conflictDrafts.svelte';
+  import { crossProjectDeps } from './lib/crossProjectDeps.svelte';
   import { drafts } from './lib/drafts.svelte';
   import { invitations } from './lib/invitations.svelte';
   import { myTasks } from './lib/myTasks.svelte';
@@ -59,6 +60,7 @@
       board.reset();
       boardAnnouncer.reset();
       cardContext.reset();
+      crossProjectDeps.reset();
       invitations.reset();
       myTasks.reset();
       projects.reset();

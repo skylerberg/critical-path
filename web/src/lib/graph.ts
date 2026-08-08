@@ -7,12 +7,47 @@ export const NODE_HEIGHT = 64;
 const NODE_SEP = 24;
 const RANK_SEP = 72;
 
-export interface GraphNode {
+interface GraphNodeBase {
   id: string;
+}
+
+export interface TaskGraphNode extends GraphNodeBase {
+  kind: 'task';
   title: string;
   columnName: string;
   isDone: boolean;
 }
+
+/** An expanded, readable task on another board. Terminal: it carries no count
+ *  of its own, so it can never sprout a placeholder and the walk cannot recurse. */
+export interface RemoteGraphNode extends GraphNodeBase {
+  kind: 'remote';
+  title: string;
+  projectName: string;
+  isDone: boolean;
+}
+
+/** Stands for `count` unexpanded blockers on other boards, until it is clicked. */
+export interface PlaceholderGraphNode extends GraphNodeBase {
+  kind: 'placeholder';
+  hostTaskId: string;
+  count: number;
+}
+
+/** Expanded, but these live in projects the viewer cannot read. Never named. */
+export interface HiddenGraphNode extends GraphNodeBase {
+  kind: 'hidden';
+  hostTaskId: string;
+  count: number;
+}
+
+// Only `id` is common, which is all adjacency, the topological order, cycle
+// detection and layout ever read — so they are untouched by the union.
+export type GraphNode = TaskGraphNode | RemoteGraphNode | PlaceholderGraphNode | HiddenGraphNode;
+
+// A uuid never contains ':', so a synthetic id can never collide with a real one.
+export const crossProjectNodeId = (taskId: string): string => `xp:${taskId}`;
+export const crossProjectHiddenNodeId = (taskId: string): string => `xph:${taskId}`;
 
 export interface GraphEdge {
   id: string;
@@ -25,10 +60,9 @@ export interface LayoutPoint {
   y: number;
 }
 
-export interface LayoutNode extends GraphNode {
-  x: number;
-  y: number;
-}
+// An intersection rather than an extends clause: a union cannot be extended,
+// and this has to distribute over all four node kinds.
+export type LayoutNode = GraphNode & LayoutPoint;
 
 export interface LayoutEdge extends GraphEdge {
   points: LayoutPoint[];
@@ -67,14 +101,33 @@ export function edgeId(from: string, to: string): string {
   return `${from}->${to}`;
 }
 
+export interface CrossProjectLoaded {
+  tasks: readonly { task_id: string; title: string; project_name: string; is_done: boolean }[];
+  hiddenCount: number;
+}
+
+export interface CrossProjectExpansion {
+  /** Local task ids whose placeholder the viewer has clicked open. */
+  expanded: ReadonlySet<string>;
+  /** Fetched rows, keyed by the local task they hang off. */
+  loaded: ReadonlyMap<string, CrossProjectLoaded>;
+}
+
+const NO_CROSS_PROJECT: CrossProjectExpansion = { expanded: new Set(), loaded: new Map() };
+
 export function buildGraph(
   tasks: readonly BoardTask[],
-  columns: readonly BoardColumn[]
+  columns: readonly BoardColumn[],
+  // Defaulted so the client-side cycle pre-check keeps calling this with two
+  // arguments — and keeps cross-project nodes out of that check, which is right:
+  // the server owns the cross-project cycle rules.
+  cross: CrossProjectExpansion = NO_CROSS_PROJECT
 ): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const columnById = new Map(columns.map((column) => [column.id, column]));
-  const nodes = tasks.map((task) => {
+  const nodes: GraphNode[] = tasks.map((task) => {
     const column = columnById.get(task.column_id);
     return {
+      kind: 'task',
       id: task.id,
       title: task.title,
       columnName: column?.name ?? '',
@@ -89,6 +142,37 @@ export function buildGraph(
       edges.push({ id: edgeId(blockerId, task.id), from: blockerId, to: task.id });
     }
   }
+
+  // Every synthetic node has in-degree 0 and out-degree 1, so none can sit on a
+  // cycle and the cycle code needs no special case. In LR order they land
+  // immediately left of their host, which is where blockers belong.
+  for (const task of tasks) {
+    const count = task.open_cross_project_blocker_count;
+    if (count === 0) continue;
+    const loaded = cross.expanded.has(task.id) ? cross.loaded.get(task.id) : undefined;
+    if (loaded === undefined) {
+      const id = crossProjectNodeId(task.id);
+      nodes.push({ kind: 'placeholder', id, hostTaskId: task.id, count });
+      edges.push({ id: edgeId(id, task.id), from: id, to: task.id });
+      continue;
+    }
+    for (const remote of loaded.tasks) {
+      nodes.push({
+        kind: 'remote',
+        id: remote.task_id,
+        title: remote.title,
+        projectName: remote.project_name,
+        isDone: remote.is_done,
+      });
+      edges.push({ id: edgeId(remote.task_id, task.id), from: remote.task_id, to: task.id });
+    }
+    if (loaded.hiddenCount > 0) {
+      const id = crossProjectHiddenNodeId(task.id);
+      nodes.push({ kind: 'hidden', id, hostTaskId: task.id, count: loaded.hiddenCount });
+      edges.push({ id: edgeId(id, task.id), from: id, to: task.id });
+    }
+  }
+
   return { nodes, edges };
 }
 
@@ -215,9 +299,10 @@ export function layoutGraph(nodes: readonly GraphNode[], edges: readonly GraphEd
 
 export function computeGraph(
   tasks: readonly BoardTask[],
-  columns: readonly BoardColumn[]
+  columns: readonly BoardColumn[],
+  cross: CrossProjectExpansion = NO_CROSS_PROJECT
 ): GraphResult {
-  const { nodes, edges } = buildGraph(tasks, columns);
+  const { nodes, edges } = buildGraph(tasks, columns, cross);
   if (detectCycle(nodes, edges)) {
     return { kind: 'cycle' };
   }

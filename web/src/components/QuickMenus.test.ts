@@ -46,6 +46,7 @@ function task(id: string, columnId: string, title: string, position = 1000): Boa
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -111,6 +112,8 @@ function myTask(id: string, projectId: string, title: string): MyTask {
     waiting_user_ids: [],
     blocking: [],
     blocked_by: [],
+    hidden_blocked_by_count: 0,
+    hidden_blocking_count: 0,
   };
 }
 

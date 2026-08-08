@@ -30,6 +30,7 @@ function payload() {
         label_ids: [],
         assignee_ids: ['u-ada'],
         blocker_ids: [],
+        open_cross_project_blocker_count: 0,
         image_count: 1,
         cover_image_url: '/api/images/img1',
         comment_count: 2,
@@ -44,6 +45,7 @@ function payload() {
         label_ids: [],
         assignee_ids: [],
         blocker_ids: [],
+        open_cross_project_blocker_count: 0,
         image_count: 0,
         cover_image_url: null,
         comment_count: 0,
@@ -216,6 +218,7 @@ describe('PublicBoard', () => {
 
     render(PublicBoard, { props: { projectId: PROJECT_ID, taskId: DESIGN_CARDS_ID } });
 
+    await fireEvent.click(await screen.findByText(/^Comments \(/));
     expect(await screen.findByText('Locking the layout this week')).toBeInTheDocument();
     expect(screen.getByText('Sounds right to me')).toBeInTheDocument();
     expect(screen.getByText('Bo Peep')).toBeInTheDocument();

@@ -33,6 +33,7 @@ function task(id: string, columnId: string, blockerIds: string[] = []): BoardTas
     label_ids: [],
     assignee_ids: [],
     blocker_ids: blockerIds,
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -45,7 +46,7 @@ function task(id: string, columnId: string, blockerIds: string[] = []): BoardTas
 const columns = [column('todo', 'To Do'), column('done', 'Done', true)];
 
 function node(id: string, isDone = false): GraphNode {
-  return { id, title: `Task ${id}`, columnName: isDone ? 'Done' : 'To Do', isDone };
+  return { kind: 'task', id, title: `Task ${id}`, columnName: isDone ? 'Done' : 'To Do', isDone };
 }
 
 function edge(from: string, to: string): GraphEdge {
@@ -57,8 +58,8 @@ describe('buildGraph', () => {
     const { nodes } = buildGraph([task('a', 'todo'), task('b', 'done')], columns);
 
     expect(nodes).toEqual([
-      { id: 'a', title: 'Task a', columnName: 'To Do', isDone: false },
-      { id: 'b', title: 'Task b', columnName: 'Done', isDone: true },
+      { kind: 'task', id: 'a', title: 'Task a', columnName: 'To Do', isDone: false },
+      { kind: 'task', id: 'b', title: 'Task b', columnName: 'Done', isDone: true },
     ]);
   });
 
@@ -80,7 +81,9 @@ describe('buildGraph', () => {
   it('handles tasks whose column is unknown', () => {
     const { nodes } = buildGraph([task('a', 'gone')], columns);
 
-    expect(nodes).toEqual([{ id: 'a', title: 'Task a', columnName: '', isDone: false }]);
+    expect(nodes).toEqual([
+      { kind: 'task', id: 'a', title: 'Task a', columnName: '', isDone: false },
+    ]);
   });
 });
 
@@ -262,5 +265,89 @@ describe('edgePath', () => {
     expect(d.startsWith('M 0 0')).toBe(true);
     expect(d.match(/C /g)).toHaveLength(3);
     expect(d).not.toMatch(/NaN|Infinity/);
+  });
+});
+
+describe('buildGraph cross-project placeholders', () => {
+  function crossTask(id: string, count: number): BoardTask {
+    return { ...task(id, 'todo'), open_cross_project_blocker_count: count };
+  }
+
+  it('emits nothing for a task with no cross-project blockers', () => {
+    const { nodes, edges } = buildGraph([task('a', 'todo')], columns);
+    expect(nodes.every((n) => n.kind === 'task')).toBe(true);
+    expect(edges).toEqual([]);
+  });
+
+  it('emits one placeholder per task, not one per remote blocker', () => {
+    const { nodes, edges } = buildGraph([crossTask('a', 3)], columns);
+
+    const placeholders = nodes.filter((n) => n.kind === 'placeholder');
+    expect(placeholders).toEqual([{ kind: 'placeholder', id: 'xp:a', hostTaskId: 'a', count: 3 }]);
+    expect(edges).toEqual([{ id: 'xp:a->a', from: 'xp:a', to: 'a' }]);
+  });
+
+  it('keeps the placeholder while an expansion is still loading', () => {
+    const { nodes } = buildGraph([crossTask('a', 1)], columns, {
+      expanded: new Set(['a']),
+      loaded: new Map(),
+    });
+    expect(nodes.filter((n) => n.kind === 'placeholder')).toHaveLength(1);
+  });
+
+  it('replaces the placeholder with the loaded remote tasks', () => {
+    const { nodes, edges } = buildGraph([crossTask('a', 1)], columns, {
+      expanded: new Set(['a']),
+      loaded: new Map([
+        [
+          'a',
+          {
+            tasks: [{ task_id: 'far', title: 'Sign off', project_name: 'Design', is_done: false }],
+            hiddenCount: 0,
+          },
+        ],
+      ]),
+    });
+
+    expect(nodes.filter((n) => n.kind === 'placeholder')).toEqual([]);
+    expect(nodes.filter((n) => n.kind === 'remote')).toEqual([
+      { kind: 'remote', id: 'far', title: 'Sign off', projectName: 'Design', isDone: false },
+    ]);
+    expect(edges).toEqual([{ id: 'far->a', from: 'far', to: 'a' }]);
+  });
+
+  it('collapses unreadable remote blockers into one unnamed node', () => {
+    const { nodes } = buildGraph([crossTask('a', 2)], columns, {
+      expanded: new Set(['a']),
+      loaded: new Map([['a', { tasks: [], hiddenCount: 2 }]]),
+    });
+
+    expect(nodes.filter((n) => n.kind === 'hidden')).toEqual([
+      { kind: 'hidden', id: 'xph:a', hostTaskId: 'a', count: 2 },
+    ]);
+  });
+
+  // The whole point of stopping at the boundary: a remote node carries no count,
+  // so it can never sprout a placeholder of its own.
+  it('never recurses past an expanded remote task', () => {
+    const { nodes } = buildGraph([crossTask('a', 1)], columns, {
+      expanded: new Set(['a']),
+      loaded: new Map([
+        [
+          'a',
+          {
+            tasks: [{ task_id: 'far', title: 'Far', project_name: 'Other', is_done: false }],
+            hiddenCount: 0,
+          },
+        ],
+      ]),
+    });
+    expect(nodes.filter((n) => n.kind === 'placeholder')).toEqual([]);
+    expect(nodes).toHaveLength(2);
+  });
+
+  it('keeps synthetic nodes off every cycle', () => {
+    const { nodes, edges } = buildGraph([crossTask('a', 1), crossTask('b', 1)], columns);
+    expect(detectCycle(nodes, edges)).toBe(false);
   });
 });

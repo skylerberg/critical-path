@@ -1,4 +1,4 @@
-// AUTO-GENERATED FROM critical-path-api/realtime-events.json
+// AUTO-GENERATED FROM /Users/skylerberg/.worktrees/critical-path-api/cross-project-deps/realtime-events.json
 // DO NOT EDIT. Regenerate with: npm run generate:realtime
 
 export type paths = Record<string, never>;

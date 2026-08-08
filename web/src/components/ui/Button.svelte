@@ -4,10 +4,17 @@
 
   interface Props extends HTMLButtonAttributes {
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+    element?: HTMLButtonElement | null;
     children?: Snippet;
   }
 
-  let { variant = 'primary', children, class: className = '', ...rest }: Props = $props();
+  let {
+    variant = 'primary',
+    element = $bindable(null),
+    children,
+    class: className = '',
+    ...rest
+  }: Props = $props();
 
   const variants = {
     primary: 'bg-accent text-on-accent hover:bg-accent-strong',
@@ -19,6 +26,7 @@
 
 <button
   type="button"
+  bind:this={element}
   class="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2 rounded-md px-4 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 {variants[
     variant
   ]} {className}"

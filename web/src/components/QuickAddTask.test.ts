@@ -39,6 +39,7 @@ async function batchResponse(request: Request): Promise<Response> {
       label_ids: [],
       assignee_ids: [],
       blocker_ids: [],
+      open_cross_project_blocker_count: 0,
       image_count: 0,
       comment_count: 0,
     })),
