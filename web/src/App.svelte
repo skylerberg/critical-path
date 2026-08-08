@@ -4,6 +4,8 @@
   import { users } from './lib/users.svelte';
   import { board } from './lib/board.svelte';
   import { cardContext } from './lib/card-context.svelte';
+  import { conflictDrafts } from './lib/conflictDrafts.svelte';
+  import { crossProjectDeps } from './lib/crossProjectDeps.svelte';
   import { drafts } from './lib/drafts.svelte';
   import { invitations } from './lib/invitations.svelte';
   import { myTasks } from './lib/myTasks.svelte';
@@ -55,6 +57,7 @@
       users.reset();
       board.reset();
       cardContext.reset();
+      crossProjectDeps.reset();
       invitations.reset();
       myTasks.reset();
       projects.reset();
@@ -63,6 +66,7 @@
       webhooks.reset();
       taskSeries.reset();
       drafts.clearAll();
+      conflictDrafts.clearAll();
       realtime.disconnect();
       shortcuts.reset();
     }

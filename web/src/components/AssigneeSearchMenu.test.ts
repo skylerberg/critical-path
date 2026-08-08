@@ -24,6 +24,7 @@ const task: BoardTask = {
   checklist_item_count: 0,
   checklist_done_count: 0,
   attachment_count: 0,
+  open_cross_project_blocker_count: 0,
 };
 
 beforeEach(() => {

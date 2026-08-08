@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { board } from '../lib/board.svelte';
-  import { append } from '../lib/positions';
+  import { append } from '../lib/ranks';
   import AssigneeSearchMenu from './AssigneeSearchMenu.svelte';
   import DependencyPicker from './DependencyPicker.svelte';
   import DueDatePicker from './DueDatePicker.svelte';

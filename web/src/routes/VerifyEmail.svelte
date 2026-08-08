@@ -82,12 +82,11 @@
     let status: Status;
     try {
       assertOk(await api.POST('/api/auth/verify-email/resend'));
-      // Hedged, not "sent": the same 204 comes back with nothing sent when the
-      // address is already verified.
-      status = {
-        kind: 'success',
-        message: 'If your address still needs verifying, a new link is on its way.',
-      };
+      // Definite, not hedged: the 204 is the same whether or not mail went out,
+      // but the button below is offered only while this tab believes its own
+      // address unverified, and account_updated keeps that belief server-truth
+      // for as long as the socket is up.
+      status = { kind: 'success', message: 'A new link is on its way.' };
     } catch (err) {
       status = { kind: 'error', message: sentence(apiMessage(err)) };
     }
@@ -135,18 +134,29 @@
     {:else if outcome.state === 'rejected'}
       <p role="alert" class="mt-6 text-sm text-danger">{outcome.reason}</p>
       {#if signedIn}
-        <p class="mt-4 text-sm text-muted">Ask for a fresh link and it will arrive by email.</p>
-        <div class="mt-4 flex flex-col gap-3">
-          <Button onclick={resend} disabled={resending} class="w-full">Send a new link</Button>
-          {#if resendStatus !== null}
-            <p
-              role={resendStatus.kind === 'error' ? 'alert' : 'status'}
-              class="text-sm {resendStatus.kind === 'error' ? 'text-danger' : 'text-muted'}"
-            >
-              {resendStatus.message}
-            </p>
-          {/if}
-        </div>
+        <!-- The resend can only mail the caller's own address, never the one
+             this link was for, so a caller who is already verified would get a
+             204 with nothing sent. Positive test as on the account screen: a
+             session that has not resolved must not be told anything is
+             confirmed. -->
+        {#if session.user?.email_verified === true}
+          <p class="mt-4 text-sm text-muted">
+            Your address is already verified, so there is no new link to send.
+          </p>
+        {:else}
+          <p class="mt-4 text-sm text-muted">Ask for a fresh link and it will arrive by email.</p>
+          <div class="mt-4 flex flex-col gap-3">
+            <Button onclick={resend} disabled={resending} class="w-full">Send a new link</Button>
+            {#if resendStatus !== null}
+              <p
+                role={resendStatus.kind === 'error' ? 'alert' : 'status'}
+                class="text-sm {resendStatus.kind === 'error' ? 'text-danger' : 'text-muted'}"
+              >
+                {resendStatus.message}
+              </p>
+            {/if}
+          </div>
+        {/if}
       {:else}
         <p class="mt-4 text-sm text-muted">Log in to ask for a fresh link.</p>
       {/if}

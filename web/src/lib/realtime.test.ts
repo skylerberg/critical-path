@@ -72,6 +72,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
     label_ids: [] as string[],
     assignee_ids: [] as string[],
     blocker_ids: [] as string[],
+    open_cross_project_blocker_count: 0,
     image_count: 0,
     cover_image_url: null,
     due_date: null,
@@ -262,7 +263,13 @@ describe('board event application', () => {
     board.applyRealtime(
       realtimeEvent(
         'task_relations_set',
-        { task_id: 't1', label_ids: ['l1'], assignee_ids: ['u2'], blocker_ids: ['t9'] },
+        {
+          task_id: 't1',
+          label_ids: ['l1'],
+          assignee_ids: ['u2'],
+          blocker_ids: ['t9'],
+          open_cross_project_blocker_count: 0,
+        },
         'p1'
       )
     );
@@ -270,7 +277,55 @@ describe('board event application', () => {
       label_ids: ['l1'],
       assignee_ids: ['u2'],
       blocker_ids: ['t9'],
+      open_cross_project_blocker_count: 0,
     });
+  });
+
+  it('carries the cross-project count on task_relations_set', () => {
+    board.tasks = [{ ...task('t1'), open_cross_project_blocker_count: 3 }];
+    board.applyRealtime(
+      realtimeEvent(
+        'task_relations_set',
+        {
+          task_id: 't1',
+          label_ids: [],
+          assignee_ids: [],
+          blocker_ids: [],
+          open_cross_project_blocker_count: 1,
+        },
+        'p1'
+      )
+    );
+    expect(board.tasks[0]?.open_cross_project_blocker_count).toBe(1);
+  });
+
+  it('applies a bare recount from cross_project_blockers_changed', () => {
+    board.tasks = [
+      { ...task('t1'), open_cross_project_blocker_count: 2 },
+      { ...task('t2'), open_cross_project_blocker_count: 5 },
+    ];
+    board.applyRealtime(
+      realtimeEvent(
+        'cross_project_blockers_changed',
+        { tasks: [{ task_id: 't1', open_cross_project_blocker_count: 0 }] },
+        'p1'
+      )
+    );
+    expect(board.tasks[0]?.open_cross_project_blocker_count).toBe(0);
+    // Untouched: the event names only the cards whose count moved.
+    expect(board.tasks[1]?.open_cross_project_blocker_count).toBe(5);
+  });
+
+  it('ignores a recount aimed at another project', () => {
+    board.tasks = [{ ...task('t1'), open_cross_project_blocker_count: 2 }];
+    board.applyRealtime(
+      realtimeEvent(
+        'cross_project_blockers_changed',
+        { tasks: [{ task_id: 't1', open_cross_project_blocker_count: 0 }] },
+        'p2'
+      )
+    );
+    expect(board.tasks[0]?.open_cross_project_blocker_count).toBe(2);
   });
 
   it('upserts columns sorted by sort key', () => {
@@ -833,7 +888,7 @@ describe('drag-aware queue', () => {
 });
 
 describe('reconnect', () => {
-  it('reconnects with backoff and refetches board + projects + archive on re-auth', async () => {
+  it('reconnects with backoff and refetches board + projects + archive + account on re-auth', async () => {
     board.currentProjectId = 'p1';
     board.archivedLoaded = true;
     realtime.connect();
@@ -849,6 +904,15 @@ describe('reconnect', () => {
       }
       if (url.pathname === '/api/projects/p1/archived-tasks') {
         return jsonResponse(200, { tasks: [] });
+      }
+      if (url.pathname === '/api/auth/me') {
+        return jsonResponse(200, {
+          id: 'u1',
+          name: 'Me',
+          avatar_url: null,
+          email: 'm@e.com',
+          email_verified: false,
+        });
       }
       return jsonResponse(200, boardPayload());
     });
@@ -872,12 +936,16 @@ describe('reconnect', () => {
     expect(paths).toContain('/api/projects');
     expect(paths).toContain('/api/projects/p1');
     expect(paths).toContain('/api/projects/p1/archived-tasks');
+    // account_updated is delivered, not replayed, so a reconnect is the only
+    // thing that can recover one published while the socket was down.
+    expect(paths).toContain('/api/auth/me');
   });
 
   it('does not refetch on the very first connect', async () => {
     await connectAndAuth('p1');
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
     expect(paths).not.toContain('/api/projects');
+    expect(paths).not.toContain('/api/auth/me');
   });
 });
 
@@ -1112,26 +1180,23 @@ describe('user_updated dispatch', () => {
     expect(session.user?.email_verified).toBe(true);
   });
 
-  it('refetches the account when the broadcast is about self', async () => {
+  // This used to refetch /api/auth/me, purely because the address and its flag
+  // were invisible in the public payload. account_updated carries them now, so
+  // a rename must cost no round trip.
+  it('does not re-read the account for a broadcast about self', async () => {
     const socket = await connectAndAuth('p1');
-    session.user = { ...session.user!, email: 'old@e.com', email_verified: true };
-    fetchMock.mockResolvedValue(
-      jsonResponse(200, {
-        id: 'u1',
-        name: 'Me',
-        avatar_url: null,
-        email: 'brand-new@e.com',
-        email_verified: false,
-      })
-    );
+    session.user = { ...session.user!, email: 'm@e.com', email_verified: true };
 
     socket.receive({
       type: 'user_updated',
-      data: { id: 'u1', name: 'Me', avatar_url: null },
+      data: { id: 'u1', name: 'Me Renamed', avatar_url: null },
     });
+    // A macrotask, not a microtask: openapi-fetch dispatches after an awaited
+    // middleware tick, so a refetch would still be pending at this point.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    await vi.waitFor(() => expect(session.user?.email).toBe('brand-new@e.com'));
-    expect(session.user?.email_verified).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(session.user?.email_verified).toBe(true);
   });
 
   it('leaves the session user and the account alone when the broadcast is someone else', async () => {
@@ -1154,6 +1219,56 @@ describe('user_updated dispatch', () => {
     socket.receive({ type: 'user_updated', data: { id: 7 } });
     expect(users.users).toEqual([]);
     expect(session.user?.name).toBe('Me');
+  });
+});
+
+describe('account_updated dispatch', () => {
+  const ME = {
+    id: 'u1',
+    name: 'Me',
+    avatar_url: null,
+    email: 'new@e.com',
+    email_verified: true,
+  };
+
+  it('applies the address and its verification the public payload cannot carry', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = { ...session.user!, email: 'old@e.com', email_verified: false };
+
+    socket.receive(realtimeEvent('account_updated', ME, null));
+
+    expect(session.user?.email).toBe('new@e.com');
+    expect(session.user?.email_verified).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The server sends this to one account's own sockets only, so this can fire
+  // on a bug alone — and the cost of applying it is signing this tab in as
+  // somebody else.
+  it('ignores one addressed to another account', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = { ...session.user!, email: 'm@e.com', email_verified: false };
+
+    socket.receive(
+      realtimeEvent(
+        'account_updated',
+        { ...ME, id: 'u-peer', name: 'Peer', email: 'peer@e.com' },
+        null
+      )
+    );
+
+    expect(session.user?.id).toBe('u1');
+    expect(session.user?.email).toBe('m@e.com');
+    expect(session.user?.email_verified).toBe(false);
+  });
+
+  it('conjures no session user when there is none to update', async () => {
+    const socket = await connectAndAuth('p1');
+    session.user = null;
+
+    socket.receive(realtimeEvent('account_updated', ME, null));
+
+    expect(session.user).toBeNull();
   });
 });
 

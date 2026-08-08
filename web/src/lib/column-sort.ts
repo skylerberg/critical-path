@@ -1,5 +1,5 @@
 import type { BoardTask } from './board-types';
-import { byRank } from './positions';
+import { byRank } from './ranks';
 
 /**
  * A one-shot sort key. The board is always in manual order; picking one of

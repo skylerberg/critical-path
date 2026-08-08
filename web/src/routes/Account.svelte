@@ -161,12 +161,11 @@
     verifyStatus = null;
     try {
       assertOk(await api.POST('/api/auth/verify-email/resend'));
-      // Hedged, not "sent": the same 204 comes back with nothing sent when the
-      // address is already verified, which this tab has no way to have learned.
-      verifyStatus = {
-        kind: 'success',
-        message: 'If this address still needs verifying, a new link is on its way.',
-      };
+      // Definite, not hedged: the 204 is the same whether or not mail went out,
+      // but this button exists only while this tab believes the address
+      // unverified, and account_updated keeps that belief server-truth for as
+      // long as the socket is up — a reconnect re-reads it.
+      verifyStatus = { kind: 'success', message: 'A new link is on its way.' };
     } catch (error) {
       verifyStatus = { kind: 'error', message: apiMessage(error) };
     } finally {

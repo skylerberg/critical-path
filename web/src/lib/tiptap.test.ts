@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { docToMarkdown, isEmptyDoc } from './tiptap';
+import { docToMarkdown, isEmptyDoc, sameDoc } from './tiptap';
 import { users } from './users.svelte';
 
 type Doc = Parameters<typeof docToMarkdown>[0];
@@ -349,5 +349,37 @@ describe('isEmptyDoc', () => {
     expect(
       isEmptyDoc(doc({ type: 'bulletList', content: [item(paragraph(text('buried')))] }))
     ).toBe(false);
+  });
+});
+
+describe('sameDoc', () => {
+  it('treats null and an absent document as the same', () => {
+    expect(sameDoc(null, null)).toBe(true);
+    expect(sameDoc(null, doc(paragraph(text('a'))))).toBe(false);
+  });
+
+  it('ignores key order, which is all a round trip through jsonb changes', () => {
+    // Postgres orders object keys by length then bytes, so the text node Tiptap
+    // writes as {type, text} is stored and returned as {text, type}.
+    const sent = doc(paragraph({ type: 'text', text: 'a' }));
+    const stored = doc({ content: [{ text: 'a', type: 'text' }], type: 'paragraph' }) as Doc;
+    expect(sameDoc(sent, stored)).toBe(true);
+  });
+
+  it('still sees a real edit', () => {
+    expect(sameDoc(doc(paragraph(text('a'))), doc(paragraph(text('b'))))).toBe(false);
+    expect(sameDoc(doc(paragraph(text('a'))), doc(paragraph(text('a'), text('b'))))).toBe(false);
+  });
+
+  it('does not confuse array order with key order', () => {
+    const first = doc(paragraph(text('a')), paragraph(text('b')));
+    const second = doc(paragraph(text('b')), paragraph(text('a')));
+    expect(sameDoc(first, second)).toBe(false);
+  });
+
+  it('compares marks the same way', () => {
+    const bold = doc(paragraph(text('a', { type: 'bold' })));
+    const reordered = doc(paragraph({ marks: [{ type: 'bold' }], text: 'a', type: 'text' })) as Doc;
+    expect(sameDoc(bold, reordered)).toBe(true);
   });
 });

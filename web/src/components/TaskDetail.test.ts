@@ -4,7 +4,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import { tick } from 'svelte';
 import type { Editor } from '@tiptap/core';
 import TaskDetail from './TaskDetail.svelte';
+import TaskDetailRouteHost from './TaskDetailRouteHost.svelte';
 import { board } from '../lib/board.svelte';
+import { conflictDrafts } from '../lib/conflictDrafts.svelte';
 import { drafts } from '../lib/drafts.svelte';
 import { projects } from '../lib/projects.svelte';
 import { router } from '../lib/router.svelte';
@@ -17,6 +19,7 @@ import {
   type ProjectView,
 } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
+import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
 import { taskActivity } from '../lib/taskActivity.svelte';
 import { testUuid } from '../lib/test-ids';
 import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
@@ -64,6 +67,7 @@ function task(
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -132,8 +136,16 @@ beforeEach(() => {
   board.taskAttachments = {};
   board.taskComments = {};
   taskActivity.reset();
+  crossProjectDeps.reset();
+  crossProjectResponse = {
+    blocked_by: [],
+    blocking: [],
+    hidden_blocked_by_count: 0,
+    hidden_blocking_count: 0,
+  };
   shortcuts.reset();
   drafts.clearAll();
+  conflictDrafts.clearAll();
   projects.reset();
   users.reset();
   session.user = me;
@@ -159,6 +171,7 @@ beforeEach(() => {
       label_ids: ['l1'],
       assignee_ids: ['u1'],
       blocker_ids: [T2, T3],
+      open_cross_project_blocker_count: 0,
     }),
     task(T2, 'c1', 'Cut prototype'),
     task(T3, 'c2', 'Buy sleeves', { sort_key: 'V0000050001' }),
@@ -173,6 +186,13 @@ beforeEach(() => {
 });
 
 const SERVER_UPDATED_AT = '2026-03-01T00:00:00Z';
+
+let crossProjectResponse = {
+  blocked_by: [] as unknown[],
+  blocking: [] as unknown[],
+  hidden_blocked_by_count: 0,
+  hidden_blocking_count: 0,
+};
 
 function mockRoutes(
   override?: (request: Request, url: URL) => Response | Promise<Response> | undefined
@@ -196,6 +216,9 @@ function mockRoutes(
       return jsonResponse(200, {
         activity: url.pathname === `/api/tasks/${T1}/activity` ? [activityEntry] : [],
       });
+    }
+    if (request.method === 'GET' && url.pathname.endsWith('/cross-project-dependencies')) {
+      return jsonResponse(200, crossProjectResponse);
     }
     if (request.method === 'GET' && url.pathname === '/api/users') {
       return jsonResponse(200, { users: users.users });
@@ -236,6 +259,7 @@ function teammateVersion(): BoardTask {
     label_ids: ['l1'],
     assignee_ids: ['u1'],
     blocker_ids: [T2, T3],
+    open_cross_project_blocker_count: 0,
     updated_at: '2026-05-05T00:00:00Z',
     description: {
       type: 'doc',
@@ -244,13 +268,28 @@ function teammateVersion(): BoardTask {
   });
 }
 
+// The API writes task.updated_at and the activity row's created_at from one
+// transaction timestamp, which is what lets the overlay name who won.
+const teammateEdit = {
+  id: 'ac2',
+  kind: 'title_changed' as const,
+  actor_user_id: 'u2',
+  old_value: { text: 'Design cards' },
+  new_value: { text: 'Their title' },
+  created_at: '2026-05-05T00:00:00Z',
+};
+
 function mockConflict(
   patchResponse: () => Response | Promise<Response> = () =>
-    jsonResponse(409, { error: 'This task changed since you loaded it' })
+    jsonResponse(409, { error: 'This task changed since you loaded it' }),
+  activity: unknown[] = [activityEntry, teammateEdit]
 ): void {
   mockRoutes((request, url) => {
     if (request.method === 'PATCH' && url.pathname === `/api/tasks/${T1}`) {
       return patchResponse();
+    }
+    if (request.method === 'GET' && url.pathname === `/api/tasks/${T1}/activity`) {
+      return jsonResponse(200, { activity });
     }
     if (request.method === 'GET' && url.pathname === `/api/projects/${PROJECT_ID}`) {
       return jsonResponse(200, {
@@ -262,6 +301,11 @@ function mockConflict(
     }
     return undefined;
   });
+}
+
+async function openReview(): Promise<void> {
+  await fireEvent.click(await screen.findByRole('button', { name: 'Review changes…' }));
+  await screen.findByRole('heading', { name: 'Review conflicting changes' });
 }
 
 async function editTitle(value: string): Promise<void> {
@@ -1154,30 +1198,112 @@ describe('TaskDetail', () => {
     expect(taskPatches()).toHaveLength(sent);
   });
 
-  it('reloads the server title and description and clears the banner', async () => {
+  it('names the teammate whose edit the stored version came from', async () => {
+    users.users = [...users.users, { id: 'u2', name: 'Grace Hopper', avatar_url: null }];
+    mockConflict();
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/Grace Hopper changed this task/)
+    );
+  });
+
+  it('names nobody when no logged change matches the stored version', async () => {
+    users.users = [...users.users, { id: 'u2', name: 'Grace Hopper', avatar_url: null }];
+    // A patch that rewrote a field with the value it already held bumps
+    // updated_at without writing a row, so nothing lines up with it.
+    mockConflict(undefined, [activityEntry]);
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/This task changed somewhere else/);
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Grace Hopper');
+  });
+
+  it('keeps mine against the stored version’s updated_at and clears the banner', async () => {
     mockConflict();
     const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
     await editTitle('Design cards v2');
-    await screen.findByRole('alert');
-    expect(container.querySelector('.tiptap')?.textContent).not.toContain('Their description');
+    await openReview();
     const sent = taskPatches().length;
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
-
-    expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.getByLabelText('Task title')).toHaveValue('Their title');
-    expect(container.querySelector('.tiptap')?.textContent).toContain('Their description');
-    expect(taskPatches()).toHaveLength(sent);
-
     mockRoutes();
-    await editTitle('Their title v2');
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
 
     await waitFor(() => expect(taskPatches()).toHaveLength(sent + 1));
     expect(await taskPatches()[sent]!.json()).toEqual({
-      title: 'Their title v2',
+      title: 'Design cards v2',
+      // Untouched by this user, so the teammate's copy carries through rather
+      // than being offered as a choice nobody made.
+      description: teammateVersion().description,
       expected_updated_at: '2026-05-05T00:00:00Z',
     });
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards v2');
+    expect(container.querySelector('.tiptap')?.textContent).toContain('Their description');
+  });
+
+  it('takes two clicks to discard mine, then writes nothing', async () => {
+    mockConflict();
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+    await openReview();
+    const sent = taskPatches().length;
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep theirs' }));
+    expect(screen.queryByRole('button', { name: 'Keep theirs' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Discard my version' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    // The stored version is already what the server holds, so adopting it is not
+    // a write — and does not bump updated_at under every other open editor.
+    expect(taskPatches()).toHaveLength(sent);
+    expect(screen.getByLabelText('Task title')).toHaveValue('Their title');
+    expect(container.querySelector('.tiptap')?.textContent).toContain('Their description');
+  });
+
+  it('brings the typed text and the banner back when the card is reopened', async () => {
+    mockConflict();
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+    await screen.findByRole('alert');
+    first.unmount();
+
+    const { container } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards v2');
+    expect(container.querySelector('.tiptap')?.textContent).not.toContain('Their description');
+  });
+
+  it('re-presents a newer stored version when the resolve conflicts again', async () => {
+    mockConflict();
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+    await openReview();
+    const sent = taskPatches().length;
+
+    // The card moved a second time while the resolver was open.
+    mockConflict(undefined, [activityEntry]);
+    board.tasks = [
+      task(T1, 'c1', 'Newer title', { updated_at: '2026-06-06T00:00:00Z' }),
+      ...board.tasks.filter((t) => t.id !== T1),
+    ];
+    await fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }));
+
+    await waitFor(() => expect(taskPatches()).toHaveLength(sent + 1));
+    expect(await screen.findByText(/changed again while you were reviewing/)).toBeInTheDocument();
+    // Still open, still holding the user's text, and no second attempt fired.
+    expect(screen.getByRole('heading', { name: 'Review conflicting changes' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(taskPatches()).toHaveLength(sent + 1);
   });
 
   it('offers the project’s people in the description editor and saves the mention', async () => {
@@ -1288,6 +1414,29 @@ describe('TaskDetail', () => {
     });
   });
 
+  it('keeps its precondition when the route object is replaced but the card is not', async () => {
+    // A rename anywhere rewrites the URL, because the path carries the title slug.
+    // Reading taskId straight into the reset effect would make that re-run and drop
+    // the baseline, and the capture below it would then quietly adopt the version
+    // that arrived — handing the next save a precondition it never loaded.
+    mockConflict();
+    const { rerender } = render(TaskDetailRouteHost, {
+      route: { taskId: T1 },
+      closePath: BOARD_PATH,
+      taskPath: (id: string) => overlayTaskPath(id),
+    });
+
+    board.applyRealtime({ type: 'task_updated', project_id: PROJECT_ID, data: teammateVersion() });
+    await rerender({ route: { taskId: T1 } });
+    await editTitle('Design cards v2');
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(await taskPatches()[0]!.json()).toEqual({
+      title: 'Design cards v2',
+      expected_updated_at: '2026-01-02T00:00:00Z',
+    });
+  });
+
   it('sets the due date from the quick bar, and shows no section until there is one', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
@@ -1310,6 +1459,127 @@ describe('TaskDetail', () => {
     await fireEvent.click(remove);
 
     expect(spy).toHaveBeenCalledWith(T4, T1);
+  });
+});
+
+describe('TaskDetail cross-project dependencies', () => {
+  const FAR = testUuid('far1');
+
+  function farEdge(overrides: Record<string, unknown> = {}) {
+    return {
+      task_id: FAR,
+      project_id: testUuid('p2'),
+      project_name: 'Engineering',
+      title: 'Ship the API',
+      is_done: false,
+      ...overrides,
+    };
+  }
+
+  it('counts remote blockers in the open-task badge', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === T1 ? { ...t, blocker_ids: [T2], open_cross_project_blocker_count: 2 } : t
+    );
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    // One open local blocker plus two remote ones.
+    expect(await screen.findByText('3 open tasks')).toBeInTheDocument();
+  });
+
+  it('holds a skeleton row per known remote blocker, then fills it in', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === T1 ? { ...t, blocker_ids: [], open_cross_project_blocker_count: 1 } : t
+    );
+    crossProjectResponse = { ...crossProjectResponse, blocked_by: [farEdge()] };
+
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const list = screen.getByRole('list', { name: 'Blocked by' });
+    expect(list).toHaveAttribute('aria-busy', 'true');
+
+    await waitFor(() => expect(list).toHaveAttribute('aria-busy', 'false'));
+    expect(within(list).getByRole('link', { name: 'Ship the API' })).toHaveAttribute(
+      'href',
+      taskHref(FAR, 'Ship the API')
+    );
+    expect(within(list).getByText('Engineering')).toBeInTheDocument();
+  });
+
+  it('never names an edge into a project the viewer cannot read', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === T1 ? { ...t, blocker_ids: [], open_cross_project_blocker_count: 1 } : t
+    );
+    crossProjectResponse = { ...crossProjectResponse, hidden_blocked_by_count: 1 };
+
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const list = screen.getByRole('list', { name: 'Blocked by' });
+    expect(await within(list).findByText('1 task in another project')).toBeInTheDocument();
+    expect(within(list).queryAllByRole('link')).toEqual([]);
+  });
+
+  it('pluralises the unreadable row without claiming they share a project', async () => {
+    crossProjectResponse = { ...crossProjectResponse, hidden_blocked_by_count: 3 };
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    expect(await screen.findByText('3 tasks in other projects')).toBeInTheDocument();
+  });
+
+  it('shows remote dependents, which no board payload hints at', async () => {
+    crossProjectResponse = {
+      ...crossProjectResponse,
+      blocking: [farEdge({ title: 'Write the docs' })],
+    };
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const list = await screen.findByRole('list', { name: 'Blocks' });
+    expect(await within(list).findByRole('link', { name: 'Write the docs' })).toBeInTheDocument();
+  });
+
+  it('offers no Remove on a remote row', async () => {
+    crossProjectResponse = { ...crossProjectResponse, blocked_by: [farEdge()] };
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const list = screen.getByRole('list', { name: 'Blocked by' });
+    await within(list).findByRole('link', { name: 'Ship the API' });
+    const remoteRow = within(list).getByRole('link', { name: 'Ship the API' }).closest('li');
+    expect(within(remoteRow as HTMLElement).queryByRole('button')).toBeNull();
+  });
+
+  it('strikes through a remote blocker that is already done', async () => {
+    crossProjectResponse = {
+      ...crossProjectResponse,
+      blocked_by: [farEdge({ is_done: true })],
+    };
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const remoteLink = await screen.findByRole('link', { name: 'Ship the API' });
+    expect(remoteLink.className).toContain('line-through');
+  });
+
+  it('offers a retry when the fetch fails', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname.endsWith('/cross-project-dependencies')
+        ? jsonResponse(500, { error: 'boom' })
+        : undefined
+    );
+    renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    mockRoutes();
+    await fireEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull());
+  });
+
+  it('asks for nothing on a public board', async () => {
+    board.readonly = true;
+    renderDetail({ taskId: T1, ...publicView });
+    await tick();
+
+    const asked = fetchMock.mock.calls
+      .map((call) => new URL((call[0] as Request).url).pathname)
+      .filter((path) => path.endsWith('/cross-project-dependencies'));
+    expect(asked).toEqual([]);
   });
 });
 

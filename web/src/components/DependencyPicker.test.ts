@@ -18,6 +18,7 @@ function task(id: string, title: string, blockerIds: string[] = []): BoardTask {
     label_ids: [],
     assignee_ids: [],
     blocker_ids: blockerIds,
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,

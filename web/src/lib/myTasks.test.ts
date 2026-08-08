@@ -36,6 +36,8 @@ function task(id: string, bucket: MyTask['bucket'], overrides: Partial<MyTask> =
     waiting_user_ids: [],
     blocking: [],
     blocked_by: [],
+    hidden_blocked_by_count: 0,
+    hidden_blocking_count: 0,
     ...overrides,
   };
 }

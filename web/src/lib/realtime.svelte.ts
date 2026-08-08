@@ -16,8 +16,6 @@ const OFFLINE_NOTICE_DELAY_MS = 3000;
 // The server closes with 4401 when a token is rejected or its session revoked.
 const AUTH_CLOSE_CODE = 4401;
 
-// Typed against the generated union: a name the API no longer publishes, or one
-// misspelled, fails here instead of quietly matching no event forever.
 const BOARD_EVENTS = new Set<RealtimeEventType>([
   'task_created',
   'task_updated',
@@ -25,6 +23,7 @@ const BOARD_EVENTS = new Set<RealtimeEventType>([
   'task_archived',
   'task_restored',
   'task_relations_set',
+  'cross_project_blockers_changed',
   'column_created',
   'column_updated',
   'column_deleted',
@@ -171,13 +170,9 @@ class RealtimeClient {
     if (message.type === 'pong') {
       return;
     }
-    // The one assertion the generated union rests on. A frame is untrusted and
-    // the generated output is types only, so the envelope is checked here and
-    // the payload is not walked — the same trade the server makes for an entry
-    // arriving over its Redis bus. A type this client does not know asserts to a
-    // member it is not, which costs nothing: every comparison in #dispatch fails
-    // and the frame is ignored, which is how a client older than the server
-    // already behaved.
+    // The one assertion the union rests on: a frame is untrusted and the
+    // generated output is types only. An event type this client does not know
+    // matches nothing in #dispatch and is ignored, as it was before.
     this.#dispatch({
       type: message.type,
       project_id: typeof message.project_id === 'string' ? message.project_id : null,
@@ -201,6 +196,12 @@ class RealtimeClient {
     // The very first connect follows the initial page load, which already
     // fetched everything; only a reconnect needs to self-heal the missed gap.
     if (this.#hasSyncedOnce) {
+      // account_updated is delivered, not replayed: one published while this
+      // socket was down is gone, and nothing else re-reads the account until a
+      // page load. Every other store below heals the same gap the same way.
+      void session.refresh().catch(() => {
+        // Best-effort: a failed read leaves the account as stale as it was.
+      });
       void projects.load();
       invitations.resync();
       taskSeries.resync();
@@ -329,11 +330,16 @@ class RealtimeClient {
       const updated = users.applyRealtime(event.data);
       if (updated !== null && session.user?.id === updated.id) {
         session.user = { ...session.user, ...updated };
-        // The broadcast carries only what everyone sharing a board may read, so
-        // a change to the address or its verification is invisible in it.
-        void session.refresh().catch(() => {
-          // Best-effort: the public fields are merged either way.
-        });
+      }
+    } else if (event.type === 'account_updated') {
+      // Account-scoped and delivered only to this account's own sockets, which
+      // is why it may carry the whole /api/auth/me shape — the address and
+      // whether it is verified included, neither of which user_updated may
+      // hold. Assigned whole rather than merged: the payload is that record.
+      // The id is still checked, because applying someone else's would change
+      // who this tab thinks it is.
+      if (session.user?.id === event.data.id) {
+        session.user = event.data;
       }
     }
   }

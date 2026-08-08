@@ -76,6 +76,7 @@ function task(id: string, columnId: string, position: number, title: string) {
     label_ids: id === 't1' ? ['l1'] : [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     image_count: 0,
     cover_image_url: null,
     due_date: null,
@@ -178,6 +179,7 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
         id: body.id,
         sort_key: body.sort_key,
         blocker_ids: [],
+        open_cross_project_blocker_count: 0,
         comment_count: 0,
         created_at: SERVER_CREATED_AT,
         updated_at: SERVER_UPDATED_AT,
@@ -476,6 +478,7 @@ describe('board store readonly mode', () => {
         label_ids: ['l1'],
         assignee_ids: ['u-ada'],
         blocker_ids: [],
+        open_cross_project_blocker_count: 0,
         image_count: 2,
         cover_image_url: '/api/images/img1',
         comment_count: 2,
@@ -492,6 +495,7 @@ describe('board store readonly mode', () => {
         label_ids: [],
         assignee_ids: [],
         blocker_ids: [],
+        open_cross_project_blocker_count: 0,
         image_count: 0,
         cover_image_url: null,
         comment_count: 0,
@@ -2427,6 +2431,7 @@ describe('selection bulk actions', () => {
       label_ids: labelIds,
       assignee_ids: assigneeIds,
       blocker_ids: [],
+      open_cross_project_blocker_count: 0,
     };
   }
 
@@ -3833,6 +3838,7 @@ describe('what changed since you last looked', () => {
                 label_ids: [],
                 assignee_ids: [],
                 blocker_ids: [],
+                open_cross_project_blocker_count: 0,
                 image_count: 0,
                 cover_image_url: null,
                 comment_count: 0,

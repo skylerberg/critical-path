@@ -15,6 +15,7 @@ function makeTask(partial: Partial<BoardTask> & Pick<BoardTask, 'id'>): BoardTas
     label_ids: partial.label_ids ?? [],
     assignee_ids: partial.assignee_ids ?? [],
     blocker_ids: partial.blocker_ids ?? [],
+    open_cross_project_blocker_count: 0,
     cover_image_url: partial.cover_image_url ?? null,
     due_date: partial.due_date ?? null,
     comment_count: partial.comment_count ?? 0,

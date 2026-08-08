@@ -26,11 +26,12 @@ import {
   restack,
   type Placement,
   type Ranked,
-} from './positions';
+} from './ranks';
 import { canEditProject } from './roles';
 import { router, splitPath } from './router.svelte';
 import { projects } from './projects.svelte';
 import { session } from './session.svelte';
+import { crossProjectDeps } from './crossProjectDeps.svelte';
 import { taskActivity } from './taskActivity.svelte';
 import { truncateTitle } from './titles';
 import { toasts } from './toasts.svelte';
@@ -48,7 +49,7 @@ export type TaskUpdateOutcome =
   | { status: 'error' };
 
 // Anchors on the visual neighbor above the drop, so it stays correct when the
-// display order is a filtered partition rather than pure position order.
+// display order is a filtered partition rather than pure rank order.
 export function placementAfterDrop(items: readonly Ranked[], movedId: string): Placement {
   const index = items.findIndex((item) => item.id === movedId);
   const others = items.filter((item) => item.id !== movedId);
@@ -107,6 +108,7 @@ function optimisticTask(
     label_ids: [],
     assignee_ids: [],
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     comment_count: 0,
     checklist_item_count: 0,
@@ -130,11 +132,16 @@ function mergeCopy(base: BoardTask, current: BoardTask, server: BoardTask): Boar
 }
 
 // Elision keeps the repeated last entry so the message still reads as a loop.
-function cycleMessage(prefix: string, titles: readonly string[]): string {
+// A null title is a step in a project the viewer cannot read: the loop can now
+// leave this board and come back, and those hops keep their place in the chain
+// without being named.
+function cycleMessage(prefix: string, titles: readonly (string | null)[]): string {
   if (titles.length === 0) {
     return prefix;
   }
-  const shown = titles.map((title) => truncateTitle(title, MAX_CYCLE_TITLE_CHARS));
+  const shown = titles.map((title) =>
+    title === null ? 'a task in another project' : truncateTitle(title, MAX_CYCLE_TITLE_CHARS)
+  );
   const parts =
     shown.length <= MAX_CYCLE_TITLES
       ? shown
@@ -164,10 +171,6 @@ function cycleFromApiError(error: unknown): { message: string; cycle: CycleTask[
 
 function chronological(a: TaskComment, b: TaskComment): number {
   return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
-}
-
-function byPosition(a: ChecklistItem, b: ChecklistItem): number {
-  return byRank(a, b);
 }
 
 class BoardStore {
@@ -419,7 +422,7 @@ class BoardStore {
       checklists[item.task_id]?.push({ ...item, created_at: '', updated_at: '' });
     }
     for (const items of Object.values(checklists)) {
-      items.sort(byPosition);
+      items.sort(byRank);
     }
     return {
       data: {
@@ -446,6 +449,10 @@ class BoardStore {
           // Public boards deliberately withhold it, and a paperclip on a card
           // whose files nobody can reach would only advertise what is missing.
           attachment_count: 0,
+          // Withheld for a sharper reason: it measures a project that never
+          // agreed to be published, so a stranger watching it fall would learn
+          // that another team finished something.
+          open_cross_project_blocker_count: 0,
         })),
         labels: data.labels,
         changed_task_ids: [],
@@ -606,6 +613,7 @@ class BoardStore {
       id,
       ...placement,
       blocker_ids: [],
+      open_cross_project_blocker_count: 0,
       comment_count: 0,
       attachment_count: 0,
       created_at: now,
@@ -1248,6 +1256,7 @@ class BoardStore {
               label_ids: relations.label_ids,
               assignee_ids: relations.assignee_ids,
               blocker_ids: relations.blocker_ids,
+              open_cross_project_blocker_count: relations.open_cross_project_blocker_count,
             };
       });
       // Only the cards that actually changed come back, so a short list is
@@ -1403,7 +1412,10 @@ class BoardStore {
     const { nodes, edges } = buildGraph(next, this.columns);
     const onCycle = cycleNodeIds(nodes, edges);
     if (onCycle.size > 0) {
-      const titleById = new Map(nodes.map((node) => [node.id, node.title]));
+      // Only local cards can be on a loop this check sees: the default expansion
+      // emits no cross-project nodes, and they carry no outgoing edge anyway.
+      const taskNodes = nodes.filter((node) => node.kind === 'task');
+      const titleById = new Map(taskNodes.map((node) => [node.id, node.title]));
       const steps = cyclePathIds(edges, taskId, blockerTaskId).map((id) => ({
         id,
         title: titleById.get(id) ?? '',
@@ -1411,11 +1423,11 @@ class BoardStore {
       // A done task on the loop is one the graph may not be drawing, so the edge
       // that makes this a cycle can be nowhere on screen. `onCycle` also holds
       // everything downstream of the loop, so it only answers when nothing named it.
-      const doneIds = new Set(nodes.filter((node) => node.isDone).map((node) => node.id));
+      const doneIds = new Set(taskNodes.filter((node) => node.isDone).map((node) => node.id));
       const throughDone =
         steps.length > 0
           ? steps.some((step) => doneIds.has(step.id))
-          : nodes.some((node) => onCycle.has(node.id) && node.isDone);
+          : taskNodes.some((node) => onCycle.has(node.id) && node.isDone);
       if (steps.length > 0) {
         this.#showCyclePath(steps);
       }
@@ -1946,7 +1958,7 @@ class BoardStore {
       this.#replaceChecklist(taskId, (items) =>
         items.some((item) => item.id === id)
           ? items.map((item) => (item.id === id ? created : item))
-          : [...items, created].sort(byPosition)
+          : [...items, created].sort(byRank)
       );
     } catch (error) {
       await this.#mutationFailed(error);
@@ -1983,7 +1995,7 @@ class BoardStore {
   // that must not refetch the log.
   async moveChecklistItem(taskId: string, itemId: string, placement: Placement): Promise<void> {
     this.#replaceChecklist(taskId, (items) =>
-      items.map((item) => (item.id === itemId ? { ...item, ...placement } : item)).sort(byPosition)
+      items.map((item) => (item.id === itemId ? { ...item, ...placement } : item)).sort(byRank)
     );
     await this.#patchChecklistItem(taskId, itemId, { ...placement }, false);
   }
@@ -1999,7 +2011,7 @@ class BoardStore {
         await api.PATCH('/api/checklist-items/{id}', { params: { path: { id: itemId } }, body })
       );
       this.#replaceChecklist(taskId, (items) =>
-        items.map((item) => (item.id === itemId ? updated : item)).sort(byPosition)
+        items.map((item) => (item.id === itemId ? updated : item)).sort(byRank)
       );
     } catch (error) {
       await this.#mutationFailed(error);
@@ -2136,10 +2148,28 @@ class BoardStore {
                 label_ids: d.label_ids,
                 assignee_ids: d.assignee_ids,
                 blocker_ids: d.blocker_ids,
+                open_cross_project_blocker_count: d.open_cross_project_blocker_count,
               }
             : t
         );
         taskActivity.invalidate(d.task_id);
+        crossProjectDeps.invalidate(d.task_id);
+        break;
+      }
+      // The far side of an edge changing done state reaches this board as a
+      // recount and nothing else — it names no card here, and the card it is
+      // about may be one this viewer cannot see.
+      case 'cross_project_blockers_changed': {
+        const incoming = new Map(
+          event.data.tasks.map((t) => [t.task_id, t.open_cross_project_blocker_count])
+        );
+        this.tasks = this.tasks.map((t) => {
+          const count = incoming.get(t.id);
+          return count === undefined ? t : { ...t, open_cross_project_blocker_count: count };
+        });
+        for (const task of event.data.tasks) {
+          crossProjectDeps.invalidate(task.task_id);
+        }
         break;
       }
       case 'column_created':
@@ -2183,7 +2213,7 @@ class BoardStore {
         break;
       }
       case 'column_tasks_reordered': {
-        // No column change, so only positions move; no activity to invalidate.
+        // No column change, so only ranks move; no activity to invalidate.
         const d = event.data;
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         this.tasks = this.tasks.map((t) => {
@@ -2219,10 +2249,12 @@ class BoardStore {
                 label_ids: relations.label_ids,
                 assignee_ids: relations.assignee_ids,
                 blocker_ids: relations.blocker_ids,
+                open_cross_project_blocker_count: relations.open_cross_project_blocker_count,
               };
         });
         for (const task of d.tasks) {
           taskActivity.invalidate(task.task_id);
+          crossProjectDeps.invalidate(task.task_id);
         }
         break;
       }
@@ -2329,7 +2361,7 @@ class BoardStore {
           (items.some((i) => i.id === item.id)
             ? items.map((i) => (i.id === item.id ? item : i))
             : [...items, item]
-          ).sort(byPosition)
+          ).sort(byRank)
         );
         // A reposition writes no activity entry, but the event cannot say which kind
         // of patch it was; the store's refresh collapses a burst into one fetch.

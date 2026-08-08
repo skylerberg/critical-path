@@ -8,7 +8,7 @@ import {
   reorderRankUpdates,
   restack,
   type Ranked,
-} from './positions';
+} from './ranks';
 
 function item(id: string, sortKey: string | null): Ranked {
   return { id, sort_key: sortKey };

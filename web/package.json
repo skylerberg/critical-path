@@ -21,7 +21,7 @@
     "playwright:install": "playwright install chromium",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write src",
+    "format": "prettier --write --log-level warn src",
     "format:check": "prettier --check src",
     "test": "vitest run",
     "test:watch": "vitest",

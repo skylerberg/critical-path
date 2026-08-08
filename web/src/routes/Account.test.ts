@@ -185,9 +185,8 @@ describe('Account', () => {
     ).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Send verification email' }));
 
-    expect(
-      await screen.findByText('If this address still needs verifying, a new link is on its way.')
-    ).toBeInTheDocument();
+    const sent = await screen.findByText('A new link is on its way.');
+    expect(sent).toHaveAttribute('role', 'status');
     expect(requestTo('/api/auth/verify-email/resend').method).toBe('POST');
   });
 
@@ -211,17 +210,24 @@ describe('Account', () => {
     ]);
   });
 
-  // The server answers the same 204 having sent nothing when this tab's flag has
-  // gone stale, so a flat claim that mail went out would be a lie half the time.
-  it('does not promise mail the resend may not have sent', async () => {
+  // realtime.test.ts proves account_updated lands on session.user; this proves
+  // the screen follows it, in both places at once — the verification section and
+  // the notice on the notification toggles read the flag independently.
+  it('follows a verification that landed on another device', async () => {
     mockRoutes(204);
     render(Account);
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Send verification email' }));
-    const sent = await screen.findByText(/still needs verifying/);
+    expect(
+      screen.getByText('These emails are on hold until your address is verified.')
+    ).toBeInTheDocument();
 
-    expect(sent.textContent).not.toMatch(/\bsent\b/i);
-    expect(sent).toHaveAttribute('role', 'status');
+    session.user = { ...session.user!, email_verified: true };
+
+    expect(await screen.findByText('This address is verified.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send verification email' })).toBeNull();
+    expect(
+      screen.queryByText('These emails are on hold until your address is verified.')
+    ).toBeNull();
   });
 
   // A cold load whose session lookup fails with anything but a 401 renders this

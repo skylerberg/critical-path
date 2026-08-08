@@ -76,6 +76,8 @@ beforeEach(() => {
       waiting_user_ids: [],
       blocking: [],
       blocked_by: [],
+      hidden_blocked_by_count: 0,
+      hidden_blocking_count: 0,
     },
   ];
   router.navigate('/my-tasks', { replace: true });

@@ -18,7 +18,9 @@ done
 [ -z "$targets" ] && exit 0
 
 npx eslint --fix $targets || true
-npx prettier --write $targets || true
+# --log-level warn: silent when it succeeds, still loud on a syntax error.
+# Without it this prints a line per file on every commit.
+npx prettier --write --log-level warn $targets || true
 
 changed=""
 for f in $targets; do

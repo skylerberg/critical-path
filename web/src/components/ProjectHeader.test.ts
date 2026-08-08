@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ProjectHeader from './ProjectHeader.svelte';
+import { ACCENTS } from '../lib/accents';
 import { board } from '../lib/board.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { session } from '../lib/session.svelte';
@@ -62,6 +63,7 @@ function task(
     label_ids: labelIds,
     assignee_ids: assigneeIds,
     blocker_ids: [],
+    open_cross_project_blocker_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -471,5 +473,65 @@ describe('ProjectHeader for a viewer', () => {
     expect(screen.getByRole('menuitem', { name: /Share/ })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /Archived cards/ })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Export' })).toBeInTheDocument();
+  });
+});
+
+describe('ProjectHeader browser chrome', () => {
+  const SHIPPED = '#abcdef';
+  const APP_ACCENT = '#4f46e5';
+  const VIOLET = '#123456';
+  let meta: HTMLMetaElement;
+
+  beforeEach(() => {
+    meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.content = SHIPPED;
+    document.head.appendChild(meta);
+    const tokens = new Map([
+      [ACCENTS.violet.cssVar, VIOLET],
+      ['--cp-accent', APP_ACCENT],
+    ]);
+    // jsdom resolves no custom property declared inside a media query, so only the
+    // root lookup is faked — every other element keeps its real computed style.
+    const real = getComputedStyle;
+    vi.stubGlobal('getComputedStyle', (element: Element) =>
+      element === document.documentElement
+        ? { getPropertyValue: (name: string) => tokens.get(name) ?? '' }
+        : real(element)
+    );
+  });
+
+  afterEach(() => {
+    meta.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("follows the open board's accent and restores the app default on the way out", async () => {
+    projects.projects = [project({ color: 'violet' })];
+    const { unmount } = render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
+
+    await waitFor(() => expect(meta.content).toBe(VIOLET));
+
+    unmount();
+    expect(meta.content).toBe(APP_ACCENT);
+  });
+
+  it('restores the app default when the colour is taken off the board', async () => {
+    projects.projects = [project({ color: 'violet' })];
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
+    await waitFor(() => expect(meta.content).toBe(VIOLET));
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, project({ color: null })));
+    await projects.setColor(PROJECT_ID, null);
+
+    await waitFor(() => expect(meta.content).toBe(APP_ACCENT));
+  });
+
+  it('paints the app default for a board that has no colour', async () => {
+    projects.projects = [project()];
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
+
+    await waitFor(() => expect(screen.getByText('Game')).toBeInTheDocument());
+    expect(meta.content).toBe(APP_ACCENT);
   });
 });
