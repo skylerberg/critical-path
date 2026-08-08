@@ -18,4 +18,4 @@ function createStorageProvider(): StorageProvider {
 }
 
 export const storage: StorageProvider = createStorageProvider();
-export type { StorageProvider, StoredObject } from './types';
+export type { StorageProvider } from './types';

@@ -50,14 +50,6 @@ export async function insertTaskImages(
   return new Map(rows.map((row) => [row.id, row.created_at]));
 }
 
-export async function deleteTaskImage(db: Kysely<DB>, imageId: string): Promise<void> {
-  await db
-    .deleteFrom('task_attachment')
-    .where('task_attachment.id', '=', imageId)
-    .where('task_attachment.kind', '=', IMAGE_KIND)
-    .execute();
-}
-
 // Clear before set: a single `is_cover = (id = $imageId)` update trips the
 // partial unique index as it walks the rows.
 export async function setTaskCoverImage(

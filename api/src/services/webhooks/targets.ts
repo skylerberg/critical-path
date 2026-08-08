@@ -52,7 +52,7 @@ const BLOCKED_MESSAGE = 'Webhook URL must not point at a private, loopback, or r
 
 const BLOCKED_SUFFIXES = ['.localhost', '.local', '.internal'];
 
-export function isBlockedAddress({ address, family }: dns.LookupAddress): boolean {
+function isBlockedAddress({ address, family }: dns.LookupAddress): boolean {
   return blockList.check(address, family === 6 ? 'ipv6' : 'ipv4');
 }
 

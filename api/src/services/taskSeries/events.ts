@@ -4,9 +4,9 @@ import type { TaskSeriesResponse } from '../../schemas/index';
 import { publishAfterCommit } from '../realtime/bus';
 import { fetchSeries } from './read';
 
-export const SERIES_CREATED = 'series_created';
+const SERIES_CREATED = 'series_created';
 export const SERIES_UPDATED = 'series_updated';
-export const SERIES_DELETED = 'series_deleted';
+const SERIES_DELETED = 'series_deleted';
 
 type PublishContext = Parameters<typeof publishAfterCommit>[0];
 

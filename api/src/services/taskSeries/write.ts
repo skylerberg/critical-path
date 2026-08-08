@@ -50,9 +50,7 @@ function stripImages(node: TiptapNode): { node: TiptapNode; dropped: number } {
   return { node: next, dropped };
 }
 
-export function stripDescriptionImages(
-  description: TiptapDoc | null | undefined
-): StrippedDescription {
+function stripDescriptionImages(description: TiptapDoc | null | undefined): StrippedDescription {
   if (description == null) {
     return { description: null, droppedImageCount: 0 };
   }
@@ -96,7 +94,7 @@ async function assertAssigneesHaveProjectAccess(
   }
 }
 
-export async function assertKnownTimezone(db: Kysely<DB>, timezone: string): Promise<void> {
+async function assertKnownTimezone(db: Kysely<DB>, timezone: string): Promise<void> {
   const row = await db
     .selectNoFrom(
       sql<boolean>`exists(select 1 from pg_timezone_names where name = ${timezone})`.as('known')

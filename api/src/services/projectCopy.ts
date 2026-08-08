@@ -39,10 +39,7 @@ function rewriteImageSrcs(node: TiptapNode, imageIdMap: Map<string, string>): Ti
   return next;
 }
 
-export function rewriteDescriptionImageIds(
-  doc: TiptapDoc,
-  imageIdMap: Map<string, string>
-): TiptapDoc {
+function rewriteDescriptionImageIds(doc: TiptapDoc, imageIdMap: Map<string, string>): TiptapDoc {
   return rewriteImageSrcs(doc, imageIdMap) as TiptapDoc;
 }
 

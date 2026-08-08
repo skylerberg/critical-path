@@ -13,7 +13,7 @@ export type RecurrencePreset =
   | 'monthly_weekday'
   | 'yearly';
 
-export const RECURRENCE_PRESETS: readonly RecurrencePreset[] = [
+const RECURRENCE_PRESETS: readonly RecurrencePreset[] = [
   'daily',
   'weekdays',
   'weekly',
@@ -23,9 +23,9 @@ export const RECURRENCE_PRESETS: readonly RecurrencePreset[] = [
 ];
 
 export const MAX_RRULE_LENGTH = 500;
-export const MAX_INTERVAL = 366;
-export const MAX_COUNT = 1000;
-export const MAX_UNTIL_YEAR = 2200;
+const MAX_INTERVAL = 366;
+const MAX_COUNT = 1000;
+const MAX_UNTIL_YEAR = 2200;
 // Bounds every search rather than leaving it to rrule's year-9999 limit, so a
 // rule whose next occurrence is unreachable costs a fixed walk instead of
 // millions of iterations inside the sweep.

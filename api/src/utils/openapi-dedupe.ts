@@ -40,7 +40,7 @@ function isScalarMember(member: unknown): boolean {
   return IDENTITY_KEYWORDS.every((keyword) => obj[keyword] === undefined);
 }
 
-export function isAnonymousScalarUnion(obj: SchemaObject): boolean {
+function isAnonymousScalarUnion(obj: SchemaObject): boolean {
   if (obj.properties !== undefined || obj.allOf !== undefined) return false;
   const members = [obj.anyOf, obj.oneOf].filter(Array.isArray).flat();
   return members.length > 0 && members.every(isScalarMember);

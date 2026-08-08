@@ -15,12 +15,13 @@ export function bearerToken(c: Pick<PublicContext, 'req'>): string | null {
   return header?.startsWith(BEARER_PREFIX) === true ? header.slice(BEARER_PREFIX.length) : null;
 }
 
-// Add as a no-op middleware on any route that must serve without a token.
-// Picked up by identity out of matchedRoutes, the same way skipAutoTransaction
-// is, so renames and remounts carry it. Only ever added to one route at a time:
-// as a `use('*')` on a sub-router it would match every sibling route sharing
-// that mount prefix, and /api/auth and /api/attachments each host public and
-// authenticated routes together. `assertPublicRoutes` pins the resulting set.
+// Add as a no-op middleware on any route that must serve without a token. Hono
+// stores the middleware reference directly in the route record, so it is picked
+// up by identity out of matchedRoutes and renames and remounts carry it. Only
+// ever added to one route at a time: as a `use('*')` on a sub-router it would
+// match every sibling route sharing that mount prefix, and /api/auth and
+// /api/attachments each host public and authenticated routes together.
+// `assertPublicRoutes` pins the resulting set.
 export const skipAuth: MiddlewareHandler = async (_c, next) => {
   await next();
 };
