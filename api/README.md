@@ -171,6 +171,27 @@ project is missing or unreadable. A malformed address is 400. The address is
 compared in SQL and the column is never selected, so it exists nowhere the
 response could pick it up.
 
+`GET /api/users/search?q=` is the one route that reaches past that set: it finds
+people the caller shares no project with, so a board can be shared with somebody
+by name rather than only by knowing their exact address. Matching is by word
+prefix against a `to_tsvector('simple', name)` column — every word in `q` must
+prefix some word of the name, in any order, so `sky` and `lo ada` find "Skyler
+Berg" and "Ada Lovelace". It is not a substring match (`kyler` finds nobody) and
+accents are not folded (`jose` does not find "José"); the `simple` configuration
+is deliberate, because `english` would stem names and drop anyone whose name is
+a stop word. `q` is trimmed and is 400 outside 2–100 characters, and a `q` that
+tokenizes to no lexemes at all matches nobody rather than erroring.
+
+It is deliberately the _complement_ of `GET /api/users` rather than a superset:
+the caller and everyone that route already lists are excluded. That is what lets
+a client show the two as one list without deduplicating, and it is what stops
+the 10-result cap being spent on people the client already holds — a common
+first name would otherwise return a page of existing collaborators and look
+like it had found nobody new. `truncated` reports that more matched than were
+returned; there is no pagination, because narrowing the query is the only
+intended way to see more. A user record is `{ id, name, avatar_url }` here as
+everywhere, and an address is not searchable.
+
 ### Pending invitations
 
 Sharing a board with an address that has no account yet stores a
@@ -374,7 +395,7 @@ password, then log in and revoke the sessions you do not recognize. The
 sessions list is the only lever for that — nothing else evicts a session but
 its own expiry.
 
-What both flows *do* rotate is `app_user.alternative_id`, which is the subject
+What both flows _do_ rotate is `app_user.alternative_id`, which is the subject
 of the stateless reset-token HMAC. That makes the link that just got used
 single-use and invalidates every other outstanding reset email. It has no
 effect on sessions.
@@ -965,7 +986,7 @@ against the board payload it already has. A blocker in another project is never
 named there. It arrives as one increment of `open_cross_project_blocker_count`,
 a denormalised count of the caller's cross-project blockers that are unarchived
 and not in a done column. A cross-project blocker therefore counts as exactly
-one blocker and is never expanded into whatever is blocking *it*: depth stops at
+one blocker and is never expanded into whatever is blocking _it_: depth stops at
 the project boundary, and a board read never touches another project's rows.
 
 The count is maintained in application code, in the same transaction as the
@@ -973,7 +994,7 @@ change that moves it — completion, a move into or out of a done column, a colu
 having its done flag flipped, archive, restore, delete, edge add and remove, and
 the cascade behind a project or account deletion. That is not a shortcut around
 a database trigger: every one of those sites has to publish
-`cross_project_blockers_changed` into the *other* project so its boards update
+`cross_project_blockers_changed` into the _other_ project so its boards update
 live, so the affected dependents are enumerated in application code regardless.
 The recompute is absolute rather than incremental, so a count that ever drifts
 heals the next time anything touches its blocker.
@@ -1412,43 +1433,43 @@ is sent their own events rather than being withheld them. The project-list,
 per-user, invitation, series and account events carry none; the table below lists
 the rest of each payload, and `realtime-events.json` is the per-type answer.
 
-| type                                                | data                                                                                               |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `task_created` / `task_updated`                     | board task shape                                                                                   |
-| `task_deleted`                                      | `{ id }`                                                                                           |
-| `task_archived`                                     | board task shape plus `archived_at`                                                                |
-| `task_restored`                                     | board task shape                                                                                   |
-| `task_relations_set`                                | `{ task_id, label_ids, assignee_ids, blocker_ids, open_cross_project_blocker_count }`              |
-| `cross_project_blockers_changed`                    | `{ tasks }`, each `{ task_id, open_cross_project_blocker_count }`                                   |
-| `column_created` / `column_updated`                 | column response shape                                                                              |
-| `column_deleted`                                    | `{ id, moved_tasks }`                                                                              |
-| `column_tasks_moved`                                | `{ column_id, target_column_id, moved_tasks }`                                                     |
-| `column_tasks_archived`                             | `{ column_id, tasks }`                                                                             |
-| `column_tasks_reordered`                            | `{ column_id, moved_tasks }`                                                                       |
-| `bulk_tasks_moved`                                  | `{ moved_tasks }`                                                                                  |
-| `bulk_tasks_archived`                               | `{ tasks }`                                                                                        |
+| type                                                | data                                                                                                    |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `task_created` / `task_updated`                     | board task shape                                                                                        |
+| `task_deleted`                                      | `{ id }`                                                                                                |
+| `task_archived`                                     | board task shape plus `archived_at`                                                                     |
+| `task_restored`                                     | board task shape                                                                                        |
+| `task_relations_set`                                | `{ task_id, label_ids, assignee_ids, blocker_ids, open_cross_project_blocker_count }`                   |
+| `cross_project_blockers_changed`                    | `{ tasks }`, each `{ task_id, open_cross_project_blocker_count }`                                       |
+| `column_created` / `column_updated`                 | column response shape                                                                                   |
+| `column_deleted`                                    | `{ id, moved_tasks }`                                                                                   |
+| `column_tasks_moved`                                | `{ column_id, target_column_id, moved_tasks }`                                                          |
+| `column_tasks_archived`                             | `{ column_id, tasks }`                                                                                  |
+| `column_tasks_reordered`                            | `{ column_id, moved_tasks }`                                                                            |
+| `bulk_tasks_moved`                                  | `{ moved_tasks }`                                                                                       |
+| `bulk_tasks_archived`                               | `{ tasks }`                                                                                             |
 | `bulk_tasks_relations_set`                          | `{ tasks }`, each `{ task_id, label_ids, assignee_ids, blocker_ids, open_cross_project_blocker_count }` |
-| `label_created` / `label_updated`                   | label row                                                                                          |
-| `label_deleted`                                     | `{ id }`                                                                                           |
-| `attachment_created`                                | attachment response plus `{ attachment_count }`                                                    |
-| `attachment_updated`                                | attachment response shape                                                                          |
-| `attachment_deleted`                                | `{ id, task_id, attachment_count, cover_image_url }`                                               |
-| `comment_created`                                   | comment row plus `{ comment_count }`                                                               |
-| `comment_updated`                                   | comment row                                                                                        |
-| `comment_deleted`                                   | `{ id, task_id, comment_count }`                                                                   |
-| `checklist_item_created` / `checklist_item_updated` | checklist item row plus both counts                                                                |
-| `checklist_item_deleted`                            | `{ id, task_id, checklist_item_count, checklist_done_count }`                                      |
-| `series_created` / `series_updated`                 | recurring series shape                                                                             |
-| `series_deleted`                                    | `{ id }`                                                                                           |
-| `project_created` / `project_updated`               | projects-list item (with `member_ids`, `members` and task counts, without the per-user `sort_key`) |
-| `project_deleted`                                   | `{ id }`                                                                                           |
-| `project_position_updated`                          | `{ id, sort_key }`                                                                                 |
-| `project_seen`                                      | `{ id }`                                                                                           |
-| `project_changed`                                   | `{ id, actor_user_id }`                                                                            |
-| `invitations_changed`                               | `{ project_id }`                                                                                   |
-| `user_updated`                                      | public user `{ id, name, avatar_url }`                                                             |
-| `sessions_revoked`                                  | `{ user_id }`, optionally plus `personal_access_token_id` or `session_id`                          |
-| `account_updated`                                   | caller's own `{ id, name, avatar_url, email, email_verified }`                                     |
+| `label_created` / `label_updated`                   | label row                                                                                               |
+| `label_deleted`                                     | `{ id }`                                                                                                |
+| `attachment_created`                                | attachment response plus `{ attachment_count }`                                                         |
+| `attachment_updated`                                | attachment response shape                                                                               |
+| `attachment_deleted`                                | `{ id, task_id, attachment_count, cover_image_url }`                                                    |
+| `comment_created`                                   | comment row plus `{ comment_count }`                                                                    |
+| `comment_updated`                                   | comment row                                                                                             |
+| `comment_deleted`                                   | `{ id, task_id, comment_count }`                                                                        |
+| `checklist_item_created` / `checklist_item_updated` | checklist item row plus both counts                                                                     |
+| `checklist_item_deleted`                            | `{ id, task_id, checklist_item_count, checklist_done_count }`                                           |
+| `series_created` / `series_updated`                 | recurring series shape                                                                                  |
+| `series_deleted`                                    | `{ id }`                                                                                                |
+| `project_created` / `project_updated`               | projects-list item (with `member_ids`, `members` and task counts, without the per-user `sort_key`)      |
+| `project_deleted`                                   | `{ id }`                                                                                                |
+| `project_position_updated`                          | `{ id, sort_key }`                                                                                      |
+| `project_seen`                                      | `{ id }`                                                                                                |
+| `project_changed`                                   | `{ id, actor_user_id }`                                                                                 |
+| `invitations_changed`                               | `{ project_id }`                                                                                        |
+| `user_updated`                                      | public user `{ id, name, avatar_url }`                                                                  |
+| `sessions_revoked`                                  | `{ user_id }`, optionally plus `personal_access_token_id` or `session_id`                               |
+| `account_updated`                                   | caller's own `{ id, name, avatar_url, email, email_verified }`                                          |
 
 `task_relations_set` is emitted by the label/assignee set endpoints, blocker
 add/remove, by the cascade that strips assignees when a project member is
@@ -2750,7 +2771,25 @@ npm run openapi:dump && npm run --prefix cli generate-api
   only confirms a guessed address, and confirming one is the point. Widening the
   set means gaining a project with the person, which runs through the
   invitation route above and its hourly budget. A limiter here would instead
-  meter ordinary work: naming an assignee costs one such call.
+  meter ordinary work: naming an assignee costs one such call. The enumeration
+  that argument declines to guard against is guarded separately, one route over,
+  on `GET /api/users/search`.
+- `GET /api/users/search` is the deliberate exception to all of the above: a
+  **name** is now enough to confirm an account exists and to learn its id and
+  avatar, where previously an address was required. That is a real widening,
+  taken because the alternative was worse — before it, sharing a board with
+  somebody meant knowing their exact email address, and a name search that only
+  covered people you had already collaborated with returned nothing for the
+  person you were trying to add and gave no hint why. No address is disclosed
+  and none is searchable; what an asker gains is that a name exists and what its
+  bearer's avatar looks like. Avatars follow from that rather than widening
+  anything themselves: `GET /api/avatars/:id` already serves any signed-in
+  caller, and only the key was previously hard to come by. The bound is the rate
+  limit, keyed both per account (100 an hour) and per source address (300 an
+  hour). Both arms are needed: an account costs a signup, and signup allows 50 an
+  hour from one address, so a per-account budget alone would multiply by fifty.
+  Matching is by word prefix and capped at ten with no pagination, so a single
+  answer is a narrow slice rather than a page of the directory.
 - Ordering is a fractional index, so inserting repeatedly against the same
   neighbor lengthens each successive key by about a character per five inserts.
   The 1024-character cap allows roughly 5000 insertions at a single spot before
@@ -2770,7 +2809,7 @@ npm run openapi:dump && npm run --prefix cli generate-api
   is published. A browser presents the `cp_session` cookie, because an `<img>`
   tag cannot carry an `Authorization` header; the cookie is read on these
   routes and nowhere else, so it is not a CSRF primitive. `GET
-  /api/avatars/:key` answers any signed-in caller — an avatar is the same key
+/api/avatars/:key` answers any signed-in caller — an avatar is the same key
   on every board its owner appears on, so a per-board rule would cost a lookup
   per face and gate nothing — and an anonymous one only when its owner appears
   on a published board.

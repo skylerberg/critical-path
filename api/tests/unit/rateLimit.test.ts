@@ -5,11 +5,14 @@ import {
   enforceAuthRateLimit,
   enforceResetRateLimit,
   enforceSignupRateLimit,
+  enforceUserSearchRateLimit,
   resetRateLimiter,
   EMAIL_MAX_ATTEMPTS,
   RESET_IP_MAX_ATTEMPTS,
   RESET_EMAIL_MAX_ATTEMPTS,
   SIGNUP_IP_MAX_ATTEMPTS,
+  USER_SEARCH_IP_MAX_ATTEMPTS,
+  USER_SEARCH_USER_MAX_ATTEMPTS,
 } from '../../src/services/rateLimit';
 import { errorHandler } from '../../src/middleware/errorHandler';
 
@@ -282,5 +285,50 @@ describe('enforceSignupRateLimit', () => {
       headers: { 'X-Forwarded-For': '203.0.113.1' },
     });
     expect(res.status).toBe(204);
+  });
+});
+
+describe('enforceUserSearchRateLimit', () => {
+  const app = new Hono();
+  app.onError(errorHandler);
+  app.get('/search/:user', async (c) => {
+    await enforceUserSearchRateLimit(c, c.req.param('user'));
+    return c.body(null, 204);
+  });
+
+  async function search(userId: string, ip: string): Promise<number> {
+    const res = await app.request(`/search/${userId}`, { headers: { 'X-Forwarded-For': ip } });
+    return res.status;
+  }
+
+  beforeEach(() => {
+    resetRateLimiter();
+    process.env.TRUST_PROXY = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.TRUST_PROXY;
+  });
+
+  it('refuses one account past its budget and leaves another its own', async () => {
+    for (let i = 0; i < USER_SEARCH_USER_MAX_ATTEMPTS; i++) {
+      expect(await search('user-a', '203.0.113.1')).toBe(204);
+    }
+    expect(await search('user-a', '203.0.113.1')).toBe(429);
+    expect(await search('user-b', '203.0.113.1')).toBe(204);
+  });
+
+  // An account costs a signup, and signup allows 50 an hour from one address,
+  // so a per-account budget alone would multiply by fifty. This is the arm that
+  // actually bounds scraping the directory.
+  it('refuses a fresh account once the source address has spent the wider budget', async () => {
+    for (let i = 0; i < USER_SEARCH_IP_MAX_ATTEMPTS; i++) {
+      const userId = `user-${Math.floor(i / USER_SEARCH_USER_MAX_ATTEMPTS)}`;
+      expect(await search(userId, '203.0.113.7')).toBe(204);
+    }
+    expect(await search('never-searched-before', '203.0.113.7')).toBe(429);
+
+    // The account budget is untouched, so the refusal is the address's alone.
+    expect(await search('never-searched-before', '198.51.100.9')).toBe(204);
   });
 });

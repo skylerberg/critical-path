@@ -260,6 +260,35 @@ export async function enforceVerificationRateLimit(c: Context, userId: string): 
   }
 }
 
+const USER_SEARCH_USER_WINDOW_MS = 60 * 60_000;
+export const USER_SEARCH_USER_MAX_ATTEMPTS = 100;
+const USER_SEARCH_IP_WINDOW_MS = 60 * 60_000;
+export const USER_SEARCH_IP_MAX_ATTEMPTS = 300;
+
+// This is the whole bound on scraping the user directory by name, so it is
+// keyed by address as well as by account: an account costs a signup, and signup
+// allows 50 an hour from one source, which would otherwise multiply a per-user
+// budget by fifty. Sized for an as-you-type box — a debounced keystroke run is
+// a handful of calls, so the user budget is tens of people added in a sitting.
+export async function enforceUserSearchRateLimit(c: Context, userId: string): Promise<void> {
+  const now = Date.now();
+  const userAllowed = await consumeRateLimit(
+    `user-search:${userId}`,
+    now,
+    USER_SEARCH_USER_MAX_ATTEMPTS,
+    USER_SEARCH_USER_WINDOW_MS
+  );
+  const ipAllowed = await consumeRateLimit(
+    `user-search-ip:${clientIp(c)}`,
+    now,
+    USER_SEARCH_IP_MAX_ATTEMPTS,
+    USER_SEARCH_IP_WINDOW_MS
+  );
+  if (!userAllowed || !ipAllowed) {
+    throw new AppError(429, 'Too many searches, please try again later');
+  }
+}
+
 const INVITE_LOOKUP_WINDOW_MS = 60 * 60_000;
 export const INVITE_LOOKUP_MAX_ATTEMPTS = 100;
 const INVITE_SEND_WINDOW_MS = 60 * 60_000;

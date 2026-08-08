@@ -2,36 +2,17 @@ import { sql, type Kysely, type SqlBool } from 'kysely';
 import type { DB } from '../db/types';
 import type { SearchResponse } from '../schemas/index';
 import { accessibleProjectsFilter } from './authorization';
+import { prefixTsquery } from './tsquery';
 
 export const SEARCH_RESULT_LIMIT = 50;
-
-// Stemming the query is what makes prefix matching stop working mid-word (typed
-// 'authenti' stems past the indexed 'authent'), so every token keeps a raw
-// alternative beside its stemmed one. A query with no lexemes at all (`&&&`)
-// aggregates to NULL, which `@@` rejects without raising.
-function tsquery(query: string) {
-  return sql`(
-    select string_agg(
-      '(' || quote_literal(u.lexeme) || ':*' ||
-      coalesce(
-        (
-          select ' | ' || string_agg(quote_literal(s.lexeme) || ':*', ' | ')
-          from unnest(to_tsvector('english', u.lexeme)) s
-        ),
-        ''
-      ) || ')',
-      ' & '
-    )
-    from unnest(to_tsvector('simple', ${query})) u
-  )::tsquery`;
-}
 
 export async function searchTasks(
   db: Kysely<DB>,
   userId: string,
   query: string
 ): Promise<SearchResponse> {
-  const matcher = tsquery(query);
+  // The task vector carries english-stemmed lexemes in its A/B arms.
+  const matcher = prefixTsquery(query, { stemWith: 'english' });
 
   const rows = await db
     .selectFrom('task')

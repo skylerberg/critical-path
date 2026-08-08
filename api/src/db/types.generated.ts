@@ -35,6 +35,7 @@ export interface AppUser {
   email_verified_at: Timestamp | null;
   id: string;
   name: string;
+  name_search_vector: Generated<string | null>;
   notify_added_to_project: Generated<boolean>;
   notify_bulk_task_assigned: Generated<boolean>;
   notify_mentioned: Generated<boolean>;
