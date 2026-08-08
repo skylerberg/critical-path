@@ -167,17 +167,13 @@ function handleConnection(ws: WebSocket): void {
 
 function handleBusEntry(entry: BusEntry): void {
   if (entry.type === SESSIONS_REVOKED) {
-    const data = entry.data as {
-      user_id?: unknown;
-      personal_access_token_id?: unknown;
-      session_id?: unknown;
-    } | null;
-    if (typeof data?.personal_access_token_id === 'string') {
-      closeSocketsForCredential('personal_access_token', data.personal_access_token_id);
-    } else if (typeof data?.session_id === 'string') {
-      closeSocketsForCredential('session', data.session_id);
-    } else if (typeof data?.user_id === 'string') {
-      closeSessionSocketsForUser(data.user_id);
+    const { user_id, personal_access_token_id, session_id } = entry.data;
+    if (personal_access_token_id !== undefined) {
+      closeSocketsForCredential('personal_access_token', personal_access_token_id);
+    } else if (session_id !== undefined) {
+      closeSocketsForCredential('session', session_id);
+    } else {
+      closeSessionSocketsForUser(user_id);
     }
     return;
   }

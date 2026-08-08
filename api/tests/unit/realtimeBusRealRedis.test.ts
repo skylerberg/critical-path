@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { publish, resetBus, subscribeBus } from '../../src/services/realtime/bus';
 import type { BusEntry } from '../../src/services/realtime/bus';
 import { closeRedisBus, initRedisBus } from '../../src/services/realtime/redisBus';
+import { boardTaskPayload } from '../helpers/fixtures';
 import { closeRealRedis, openRealRedis, realRedisPrefix, redisTestUrl } from '../helpers/realRedis';
 
 const state = vi.hoisted(() => ({ enabled: false, client: null as unknown }));
@@ -20,7 +21,7 @@ describe.skipIf(!redisTestUrl)('the realtime bus on a real Redis', () => {
   const entry: BusEntry = {
     type: 'task_updated',
     project_id: project,
-    data: { id: 't1', title: 'through the wire' },
+    data: boardTaskPayload('t1', { title: 'through the wire' }),
     recipientUserIds: ['u1', 'u2'],
   };
 
