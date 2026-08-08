@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "scripts/{dump-openapi,prune-test-databases,setup-hooks,with-test-db}.{ts,mjs}",
+    "eslint-rules/no-unqualified-kysely-columns.js",
+    "src/db/migrations/**/*.ts"
+  ],
+  "project": ["src/**/*.ts", "scripts/**/*.{ts,mjs}", "eslint-rules/**/*.js"],
+  "ignore": ["src/db/types.ts"]
+}
