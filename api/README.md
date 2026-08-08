@@ -2033,10 +2033,16 @@ Three rules bound what is sent:
   arriving because Tuesday came round is not somebody putting your name on
   something, which is the whole of what this mail is for.
 
-One write mails at most 100 people. Sends run as post-commit hooks, so a
-mutation that rolls back after queuing its notification sends nothing, and a
-failed send never affects the response; one recipient's failure does not stop
-the sends queued behind it, and leaves a log line as its only trace.
+One write mails at most 100 people, and the ceiling sits in the eligibility gate
+beside the actor rule, so it binds every mailer rather than only the routes that
+go through `notify`. It bounds the ids asked for, not the ones that pass the
+gates: naming 150 people of whom 60 are unverified mails 40, because the point is
+to bound the fan-out of one write rather than to hand out a quota.
+
+Sends run as post-commit hooks, so a mutation that rolls back after queuing its
+notification sends nothing, and a failed send never affects the response; one
+recipient's failure does not stop the sends queued behind it, and leaves a log
+line as its only trace.
 
 Preferences are one boolean per kind, all defaulting to true:
 
