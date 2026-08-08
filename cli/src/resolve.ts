@@ -324,10 +324,22 @@ export async function listUsers(
   return result.users;
 }
 
+export async function searchUsers(
+  ctx: RuntimeContext,
+  query: string
+): Promise<{ users: User[]; truncated: boolean }> {
+  return assertOk(await ctx.api.GET('/api/users/search', { params: { query: { q: query } } }));
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Costs a round trip because the server is the only side that holds an address.
-// Still just the first tier: one that names nobody falls through to the name tiers.
+// The address tier costs a round trip because the server is the only side that
+// holds an address; one that names nobody falls through to the name tiers.
+//
+// Those tiers stop at the caller's own users and deliberately do not fall
+// through to /api/users/search: this backs `project member add`, where
+// resolving a typo against the whole directory would hand a stranger a board.
+// Reaching someone outside them is `user search` followed by an explicit id.
 export async function resolveUser(
   ctx: RuntimeContext,
   ref: string,
