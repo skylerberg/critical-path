@@ -367,16 +367,16 @@ export interface paths {
          * @description Return which notification emails the authenticated user has switched on. All default to true. They are read here rather than on the user record because that record is published to everyone sharing a project and a preference is private.
          */
         get: operations["getApiAuthMeNotificationSettings"];
-        /**
-         * Set notification settings
-         * @description Change the notification preferences the body names and leave the rest alone, then return the full set. Every key is optional so a client can send only what it changed, and so a kind added to a later release does not start refusing saves from a client that predates it. A preference stays meaningful while the address is unverified — no mail is sent then either way — so the toggles are never forced off.
-         */
-        put: operations["putApiAuthMeNotificationSettings"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update notification settings
+         * @description Change the notification preferences the body names and leave the rest alone, then return the full set. Every key is optional so a client can send only what it changed, and so a kind added to a later release does not start refusing saves from a client that predates it. A preference stays meaningful while the address is unverified — no mail is sent then either way — so the toggles are never forced off.
+         */
+        patch: operations["patchApiAuthMeNotificationSettings"];
         trace?: never;
     };
     "/api/auth/me/avatar": {
@@ -438,7 +438,7 @@ export interface paths {
         put?: never;
         /**
          * Create project
-         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, images, and recurring series with their templates — not comments, assignees, members, archived cards, the accent colour, or the archived state of the project itself; copies start personal). A copied series keeps the source’s status and schedules its next occurrence from today, so it behaves like the original without firing an occurrence the source already missed. Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access. A source holding more than 5000 live tasks returns 422 and copies nothing.
+         * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, images, and recurring series with their templates — not comments, assignees, members, archived cards, the accent color, or the archived state of the project itself; copies start personal). A copied series keeps the source’s status and schedules its next occurrence from today, so it behaves like the original without firing an occurrence the source already missed. Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access. A source holding more than 5000 live tasks returns 422 and copies nothing.
          */
         post: operations["postApiProjects"];
         delete?: never;
@@ -470,7 +470,7 @@ export interface paths {
         head?: never;
         /**
          * Update project
-         * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive. Set is_public to true to publish the board read-only at GET /api/public/projects/:id/board, which serves card titles, descriptions and their embedded images, labels, blockers, and assignee names and avatars to anyone with the project id and no account. Set it back to false to stop serving it. Set color to one of the fixed accent keys to mark the board across every surface that lists it, or null for no colour; the choice is shared with everyone who can see the board and rides the project_updated realtime and webhook events. The public board never carries it. Editors only: a viewer gets 403 and non-accessors 404.
+         * @description Update project fields. Set archived_at to an ISO timestamp to archive or null to unarchive. Set is_public to true to publish the board read-only at GET /api/public/projects/:id/board, which serves card titles, descriptions and their embedded images, labels, blockers, and assignee names and avatars to anyone with the project id and no account. Set it back to false to stop serving it. Set color to one of the fixed accent keys to mark the board across every surface that lists it, or null for no color; the choice is shared with everyone who can see the board and rides the project_updated realtime and webhook events. The public board never carries it. Editors only: a viewer gets 403 and non-accessors 404.
          */
         patch: operations["patchApiProjectsById"];
         trace?: never;
@@ -1138,7 +1138,7 @@ export interface paths {
         put?: never;
         /**
          * Add or remove labels across a selection of tasks
-         * @description Apply a label delta to any number of a project’s tasks in a single transaction. This is an add/remove delta, never a replace: a selection rarely shares a label set, and replacing one from a client snapshot would strip every label the cards did not have in common. At least one of add_label_ids and remove_label_ids must be non-empty and the two must not overlap; both are 422. Ids in add_label_ids must be labels of the project (422 otherwise); ids in remove_label_ids are not validated, since removing an absent label is a no-op. Archived cards are labelled rather than skipped. A card the call applied to but did not change — it already carried the label — appears in neither list and writes no activity. The response carries the full label, assignee and blocker sets of every card that changed. Emits one bulk_tasks_relations_set event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
+         * @description Apply a label delta to any number of a project’s tasks in a single transaction. This is an add/remove delta, never a replace: a selection rarely shares a label set, and replacing one from a client snapshot would strip every label the cards did not have in common. At least one of add_label_ids and remove_label_ids must be non-empty and the two must not overlap; both are 422. Ids in add_label_ids must be labels of the project (422 otherwise); ids in remove_label_ids are not validated, since removing an absent label is a no-op. Archived cards are labeled rather than skipped. A card the call applied to but did not change — it already carried the label — appears in neither list and writes no activity. The response carries the full label, assignee and blocker sets of every card that changed. Emits one bulk_tasks_relations_set event and no per-task events. Ids that are unknown, in another project, or (where noted) archived are reported in `skipped_task_ids` rather than failing the call, so one card changing underneath the caller never costs them the rest of the batch. Duplicate ids are applied once. Between 1 and 100 ids; anything else is a 422.
          */
         post: operations["postApiTasksBulkLabels"];
         delete?: never;
@@ -3662,7 +3662,7 @@ export interface operations {
             };
         };
     };
-    putApiAuthMeNotificationSettings: {
+    patchApiAuthMeNotificationSettings: {
         parameters: {
             query?: never;
             header?: never;
