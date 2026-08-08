@@ -109,6 +109,22 @@ object is `{ setViewport, goto, eval, screenshot, close }` and nothing more, so
 when Chromium is missing (`npm run playwright:install`) — a local-only skip,
 since under `CI` a launch failure throws instead.
 
+Those five take their own shapes, none of which match Playwright's:
+
+```js
+await browser.setViewport({ width: 375, height: 667, mobile: true }); // object, not (w, h)
+await browser.goto(url, { wait: 350 }); // waits for load, then the delay
+const value = await browser.eval(`expression`); // a string, awaited if it returns a promise
+await writeFile(path, await browser.screenshot()); // returns a PNG Buffer; takes no path
+```
+
+`mobile` defaults to **true** and models the mobile layout viewport, where
+overflow *expands* `innerWidth` past the requested width — which is how the
+layout checks catch a header that no longer fits, and why a desktop case has to
+say `mobile: false` rather than leave it out. Playwright fixes it per context,
+so flipping it discards the page: `goto` again after every `setViewport` rather
+than navigating once and resizing around it.
+
 A probe has to sit inside the repo to resolve `vite`, `playwright` and the
 helper itself; one written to `/tmp` fails at the import, not at the assertion.
 
@@ -132,6 +148,11 @@ await browser.close();
 - Components type their props with a local `interface Props` and destructure
   `$props()`. Extend `svelte/elements` attribute types when wrapping DOM elements
   (see `src/components/ui/Button.svelte`).
+- `$props.id()` may be called **once** per component — a second call is a compile
+  error (`props_duplicate`), not a second id. A component needing several ids (a
+  panel plus the headings it labels) calls it once into `const uid` and suffixes
+  from there: `` `${uid}-panel` ``, `` `${uid}-labels` `` (see
+  `src/components/FilterBar.svelte`).
 - Event handlers are plain attributes (`onclick`, `onconsider`, `onfinalize`).
 
 ## Router
