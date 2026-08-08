@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { describeRoute, resolver } from 'hono-openapi';
 import { sql, type Kysely } from 'kysely';
-import type { DB } from '../db/types';
+import type { DB, ResolvedSortKey } from '../db/types';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator } from '../middleware/requestValidator';
 import { AppError, isUniqueViolation } from '../utils/errors';
@@ -21,7 +21,7 @@ import {
 } from '../services/attachments/index';
 import { setTaskCoverImage } from '../services/attachments/images';
 import { assertColumnInProject } from '../services/boardColumns';
-import { appendKeys, resolveSortKey } from '../services/sortKey';
+import { appendKeys, resolveSortKey, resolveSortKeys } from '../services/sortKey';
 import { fetchBoardTaskRows, type BoardTaskRow } from '../services/boardPayload';
 import { dueDateText } from '../services/dueDate';
 import { notifyMentions } from '../services/mentions';
@@ -288,7 +288,7 @@ router.post(
     // The caller ranks the copy against the cards it can see, which excludes the
     // archived ones still holding keys in that column, so a collision here is
     // ordinary rather than a duplicate id.
-    const copy = async (sortKey: string | undefined): Promise<void> => {
+    const copy = async (sortKey: ResolvedSortKey | undefined): Promise<void> => {
       await copyTasks(db, {
         sourceTaskIds: [id],
         projectId: project.id,
@@ -371,7 +371,12 @@ router.post(
     await assertColumnInProject(db, body.column_id, body.project_id);
 
     try {
-      const appended = await appendKeys(db, 'task', body.column_id, body.tasks.length);
+      const keys = await resolveSortKeys(
+        db,
+        'task',
+        body.column_id,
+        body.tasks.map((task) => task.sort_key)
+      );
       await db
         .insertInto('task')
         .values(
@@ -380,7 +385,7 @@ router.post(
             project_id: body.project_id,
             column_id: body.column_id,
             title: task.title,
-            sort_key: task.sort_key ?? appended[index]!,
+            sort_key: keys[index]!,
           }))
         )
         .execute();

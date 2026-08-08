@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Event types for `cpath watch`, generated from the API's realtime-events.json.
-// That document declares no paths, so unlike the API client nothing here is
-// filtered: every schema in it is part of the envelope union.
+// Event types for `cpath watch`, generated from realtime-events.json at the repo
+// root — dumped by `npm run realtime:dump`, exactly as openapi.json is. Nothing
+// is filtered: that document declares no paths, so every schema in it is part of
+// the envelope union rather than something a path reaches.
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +20,6 @@ const HEADER = `// AUTO-GENERATED FROM ${source}
 `;
 
 const doc = JSON.parse(await readFile(DOC_PATH, 'utf8'));
-const ast = await openapiTS(doc);
 await mkdir(dirname(OUTPUT_PATH), { recursive: true });
-await writeFile(OUTPUT_PATH, HEADER + '\n' + astToString(ast), 'utf8');
+await writeFile(OUTPUT_PATH, HEADER + '\n' + astToString(await openapiTS(doc)), 'utf8');
 console.log(`Wrote ${OUTPUT_PATH}`);

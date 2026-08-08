@@ -1,4 +1,5 @@
 import { db } from '../../helpers/database';
+import type { ResolvedSortKey } from '../../../src/db/types';
 import { newId, uniqueEmail, rankKey } from '../../helpers/fixtures';
 import { insertTaskImages } from '../../../src/services/attachments/images';
 
@@ -48,7 +49,7 @@ export class ProjectFixtures {
 
   async createColumn(
     projectId: string,
-    opts: { name?: string; sortKey?: string; isDone?: boolean } = {}
+    opts: { name?: string; sortKey?: ResolvedSortKey; isDone?: boolean } = {}
   ): Promise<string> {
     const id = newId();
     await db
@@ -74,7 +75,12 @@ export class ProjectFixtures {
     projectId: string,
     columnId: string,
     title = 'seeded task',
-    opts: { description?: unknown; archivedAt?: Date; position?: number; sortKey?: string } = {}
+    opts: {
+      description?: unknown;
+      archivedAt?: Date;
+      position?: number;
+      sortKey?: ResolvedSortKey;
+    } = {}
   ): Promise<string> {
     const id = newId();
     await db

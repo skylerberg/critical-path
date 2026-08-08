@@ -44,7 +44,7 @@ import {
   internalServerErrorResponse,
 } from '../schemas/index';
 import { AppHono } from '../types/index';
-import type { DB } from '../db/types';
+import type { DB, ResolvedSortKey } from '../db/types';
 import type { ColumnResponse, MovedTask } from '../schemas/index';
 
 const router: AppHono = new Hono();
@@ -280,7 +280,10 @@ router.post(
           id: body.id,
           project_id: source.project_id,
           name: source.name,
-          sort_key: body.sort_key ?? (await appendKeys(db, 'board_column', source.project_id))[0]!,
+          sort_key:
+            body.sort_key === undefined
+              ? (await appendKeys(db, 'board_column', source.project_id))[0]!
+              : await resolveSortKey(db, 'board_column', source.project_id, body.sort_key),
           is_done: source.is_done,
         })
         .returning(COLUMN_COLUMNS)
@@ -366,7 +369,7 @@ router.patch(
       await lockColumnTail(db, id);
     }
 
-    const updates: Partial<{ name: string; sort_key: string; is_done: boolean }> = {};
+    const updates: Partial<{ name: string; sort_key: ResolvedSortKey; is_done: boolean }> = {};
     if (name !== undefined) updates.name = name;
     if (sort_key !== undefined) {
       updates.sort_key = await resolveSortKey(db, 'board_column', existing.project_id, sort_key);
