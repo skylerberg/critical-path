@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ACCENTS, ACCENT_KEYS } from './accents';
+import { cssTokens } from './app-css-test-source';
 import { ThemeColor } from './theme-color';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
@@ -11,22 +12,10 @@ const CANVAS = '--cp-canvas';
 // own value back cannot pass on a token that happens to resolve to the same thing.
 const SHIPPED = '#abcdef';
 
-const css = readFileSync(resolve(process.cwd(), 'src/app.css'), 'utf8');
-const [lightSource = '', afterDark = ''] = css.split(`@media ${DARK_QUERY}`);
-const [darkSource = ''] = afterDark.split('@theme inline');
-
-function hexes(source: string): Map<string, string> {
-  const pairs = [...source.matchAll(/(--cp-[a-z-]+):\s*(#[0-9a-f]{6})/g)];
-  return new Map(pairs.map(([, name, hex]) => [name!, hex!]));
-}
-
-// jsdom resolves no custom property declared inside a media query — and, with
-// Tailwind's @import unprocessed, none of the others either — so the browser's
-// half of the job is played by the stylesheet's own text.
-const PALETTE = { light: hexes(lightSource), dark: hexes(darkSource) };
+const PALETTE = { light: cssTokens('light'), dark: cssTokens('dark') };
 
 function token(name: string, theme: 'light' | 'dark'): string {
-  const hex = PALETTE[theme].get(name);
+  const hex = PALETTE[theme][name];
   expect(`${theme} ${name}: ${hex}`).toMatch(/: #[0-9a-f]{6}$/);
   return hex!;
 }
@@ -61,7 +50,7 @@ beforeEach(() => {
   meta.content = SHIPPED;
   document.head.appendChild(meta);
   vi.stubGlobal('getComputedStyle', () => ({
-    getPropertyValue: (name: string) => PALETTE[scheme].get(name) ?? '',
+    getPropertyValue: (name: string) => PALETTE[scheme][name] ?? '',
   }));
   vi.stubGlobal('matchMedia', (query: string) => {
     queries.push(query);
@@ -217,8 +206,9 @@ describe('ThemeColor', () => {
 // its colour cannot follow a board or a scheme the way the meta tag does. Both
 // duplicate app.css by hand instead; these pin the copies to the source.
 describe('the chrome colours shipped ahead of the stylesheet', () => {
-  const indexHtml = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
-  const viteConfig = readFileSync(resolve(process.cwd(), 'vite.config.ts'), 'utf8');
+  const root = resolve(import.meta.dirname, '../..');
+  const indexHtml = readFileSync(resolve(root, 'index.html'), 'utf8');
+  const viteConfig = readFileSync(resolve(root, 'vite.config.ts'), 'utf8');
 
   it('paints the pre-JS address bar with the light accent', () => {
     const shipped = /<meta name="theme-color" content="(#[0-9a-f]{6})"/.exec(indexHtml)?.[1];
