@@ -35,6 +35,7 @@ import { exportFilename, projectExportArchive } from '../services/export/archive
 import { buildProjectExport } from '../services/export/payload';
 import { notify } from '../services/notifications';
 import { copyProject } from '../services/projectCopy';
+import { MAX_TASKS_PER_PROJECT } from '../config/constants';
 import { lockProject } from '../services/projectLock';
 import {
   INVITATION_COLUMNS,
@@ -219,7 +220,9 @@ router.post(
       'source’s status and schedules its next occurrence from today, so it behaves like the ' +
       'original without firing an occurrence the source already missed. ' +
       'Returns 422 when source_project_id does not ' +
-      'reference an existing project and 404 when it references a project the caller cannot access.',
+      'reference an existing project and 404 when it references a project the caller cannot ' +
+      `access. A source holding more than ${String(MAX_TASKS_PER_PROJECT)} live tasks returns ` +
+      '422 and copies nothing.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...createProjectResponses,

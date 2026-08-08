@@ -19,6 +19,8 @@ import { publishAfterCommit } from '../services/realtime/index';
 import { recordTaskActivity } from '../services/taskActivity';
 import { fetchBoardTaskRows, getArchivedTasksByIds } from '../services/boardPayload';
 import { copyTasks } from '../services/projectCopy';
+import { assertLockedTaskCapacity } from '../services/taskCap';
+import { MAX_TASKS_PER_PROJECT } from '../config/constants';
 import { appendKeys, resolveSortKey } from '../services/sortKey';
 import { publishSeriesUpdatedByIds } from '../services/taskSeries/index';
 import {
@@ -158,7 +160,9 @@ router.post(
       'leaving it do not. Archived cards are not copied, and neither are comments or activity ' +
       'history — each copy’s log starts with its own created entry. The client supplies the ' +
       'new column id and its position; a duplicate id returns 409. One column_created event is ' +
-      'published plus one task_created per copied card.',
+      'published plus one task_created per copied card. A copy that would take the project ' +
+      `past its ${String(MAX_TASKS_PER_PROJECT)}-task ceiling, archived cards counted, returns ` +
+      '422 and copies nothing.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...duplicateColumnResponses,
@@ -167,7 +171,7 @@ router.post(
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
       ...conflictErrorResponse,
-      ...validationErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
@@ -180,6 +184,14 @@ router.post(
     const user = c.get('user');
 
     const source = await assertColumnWrite(db, user.id, id);
+
+    const sourceTasks = await db
+      .selectFrom('task')
+      .select('id')
+      .where('column_id', '=', id)
+      .where('archived_at', 'is', null)
+      .execute();
+    await assertLockedTaskCapacity(db, source.project_id, sourceTasks.length);
 
     let inserted;
     try {
@@ -203,13 +215,6 @@ router.post(
       }
       throw err;
     }
-
-    const sourceTasks = await db
-      .selectFrom('task')
-      .select('id')
-      .where('column_id', '=', id)
-      .where('archived_at', 'is', null)
-      .execute();
 
     const taskIdMap = await copyTasks(db, {
       sourceTaskIds: sourceTasks.map((task) => task.id),

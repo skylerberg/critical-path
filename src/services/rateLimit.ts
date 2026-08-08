@@ -215,9 +215,7 @@ export const RESET_IP_MAX_ATTEMPTS = 5;
 const RESET_EMAIL_WINDOW_MS = 60 * 60_000;
 export const RESET_EMAIL_MAX_ATTEMPTS = 3;
 
-// Returns shouldSend instead of throwing 429: a visible throttle status would
-// leak which emails exist, so callers respond identically either way.
-export async function enforceResetRateLimit(c: Context, email: string): Promise<boolean> {
+export async function enforceResetRateLimit(c: Context, email: string): Promise<void> {
   const now = Date.now();
   const ipAllowed = await consumeRateLimit(
     `reset-ip:${clientIp(c)}`,
@@ -231,7 +229,9 @@ export async function enforceResetRateLimit(c: Context, email: string): Promise<
     RESET_EMAIL_MAX_ATTEMPTS,
     RESET_EMAIL_WINDOW_MS
   );
-  return ipAllowed && emailAllowed;
+  if (!ipAllowed || !emailAllowed) {
+    throw new AppError(429, 'Too many password reset requests, please try again later');
+  }
 }
 
 const VERIFY_USER_WINDOW_MS = 60 * 60_000;

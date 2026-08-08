@@ -54,7 +54,7 @@ export interface paths {
     put?: never;
     /**
      * Request password reset
-     * @description Email a password-reset link if an account with that address exists. Always responds 204 so the response never reveals whether the email is registered.
+     * @description Email a password-reset link. Responds 204 when an account with that address exists and 404 when none does, so someone who mistyped their address is told so rather than left waiting for mail that will never arrive. This is no more revealing than signup, which already answers 409 for an address in use. Repeated requests are rate limited per source address and per email and answer 429.
      */
     post: operations['postApiAuthForgotPassword'];
     delete?: never;
@@ -438,7 +438,7 @@ export interface paths {
     put?: never;
     /**
      * Create project
-     * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, images, and recurring series with their templates — not comments, assignees, members, archived cards, the accent colour, or the archived state of the project itself; copies start personal). A copied series keeps the source’s status and schedules its next occurrence from today, so it behaves like the original without firing an occurrence the source already missed. Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access.
+     * @description Create a project with the default Backlog / To Do / In Progress / Done columns, or deep-copy an existing project by passing source_project_id (copies columns, labels, tasks, task labels, dependencies, images, and recurring series with their templates — not comments, assignees, members, archived cards, the accent colour, or the archived state of the project itself; copies start personal). A copied series keeps the source’s status and schedules its next occurrence from today, so it behaves like the original without firing an occurrence the source already missed. Returns 422 when source_project_id does not reference an existing project and 404 when it references a project the caller cannot access. A source holding more than 5000 live tasks returns 422 and copies nothing.
      */
     post: operations['postApiProjects'];
     delete?: never;
@@ -726,7 +726,7 @@ export interface paths {
     put?: never;
     /**
      * Duplicate a column
-     * @description Copy a column and every live card in it into the same project. The new column keeps the source’s name and done flag; each copied card keeps its title, description, due date, labels, assignees, images, cover image and its position, so the cards land in the same relative order. A dependency edge is copied only when both of its ends are inside the copied set, so edges between two cards in the column survive and edges leaving it do not. Archived cards are not copied, and neither are comments or activity history — each copy’s log starts with its own created entry. The client supplies the new column id and its position; a duplicate id returns 409. One column_created event is published plus one task_created per copied card.
+     * @description Copy a column and every live card in it into the same project. The new column keeps the source’s name and done flag; each copied card keeps its title, description, due date, labels, assignees, images, cover image and its position, so the cards land in the same relative order. A dependency edge is copied only when both of its ends are inside the copied set, so edges between two cards in the column survive and edges leaving it do not. Archived cards are not copied, and neither are comments or activity history — each copy’s log starts with its own created entry. The client supplies the new column id and its position; a duplicate id returns 409. One column_created event is published plus one task_created per copied card. A copy that would take the project past its 5000-task ceiling, archived cards counted, returns 422 and copies nothing.
      */
     post: operations['postApiColumnsByIdDuplicate'];
     delete?: never;
@@ -830,7 +830,7 @@ export interface paths {
     put?: never;
     /**
      * Create a task
-     * @description Create a task in a column. The client supplies the task id. An unknown or inaccessible project returns 404. The column must belong to the project, labels must belong to the project, and assignees must be users with access to the project; those violations return 422 with a plain error body. due_date is an optional calendar day (YYYY-MM-DD, no time and no timezone); anything else returns 422.
+     * @description Create a task in a column. The client supplies the task id. An unknown or inaccessible project returns 404. The column must belong to the project, labels must belong to the project, and assignees must be users with access to the project; those violations return 422 with a plain error body. due_date is an optional calendar day (YYYY-MM-DD, no time and no timezone); anything else returns 422. A project holds at most 5000 tasks, archived ones included; past that, creating one returns 422 while reading and editing the existing cards keeps working.
      */
     post: operations['postApiTasks'];
     delete?: never;
@@ -850,7 +850,7 @@ export interface paths {
     put?: never;
     /**
      * Duplicate a task
-     * @description Copy a task into the same column. The copy carries the title, description, due date, labels, assignees, images and cover image of the original, each image copied to its own stored object so deleting one leaves the other intact. It carries no dependency edges: a copy keeps an edge only when both of its ends are copied too, which one card never is. It carries no comments and no activity history either — the copy’s log starts with its own created entry. Duplicating an archived task produces a live card. The client supplies the new id and its position; a duplicate id returns 409.
+     * @description Copy a task into the same column. The copy carries the title, description, due date, labels, assignees, images and cover image of the original, each image copied to its own stored object so deleting one leaves the other intact. It carries no dependency edges: a copy keeps an edge only when both of its ends are copied too, which one card never is. It carries no comments and no activity history either — the copy’s log starts with its own created entry. Duplicating an archived task produces a live card. The client supplies the new id and its position; a duplicate id returns 409. A project already holding 5000 tasks, archived ones included, returns 422.
      */
     post: operations['postApiTasksByIdDuplicate'];
     delete?: never;
@@ -870,7 +870,7 @@ export interface paths {
     put?: never;
     /**
      * Create tasks in bulk
-     * @description Create between 1 and 100 tasks in one column of one project in a single request, for pasting a list. The client supplies every task id, so a retry after a dropped response cannot double-create. Each item carries only a title and a position: descriptions, due dates, labels and assignees are set afterwards with the single-task endpoints. The batch is all or nothing — a duplicate id, whether it already exists or is repeated inside the batch, returns 409 and creates none of them. An unknown or inaccessible project returns 404 and a column_id outside the project returns 422. Each created task gets its own created activity entry and its own task_created event.
+     * @description Create between 1 and 100 tasks in one column of one project in a single request, for pasting a list. The client supplies every task id, so a retry after a dropped response cannot double-create. Each item carries only a title and a position: descriptions, due dates, labels and assignees are set afterwards with the single-task endpoints. The batch is all or nothing — a duplicate id, whether it already exists or is repeated inside the batch, returns 409 and creates none of them. An unknown or inaccessible project returns 404 and a column_id outside the project returns 422, as does a batch that would take the project past its 5000-task ceiling. Each created task gets its own created activity entry and its own task_created event.
      */
     post: operations['postApiTasksBatch'];
     delete?: never;
@@ -1350,7 +1350,7 @@ export interface paths {
     put?: never;
     /**
      * Convert a checklist item into a card
-     * @description Turn one item into a bare task in the parent’s column: its text becomes the title and nothing else is carried over — no labels, assignees, due date or dependency edge. The item is removed. The client supplies the new task id and its position; a duplicate id returns 409 and the item survives. Promoting the same item twice returns 404 the second time and creates exactly one card.
+     * @description Turn one item into a bare task in the parent’s column: its text becomes the title and nothing else is carried over — no labels, assignees, due date or dependency edge. The item is removed. The client supplies the new task id and its position; a duplicate id returns 409 and the item survives. Promoting the same item twice returns 404 the second time and creates exactly one card. A project already holding 5000 tasks, archived ones included, returns 422 and keeps the item.
      */
     post: operations['postApiChecklistItemsByIdPromote'];
     delete?: never;
@@ -2825,12 +2825,21 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Accepted */
+      /** @description Reset email sent */
       204: {
         headers: {
           [name: string]: unknown;
         };
         content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
       };
       /** @description Validation error */
       422: {
@@ -2839,6 +2848,15 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ValidationError'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
         };
       };
       /** @description Internal Server Error */
@@ -5117,13 +5135,13 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
-      /** @description Validation error */
+      /** @description Validation error or domain-rule violation */
       422: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ValidationError'];
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
         };
       };
       /** @description Internal Server Error */
@@ -5694,13 +5712,13 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
-      /** @description Validation error */
+      /** @description Validation error or domain-rule violation */
       422: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ValidationError'];
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
         };
       };
       /** @description Internal Server Error */
@@ -7787,13 +7805,13 @@ export interface operations {
           'application/json': components['schemas']['Error'];
         };
       };
-      /** @description Validation error */
+      /** @description Validation error or domain-rule violation */
       422: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ValidationError'];
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
         };
       };
       /** @description Internal Server Error */
