@@ -10,7 +10,6 @@ export default ts.config(
       'dist/',
       'dev-dist/',
       'coverage/',
-      'src/api/api.generated.ts',
       // Linked worktrees parked under the repo look like extra source trees to a
       // scan launched from the main checkout (and their own tsconfig.json breaks
       // tsconfigRootDir auto-detection). Ignore them.

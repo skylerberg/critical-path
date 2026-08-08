@@ -83,6 +83,12 @@ Regenerate the clients after any rebase that moved the api repo
 (`npm run generate:api`, `npm run generate:realtime`): a rebase can pull in a
 schema change that leaves the committed client describing the old shape.
 
+**After the rebase, not before.** Regenerating first writes every schema change
+`main` is about to deliver anyway, so a two-line fix arrives as a hundred-line
+diff that reads as the branch's own work. It also leaves the tree dirty, which
+`git rebase` refuses outright — so the regeneration gets discarded and re-run,
+and the only thing it produced was the misleading diff in between.
+
 ## Checks
 
 **While working, run only the tests your change touches** — `npm test -- --run
