@@ -33,7 +33,7 @@ export async function run(deps: CliDeps, argv: string[]): Promise<number> {
       deps.stderr.write(`${err.message}\n`);
       if (err.status === 401) {
         deps.stderr.write(
-          'Not authenticated, or the session expired (sessions last 30 days and are revoked by password changes). Run: cpath login\n'
+          'Not authenticated, or the session expired (sessions last 30 days). Run: cpath login\n'
         );
       }
       return exitCodeForStatus(err.status);

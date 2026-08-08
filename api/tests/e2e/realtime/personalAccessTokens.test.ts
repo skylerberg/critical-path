@@ -123,7 +123,7 @@ describe('Realtime with personal access tokens', () => {
     expect(sessionClient.closeInfo).toBeNull();
   });
 
-  it('closes the session socket on a password change but leaves token sockets open', async () => {
+  it('leaves both session and token sockets open on a password change', async () => {
     const { secret } = await mintToken('survives-password-change');
     const tokenClient = await connect(secret);
     const sessionClient = await connect(user.token);
@@ -132,13 +132,11 @@ describe('Realtime with personal access tokens', () => {
       current_password: user.password,
       new_password: 'rt-pat-new-password',
     });
-    expect(res.status).toBe(200);
-    user.token = ((await res.json()) as { token: string }).token;
+    expect(res.status).toBe(204);
     user.password = 'rt-pat-new-password';
 
-    await waitFor(async () => sessionClient.closeInfo !== null);
-    expect(sessionClient.closeInfo?.code).toBe(4401);
     await settle();
+    expect(sessionClient.closeInfo).toBeNull();
     expect(tokenClient.closeInfo).toBeNull();
   });
 

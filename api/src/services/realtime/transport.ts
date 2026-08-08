@@ -48,15 +48,11 @@ function closeSockets(sockets: RealtimeSocket[]): void {
   }
 }
 
-// Session-scoped: a password change must not evict the user's still-valid
-// personal access tokens, nor the replacement session the same request issued
-// to keep the caller signed in.
-export function closeSessionSocketsForUser(userId: string, exceptSessionId?: string): void {
+// Session-scoped: a user-scoped revoke must not evict the user's still-valid
+// personal access tokens.
+export function closeSessionSocketsForUser(userId: string): void {
   closeSockets(
-    socketsForUser(userId).filter((socket) => {
-      const state = getSocketState(socket);
-      return state?.credentialKind === 'session' && state.credentialId !== exceptSessionId;
-    })
+    socketsForUser(userId).filter((socket) => getSocketState(socket)?.credentialKind === 'session')
   );
 }
 
@@ -175,17 +171,13 @@ function handleBusEntry(entry: BusEntry): void {
       user_id?: unknown;
       personal_access_token_id?: unknown;
       session_id?: unknown;
-      except_session_id?: unknown;
     } | null;
     if (typeof data?.personal_access_token_id === 'string') {
       closeSocketsForCredential('personal_access_token', data.personal_access_token_id);
     } else if (typeof data?.session_id === 'string') {
       closeSocketsForCredential('session', data.session_id);
     } else if (typeof data?.user_id === 'string') {
-      closeSessionSocketsForUser(
-        data.user_id,
-        typeof data.except_session_id === 'string' ? data.except_session_id : undefined
-      );
+      closeSessionSocketsForUser(data.user_id);
     }
     return;
   }

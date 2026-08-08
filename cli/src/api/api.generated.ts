@@ -74,7 +74,7 @@ export interface paths {
     put?: never;
     /**
      * Reset password
-     * @description Set a new password using a token from a password-reset email. On success every session is revoked and outstanding reset tokens are invalidated.
+     * @description Set a new password using a token from a password-reset email. On success every outstanding reset token is invalidated. Existing sessions stay signed in; revoke them individually from GET /api/auth/sessions.
      */
     post: operations['postApiAuthResetPassword'];
     delete?: never;
@@ -306,7 +306,7 @@ export interface paths {
     put?: never;
     /**
      * Change password
-     * @description Change the password of the authenticated user. Requires the current password; on success every existing session is revoked and a fresh session token is returned, keeping this client logged in.
+     * @description Change the password of the authenticated user. Requires the current password. Existing sessions are left signed in, including this one; revoke them individually from GET /api/auth/sessions.
      */
     post: operations['postApiAuthChangePassword'];
     delete?: never;
@@ -2823,7 +2823,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Password reset and all sessions revoked */
+      /** @description Password reset */
       204: {
         headers: {
           [name: string]: unknown;
@@ -3473,14 +3473,12 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Password changed, all prior sessions revoked, new session issued */
-      200: {
+      /** @description Password changed */
+      204: {
         headers: {
           [name: string]: unknown;
         };
-        content: {
-          'application/json': components['schemas']['AuthResponse'];
-        };
+        content?: never;
       };
       /** @description Authentication required or failed */
       401: {

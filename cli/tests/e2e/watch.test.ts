@@ -235,12 +235,17 @@ describe('watch command', () => {
     await waitFor(async () => socketsForUser(revoked.id).length === 1);
 
     // Plain logout only deletes the session row; the socket would not notice until the
-    // heartbeat re-check. Changing the password publishes the revocation immediately.
-    const res = await tc.request(cliToken as string).post('/api/auth/change-password', {
-      current_password: revoked.password,
-      new_password: 'brand-new-password-123',
-    });
-    expect(res.status).toBe(200);
+    // heartbeat re-check. Revoking the session publishes the revocation immediately.
+    const list = await tc.request(cliToken as string).get('/api/auth/sessions');
+    expect(list.status).toBe(200);
+    const { sessions } = (await list.json()) as { sessions: { id: string; is_current: boolean }[] };
+    const current = sessions.find((entry) => entry.is_current);
+    if (current === undefined) {
+      throw new Error('no current session to revoke');
+    }
+
+    const res = await tc.request(cliToken as string).delete(`/api/auth/sessions/${current.id}`);
+    expect(res.status).toBe(204);
 
     const result = await handle.done;
     expect(result.exitCode).toBe(3);

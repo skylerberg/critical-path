@@ -6,7 +6,7 @@ import { resetRateLimiter, RESET_EMAIL_MAX_ATTEMPTS } from '../../../src/middlew
 import { createResetToken, RESET_TOKEN_TTL_MS } from '../../../src/services/resetToken';
 import { sentEmails, clearSentEmails } from '../../../src/services/email/index';
 import { env } from '../../../src/config/env';
-import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
+import { subscribeBus, type BusEntry } from '../../../src/services/realtime/bus';
 
 async function alternativeIdOf(userId: string): Promise<string> {
   const row = await db
@@ -150,7 +150,7 @@ describe('Password reset', () => {
       expect((await res.json()).error).toBe('Invalid reset token');
     });
 
-    it('resets via the emailed link, revokes sessions, and rotates the token', async () => {
+    it('resets via the emailed link, keeps sessions signed in, and rotates the token', async () => {
       const user = await createUser('reset-ok');
       const otherLogin = await ctx
         .request()
@@ -170,12 +170,10 @@ describe('Password reset', () => {
       } finally {
         unsubscribe();
       }
-      expect(seen).toEqual([
-        { type: SESSIONS_REVOKED, project_id: null, data: { user_id: user.id } },
-      ]);
+      expect(seen).toEqual([]);
 
-      expect((await ctx.request(user.token).get('/api/auth/me')).status).toBe(401);
-      expect((await ctx.request(otherToken).get('/api/auth/me')).status).toBe(401);
+      expect((await ctx.request(user.token).get('/api/auth/me')).status).toBe(200);
+      expect((await ctx.request(otherToken).get('/api/auth/me')).status).toBe(200);
 
       const oldLogin = await ctx
         .request()

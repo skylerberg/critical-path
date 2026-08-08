@@ -4,12 +4,7 @@ import { serve, type ServerType } from '@hono/node-server';
 import { app } from '../../../src/index';
 import { attachRealtime } from '../../../src/services/realtime/index';
 import type { RealtimeHandle } from '../../../src/services/realtime/index';
-import {
-  deliverLocal,
-  subscribeBus,
-  SESSIONS_REVOKED,
-  type BusEntry,
-} from '../../../src/services/realtime/bus';
+import { subscribeBus, SESSIONS_REVOKED, type BusEntry } from '../../../src/services/realtime/bus';
 import { createResetToken } from '../../../src/services/resetToken';
 import { TestContext, type TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
@@ -97,52 +92,30 @@ describe('Realtime session revocation', () => {
     expect(patClient.closeInfo).toBeNull();
   });
 
-  // Replayed rather than raced: the publish happens before the response is
-  // returned, so a socket opened with the new token can only meet the entry the
-  // way a slow fan-out would deliver it — after the fact.
-  it('spares the session a password change issued when its revocation is replayed', async () => {
-    const staleClient = await connect(user.token);
+  it('leaves every session socket open on a password change', async () => {
+    const callerClient = await connect(user.token);
+    const otherClient = await connect(await logIn());
 
     const seen: BusEntry[] = [];
     const unsubscribe = subscribeBus((entry) => seen.push(entry));
-    let newToken: string;
     try {
       const res = await ctx.request(user.token).post('/api/auth/change-password', {
         current_password: user.password,
         new_password: 'rt-sessions-new-password',
       });
-      expect(res.status).toBe(200);
-      newToken = ((await res.json()) as { token: string }).token;
+      expect(res.status).toBe(204);
     } finally {
       unsubscribe();
     }
-    user.token = newToken;
     user.password = 'rt-sessions-new-password';
 
-    await waitFor(async () => staleClient.closeInfo !== null);
-    expect(staleClient.closeInfo?.code).toBe(4401);
-
-    const revocation = seen.find((entry) => entry.type === SESSIONS_REVOKED);
-    if (revocation === undefined) {
-      throw new Error('change-password published no revocation entry');
-    }
-    expect(revocation.data).toEqual({
-      user_id: user.id,
-      except_session_id: await sessionIdFor(newToken),
-    });
-
-    const freshClient = await connect(newToken);
-    deliverLocal(revocation);
+    expect(seen.filter((entry) => entry.type === SESSIONS_REVOKED)).toEqual([]);
     await settle();
-    expect(freshClient.closeInfo).toBeNull();
-
-    // Negative control: the same entry without the exception does close it.
-    deliverLocal({ ...revocation, data: { user_id: user.id } });
-    await waitFor(async () => freshClient.closeInfo !== null);
-    expect(freshClient.closeInfo?.code).toBe(4401);
+    expect(callerClient.closeInfo).toBeNull();
+    expect(otherClient.closeInfo).toBeNull();
   });
 
-  it('closes every session socket on a password reset, sparing none', async () => {
+  it('leaves every session socket open on a password reset', async () => {
     const firstClient = await connect(user.token);
     const secondClient = await connect(await logIn());
     const { alternative_id } = await db
@@ -158,8 +131,8 @@ describe('Realtime session revocation', () => {
     expect(res.status).toBe(204);
     user.password = 'rt-sessions-reset-password';
 
-    await waitFor(async () => firstClient.closeInfo !== null && secondClient.closeInfo !== null);
-    expect(firstClient.closeInfo?.code).toBe(4401);
-    expect(secondClient.closeInfo?.code).toBe(4401);
+    await settle();
+    expect(firstClient.closeInfo).toBeNull();
+    expect(secondClient.closeInfo).toBeNull();
   });
 });
