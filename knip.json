@@ -5,6 +5,12 @@
     "eslint-rules/no-unqualified-kysely-columns.js",
     "src/db/migrations/**/*.ts"
   ],
-  "project": ["src/**/*.ts", "scripts/**/*.{ts,mjs}", "eslint-rules/**/*.js"],
+  "project": [
+    "src/**/*.ts",
+    "scripts/**/*.{ts,mjs}",
+    "eslint-rules/**/*.js",
+    "tests/**/*.ts",
+    "cli/tests/**/*.ts"
+  ],
   "ignore": ["src/db/types.ts"]
 }

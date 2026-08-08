@@ -22,6 +22,7 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run type-check
+      - run: npm run knip
       # The root scripts cover src/, tests/, scripts/ and vitest.config.ts.
       # cli/ stays separate because its imports resolve from cli/node_modules,
       # and npm test runs the CLI suites through tsx, which strips types
