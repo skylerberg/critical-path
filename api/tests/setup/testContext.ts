@@ -1,6 +1,7 @@
 import { app } from '../../src/index';
 import { db } from '../../src/db/index';
 import { SIGNUP_IP_MAX_ATTEMPTS } from '../../src/middleware/rateLimit';
+import { SESSION_COOKIE_NAME } from '../../src/services/sessionCookie';
 
 export interface TestUser {
   id: string;
@@ -70,8 +71,15 @@ export class TestApiClient {
   constructor(
     private token?: string,
     private userAgent?: string,
-    private forwardedFor?: string
+    private forwardedFor?: string,
+    private cookie?: string
   ) {}
+
+  // The cookie is what an <img> tag presents, so a media route's tests need a
+  // client that carries one and no Authorization header at all.
+  withCookie(cookie: string): TestApiClient {
+    return new TestApiClient(this.token, this.userAgent, this.forwardedFor, cookie);
+  }
 
   private headers(extra: Record<string, string> = {}): Record<string, string> {
     const headers: Record<string, string> = { ...extra };
@@ -84,6 +92,9 @@ export class TestApiClient {
     }
     if (this.forwardedFor !== undefined) {
       headers['X-Forwarded-For'] = this.forwardedFor;
+    }
+    if (this.cookie !== undefined) {
+      headers['Cookie'] = this.cookie;
     }
 
     return headers;
@@ -152,4 +163,15 @@ export class TestApiClient {
       duplex: 'half',
     } as RequestInit);
   }
+}
+
+// The Set-Cookie a session-issuing response carries, reduced to the name=value
+// pair a Cookie header sends back.
+export function sessionCookieFrom(res: Response): string | null {
+  const header = res.headers
+    .getSetCookie()
+    .find((value) => value.startsWith(`${SESSION_COOKIE_NAME}=`));
+  if (header === undefined) return null;
+  const pair = header.split(';')[0]!;
+  return pair.endsWith('=') ? null : pair;
 }

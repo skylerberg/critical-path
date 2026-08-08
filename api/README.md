@@ -333,6 +333,7 @@ via a `sessions_revoked` entry naming the session (see
 [Realtime](#realtime)); the socket's own 30-second credential re-check is the
 backstop if that entry is ever missed.
 
+<<<<<<< HEAD
 ### Password change and reset
 
 Neither `POST /api/auth/change-password` nor `POST /api/auth/reset-password`
@@ -354,6 +355,34 @@ What both flows *do* rotate is `app_user.alternative_id`, which is the subject
 of the stateless reset-token HMAC. That makes the link that just got used
 single-use and invalidates every other outstanding reset email. It has no
 effect on sessions.
+=======
+### The session cookie
+
+Signup and login also set the session token as an HttpOnly `cp_session`
+cookie, alongside returning it in the body. Logout clears it, and a session
+that predates the cookie gains one on its next `GET` or `HEAD`, so no one has
+to sign in again to acquire it. A password change leaves it alone, because it
+leaves the session signed in.
+
+It exists for one reason: a browser never attaches an `Authorization` header
+to an `<img>` tag, so media routes — `/api/images/:id` and friends — cannot be
+authenticated any other way without rewriting every `/api/images/<uuid>`
+already embedded in a stored description. `SameSite=Lax` is the security
+property rather than a default: the cookie is not sent on cross-site
+subresource requests at all, so another origin cannot point an `<img>` at a
+board's pictures and learn anything from whether they load. It is `Secure`
+outside development, where the app and the API share `http://localhost`.
+
+Only a session token is ever written to it. A personal access token is the
+CLI's credential and putting one in a cookie would make it an ambient browser
+credential; the backfill skips them, and skips unsafe methods too, because
+logout manages this cookie itself and a backfill would leave the response
+carrying two conflicting `Set-Cookie` headers for one name.
+
+Nothing requires the cookie yet — the routes that will are still open. It
+ships a release ahead of them so that a rolling deploy never has new pods
+demanding a credential from browsers that have not been issued one.
+>>>>>>> b0b1194 (Issue the session token as a cookie)
 
 ### Personal access tokens
 
