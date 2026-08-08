@@ -251,6 +251,7 @@
       } else {
         dialog.open = true;
       }
+      dialog.focus();
     }
   });
 
@@ -453,6 +454,7 @@
 
 <dialog
   bind:this={dialog}
+  tabindex="-1"
   aria-label={task === undefined ? 'Task not found' : truncateTitle(task.title)}
   class="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto bg-surface p-0 text-ink backdrop:bg-black/50 lg:m-auto lg:h-fit lg:max-h-[90dvh] lg:w-full lg:max-w-2xl lg:rounded-lg lg:border lg:border-edge lg:shadow-xl"
   oncancel={(event) => {
