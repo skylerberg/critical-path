@@ -3,7 +3,7 @@
 // webhook registrations, whether it raises the unseen-changes dot, and whether
 // its payload names who made the change — are columns of one table, so a new
 // type cannot be added without deciding all of them and cannot be misspelled at
-// a publish site. README.md carries the payload catalogue; this file carries the
+// a publish site. README.md carries the payload catalog; this file carries the
 // classification.
 
 // No project id, so neither of the project-scoped columns applies: publishing
@@ -271,7 +271,7 @@ export function carriesActor(type: string): type is ActorEventType {
   return event?.scope === 'project' && event.carriesActor;
 }
 
-// Null for a type outside the catalogue, so one call answers both "is this a
+// Null for a type outside the catalog, so one call answers both "is this a
 // real event type" and "which scope does it belong to" — which is what
 // validating an envelope that arrived from another replica needs.
 export function eventScope(type: string): 'account' | 'project' | null {

@@ -55,7 +55,7 @@ let remotePublish: RemotePublisher | null = null;
 // place the union is an assumption rather than something the publish site
 // proved. The payload is deliberately not re-validated: a schema that drifted
 // from its publisher would then drop live events on every replica at once.
-// A type outside the catalogue is refused, though, because handleBusEntry and
+// A type outside the catalog is refused, though, because handleBusEntry and
 // deliver() dispatch on it.
 export function parseBusEntry(raw: unknown): BusEntry | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -118,7 +118,7 @@ export function resetBus(): void {
 // the event type so `data` is checked against that type's row in
 // REALTIME_PAYLOAD_SCHEMAS rather than accepted as unknown.
 //
-// The account half is split again by the catalogue's delivery column, because
+// The account half is split again by the catalog's delivery column, because
 // the two kinds have opposite requirements and the failure is silent either
 // way: a namedRecipients type published without a recipient list falls through
 // to deliverProjectScoped and is dropped on the null project id, while a
@@ -164,7 +164,7 @@ export function publishAfterCommit(
   const entry = {
     type,
     project_id: projectId,
-    // Merged here rather than at forty publish sites: the catalogue decides
+    // Merged here rather than at forty publish sites: the catalog decides
     // which types name an actor, so a caller can neither forget nor lie.
     data: carriesActor(type) ? { ...data, actor_user_id: actorUserId } : data,
     ...opts,

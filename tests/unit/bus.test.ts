@@ -83,7 +83,7 @@ describe('parseBusEntry', () => {
     expect(parseBusEntry(account)).toEqual(account);
   });
 
-  it('refuses a type outside the catalogue', () => {
+  it('refuses a type outside the catalog', () => {
     expect(parseBusEntry({ type: 'task_exfiltrated', project_id: 'p1', data: {} })).toBeNull();
   });
 

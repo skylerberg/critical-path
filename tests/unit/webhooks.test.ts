@@ -237,7 +237,7 @@ describe('webhook signing', () => {
   });
 });
 
-describe('webhook event catalogue', () => {
+describe('webhook event catalog', () => {
   it('covers every project-scoped event type', () => {
     for (const type of [
       'task_created',
