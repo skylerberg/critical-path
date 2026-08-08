@@ -2,11 +2,11 @@ import '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { board } from './board.svelte';
 import type { BoardTask } from './board-types';
-import { cardMenu } from './card-menu.svelte';
+import { cardMenu, TOUCH_DRAG_DELAY_MS } from './card-menu.svelte';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
 
-const LONG_PRESS_MS = 500;
+const LONG_PRESS_MS = 2000;
 
 function task(id: string): BoardTask {
   return {
@@ -79,6 +79,16 @@ describe('long press', () => {
   it('does not open before the hold is long enough', () => {
     cardMenu.pressStart(press(), 't1');
     vi.advanceTimersByTime(LONG_PRESS_MS - 50);
+
+    expect(cardMenu.taskId).toBeNull();
+  });
+
+  // Everything between the lift and the menu is the window a finger has to start
+  // moving a card it just picked up. Narrow it and a drag turns into a menu under
+  // the hand of anyone who pauses to look at where they are going.
+  it('leaves a lifted card draggable long past the moment the drag arms', () => {
+    cardMenu.pressStart(press(), 't1');
+    vi.advanceTimersByTime(TOUCH_DRAG_DELAY_MS + 1000);
 
     expect(cardMenu.taskId).toBeNull();
   });
