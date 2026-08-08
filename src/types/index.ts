@@ -3,7 +3,7 @@ import { Kysely } from 'kysely';
 import type { DB } from '../db/types';
 import type { WebhookEvent } from '../services/webhooks/events';
 
-export type AuthenticatedUser = {
+type AuthenticatedUser = {
   id: string;
   email: string;
   name: string;
@@ -23,7 +23,7 @@ type BaseVariables = {
 // route takes the Public shape, where reading a user is a compile error rather
 // than a TypeError at runtime.
 export type Variables = BaseVariables & { user?: AuthenticatedUser };
-export type AuthedVariables = BaseVariables & { user: AuthenticatedUser };
+type AuthedVariables = BaseVariables & { user: AuthenticatedUser };
 
 export type AppContext = Context<{ Variables: AuthedVariables }>;
 export type PublicContext = Context<{ Variables: Variables }>;

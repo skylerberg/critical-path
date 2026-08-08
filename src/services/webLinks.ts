@@ -11,7 +11,7 @@ import { env } from '../config/env';
 // already duplicated between the web app and the CLI; a third copy here is how
 // three copies drift, so the server links by id and the board rewrites the
 // address to /p/<alias>/<slug> once it loads.
-export const WEB_PATHS = {
+const WEB_PATHS = {
   project: '/projects/:projectId',
   task: '/projects/:projectId/tasks/:taskId',
   invite: '/invite',

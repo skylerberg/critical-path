@@ -4,8 +4,8 @@ import type { AccountExport } from '../../schemas/index';
 import { avatarUrl } from '../avatars';
 import { normalizeProjectRole } from '../authorization';
 
-export const ACCOUNT_EXPORT_FORMAT = 'critical-path-account-export';
-export const ACCOUNT_EXPORT_VERSION = 1;
+const ACCOUNT_EXPORT_FORMAT = 'critical-path-account-export';
+const ACCOUNT_EXPORT_VERSION = 1;
 
 // No user text: a display name may itself be an email address, and this value
 // lands in a logged response header as well as on the caller's disk.

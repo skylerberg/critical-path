@@ -5,8 +5,8 @@ import { usersWithProjectAccess } from '../authorization';
 import { IMAGE_KIND } from '../attachments/index';
 import { getArchivedTasks } from '../boardPayload';
 
-export const PROJECT_EXPORT_FORMAT = 'critical-path-project-export';
-export const PROJECT_EXPORT_VERSION = 4;
+const PROJECT_EXPORT_FORMAT = 'critical-path-project-export';
+const PROJECT_EXPORT_VERSION = 4;
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
@@ -14,16 +14,6 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/gif': 'gif',
   'image/webp': 'webp',
 };
-
-export interface ExportImageRow {
-  id: string;
-  task_id: string;
-  storage_key: string;
-  filename: string;
-  content_type: string;
-  size_bytes: number;
-  created_at: Date;
-}
 
 // One folder for every entry that owns bytes, because the manifest is now one
 // list. Derived from the id, never the user-supplied filename, so an archive can

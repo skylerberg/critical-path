@@ -6,7 +6,7 @@ import { enqueueDeliveries } from '../webhooks/queue';
 import { isWebhookEvent, raisesUnseenDot } from './eventCatalog';
 import type { AccountEventType, ProjectEventType, RealtimeEventType } from './eventCatalog';
 
-export interface RealtimeEnvelope {
+interface RealtimeEnvelope {
   type: RealtimeEventType;
   project_id: string | null;
   data: unknown;

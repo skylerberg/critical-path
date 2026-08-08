@@ -4,11 +4,7 @@ import type { WebhookEventType } from '../realtime/eventCatalog';
 // the realtime event catalogue: one table answers that alongside every other
 // question about a type, so a new event cannot reach the bus with the webhook
 // question left unanswered.
-export {
-  isWebhookEvent,
-  WEBHOOK_EVENT_TYPES,
-  type WebhookEventType,
-} from '../realtime/eventCatalog';
+export { isWebhookEvent, WEBHOOK_EVENT_TYPES } from '../realtime/eventCatalog';
 
 export interface WebhookEvent {
   type: WebhookEventType;

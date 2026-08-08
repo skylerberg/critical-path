@@ -12,17 +12,17 @@ import { NOTIFY_COLUMN, unsubscribeLinks } from './notifications';
 import type { EmailMessage } from './email/types';
 import type { PublicContext } from '../types/index';
 
-export const ASSIGNMENT_DIGEST_JOB_KIND = 'assignment_digest';
-export const DIGEST_SWEEP_INTERVAL_SECONDS = 30;
-export const DIGEST_SWEEP_TIMEOUT_MS = 15_000;
-export const DIGEST_SWEEP_BUDGET_MS = 10_000;
-export const DIGEST_SWEEP_BATCH = 50;
+const ASSIGNMENT_DIGEST_JOB_KIND = 'assignment_digest';
+const DIGEST_SWEEP_INTERVAL_SECONDS = 30;
+const DIGEST_SWEEP_TIMEOUT_MS = 15_000;
+const DIGEST_SWEEP_BUDGET_MS = 10_000;
+const DIGEST_SWEEP_BATCH = 50;
 
 // The group waits for its sender to stop rather than for a fixed delay after the
 // first card, so a second bulk assign a minute later joins the same message.
-export const DIGEST_QUIET_SECONDS = 120;
+const DIGEST_QUIET_SECONDS = 120;
 // …but a sender who keeps going never lets it settle, so the wait is capped.
-export const DIGEST_MAX_WAIT_SECONDS = 900;
+const DIGEST_MAX_WAIT_SECONDS = 900;
 
 // Bounds the id list a single flush resolves; the remainder flushes next tick.
 export const DIGEST_MAX_TASKS = 500;

@@ -30,4 +30,4 @@ export function getEmailSender(): EmailSender {
 export { ConsoleEmailSender } from './console';
 export { MemoryEmailSender, sentEmails, clearSentEmails } from './memory';
 export { SesEmailSender } from './ses';
-export type { EmailMessage, EmailSender } from './types';
+export type { EmailSender } from './types';

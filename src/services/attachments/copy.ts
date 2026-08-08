@@ -11,7 +11,7 @@ export interface CopyAttachmentsInput {
   insertChunk: number;
 }
 
-export interface ObjectCopy {
+interface ObjectCopy {
   source: string;
   dest: string;
 }
