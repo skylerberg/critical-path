@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { sql, type Kysely } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { paramValidator, queryValidator } from '../middleware/requestValidator';
@@ -33,6 +33,9 @@ import {
   movedTasksResponseSchema,
   reorderColumnTasksSchema,
   archivedTasksResponseSchema,
+  jsonResponse,
+  emptyResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
@@ -170,6 +173,8 @@ async function reorderTasks(
   return movedTasks;
 }
 
+const createColumnResponses = { 201: jsonResponse('Column created', columnSchema) };
+
 router.post(
   '/',
   describeRoute({
@@ -180,14 +185,7 @@ router.post(
       'Returns 404 when the referenced project is unknown or inaccessible and 409 on a duplicate id.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Column created',
-        content: {
-          'application/json': {
-            schema: resolver(columnSchema),
-          },
-        },
-      },
+      ...createColumnResponses,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
       ...notFoundErrorResponse,
@@ -197,7 +195,7 @@ router.post(
     },
   }),
   jsonValidator(createColumnSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createColumnResponses>> => {
     const { id, project_id, name, sort_key, is_done } = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -230,6 +228,13 @@ router.post(
   }
 );
 
+const duplicateColumnResponses = {
+  201: jsonResponse(
+    'The new column and its copied cards in board-payload shape',
+    duplicatedColumnResponseSchema
+  ),
+};
+
 router.post(
   '/:id/duplicate',
   describeRoute({
@@ -247,14 +252,7 @@ router.post(
       'published plus one task_created per copied card.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'The new column and its copied cards in board-payload shape',
-        content: {
-          'application/json': {
-            schema: resolver(duplicatedColumnResponseSchema),
-          },
-        },
-      },
+      ...duplicateColumnResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -266,7 +264,7 @@ router.post(
   }),
   paramValidator(idSchema),
   jsonValidator(duplicateSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof duplicateColumnResponses>> => {
     const { id } = c.req.valid('param');
     const body = c.req.valid('json');
     const db = c.get('db');
@@ -323,6 +321,8 @@ router.post(
   }
 );
 
+const patchColumnResponses = { 200: jsonResponse('Updated column', columnSchema) };
+
 router.patch(
   '/:id',
   describeRoute({
@@ -334,14 +334,7 @@ router.patch(
       'the echoed sort_key is not always the one that was sent.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated column',
-        content: {
-          'application/json': {
-            schema: resolver(columnSchema),
-          },
-        },
-      },
+      ...patchColumnResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -353,7 +346,7 @@ router.patch(
   }),
   paramValidator(idSchema),
   jsonValidator(patchColumnSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchColumnResponses>> => {
     const { id } = c.req.valid('param');
     const { name, sort_key, is_done } = c.req.valid('json');
     const db = c.get('db');
@@ -407,6 +400,14 @@ router.patch(
   }
 );
 
+const deleteColumnResponses = {
+  200: jsonResponse(
+    'Column deleted; its tasks, archived ones included, were moved to the target column',
+    movedTasksResponseSchema
+  ),
+  204: emptyResponse('Empty column deleted'),
+};
+
 router.delete(
   '/:id',
   describeRoute({
@@ -423,18 +424,7 @@ router.delete(
       '`moved_tasks` can name tasks that payload never served.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description:
-          'Column deleted; its tasks, archived ones included, were moved to the target column',
-        content: {
-          'application/json': {
-            schema: resolver(movedTasksResponseSchema),
-          },
-        },
-      },
-      204: {
-        description: 'Empty column deleted',
-      },
+      ...deleteColumnResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -446,7 +436,7 @@ router.delete(
   }),
   paramValidator(idSchema),
   queryValidator(deleteColumnQuerySchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteColumnResponses>> => {
     const { id } = c.req.valid('param');
     const { move_tasks_to } = c.req.valid('query');
     const db = c.get('db');
@@ -509,6 +499,10 @@ router.delete(
   }
 );
 
+const moveColumnTasksResponses = {
+  200: jsonResponse('Moved tasks with their new positions', movedTasksResponseSchema),
+};
+
 router.post(
   '/:id/move-tasks',
   describeRoute({
@@ -523,14 +517,7 @@ router.post(
       'or equals the source column.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Moved tasks with their new positions',
-        content: {
-          'application/json': {
-            schema: resolver(movedTasksResponseSchema),
-          },
-        },
-      },
+      ...moveColumnTasksResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -541,7 +528,7 @@ router.post(
   }),
   paramValidator(idSchema),
   jsonValidator(moveColumnTasksSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof moveColumnTasksResponses>> => {
     const { id } = c.req.valid('param');
     const { target_column_id } = c.req.valid('json');
     const db = c.get('db');
@@ -588,6 +575,10 @@ router.post(
   }
 );
 
+const reorderColumnTasksResponses = {
+  200: jsonResponse('Reordered tasks with their new positions', movedTasksResponseSchema),
+};
+
 router.post(
   '/:id/reorder',
   describeRoute({
@@ -604,14 +595,7 @@ router.post(
       'with the moved tasks’ new positions.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Reordered tasks with their new positions',
-        content: {
-          'application/json': {
-            schema: resolver(movedTasksResponseSchema),
-          },
-        },
-      },
+      ...reorderColumnTasksResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -622,7 +606,7 @@ router.post(
   }),
   paramValidator(idSchema),
   jsonValidator(reorderColumnTasksSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof reorderColumnTasksResponses>> => {
     const { id } = c.req.valid('param');
     const { task_ids } = c.req.valid('json');
     const db = c.get('db');
@@ -642,6 +626,13 @@ router.post(
   }
 );
 
+const archiveColumnTasksResponses = {
+  200: jsonResponse(
+    'Newly archived tasks in board-payload shape plus archived_at',
+    archivedTasksResponseSchema
+  ),
+};
+
 router.post(
   '/:id/archive-tasks',
   describeRoute({
@@ -655,14 +646,7 @@ router.post(
       'call is a no-op 200. The column itself is kept.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Newly archived tasks in board-payload shape plus archived_at',
-        content: {
-          'application/json': {
-            schema: resolver(archivedTasksResponseSchema),
-          },
-        },
-      },
+      ...archiveColumnTasksResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -671,7 +655,7 @@ router.post(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof archiveColumnTasksResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
     const user = c.get('user');

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { sql } from 'kysely';
 import { jsonValidator } from '../middleware/jsonValidator';
 import { dedupe } from '../utils/arrays';
@@ -28,6 +28,8 @@ import {
   bulkMovedTasksResponseSchema,
   bulkArchivedTasksResponseSchema,
   bulkTaskRelationsResponseSchema,
+  jsonResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
@@ -74,6 +76,13 @@ function toRelations(rows: Awaited<ReturnType<typeof fetchTaskRelations>>): Bulk
   );
 }
 
+const bulkMoveResponses = {
+  200: jsonResponse(
+    'The tasks that moved, with their new positions, plus what was skipped',
+    bulkMovedTasksResponseSchema
+  ),
+};
+
 router.post(
   '/bulk-move',
   describeRoute({
@@ -91,17 +100,12 @@ router.post(
       SKIPPED_NOTE,
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'The tasks that moved, with their new positions, plus what was skipped',
-        content: {
-          'application/json': { schema: resolver(bulkMovedTasksResponseSchema) },
-        },
-      },
+      ...bulkMoveResponses,
       ...errorResponses,
     },
   }),
   jsonValidator(bulkMoveTasksSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof bulkMoveResponses>> => {
     const body = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -132,6 +136,13 @@ router.post(
   }
 );
 
+const bulkArchiveResponses = {
+  200: jsonResponse(
+    'Newly archived tasks in board-payload shape, plus what was skipped',
+    bulkArchivedTasksResponseSchema
+  ),
+};
+
 router.post(
   '/bulk-archive',
   describeRoute({
@@ -148,17 +159,12 @@ router.post(
       SKIPPED_NOTE,
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Newly archived tasks in board-payload shape, plus what was skipped',
-        content: {
-          'application/json': { schema: resolver(bulkArchivedTasksResponseSchema) },
-        },
-      },
+      ...bulkArchiveResponses,
       ...errorResponses,
     },
   }),
   jsonValidator(bulkTaskIdsSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof bulkArchiveResponses>> => {
     const body = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -195,6 +201,13 @@ router.post(
   }
 );
 
+const bulkLabelsResponses = {
+  200: jsonResponse(
+    'The relations of every card that changed, plus what was skipped',
+    bulkTaskRelationsResponseSchema
+  ),
+};
+
 router.post(
   '/bulk-labels',
   describeRoute({
@@ -214,17 +227,12 @@ router.post(
       SKIPPED_NOTE,
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'The relations of every card that changed, plus what was skipped',
-        content: {
-          'application/json': { schema: resolver(bulkTaskRelationsResponseSchema) },
-        },
-      },
+      ...bulkLabelsResponses,
       ...errorResponses,
     },
   }),
   jsonValidator(bulkTaskLabelsSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof bulkLabelsResponses>> => {
     const body = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');
@@ -285,6 +293,13 @@ router.post(
   }
 );
 
+const bulkAssigneesResponses = {
+  200: jsonResponse(
+    'The relations of every card that changed, plus what was skipped',
+    bulkTaskRelationsResponseSchema
+  ),
+};
+
 router.post(
   '/bulk-assignees',
   describeRoute({
@@ -304,17 +319,12 @@ router.post(
       SKIPPED_NOTE,
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'The relations of every card that changed, plus what was skipped',
-        content: {
-          'application/json': { schema: resolver(bulkTaskRelationsResponseSchema) },
-        },
-      },
+      ...bulkAssigneesResponses,
       ...errorResponses,
     },
   }),
   jsonValidator(bulkTaskAssigneesSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof bulkAssigneesResponses>> => {
     const body = c.req.valid('json');
     const db = c.get('db');
     const user = c.get('user');

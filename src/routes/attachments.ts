@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
-import { describeRoute, resolver } from 'hono-openapi';
+import { describeRoute } from 'hono-openapi';
 import { sql } from 'kysely';
 import { env } from '../config/env';
 import { optionalAuth } from '../middleware/auth';
@@ -44,6 +44,10 @@ import {
   createLinkAttachmentSchema,
   patchAttachmentSchema,
   uploadAttachmentQuerySchema,
+  jsonResponse,
+  emptyResponse,
+  rawResponse,
+  type Returned,
   badRequestErrorResponse,
   unauthorizedErrorResponse,
   forbiddenErrorResponse,
@@ -59,8 +63,8 @@ import { AppHono, PublicHono } from '../types/index';
 
 const router: AppHono = new Hono();
 
-// The preview and favicon bytes serve unauthenticated (see imageServingRoute
-// below), which is a different context type, so they need their own router.
+// The download, preview and favicon routes all serve with or without a token,
+// which is a different context type, so they need their own router.
 export const publicAttachmentsRouter: PublicHono = new Hono();
 
 // The one guarantee that makes arbitrary uploads safe: user-supplied bytes are
@@ -79,6 +83,10 @@ function setDownloadHeaders(
   c.header('Content-Security-Policy', "default-src 'none'; sandbox");
   c.header('Cache-Control', 'private, max-age=31536000, immutable');
 }
+
+const createFileAttachmentResponses = {
+  201: jsonResponse('Attachment created', attachmentSchema),
+};
 
 router.post(
   '/files',
@@ -103,10 +111,7 @@ router.post(
       },
     },
     responses: {
-      201: {
-        description: 'Attachment created',
-        content: { 'application/json': { schema: resolver(attachmentSchema) } },
-      },
+      ...createFileAttachmentResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -118,7 +123,7 @@ router.post(
     },
   }),
   queryValidator(uploadAttachmentQuerySchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createFileAttachmentResponses>> => {
     const db = c.get('db');
     const { task_id: taskId, id, filename, content_type: declaredType } = c.req.valid('query');
 
@@ -230,6 +235,10 @@ router.post(
   }
 );
 
+const createLinkAttachmentResponses = {
+  201: jsonResponse('Attachment created', attachmentSchema),
+};
+
 router.post(
   '/links',
   describeRoute({
@@ -244,10 +253,7 @@ router.post(
       'and never one carrying credentials.',
     security: [{ bearerAuth: [] }],
     responses: {
-      201: {
-        description: 'Attachment created',
-        content: { 'application/json': { schema: resolver(attachmentSchema) } },
-      },
+      ...createLinkAttachmentResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -259,7 +265,7 @@ router.post(
     },
   }),
   jsonValidator(createLinkAttachmentSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof createLinkAttachmentResponses>> => {
     const { id, task_id, url, title } = c.req.valid('json');
     const db = c.get('db');
     const userId = c.get('user').id;
@@ -309,6 +315,10 @@ router.post(
   }
 );
 
+const patchAttachmentResponses = {
+  200: jsonResponse('Updated attachment', attachmentSchema),
+};
+
 router.patch(
   '/:id',
   describeRoute({
@@ -321,10 +331,7 @@ router.patch(
       'an attachment edit cannot invalidate an open editor’s optimistic-concurrency precondition.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Updated attachment',
-        content: { 'application/json': { schema: resolver(attachmentSchema) } },
-      },
+      ...patchAttachmentResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -335,7 +342,7 @@ router.patch(
   }),
   paramValidator(idSchema),
   jsonValidator(patchAttachmentSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof patchAttachmentResponses>> => {
     const { id } = c.req.valid('param');
     const patch = c.req.valid('json');
     const db = c.get('db');
@@ -366,6 +373,8 @@ router.patch(
   }
 );
 
+const deleteAttachmentResponses = { 204: emptyResponse('Attachment deleted') };
+
 router.delete(
   '/:id',
   describeRoute({
@@ -376,7 +385,7 @@ router.delete(
       'transaction commits. Deleting it twice returns 404.',
     security: [{ bearerAuth: [] }],
     responses: {
-      204: { description: 'Attachment deleted' },
+      ...deleteAttachmentResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...forbiddenErrorResponse,
@@ -385,7 +394,7 @@ router.delete(
     },
   }),
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof deleteAttachmentResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
@@ -430,9 +439,16 @@ router.delete(
   }
 );
 
+const downloadAttachmentResponses = {
+  200: rawResponse({
+    description: 'Attachment bytes, always application/octet-stream',
+    content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } },
+  }),
+};
+
 // Optional auth, not public: on a private board this still answers only to a
 // member, and only a published one serves a stranger.
-router.get(
+publicAttachmentsRouter.get(
   '/:id/download',
   describeRoute({
     tags: ['Attachments'],
@@ -447,10 +463,7 @@ router.get(
       'answers 404.',
     security: [{ bearerAuth: [] }],
     responses: {
-      200: {
-        description: 'Attachment bytes, always application/octet-stream',
-        content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } },
-      },
+      ...downloadAttachmentResponses,
       ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...notFoundErrorResponse,
@@ -459,11 +472,11 @@ router.get(
   }),
   optionalAuth,
   paramValidator(idSchema),
-  async (c) => {
+  async (c): Promise<Returned<typeof downloadAttachmentResponses>> => {
     const { id } = c.req.valid('param');
     const db = c.get('db');
 
-    await assertAttachmentReadable(db, c.get('user') as { id: string } | undefined, id);
+    await assertAttachmentReadable(db, c.get('user'), id);
 
     const row = await db
       .selectFrom('task_attachment')
@@ -490,6 +503,13 @@ router.get(
   }
 );
 
+const imageBytesResponses = {
+  200: rawResponse({
+    description: 'WebP image bytes',
+    content: { 'image/webp': { schema: { type: 'string', format: 'binary' } } },
+  }),
+};
+
 // Selects only its own key column, never storage_key, so the endpoint is
 // structurally incapable of serving a document's bytes whatever id is guessed.
 function imageServingRoute(
@@ -505,10 +525,7 @@ function imageServingRoute(
       summary,
       description,
       responses: {
-        200: {
-          description: 'WebP image bytes',
-          content: { 'image/webp': { schema: { type: 'string', format: 'binary' } } },
-        },
+        ...imageBytesResponses,
         ...badRequestErrorResponse,
         ...notFoundErrorResponse,
         ...internalServerErrorResponse,
@@ -516,7 +533,7 @@ function imageServingRoute(
     }),
     optionalAuth,
     paramValidator(idSchema),
-    async (c) => {
+    async (c): Promise<Returned<typeof imageBytesResponses>> => {
       const { id } = c.req.valid('param');
 
       await assertAttachmentReadable(c.get('db'), c.get('user'), id);
