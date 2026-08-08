@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { SvelteMap } from 'svelte/reactivity';
   import { flip } from 'svelte/animate';
   import {
     dndzone,
@@ -33,6 +34,16 @@
 
   const FLIP_MS = 150;
   const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
+  const cardClass = 'rounded-md focus-visible:outline-2 focus-visible:outline-accent';
+
+  // Svelte's animate: directive measures EVERY item in the list with two
+  // getBoundingClientRect() calls each time the list changes — and a drag
+  // rewrites the list on every pointer move — so a long column pays a
+  // whole-column forced layout per move. Measured at 2.00 rect reads per card
+  // per move: 1600 of them on an 800-card column, half a second of blocked main
+  // thread. Past this many cards the animation is dropped; a card that jumps to
+  // its new place beats a board that stalls.
+  const FLIP_MAX_CARDS = 80;
 
   const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
 
@@ -44,13 +55,57 @@
     return next;
   }
 
+  // A zero flipDurationMs does NOT avoid the cost: the measure/apply pass runs
+  // whatever the duration, which is why reduced motion is answered by dropping
+  // the directive here rather than by shortening it.
+  function animatableColumns(): ReadonlySet<string> {
+    if (motion.reduced) {
+      return new Set();
+    }
+    return new Set(
+      board.columns
+        .filter((column) => board.tasksInColumn(column.id).length <= FLIP_MAX_CARDS)
+        .map((column) => column.id)
+    );
+  }
+
   // Seeded from the store rather than left empty for the effects below to fill:
   // an effect runs after the first render, and a board that renders no columns at
   // all — even once — leaves the "+ Add column" tile as the only scroll-snap
   // target in the scroller. The browser snaps to it, and inserting the columns in
   // front of it a moment later strands the board at the far right end.
-  let localColumns = $state<BoardColumn[]>([...board.columns]);
-  let localTasks = $state<Record<string, BoardTask[]>>(tasksByColumn());
+  //
+  // Raw, not deep state: this is handed to svelte-dnd-action as an action
+  // argument, and Svelte deep-reads an action's argument through the $state proxy
+  // to track it — walking every field of every item on every re-render. Nothing
+  // mutates it in place, so the reactivity a proxy buys is unused.
+  let localColumns = $state.raw<BoardColumn[]>([...board.columns]);
+  // One instance mutated in place, and a map rather than a record: SvelteMap
+  // gives every column its own signal, so rewriting the dragged column's list on
+  // each pointer move re-runs only that column's cards. Behind one signal — a
+  // plain $state record — every column re-rendered on every move, and each one
+  // paid the animate: measure pass over all of its cards. Its values are handed
+  // out as-is, so they stay off the $state proxy like localColumns above.
+  const localTasks = new SvelteMap<string, BoardTask[]>();
+
+  function syncLocalTasks(): void {
+    const next = tasksByColumn();
+    // Untracked: adding or removing a key bumps the map's version signal, which
+    // the caller's effect would otherwise pick up and re-enter on.
+    untrack(() => {
+      for (const columnId of [...localTasks.keys()]) {
+        if (!(columnId in next)) {
+          localTasks.delete(columnId);
+        }
+      }
+      for (const [columnId, tasks] of Object.entries(next)) {
+        localTasks.set(columnId, tasks);
+      }
+    });
+  }
+
+  syncLocalTasks();
+
   let columnDragging = $state(false);
   let taskDragging = $state(false);
   let dragOrigin: { columnId: string; index: number } | null = null;
@@ -288,7 +343,20 @@
 
   $effect(() => {
     if (!taskDragging) {
-      localTasks = tasksByColumn();
+      syncLocalTasks();
+    }
+  });
+
+  // Frozen for the length of a drag. Swapping a column between the animated and
+  // plain branch rebuilds every card in it, which mid-gesture would tear the DOM
+  // out from under svelte-dnd-action — it tracks the drag by element identity.
+  // Seeded like localColumns above so the first paint is already the right
+  // branch rather than a rebuild one frame later.
+  let animatedColumns = $state.raw<ReadonlySet<string>>(animatableColumns());
+
+  $effect(() => {
+    if (!dragging) {
+      animatedColumns = animatableColumns();
     }
   });
 
@@ -343,16 +411,18 @@
     if (event.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
       dragOrigin = {
         columnId,
-        index: (localTasks[columnId] ?? []).findIndex((task) => task.id === event.detail.info.id),
+        index: (localTasks.get(columnId) ?? []).findIndex(
+          (task) => task.id === event.detail.info.id
+        ),
       };
     }
     taskDragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
-    localTasks[columnId] = event.detail.items;
+    localTasks.set(columnId, event.detail.items);
   }
 
   function handleTaskFinalize(columnId: string, event: CustomEvent<DndEvent<BoardTask>>): void {
     const items = event.detail.items.filter((task) => task.id !== SHADOW_PLACEHOLDER_ITEM_ID);
-    localTasks[columnId] = items;
+    localTasks.set(columnId, items);
     // The origin zone's finalize (DROPPED_INTO_ANOTHER) must not end the drag: the
     // target zone's DROPPED_INTO_ZONE is the single place that commits the move.
     // Keyboard finalizes fire per arrow press, so they keep the flag up too.
@@ -404,6 +474,19 @@
   }
 </script>
 
+{#snippet card(task: BoardTask)}
+  <TaskCard
+    {task}
+    {projectId}
+    {readonly}
+    labels={labelsFor(task)}
+    blockedCount={openBlockerCount(task)}
+    done={doneColumnIds.has(task.column_id)}
+    dimmed={board.hasActiveFilters && !board.taskMatchesFilters(task)}
+    changed={board.changedTaskIds.has(task.id)}
+  />
+{/snippet}
+
 <div
   bind:this={boardScroller}
   class="relative flex min-h-0 flex-1 scroll-p-3 flex-col overscroll-x-contain overflow-y-hidden lg:scroll-p-4 {snapActive
@@ -445,9 +528,9 @@
             aria-label="{column.name} tasks"
             use:scrollToTopOn={board.filterSignature}
             use:dndzone={{
-              items: localTasks[column.id] ?? [],
+              items: localTasks.get(column.id) ?? [],
               type: 'task',
-              flipDurationMs: flipMs,
+              flipDurationMs: animatedColumns.has(column.id) ? flipMs : 0,
               dropAnimationDisabled: motion.reduced,
               dropTargetStyle,
               delayTouchStart: TOUCH_DRAG_DELAY_MS,
@@ -458,25 +541,28 @@
             onconsider={(event) => handleTaskConsider(column.id, event)}
             onfinalize={(event) => handleTaskFinalize(column.id, event)}
           >
-            {#each localTasks[column.id] ?? [] as task (task.id)}
-              <div
-                animate:flip={{ duration: flipMs }}
-                data-task-id={task.id}
-                aria-label={truncateTitle(task.title)}
-                class="rounded-md focus-visible:outline-2 focus-visible:outline-accent"
-              >
-                <TaskCard
-                  {task}
-                  {projectId}
-                  {readonly}
-                  labels={labelsFor(task)}
-                  blockedCount={openBlockerCount(task)}
-                  done={doneColumnIds.has(task.column_id)}
-                  dimmed={board.hasActiveFilters && !board.taskMatchesFilters(task)}
-                  changed={board.changedTaskIds.has(task.id)}
-                />
-              </div>
-            {/each}
+            {#if animatedColumns.has(column.id)}
+              {#each localTasks.get(column.id) ?? [] as task (task.id)}
+                <div
+                  animate:flip={{ duration: flipMs }}
+                  data-task-id={task.id}
+                  aria-label={truncateTitle(task.title)}
+                  class={cardClass}
+                >
+                  {@render card(task)}
+                </div>
+              {/each}
+            {:else}
+              {#each localTasks.get(column.id) ?? [] as task (task.id)}
+                <div
+                  data-task-id={task.id}
+                  aria-label={truncateTitle(task.title)}
+                  class={cardClass}
+                >
+                  {@render card(task)}
+                </div>
+              {/each}
+            {/if}
           </div>
           {#if !readonly}
             <div data-quick-add={column.id}>
