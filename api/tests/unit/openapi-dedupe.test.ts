@@ -122,7 +122,7 @@ describe('deduplicateOpenAPISpec', () => {
       string,
       Record<
         string,
-        Record<string, Record<string, Record<string, Record<string, Record<string, unknown>>>>>
+        { responses: Record<string, { content: Record<string, { schema: { $ref?: string } }> }> }
       >
     >;
     const schemaA = paths['/a'].get.responses['200'].content['application/json'].schema;

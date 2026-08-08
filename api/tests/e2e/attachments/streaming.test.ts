@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { serve, type ServerType } from '@hono/node-server';
 import { app } from '../../../src/index';
-import { TestContext, type TestUser } from '../../setup/testContext';
+import { TestContext, type TestUser, type TestResponse } from '../../setup/testContext';
 import { db } from '../../../src/db/index';
 import { cleanupProjects, createTaskFixture, listStorageKeys, uploadPath } from './helpers';
 
@@ -43,8 +43,11 @@ describe('upload over a real socket', () => {
     });
   }
 
-  function upload(path: string, body: BodyInit): Promise<Response> {
-    return fetch(`http://127.0.0.1:${String(port)}${path}`, {
+  async function upload(
+    path: string,
+    body: NonNullable<RequestInit['body']>
+  ): Promise<TestResponse> {
+    return (await fetch(`http://127.0.0.1:${String(port)}${path}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${user.token}`,
@@ -52,7 +55,7 @@ describe('upload over a real socket', () => {
       },
       body,
       duplex: 'half',
-    } as RequestInit);
+    } as RequestInit)) as TestResponse;
   }
 
   it('stores 8 MB sent as chunks with no declared length', async () => {

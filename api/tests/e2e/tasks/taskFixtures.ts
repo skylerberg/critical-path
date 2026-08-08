@@ -44,7 +44,7 @@ export class ProjectFixtures {
 
   async createColumn(
     projectId: string,
-    opts: { name?: string; position?: number; isDone?: boolean } = {}
+    opts: { name?: string; sortKey?: string; isDone?: boolean } = {}
   ): Promise<string> {
     const id = newId();
     await db
@@ -53,7 +53,7 @@ export class ProjectFixtures {
         id,
         project_id: projectId,
         name: opts.name ?? 'Column',
-        sort_key: rankKey(opts.position ?? 1000),
+        sort_key: opts.sortKey ?? rankKey(),
         is_done: opts.isDone ?? false,
       })
       .execute();

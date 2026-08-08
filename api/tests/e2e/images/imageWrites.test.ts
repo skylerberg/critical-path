@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { TestContext } from '../../setup/testContext';
-import { imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
+import { imageStorageKey, imageUploadPath, newId, rankKey } from '../../helpers/fixtures';
 import { db } from '../../../src/db/index';
 import { env } from '../../../src/config/env';
 import { projectStorageAllowance } from '../../../src/services/attachments/quota';
@@ -89,7 +89,9 @@ describe('image writes', () => {
         .where('task.project_id', 'in', createdProjectIds)
         .execute();
       await Promise.all(
-        rows.map((row) => fs.rm(path.join(env.storageDiskRoot, row.storage_key), { force: true }))
+        rows.map((row) =>
+          fs.rm(path.join(env.storageDiskRoot, imageStorageKey(row.storage_key)), { force: true })
+        )
       );
       await db.deleteFrom('project').where('id', 'in', createdProjectIds).execute();
     }

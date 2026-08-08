@@ -10,7 +10,7 @@ Run all of these before declaring done. CI runs the same set (`.github/workflows
 ## Commands
 
 ```sh
-npm run type-check       # tsc --noEmit
+npm run type-check       # tsc over src/, tests/, scripts/, vitest.config.ts
 npm run lint             # eslint src tests
 npm run format:check     # prettier --check
 npm test                 # vitest against game_dev_test (loads .env.test)

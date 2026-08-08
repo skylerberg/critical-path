@@ -168,7 +168,14 @@ npm run --prefix cli generate-api` and commit the regenerated
   redis`); CI has one and fails there rather than skipping. Never put
   `REDIS_URL` in `.env.test` — that puts the whole suite on one shared signup
   budget and it collapses into 429s.
-- `npm run type-check`, `npm run lint`, `npm run format`.
+- `npm run type-check`, `npm run lint`, `npm run format`. `type-check` covers
+  `src/`, `tests/`, `scripts/` and `vitest.config.ts` — the root
+  `tsconfig.json` is the check-everything project and emits nothing; `npm run
+  build` uses `tsconfig.build.json`, which is `src/` only. In tests
+  `res.json()` is deliberately `any` (`JsonBody` in
+  `tests/setup/testContext.ts`): a parsed body has no compile-time link to the
+  route that produced it, so name the shape with `res.json<T>()` where it
+  matters rather than trying to type the client.
 - Worktrees under `.pi/worktrees/` need `node_modules` to run any of the
   above; symlink it from the main checkout
   (`ln -s ../../../node_modules node_modules` from inside the worktree)
