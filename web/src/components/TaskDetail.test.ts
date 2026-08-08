@@ -679,6 +679,26 @@ describe('TaskDetail', () => {
     );
   });
 
+  // The overlay is reused rather than remounted, so every one of these would
+  // otherwise arrive on the next card still holding the last one's answer.
+  it('carries none of the previous card’s local state onto the next one', async () => {
+    const { rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+    await openQuickAction('Checklist');
+    await openHistory();
+    await fireEvent.input(screen.getByLabelText('Task title'), {
+      target: { value: 'renamed but never committed' },
+    });
+    expect(screen.getByRole('heading', { name: 'Checklist' })).toBeInTheDocument();
+    expect(await screen.findByText(/created this task/)).toBeInTheDocument();
+
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
+
+    expect(screen.getByLabelText('Task title')).toHaveValue('Cut prototype');
+    expect(screen.queryByRole('heading', { name: 'Checklist' })).toBeNull();
+    expect(screen.queryByText(/created this task/)).toBeNull();
+  });
+
   // Reading the discussion is most of what the card is opened for, so it costs
   // no click; the log behind History is the one thing still worth a request.
   it('opens with the comments shown and History collapsed', async () => {
