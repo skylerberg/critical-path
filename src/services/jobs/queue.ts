@@ -21,7 +21,7 @@ const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]/;
 const CONTACT_KEY = /e-?mail/i;
 
 // Nothing reads this column and nothing reviews what enters it, so an address
-// written here would outlive every consent and access check that authorised it.
+// written here would outlive every consent and access check that authorized it.
 // Payloads carry ids; handlers re-resolve.
 export function assertJobPayload(value: unknown, path = 'payload'): void {
   if (typeof value === 'string') {

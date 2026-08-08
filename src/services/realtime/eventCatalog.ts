@@ -234,7 +234,7 @@ export type NamedRecipientEventType = OfDelivery<'namedRecipients'>;
 // The rest, whose audience a branch decides, so their publish sites pass no
 // options at all. Spelled as the union of the two values rather than as
 // `Exclude<AccountEventType, NamedRecipientEventType>`: an Exclude sweeps in
-// whatever it does not recognise, so a fourth delivery value would land here
+// whatever it does not recognize, so a fourth delivery value would land here
 // silently and be allowed to publish with no audience — the exact fail-open
 // this column exists to prevent, one level up. Listed by value, a new value
 // matches neither overload and its publish sites do not compile until someone

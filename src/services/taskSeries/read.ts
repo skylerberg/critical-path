@@ -3,7 +3,7 @@ import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB, TaskSeries } from '../../db/types';
 import type { TaskSeriesResponse, TiptapDoc } from '../../schemas/index';
 import { dateText } from '../dateText';
-import { presetFor, summarise } from './rule';
+import { presetFor, summarize } from './rule';
 
 // Fail closed: the column is plain text, so a value a newer release wrote — or
 // one nothing writes — reads as the state the materialiser's `status = 'active'`
@@ -105,7 +105,7 @@ export async function fetchSeries(
     due_date: row.due_date,
     rrule: row.rrule,
     preset: presetFor(row.rrule, row.start_date as string),
-    summary: summarise(row.rrule, row.start_date as string),
+    summary: summarize(row.rrule, row.start_date as string),
     start_date: row.start_date as string,
     timezone: row.timezone,
     status: narrowSeriesStatus(row.status),
@@ -137,7 +137,7 @@ export async function seriesSummaryForTask(db: Kysely<DB>, taskId: string): Prom
   if (!row) {
     return null;
   }
-  return summarise(row.rrule, row.start_date as string);
+  return summarize(row.rrule, row.start_date as string);
 }
 
 export type SeriesRow = Selectable<TaskSeries> & { start_date_text: string };

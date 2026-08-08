@@ -142,7 +142,7 @@ describe('Viewer enforcement across every mutating route', () => {
         send: (t) => ctx.request(t).patch(`/api/projects/${projectId}`, { is_public: true }),
       },
       {
-        name: 'PATCH /api/projects/:id (colour)',
+        name: 'PATCH /api/projects/:id (color)',
         send: (t) => ctx.request(t).patch(`/api/projects/${projectId}`, { color: 'violet' }),
       },
       {

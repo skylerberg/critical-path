@@ -9,7 +9,7 @@ import {
   occurrencesBetween,
   presetFor,
   rruleForPreset,
-  summarise,
+  summarize,
 } from '../../src/services/taskSeries/rule';
 import { AppError } from '../../src/utils/errors';
 
@@ -236,42 +236,42 @@ describe('presetFor', () => {
   });
 });
 
-describe('summarise', () => {
+describe('summarize', () => {
   it('renders curated English for every preset', () => {
-    expect(summarise(rruleForPreset('daily', '2026-01-05'), '2026-01-05')).toBe('Every day');
-    expect(summarise(rruleForPreset('weekdays', '2026-01-05'), '2026-01-05')).toBe('Every weekday');
-    expect(summarise(rruleForPreset('weekly', '2026-01-05'), '2026-01-05')).toBe('Every Monday');
-    expect(summarise(rruleForPreset('monthly_date', '2026-01-15'), '2026-01-15')).toBe(
+    expect(summarize(rruleForPreset('daily', '2026-01-05'), '2026-01-05')).toBe('Every day');
+    expect(summarize(rruleForPreset('weekdays', '2026-01-05'), '2026-01-05')).toBe('Every weekday');
+    expect(summarize(rruleForPreset('weekly', '2026-01-05'), '2026-01-05')).toBe('Every Monday');
+    expect(summarize(rruleForPreset('monthly_date', '2026-01-15'), '2026-01-15')).toBe(
       'Monthly on the 15th'
     );
-    expect(summarise(rruleForPreset('monthly_weekday', '2026-01-13'), '2026-01-13')).toBe(
+    expect(summarize(rruleForPreset('monthly_weekday', '2026-01-13'), '2026-01-13')).toBe(
       'Monthly on the 2nd Tuesday'
     );
-    expect(summarise(rruleForPreset('monthly_weekday', '2026-01-30'), '2026-01-30')).toBe(
+    expect(summarize(rruleForPreset('monthly_weekday', '2026-01-30'), '2026-01-30')).toBe(
       'Monthly on the last Friday'
     );
-    expect(summarise(rruleForPreset('yearly', '2026-06-15'), '2026-06-15')).toBe(
+    expect(summarize(rruleForPreset('yearly', '2026-06-15'), '2026-06-15')).toBe(
       'Every year on 15 June'
     );
-    expect(summarise(rruleForPreset('yearly', '2024-02-29'), '2024-02-29')).toBe(
+    expect(summarize(rruleForPreset('yearly', '2024-02-29'), '2024-02-29')).toBe(
       'Every year on 29 February, or 28 February in non-leap years'
     );
   });
 
   it('never renders the clamped monthly rule as its raw library text', () => {
-    const summary = summarise(rruleForPreset('monthly_date', '2026-01-31'), '2026-01-31');
+    const summary = summarize(rruleForPreset('monthly_date', '2026-01-31'), '2026-01-31');
     expect(summary).toBe('Monthly on the 31st, or the last day of shorter months');
     expect(summary).not.toContain('and last');
   });
 
   it('falls back to library text for a non-curated rule', () => {
-    const summary = summarise('FREQ=WEEKLY;INTERVAL=2;BYDAY=MO', '2026-01-05');
+    const summary = summarize('FREQ=WEEKLY;INTERVAL=2;BYDAY=MO', '2026-01-05');
     expect(summary).toContain('every 2 weeks');
   });
 
   it('never returns an empty string', () => {
     for (const rule of ['FREQ=DAILY;INTERVAL=3', 'FREQ=MONTHLY;BYMONTHDAY=5,20', 'FREQ=YEARLY']) {
-      expect(summarise(rule, '2026-01-05').length).toBeGreaterThan(0);
+      expect(summarize(rule, '2026-01-05').length).toBeGreaterThan(0);
     }
   });
 });
@@ -295,7 +295,7 @@ describe('exhaustion', () => {
 });
 
 describe('bounds', () => {
-  it('honours the occurrence cap', () => {
+  it('honors the occurrence cap', () => {
     expect(occurrencesBetween('FREQ=DAILY', '2026-01-01', '2026-01-01', '2026-12-31', 4)).toEqual([
       '2026-01-01',
       '2026-01-02',

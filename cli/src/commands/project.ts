@@ -179,7 +179,7 @@ export function registerProject(program: Command, deps: CliDeps): void {
       .argument('<project>', 'project id or name')
       .option('--name <name>', 'new name')
       .option('--description <text>', 'new description')
-      .option('--color <color>', `accent colour: none or one of ${ACCENT_KEYS.join(', ')}`)
+      .option('--color <color>', `accent color: none or one of ${ACCENT_KEYS.join(', ')}`)
       .action(
         withCtx(deps, async (ctx, opts, ref) => {
           const target = await resolveProject(ctx, ref);

@@ -212,7 +212,7 @@ describe('PUT /api/projects/:id/owner', () => {
     expect(assignees.map((row) => row.user_id).sort()).toEqual([owner.id, member.id].sort());
   });
 
-  it('serialises a member edit against a concurrent ownership transfer', async () => {
+  it('serializes a member edit against a concurrent ownership transfer', async () => {
     const third = await ctx.createUser('transfer-race');
     const board = await createProject('transfer race');
     const projectId = board.project.id;

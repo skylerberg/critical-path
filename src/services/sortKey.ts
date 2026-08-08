@@ -9,7 +9,7 @@ function resolved(key: string): ResolvedSortKey {
   return key as ResolvedSortKey;
 }
 
-// Inserting repeatedly against the same neighbour lengthens each successive key
+// Inserting repeatedly against the same neighbor lengthens each successive key
 // by ~0.2 characters, so the cap is what bounds insertions at a single spot
 // (~5000). Reaching it is a clean rejection, never a silent reordering, and it
 // stays clear of both Postgres' btree entry limit and the recursion depth in
