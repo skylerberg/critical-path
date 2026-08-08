@@ -53,7 +53,7 @@ class TaskSeriesStore {
     }
     switch (event.type) {
       case 'series_created': {
-        const row = event.data as TaskSeries;
+        const row = event.data;
         // The echo of our own create arrives after we appended it.
         this.list = this.list.some((series) => series.id === row.id)
           ? this.list.map((series) => (series.id === row.id ? row : series))
@@ -63,12 +63,12 @@ class TaskSeriesStore {
       case 'series_updated': {
         // Update-only: a row we no longer hold is one we have already deleted,
         // and an edit still in flight when that happened must not resurrect it.
-        const row = event.data as TaskSeries;
+        const row = event.data;
         this.#replace(row.id, row);
         break;
       }
       case 'series_deleted': {
-        const { id } = event.data as { id: string };
+        const { id } = event.data;
         this.list = this.list.filter((series) => series.id !== id);
         break;
       }

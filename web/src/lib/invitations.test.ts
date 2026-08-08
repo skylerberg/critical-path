@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invitations, isExpired, type Invitation } from './invitations.svelte';
 import { toasts } from './toasts.svelte';
+import { realtimeEvent } from './realtime-test-events';
 
 const DAY_MS = 86_400_000;
 
@@ -120,7 +121,7 @@ describe('invitations store', () => {
       jsonResponse(200, { invitations: [invitation({ id: 'inv-2', email: 'next@example.com' })] })
     );
 
-    invitations.applyRealtime({ type: 'invitations_changed', project_id: 'p-1', data: null });
+    invitations.applyRealtime(realtimeEvent('invitations_changed', { project_id: 'p-1' }, 'p-1'));
     await vi.waitFor(() => expect(invitations.list.map((row) => row.id)).toEqual(['inv-2']));
 
     expect(new URL(requestAt(0).url).pathname).toBe('/api/projects/p-1/invitations');
@@ -129,12 +130,14 @@ describe('invitations store', () => {
   it('ignores an event for a project it is not showing', async () => {
     await loadWith([invitation()]);
 
-    invitations.applyRealtime({ type: 'invitations_changed', project_id: 'p-other', data: null });
+    invitations.applyRealtime(
+      realtimeEvent('invitations_changed', { project_id: 'p-other' }, 'p-other')
+    );
     await settle();
     expect(fetchMock).not.toHaveBeenCalled();
 
     invitations.reset();
-    invitations.applyRealtime({ type: 'invitations_changed', project_id: 'p-1', data: null });
+    invitations.applyRealtime(realtimeEvent('invitations_changed', { project_id: 'p-1' }, 'p-1'));
     await settle();
     expect(fetchMock).not.toHaveBeenCalled();
   });

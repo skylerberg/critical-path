@@ -5,6 +5,7 @@ import { isProjectOwner, projects, type Project } from './projects.svelte';
 import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
 import { users } from './users.svelte';
+import { realtimeEvent } from './realtime-test-events';
 
 function project({ rank, ...overrides }: Partial<Project> & { rank?: number } = {}): Project {
   const memberIds = overrides.member_ids ?? [];
@@ -750,11 +751,7 @@ describe('projects store', () => {
   it('preserves the rank through a project_updated merge', async () => {
     await loadWith([project({ rank: 500 })]);
 
-    projects.applyRealtime({
-      type: 'project_updated',
-      project_id: 'p-1',
-      data: { id: 'p-1', name: 'Renamed' },
-    });
+    projects.applyRealtime(realtimeEvent('project_updated', { id: 'p-1', name: 'Renamed' }, 'p-1'));
 
     expect(projects.projects[0]!.sort_key).toBe('V0000005001');
     expect(projects.projects[0]!.name).toBe('Renamed');
@@ -948,11 +945,9 @@ describe('project roles', () => {
     expect(projects.projects[0]!.members).toEqual([]);
     await pending;
 
-    projects.applyRealtime({
-      type: 'project_created',
-      project_id: 'p-realtime',
-      data: { id: 'p-realtime', name: 'Gained' },
-    });
+    projects.applyRealtime(
+      realtimeEvent('project_created', { id: 'p-realtime', name: 'Gained' }, 'p-realtime')
+    );
 
     expect(projects.projects.find((p) => p.id === 'p-realtime')!.members).toEqual([]);
   });

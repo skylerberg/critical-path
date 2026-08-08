@@ -40,13 +40,7 @@ export type TaskAttachment = components['schemas']['Attachment'];
 export type TaskComment = components['schemas']['Comment'];
 export type CommentBody = TaskComment['body'];
 
-type BulkRelations = components['schemas']['BulkTaskRelations'];
 type BulkRelationsResponse = components['schemas']['BulkTaskRelationsResponse'];
-
-interface ChecklistCounts {
-  checklist_item_count: number;
-  checklist_done_count: number;
-}
 
 export type TaskUpdateOutcome =
   | { status: 'ok'; updated_at: string }
@@ -2078,7 +2072,7 @@ class BoardStore {
     }
     switch (event.type) {
       case 'task_created': {
-        const incoming = event.data as BoardTask;
+        const incoming = event.data;
         const task = {
           ...incoming,
           comment_count: incoming.comment_count ?? 0,
@@ -2094,7 +2088,7 @@ class BoardStore {
         // deleted (a locally-deleted task whose in-flight edit — e.g. the detail
         // overlay's autosave flushed on close — lands after our optimistic remove).
         // Re-adding it here would resurrect a phantom node in the graph.
-        const incoming = event.data as BoardTask;
+        const incoming = event.data;
         // An API pod that predates comments omits comment_count; replacing the whole
         // task with its payload would otherwise blank the badge until a full refetch.
         this.tasks = this.tasks.map((t) =>
@@ -2110,13 +2104,13 @@ class BoardStore {
         break;
       }
       case 'task_deleted': {
-        const { id } = event.data as { id: string };
+        const { id } = event.data;
         this.#dropTasks([id]);
         this.archivedTasks = this.archivedTasks.filter((t) => t.id !== id);
         break;
       }
       case 'task_archived': {
-        const archived = event.data as ArchivedTask;
+        const archived = event.data;
         this.#dropTasks([archived.id]);
         this.archivedTasks = this.archivedTasks.some((t) => t.id === archived.id)
           ? this.archivedTasks.map((t) => (t.id === archived.id ? archived : t))
@@ -2125,7 +2119,7 @@ class BoardStore {
         break;
       }
       case 'task_restored': {
-        const restored = event.data as BoardTask;
+        const restored = event.data;
         this.archivedTasks = this.archivedTasks.filter((t) => t.id !== restored.id);
         this.tasks = this.tasks.some((t) => t.id === restored.id)
           ? this.tasks.map((t) => (t.id === restored.id ? restored : t))
@@ -2134,12 +2128,7 @@ class BoardStore {
         break;
       }
       case 'task_relations_set': {
-        const d = event.data as {
-          task_id: string;
-          label_ids: string[];
-          assignee_ids: string[];
-          blocker_ids: string[];
-        };
+        const d = event.data;
         this.tasks = this.tasks.map((t) =>
           t.id === d.task_id
             ? {
@@ -2155,7 +2144,7 @@ class BoardStore {
       }
       case 'column_created':
       case 'column_updated': {
-        const column = event.data as BoardColumn;
+        const column = event.data;
         this.columns = (
           this.columns.some((c) => c.id === column.id)
             ? this.columns.map((c) => (c.id === column.id ? column : c))
@@ -2164,14 +2153,7 @@ class BoardStore {
         break;
       }
       case 'column_deleted': {
-        const d = event.data as {
-          id: string;
-          moved_tasks: {
-            id: string;
-            column_id: string;
-            sort_key: string;
-          }[];
-        };
+        const d = event.data;
         this.columns = this.columns.filter((c) => c.id !== d.id);
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         const relocate = <T extends { id: string; column_id: string; sort_key: string }>(
@@ -2189,13 +2171,7 @@ class BoardStore {
       }
       case 'column_tasks_moved':
       case 'bulk_tasks_moved': {
-        const d = event.data as {
-          moved_tasks: {
-            id: string;
-            column_id: string;
-            sort_key: string;
-          }[];
-        };
+        const d = event.data;
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         this.tasks = this.tasks.map((t) => {
           const m = moved.get(t.id);
@@ -2208,9 +2184,7 @@ class BoardStore {
       }
       case 'column_tasks_reordered': {
         // No column change, so only positions move; no activity to invalidate.
-        const d = event.data as {
-          moved_tasks: { id: string; sort_key: string }[];
-        };
+        const d = event.data;
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         this.tasks = this.tasks.map((t) => {
           const m = moved.get(t.id);
@@ -2220,7 +2194,7 @@ class BoardStore {
       }
       case 'column_tasks_archived':
       case 'bulk_tasks_archived': {
-        const d = event.data as { tasks: ArchivedTask[] };
+        const d = event.data;
         this.#dropTasks(d.tasks.map((t) => t.id));
         const incoming = new Map(d.tasks.map((t) => [t.id, t]));
         const heldIds = new Set(this.archivedTasks.map((t) => t.id));
@@ -2234,7 +2208,7 @@ class BoardStore {
         break;
       }
       case 'bulk_tasks_relations_set': {
-        const d = event.data as { tasks: BulkRelations[] };
+        const d = event.data;
         const incoming = new Map(d.tasks.map((t) => [t.task_id, t]));
         this.tasks = this.tasks.map((t) => {
           const relations = incoming.get(t.id);
@@ -2254,14 +2228,14 @@ class BoardStore {
       }
       case 'label_created':
       case 'label_updated': {
-        const label = event.data as BoardLabel;
+        const label = event.data;
         this.labels = this.labels.some((l) => l.id === label.id)
           ? this.labels.map((l) => (l.id === label.id ? label : l))
           : [...this.labels, label];
         break;
       }
       case 'label_deleted': {
-        const { id } = event.data as { id: string };
+        const { id } = event.data;
         this.labels = this.labels.filter((l) => l.id !== id);
         this.tasks = this.tasks.map((t) =>
           t.label_ids.includes(id) ? { ...t, label_ids: t.label_ids.filter((l) => l !== id) } : t
@@ -2273,7 +2247,7 @@ class BoardStore {
         break;
       }
       case 'attachment_created': {
-        const d = event.data as TaskAttachment & { attachment_count: number };
+        const d = event.data;
         this.#setAttachmentCount(d.task_id, () => d.attachment_count);
         // Skips the adder's own echo, which the optimistic append already placed.
         this.#replaceAttachments(d.task_id, (attachments) =>
@@ -2282,19 +2256,14 @@ class BoardStore {
         break;
       }
       case 'attachment_updated': {
-        const d = event.data as TaskAttachment;
+        const d = event.data;
         this.#replaceAttachments(d.task_id, (attachments) =>
           attachments.map((a) => (a.id === d.id ? d : a))
         );
         break;
       }
       case 'attachment_deleted': {
-        const d = event.data as {
-          id: string;
-          task_id: string;
-          attachment_count: number;
-          cover_image_url?: string | null;
-        };
+        const d = event.data;
         this.#setAttachmentCount(d.task_id, () => d.attachment_count);
         this.#replaceAttachments(d.task_id, (attachments) =>
           attachments.filter((a) => a.id !== d.id)
@@ -2307,7 +2276,7 @@ class BoardStore {
         break;
       }
       case 'comment_created': {
-        const d = event.data as TaskComment & { comment_count: number };
+        const d = event.data;
         this.#setCommentCount(d.task_id, () => d.comment_count);
         const comment: TaskComment = {
           id: d.id,
@@ -2326,7 +2295,7 @@ class BoardStore {
         break;
       }
       case 'comment_updated': {
-        const d = event.data as TaskComment;
+        const d = event.data;
         this.#replaceComments(d.task_id, (comments) =>
           comments.map((c) =>
             c.id === d.id ? { ...c, body: d.body, updated_at: d.updated_at } : c
@@ -2335,14 +2304,14 @@ class BoardStore {
         break;
       }
       case 'comment_deleted': {
-        const d = event.data as { id: string; task_id: string; comment_count: number };
+        const d = event.data;
         this.#setCommentCount(d.task_id, () => d.comment_count);
         this.#replaceComments(d.task_id, (comments) => comments.filter((c) => c.id !== d.id));
         break;
       }
       case 'checklist_item_created':
       case 'checklist_item_updated': {
-        const d = event.data as ChecklistItem & ChecklistCounts;
+        const d = event.data;
         this.#setChecklistCounts(d.task_id, () => ({
           total: d.checklist_item_count,
           done: d.checklist_done_count,
@@ -2368,7 +2337,7 @@ class BoardStore {
         break;
       }
       case 'checklist_item_deleted': {
-        const d = event.data as { id: string; task_id: string } & ChecklistCounts;
+        const d = event.data;
         this.#setChecklistCounts(d.task_id, () => ({
           total: d.checklist_item_count,
           done: d.checklist_done_count,
@@ -2383,7 +2352,7 @@ class BoardStore {
       // behind would strip the new owner's editing and keep offering it to the old
       // one.
       case 'project_updated': {
-        const d = event.data as Partial<BoardProject>;
+        const d = event.data;
         const project = this.project;
         if (project === null) {
           break;

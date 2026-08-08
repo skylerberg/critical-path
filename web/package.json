@@ -26,6 +26,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "generate:api": "node scripts/generate-api-types.mjs",
+    "generate:realtime": "node scripts/generate-realtime-types.mjs && prettier --write src/api/realtime.generated.ts",
     "prepare": "node scripts/setup-hooks.mjs"
   },
   "dependencies": {

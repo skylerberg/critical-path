@@ -11,6 +11,7 @@ import { toasts } from '../lib/toasts.svelte';
 import { users } from '../lib/users.svelte';
 import { webhooks } from '../lib/webhooks.svelte';
 import type { BoardTask } from '../lib/board-types';
+import { realtimeEvent } from '../lib/realtime-test-events';
 
 const me = {
   id: 'u1',
@@ -157,11 +158,9 @@ describe('ProjectHeader', () => {
     render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
     expect(screen.queryByText('Public')).toBeNull();
 
-    projects.applyRealtime({
-      type: 'project_updated',
-      project_id: PROJECT_ID,
-      data: { id: PROJECT_ID, is_public: true },
-    });
+    projects.applyRealtime(
+      realtimeEvent('project_updated', { id: PROJECT_ID, is_public: true }, PROJECT_ID)
+    );
     await waitFor(() => expect(screen.getByText('Public')).toBeInTheDocument());
   });
 

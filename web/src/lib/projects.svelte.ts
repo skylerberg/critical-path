@@ -327,25 +327,22 @@ class ProjectsStore {
 
   applyRealtime(event: RealtimeEvent): void {
     if (event.type === 'project_seen') {
-      const { id } = event.data as { id: string };
+      const { id } = event.data;
       this.#clearUnseen(id);
       return;
     }
     if (event.type === 'project_deleted') {
-      const { id } = event.data as { id: string };
+      const { id } = event.data;
       this.projects = this.projects.filter((p) => p.id !== id);
       return;
     }
     if (event.type === 'project_position_updated') {
-      // The server stopped carrying `position` when ordering moved to sort keys,
-      // so reading it here left every reorder from another device applying
-      // `undefined` — the list only caught up on the next full load.
-      const { id, sort_key } = event.data as { id: string; sort_key: string };
+      const { id, sort_key } = event.data;
       this.#update(id, (p) => ({ ...p, sort_key }));
       return;
     }
     if (event.type === 'project_created' || event.type === 'project_updated') {
-      const incoming = event.data as Partial<Project> & { id: string };
+      const incoming = event.data;
       const existing = this.projects.find((p) => p.id === incoming.id);
       const base: Project = existing ?? {
         id: incoming.id,
