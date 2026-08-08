@@ -1,14 +1,17 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { board } from '../lib/board.svelte';
+  import { board, type TaskUpdateOutcome } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
+  import { conflictDrafts, type TaskVersion } from '../lib/conflictDrafts.svelte';
   import { isCalendarDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { append } from '../lib/positions';
   import { router } from '../lib/router.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
-  import { taskActivity } from '../lib/taskActivity.svelte';
+  import { contentAuthorAt, taskActivity } from '../lib/taskActivity.svelte';
+  import { sameDoc } from '../lib/tiptap';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
+  import { users } from '../lib/users.svelte';
   import AssigneePicker from './AssigneePicker.svelte';
   import DependencyPicker from './DependencyPicker.svelte';
   import DueDatePicker from './DueDatePicker.svelte';
@@ -17,6 +20,7 @@
   import TaskActivity from './TaskActivity.svelte';
   import TaskAttachments from './TaskAttachments.svelte';
   import TaskChecklist from './TaskChecklist.svelte';
+  import TaskConflictDialog from './TaskConflictDialog.svelte';
   import Announcer from './ui/Announcer.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
@@ -64,24 +68,45 @@
   // successful writes — adopting a teammate's incoming version would let the next
   // save silently overwrite it.
   let baseUpdatedAt = $state<string | null>(null);
-  // The title that version carries. task.title is overwritten optimistically the
-  // moment a save starts, so it cannot tell an unchanged title from an unsaved one.
+  // The title and description that version carries. task.* is overwritten
+  // optimistically the moment a save starts, so it cannot tell an unchanged field
+  // from an unsaved one — and the resolver needs that to know which side edited what.
   let baseTitle = $state<string | null>(null);
-  let conflicted = $state(false);
+  let baseDescription = $state<TiptapDoc | null>(null);
   let editorRef = $state<ReturnType<typeof RichTextEditor>>();
   let pendingWrite: Promise<unknown> = Promise.resolve();
 
+  // The rejected edit is the conflict: one store owns both the banner and the text
+  // it promises is safe, so they cannot disagree, and neither dies with the overlay.
+  const draft = $derived(conflictDrafts.get(taskId));
+  const conflicted = $derived(draft !== null);
+  let reviewOpen = $state(false);
+
+  // byId, not displayFor: a teammate the log names but this account cannot see
+  // is better left unnamed than announced as "Unknown user".
+  const storedAuthorId = $derived(task === undefined ? null : contentAuthorAt(task.updated_at));
+  const storedAuthor = $derived(storedAuthorId === null ? undefined : users.byId(storedAuthorId));
+
+  // Reading the props straight into the effect below would make it depend on the
+  // route object they come from, which is replaced whenever the URL is rewritten —
+  // including the slug refresh a teammate's rename triggers. Deriving first stops at
+  // a value only a real change of card can move, so an incoming rename no longer
+  // resets the baseline and hands the next save a precondition it never loaded.
+  const overlayKey = $derived(`${taskId}:${anonymous ? 'public' : 'private'}`);
+
   $effect(() => {
-    const id = taskId;
-    const authed = !anonymous;
+    void overlayKey;
     untrack(() => {
+      const id = taskId;
+      const authed = !anonymous;
       titleDraft = null;
       removing = false;
       duplicating = false;
       closed = false;
       baseUpdatedAt = null;
       baseTitle = null;
-      conflicted = false;
+      baseDescription = null;
+      reviewOpen = false;
       pendingWrite = Promise.resolve();
       if (authed) {
         board.clearChanged(id);
@@ -92,13 +117,20 @@
   });
 
   // Must stay below the reset effect: effects run in declaration order, so capturing
-  // first would only be undone by the reset.
+  // first would only be undone by the reset. A card reopened while a conflict is
+  // still unresolved takes its baseline and its text from the draft instead, so the
+  // overlay comes back holding what the user typed rather than what beat it.
   $effect(() => {
     const loaded = task;
     untrack(() => {
       if (baseUpdatedAt === null && loaded !== undefined) {
+        const pending = conflictDrafts.get(taskId);
         baseUpdatedAt = loaded.updated_at;
-        baseTitle = loaded.title;
+        baseTitle = pending?.base.title ?? loaded.title;
+        baseDescription = pending?.base.description ?? loaded.description;
+        if (pending !== null) {
+          titleDraft = pending.mine.title;
+        }
       }
     });
   });
@@ -137,6 +169,28 @@
     router.redirect(closePath);
   }
 
+  // Both fields are captured, not just the one whose save was rejected: updated_at
+  // is a single token for the pair, so a teammate's description edit is what stops
+  // a rename, and the resolver has to be able to see both sides of both fields.
+  // The editor is asked for its live document rather than the one the failed save
+  // carried, which the debounce leaves a keystroke or two behind.
+  function enterConflict(): void {
+    const trimmed = titleDraft?.trim() ?? '';
+    conflictDrafts.set(taskId, {
+      mine: {
+        // Empty reverts to the stored title, the same rule commitTitle applies:
+        // an empty title is not an edit the server would take.
+        title: trimmed === '' ? (baseTitle ?? '') : trimmed,
+        description: editorRef?.getContent() ?? null,
+      },
+      base: { title: baseTitle ?? '', description: baseDescription },
+    });
+    // The banner names whoever stored the version that won, and the refresh the
+    // failed patch queued is rate-limited; this one is not, so the name is there
+    // by the time the user reads the sentence rather than a second later.
+    void taskActivity.load(taskId);
+  }
+
   // Clears the draft only once the server has the new title: a conflict refetches the
   // old one, and dropping the draft first would take the user's typing with it. The
   // unchanged-title check belongs inside the queue too, since a save already queued
@@ -155,7 +209,7 @@
       if (trimmed !== baseTitle) {
         const outcome = await board.updateTask(id, { title: trimmed }, baseUpdatedAt ?? undefined);
         if (outcome.status === 'conflict') {
-          conflicted = true;
+          enterConflict();
           return;
         }
         if (outcome.status === 'error') return;
@@ -180,25 +234,65 @@
       const outcome = await board.updateTask(id, { description: doc }, baseUpdatedAt ?? undefined);
       if (outcome.status === 'ok') {
         baseUpdatedAt = outcome.updated_at;
+        baseDescription = doc;
         return true;
       }
       // Reporting a conflict as a failed save would make the editor retry it on the
       // next keystroke, against a baseline that can only fail again.
       if (outcome.status === 'conflict') {
-        conflicted = true;
+        enterConflict();
         return true;
       }
       return false;
     });
   }
 
-  function reloadFromServer(): void {
-    if (task === undefined) return;
+  // The resolved version becomes the new baseline, so the next ordinary save
+  // carries a precondition the server will accept.
+  function adopt(id: string, resolved: TaskVersion, updatedAt: string): void {
+    conflictDrafts.clear(id);
+    if (id !== taskId) return;
+    baseUpdatedAt = updatedAt;
+    baseTitle = resolved.title;
+    baseDescription = resolved.description;
     titleDraft = null;
-    baseUpdatedAt = task.updated_at;
-    baseTitle = task.title;
-    conflicted = false;
-    editorRef?.replaceContent(task.description);
+    editorRef?.replaceContent(resolved.description);
+  }
+
+  // Submitted against the version the resolver actually showed, not whatever the
+  // board holds by now: writing over a version the user never saw is the silent
+  // loss the precondition exists to prevent. A second conflict is not the loop the
+  // guard used to produce — that one came from a baseline that could never
+  // advance, while this one only happens when there is something new to show.
+  function applyResolution(
+    resolved: TaskVersion,
+    expectedUpdatedAt: string
+  ): Promise<TaskUpdateOutcome['status']> {
+    const id = taskId;
+    return queueWrite(async () => {
+      const stored = board.tasks.find((t) => t.id === id);
+      if (stored === undefined) return 'error';
+      // Keeping the stored version wholesale has nothing to write, and skipping
+      // the PATCH also skips an updated_at bump that would conflict every other
+      // open editor over no change at all.
+      if (
+        stored.updated_at === expectedUpdatedAt &&
+        resolved.title === stored.title &&
+        sameDoc(resolved.description, stored.description)
+      ) {
+        adopt(id, resolved, stored.updated_at);
+        return 'ok';
+      }
+      const outcome = await board.updateTask(
+        id,
+        { title: resolved.title, description: resolved.description },
+        expectedUpdatedAt
+      );
+      if (outcome.status === 'ok') {
+        adopt(id, resolved, outcome.updated_at);
+      }
+      return outcome.status;
+    });
   }
 
   // Pasting into the editor goes through the one upload path too; what comes
@@ -302,16 +396,20 @@
         </p>
       {/if}
 
-      {#if conflicted}
+      {#if draft !== null}
         <div
           role="alert"
           class="flex flex-col gap-2 rounded-md border border-danger bg-danger/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
         >
           <span>
-            This task changed somewhere else while you had it open. Your text is still here — reload
-            to replace it with the latest version.
+            {#if storedAuthor !== undefined && storedAuthor.name !== ''}
+              {storedAuthor.name} changed this task while you had it open.
+            {:else}
+              This task changed somewhere else while you had it open.
+            {/if}
+            Your text is still here — nothing is saved until you choose what to keep.
           </span>
-          <Button variant="secondary" onclick={reloadFromServer}>Reload</Button>
+          <Button variant="secondary" onclick={() => (reviewOpen = true)}>Review changes…</Button>
         </div>
       {/if}
 
@@ -343,9 +441,13 @@
             {#if readonly}
               <RichTextEditor content={task.description} readonly />
             {:else}
+              <!-- Seeded from the draft when one is pending, so a card reopened
+                   mid-conflict shows the user their own text rather than the
+                   version that beat it. Read once at construction, which the
+                   surrounding key already scopes to one task. -->
               <RichTextEditor
                 bind:this={editorRef}
-                content={task.description}
+                content={draft === null ? task.description : draft.mine.description}
                 onSave={saveDescription}
                 {uploadImage}
                 {mentionUsers}
@@ -492,6 +594,17 @@
             </div>
           {/if}
         </div>
+      {/if}
+      <!-- Last, so the card's own editor stays the first one in the document: the
+           resolver renders read-only copies of the same component. -->
+      {#if draft !== null && reviewOpen}
+        <TaskConflictDialog
+          {taskId}
+          mine={draft.mine}
+          base={draft.base}
+          onresolve={applyResolution}
+          onclose={() => (reviewOpen = false)}
+        />
       {/if}
     {/if}
     <!-- The shell's copy is inert behind this dialog, so the overlay needs its own. -->

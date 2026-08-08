@@ -52,6 +52,25 @@ export function isEmptyDoc(doc: TiptapDoc | null | undefined): boolean {
   return doc == null || !hasVisibleContent(childrenOf(doc as Node));
 }
 
+// Key order is not part of a document's meaning, and comparing it as if it were
+// would call every round trip a change: Postgres normalizes jsonb keys by length
+// then bytes, so the text node Tiptap writes as {type, text} comes back as
+// {text, type}. Sorting before serializing is what lets a stored document be
+// recognized as the one that was sent.
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!isNode(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonical(value[key])])
+  );
+}
+
+export function sameDoc(a: TiptapDoc | null | undefined, b: TiptapDoc | null | undefined): boolean {
+  return JSON.stringify(canonical(a ?? null)) === JSON.stringify(canonical(b ?? null));
+}
+
 function escapeInline(text: string): string {
   return text.replace(/[\\`*_~[\]<&]/g, (character) => `\\${character}`);
 }
