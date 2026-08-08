@@ -41,6 +41,7 @@ import { startJobWorker } from './services/jobs/index';
 import { registerJobHandlers } from './services/jobs/register';
 import { startWebhookWorker } from './services/webhooks/index';
 import { errorText } from './utils/errors';
+import { startupFailureMessage } from './utils/serverStartup';
 import { logger } from './utils/logger';
 
 import authRouter, { publicAuthRouter } from './routes/auth';
@@ -247,6 +248,11 @@ if (isEntrypoint) {
       logger.info({ msg: `Docs at ${serverUrl}/api/docs` });
     }
   );
+
+  server.on('error', (error: NodeJS.ErrnoException) => {
+    logger.error({ msg: startupFailureMessage(error, PORT), error: errorText(error) });
+    process.exit(1);
+  });
 
   const realtime = attachRealtime(server);
   const webhookWorker = startWebhookWorker();
