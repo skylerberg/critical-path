@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, ApiError, assertOk } from '../api/client';
   import { apiMessage } from '../lib/apiMessages';
+  import { authForm } from '../lib/authForm.svelte';
   import { APP_NAME } from '../lib/constants';
   import { link, router } from '../lib/router.svelte';
   import { toasts } from '../lib/toasts.svelte';
@@ -39,6 +40,7 @@
       assertOk(
         await api.POST('/api/auth/reset-password', { body: { token, new_password: newPassword } })
       );
+      authForm.clearPassword();
       toasts.success('Password reset. Please log in.');
       router.redirect('/login');
     } catch (err) {

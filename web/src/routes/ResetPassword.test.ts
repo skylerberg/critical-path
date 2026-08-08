@@ -2,6 +2,7 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ResetPassword from './ResetPassword.svelte';
+import { authForm } from '../lib/authForm.svelte';
 
 async function fillPasswords(value: string): Promise<void> {
   await fireEvent.input(screen.getByLabelText('New password'), { target: { value } });
@@ -10,6 +11,7 @@ async function fillPasswords(value: string): Promise<void> {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  authForm.clear();
   window.history.replaceState(null, '', '/reset-password');
 });
 
@@ -66,5 +68,23 @@ describe('ResetPassword', () => {
 
     expect(await screen.findByText('Passwords do not match')).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The password carried this far is the one that just stopped working, so the
+  // login form it redirects to must not offer it back. The address still stands.
+  it('drops the carried-over password but keeps the address', async () => {
+    authForm.email = 'ada@example.com';
+    authForm.password = 'the-old-one';
+    fetchMock.mockResolvedValue(jsonResponse(204));
+    render(ResetPassword, { token: 'tok-123' });
+
+    await fillPasswords('newpass12');
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/login');
+    });
+    expect(authForm.password).toBe('');
+    expect(authForm.email).toBe('ada@example.com');
   });
 });
