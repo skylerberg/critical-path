@@ -19,17 +19,10 @@ for the frontend's conventions.
 
 Realtime and webhook event types come from a second document,
 `realtime-events.json`, because `/ws` has no HTTP request or response to put in
-the OpenAPI spec — see convention 14. Both clients generate from it: `npm run
---prefix cli generate-realtime` here, and `npm run generate:realtime` in
-`../critical-path-web`. Neither generated file is ever hand-edited.
-
-The web app's generator resolves this repo as a sibling of its *main* checkout,
-so a change still on a branch is invisible to it. Point it at the worktree
-holding the new document instead:
-`REALTIME_DOC_PATH=~/.worktrees/critical-path-api/<branch>/realtime-events.json
-npm run generate:realtime`. Nothing checks that the two repos' committed
-artefacts agree, so a schema change reviewed and amended in the API PR needs the
-web PR regenerated against the final version.
+the OpenAPI spec — see convention 14. It is dumped locally and gitignored, the
+same as `openapi.json`, and served at `GET /api/realtime-events.json` so a client
+can generate against a deployed API without a checkout of this repo. Both the
+web app and the CLI generate from it.
 
 # Conventions
 
@@ -114,10 +107,10 @@ web PR regenerated against the final version.
     `src/schemas/index.ts`: the OpenAPI schema-name registry throws on two
     schemas with identical JSON Schema, which the bare `{ id }` payloads are.
     After changing a payload run `npm run realtime:dump` and
-    `npm run --prefix cli generate-realtime`, and commit
-    `realtime-events.json` with the change — a unit test fails when that file is
-    stale. `/ws` is not in openapi.json, so this is the only document the
-    clients can generate realtime types from.
+    `npm run --prefix cli generate-realtime`, and commit the regenerated
+    `cli/src/api/realtime.generated.ts`. The dump itself is gitignored like
+    `openapi.json`; what the clients check is that theirs is not older than this
+    repo's HEAD.
 
 # Realtime, email, and password reset
 
@@ -180,11 +173,58 @@ npm run --prefix cli generate-api` and commit the regenerated
 `npm run realtime:dump && npm run --prefix cli generate-realtime` and commit
 `cli/src/api/realtime.generated.ts` alongside it.
 
+# Staying current with main
+
+`main` moves fast — several PRs an hour when more than one agent is working — so a
+branch cut an hour ago is routinely behind, and *nothing tells you* until a rebase
+conflicts or CI fails on a rule your base predates. Rebase onto `main` (not merge:
+branches are rebased, only the PR itself lands as a merge commit) and check at
+three points:
+
+```sh
+git fetch origin && git rev-list --count HEAD..origin/main   # 0 means current
+```
+
+1. **Before starting.** A stale base means writing against code that has moved,
+   and it is also where duplicated work comes from: run `gh pr list` and
+   `git branch -a` too, because the fix you are about to write may already be
+   open. That has happened.
+2. **Before the full suite.** A 4-minute run against a stale base proves nothing
+   about the merge, and re-running after the rebase costs the same 4 minutes
+   twice.
+3. **Before pushing, and again before merging.** `gh pr view <n> --json
+   mergeStateStatus` reports `CLEAN` only for a branch that still applies.
+
+After any rebase, re-run the checks rather than trusting the pre-rebase pass, and
+re-run whatever generation the change involves (`openapi:dump`,
+`realtime:dump`, the client generators) — a rebase can bring in a schema change
+that silently invalidates a committed generated file.
+
+Two ways a stale base has produced *wrong* conclusions here, both worth guarding
+against directly:
+
+- **Comments about build configuration go stale.** `tsc` covers `src`, `tests`,
+  `scripts` and `vitest.config.ts`; a comment claiming tests are unchecked was
+  true when written and false a release later. Read `package.json` and
+  `tsconfig.json` rather than a comment describing them.
+- **"No diff" is not a passing check.** `git diff --quiet <file>` is vacuously
+  clean for a gitignored file, and for one a failed command never wrote —
+  `openapi.json` and `realtime-events.json` are both gitignored. Assert the
+  positive: the command exited 0, the file was written, the content is what you
+  expected.
+
 # Running things
 
 - `npm run dev` — API on port 3001.
-- `npm test` — full suite (loads `.env.test`, migrates + truncates). Single
-  file: `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>`.
+- **Run only the tests your change touches; let CI run the rest.** A single
+  file or directory is
+  `node --env-file=.env.test node_modules/vitest/vitest.mjs run <path>` and
+  takes seconds. The full `npm test` is ~3 minutes, and running it after every
+  edit is most of the wall-clock in a long session for almost no extra signal —
+  CI runs it on every push, sharded. Reach for the full suite once, before
+  opening the PR, and when a change is broad enough that you cannot name the
+  files it affects (a shared helper, middleware, a schema everything imports).
+- `npm test` — full suite (loads `.env.test`, migrates + truncates).
 - The test database name is derived, never configured: `vitest.config.ts`
   appends this checkout's directory name and a hash of its path to the
   `_test`-suffixed base in `.env.test`, and `globalSetup` creates it. That is
@@ -201,9 +241,13 @@ npm run --prefix cli generate-api` and commit the regenerated
   `REDIS_URL` in `.env.test` — that puts the whole suite on one shared signup
   budget and it collapses into 429s.
 - `npm run type-check`, `npm run lint`, `npm run format`. `type-check` covers
-  `src/`, `tests/`, `scripts/` and `vitest.config.ts` — the root
+  `src/`, `tests/`, `scripts/`, `vitest.config.ts` and `cli/` — the root
   `tsconfig.json` is the check-everything project and emits nothing; `npm run
-  build` uses `tsconfig.build.json`, which is `src/` only. In tests
+  build` uses `tsconfig.build.json`, which is `src/` only. `cli/` is in that
+  project despite being a separate npm package, so an editor resolves its files
+  against real options; left out, every file under `cli/` falls back to an
+  inferred project and reads as a wall of "cannot find module" that has nothing
+  to do with the code. In tests
   `res.json()` is deliberately `any` (`JsonBody` in
   `tests/setup/testContext.ts`): a parsed body has no compile-time link to the
   route that produced it, so name the shape with `res.json<T>()` where it
