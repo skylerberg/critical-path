@@ -6,11 +6,9 @@ import type { RealtimeEventType } from './eventCatalog';
 import { REALTIME_PAYLOAD_SCHEMAS } from './payloads';
 
 // `/ws` carries no HTTP request or response, so none of this can live in
-// openapi.json — and the web app's generator prunes any component schema no path
-// reaches, so parking it there would not survive codegen either. This builds a
-// second, standalone document describing the socket and webhook envelopes, which
-// the clients generate their event types from exactly as they generate their API
-// client from openapi.json.
+// openapi.json. This builds a second, standalone document describing the socket
+// and webhook envelopes, which the clients generate event types from exactly as
+// they generate their API client from openapi.json.
 
 // Mirrors the fallback in utils/schema-registry.ts: ArkType throws converting
 // any schema built with `.pipe(...)` without it.
