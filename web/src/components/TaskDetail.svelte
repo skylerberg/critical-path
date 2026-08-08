@@ -64,40 +64,68 @@
   const crossTotal = $derived(crossBlockedByCount + crossBlockingCount);
 
   let dialog = $state<HTMLDialogElement>();
-  let removing = $state(false);
-  let duplicating = $state(false);
-  let closed = $state(false);
-
-  // Deliberately local, unlike the compose drafts: this shadows a server-owned
-  // value, so surviving an unmount would mean committing an abandoned edit later
-  // — possibly over a rename the user never saw.
-  let titleDraft = $state<string | null>(null);
-
-  // The version the editor was populated from, advanced only by this overlay's own
-  // successful writes — adopting a teammate's incoming version would let the next
-  // save silently overwrite it.
-  let baseUpdatedAt = $state<string | null>(null);
-  // The title and description that version carries. task.* is overwritten
-  // optimistically the moment a save starts, so it cannot tell an unchanged field
-  // from an unsaved one — and the resolver needs that to know which side edited what.
-  let baseTitle = $state<string | null>(null);
-  let baseDescription = $state<TiptapDoc | null>(null);
   let editorRef = $state<ReturnType<typeof RichTextEditor>>();
-  let pendingWrite: Promise<unknown> = Promise.resolve();
-
-  let descriptionSaveState = $state<SaveState>('idle');
-  // A checklist or an attachment list with nothing in it has nothing to show, so
-  // the quick bar asks for one and the section stays until the card is closed.
-  // Neither ever hides something the card actually holds.
-  let checklistRevealed = $state(false);
-  let attachmentsRevealed = $state(false);
-  let historyOpen = $state(false);
   let quickActions = $state<ReturnType<typeof TaskQuickActions>>();
   let checklistRef = $state<ReturnType<typeof TaskChecklist>>();
   let attachmentsRef = $state<ReturnType<typeof TaskAttachments>>();
 
-  const showChecklist = $derived(checklistRevealed || (task?.checklist_item_count ?? 0) > 0);
-  const showAttachments = $derived(attachmentsRevealed || (task?.attachment_count ?? 0) > 0);
+  // Everything the overlay holds about the card currently in it. Svelte never
+  // remounts this component between cards — only the taskId prop changes — so the
+  // switch has to rebuild all of it by hand. freshCard() is the only constructor,
+  // which is what stops a field being added without also being reset: the leak it
+  // would otherwise cause is silent, and one of these is a save precondition.
+  interface CardState {
+    // Shadows a server-owned value, so surviving the switch would commit an
+    // abandoned edit later — possibly over a rename the user never saw.
+    titleDraft: string | null;
+    removing: boolean;
+    duplicating: boolean;
+    closed: boolean;
+    // The version the editor was populated from and the pair it carries, advanced
+    // only by this overlay's own successful writes: adopting a teammate's incoming
+    // version would let the next save silently overwrite it, and task.* is
+    // overwritten optimistically the moment a save starts, so it cannot tell an
+    // unchanged field from an unsaved one.
+    baseUpdatedAt: string | null;
+    baseTitle: string | null;
+    baseDescription: TiptapDoc | null;
+    // The title and the description share one queue: overlapping writes would carry
+    // the same baseline and the second would conflict against the first.
+    pendingWrite: Promise<unknown>;
+    descriptionSaveState: SaveState;
+    // A checklist or an attachment list with nothing in it has nothing to show, so
+    // the quick bar asks for one and the section stays until the card is closed.
+    // Neither ever hides something the card actually holds.
+    checklistRevealed: boolean;
+    attachmentsRevealed: boolean;
+    historyOpen: boolean;
+    reviewOpen: boolean;
+    announcedCrossFor: string | null;
+  }
+
+  function freshCard(): CardState {
+    return {
+      titleDraft: null,
+      removing: false,
+      duplicating: false,
+      closed: false,
+      baseUpdatedAt: null,
+      baseTitle: null,
+      baseDescription: null,
+      pendingWrite: Promise.resolve(),
+      descriptionSaveState: 'idle',
+      checklistRevealed: false,
+      attachmentsRevealed: false,
+      historyOpen: false,
+      reviewOpen: false,
+      announcedCrossFor: null,
+    };
+  }
+
+  let card = $state<CardState>(freshCard());
+
+  const showChecklist = $derived(card.checklistRevealed || (task?.checklist_item_count ?? 0) > 0);
+  const showAttachments = $derived(card.attachmentsRevealed || (task?.attachment_count ?? 0) > 0);
   const hasDependencies = $derived(
     (task?.blocker_ids.length ?? 0) > 0 ||
       board.tasks.some((t) => t.blocker_ids.includes(taskId)) ||
@@ -106,17 +134,17 @@
 
   async function reveal(section: 'checklist' | 'attachments'): Promise<void> {
     if (section === 'checklist') {
-      checklistRevealed = true;
+      card.checklistRevealed = true;
       await tick();
       checklistRef?.focusAddItem();
       return;
     }
-    attachmentsRevealed = true;
+    card.attachmentsRevealed = true;
     await tick();
   }
 
   async function attach(how: 'file' | 'link'): Promise<void> {
-    attachmentsRevealed = true;
+    card.attachmentsRevealed = true;
     await tick();
     if (how === 'file') {
       attachmentsRef?.pickFile();
@@ -129,7 +157,6 @@
   // it promises is safe, so they cannot disagree, and neither dies with the overlay.
   const draft = $derived(conflictDrafts.get(taskId));
   const conflicted = $derived(draft !== null);
-  let reviewOpen = $state(false);
 
   // byId, not displayFor: a teammate the log names but this account cannot see
   // is better left unnamed than announced as "Unknown user".
@@ -147,21 +174,8 @@
     void overlayKey;
     untrack(() => {
       const id = taskId;
-      const authed = !anonymous;
-      titleDraft = null;
-      removing = false;
-      duplicating = false;
-      closed = false;
-      baseUpdatedAt = null;
-      baseTitle = null;
-      baseDescription = null;
-      reviewOpen = false;
-      pendingWrite = Promise.resolve();
-      descriptionSaveState = 'idle';
-      checklistRevealed = false;
-      attachmentsRevealed = false;
-      historyOpen = false;
-      if (authed) {
+      card = freshCard();
+      if (!anonymous) {
         board.clearChanged(id);
         void board.loadTaskDetail(id);
         // refresh, not ensure: a remote task changes on its own project's
@@ -169,7 +183,6 @@
         // panel is the moment to revalidate. Cached rows stay painted while it
         // runs, so the skeleton only ever shows on a cold open.
         crossProjectDeps.refresh(id);
-        announcedCrossFor = null;
       }
     });
   });
@@ -178,7 +191,7 @@
   // conflict banner's byline reads the log otherwise, so an unopened one would
   // spend a request per card.
   $effect(() => {
-    if ((historyOpen || conflicted) && !anonymous) {
+    if ((card.historyOpen || conflicted) && !anonymous) {
       void taskActivity.load(taskId);
     }
   });
@@ -186,14 +199,13 @@
   // Rows swapping in for skeletons is a silent change otherwise. Announced once
   // per open and from here rather than from either list, so the two sections
   // cannot race for the announcer's single message.
-  let announcedCrossFor = $state<string | null>(null);
   $effect(() => {
     const id = taskId;
     const ready = cross !== null;
     const total = crossTotal;
     untrack(() => {
-      if (!ready || announcedCrossFor === id) return;
-      announcedCrossFor = id;
+      if (!ready || card.announcedCrossFor === id) return;
+      card.announcedCrossFor = id;
       if (total === 0) return;
       void announcer.announce(
         `${total} ${total === 1 ? 'dependency' : 'dependencies'} in other projects loaded`
@@ -208,32 +220,30 @@
   $effect(() => {
     const loaded = task;
     untrack(() => {
-      if (baseUpdatedAt === null && loaded !== undefined) {
+      if (card.baseUpdatedAt === null && loaded !== undefined) {
         const pending = conflictDrafts.get(taskId);
-        baseUpdatedAt = loaded.updated_at;
-        baseTitle = pending?.base.title ?? loaded.title;
-        baseDescription = pending?.base.description ?? loaded.description;
+        card.baseUpdatedAt = loaded.updated_at;
+        card.baseTitle = pending?.base.title ?? loaded.title;
+        card.baseDescription = pending?.base.description ?? loaded.description;
         if (pending !== null) {
-          titleDraft = pending.mine.title;
+          card.titleDraft = pending.mine.title;
         }
       }
     });
   });
 
   // Cleared on unmount so a reopened overlay never flashes another card's history
-  // and no background mutation keeps refetching for a closed dialog. `closed` is
+  // and no background mutation keeps refetching for a closed dialog. card.closed is
   // set here too because most dismissals never reach close(): Back, a sidebar link
   // and the auth redirect all just unmount the dialog.
   $effect(() => () => {
-    closed = true;
+    card.closed = true;
     taskActivity.reset();
   });
 
-  // The title and the description share one queue: overlapping writes would carry
-  // the same baseline and the second would conflict against the first.
   function queueWrite<T>(run: () => Promise<T>): Promise<T> {
-    const next = pendingWrite.then(run);
-    pendingWrite = next.catch(() => undefined);
+    const next = card.pendingWrite.then(run);
+    card.pendingWrite = next.catch(() => undefined);
     return next;
   }
 
@@ -251,7 +261,7 @@
 
   // replaceState so Back skips the closed overlay instead of re-opening it.
   function close(): void {
-    closed = true;
+    card.closed = true;
     router.redirect(closePath);
   }
 
@@ -266,19 +276,19 @@
   // conflict but not offer the choice, which is the half of the promise that
   // matters.
   function currentBase(): TaskVersion {
-    return { title: baseTitle ?? '', description: baseDescription };
+    return { title: card.baseTitle ?? '', description: card.baseDescription };
   }
 
   function enterConflict(): void {
-    const trimmed = titleDraft?.trim() ?? '';
+    const trimmed = card.titleDraft?.trim() ?? '';
     conflictDrafts.set(taskId, {
       mine: {
         // Empty reverts to the stored title, the same rule commitTitle applies:
         // an empty title is not an edit the server would take.
-        title: trimmed === '' ? (baseTitle ?? '') : trimmed,
+        title: trimmed === '' ? (card.baseTitle ?? '') : trimmed,
         description: editorRef?.getContent() ?? null,
       },
-      base: { title: baseTitle ?? '', description: baseDescription },
+      base: { title: card.baseTitle ?? '', description: card.baseDescription },
     });
     // The banner names whoever stored the version that won, and the refresh the
     // failed patch queued is rate-limited; this one is not, so the name is there
@@ -291,21 +301,21 @@
   // unchanged-title check belongs inside the queue too, since a save already queued
   // ahead of this one still moves what the server holds.
   function commitTitle(): void {
-    const draft = titleDraft;
-    if (draft === null || task === undefined) return;
-    const trimmed = draft.trim();
+    const typed = card.titleDraft;
+    if (typed === null || task === undefined) return;
+    const trimmed = typed.trim();
     if (trimmed === '') {
-      titleDraft = null;
+      card.titleDraft = null;
       return;
     }
     const id = taskId;
     void queueWrite(async () => {
       if (conflicted || id !== taskId) return;
-      if (trimmed !== baseTitle) {
+      if (trimmed !== card.baseTitle) {
         const outcome = await board.updateTask(
           id,
           { title: trimmed },
-          baseUpdatedAt ?? undefined,
+          card.baseUpdatedAt ?? undefined,
           currentBase()
         );
         if (outcome.status === 'conflict') {
@@ -317,12 +327,12 @@
         // waiting patch carries names that same version. Advancing it here would
         // promise a save the server has not seen.
         if (outcome.status === 'ok') {
-          baseUpdatedAt = outcome.updated_at;
-          baseTitle = trimmed;
+          card.baseUpdatedAt = outcome.updated_at;
+          card.baseTitle = trimmed;
         }
       }
-      if (titleDraft === draft) {
-        titleDraft = null;
+      if (card.titleDraft === typed) {
+        card.titleDraft = null;
       }
     });
   }
@@ -330,21 +340,21 @@
   function saveDescription(doc: TiptapDoc | null): Promise<boolean> {
     // The editor flushes pending saves on teardown; skip that doomed PATCH once the
     // card is on its way off the board so it cannot 404 (or resurrect it on refetch).
-    if (removing) return Promise.resolve(true);
+    if (card.removing) return Promise.resolve(true);
     const id = taskId;
     return queueWrite(async () => {
       // Re-checked here because the queue can hold this past a delete, a conflict or
       // an in-place task change.
-      if (conflicted || removing || id !== taskId) return true;
+      if (conflicted || card.removing || id !== taskId) return true;
       const outcome = await board.updateTask(
         id,
         { description: doc },
-        baseUpdatedAt ?? undefined,
+        card.baseUpdatedAt ?? undefined,
         currentBase()
       );
       if (outcome.status === 'ok') {
-        baseUpdatedAt = outcome.updated_at;
-        baseDescription = doc;
+        card.baseUpdatedAt = outcome.updated_at;
+        card.baseDescription = doc;
         return true;
       }
       // Held for the network. Settled as far as the editor is concerned — the
@@ -368,10 +378,10 @@
   function adopt(id: string, resolved: TaskVersion, updatedAt: string): void {
     conflictDrafts.clear(id);
     if (id !== taskId) return;
-    baseUpdatedAt = updatedAt;
-    baseTitle = resolved.title;
-    baseDescription = resolved.description;
-    titleDraft = null;
+    card.baseUpdatedAt = updatedAt;
+    card.baseTitle = resolved.title;
+    card.baseDescription = resolved.description;
+    card.titleDraft = null;
     editorRef?.replaceContent(resolved.description);
   }
 
@@ -423,24 +433,24 @@
   // user just typed rather than whatever an in-flight PATCH is about to replace.
   // navigate, not redirect, so Back returns to the original card.
   async function handleDuplicate(): Promise<void> {
-    duplicating = true;
+    card.duplicating = true;
     const source = taskId;
     try {
       const id = await queueWrite(() => board.duplicateTask(source));
-      // `closed` alone would miss every dismissal that does not run close() — Back,
-      // the auth redirect — and taskId can also change under a mounted overlay.
-      if (id !== null && !closed && source === taskId) {
+      // card.closed alone would miss every dismissal that does not run close() —
+      // Back, the auth redirect — and taskId can also change under a mounted overlay.
+      if (id !== null && !card.closed && source === taskId) {
         router.navigate(taskPath(id));
       }
     } finally {
-      duplicating = false;
+      card.duplicating = false;
     }
   }
 
   // No confirm step: archiving is reversible, and it is the only way off the
   // board — deleting a card is reached from the archive, behind its own confirm.
   async function handleArchive(): Promise<void> {
-    removing = true;
+    card.removing = true;
     await board.archiveTask(taskId);
     close();
   }
@@ -454,7 +464,7 @@
   oncancel={(event) => {
     event.preventDefault();
     // Escape discards the title edit, matching the inline column rename.
-    titleDraft = null;
+    card.titleDraft = null;
     close();
   }}
   onclick={(event) => {
@@ -478,11 +488,11 @@
           </h2>
         {:else}
           <input
-            value={titleDraft ?? task.title}
+            value={card.titleDraft ?? task.title}
             maxlength={TASK_TITLE_MAX_LENGTH}
             aria-label="Task title"
             autocapitalize="sentences"
-            oninput={(event) => (titleDraft = event.currentTarget.value)}
+            oninput={(event) => (card.titleDraft = event.currentTarget.value)}
             onblur={commitTitle}
             onkeydown={(event) => {
               if (event.key === 'Enter') {
@@ -530,7 +540,9 @@
             {/if}
             Your text is still here — nothing is saved until you choose what to keep.
           </span>
-          <Button variant="secondary" onclick={() => (reviewOpen = true)}>Review changes…</Button>
+          <Button variant="secondary" onclick={() => (card.reviewOpen = true)}
+            >Review changes…</Button
+          >
         </div>
       {/if}
 
@@ -547,11 +559,11 @@
         <section class="flex flex-col gap-2">
           <div class="flex items-baseline justify-between gap-2">
             <h3 class="text-sm font-semibold text-muted">Description</h3>
-            {#if descriptionSaveState !== 'idle'}
+            {#if card.descriptionSaveState !== 'idle'}
               <span role="status" aria-live="polite" class="text-xs text-muted">
-                {descriptionSaveState === 'saving'
+                {card.descriptionSaveState === 'saving'
                   ? 'Saving…'
-                  : descriptionSaveState === 'saved'
+                  : card.descriptionSaveState === 'saved'
                     ? 'Saved'
                     : 'Not saved — retrying'}
               </span>
@@ -567,7 +579,7 @@
                    surrounding key already scopes to one task. -->
               <RichTextEditor
                 bind:this={editorRef}
-                bind:saveState={descriptionSaveState}
+                bind:saveState={card.descriptionSaveState}
                 content={draft === null ? task.description : draft.mine.description}
                 onSave={saveDescription}
                 {uploadImage}
@@ -631,17 +643,17 @@
       {/if}
 
       {#if !anonymous}
-        <details class="border-t border-edge pt-4" open={historyOpen}>
+        <details class="border-t border-edge pt-4" open={card.historyOpen}>
           <summary
             onclick={(event) => {
               event.preventDefault();
-              historyOpen = !historyOpen;
+              card.historyOpen = !card.historyOpen;
             }}
             class="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-muted"
           >
             History
           </summary>
-          {#if historyOpen}
+          {#if card.historyOpen}
             <div class="flex flex-col gap-4 pt-2">
               <TaskHistory {taskId} />
             </div>
@@ -651,7 +663,11 @@
 
       {#if !anonymous && !readonly}
         <div class="flex gap-2 border-t border-edge pt-4">
-          <Button variant="secondary" disabled={duplicating} onclick={() => void handleDuplicate()}>
+          <Button
+            variant="secondary"
+            disabled={card.duplicating}
+            onclick={() => void handleDuplicate()}
+          >
             Duplicate
           </Button>
           <Button variant="secondary" onclick={() => void handleArchive()}>Archive</Button>
@@ -660,13 +676,13 @@
 
       <!-- Last, so the card's own editor stays the first one in the document: the
            resolver renders read-only copies of the same component. -->
-      {#if draft !== null && reviewOpen}
+      {#if draft !== null && card.reviewOpen}
         <TaskConflictDialog
           {taskId}
           mine={draft.mine}
           base={draft.base}
           onresolve={applyResolution}
-          onclose={() => (reviewOpen = false)}
+          onclose={() => (card.reviewOpen = false)}
         />
       {/if}
     {/if}
