@@ -33,9 +33,10 @@
      the bottom nav. Defined as a variable so the class layer stays free of
      calc()-in-arbitrary-value fragility. */
   --cp-board-h: calc(100dvh - var(--cp-bottom-nav-h));
-  /* Width of one board column. The board's side padding is derived from it, so
-     the two must agree exactly or the end columns cannot reach their snap
-     position — hence one definition rather than a repeated min(). */
+  /* Width of one board column, shared by the columns and the "+ Add column" tile
+     so the two cannot drift — a tile any other width is a snap target of the
+     wrong size. On a phone this leaves the next column peeking past the one you
+     are on, which is the cue that there is more board. */
   --cp-board-col-w: min(85vw, 18rem);
 }
 

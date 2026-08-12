@@ -350,15 +350,31 @@ describe('Board readonly', () => {
 });
 
 describe('Board snapping', () => {
-  // Centered on phones so a swipe leaves the column you landed on between two
-  // peeking neighbors; start-aligned from md up, where the columns are capped at
-  // 288px and centering one would strand it in a field of padding.
+  const THREE_COLUMNS = [
+    { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+    { id: 'c2', name: 'Doing', sort_key: 'V0000020001', is_done: false },
+    { id: 'c3', name: 'Done', sort_key: 'V0000030001', is_done: true },
+  ];
+
+  function section(name: string): HTMLElement {
+    const element = document.querySelector(`section[aria-label="${name}"]`);
+    if (!(element instanceof HTMLElement)) {
+      throw new Error(`${name} column not rendered`);
+    }
+    return element;
+  }
+
+  // On a phone the two ends align to the board's edges and everything between
+  // centers, so being flush against an edge means you are at that end of the board
+  // and nothing else does. Centering the ends instead is what cost half a viewport
+  // of blank canvas in front of the first column and behind the last. From md up
+  // they all start-align, where the columns are capped at 288px and several fit.
   //
-  // Centering only works because the track carries side padding of half the
-  // leftover width. Without it the first column's snap position is a negative
-  // scrollLeft no scroll can land on, and a mandatory-snap container is then free
-  // to resolve to some other column — the bug that removed centering before.
-  it('centers snap targets on phones and start-aligns them from md up', async () => {
+  // `snap-end` on the last target is not decoration: with `snap-center` and only a
+  // gutter behind it, its snap position falls off the end of the scroll range, and
+  // a mandatory-snap container is then free to resolve to some other column.
+  it('aligns the end targets to the edges on phones and start-aligns from md up', async () => {
+    board.columns = THREE_COLUMNS;
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
@@ -367,36 +383,61 @@ describe('Board snapping', () => {
       'snap-mandatory',
       'overscroll-x-contain',
       'lg:snap-none',
-      'md:scroll-p-3',
+      'scroll-p-3',
       'lg:scroll-p-4'
     );
+    expect(section('Todo')).toHaveClass('snap-start');
+    expect(section('Doing')).toHaveClass('snap-center');
+    // The tile, not the last column, is the board's last snap target.
+    expect(section('Done')).toHaveClass('snap-center');
+    expect(addColumnTile()).toHaveClass('snap-end');
     // `snap-always` (scroll-snap-stop: always) is the primary cap on a fling, and
     // the JS fallback below it only fires for an engine that ignores it. The tile
     // is asserted too: it is a snap target the columns' own bookkeeping cannot
     // see, hence data-snap-target rather than a query for sections.
-    for (const target of [column(), addColumnTile()]) {
-      expect(target).toHaveClass('snap-center', 'snap-always', 'md:snap-start');
+    for (const target of [section('Todo'), section('Doing'), section('Done'), addColumnTile()]) {
+      expect(target).toHaveClass('snap-always', 'md:snap-start');
       expect(target).toHaveAttribute('data-snap-target');
     }
   });
 
+  // No tile on a board nobody can edit, so the last column is the last snap target
+  // and has to end the board itself. Reading the alignment off the tile alone would
+  // leave a public board's final column unable to reach its snap position at all.
+  it('ends a readonly board on its last column, which has no tile behind it', async () => {
+    board.columns = THREE_COLUMNS;
+    render(Board, { props: { projectId: PROJECT_ID, readonly: true } });
+    await screen.findByText('plain one');
+
+    expect(screen.queryByRole('button', { name: '+ Add column' })).not.toBeInTheDocument();
+    expect(section('Todo')).toHaveClass('snap-start');
+    expect(section('Doing')).toHaveClass('snap-center');
+    expect(section('Done')).toHaveClass('snap-end');
+  });
+
+  // Both arms of columnSnapAlign match, and start has to win: a board this size
+  // does not scroll, so ending it would ask for a scroll position that is not there.
+  it('starts a lone readonly column rather than ending it', async () => {
+    render(Board, { props: { projectId: PROJECT_ID, readonly: true } });
+    await screen.findByText('plain one');
+
+    expect(section('Todo')).toHaveClass('snap-start');
+    expect(section('Todo')).not.toHaveClass('snap-end');
+  });
+
   // The track must size to its content, not stretch to the scroller: a stretched
-  // track ends at the scroller's right edge, so its padding-right adds no
-  // scrollable space and the LAST column can never reach center. Measured in real
-  // Chrome it sat 51px off on a 390px viewport.
-  it('sizes the track to its content and pads it by half the leftover width', async () => {
+  // track ends at the scroller's right edge, so its padding-right lands there
+  // rather than after the last column, and the last column butts against the screen
+  // while the leading one keeps its gutter.
+  it('sizes the track to its content and gives it a plain gutter', async () => {
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
 
     const track = scroller().firstElementChild;
-    expect(track).toHaveClass(
-      'w-max',
-      'px-[calc(50%_-_var(--cp-board-col-w)/2)]',
-      'md:px-3',
-      'lg:px-4'
-    );
-    // The padding is derived from the column width, so the two must be one
-    // definition — a column sized any other way silently breaks the centering.
+    expect(track).toHaveClass('w-max', 'px-3', 'lg:px-4');
+    // The half-the-leftover-width padding that used to let the ends center. It is
+    // the blank canvas this behavior removed, so its absence is the assertion.
+    expect(track?.className).not.toContain('calc(50%');
     expect(column()).toHaveClass('w-[var(--cp-board-col-w)]');
   });
 
@@ -1254,6 +1295,100 @@ describe('Board swipe gestures', () => {
     await swipe(-700);
 
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  // The arrangement stubGeometry above does not model: the phone board's targets
+  // do not all align the same way. A 640px board — a phone in landscape, still
+  // below md, so the takeover is live — fits two 288px columns beside a 12px
+  // gutter, the first one flush against it and the rest centered.
+  //
+  //   target 0  start   12..300    parks at scrollLeft 0
+  //   target 1  center  312..600   parks at 456 - 320 = 136
+  //   target 2  center  612..900   parks at 436
+  //   target 3  center  912..1200  parks at 736
+  //   target 4  end    1212..1500  parks at 1500 - 640 + 12 = 872
+  //
+  // Note the uneven first step: 136, then 300 thereafter.
+  function stubMixedAlignment(resting = 0): void {
+    const BOARD = 640;
+    const GUTTER = 12;
+    const COLUMN = 288;
+    const PITCH = COLUMN + GUTTER;
+    const targets = [...document.querySelectorAll<HTMLElement>('[data-snap-target]')];
+    scroller().scrollLeft = resting;
+    vi.spyOn(scroller(), 'getBoundingClientRect').mockImplementation(
+      () => new DOMRect(0, 0, BOARD, 600)
+    );
+    targets.forEach((target, index) => {
+      vi.spyOn(target, 'getBoundingClientRect').mockImplementation(
+        () => new DOMRect(GUTTER + PITCH * index - resting, 0, COLUMN, 600)
+      );
+    });
+    const real = window.getComputedStyle;
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
+      if (element === scroller()) {
+        return {
+          scrollSnapType: 'x mandatory',
+          scrollPaddingLeft: `${GUTTER}px`,
+          scrollPaddingRight: `${GUTTER}px`,
+        } as CSSStyleDeclaration;
+      }
+      const index = targets.indexOf(element as HTMLElement);
+      if (index === -1) {
+        return real.call(window, element, pseudo);
+      }
+      const align = index === 0 ? 'start' : index === targets.length - 1 ? 'end' : 'center';
+      return { scrollSnapAlign: `none ${align}` } as CSSStyleDeclaration;
+    });
+  }
+
+  // How far the board committed to move. The rects are stubbed for one resting
+  // position while the drag has already written a different scrollLeft, so the
+  // delta is the only reading that means anything — as in columnsMoved above.
+  function committedDelta(scrollTo: ReturnType<typeof vi.spyOn>): number {
+    const call = scrollTo.mock.calls.at(-1) as [ScrollToOptions] | undefined;
+    return call === undefined ? 0 : (call[0].left ?? 0) - scroller().scrollLeft;
+  }
+
+  // The regression the mixed alignment introduces. Asking which target is nearest
+  // the middle of the screen answers "the resting one" only while every target
+  // centers: here the board rests on target 0 with target 1 nearer the middle
+  // (136px away against 164px), so an origin taken that way counts from target 1
+  // and the swipe lands on target 2 — a whole column skipped.
+  it('counts a swipe from the target the board is parked on, not the middle one', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    stubMixedAlignment();
+
+    await swipe(-SWIPE_COMMIT_PX - 20);
+
+    expect(committedDelta(scrollTo)).toBe(136);
+  });
+
+  it('does not move a board already parked on its start-aligned first column', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    stubMixedAlignment();
+
+    await swipe(SWIPE_COMMIT_PX + 20);
+
+    expect(committedDelta(scrollTo)).toBe(0);
+  });
+
+  // The far end, through the component: the last target ends the board rather than
+  // centering, so the final step is to 872 and not to a position past the scroll
+  // range that the browser would have to resolve somewhere else.
+  it('lands the last target flush against the right edge', async () => {
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    stubMixedAlignment(736);
+
+    await swipe(-SWIPE_COMMIT_PX - 20);
+
+    expect(committedDelta(scrollTo)).toBe(872 - 736);
   });
 });
 

@@ -34,8 +34,8 @@
       * { box-sizing: border-box; }
       html, body { margin: 0; }
       body { font-family: system-ui, sans-serif; }
-      /* --cp-board-col-w must match src/app.css: the track padding is derived
-         from it, so the two disagreeing is what makes the end columns unreachable. */
+      /* --cp-board-col-w must match src/app.css: a column of a different width
+         here measures a board that is not the one that ships. */
       :root { --cp-bottom-nav-h: 3.5rem; --cp-board-col-w: min(85vw, 18rem); }
 
       /* --- Tailwind-equivalent utilities used by the board chain --- */
@@ -52,7 +52,9 @@
       .snap-x { scroll-snap-type: x mandatory; } /* .snap-mandatory folded in; no layout effect */
       .snap-start { scroll-snap-align: start; }
       .snap-center { scroll-snap-align: center; }
+      .snap-end { scroll-snap-align: end; }
       .snap-always { scroll-snap-stop: always; }
+      .scroll-p-3 { scroll-padding: 0.75rem; }
       .items-stretch { align-items: stretch; }
       .items-center { align-items: center; }
       .gap-1 { gap: 0.25rem; }
@@ -70,8 +72,6 @@
       .min-h-16 { min-height: 4rem; }
       .w-col { width: var(--cp-board-col-w); }
       .w-max { width: max-content; }
-      .px-half { padding-left: calc(50% - var(--cp-board-col-w) / 2);
-                 padding-right: calc(50% - var(--cp-board-col-w) / 2); }
       .border { border: 1px solid #e5e5e5; }
       .border-b { border-bottom: 1px solid #e5e5e5; }
       .border-t { border-top: 1px solid #e5e5e5; }
@@ -130,7 +130,7 @@
         <div class="board-scroller" data-board-scroller>
           <div class="row" data-row>
             <div class="flex items-stretch gap-3" aria-label="Columns" data-columns></div>
-            <div class="w-col shrink-0 snap-center snap-always" data-snap-target data-add-column>
+            <div class="w-col shrink-0 snap-end snap-always" data-snap-target data-add-column>
               <button class="viewbtn" style="border:1px dashed #ddd;width:100%;justify-content:center;color:#737373;">+ Add column</button>
             </div>
           </div>
@@ -156,15 +156,17 @@
         row.className = 'row flex h-full items-stretch gap-3 p-3';
       } else {
         scroller.className =
-          'board-scroller relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x';
-        row.className = 'row flex w-max min-h-0 flex-1 items-stretch gap-3 px-half py-3';
+          'board-scroller relative flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-p-3 snap-x';
+        row.className = 'row flex w-max min-h-0 flex-1 items-stretch gap-3 px-3 py-3';
       }
 
       const colsHost = document.querySelector('[data-columns]');
       for (let c = 0; c < COLS; c++) {
         const section = document.createElement('section');
+        // The first column starts against the board's leading edge; the rest
+        // center. The add-column tile above ends the board.
         section.className =
-          'flex max-h-full w-col shrink-0 snap-center snap-always flex-col border';
+          `flex max-h-full w-col shrink-0 ${c === 0 ? 'snap-start' : 'snap-center'} snap-always flex-col border`;
         section.setAttribute('aria-label', `Column ${c + 1}`);
         section.setAttribute('data-snap-target', '');
         // Faithful to ColumnHeader.svelte: the count badge wraps an sr-only label.

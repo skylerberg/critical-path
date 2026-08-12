@@ -69,28 +69,68 @@ export function fitsHorizontally(view: Span, target: Span): boolean {
   );
 }
 
-/** Inline-axis `scroll-snap-align` of a column. The board uses both. */
-export type SnapAlign = 'start' | 'center';
+/**
+ * Inline-axis `scroll-snap-align` of a snap target. The board uses all three:
+ * the first column starts, the last target ends, everything between centers.
+ */
+export type SnapAlign = 'start' | 'center' | 'end';
+
+/** The scroller's inline-axis `scroll-padding`. Both edges, since `end` reads the right. */
+export interface SnapPadding {
+  left: number;
+  right: number;
+}
 
 /**
  * The `scrollLeft` that parks `target` on the scroller's snap position. Landing
  * short of it is not harmless: under mandatory snap the browser then rounds the
  * scroll to whichever snap point is nearest, which can be the next column over.
  *
- * A start-aligned column parks against the snapport's left edge, which
- * `scroll-padding-left` insets by the board's gutter. A center-aligned one parks
- * its center on the snapport's center, where symmetric scroll padding cancels
- * out — so that arm ignores it rather than pretending to use it.
+ * A start-aligned column parks against the snapport's left edge and an
+ * end-aligned one against its right, each inset by the board's gutter on that
+ * side. A center-aligned one parks its center on the snapport's center, where
+ * symmetric scroll padding cancels out — so that arm ignores it rather than
+ * pretending to use it.
  */
 export function snapScrollLeft(
   scrollLeft: number,
   view: Span,
   target: Span,
   align: SnapAlign,
-  scrollPaddingLeft: number
+  padding: SnapPadding
 ): number {
   if (align === 'center') {
     return scrollLeft + ((target.left + target.right) / 2 - (view.left + view.right) / 2);
   }
-  return scrollLeft + (target.left - view.left - scrollPaddingLeft);
+  if (align === 'end') {
+    return scrollLeft + (target.right - view.right + padding.right);
+  }
+  return scrollLeft + (target.left - view.left - padding.left);
+}
+
+/**
+ * Index of the snap position nearest `scrollLeft` — where the board is resting,
+ * and so which column a swipe counts from.
+ *
+ * Positions rather than element centers, because the board no longer aligns its
+ * targets the same way: measuring the distance from the snapport's midpoint to
+ * each target's midpoint only names the resting target while every one of them
+ * centers. Against a start-aligned first column it names its neighbor as soon as
+ * two columns fit at once, and the swipe then counts from the wrong one and skips
+ * a column.
+ *
+ * Positions are not clamped to the scroll range: on a board whose ends align to
+ * the edges every one of them is reachable, so there is nothing to clamp.
+ */
+export function nearestSnapIndex(scrollLeft: number, positions: readonly number[]): number {
+  let best = 0;
+  let bestDistance = Infinity;
+  positions.forEach((position, index) => {
+    const distance = Math.abs(position - scrollLeft);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = index;
+    }
+  });
+  return best;
 }

@@ -15,7 +15,13 @@
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, TOUCH_DRAG_DELAY_MS } from '../lib/card-menu.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
-  import { edgeScrollSpeed, fitsHorizontally, snapScrollLeft } from '../lib/board-scroll';
+  import {
+    edgeScrollSpeed,
+    fitsHorizontally,
+    nearestSnapIndex,
+    type SnapAlign,
+    snapScrollLeft,
+  } from '../lib/board-scroll';
   import { SWIPE_AXIS_LOCK_PX, swipeTarget, SWIPE_VELOCITY_SAMPLE_MS } from '../lib/board-swipe';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
@@ -117,6 +123,23 @@
   let dragOrigin: { columnId: string; index: number } | null = null;
   let columnDragOrigin: number | null = null;
 
+  // Where each column parks on a phone. The ends align to the board's edges and
+  // everything between centers, so being flush against an edge means you are at
+  // that end of the board and nothing else does. Centering the ends instead is
+  // what used to cost half a viewport of blank canvas in front of the first
+  // column and behind the last. From md up they all start-align, as before.
+  //
+  // The board's last snap target is the "+ Add column" tile, so a column only ends
+  // the board when that tile is not rendered. A lone column on a readonly board
+  // matches both arms; start wins, which is right — such a board does not scroll.
+  const endColumnIndex = $derived(readonly ? localColumns.length - 1 : -1);
+  function columnSnapAlign(index: number): string {
+    if (index === 0) {
+      return 'snap-start';
+    }
+    return index === endColumnIndex ? 'snap-end' : 'snap-center';
+  }
+
   const columnKey = $derived(draftKey.addColumn(projectId));
   const newColumnName = $derived(drafts.get(columnKey));
   const addingColumn = $derived(newColumnName !== null);
@@ -163,37 +186,44 @@
     return Array.from(scroller.querySelectorAll<HTMLElement>('[data-snap-target]'));
   }
 
-  function nearestSnapIndex(scroller: HTMLElement): number {
-    const view = scroller.getBoundingClientRect();
-    const mid = view.left + view.width / 2;
-    let best = 0;
-    let bestDist = Infinity;
-    snapTargets(scroller).forEach((el, i) => {
-      const rect = el.getBoundingClientRect();
-      const dist = Math.abs(rect.left + rect.width / 2 - mid);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = i;
-      }
-    });
-    return best;
-  }
-
+  // The `scrollLeft` that parks one snap target, alignment and all.
+  //
   // Reading the alignment and scroll padding back off the elements keeps the
   // breakpoints that set them in one place — the class list — rather than
-  // duplicating rem values and a `md` cutoff here. `scroll-snap-align` serializes
-  // as `<block> <inline>`, so the last token is the axis this scroller uses; a
-  // stylesheet-less environment reports neither, which reads as start.
+  // duplicating rem values and a `md` cutoff here. That matters more now that the
+  // three targets of a phone board do not agree: the first column starts, the last
+  // one ends, the rest center. `scroll-snap-align` serializes as `<block>
+  // <inline>`, so the last token is the axis this scroller uses; a stylesheet-less
+  // environment reports neither, which reads as start.
+  function snapLeft(scroller: HTMLElement, target: HTMLElement): number {
+    const inline = getComputedStyle(target).scrollSnapAlign.split(' ').pop();
+    const align: SnapAlign = inline === 'center' || inline === 'end' ? inline : 'start';
+    const style = getComputedStyle(scroller);
+    return snapScrollLeft(
+      scroller.scrollLeft,
+      scroller.getBoundingClientRect(),
+      target.getBoundingClientRect(),
+      align,
+      {
+        left: parseFloat(style.scrollPaddingLeft) || 0,
+        right: parseFloat(style.scrollPaddingRight) || 0,
+      }
+    );
+  }
+
+  // Which target the board is resting on — the swipe's origin. Compared as scroll
+  // positions rather than as distances from the middle of the screen, because with
+  // the ends aligned to the edges the resting target is not the middle one.
+  function restingSnapIndex(scroller: HTMLElement): number {
+    return nearestSnapIndex(
+      scroller.scrollLeft,
+      snapTargets(scroller).map((target) => snapLeft(scroller, target))
+    );
+  }
+
   function slideColumnIntoView(scroller: HTMLElement, section: HTMLElement): void {
-    const align = getComputedStyle(section).scrollSnapAlign.split(' ').pop();
     scroller.scrollTo({
-      left: snapScrollLeft(
-        scroller.scrollLeft,
-        scroller.getBoundingClientRect(),
-        section.getBoundingClientRect(),
-        align === 'center' ? 'center' : 'start',
-        parseFloat(getComputedStyle(scroller).scrollPaddingLeft) || 0
-      ),
+      left: snapLeft(scroller, section),
       behavior: motion.reduced ? 'auto' : 'smooth',
     });
   }
@@ -359,7 +389,7 @@
         startX: touch.clientX,
         startY: touch.clientY,
         startLeft: scroller.scrollLeft,
-        origin: nearestSnapIndex(scroller),
+        origin: restingSnapIndex(scroller),
         lastIndex: snapTargets(scroller).length - 1,
         horizontal: false,
         lastX: touch.clientX,
@@ -641,17 +671,16 @@
 
 <div
   bind:this={boardScroller}
-  class="relative flex min-h-0 touch-pan-y touch-pinch-zoom flex-1 flex-col overscroll-x-contain overflow-y-hidden md:scroll-p-3 lg:touch-auto lg:scroll-p-4 {snapActive
+  class="relative flex min-h-0 touch-pan-y touch-pinch-zoom flex-1 flex-col overscroll-x-contain overflow-y-hidden scroll-p-3 lg:touch-auto lg:scroll-p-4 {snapActive
     ? 'overflow-x-auto snap-x snap-mandatory lg:snap-none'
     : 'overflow-x-hidden'}"
 >
   <!-- w-max, not the default stretch-to-scroller width: a stretched track ends at
-       the scroller's right edge, so its padding-right lands there instead of after
-       the last column and adds no scrollable space. Sizing the track to its content
-       is what lets the trailing padding below make the last column reachable. -->
-  <div
-    class="flex w-max min-h-0 flex-1 items-stretch gap-3 px-[calc(50%_-_var(--cp-board-col-w)/2)] py-3 md:px-3 lg:gap-4 lg:px-4 lg:py-4"
-  >
+       the scroller's right edge, so its padding-right lands there rather than after
+       the last column, and the last column butts against the screen with no gutter
+       while the leading one keeps its. Sizing the track to its content is what puts
+       the same gutter on both ends of the row. -->
+  <div class="flex w-max min-h-0 flex-1 items-stretch gap-3 px-3 py-3 lg:gap-4 lg:px-4 lg:py-4">
     <div
       class="flex items-stretch gap-3 empty:hidden lg:gap-4"
       aria-label="Columns"
@@ -668,13 +697,15 @@
       onconsider={handleColumnConsider}
       onfinalize={handleColumnFinalize}
     >
-      {#each localColumns as column (column.id)}
+      {#each localColumns as column, index (column.id)}
         <section
           data-column-id={column.id}
           data-snap-target
           animate:flip={{ duration: flipMs }}
           aria-label={column.name}
-          class="flex max-h-full w-[var(--cp-board-col-w)] shrink-0 snap-center snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start"
+          class="flex max-h-full w-[var(--cp-board-col-w)] shrink-0 snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start {columnSnapAlign(
+            index
+          )}"
         >
           <ColumnHeader
             {column}
@@ -740,9 +771,11 @@
       {/each}
     </div>
     {#if !readonly}
+      <!-- The board's last snap target, so it is the one that ends it: flush against
+           the right edge, with no trailing canvas to center into. -->
       <div
         data-snap-target
-        class="w-[var(--cp-board-col-w)] shrink-0 snap-center snap-always md:snap-start"
+        class="w-[var(--cp-board-col-w)] shrink-0 snap-end snap-always md:snap-start"
       >
         {#if addingColumn}
           <form

@@ -43,7 +43,17 @@ const MEASURE = `(() => {
   const sr = scroller.getBoundingClientRect();
   const nr = nav.getBoundingClientRect();
   const de = document.documentElement;
+  const row = scroller.firstElementChild;
+  const rr = row.getBoundingClientRect();
+  const tile = document.querySelector('[data-add-column]');
   return {
+    // Blank track outside the end targets, and the gap between two columns to
+    // measure it against. Scroll-independent on purpose: this is the track's own
+    // padding, which is what decides whether the ends can sit against the board's
+    // edges at all. A gutter is fine; half a viewport is the canvas we removed.
+    columnGap: Math.round(parseFloat(getComputedStyle(row).columnGap) || 0),
+    leadSpace: Math.round(cols[0].getBoundingClientRect().left - rr.left),
+    tailSpace: Math.round(rr.right - tile.getBoundingClientRect().right),
     vw: window.innerWidth,
     vh: window.innerHeight,
     boardClientH: scroller.clientHeight,
@@ -108,6 +118,16 @@ function checkInvariants(m, viewport, expectInternalScroll) {
     failures.push(
       `board does not scroll horizontally (scrollW=${m.boardScrollW} clientW=${m.boardClientW})`
     );
+  }
+  // The board's ends sit against its edges, so the track puts no more in front of
+  // the first column or behind the last than it puts between any two. Centering
+  // the ends needed half the leftover width there — 51px on a 390px phone, which
+  // read as the board starting somewhere off to the right of where it does.
+  if (m.leadSpace > m.columnGap + 2) {
+    failures.push(`blank track in front of the first column (${m.leadSpace} > gap ${m.columnGap})`);
+  }
+  if (m.tailSpace > m.columnGap + 2) {
+    failures.push(`blank track behind the last column (${m.tailSpace} > gap ${m.columnGap})`);
   }
   if (expectInternalScroll && m.listScrolls === false) {
     failures.push('tall task list does not scroll internally');

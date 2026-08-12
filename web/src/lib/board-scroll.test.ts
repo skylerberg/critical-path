@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { edgeScrollSpeed, fitsHorizontally, snapScrollLeft } from './board-scroll';
+import {
+  edgeScrollSpeed,
+  fitsHorizontally,
+  nearestSnapIndex,
+  snapScrollLeft,
+} from './board-scroll';
 
 // 390px-wide board, 64px edge band, 400px/s top speed.
 const L = 0;
@@ -69,21 +74,26 @@ describe('fitsHorizontally', () => {
   });
 });
 
+// The board's own gutter, and a scroller with none, since the two arms that read
+// the padding read opposite edges of it.
+const GUTTER = { left: 12, right: 12 };
+const NO_GUTTER = { left: 0, right: 0 };
+
 describe('snapScrollLeft (start-aligned)', () => {
   it('leaves a column already on its snap position alone', () => {
-    expect(snapScrollLeft(0, VIEW, { left: 12, right: 300 }, 'start', 12)).toBe(0);
+    expect(snapScrollLeft(0, VIEW, { left: 12, right: 300 }, 'start', GUTTER)).toBe(0);
   });
 
   it('scrolls right to reach a column further along', () => {
-    expect(snapScrollLeft(0, VIEW, { left: 612, right: 900 }, 'start', 12)).toBe(600);
+    expect(snapScrollLeft(0, VIEW, { left: 612, right: 900 }, 'start', GUTTER)).toBe(600);
   });
 
   it('scrolls left to reach a column behind', () => {
-    expect(snapScrollLeft(600, VIEW, { left: -288, right: 0 }, 'start', 12)).toBe(300);
+    expect(snapScrollLeft(600, VIEW, { left: -288, right: 0 }, 'start', GUTTER)).toBe(300);
   });
 
   it('is relative to where the board is scrolled now', () => {
-    expect(snapScrollLeft(900, VIEW, { left: 312, right: 600 }, 'start', 12)).toBe(1200);
+    expect(snapScrollLeft(900, VIEW, { left: 312, right: 600 }, 'start', GUTTER)).toBe(1200);
   });
 
   // Landing a gutter short would leave the board between two snap points, and
@@ -91,8 +101,18 @@ describe('snapScrollLeft (start-aligned)', () => {
   it('accounts for the scroll padding that offsets the snap position', () => {
     const target = { left: 312, right: 600 };
     expect(
-      snapScrollLeft(0, VIEW, target, 'start', 0) - snapScrollLeft(0, VIEW, target, 'start', 12)
+      snapScrollLeft(0, VIEW, target, 'start', NO_GUTTER) -
+        snapScrollLeft(0, VIEW, target, 'start', GUTTER)
     ).toBe(12);
+  });
+
+  // Only the left edge of a start-aligned target is anchored, so the padding on
+  // the far side has nothing to say about it.
+  it('ignores the padding on the edge it does not align to', () => {
+    const target = { left: 312, right: 600 };
+    expect(snapScrollLeft(0, VIEW, target, 'start', { left: 12, right: 40 })).toBe(
+      snapScrollLeft(0, VIEW, target, 'start', GUTTER)
+    );
   });
 });
 
@@ -100,15 +120,15 @@ describe('snapScrollLeft (center-aligned)', () => {
   // VIEW is the 390px phone board, so its center is 195 and a centered 288px
   // column spans 51..339 — exactly the resting position of column 1.
   it('leaves a column already centered alone', () => {
-    expect(snapScrollLeft(0, VIEW, { left: 51, right: 339 }, 'center', 0)).toBe(0);
+    expect(snapScrollLeft(0, VIEW, { left: 51, right: 339 }, 'center', NO_GUTTER)).toBe(0);
   });
 
   it('scrolls right to center a column further along', () => {
-    expect(snapScrollLeft(0, VIEW, { left: 351, right: 639 }, 'center', 0)).toBe(300);
+    expect(snapScrollLeft(0, VIEW, { left: 351, right: 639 }, 'center', NO_GUTTER)).toBe(300);
   });
 
   it('scrolls left to center a column behind', () => {
-    expect(snapScrollLeft(300, VIEW, { left: -249, right: 39 }, 'center', 0)).toBe(0);
+    expect(snapScrollLeft(300, VIEW, { left: -249, right: 39 }, 'center', NO_GUTTER)).toBe(0);
   });
 
   // Symmetric scroll padding insets both edges of the snapport, leaving its
@@ -116,8 +136,8 @@ describe('snapScrollLeft (center-aligned)', () => {
   // column off by a gutter.
   it('ignores the scroll padding, which cancels out on a centered target', () => {
     const target = { left: 351, right: 639 };
-    expect(snapScrollLeft(0, VIEW, target, 'center', 12)).toBe(
-      snapScrollLeft(0, VIEW, target, 'center', 0)
+    expect(snapScrollLeft(0, VIEW, target, 'center', GUTTER)).toBe(
+      snapScrollLeft(0, VIEW, target, 'center', NO_GUTTER)
     );
   });
 
@@ -125,6 +145,79 @@ describe('snapScrollLeft (center-aligned)', () => {
   // measured against the board's own box.
   it('centers against the board, not the origin', () => {
     const offset = { left: 224, right: 1280 };
-    expect(snapScrollLeft(0, offset, { left: 608, right: 896 }, 'center', 0)).toBe(0);
+    expect(snapScrollLeft(0, offset, { left: 608, right: 896 }, 'center', NO_GUTTER)).toBe(0);
+  });
+});
+
+// The mirror of the start arm, and what lets the board's last target rest against
+// the right edge with no half-viewport of canvas behind it to center into.
+describe('snapScrollLeft (end-aligned)', () => {
+  // Flush against VIEW's right edge, inset by the gutter: 90..378 on a 390 board.
+  it('leaves a target already flush against the right edge alone', () => {
+    expect(snapScrollLeft(0, VIEW, { left: 90, right: 378 }, 'end', GUTTER)).toBe(0);
+  });
+
+  it('scrolls right to bring a target further along flush', () => {
+    expect(snapScrollLeft(0, VIEW, { left: 390, right: 678 }, 'end', GUTTER)).toBe(300);
+  });
+
+  it('scrolls left to bring a target behind flush', () => {
+    expect(snapScrollLeft(300, VIEW, { left: -210, right: 78 }, 'end', GUTTER)).toBe(0);
+  });
+
+  // The gutter insets the snapport's right edge, so the target parks a gutter
+  // short of the board's own edge — which is a gutter FURTHER along than it would
+  // park without one, the opposite sign to the start arm.
+  it('accounts for the scroll padding on the edge it aligns to', () => {
+    const target = { left: 390, right: 678 };
+    expect(
+      snapScrollLeft(0, VIEW, target, 'end', GUTTER) -
+        snapScrollLeft(0, VIEW, target, 'end', NO_GUTTER)
+    ).toBe(12);
+  });
+
+  // Only the right edge of an end-aligned target is anchored.
+  it('ignores the padding on the edge it does not align to', () => {
+    const target = { left: 390, right: 678 };
+    expect(snapScrollLeft(0, VIEW, target, 'end', { left: 40, right: 12 })).toBe(
+      snapScrollLeft(0, VIEW, target, 'end', GUTTER)
+    );
+  });
+});
+
+// Which target a swipe counts from. The board mixes alignments, so this cannot be
+// answered by asking which one is nearest the middle of the screen.
+describe('nearestSnapIndex', () => {
+  it('names the position the board is parked on', () => {
+    expect(nearestSnapIndex(600, [0, 300, 600, 900])).toBe(2);
+  });
+
+  it('names the nearer of the two it sits between', () => {
+    expect(nearestSnapIndex(170, [0, 300, 600])).toBe(1);
+    expect(nearestSnapIndex(130, [0, 300, 600])).toBe(0);
+  });
+
+  it('keeps the earlier position on an exact tie', () => {
+    expect(nearestSnapIndex(150, [0, 300])).toBe(0);
+  });
+
+  it('clamps to the ends rather than running off them', () => {
+    expect(nearestSnapIndex(-500, [0, 300, 600])).toBe(0);
+    expect(nearestSnapIndex(5000, [0, 300, 600])).toBe(2);
+  });
+
+  // A board that has not rendered its columns yet. Index 0 is the only answer a
+  // caller can index safely, and it re-resolves the moment there is a target.
+  it('answers 0 for a board with no snap targets', () => {
+    expect(nearestSnapIndex(400, [])).toBe(0);
+  });
+
+  // The first column starts, the rest center: the gap in front of the second
+  // position is a gutter short of the pitch behind it, and resting on the first
+  // column must still name the first column.
+  it('handles the uneven pitch a start-aligned first column leaves', () => {
+    const positions = [0, 261, 561, 861];
+    expect(nearestSnapIndex(0, positions)).toBe(0);
+    expect(nearestSnapIndex(261, positions)).toBe(1);
   });
 });
