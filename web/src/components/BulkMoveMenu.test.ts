@@ -20,6 +20,56 @@ afterEach(() => {
 });
 
 describe('BulkMoveMenu', () => {
+  // Held as a row number this moves the whole selection into "Todo" — the column
+  // that slid under the highlight, not the one the user arrowed onto.
+  it('stays on its column when a teammate inserts one above it', async () => {
+    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks').mockResolvedValue();
+    render(BulkMoveMenu, { onclose: () => {} });
+
+    const search = screen.getByLabelText('Search columns');
+    await fireEvent.keyDown(search, { key: 'ArrowDown' });
+    board.columns = [
+      { id: 'c0', name: 'Backlog', sort_key: 'U0', is_done: false },
+      ...board.columns,
+    ];
+    await fireEvent.keyDown(search, { key: 'Enter' });
+
+    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c2');
+  });
+
+  it('scrolls the newly highlighted row into view', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    render(BulkMoveMenu, { onclose: () => {} });
+
+    await fireEvent.keyDown(screen.getByLabelText('Search columns'), { key: 'ArrowDown' });
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('button', { name: 'Done' }));
+  });
+
+  it('clamps at the top', async () => {
+    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks').mockResolvedValue();
+    render(BulkMoveMenu, { onclose: () => {} });
+
+    const search = screen.getByLabelText('Search columns');
+    await fireEvent.keyDown(search, { key: 'ArrowDown' });
+    await fireEvent.keyDown(search, { key: 'ArrowUp' });
+    await fireEvent.keyDown(search, { key: 'ArrowUp' });
+    await fireEvent.keyDown(search, { key: 'Enter' });
+
+    expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c1');
+  });
+
+  // Nothing to move to, so the key belongs to the caret.
+  it('leaves the arrow keys alone when nothing matches the filter', async () => {
+    render(BulkMoveMenu, { onclose: () => {} });
+
+    const search = screen.getByLabelText('Search columns');
+    await fireEvent.input(search, { target: { value: 'nothing matches this' } });
+
+    expect(await fireEvent.keyDown(search, { key: 'ArrowDown' })).toBe(true);
+  });
+
   it('names the selection size and lists every column, with no position step', () => {
     render(BulkMoveMenu, { onclose: () => {} });
 

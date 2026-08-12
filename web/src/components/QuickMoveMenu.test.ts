@@ -194,6 +194,19 @@ describe('QuickMoveMenu', () => {
     });
   });
 
+  it('clamps at the top', async () => {
+    open();
+    await chooseColumn('Doing');
+
+    const input = screen.getByLabelText('Search positions');
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    await fireEvent.keyDown(input, { key: 'ArrowUp' });
+    await fireEvent.keyDown(input, { key: 'ArrowUp' });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(moveTask).toHaveBeenCalledWith('t1', 'doing', { sort_key: expect.any(String) });
+  });
+
   it('re-resolves the anchor at commit time, so a card inserted meanwhile does not shift the slot', async () => {
     open();
     await chooseColumn('Doing');

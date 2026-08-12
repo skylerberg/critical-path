@@ -1,6 +1,7 @@
 <script lang="ts">
   import { focusOnMount } from '../lib/actions';
   import { board } from '../lib/board.svelte';
+  import { ListNav } from '../lib/list-nav.svelte';
   import { heldBy, type Held } from '../lib/multi-select';
   import { selection } from '../lib/selection.svelte';
   import ColorDot from './ui/ColorDot.svelte';
@@ -13,7 +14,7 @@
   let { onclose }: Props = $props();
 
   let query = $state('');
-  let highlighted = $state(0);
+  let listEl = $state<HTMLDivElement>();
 
   // Read live rather than snapshotted on open, so a card a teammate deletes
   // leaves the target set without a line of code here.
@@ -26,6 +27,15 @@
     board.labels.filter((label) => label.name.toLowerCase().includes(query.trim().toLowerCase()))
   );
 
+  // Inert rather than first: a teammate deleting the highlighted label would
+  // otherwise slide Enter onto whichever label is now on top, and this toggles it
+  // across every selected card.
+  const nav = new ListNav({
+    keys: () => filtered.map((label) => label.id),
+    list: () => listEl,
+    missing: 'inert',
+  });
+
   function held(labelId: string): Held {
     return heldBy(tasks, (task) => task.label_ids.includes(labelId));
   }
@@ -35,17 +45,14 @@
   }
 
   function onkeydown(event: KeyboardEvent): void {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      highlighted = Math.min(filtered.length - 1, highlighted + 1);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      highlighted = Math.max(0, highlighted - 1);
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
+        event.preventDefault();
+      }
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      const label = filtered[highlighted];
-      if (label !== undefined) {
-        toggle(label.id);
+      if (nav.activeKey !== null) {
+        toggle(nav.activeKey);
       }
     }
   }
@@ -57,20 +64,26 @@
       bind:value={query}
       use:focusOnMount
       {onkeydown}
-      oninput={() => (highlighted = 0)}
+      oninput={() => nav.clear()}
       aria-label="Filter labels"
       placeholder="Filter labels"
       class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
     />
-    <div class="flex max-h-64 flex-col gap-1 overflow-y-auto" role="group" aria-label="Labels">
+    <div
+      bind:this={listEl}
+      class="flex max-h-64 flex-col gap-1 overflow-y-auto"
+      role="group"
+      aria-label="Labels"
+    >
       {#each filtered as label, i (label.id)}
         {@const state = held(label.id)}
         <button
           type="button"
+          data-index={i}
           aria-pressed={state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}
           onclick={() => toggle(label.id)}
-          onpointermove={() => (highlighted = i)}
-          class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {highlighted ===
+          onpointermove={() => nav.highlight(label.id)}
+          class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {nav.index ===
           i
             ? 'bg-accent-soft'
             : 'hover:bg-accent-soft'} {state === 'none' ? 'text-ink' : 'text-accent-strong'}"

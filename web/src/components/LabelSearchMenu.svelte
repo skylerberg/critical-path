@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { focusIf } from '../lib/actions';
   import { board, type BoardContext } from '../lib/board.svelte';
+  import { ListNav } from '../lib/list-nav.svelte';
   import { toggleMembership } from '../lib/multi-select';
   import ColorDot from './ui/ColorDot.svelte';
 
@@ -28,8 +29,11 @@
     '#64748b',
   ];
 
+  // Create has no id of its own, and it sits first here, so it needs a key that no
+  // label can collide with.
+  const CREATE_KEY = 'create';
+
   let query = $state(untrack(() => prefill));
-  let highlighted = $state(0);
   let listEl = $state<HTMLDivElement>();
 
   const task = $derived(ctx.tasks.find((t) => t.id === taskId));
@@ -42,7 +46,14 @@
     trimmed !== '' &&
       !ctx.labels.some((label) => label.name.toLowerCase() === trimmed.toLowerCase())
   );
-  const rowCount = $derived(filtered.length + (showCreate ? 1 : 0));
+  // Inert rather than first, and that choice is load-bearing: Create is row 0
+  // here, so a highlighted label deleted under the menu would otherwise send
+  // Enter to "create a label nobody asked for".
+  const nav = new ListNav({
+    keys: () => [...(showCreate ? [CREATE_KEY] : []), ...filtered.map((label) => label.id)],
+    list: () => listEl,
+    missing: 'inert',
+  });
 
   function toggle(labelId: string): void {
     void ctx.setTaskLabels(taskId, toggleMembership(task?.label_ids ?? [], labelId));
@@ -56,7 +67,7 @@
     const existing = new Set(ctx.labels.map((label) => label.id));
     const color = PALETTE[ctx.labels.length % PALETTE.length]!;
     query = '';
-    highlighted = 0;
+    nav.clear();
     if (listEl !== undefined) {
       listEl.scrollTop = 0;
     }
@@ -75,42 +86,25 @@
     await ctx.setTaskLabels(taskId, [...(task?.label_ids ?? []), created.id]);
   }
 
-  function activate(index: number): void {
-    if (showCreate && index === 0) {
+  function activate(key: string | null): void {
+    if (key === null) {
+      return;
+    }
+    if (key === CREATE_KEY) {
       void createAndApply();
       return;
     }
-    const label = filtered[index - (showCreate ? 1 : 0)];
-    if (label !== undefined) {
-      toggle(label.id);
-    }
+    toggle(key);
   }
 
-  // Safe to read the DOM before Svelte re-renders: arrow keys move the highlight
-  // but never change the row set.
-  function revealHighlighted(): void {
-    const target = listEl?.querySelectorAll('button')[highlighted];
-    target?.scrollIntoView({ block: 'nearest' });
-    // Dragging focus along with the highlight keeps Enter and the row's own
-    // click activating the same label; arrowing from the filter input must not
-    // steal focus away from it.
-    if (target !== undefined && listEl?.contains(document.activeElement) === true) {
-      target.focus();
-    }
-  }
-
-  function onkeydown(event: KeyboardEvent, rowIndex?: number): void {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      highlighted = Math.min(rowCount - 1, highlighted + 1);
-      revealHighlighted();
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      highlighted = Math.max(0, highlighted - 1);
-      revealHighlighted();
+  function onkeydown(event: KeyboardEvent, rowKey?: string): void {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
+        event.preventDefault();
+      }
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      activate(rowIndex ?? highlighted);
+      activate(rowKey ?? nav.activeKey);
     } else if (event.key === 'Escape' && onclose !== undefined) {
       // preventDefault suppresses the enclosing <dialog>'s close request so only
       // the picker collapses; stopPropagation keeps it away from window shortcuts.
@@ -121,7 +115,7 @@
   }
 
   function oninput(): void {
-    highlighted = 0;
+    nav.clear();
     if (listEl !== undefined) {
       listEl.scrollTop = 0;
     }
@@ -148,11 +142,12 @@
     {#if showCreate}
       <button
         type="button"
+        data-index={0}
         onclick={createAndApply}
-        onkeydown={(event) => onkeydown(event, 0)}
-        onfocus={() => (highlighted = 0)}
-        onpointermove={() => (highlighted = 0)}
-        class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {highlighted ===
+        onkeydown={(event) => onkeydown(event, CREATE_KEY)}
+        onfocus={() => nav.highlight(CREATE_KEY)}
+        onpointermove={() => nav.highlight(CREATE_KEY)}
+        class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {nav.index ===
         0
           ? 'bg-accent-soft text-ink'
           : 'text-muted hover:bg-accent-soft hover:text-ink'}"
@@ -164,12 +159,13 @@
       {@const index = i + (showCreate ? 1 : 0)}
       <button
         type="button"
+        data-index={index}
         aria-pressed={selectedIds.has(label.id)}
         onclick={() => toggle(label.id)}
-        onkeydown={(event) => onkeydown(event, index)}
-        onfocus={() => (highlighted = index)}
-        onpointermove={() => (highlighted = index)}
-        class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {highlighted ===
+        onkeydown={(event) => onkeydown(event, label.id)}
+        onfocus={() => nav.highlight(label.id)}
+        onpointermove={() => nav.highlight(label.id)}
+        class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {nav.index ===
         index
           ? 'bg-accent-soft'
           : 'hover:bg-accent-soft'} {selectedIds.has(label.id) ? 'text-accent-strong' : 'text-ink'}"
@@ -181,7 +177,7 @@
         {/if}
       </button>
     {/each}
-    {#if rowCount === 0}
+    {#if !showCreate && filtered.length === 0}
       <p class="px-3 py-2 text-sm text-muted">No labels yet. Type to create one.</p>
     {/if}
   </div>

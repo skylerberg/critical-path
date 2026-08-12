@@ -45,6 +45,80 @@ describe('BulkAssigneeMenu', () => {
     expect(screen.getByLabelText('Filter users')).toHaveFocus();
   });
 
+  describe('keyboard', () => {
+    function filter() {
+      return screen.getByLabelText('Filter users');
+    }
+
+    it('acts on the first row when Enter comes with no arrow', async () => {
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      render(BulkAssigneeMenu, { onclose: () => {} });
+
+      await fireEvent.keyDown(filter(), { key: 'Enter' });
+
+      expect(bulkSetAssignee).toHaveBeenCalledWith(['t1', 't2'], ME, false);
+    });
+
+    it('moves down to the second row', async () => {
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      render(BulkAssigneeMenu, { onclose: () => {} });
+
+      await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
+      await fireEvent.keyDown(filter(), { key: 'Enter' });
+
+      expect(bulkSetAssignee).toHaveBeenCalledWith(['t1', 't2'], BOB, true);
+    });
+
+    it('clamps at the top', async () => {
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      render(BulkAssigneeMenu, { onclose: () => {} });
+
+      await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
+      await fireEvent.keyDown(filter(), { key: 'ArrowUp' });
+      await fireEvent.keyDown(filter(), { key: 'ArrowUp' });
+      await fireEvent.keyDown(filter(), { key: 'Enter' });
+
+      expect(bulkSetAssignee).toHaveBeenCalledWith(['t1', 't2'], ME, false);
+    });
+
+    // Held as a row number this assigns Ada across the whole selection — whoever
+    // slid under the highlight, not the person the user arrowed onto.
+    it('stays on its person when a search response inserts someone above', async () => {
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      render(BulkAssigneeMenu, { onclose: () => {} });
+
+      await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
+      users.setForProject('p1', [
+        { id: 'u-zoe', name: 'Aaron', avatar_url: null },
+        ...users.forProject('p1'),
+      ]);
+      await fireEvent.keyDown(filter(), { key: 'Enter' });
+
+      expect(bulkSetAssignee).toHaveBeenCalledWith(['t1', 't2'], BOB, true);
+    });
+
+    it('scrolls the newly highlighted row into view', async () => {
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+      render(BulkAssigneeMenu, { onclose: () => {} });
+
+      await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('button', { name: /Bob/ }));
+    });
+
+    it('sends the highlight back to the top when the query changes', async () => {
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      render(BulkAssigneeMenu, { onclose: () => {} });
+
+      await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
+      await fireEvent.input(filter(), { target: { value: 'b' } });
+      await fireEvent.keyDown(filter(), { key: 'Enter' });
+
+      expect(bulkSetAssignee).toHaveBeenCalledWith(['t1', 't2'], BOB, true);
+    });
+  });
+
   it('names the selection size and reports each user as all, some or none', () => {
     render(BulkAssigneeMenu, { onclose: () => {} });
 

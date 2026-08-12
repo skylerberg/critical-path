@@ -57,6 +57,48 @@ describe('AssigneeSearchMenu', () => {
     expect(document.activeElement).toBe(document.body);
   });
 
+  // Held as a row number this assigns whoever slid under the highlight, not the
+  // person the user arrowed onto.
+  it('stays on its person when a search response inserts someone above', async () => {
+    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
+    render(AssigneeSearchMenu, { taskId: 't1' });
+
+    const input = screen.getByLabelText('Filter users');
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    users.setForProject('p1', [
+      { id: 'u-aaron', name: 'Aaron Swartz', avatar_url: null },
+      ...users.forProject('p1'),
+    ]);
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(setTaskAssignees).toHaveBeenCalledWith('t1', ['u-alan']);
+  });
+
+  it('scrolls the newly highlighted row into view', async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    render(AssigneeSearchMenu, { taskId: 't1' });
+
+    await fireEvent.keyDown(screen.getByLabelText('Filter users'), { key: 'ArrowDown' });
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    expect(scrollIntoView.mock.contexts[0]).toBe(
+      screen.getByRole('button', { name: /Alan Turing/ })
+    );
+  });
+
+  it('clamps at the top', async () => {
+    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
+    render(AssigneeSearchMenu, { taskId: 't1' });
+
+    const input = screen.getByLabelText('Filter users');
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    await fireEvent.keyDown(input, { key: 'ArrowUp' });
+    await fireEvent.keyDown(input, { key: 'ArrowUp' });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(setTaskAssignees).toHaveBeenCalledWith('t1', ['u-ada']);
+  });
+
   it('filters project members by the query', async () => {
     render(AssigneeSearchMenu, { taskId: 't1' });
     await fireEvent.input(screen.getByLabelText('Filter users'), { target: { value: 'ada' } });
