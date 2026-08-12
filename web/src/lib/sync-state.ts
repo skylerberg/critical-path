@@ -9,6 +9,8 @@ export type SyncState =
   | 'offline-pending'
   /** Unreachable, nothing waiting. Reads are coming from the last snapshot. */
   | 'offline'
+  /** The server is up, but the last refresh did not land, so reads are behind. */
+  | 'stale'
   /** HTTP works; only the live-updates socket is down. Weakest of the states. */
   | 'reconnecting'
   /** Everything that could be sent has been, and some of it did not land. */
@@ -20,13 +22,19 @@ export interface SyncInputs {
   draining: boolean;
   socketInterrupted: boolean;
   unresolvedIssues: number;
+  staleRead: boolean;
 }
 
 /**
- * One state out of four signals that each know only part of the story, ordered
+ * One state out of five signals that each know only part of the story, ordered
  * so the most consequential thing true right now is the thing shown. Unsent work
  * outranks a dropped socket, because one is the user's writing and the other is
  * only how fast they see someone else's.
+ *
+ * `staleRead` sits above the socket for the same reason: a refresh that did not
+ * land means what is on screen may already be wrong, which is worse than knowing
+ * future changes will arrive late. It sits below `reachable`, because "Offline"
+ * says all of this and says why.
  */
 export function syncState(inputs: SyncInputs): SyncState {
   if (inputs.pendingCount > 0) {
@@ -37,6 +45,9 @@ export function syncState(inputs: SyncInputs): SyncState {
   }
   if (inputs.unresolvedIssues > 0) {
     return 'needs-attention';
+  }
+  if (inputs.staleRead) {
+    return 'stale';
   }
   return inputs.socketInterrupted ? 'reconnecting' : 'clean';
 }
@@ -58,6 +69,8 @@ export function syncMessage(state: SyncState, pendingCount: number, issues: numb
       return `Offline — ${changes} waiting on this device`;
     case 'offline':
       return 'Offline — showing the last version on this device';
+    case 'stale':
+      return 'Could not refresh — showing an older version';
     case 'reconnecting':
       return 'Offline — reconnecting';
     case 'needs-attention':

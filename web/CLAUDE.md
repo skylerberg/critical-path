@@ -43,7 +43,7 @@ than an obviously old one.
 (`Re-dumped /…/openapi.json`, or `Reading existing /…` when the dump could not
 be re-run). That line is the only thing that distinguishes the checkout you
 meant from the one it found, and the difference is otherwise silent: the
-generator walks up from the script and then looks beside the *main* checkout,
+generator walks up from the script and then looks beside the _main_ checkout,
 so from a worktree it lands on `~/Code/critical-path-api` — which is on `main`,
 not on the branch carrying the schema change. It then succeeds, prints a
 re-dump, and writes a client with no diff.
@@ -64,7 +64,7 @@ with `origin/main`. `RealtimeEvent` in
 shape. The one assertion is in `realtime.svelte.ts` where a frame arrives, and
 the payload is deliberately not validated there. Tests build events with
 `realtimeEvent()` from `src/lib/realtime-test-events.ts`, which takes a
-`Partial` payload so a fixture stays short while its field *names* are still
+`Partial` payload so a fixture stays short while its field _names_ are still
 checked — a fixture naming a field the API stopped sending is what hid the
 `project_position_updated` bug for several releases.
 
@@ -124,8 +124,25 @@ throwaway probe before believing a claim about any of the above.
 `createBrowser()` wraps Playwright rather than re-exporting it: the returned
 object is `{ setViewport, goto, eval, screenshot, close }` and nothing more, so
 `newPage()` and the rest of the Playwright API are not on it. It returns `null`
-when Chromium is missing (`npm run playwright:install`) — a local-only skip,
+when the engine is missing (`npm run playwright:install`) — a local-only skip,
 since under `CI` a launch failure throws instead.
+
+**Chromium is not the target.** `createBrowser({ engine: 'webkit' })` runs the
+same probe under WebKit, which every iOS browser uses and which most bug reports
+here come from. The two disagree, and Chromium is the optimistic one — removing
+a focused input fires `blur` in Chromium and **not** in WebKit:
+
+```js
+// chromium  -> {"blur":["blur"],"active":"BODY"}
+// webkit    -> {"blur":[],"active":"BODY"}
+```
+
+That difference is why a field saved only `onblur` lost what was typed whenever
+the card was dismissed on a phone. Any question about focus, the on-screen
+keyboard, or what an unmount does to a focused field wants both engines; one
+green Chromium run is not an answer. Only the layout checks are committed and
+they are Chromium-only, so CI installs Chromium alone and a committed check
+asking for WebKit would fail loudly there rather than skip.
 
 Those five take their own shapes, none of which match Playwright's:
 
@@ -137,7 +154,7 @@ await writeFile(path, await browser.screenshot()); // returns a PNG Buffer; take
 ```
 
 `mobile` defaults to **true** and models the mobile layout viewport, where
-overflow *expands* `innerWidth` past the requested width — which is how the
+overflow _expands_ `innerWidth` past the requested width — which is how the
 layout checks catch a header that no longer fits, and why a desktop case has to
 say `mobile: false` rather than leave it out. Playwright fixes it per context,
 so flipping it discards the page: `goto` again after every `setViewport` rather
@@ -150,10 +167,12 @@ helper itself; one written to `/tmp` fails at the import, not at the assertion.
 import { createBrowser } from './scripts/lib/browser.mjs';
 const browser = await createBrowser();
 await browser.goto('data:text/html,' + encodeURIComponent('<dialog id="d"><input></dialog>'));
-console.log(await browser.eval(`(() => {
+console.log(
+  await browser.eval(`(() => {
   document.getElementById('d').showModal();
   return document.activeElement.tagName;
-})()`));
+})()`)
+);
 await browser.close();
 ```
 

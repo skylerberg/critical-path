@@ -9,6 +9,7 @@ import {
   type Options,
 } from 'svelte-dnd-action';
 import Nav from './Nav.svelte';
+import { board } from '../lib/board.svelte';
 import { motion } from '../lib/motion.svelte';
 import { projects, type Project } from '../lib/projects.svelte';
 import { realtime } from '../lib/realtime.svelte';
@@ -105,6 +106,7 @@ beforeEach(() => {
   zoneOptions.length = 0;
   motion.reduced = false;
   projects.reset();
+  board.reset();
   session.user = me;
   session.status = 'authed';
   realtime.disconnect();
@@ -598,5 +600,33 @@ describe('Nav unseen changes dot', () => {
 
     expect(sidebarRowNames()).toEqual(['A', 'B']);
     expect(screen.queryAllByText('Unseen changes')).toEqual([]);
+  });
+});
+
+// The indicator is the only thing that says a background read failed: the board
+// stays on screen deliberately, so without this the app quietly stops matching
+// the server. Asserted through Nav because that is where SyncStatus is mounted.
+describe('Nav sync indicator', () => {
+  function state(): string | null {
+    return (
+      document.querySelector('[data-testid="sync-status"]')?.getAttribute('data-state') ?? null
+    );
+  }
+
+  it('says nothing when the last read landed', () => {
+    board.staleRead = false;
+
+    render(Nav);
+
+    expect(state()).toBeNull();
+  });
+
+  it('reports a board left behind by a failed refresh', () => {
+    board.staleRead = true;
+
+    render(Nav);
+
+    expect(state()).toBe('stale');
+    expect(screen.getByText('Could not refresh — showing an older version')).toBeInTheDocument();
   });
 });

@@ -47,28 +47,25 @@
   let promotingId = $state<string | null>(null);
   let mounted = true;
 
-  // Declared above the reset below, and it matters: Svelte runs each effect's
-  // teardown immediately before that same effect's body, so this one still sees the
-  // open edit and sends it to the card it was typed on rather than the one arriving.
-  // On a plain unmount it is the only thing that runs at all — removing a focused
-  // input is not a blur, so nothing else would save it.
+  // The teardown pairs with the reset in the same body, which is what makes it
+  // safe: Svelte runs an effect's teardown immediately before that same effect's
+  // body, so the open edit is always sent before `editingId = null` clears it, and
+  // no other effect can be reordered into the gap. It sends to the id captured on
+  // the previous run, since taskId has already moved by then. On a plain unmount it
+  // is the only half that runs — removing a focused input is not a blur.
   $effect(() => {
     const id = taskId;
-    return () => {
-      if (editingId !== null) {
-        commitEdit(editingId, id);
-      }
-    };
-  });
-
-  $effect(() => {
-    void taskId;
     dragging = false;
     dragOrigin = null;
     draft = '';
     editingId = null;
     confirmingDeleteId = null;
     promotingId = null;
+    return () => {
+      if (editingId !== null) {
+        commitEdit(editingId, id);
+      }
+    };
   });
 
   $effect(() => {
@@ -155,9 +152,10 @@
   }
 
   // Enter commits and unmounts the input, so the blur that follows finds the edit
-  // already closed and this returns without writing it twice. `id` is a parameter
-  // for the teardown flush alone, which runs once taskId has already moved on.
-  function commitEdit(itemId: string, id: string = taskId): void {
+  // already closed and this returns without writing it twice. `id` is required
+  // rather than defaulted so it cannot silently be the wrong card: the teardown
+  // flush runs once taskId has already moved on.
+  function commitEdit(itemId: string, id: string): void {
     if (editingId !== itemId) {
       return;
     }
@@ -279,10 +277,10 @@
               aria-label="Rename {item.text}"
               maxlength={TASK_TITLE_MAX_LENGTH}
               autocapitalize="sentences"
-              onblur={() => commitEdit(item.id)}
+              onblur={() => commitEdit(item.id, taskId)}
               onkeydown={(event) => {
                 if (event.key === 'Enter') {
-                  commitEdit(item.id);
+                  commitEdit(item.id, taskId);
                 } else if (event.key === 'Escape') {
                   editingId = null;
                 }

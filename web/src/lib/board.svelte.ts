@@ -198,6 +198,13 @@ class BoardStore {
   // When the board on screen last came from the server. Read by the sync
   // indicator so "offline" can say how stale it is rather than only that it is.
   syncedAt = $state<string | null>(null);
+  // The last refresh did not produce server data, and the board on screen is
+  // whatever preceded it. Separate from `error`, which replaces the board with an
+  // error page: this is the case where the board stays up, which is the right call
+  // for a read nobody asked for and the reason one needs saying out loud at all.
+  // Neither the outbox nor the socket can stand in for it — a read can fail with
+  // nothing queued and the socket fine, and that combination shows nothing else.
+  staleRead = $state(false);
   currentProjectId = $state<string | null>(null);
   readonly = $state(false);
   canEdit = $derived(this.project !== null && canEditProject(this.project, session.user?.id));
@@ -372,10 +379,15 @@ class BoardStore {
         }
       }
       this.syncedAt = new Date().toISOString();
+      this.staleRead = false;
     } catch (error) {
       if (token !== this.#fetchToken) {
         return;
       }
+      // Set before the two returns below, because both of them leave the previous
+      // board on screen: quiet is the whole point of those returns, and a quiet
+      // failure nobody records is a board that silently stops matching the server.
+      this.staleRead = true;
       // A server that refused is a real error. A server that could not be
       // reached is not, as long as this device still has the board: showing the
       // last known state and saying so beats an error page over data we have.
@@ -473,7 +485,8 @@ class BoardStore {
   // has to come through here instead. Quiet for the same reason: every caller — the
   // outbox settling, a socket reconnect, a failed mutation — is repairing a board
   // that is already on screen, and a repair that fails should leave the stale copy
-  // up (SyncStatus is already saying how old it is) rather than take the screen.
+  // up rather than take the screen. `staleRead` is what then says so; quiet means
+  // no error page, not no signal.
   async resync(): Promise<void> {
     await this.refetch({ quiet: true });
     await this.refetchArchived();
@@ -578,6 +591,7 @@ class BoardStore {
     this.taskAttachments = {};
     this.loading = false;
     this.syncedAt = null;
+    this.staleRead = false;
     this.error = null;
     this.errorStatus = null;
     this.dragging = false;

@@ -1,4 +1,4 @@
-// Headless-Chrome helper for the layout checks and ad-hoc repro, backed by
+// Headless-browser helper for the layout checks and ad-hoc repro, backed by
 // Playwright. Exposes the same minimal surface the old hand-rolled CDP helper
 // did — createBrowser() -> { setViewport, goto, eval, screenshot, close } — so
 // the check scripts and the browser-repro workflow don't change shape, only the
@@ -7,27 +7,43 @@
 //
 //   import { createBrowser } from './lib/browser.mjs';
 //   const browser = await createBrowser();
-//   if (!browser) { console.warn('no Chromium'); process.exit(0); } // local-only skip
+//   if (!browser) { console.warn('no browser'); process.exit(0); } // local-only skip
 //   await browser.setViewport({ width: 390, height: 844, mobile: true });
 //   await browser.goto('http://localhost:5180/scripts/board-probe.html?cols=4');
 //   const sw = await browser.eval('document.documentElement.scrollWidth');
 //   await browser.close();
 //
-// createBrowser() returns null only when run locally without Chromium installed
-// (so a dev who hasn't run `npx playwright install chromium` isn't blocked). In
-// CI (process.env.CI set) a launch failure is a real error and is thrown, so the
-// layout gate can't be silently bypassed by a missing browser.
+// `engine: 'webkit'` runs the same probe under WebKit, which is the engine on
+// every iOS browser and the one this app's bug reports come from. It is worth
+// reaching for whenever a question is about focus, the on-screen keyboard, or
+// what an unmount does to a focused field — the places Chromium and WebKit have
+// historically disagreed, and where believing Chromium alone has been wrong.
+// Nothing committed runs under it today: the layout checks are Chromium-only, so
+// CI installs only Chromium, and a committed check that asked for WebKit would
+// fail loudly there rather than skip.
+//
+// createBrowser() returns null only when run locally without that engine
+// installed (so a dev who hasn't run `npm run playwright:install` isn't
+// blocked). In CI (process.env.CI set) a launch failure is a real error and is
+// thrown, so the layout gate can't be silently bypassed by a missing browser.
 
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
+
+const ENGINES = { chromium, webkit };
 
 /**
- * Launch headless Chromium and return a small measurement helper.
+ * Launch a headless browser and return a small measurement helper.
+ * @param {{headless?: boolean, engine?: 'chromium'|'webkit'}} [options]
  * @returns {Promise<{setViewport, goto, eval, screenshot, close}|null>}
  */
-export async function createBrowser({ headless = true } = {}) {
+export async function createBrowser({ headless = true, engine = 'chromium' } = {}) {
+  const launcher = ENGINES[engine];
+  if (!launcher) {
+    throw new Error(`Unknown browser engine "${engine}" — expected chromium or webkit`);
+  }
   let browser;
   try {
-    browser = await chromium.launch({ headless });
+    browser = await launcher.launch({ headless });
   } catch (error) {
     if (process.env.CI) throw error;
     // Locally, a missing browser shouldn't block the rest of the checks — let the
