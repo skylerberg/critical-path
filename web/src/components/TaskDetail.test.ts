@@ -991,7 +991,10 @@ describe('TaskDetail', () => {
     await waitFor(() => expect(redirectSpy).toHaveBeenCalledWith(BOARD_PATH));
   });
 
-  it('discards an uncommitted title edit when the overlay closes', async () => {
+  // On a phone the back gesture is the dismissal, and it unmounts the dialog without
+  // ever blurring the field. jsdom models that exactly: unmount() fires no blur, so
+  // this is the case a green suite used to say nothing about.
+  it('commits an uncommitted title edit when the overlay closes', async () => {
     const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
       status: 'ok',
       updated_at: SERVER_UPDATED_AT,
@@ -1001,14 +1004,66 @@ describe('TaskDetail', () => {
       target: { value: 'Design cards v2' },
     });
     first.unmount();
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(update.mock.calls[0]![0]).toBe(T1);
+    expect(update.mock.calls[0]![1]).toEqual({ title: 'Design cards v2' });
+  });
+
+  it('does not re-send a committed title when the overlay then closes', async () => {
+    const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
+      status: 'ok',
+      updated_at: SERVER_UPDATED_AT,
+    });
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await editTitle('Design cards v2');
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+
+    first.unmount();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  // The write would 404, and a refetch that carried it would put the card back on
+  // the board — the same reason the description save bails while removing.
+  it('does not commit the title of a card being archived', async () => {
+    const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
+      status: 'ok',
+      updated_at: SERVER_UPDATED_AT,
+    });
+    vi.spyOn(board, 'archiveTask').mockResolvedValue(undefined);
+    vi.spyOn(router, 'redirect').mockImplementation(() => {});
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await fireEvent.input(screen.getByLabelText('Task title'), {
+      target: { value: 'Design cards v2' },
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    first.unmount();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(update).not.toHaveBeenCalled();
+  });
 
-    renderDetail({ taskId: T1, closePath: BOARD_PATH });
-    const reopened = screen.getByLabelText('Task title');
-    expect(reopened).toHaveValue('Design cards');
+  // The conflict banner already promises this text is safe and unsent until the user
+  // chooses; closing the card must not quietly choose for them.
+  it('does not commit the title while a conflict is unresolved', async () => {
+    conflictDrafts.set(T1, {
+      mine: { title: 'Mine', description: null },
+      base: { title: 'Design cards', description: null },
+    });
+    const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
+      status: 'ok',
+      updated_at: SERVER_UPDATED_AT,
+    });
+    const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await fireEvent.input(screen.getByLabelText('Task title'), {
+      target: { value: 'Design cards v2' },
+    });
+    first.unmount();
 
-    await fireEvent.blur(reopened);
-
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(update).not.toHaveBeenCalled();
   });
 
@@ -1030,13 +1085,44 @@ describe('TaskDetail', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('does not carry a title edit onto another task', async () => {
+  // The draft is now sent rather than dropped, so "does not carry onto another task"
+  // has to mean the write names the card it was typed on — not that nothing happens.
+  it('sends a title edit to the task it was typed on, not the next one opened', async () => {
+    const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
+      status: 'ok',
+      updated_at: SERVER_UPDATED_AT,
+    });
     const first = renderDetail({ taskId: T1, closePath: BOARD_PATH });
     await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Only t1' } });
     first.unmount();
 
     renderDetail({ taskId: T2, closePath: BOARD_PATH });
 
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(update.mock.calls[0]![0]).toBe(T1);
+    expect(update.mock.calls[0]![1]).toEqual({ title: 'Only t1' });
+    expect(screen.getByLabelText('Task title')).toHaveValue('Cut prototype');
+  });
+
+  // Switching cards in place — a checklist subtask link, a duplicate — replaces the
+  // taskId under a mounted overlay instead of unmounting it.
+  it('sends the outgoing title when the card is switched in place', async () => {
+    const update = vi.spyOn(board, 'updateTask').mockResolvedValue({
+      status: 'ok',
+      updated_at: SERVER_UPDATED_AT,
+    });
+    const { rerender } = render(TaskDetailRouteHost, {
+      route: { taskId: T1 },
+      closePath: BOARD_PATH,
+      taskPath: (id: string) => overlayTaskPath(id),
+    });
+    await fireEvent.input(screen.getByLabelText('Task title'), { target: { value: 'Only t1' } });
+
+    await rerender({ route: { taskId: T2 } });
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(update.mock.calls[0]![0]).toBe(T1);
+    expect(update.mock.calls[0]![1]).toEqual({ title: 'Only t1' });
     expect(screen.getByLabelText('Task title')).toHaveValue('Cut prototype');
   });
 

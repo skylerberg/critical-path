@@ -48,6 +48,20 @@
     linkError = false;
   }
 
+  // Declared above the reset below so its teardown still sees the open edit, and
+  // reading the store by the captured id rather than through `loaded` keeps the
+  // lookup on the card the title was typed on. On a plain unmount this is the only
+  // thing that runs — removing a focused input is not a blur.
+  $effect(() => {
+    const id = taskId;
+    return () => {
+      const target = (board.taskAttachments[id] ?? []).find((entry) => entry.id === editingId);
+      if (target !== undefined) {
+        commitEdit(target, id);
+      }
+    };
+  });
+
   $effect(() => {
     void taskId;
     addingLink = false;
@@ -165,8 +179,9 @@
   }
 
   // Enter commits and unmounts the input, so the blur that follows finds the edit
-  // already closed and this returns without writing it twice.
-  function commitEdit(attachment: TaskAttachment): void {
+  // already closed and this returns without writing it twice. `id` is a parameter
+  // for the teardown flush alone, which runs once taskId has already moved on.
+  function commitEdit(attachment: TaskAttachment, id: string = taskId): void {
     if (editingId !== attachment.id) {
       return;
     }
@@ -174,7 +189,7 @@
     const title = editDraft.trim();
     const next = title === '' ? null : title;
     if (next !== attachment.title) {
-      void board.patchAttachment(taskId, attachment.id, { title: next });
+      void board.patchAttachment(id, attachment.id, { title: next });
     }
   }
 

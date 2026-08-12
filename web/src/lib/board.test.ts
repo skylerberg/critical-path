@@ -442,6 +442,33 @@ describe('board store load', () => {
     expect(board.loading).toBe(false);
   });
 
+  // The error page replaces the whole route, so raising it over a read nobody asked
+  // for takes down the board and every editor open in it. On a phone that read is
+  // most likely to fail exactly when a handoff interrupts someone mid-sentence.
+  it('keeps the loaded board when a background revalidation fails', async () => {
+    await board.load('p1');
+    const loaded = board.tasks.length;
+    expect(loaded).toBeGreaterThan(0);
+    mockRoutes(() => jsonResponse(500, { error: 'boom' }));
+
+    await board.load('p1');
+    await board.resync();
+
+    expect(board.error).toBeNull();
+    expect(board.tasks).toHaveLength(loaded);
+    expect(board.project?.id).toBe('p1');
+  });
+
+  // The other half: with nothing painted yet there is nothing to protect, and a
+  // silent failure would leave a spinner with no way forward.
+  it('still raises the error page when the first load fails', async () => {
+    mockRoutes(() => jsonResponse(500, { error: 'boom' }));
+
+    await board.load('p1');
+
+    expect(board.error).toBe('boom');
+  });
+
   it('retries after a failed load', async () => {
     let failed = false;
     mockRoutes(() => {

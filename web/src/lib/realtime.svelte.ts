@@ -7,7 +7,7 @@ import { taskSeries } from './taskSeries.svelte';
 import { users } from './users.svelte';
 import type { RealtimeEvent, RealtimeEventType } from './realtime-types';
 import { outbox } from './outbox.svelte';
-import { session } from './session.svelte';
+import { isSignedIn, session } from './session.svelte';
 
 type RealtimeStatus = 'online' | 'offline' | 'connecting';
 
@@ -261,8 +261,24 @@ class RealtimeClient {
   // A 4401 can be a real revocation or a transient auth-protocol close, so let an
   // HTTP round-trip decide rather than blindly logging out: a revoked token clears
   // the session via the existing 401 path, a still-valid one just reconnects.
+  //
+  // refresh() rather than init() while a session is established, because init()
+  // drops status back through 'unknown' and the shell renders a spinner over the
+  // whole app for the duration — unmounting whatever the user had open, for a close
+  // code that is usually transient. A backgrounded phone reconnecting is the common
+  // way to get here, which is the worst moment to blank the screen.
   async #revalidateSession(): Promise<void> {
-    await session.init();
+    if (isSignedIn(session.status)) {
+      try {
+        await session.refresh();
+      } catch {
+        // The 401 that means the token really is gone. init() owns clearing it, and
+        // owns settling an unreachable server against the remembered account.
+        await session.init();
+      }
+    } else {
+      await session.init();
+    }
     if (session.token !== null && !this.#stopped) {
       this.#scheduleReconnect();
     }

@@ -550,6 +550,36 @@ describe('TaskAttachments rename and delete', () => {
     expect(board.taskAttachments[T1][0].filename).toBe('spec.pdf');
   });
 
+  // This section lives inside the task overlay, so it goes when the card is
+  // dismissed — and dismissing it does not blur the title being renamed.
+  it('writes a rename left open when the section unmounts', async () => {
+    const patch = vi.spyOn(board, 'patchAttachment').mockResolvedValue(undefined);
+    board.taskAttachments = { [T1]: [attachment('a1')] };
+    const { unmount } = renderSection();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Rename spec.pdf' }));
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Rename spec.pdf' }), {
+      target: { value: 'The spec' },
+    });
+    unmount();
+
+    expect(patch).toHaveBeenCalledWith(T1, testUuid('a1'), { title: 'The spec' });
+  });
+
+  it('still discards on Escape when the section then unmounts', async () => {
+    const patch = vi.spyOn(board, 'patchAttachment').mockResolvedValue(undefined);
+    board.taskAttachments = { [T1]: [attachment('a1')] };
+    const { unmount } = renderSection();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Rename spec.pdf' }));
+    const input = screen.getByRole('textbox', { name: 'Rename spec.pdf' });
+    await fireEvent.input(input, { target: { value: 'Scrapped' } });
+    await fireEvent.keyDown(input, { key: 'Escape' });
+    unmount();
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
   it('requires two clicks to delete', async () => {
     board.taskAttachments = { [T1]: [attachment('a1')] };
     renderSection();
