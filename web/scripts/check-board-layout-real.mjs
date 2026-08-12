@@ -191,21 +191,39 @@ const SCROLL_PROBE = `(async () => {
   await pause(700);
   const afterWheel = board.scrollLeft;
 
-  // Every snap target must be reachable. The end ones are where that fails:
-  // aligning them needs half a viewport of space beyond the board's gutter, and
-  // without it the ideal scroll position is off the scrollable range entirely —
-  // whereupon a mandatory-snap container resolves to some other column.
+  // Every snap target must be reachable. The end ones are where that fails: a
+  // centered end target needs half a viewport of space beyond the board's gutter,
+  // and without it the ideal scroll position is off the scrollable range entirely
+  // — whereupon a mandatory-snap container resolves to some other column. Aligning
+  // the ends to the board's edges is what buys that back with no space at all.
   const targets = [...board.querySelectorAll('*')].filter(
     (el) => getComputedStyle(el).scrollSnapAlign.split(' ').pop() !== 'none'
   );
-  const offBy = (el) => {
+  const boardStyle = getComputedStyle(board);
+  const padLeft = parseFloat(boardStyle.scrollPaddingLeft) || 0;
+  const padRight = parseFloat(boardStyle.scrollPaddingRight) || 0;
+  // The scrollLeft that parks one target, alignment and all — clientWidth rather
+  // than the rect's right edge, so a scrollbar never enters the reading. The
+  // board's targets no longer agree on alignment: the ends align to its edges and
+  // everything between centers, so measuring every one of them from the middle of
+  // the screen would report the ends as permanently off-snap.
+  const snapLeft = (el) => {
     const r = el.getBoundingClientRect();
     const b = board.getBoundingClientRect();
-    return Math.round(Math.abs((r.left + r.width / 2) - (b.left + board.clientWidth / 2)));
+    const right = b.left + board.clientWidth;
+    const align = getComputedStyle(el).scrollSnapAlign.split(' ').pop();
+    if (align === 'center') {
+      return board.scrollLeft + ((r.left + r.right) / 2 - (b.left + right) / 2);
+    }
+    if (align === 'end') {
+      return board.scrollLeft + (r.right - right + padRight);
+    }
+    return board.scrollLeft + (r.left - b.left - padLeft);
   };
-  // Distance to the NEAREST snap target's center: zero exactly when the board is
-  // parked on a snap position. Parked between two, it is one layout change away
-  // from resolving onto a neighbor.
+  const offBy = (el) => Math.round(Math.abs(snapLeft(el) - board.scrollLeft));
+  // Distance to the NEAREST target's snap position: zero exactly when the board is
+  // parked on one. Parked between two, it is one layout change away from resolving
+  // onto a neighbor.
   const offSnap = () => (targets.length ? Math.min(...targets.map(offBy)) : null);
   const landedOffSnap = offSnap();
 
@@ -250,13 +268,35 @@ const SCROLL_PROBE = `(async () => {
   await pause(700);
   const afterBareScrollEnd = board.scrollLeft;
 
+  // The track's own gutter is the only thing that may sit outside the end targets.
+  // Reading it off the row rather than hard-coding 12 keeps the breakpoint that
+  // sets it in the class list, where it belongs.
+  const rowStyle = getComputedStyle(board.firstElementChild);
+  const gutterLeft = parseFloat(rowStyle.paddingLeft) || 0;
+  const gutterRight = parseFloat(rowStyle.paddingRight) || 0;
+  const first = targets[0];
+  const last = targets[targets.length - 1];
+
   board.scrollTo({ left: 0, behavior: 'auto' });
   await settle();
-  const firstOffCenter = targets.length ? offBy(targets[0]) : null;
   const restingOffSnap = offSnap();
+  // Blank canvas in front of the first column, beyond the gutter every column
+  // gets. Centering the first column is what put half a viewport of it there.
+  const firstEdgeGap = first
+    ? Math.round(first.getBoundingClientRect().left - board.getBoundingClientRect().left - gutterLeft)
+    : null;
+
   board.scrollTo({ left: board.scrollWidth, behavior: 'auto' });
   await settle();
-  const lastOffCenter = targets.length ? offBy(targets[targets.length - 1]) : null;
+  const endOffSnap = offSnap();
+  const lastEdgeGap = last
+    ? Math.round(
+        board.getBoundingClientRect().left +
+          board.clientWidth -
+          gutterRight -
+          last.getBoundingClientRect().right
+      )
+    : null;
 
   // LAST, because it mutates the board: a teammate's column arriving over the
   // wire while the user is only reading. The container must re-snap after the
@@ -302,8 +342,8 @@ const SCROLL_PROBE = `(async () => {
     snapTargets: targets.length,
     snapStopAll: targets.every((el) => getComputedStyle(el).scrollSnapStop === 'always'),
     touchAction: getComputedStyle(board).touchAction,
-    restingOffSnap, landedOffSnap,
-    firstOffCenter, lastOffCenter,
+    restingOffSnap, landedOffSnap, endOffSnap,
+    firstEdgeGap, lastEdgeGap,
     step: board.clientWidth,
   };
 })()`;
@@ -327,6 +367,13 @@ function checkScroll(s, mobile) {
   // A vertical gesture belongs to the column's card list at every width.
   if (Math.abs(s.swipeVertical.after - s.swipeVertical.before) > 2)
     f.push(`a vertical gesture moved the board sideways (${s.swipeVertical.after})`);
+  // The ends of the board sit against its edges, one gutter in — no blank canvas
+  // in front of the first column or behind the last. This is the reading the
+  // percentage side padding used to break: 51px of it on a 390px phone.
+  if (s.firstEdgeGap > 2)
+    f.push(`blank canvas in front of the first column (${s.firstEdgeGap}px past the gutter)`);
+  if (s.lastEdgeGap > 2)
+    f.push(`blank canvas behind the last column (${s.lastEdgeGap}px past the gutter)`);
   if (mobile) {
     const pitch = s.swipeOne.after - s.swipeOne.before;
     // The whole point: a swipe advances exactly one column, and a drag long enough
@@ -357,12 +404,11 @@ function checkScroll(s, mobile) {
       f.push(
         `a column arriving before the viewed one displaced it (${s.columnBeforePrepend} -> ${s.columnAfterPrepend})`
       );
-    // Phones center their columns, so scrolling to either end must land the end
-    // target dead center. A non-zero reading is space the layout never made.
-    if (s.firstOffCenter > 2)
-      f.push(`first column cannot reach center (off by ${s.firstOffCenter}px)`);
-    if (s.lastOffCenter > 2)
-      f.push(`last column cannot reach center (off by ${s.lastOffCenter}px)`);
+    // Scrolled to the far end, the board must be ON that end's snap position and
+    // not merely clamped against the scroll range with a real snap position it
+    // cannot reach — which is what a centered last target with no trailing canvas
+    // leaves, and what mandatory snap then resolves onto some other column.
+    if (s.endOffSnap > 2) f.push(`the end of the board is not a snap position (${s.endOffSnap}px)`);
   } else if (Math.abs(s.swipeFar.after - s.swipeFar.before) > 2) {
     f.push(`a swipe moved a board that does not snap (${s.swipeFar.after})`);
   }
