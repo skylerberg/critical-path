@@ -356,9 +356,10 @@ class RealtimeClient {
         projects.markChanged(event.project_id);
       }
     } else if (SERIES_EVENTS.has(event.type)) {
-      // Not queued behind a drag: a schedule is not a board row, and the panel
-      // that shows it is a modal that cannot be open while one is under way.
+      // Not queued behind a drag: a schedule is not a board row, and neither the
+      // series modal nor an open card can be showing one while a drag runs.
       taskSeries.applyRealtime(event);
+      board.applySeriesRealtime(event);
     } else if (event.type === 'invitations_changed') {
       invitations.applyRealtime(event);
     } else if (event.type === 'user_updated') {

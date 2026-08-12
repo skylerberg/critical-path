@@ -2099,6 +2099,30 @@ describe('archive', () => {
     expect(board.archivedTasks.map((t) => t.id)).toEqual(['t1']);
   });
 
+  // The open card names its recurrence from this record, so a series edited or
+  // deleted elsewhere must not leave it quoting a rule that is gone.
+  it('applySeriesRealtime re-words a card whose rule was edited', () => {
+    board.setTaskSeriesRef('t1', { id: 's1', summary: 'Every Monday' });
+    board.setTaskSeriesRef('t2', { id: 's2', summary: 'Every day' });
+
+    board.applySeriesRealtime(
+      realtimeEvent('series_updated', { id: 's1', summary: 'Every Tuesday' }, 'p1')
+    );
+
+    expect(board.taskSeriesRefs['t1']).toEqual({ id: 's1', summary: 'Every Tuesday' });
+    expect(board.taskSeriesRefs['t2']).toEqual({ id: 's2', summary: 'Every day' });
+  });
+
+  it('applySeriesRealtime stops naming a series that was deleted', () => {
+    board.setTaskSeriesRef('t1', { id: 's1', summary: 'Every Monday' });
+    board.setTaskSeriesRef('t2', { id: 's2', summary: 'Every day' });
+
+    board.applySeriesRealtime(realtimeEvent('series_deleted', { id: 's1' }, 'p1'));
+
+    expect(board.taskSeriesRefs['t1']).toBeNull();
+    expect(board.taskSeriesRefs['t2']).toEqual({ id: 's2', summary: 'Every day' });
+  });
+
   it('applyRealtime task_restored moves the card back onto the board', () => {
     board.applyRealtime(realtimeEvent('task_archived', archivedTask('t1'), 'p1'));
     board.applyRealtime(realtimeEvent('task_restored', task('t1', 'c1', 1000, 'A'), 'p1'));

@@ -150,6 +150,53 @@ describe('task series store', () => {
     expect(taskSeries.list.map((row) => row.id)).toEqual(['created']);
   });
 
+  it('adds the series a card started, and rethrows a rejection', async () => {
+    await loadWith([]);
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, { ...series({ id: 'from-card' }), dropped_image_count: 0 })
+    );
+    const row = await taskSeries.createFromTask('t-1', {
+      id: 'from-card',
+      preset: 'weekly',
+      start_date: '2026-02-02',
+      timezone: 'Europe/Berlin',
+    });
+    expect(row.id).toBe('from-card');
+    expect(new URL(requestAt(1).url).pathname).toBe('/api/tasks/t-1/series');
+    expect(taskSeries.list.map((entry) => entry.id)).toEqual(['from-card']);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(409, { error: 'This card already repeats' }));
+    await expect(
+      taskSeries.createFromTask('t-1', {
+        id: 'again',
+        preset: 'weekly',
+        start_date: '2026-02-02',
+        timezone: 'Europe/Berlin',
+      })
+    ).rejects.toThrow('This card already repeats');
+    expect(taskSeries.list.map((entry) => entry.id)).toEqual(['from-card']);
+  });
+
+  // The card that started it may belong to a project whose series list this
+  // store has never held, and a row filed under the wrong board outlives the
+  // card overlay it was created from.
+  it('keeps a card’s new series out of another project’s list', async () => {
+    await loadWith([], 'p-2');
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, { ...series({ id: 'elsewhere' }), dropped_image_count: 0 })
+    );
+    await taskSeries.createFromTask('t-1', {
+      id: 'elsewhere',
+      preset: 'weekly',
+      start_date: '2026-02-02',
+      timezone: 'Europe/Berlin',
+    });
+
+    expect(taskSeries.list).toEqual([]);
+  });
+
   it('replaces the row on a successful patch and rethrows a rejection', async () => {
     await loadWith([series()]);
 

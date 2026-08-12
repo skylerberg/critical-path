@@ -406,27 +406,54 @@ describe('TaskDetail', () => {
   });
 
   describe('recurrence', () => {
-    it('says a card repeats, in the same words the series panel uses', async () => {
+    function repeats(taskId: string, dueDate: string | null = null): void {
       mockRoutes((request, url) =>
-        request.method === 'GET' && url.pathname === `/api/tasks/${T1}`
+        request.method === 'GET' && url.pathname === `/api/tasks/${taskId}`
           ? jsonResponse(200, {
-              ...board.tasks[0],
+              ...board.tasks.find((t) => t.id === taskId),
               project_id: PROJECT_ID,
+              due_date: dueDate,
+              series_id: 's1',
               series_summary: 'Every Monday',
               images: [],
               comments: [],
             })
           : undefined
       );
+    }
+
+    it('names the recurrence in the Dates section, in the series panel’s words', async () => {
+      repeats(T1);
       renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-      expect(await screen.findByText('Repeats: Every Monday')).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Dates' })).toBeInTheDocument();
+      expect(screen.getByText('Repeats')).toBeInTheDocument();
+      expect(screen.getByText('Every Monday')).toBeInTheDocument();
+    });
+
+    // The section used to key off the due date alone, so a card that only
+    // repeated had nowhere to say so.
+    it('shows the section for a repeating card with no due date', async () => {
+      repeats(T1);
+      board.tasks = board.tasks.map((t) => (t.id === T1 ? { ...t, due_date: null } : t));
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      expect(await screen.findByText('Every Monday')).toBeInTheDocument();
+      expect(screen.queryByText('Due date')).not.toBeInTheDocument();
     });
 
     it('says nothing for a card that came from no series', async () => {
       renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
       await waitFor(() => expect(board.taskAttachments[T1]).toEqual([image]));
+      expect(screen.queryByText('Repeats')).not.toBeInTheDocument();
+    });
+
+    it('keeps the recurrence out of the header', async () => {
+      repeats(T1);
+      renderDetail({ taskId: T1, closePath: BOARD_PATH });
+
+      expect(await screen.findByText('Every Monday')).toBeInTheDocument();
       expect(screen.queryByText(/^Repeats:/)).not.toBeInTheDocument();
     });
   });
@@ -720,7 +747,7 @@ describe('TaskDetail', () => {
     );
     renderDetail({ taskId: T2, closePath: BOARD_PATH });
 
-    for (const name of ['Labels', 'Assignees', 'Due date', 'Blocked by', 'Blocks', 'Checklist']) {
+    for (const name of ['Labels', 'Assignees', 'Dates', 'Blocked by', 'Blocks', 'Checklist']) {
       expect(screen.queryByRole('heading', { name })).toBeNull();
     }
     expect(screen.getByRole('heading', { name: 'Description' })).toBeInTheDocument();
@@ -1431,9 +1458,9 @@ describe('TaskDetail', () => {
   it('sets the due date from the quick bar, and shows no section until there is one', async () => {
     renderDetail({ taskId: T1, closePath: BOARD_PATH });
 
-    expect(screen.queryByRole('heading', { name: 'Due date' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Dates' })).toBeNull();
 
-    await openQuickAction('Due date');
+    await openQuickAction('Dates');
     await fireEvent.change(screen.getByLabelText('Due date'), {
       target: { value: '2026-08-03' },
     });
@@ -1699,7 +1726,7 @@ describe('TaskDetail on a public board', () => {
     expect(screen.queryByRole('heading', { name: 'Assignees' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Blocked by' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Blocks' })).toBeNull();
-    expect(screen.queryByRole('heading', { name: 'Due date' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Dates' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Comments' })).toBeNull();
   });
 
@@ -1708,7 +1735,7 @@ describe('TaskDetail on a public board', () => {
 
     renderDetail({ taskId: T6, ...publicView });
 
-    expect(screen.getByRole('heading', { name: 'Due date' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Dates' })).toBeInTheDocument();
     expect(screen.getByText(/2026/)).toBeInTheDocument();
     expect(screen.queryByLabelText('Due date')).toBeNull();
     expect(screen.queryByRole('button', { name: '+ Add due date' })).toBeNull();

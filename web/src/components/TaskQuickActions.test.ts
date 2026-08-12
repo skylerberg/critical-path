@@ -60,7 +60,7 @@ describe('TaskQuickActions', () => {
   it('offers every way into the card, with the column named on its own button', () => {
     renderBar();
 
-    for (const name of ['Checklist', 'Due date', 'Assign', 'Labels', 'Attach', 'Dependencies']) {
+    for (const name of ['Checklist', 'Dates', 'Assign', 'Labels', 'Attach', 'Dependencies']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
     // No Column section exists any more, so the button is the column display.
@@ -83,10 +83,10 @@ describe('TaskQuickActions', () => {
   it('opens at most one panel', async () => {
     renderBar();
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Due date' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Dates' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Assign' }));
 
-    expect(screen.queryByRole('group', { name: 'Set due date' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Dates' })).toBeNull();
     expect(screen.getByRole('group', { name: 'Assign' })).toBeInTheDocument();
   });
 

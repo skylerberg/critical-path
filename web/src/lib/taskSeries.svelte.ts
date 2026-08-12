@@ -5,6 +5,7 @@ import { toasts } from './toasts.svelte';
 
 export type TaskSeries = components['schemas']['TaskSeries'];
 export type CreateTaskSeriesBody = components['schemas']['CreateTaskSeries'];
+export type CreateSeriesFromTaskBody = components['schemas']['CreateSeriesFromTask'];
 export type PatchTaskSeriesBody = components['schemas']['PatchTaskSeries'];
 
 class TaskSeriesStore {
@@ -89,6 +90,23 @@ class TaskSeriesStore {
     this.#listToken += 1;
     const row = assertOk(await api.POST('/api/task-series', { body }));
     this.list = [...this.list, row];
+    return row;
+  }
+
+  // The card is adopted as the series' first occurrence, so the row lands here
+  // and the caller is handed it to name the recurrence on the card without a
+  // second read. Rejection is rethrown for the panel to show inline.
+  async createFromTask(taskId: string, body: CreateSeriesFromTaskBody): Promise<TaskSeries> {
+    this.#listToken += 1;
+    const row = assertOk(
+      await api.POST('/api/tasks/{id}/series', { params: { path: { id: taskId } }, body })
+    );
+    // Only into a list this project already loaded: appending to a list still
+    // holding another project's series is how a row shows up under the wrong
+    // board, and the load this project has yet to do will fetch it anyway.
+    if (this.loaded && row.project_id === this.currentProjectId) {
+      this.list = [...this.list, row];
+    }
     return row;
   }
 

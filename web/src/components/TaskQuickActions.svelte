@@ -4,14 +4,14 @@
   import { append } from '../lib/ranks';
   import AssigneeSearchMenu from './AssigneeSearchMenu.svelte';
   import DependencyPicker from './DependencyPicker.svelte';
-  import DueDatePicker from './DueDatePicker.svelte';
+  import DatesPanel from './DatesPanel.svelte';
   import LabelSearchMenu from './LabelSearchMenu.svelte';
   import Button from './ui/Button.svelte';
   import Popover from './ui/Popover.svelte';
 
   export type QuickAction =
     | 'checklist'
-    | 'due'
+    | 'dates'
     | 'assign'
     | 'labels'
     | 'column'
@@ -102,7 +102,7 @@
   </svg>
 {/snippet}
 
-{#snippet dueIcon()}
+{#snippet datesIcon()}
   <svg
     class="size-4"
     viewBox="0 0 24 24"
@@ -226,7 +226,7 @@
 
 <div class="relative flex flex-wrap gap-1">
   {@render action('checklist', 'Checklist', checklistIcon, () => reveal('checklist'))}
-  {@render action('due', 'Due date', dueIcon, () => toggle('due'))}
+  {@render action('dates', 'Dates', datesIcon, () => toggle('dates'))}
   {@render action('assign', 'Assign', assignIcon, () => toggle('assign'))}
   {@render action('labels', 'Labels', labelsIcon, () => toggle('labels'))}
   {@render action('column', columnName, columnIcon, () => toggle('column'))}
@@ -235,9 +235,9 @@
 
   {#if open !== null}
     {@const trigger = buttons[open] ?? undefined}
-    {#if open === 'due'}
-      <Popover {trigger} id={panelId} label="Set due date" onclose={close}>
-        <DueDatePicker {taskId} oncleared={() => close({ restoreFocus: true })} />
+    {#if open === 'dates'}
+      <Popover {trigger} id={panelId} label="Dates" onclose={close}>
+        <DatesPanel {taskId} oncleared={() => close({ restoreFocus: true })} />
       </Popover>
     {:else if open === 'assign'}
       <Popover {trigger} id={panelId} label="Assign" onclose={close}>
