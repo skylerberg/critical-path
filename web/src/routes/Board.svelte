@@ -132,6 +132,15 @@
   // The board's last snap target is the "+ Add column" tile, so a column only ends
   // the board when that tile is not rendered. A lone column on a readonly board
   // matches both arms; start wins, which is right — such a board does not scroll.
+  //
+  // Mixing alignments makes the swipe pitch uneven at the ends. That is a cost of
+  // this arrangement rather than an oversight in it, and it is bigger than it
+  // looks from a portrait phone. Measured in Chrome, the gaps between consecutive
+  // snap positions are 261, 300 x6, 261 at 390px — 13%, invisible — but 86,
+  // 300 x6, 86 at 740px, where two columns already fit and the first swipe
+  // therefore travels a third as far as every swipe after it. Uniform
+  // start-alignment would flatten it to 300 everywhere; the centered middle is
+  // what it would cost.
   const endColumnIndex = $derived(readonly ? localColumns.length - 1 : -1);
   function columnSnapAlign(index: number): string {
     if (index === 0) {
