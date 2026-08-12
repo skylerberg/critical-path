@@ -5,7 +5,7 @@ import { tick } from 'svelte';
 import { SHADOW_PLACEHOLDER_ITEM_ID, SOURCES, TRIGGERS, type Options } from 'svelte-dnd-action';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
-import { SWIPE_COMMIT_PX } from '../lib/board-scroll';
+import { SWIPE_COMMIT_PX } from '../lib/board-swipe';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';

@@ -1,4 +1,12 @@
 /**
+ * Where the board's horizontal scroller goes, and how fast.
+ *
+ * Pure geometry: the component supplies live rects and pointer positions, so
+ * every decision here is unit-testable without a layout engine. The touch swipe
+ * that chooses WHICH column to go to lives in `board-swipe.ts`.
+ */
+
+/**
  * Horizontal auto-scroll speed (px/sec) for the board while dragging, based on
  * how far the pointer is into the left/right edge band.
  *
@@ -59,72 +67,6 @@ export function fitsHorizontally(view: Span, target: Span): boolean {
   return (
     target.left >= view.left - EDGE_TOLERANCE_PX && target.right <= view.right + EDGE_TOLERANCE_PX
   );
-}
-
-interface VerticalSpan {
-  top: number;
-  bottom: number;
-}
-
-/**
- * The `scrollTop` delta bringing `target` inside `view`, moving as little as
- * possible — `scrollIntoView({ block: 'nearest' })` for one element, on one
- * axis. The real thing walks EVERY scrollable ancestor, one of which is the
- * board's horizontal snap scroller: it pans the board, which then re-resolves
- * onto a different column.
- *
- * A target taller than the view aligns to its top, as `nearest` does.
- */
-export function verticalRevealDelta(view: VerticalSpan, target: VerticalSpan): number {
-  if (target.top < view.top || target.bottom - target.top > view.bottom - view.top) {
-    return target.top - view.top;
-  }
-  if (target.bottom > view.bottom) {
-    return target.bottom - view.bottom;
-  }
-  return 0;
-}
-
-/** Finger travel that commits a swipe to the next column. */
-export const SWIPE_COMMIT_PX = 44;
-/** ...or the speed at which a short flick commits anyway. */
-export const SWIPE_COMMIT_PX_PER_S = 300;
-/** Travel on either axis before a gesture is judged horizontal or vertical. */
-export const SWIPE_AXIS_LOCK_PX = 8;
-/**
- * Shortest interval velocity may be measured over. Dividing by a sub-frame gap
- * turns a few pixels of jitter into thousands of px/s, which would page the board
- * off the end of a slow drag the user meant to abandon.
- */
-export const SWIPE_VELOCITY_SAMPLE_MS = 8;
-
-/**
- * Where a finished swipe should land, as an index into the board's snap targets.
- *
- * The cap is structural: the result is `origin`, `origin - 1` or `origin + 1` and
- * nothing else can be expressed. That is the point. `scroll-snap-stop: always`
- * only constrains the *inertial* phase of a native scroll, so it cannot stop a
- * long drag crossing two columns, and engines disagree about honouring it during
- * momentum at all — leaving the browser to choose and correcting afterwards is
- * what made the board jump back.
- *
- * @param origin  Snap index the board rested at when the finger went down.
- * @param dx      Net finger travel; negative means the content advances.
- * @param velocityPxPerS Finger speed at release, same sign as `dx`.
- * @param lastIndex Highest selectable snap index.
- */
-export function swipeTarget(
-  origin: number,
-  dx: number,
-  velocityPxPerS: number,
-  lastIndex: number
-): number {
-  const committed =
-    Math.abs(dx) >= SWIPE_COMMIT_PX || Math.abs(velocityPxPerS) >= SWIPE_COMMIT_PX_PER_S;
-  if (!committed || dx === 0) {
-    return origin;
-  }
-  return Math.min(lastIndex, Math.max(0, origin + (dx < 0 ? 1 : -1)));
 }
 
 /** Inline-axis `scroll-snap-align` of a column. The board uses both. */
