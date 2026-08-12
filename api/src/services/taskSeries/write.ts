@@ -1,12 +1,17 @@
 import { sql, type Kysely, type RawBuilder, type UpdateObject } from 'kysely';
 import type { DB } from '../../db/types';
-import { mapTiptapDoc } from '../../schemas/index';
-import type { CreateTaskSeriesInput, PatchTaskSeriesInput, TiptapDoc } from '../../schemas/index';
+import { MAX_SERIES_CHECKLIST_ITEMS, mapTiptapDoc } from '../../schemas/index';
+import type {
+  CreateSeriesFromTaskInput,
+  CreateTaskSeriesInput,
+  PatchTaskSeriesInput,
+  TiptapDoc,
+} from '../../schemas/index';
 import { dedupe } from '../../utils/arrays';
 import { AppError } from '../../utils/errors';
 import type { ProjectAccessFields } from '../authorization';
 import { assertColumnInProject } from '../boardColumns';
-import { todayInZone } from '../dateText';
+import { dateText, todayInZone } from '../dateText';
 import { serializeDescription } from '../description';
 import { assertAssigneesHaveProjectAccess, assertLabelsInProject } from '../projectScope';
 import { keysBetween } from '../sortKey';
@@ -203,6 +208,91 @@ export async function createSeries(
     },
     false
   );
+
+  return droppedImageCount;
+}
+
+export interface SeriesTemplateTask {
+  id: string;
+  project_id: string;
+  column_id: string;
+  title: string;
+  description: TiptapDoc | null;
+  due_date: string | null;
+}
+
+// The card is adopted as the series' own first occurrence rather than left
+// beside a series that merely resembles it: the sweep's unique-index conflict
+// then skips that date, so the day a card starts repeating produces no second
+// copy of the card that started it, and `open_occurrence_count` counts it.
+export async function createSeriesFromTask(
+  db: Kysely<DB>,
+  userId: string,
+  project: ProjectAccessFields,
+  task: SeriesTemplateTask,
+  body: CreateSeriesFromTaskInput
+): Promise<number> {
+  const labelRows = await db
+    .selectFrom('task_label')
+    .select('label_id')
+    .where('task_id', '=', task.id)
+    .execute();
+  const assigneeRows = await db
+    .selectFrom('task_assignee')
+    .select('user_id')
+    .where('task_id', '=', task.id)
+    .execute();
+  const checklistRows = await db
+    .selectFrom('checklist_item')
+    .select('text')
+    .where('task_id', '=', task.id)
+    .orderBy('sort_key')
+    .orderBy('id')
+    .execute();
+
+  // Refused rather than truncated: a template quietly missing the tail of the
+  // card's checklist is a difference nothing afterwards would show.
+  if (checklistRows.length > MAX_SERIES_CHECKLIST_ITEMS) {
+    throw new AppError(
+      422,
+      `A recurring card holds at most ${String(MAX_SERIES_CHECKLIST_ITEMS)} checklist items`
+    );
+  }
+
+  const droppedImageCount = await createSeries(db, userId, project, {
+    id: body.id,
+    project_id: task.project_id,
+    column_id: task.column_id,
+    title: task.title,
+    description: task.description,
+    due_date: task.due_date,
+    start_date: body.start_date,
+    timezone: body.timezone,
+    ...(body.preset === undefined ? {} : { preset: body.preset }),
+    ...(body.rrule === undefined ? {} : { rrule: body.rrule }),
+    label_ids: labelRows.map((row) => row.label_id),
+    assignee_ids: assigneeRows.map((row) => row.user_id),
+    checklist_items: checklistRows.map((row) => ({ text: row.text })),
+  });
+
+  // Read back rather than recomputed: createSeries already anchored the first
+  // occurrence on or after today, and computing it a second time here is how
+  // the two would drift.
+  const scheduled = await db
+    .selectFrom('task_series')
+    .select(dateText('task_series.next_occurrence_date').as('next_occurrence_date'))
+    .where('task_series.id', '=', body.id)
+    .executeTakeFirstOrThrow();
+
+  await db
+    .updateTable('task')
+    .set({
+      series_id: body.id,
+      series_occurrence_date: scheduled.next_occurrence_date,
+      updated_at: sql<Date>`now()`,
+    })
+    .where('id', '=', task.id)
+    .execute();
 
   return droppedImageCount;
 }
