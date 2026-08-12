@@ -392,6 +392,144 @@ for (const c of SCROLL_CASES) {
   }
 }
 
+// --- Card drags: which column a drop lands in ---
+// svelte-dnd-action hit-tests the CENTER of the floating card by default, not the
+// pointer. A card is nearly as wide as its column here, so grabbing one anywhere
+// but the middle puts its center up to half a column from the finger — enough to
+// have the finger well inside the next column while the center is still in this
+// one, whereupon the drop bounces back to where it started. `useCursorForDetection`
+// on the task zone is what makes the finger decide, and this is the only check
+// that can see it: jsdom lays nothing out, so every coordinate above is fiction
+// there, and the unit test can only assert the option is passed, not that it works.
+//
+// Every case grabs the card near its RIGHT edge and drags right. That is the
+// asymmetry the bug lives in — the center trails the finger — and a mid-card grab
+// would pass either way.
+const DRAG_PROBE = `(async (c) => {
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  const span = (el) => { const r = el.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right) }; };
+  const lists = () => [...document.querySelectorAll('[data-task-list]')].map((l) => ({ id: l.dataset.taskList, ...span(l) }));
+  // The list under a point, ignoring the floating card itself — it sits under the
+  // pointer at every moment of the drag and would answer for every query.
+  const under = (x, y) => {
+    for (const el of document.elementsFromPoint(x, y)) {
+      if (el.closest('#dnd-action-dragged-el')) continue;
+      const list = el.closest('[data-task-list]');
+      if (list) return list.dataset.taskList;
+    }
+    return null;
+  };
+
+  const originList = document.querySelector('[data-task-list]');
+  const card = originList.querySelector('[data-task-id]');
+  const cr = card.getBoundingClientRect();
+  const origin = originList.dataset.taskList;
+  const taskId = card.dataset.taskId;
+  const grabX = Math.round(cr.right - 16);
+  const grabY = Math.round(cr.top + cr.height / 2);
+
+  const touch = (target, type, x, y) => {
+    const t = new Touch({ identifier: 1, target: card, clientX: x, clientY: y });
+    target.dispatchEvent(new TouchEvent(type, {
+      bubbles: true, cancelable: true,
+      touches: type === 'touchend' ? [] : [t],
+      changedTouches: [t],
+    }));
+  };
+  const mouse = (target, type, x, y) =>
+    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+  // Moves go to document, not window: the board's edge auto-scroller listens on
+  // document in capture and the drag library on window, and only an event that
+  // bubbles reaches both the way a real one does.
+  const down = (x, y) => (c.pointer === 'touch' ? touch(card, 'touchstart', x, y) : mouse(card, 'mousedown', x, y));
+  const move = (x, y) => (c.pointer === 'touch' ? touch(document, 'touchmove', x, y) : mouse(document, 'mousemove', x, y));
+  const up = (x, y) => (c.pointer === 'touch' ? touch(document, 'touchend', x, y) : mouse(document, 'mouseup', x, y));
+
+  down(grabX, grabY);
+  // A touch drag arms on a timer (TOUCH_DRAG_DELAY_MS), and moving before it
+  // elapses cancels the drag and scrolls the page instead — so this waits it out
+  // rather than racing it. A mouse drag arms on the first move.
+  if (c.pointer === 'touch') await pause(320);
+  const armed = !!document.getElementById('dnd-action-dragged-el') || c.pointer === 'mouse';
+
+  const steps = Math.max(1, Math.round(Math.abs(c.toX - grabX) / 12));
+  for (let i = 1; i <= steps; i++) {
+    move(Math.round(grabX + ((c.toX - grabX) * i) / steps), grabY);
+    await pause(24);
+  }
+  // The drop zone is re-decided on a poll (~160ms at this flip duration), not per
+  // move, and the drop commits to whatever that poll last said. Holding still for
+  // longer than one interval is what a finger pausing before it lifts does.
+  await pause(c.hold);
+
+  const dragged = document.getElementById('dnd-action-dragged-el');
+  const dr = dragged && dragged.getBoundingClientRect();
+  const at = {
+    armed,
+    origin,
+    taskId,
+    underFinger: under(c.toX, grabY),
+    cardCenter: dr && Math.round((dr.left + dr.right) / 2),
+    lists: lists(),
+  };
+
+  up(c.toX, grabY);
+  await pause(700);
+
+  const el = document.querySelector('[data-task-id="' + taskId + '"]');
+  return {
+    ...at,
+    landed: el ? el.closest('[data-task-list]').dataset.taskList : null,
+    moves: window.__moves.map((m) => m.columnId),
+  };
+})`;
+
+function checkDrag(d) {
+  const f = [];
+  // Without this every assertion below is vacuous: a gesture that never became a
+  // drag leaves the card where it was, which is also what a bounced drop looks like.
+  if (!d.armed) f.push('the press never armed a drag (no floating card)');
+  // Guards the probe, not the board: if the finger did not actually reach another
+  // column, "landed where the finger was" is true for free.
+  if (d.underFinger === null) f.push(`the finger ended over no column at all (x=${d.toX})`);
+  else if (d.underFinger === d.origin)
+    f.push(`the drag never left ${d.origin} — probe geometry is wrong, not the board`);
+  else {
+    if (d.landed !== d.underFinger)
+      f.push(`dropped into ${d.landed} with the finger over ${d.underFinger}`);
+    if (d.moves.length !== 1 || d.moves[0] !== d.underFinger)
+      f.push(`board recorded moves [${d.moves.join(',')}] (want one, to ${d.underFinger})`);
+  }
+  return f;
+}
+
+// `hold` is per case because the board scrolls under a finger parked in its edge
+// band, and on a phone the next column's only visible sliver IS in that band:
+// hold too long and a further column has arrived under the finger, which is a
+// different question than the one being asked here.
+const DRAG_CASES = [
+  { w: 768, h: 900, cols: 4, tasks: 3, pointer: 'touch', toX: 350, hold: 400 }, // two columns fully visible, no auto-scroll
+  { w: 390, h: 844, cols: 4, tasks: 3, pointer: 'touch', toX: 370, hold: 260 }, // phone: release over the next column's sliver
+  { w: 1280, h: 800, cols: 4, tasks: 3, pointer: 'mouse', toX: 600, hold: 400 }, // same rule for a mouse
+];
+
+console.log('\ncheck:layout:real — card drop targeting');
+for (const c of DRAG_CASES) {
+  await setViewport({ width: c.w, height: c.h, mobile: c.w < 1024 });
+  await goto(`${PROBE}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
+  const d = await evalPage(`(${DRAG_PROBE})(${JSON.stringify(c)})`);
+  const failures = checkDrag({ ...d, toX: c.toX });
+  const tag = `${c.w}x${c.h} ${c.pointer} drag to x=${c.toX}`;
+  if (failures.length) {
+    failed++;
+    console.log(`  ✗ ${tag}`);
+    for (const x of failures) console.log(`      - ${x}`);
+    console.log(`      metrics: ${JSON.stringify(d)}`);
+  } else {
+    console.log(`  ✓ ${tag} (${d.origin} -> ${d.landed}, card center at ${d.cardCenter})`);
+  }
+}
+
 await close();
 await teardown();
 if (failed > 0) {
