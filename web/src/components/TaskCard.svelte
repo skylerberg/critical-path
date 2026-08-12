@@ -1,11 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import {
-    isDirectPointerEvent,
-    isTextEntry,
-    revealInList,
-    suppressTouchContextMenu,
-  } from '../lib/actions';
+  import { isDirectPointerEvent, isTextEntry, suppressTouchContextMenu } from '../lib/actions';
+  import { revealInList } from '../lib/scroll-reveal';
   import { board } from '../lib/board.svelte';
   import type { BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, focusCard } from '../lib/card-menu.svelte';

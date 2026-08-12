@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { focusIf, revealInList, suppressTouchContextMenu } from './actions';
+import { focusIf, suppressTouchContextMenu } from './actions';
 
 function anchor(guarded = true): HTMLAnchorElement {
   const element = document.createElement('a');
@@ -146,48 +146,5 @@ describe('focusIf', () => {
 
     expect(focus).not.toHaveBeenCalled();
     expect(focused).toBe(0);
-  });
-});
-
-// The board scroller is a scrollable ancestor of every card, so a reveal that
-// delegates to it pans the board sideways. This one moves the list and nothing else.
-describe('revealInList', () => {
-  function list(cardTop: number): { list: HTMLElement; card: HTMLElement } {
-    const listEl = document.createElement('div');
-    const card = document.createElement('div');
-    listEl.append(card);
-    document.body.append(listEl);
-    vi.spyOn(listEl, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 288, 400));
-    vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, cardTop, 288, 60));
-    return { list: listEl, card };
-  }
-
-  it('scrolls the list the least needed to show the card', () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    const { list: listEl, card } = list(380);
-    listEl.scrollTop = 120;
-
-    revealInList(listEl, card, true);
-
-    expect(scrollTo.mock.contexts[0]).toBe(listEl);
-    expect(scrollTo).toHaveBeenCalledWith({ top: 160, behavior: 'smooth' });
-  });
-
-  it('jumps rather than glides when motion is reduced', () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    const { list: listEl, card } = list(380);
-
-    revealInList(listEl, card, false);
-
-    expect(scrollTo).toHaveBeenCalledWith({ top: 40, behavior: 'auto' });
-  });
-
-  it('scrolls nothing when the card already fits', () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    const { list: listEl, card } = list(100);
-
-    revealInList(listEl, card, true);
-
-    expect(scrollTo).not.toHaveBeenCalled();
   });
 });

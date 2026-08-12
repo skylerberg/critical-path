@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { focusIf, revealInList } from '../lib/actions';
+  import { focusIf } from '../lib/actions';
+  import { revealInList } from '../lib/scroll-reveal';
   import { board } from '../lib/board.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { motion } from '../lib/motion.svelte';

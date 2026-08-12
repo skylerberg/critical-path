@@ -15,14 +15,8 @@
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, TOUCH_DRAG_DELAY_MS } from '../lib/card-menu.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
-  import {
-    edgeScrollSpeed,
-    fitsHorizontally,
-    snapScrollLeft,
-    SWIPE_AXIS_LOCK_PX,
-    swipeTarget,
-    SWIPE_VELOCITY_SAMPLE_MS,
-  } from '../lib/board-scroll';
+  import { edgeScrollSpeed, fitsHorizontally, snapScrollLeft } from '../lib/board-scroll';
+  import { SWIPE_AXIS_LOCK_PX, swipeTarget, SWIPE_VELOCITY_SAMPLE_MS } from '../lib/board-swipe';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { truncateTitle } from '../lib/titles';
