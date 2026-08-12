@@ -85,48 +85,46 @@ export function verticalRevealDelta(view: VerticalSpan, target: VerticalSpan): n
   return 0;
 }
 
+/** Finger travel that commits a swipe to the next column. */
+export const SWIPE_COMMIT_PX = 44;
+/** ...or the speed at which a short flick commits anyway. */
+export const SWIPE_COMMIT_PX_PER_S = 300;
+/** Travel on either axis before a gesture is judged horizontal or vertical. */
+export const SWIPE_AXIS_LOCK_PX = 8;
 /**
- * How long after the finger lifts a scroll may still be attributed to that
- * gesture's momentum. A single fling settles well inside this; a second swipe
- * chained onto the first spans another drag as well, and lands outside it.
+ * Shortest interval velocity may be measured over. Dividing by a sub-frame gap
+ * turns a few pixels of jitter into thousands of px/s, which would page the board
+ * off the end of a slow drag the user meant to abandon.
  */
-export const MOMENTUM_WINDOW_MS = 800;
+export const SWIPE_VELOCITY_SAMPLE_MS = 8;
 
 /**
- * Which snap target a fling that sailed past several should be pulled back to,
- * or `null` to leave the scroll where it landed.
+ * Where a finished swipe should land, as an index into the board's snap targets.
  *
- * `scroll-snap-stop: always` is what caps a swipe at one column; this is the
- * fallback for an engine that ignores it during momentum, as WebKit did before
- * Safari 15. It has no true positives on any engine that also has `scrollend`,
- * so every guard here is deliberately biased toward doing nothing.
+ * The cap is structural: the result is `origin`, `origin - 1` or `origin + 1` and
+ * nothing else can be expressed. That is the point. `scroll-snap-stop: always`
+ * only constrains the *inertial* phase of a native scroll, so it cannot stop a
+ * long drag crossing two columns, and engines disagree about honouring it during
+ * momentum at all — leaving the browser to choose and correcting afterwards is
+ * what made the board jump back.
  *
- * @param origin   Index the board rested at when the finger went down.
- * @param atLift   Index it had reached when the finger came up.
- * @param settled  Index it came to rest at.
- * @param sinceLiftMs Time from the lift to the settle.
+ * @param origin  Snap index the board rested at when the finger went down.
+ * @param dx      Net finger travel; negative means the content advances.
+ * @param velocityPxPerS Finger speed at release, same sign as `dx`.
+ * @param lastIndex Highest selectable snap index.
  */
-export function overshootTarget(
+export function swipeTarget(
   origin: number,
-  atLift: number,
-  settled: number,
-  sinceLiftMs: number
-): number | null {
-  // Already capped, so nothing to correct.
-  if (Math.abs(settled - origin) <= 1) {
-    return null;
+  dx: number,
+  velocityPxPerS: number,
+  lastIndex: number
+): number {
+  const committed =
+    Math.abs(dx) >= SWIPE_COMMIT_PX || Math.abs(velocityPxPerS) >= SWIPE_COMMIT_PX_PER_S;
+  if (!committed || dx === 0) {
+    return origin;
   }
-  // The drag itself crossed a column: the user moved it there deliberately, and
-  // only travel that came purely from momentum is the bug.
-  if (Math.abs(atLift - origin) >= 1) {
-    return null;
-  }
-  // Too late to be one momentum run, so the sequence held more than one gesture
-  // — a second swipe iOS never reported, or a re-snap after a layout change.
-  if (sinceLiftMs > MOMENTUM_WINDOW_MS) {
-    return null;
-  }
-  return origin + Math.sign(settled - origin);
+  return Math.min(lastIndex, Math.max(0, origin + (dx < 0 ? 1 : -1)));
 }
 
 /** Inline-axis `scroll-snap-align` of a column. The board uses both. */

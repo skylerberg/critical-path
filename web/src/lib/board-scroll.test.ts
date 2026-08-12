@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   edgeScrollSpeed,
   fitsHorizontally,
-  MOMENTUM_WINDOW_MS,
-  overshootTarget,
   snapScrollLeft,
+  SWIPE_COMMIT_PX,
+  SWIPE_COMMIT_PX_PER_S,
+  swipeTarget,
   verticalRevealDelta,
 } from './board-scroll';
 
@@ -136,37 +137,46 @@ describe('snapScrollLeft (center-aligned)', () => {
   });
 });
 
-// Every guard here exists to make the fallback refuse. It has no true positives on
-// any engine that also has `scrollend` — Safari honored scroll-snap-stop from 15,
-// and only got scrollend in 26.2 — so refusing costs nothing and every correction
-// it makes on a scroll it did not fully witness is a false positive.
-describe('overshootTarget', () => {
-  const SOON = 100;
+// The one-column cap is this function's return type in practice: origin, origin-1
+// or origin+1 and nothing else is expressible. Drag length and engine momentum
+// cannot widen it, which is the whole reason the decision moved here from a
+// post-hoc correction.
+describe('swipeTarget', () => {
+  const SLOW = 0;
+  const LAST = 5;
 
-  it('pulls a fling that sailed past several back to one column', () => {
-    expect(overshootTarget(0, 0, 3, SOON)).toBe(1);
+  it('advances one column when the finger drags left past the threshold', () => {
+    expect(swipeTarget(2, -SWIPE_COMMIT_PX, SLOW, LAST)).toBe(3);
   });
 
-  it('pulls one that sailed backwards back to one column', () => {
-    expect(overshootTarget(5, 5, 2, SOON)).toBe(4);
+  it('goes back one column when the finger drags right past the threshold', () => {
+    expect(swipeTarget(2, SWIPE_COMMIT_PX, SLOW, LAST)).toBe(1);
   });
 
-  it('leaves a swipe the browser already capped alone', () => {
-    expect(overshootTarget(0, 0, 1, SOON)).toBeNull();
-    expect(overshootTarget(3, 3, 3, SOON)).toBeNull();
+  // The symptom this whole change exists for: a drag long enough to cross two
+  // columns still lands on the next one.
+  it('advances only one column however far the finger dragged', () => {
+    expect(swipeTarget(0, -2000, SLOW, LAST)).toBe(1);
+    expect(swipeTarget(5, 2000, SLOW, LAST)).toBe(4);
   });
 
-  // A drag that crossed a column carried the board there under the finger; only
-  // travel that came purely from momentum is the bug being compensated for.
-  it('leaves a deliberate drag across several columns alone', () => {
-    expect(overshootTarget(0, 2, 3, SOON)).toBeNull();
+  it('stays put for a drag too short to commit', () => {
+    expect(swipeTarget(2, -(SWIPE_COMMIT_PX - 1), SLOW, LAST)).toBe(2);
   });
 
-  // The iPhone double-swipe: the second gesture's drag and momentum push the
-  // settle past one momentum run, whether or not iOS reported its touchstart.
-  it('leaves a settle that arrives after the momentum window alone', () => {
-    expect(overshootTarget(0, 0, 3, MOMENTUM_WINDOW_MS + 1)).toBeNull();
-    expect(overshootTarget(0, 0, 3, MOMENTUM_WINDOW_MS)).toBe(1);
+  // A quick flick barely travels, and must still page.
+  it('commits a short flick on velocity alone', () => {
+    expect(swipeTarget(2, -4, -SWIPE_COMMIT_PX_PER_S, LAST)).toBe(3);
+    expect(swipeTarget(2, 4, SWIPE_COMMIT_PX_PER_S, LAST)).toBe(1);
+  });
+
+  it('stays put at the ends rather than running off them', () => {
+    expect(swipeTarget(0, 2000, SLOW, LAST)).toBe(0);
+    expect(swipeTarget(LAST, -2000, SLOW, LAST)).toBe(LAST);
+  });
+
+  it('stays put when the finger did not move at all', () => {
+    expect(swipeTarget(2, 0, SWIPE_COMMIT_PX_PER_S, LAST)).toBe(2);
   });
 });
 
