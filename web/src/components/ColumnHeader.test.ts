@@ -255,3 +255,35 @@ describe('ColumnHeader sort submenu', () => {
     expect(screen.queryByRole('menuitem', { name: 'Alphabetically' })).toBeNull();
   });
 });
+
+// A column can go away under an open rename — a project switch, a teammate deleting
+// it, the board rebuilding — and removing the focused input is not a blur, so
+// without a teardown flush nothing would send what was typed.
+describe('ColumnHeader rename', () => {
+  async function startRename(): Promise<HTMLElement> {
+    await fireEvent.click(screen.getByTitle('Rename column'));
+    return screen.getByLabelText('Column name');
+  }
+
+  it('commits a rename left open when the header unmounts', async () => {
+    const rename = vi.spyOn(board, 'renameColumn').mockResolvedValue(undefined);
+    const { unmount } = renderHeader(TODO);
+    await fireEvent.input(await startRename(), { target: { value: 'In progress' } });
+
+    unmount();
+
+    expect(rename).toHaveBeenCalledWith('c1', 'In progress');
+  });
+
+  it('still discards a rename cancelled with Escape', async () => {
+    const rename = vi.spyOn(board, 'renameColumn').mockResolvedValue(undefined);
+    const { unmount } = renderHeader(TODO);
+    const input = await startRename();
+    await fireEvent.input(input, { target: { value: 'Scrapped' } });
+    await fireEvent.keyDown(input, { key: 'Escape' });
+
+    unmount();
+
+    expect(rename).not.toHaveBeenCalled();
+  });
+});

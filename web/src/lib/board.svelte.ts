@@ -252,9 +252,13 @@ class BoardStore {
     this.readonly = wantsReadonly;
     this.setFilters(filters);
     if (sameProject && this.error === null) {
-      // Stale-while-revalidate: serve the cached board flicker-free.
+      // Stale-while-revalidate: serve the cached board flicker-free. Quiet, because
+      // the board is already painted: raising the error page over a revalidation
+      // nobody asked for would replace a working screen — and every open editor in
+      // it — on one bad response. Opening a card runs this, so on a flaky network
+      // it is the read most likely to fail under someone who is mid-sentence.
       if (!this.loading) {
-        void this.refetch();
+        void this.refetch({ quiet: true });
       }
       return;
     }
@@ -297,8 +301,12 @@ class BoardStore {
     }
   }
 
-  // `quiet` suppresses the error page for reads that merely supplement an action
-  // that already succeeded.
+  // `quiet` suppresses the error page for every read the user did not ask for: one
+  // supplementing an action that already succeeded, and every background
+  // revalidation over a board that is already painted. The error page is for a load
+  // with nothing to show behind it, and for the retry button on that page — anywhere
+  // else it throws away a working screen, and any editor open in it, over one bad
+  // response on a network that is about to work again.
   async refetch({ quiet = false }: { quiet?: boolean } = {}): Promise<void> {
     const projectId = this.currentProjectId;
     if (projectId === null) {
@@ -455,9 +463,12 @@ class BoardStore {
   }
 
   // refetch() can only repair the board, so every "reload everything" backstop
-  // has to come through here instead.
+  // has to come through here instead. Quiet for the same reason: every caller — the
+  // outbox settling, a socket reconnect, a failed mutation — is repairing a board
+  // that is already on screen, and a repair that fails should leave the stale copy
+  // up (SyncStatus is already saying how old it is) rather than take the screen.
   async resync(): Promise<void> {
-    await this.refetch();
+    await this.refetch({ quiet: true });
     await this.refetchArchived();
   }
 
@@ -872,8 +883,10 @@ class BoardStore {
     }
     if (result.error.status === 409) {
       // No toast: the caller owns the conflict surface, and the refetch is what
-      // lets it offer the server's current version.
-      await this.refetch();
+      // lets it offer the server's current version. Quiet, because the surface it
+      // is feeding is the open overlay — an error page here would unmount the very
+      // editor holding the text the conflict promises is safe.
+      await this.refetch({ quiet: true });
       return { status: 'conflict' };
     }
     await this.#mutationFailed(result.error);
@@ -2732,13 +2745,13 @@ class BoardStore {
         named.cycle.map((step) => step.title)
       )
     );
-    await this.refetch();
+    await this.refetch({ quiet: true });
   }
 
   // Duplicate-name 409s are rethrown after resync so callers can surface them inline.
   async #labelConflictOrFail(error: unknown): Promise<void> {
     if (error instanceof ApiError && error.status === 409) {
-      await this.refetch();
+      await this.refetch({ quiet: true });
       throw error;
     }
     await this.#mutationFailed(error);

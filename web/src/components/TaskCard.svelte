@@ -91,6 +91,12 @@
     }
   }
 
+  // A card can go away under an open rename — a filter narrowing, a column
+  // rebuilding, a teammate's move — and removing the focused textarea is not a
+  // blur, so nothing else would send what was typed. Escape has already cleared
+  // the rename, so the guard above still discards it.
+  $effect(() => () => commitRename());
+
   // The whole card is covered by its overlay link, so there is no part of it that
   // could keep the browser's menu while the rest gets this one. Suppressing it
   // everywhere and carrying Open in new tab and Copy link inside the menu is the

@@ -582,6 +582,37 @@ describe('TaskCard', () => {
       expect(screen.getByText('Design cards')).toBeInTheDocument();
     });
 
+    // A filter narrowing, a column rebuilding, a teammate moving the card: any of
+    // them takes the textarea out of the DOM, and that is not a blur.
+    it('saves an open rename when the card unmounts', async () => {
+      const updateTask = vi.spyOn(board, 'updateTask').mockResolvedValue({
+        status: 'ok',
+        updated_at: '2026-01-02T00:00:00Z',
+      });
+      const { unmount } = render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
+      await fireEvent.input(await screen.findByLabelText('Task title'), {
+        target: { value: 'Redesign cards' },
+      });
+
+      unmount();
+
+      expect(updateTask).toHaveBeenCalledWith(TASK_ID, { title: 'Redesign cards' });
+    });
+
+    it('still discards on Escape when the card then unmounts', async () => {
+      const updateTask = vi.spyOn(board, 'updateTask');
+      const { unmount } = render(TaskCard, { task, projectId: PROJECT_ID });
+      cardMenu.rename(TASK_ID);
+      const input = await screen.findByLabelText('Task title');
+      await fireEvent.input(input, { target: { value: 'Redesign cards' } });
+      await fireEvent.keyDown(input, { key: 'Escape' });
+
+      unmount();
+
+      expect(updateTask).not.toHaveBeenCalled();
+    });
+
     it('writes nothing for an unchanged or emptied title', async () => {
       const updateTask = vi.spyOn(board, 'updateTask');
       const { unmount } = render(TaskCard, { task, projectId: PROJECT_ID });

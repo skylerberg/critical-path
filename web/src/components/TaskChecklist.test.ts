@@ -422,6 +422,49 @@ describe('TaskChecklist rows', () => {
     expect(screen.getByRole('button', { name: 'Cut prototype' })).toBeInTheDocument();
   });
 
+  // The checklist lives inside the task overlay, so it goes when the card is
+  // dismissed — and dismissing it does not blur the row being renamed.
+  it('renames an item left open when the checklist unmounts', async () => {
+    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const { unmount } = renderChecklist();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Rename Cut prototype' }), {
+      target: { value: 'Cut three prototypes' },
+    });
+    unmount();
+
+    expect(rename).toHaveBeenCalledWith(T1, B.id, 'Cut three prototypes');
+  });
+
+  it('still discards on Escape when the checklist then unmounts', async () => {
+    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const { unmount } = renderChecklist();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
+    const input = screen.getByRole('textbox', { name: 'Rename Cut prototype' });
+    await fireEvent.input(input, { target: { value: 'Scrapped' } });
+    await fireEvent.keyDown(input, { key: 'Escape' });
+    unmount();
+
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  // The switch happens under a mounted component, and the reset that follows it
+  // clears the open edit — so the flush has to name the task it was typed on.
+  it('sends an open rename to the task it was typed on when the card switches', async () => {
+    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const { rerender } = renderChecklist();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Rename Cut prototype' }), {
+      target: { value: 'Cut four prototypes' },
+    });
+    await rerender({ taskId: T2, taskPath: (id: string) => `/task/${id}` });
+
+    expect(rename).toHaveBeenCalledWith(T1, B.id, 'Cut four prototypes');
+  });
+
   it('deletes an item only on the second press, renaming the control in between', async () => {
     const remove = vi.spyOn(board, 'deleteChecklistItem').mockResolvedValue(undefined);
     renderChecklist();

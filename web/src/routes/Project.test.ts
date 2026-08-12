@@ -240,6 +240,26 @@ describe('Project', () => {
     );
   });
 
+  // The error shell replaces the whole route, overlay and all. Background reads run
+  // constantly — on every card open, on every socket reconnect, after any failed
+  // mutation — so letting one raise it means a network blip takes the card the user
+  // is typing into, and the title dies with it because an unmount is not a blur.
+  it('keeps an open task overlay when a background refetch fails', async () => {
+    const projectId = testUuid('p-shell-quiet-refetch');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);
+
+    render(Project, { props: { projectId, view: 'board', taskId: T1 } });
+    const title = await screen.findByLabelText('Task title');
+    await fireEvent.input(title, { target: { value: 'Design cards v2' } });
+
+    fetchMock.mockImplementation(async () => jsonResponse(503, { error: 'down' }));
+    await board.resync();
+    await tick();
+
+    expect(screen.queryByText('down')).toBeNull();
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards v2');
+  });
+
   it('opens the task overlay above the graph without leaving the graph view', async () => {
     const projectId = testUuid('p-shell-graph-task');
     mockProjectApi(projectId, [task(T1, 'todo', 'Design cards')]);

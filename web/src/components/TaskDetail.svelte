@@ -64,6 +64,7 @@
   const crossTotal = $derived(crossBlockedByCount + crossBlockingCount);
 
   let dialog = $state<HTMLDialogElement>();
+  let titleInput = $state<HTMLInputElement>();
   let editorRef = $state<ReturnType<typeof RichTextEditor>>();
   let quickActions = $state<ReturnType<typeof TaskQuickActions>>();
   let checklistRef = $state<ReturnType<typeof TaskChecklist>>();
@@ -75,8 +76,11 @@
   // which is what stops a field being added without also being reset: the leak it
   // would otherwise cause is silent, and one of these is a save precondition.
   interface CardState {
-    // Shadows a server-owned value, so surviving the switch would commit an
-    // abandoned edit later — possibly over a rename the user never saw.
+    // Sent, not dropped, when the card goes away: on a phone the back gesture is the
+    // dismissal, and removing a focused input is not a blur, so nothing else would
+    // save it. The card it belongs to is pinned by handing this whole object to
+    // commitTitle — that, rather than discarding it, is what stops an abandoned edit
+    // landing on another card, or over a rename the user never saw.
     titleDraft: string | null;
     removing: boolean;
     duplicating: boolean;
@@ -259,8 +263,11 @@
     }
   });
 
-  // replaceState so Back skips the closed overlay instead of re-opening it.
+  // replaceState so Back skips the closed overlay instead of re-opening it. The
+  // title is sent here rather than left to the blur the ✕ tap fires, so the two
+  // fields of one card behave alike: the description already flushes on teardown.
   function close(): void {
+    commitTitle();
     card.closed = true;
     router.redirect(closePath);
   }
@@ -300,26 +307,49 @@
   // old one, and dropping the draft first would take the user's typing with it. The
   // unchanged-title check belongs inside the queue too, since a save already queued
   // ahead of this one still moves what the server holds.
-  function commitTitle(): void {
-    const typed = card.titleDraft;
-    if (typed === null || task === undefined) return;
-    const trimmed = typed.trim();
+  //
+  // Which card is being written is fixed at the call, not in the queue: `card` is
+  // replaced and `taskId` can move before the queue drains, so a write that named
+  // them then would land on whichever card is mounted by that point. Passing the
+  // CardState object rather than copying its fields is deliberate — identity is
+  // pinned, while the baseline stays the live one for that card, which a save queued
+  // ahead of this one is still allowed to advance.
+  function commitTitle(state: CardState = card, id: string = taskId): void {
+    const typed = state.titleDraft;
+    if (typed === null) return;
+    // Live over mirrored: a mobile keyboard finishing a word by composition can
+    // leave the oninput mirror a word behind. Only for the mounted card — the field
+    // is not re-created between cards, so on a switch it already holds the new
+    // title, and reading it would write that onto the card being left.
+    const live = id === taskId && titleInput?.isConnected === true ? titleInput.value : typed;
+    const trimmed = live.trim();
     if (trimmed === '') {
-      card.titleDraft = null;
+      state.titleDraft = null;
       return;
     }
-    const id = taskId;
     void queueWrite(async () => {
-      if (conflicted || id !== taskId) return;
-      if (trimmed !== card.baseTitle) {
+      // Re-checked here, against the captured card rather than whichever one is
+      // mounted now: the queue can hold this past a conflict, an archive, a delete
+      // or a switch. An archived or deleted card would 404 the write, or resurrect
+      // itself on the next refetch — the same reason saveDescription bails.
+      if (conflictDrafts.get(id) !== null || state.removing) return;
+      if (!board.tasks.some((t) => t.id === id)) return;
+      // The baseline is read here and not captured above: a save already queued
+      // ahead of this one advances it, and this write has to carry the version that
+      // one produced. Reading it off the captured object is what keeps that true for
+      // the card being left as well as the one on screen.
+      if (trimmed !== state.baseTitle) {
         const outcome = await board.updateTask(
           id,
           { title: trimmed },
-          card.baseUpdatedAt ?? undefined,
-          currentBase()
+          state.baseUpdatedAt ?? undefined,
+          {
+            title: state.baseTitle ?? '',
+            description: state.baseDescription,
+          }
         );
         if (outcome.status === 'conflict') {
-          enterConflict();
+          if (id === taskId) enterConflict();
           return;
         }
         if (outcome.status === 'error') return;
@@ -327,15 +357,27 @@
         // waiting patch carries names that same version. Advancing it here would
         // promise a save the server has not seen.
         if (outcome.status === 'ok') {
-          card.baseUpdatedAt = outcome.updated_at;
-          card.baseTitle = trimmed;
+          state.baseUpdatedAt = outcome.updated_at;
+          state.baseTitle = trimmed;
         }
       }
-      if (card.titleDraft === typed) {
-        card.titleDraft = null;
+      if (state.titleDraft === typed) {
+        state.titleDraft = null;
       }
     });
   }
+
+  // Removing a focused input is not a blur, so the paths that never reach close()
+  // — Back, a sidebar link, the auth redirect, a background read that fails and
+  // swaps this subtree out — would otherwise drop what was typed. Declared after
+  // the reset effect above so the card it captures is the one the user typed into;
+  // the captured object reference survives `card = freshCard()` reassigning it.
+  $effect(() => {
+    void overlayKey;
+    const id = taskId;
+    const outgoing = untrack(() => card);
+    return () => commitTitle(outgoing, id);
+  });
 
   function saveDescription(doc: TiptapDoc | null): Promise<boolean> {
     // The editor flushes pending saves on teardown; skip that doomed PATCH once the
@@ -488,12 +530,13 @@
           </h2>
         {:else}
           <input
+            bind:this={titleInput}
             value={card.titleDraft ?? task.title}
             maxlength={TASK_TITLE_MAX_LENGTH}
             aria-label="Task title"
             autocapitalize="sentences"
             oninput={(event) => (card.titleDraft = event.currentTarget.value)}
-            onblur={commitTitle}
+            onblur={() => commitTitle()}
             onkeydown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();

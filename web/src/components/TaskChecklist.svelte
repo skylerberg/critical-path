@@ -47,6 +47,20 @@
   let promotingId = $state<string | null>(null);
   let mounted = true;
 
+  // Declared above the reset below, and it matters: Svelte runs each effect's
+  // teardown immediately before that same effect's body, so this one still sees the
+  // open edit and sends it to the card it was typed on rather than the one arriving.
+  // On a plain unmount it is the only thing that runs at all — removing a focused
+  // input is not a blur, so nothing else would save it.
+  $effect(() => {
+    const id = taskId;
+    return () => {
+      if (editingId !== null) {
+        commitEdit(editingId, id);
+      }
+    };
+  });
+
   $effect(() => {
     void taskId;
     dragging = false;
@@ -141,8 +155,9 @@
   }
 
   // Enter commits and unmounts the input, so the blur that follows finds the edit
-  // already closed and this returns without writing it twice.
-  function commitEdit(itemId: string): void {
+  // already closed and this returns without writing it twice. `id` is a parameter
+  // for the teardown flush alone, which runs once taskId has already moved on.
+  function commitEdit(itemId: string, id: string = taskId): void {
     if (editingId !== itemId) {
       return;
     }
@@ -150,7 +165,7 @@
     const text = editDraft.trim();
     const current = localItems.find((item) => item.id === itemId)?.text;
     if (text !== '' && text !== current) {
-      void board.renameChecklistItem(taskId, itemId, text);
+      void board.renameChecklistItem(id, itemId, text);
     }
   }
 

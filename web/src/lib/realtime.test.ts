@@ -1044,6 +1044,35 @@ describe('session revoked (4401)', () => {
     expect(session.status).toBe('authed');
     expect(FakeWebSocket.instances.length).toBeGreaterThan(1);
   });
+
+  // init() drops status through 'unknown', and the shell renders a spinner over the
+  // whole app while it is there — unmounting whatever the user had open, for a close
+  // code that is usually transient. A backgrounded phone reconnecting is the common
+  // way to get here, which is the worst moment to blank the screen.
+  it('does not blank the app while revalidating a token that still works', async () => {
+    const socket = await connectAndAuth('p1');
+    const init = vi.spyOn(session, 'init');
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname === '/api/auth/me') {
+        return jsonResponse(200, {
+          id: 'u1',
+          name: 'Me',
+          email: 'm@e.com',
+          avatar_url: null,
+          email_verified: false,
+        });
+      }
+      return jsonResponse(200, { projects: [] });
+    });
+
+    vi.useFakeTimers();
+    socket.serverClose(4401);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(init).not.toHaveBeenCalled();
+    expect(session.status).toBe('authed');
+  });
 });
 
 describe('logout', () => {
@@ -1189,7 +1218,10 @@ describe('offline notice', () => {
     socket.serverClose(4401);
     await vi.advanceTimersByTimeAsync(3000);
 
-    expect(session.status).toBe('unknown');
+    // The socket says it is offline; the session says nothing yet. It stays 'authed'
+    // for the round-trip rather than dropping to 'unknown', which is what keeps the
+    // shell rendering the app instead of a spinner over it.
+    expect(session.status).toBe('authed');
     expect(realtime.interrupted).toBe(true);
 
     resolveMe!(jsonResponse(200, { id: 'u1', name: 'Me', email: 'm@e.com' }));

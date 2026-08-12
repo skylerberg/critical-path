@@ -56,6 +56,11 @@
     }
   }
 
+  // Removing a focused input is not a blur, so a rename open when the column goes
+  // away would otherwise be dropped. Escape has already cleared `renaming`, so the
+  // guard above keeps discarding what the user asked to discard.
+  $effect(() => () => commitRename());
+
   // The header sits above the column's scrolling card list, in no vertical
   // scroller of its own, so the only scroll focus() could perform is the board pan.
   const focusAndSelect = (node: HTMLInputElement): void => {
