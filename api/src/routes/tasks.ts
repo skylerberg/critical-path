@@ -8,6 +8,7 @@ import { dedupe } from '../utils/arrays';
 import { AppError, isUniqueViolation } from '../utils/errors';
 import {
   accessibleProjectsFilter,
+  assertCanWriteProject,
   assertProjectAccess,
   assertProjectWrite,
   assertTaskAccess,
@@ -51,7 +52,12 @@ import {
   recordTaskActivity,
 } from '../services/taskActivity';
 import { fetchTaskRelations, publishTaskRelationsSet } from '../services/taskRelations';
-import { seriesSummaryForTask } from '../services/taskSeries/read';
+import { seriesRefForTask } from '../services/taskSeries/read';
+import {
+  createSeriesFromTask,
+  fetchSeries,
+  publishSeriesCreated,
+} from '../services/taskSeries/index';
 import {
   idSchema,
   createTaskSchema,
@@ -69,6 +75,9 @@ import {
   crossProjectDependenciesResponseSchema,
   boardTaskSchema,
   duplicateSchema,
+  createSeriesFromTaskSchema,
+  taskSeriesCreateResponseSchema,
+  MAX_SERIES_PER_PROJECT,
   jsonResponse,
   emptyResponse,
   type Returned,
@@ -405,9 +414,9 @@ router.get(
       'Get a task in board-payload shape plus its project id, archived_at (null unless the ' +
       'task is archived), its attachments, its full comment stream oldest first, and its ' +
       'checklist in list order. Archived tasks are readable here even though they are absent ' +
-      'from every board payload. `series_summary` names the recurrence in English for a card a ' +
-      'recurring series created, and is null for every other card — including one whose ' +
-      'series has since been deleted.',
+      'from every board payload. `series_id` names the recurring series this card belongs to and ' +
+      '`series_summary` renders that recurrence in English; both are null for every other card — ' +
+      'including one whose series has since been deleted.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...getTaskResponses,
@@ -472,19 +481,144 @@ router.get(
     }));
 
     const attachments = await fetchTaskAttachments(db, id);
+    const seriesRef = await seriesRefForTask(db, id);
 
     return c.json(
       {
         ...result.task,
         project_id: result.project_id,
         archived_at: result.archived_at,
-        series_summary: await seriesSummaryForTask(db, id),
+        series_id: seriesRef?.id ?? null,
+        series_summary: seriesRef?.summary ?? null,
         comments,
         checklist_items,
         attachments,
       },
       200
     );
+  }
+);
+
+const createSeriesFromTaskResponses = {
+  201: jsonResponse('Created series', taskSeriesCreateResponseSchema),
+};
+
+router.post(
+  '/:id/series',
+  describeRoute({
+    tags: ['Recurring'],
+    summary: 'Make a card repeat',
+    description:
+      'Start a recurring series from a card that already exists. The template is the card ' +
+      'itself — its title, description, destination column, due date, labels, assignees and ' +
+      'checklist are copied as they are, so the body carries only the recurrence. The card is ' +
+      'adopted as the series’ first occurrence rather than left beside it: it reports the ' +
+      'series from that moment on, and the day that occurrence falls produces no second copy ' +
+      'of it. Later cards are ordinary cards built from the template, and editing the card ' +
+      'afterwards does not change the template. Returns 409 for a card already in a series, ' +
+      'and 422 for an archived card, for a project at its series limit, or for a card holding ' +
+      'more checklist items than a template may. Image nodes cannot belong to a template and ' +
+      'are stripped from the copied description; `dropped_image_count` reports how many.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      ...createSeriesFromTaskResponses,
+      ...badRequestErrorResponse,
+      ...unauthorizedErrorResponse,
+      ...forbiddenErrorResponse,
+      ...notFoundErrorResponse,
+      ...conflictErrorResponse,
+      ...validationOrUnprocessableErrorResponse,
+      ...internalServerErrorResponse,
+    },
+  }),
+  paramValidator(idSchema),
+  jsonValidator(createSeriesFromTaskSchema),
+  async (c): Promise<Returned<typeof createSeriesFromTaskResponses>> => {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const db = c.get('db');
+    const user = c.get('user');
+
+    const task = await db
+      .selectFrom('task')
+      .select([
+        'id',
+        'project_id',
+        'column_id',
+        'title',
+        'description',
+        'series_id',
+        'archived_at',
+        dueDateText.as('due_date'),
+      ])
+      .where('id', '=', id)
+      .executeTakeFirst();
+    if (!task) {
+      throw new AppError(404, 'Task not found');
+    }
+
+    // Locked for the rest of the transaction for the same reason the plain
+    // create locks it: the per-project cap has no constraint behind it.
+    const project = await db
+      .selectFrom('project')
+      .select(['id', 'created_by'])
+      .where('id', '=', task.project_id)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!project) {
+      throw new AppError(404, 'Task not found');
+    }
+    await assertCanWriteProject(db, user.id, project);
+
+    if (task.series_id !== null) {
+      throw new AppError(409, 'This card already belongs to a recurring series');
+    }
+    if (task.archived_at !== null) {
+      throw new AppError(422, 'An archived card cannot start repeating');
+    }
+
+    const { count } = await db
+      .selectFrom('task_series')
+      .select((eb) => eb.fn.countAll<string>().as('count'))
+      .where('task_series.project_id', '=', task.project_id)
+      .executeTakeFirstOrThrow();
+    if (Number(count) >= MAX_SERIES_PER_PROJECT) {
+      throw new AppError(
+        422,
+        `Project already has the maximum of ${String(MAX_SERIES_PER_PROJECT)} recurring series`
+      );
+    }
+
+    let droppedImageCount: number;
+    try {
+      droppedImageCount = await createSeriesFromTask(
+        db,
+        user.id,
+        project,
+        { ...task, description: task.description as TiptapDoc | null },
+        body
+      );
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new AppError(409, 'Series id already in use');
+      }
+      throw err;
+    }
+
+    const [created] = await fetchSeries(db, { ids: [body.id] });
+    if (!created) {
+      throw new AppError(500, 'Failed to load created series');
+    }
+    publishSeriesCreated(c, created);
+
+    // The card itself changed hands — an open board holding it has to learn the
+    // series from somewhere, and series_created says nothing about this card.
+    const updated = await fetchBoardTask(db, id);
+    if (updated) {
+      publishAfterCommit(c, 'task_updated', task.project_id, updated.task);
+    }
+
+    return c.json({ ...created, dropped_image_count: droppedImageCount }, 201);
   }
 );
 
