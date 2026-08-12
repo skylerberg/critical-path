@@ -58,6 +58,7 @@ export const patchTaskSchema = type({
 export const taskDetailResponseSchema = boardTaskSchema.merge({
   project_id: 'string',
   archived_at: 'string | null',
+  series_id: 'string | null',
   series_summary: 'string | null',
   comments: commentSchema.array(),
   checklist_items: checklistItemSchema.array(),

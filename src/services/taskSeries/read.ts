@@ -125,19 +125,31 @@ export async function fetchSeries(
   }));
 }
 
+export interface TaskSeriesRef {
+  id: string;
+  summary: string;
+}
+
 // Card detail only. Every board payload carrying this would mean a join and a
 // rule render per card, for a line one open card at a time ever shows.
-export async function seriesSummaryForTask(db: Kysely<DB>, taskId: string): Promise<string | null> {
+export async function seriesRefForTask(
+  db: Kysely<DB>,
+  taskId: string
+): Promise<TaskSeriesRef | null> {
   const row = await db
     .selectFrom('task')
     .innerJoin('task_series', 'task_series.id', 'task.series_id')
-    .select(['task_series.rrule', dateText('task_series.start_date').as('start_date')])
+    .select([
+      'task_series.id',
+      'task_series.rrule',
+      dateText('task_series.start_date').as('start_date'),
+    ])
     .where('task.id', '=', taskId)
     .executeTakeFirst();
   if (!row) {
     return null;
   }
-  return summarize(row.rrule, row.start_date as string);
+  return { id: row.id, summary: summarize(row.rrule, row.start_date as string) };
 }
 
 export type SeriesRow = Selectable<TaskSeries> & { start_date_text: string };

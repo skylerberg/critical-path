@@ -46,6 +46,16 @@ export const createTaskSeriesSchema = type({
   'checklist_items?': checklistItemInputs(MAX_SERIES_CHECKLIST_ITEMS),
 });
 
+// Recurrence only: every other template field is copied from the card, which is
+// what lets a card start repeating without restating itself.
+export const createSeriesFromTaskSchema = type({
+  id: uuid,
+  'preset?': recurrencePresetSchema,
+  'rrule?': stringWithLength(1, SERIES_RRULE_MAX_LENGTH),
+  start_date: calendarDate,
+  timezone: stringWithLength(1, MAX_TIMEZONE_LENGTH),
+});
+
 export const patchTaskSeriesSchema = type({
   'column_id?': uuid,
   'title?': seriesTitle,
@@ -108,4 +118,5 @@ export const taskSeriesListResponseSchema = type({
 export type TaskSeriesResponse = typeof taskSeriesSchema.infer;
 export type TaskSeriesCreateResponse = typeof taskSeriesCreateResponseSchema.infer;
 export type CreateTaskSeriesInput = typeof createTaskSeriesSchema.infer;
+export type CreateSeriesFromTaskInput = typeof createSeriesFromTaskSchema.infer;
 export type PatchTaskSeriesInput = typeof patchTaskSeriesSchema.infer;
