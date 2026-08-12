@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { focusOnMount } from '../lib/actions';
   import { announcer } from '../lib/announcer.svelte';
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
@@ -53,10 +54,6 @@
       }
     }
   }
-
-  const focusOnMount = (node: HTMLInputElement): void => {
-    node.focus();
-  };
 </script>
 
 <Modal open title="Move {ids.length} card{ids.length === 1 ? '' : 's'} to…" {onclose}>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { focusIf } from '../lib/actions';
   import { board, type BoardContext } from '../lib/board.svelte';
   import ColorDot from './ui/ColorDot.svelte';
 
@@ -128,18 +129,12 @@
       listEl.scrollTop = 0;
     }
   }
-
-  const maybeFocus = (node: HTMLInputElement): void => {
-    if (autofocus) {
-      node.focus();
-    }
-  };
 </script>
 
 <div class="flex flex-col gap-2">
   <input
     bind:value={query}
-    use:maybeFocus
+    use:focusIf={{ active: autofocus }}
     {onkeydown}
     {oninput}
     aria-label="Filter labels"

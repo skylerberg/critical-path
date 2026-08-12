@@ -21,6 +21,21 @@ export function focusIf(node: HTMLElement, { active, onfocused }: FocusIfParams)
   }
 }
 
+/**
+ * An action rather than the DOM `autofocus` attribute, which trips Svelte's
+ * a11y_autofocus rule and is inert in jsdom. `preventScroll` for the reason
+ * above: the panel carrying this field has just opened on screen.
+ */
+export function focusOnMount(node: HTMLElement): void {
+  node.focus({ preventScroll: true });
+}
+
+/** For a field opened to replace what it holds rather than append to it. */
+export function focusAndSelect(node: HTMLInputElement | HTMLTextAreaElement): void {
+  focusOnMount(node);
+  node.select();
+}
+
 const TOUCH_CONTEXT_MENU_MARKER = 'data-no-touch-context-menu';
 
 const directPointers = new Set<number>();

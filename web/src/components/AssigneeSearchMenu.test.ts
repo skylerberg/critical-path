@@ -45,6 +45,18 @@ afterEach(() => {
 });
 
 describe('AssigneeSearchMenu', () => {
+  it('takes focus on mount only when asked', () => {
+    render(AssigneeSearchMenu, { taskId: 't1', autofocus: true });
+
+    expect(screen.getByLabelText('Filter users')).toHaveFocus();
+  });
+
+  it('leaves focus alone without autofocus', () => {
+    render(AssigneeSearchMenu, { taskId: 't1' });
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it('filters project members by the query', async () => {
     render(AssigneeSearchMenu, { taskId: 't1' });
     await fireEvent.input(screen.getByLabelText('Filter users'), { target: { value: 'ada' } });

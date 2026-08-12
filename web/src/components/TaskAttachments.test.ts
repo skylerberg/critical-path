@@ -552,6 +552,19 @@ describe('TaskAttachments rename and delete', () => {
 
   // This section lives inside the task overlay, so it goes when the card is
   // dismissed — and dismissing it does not blur the title being renamed.
+  // Opened to replace the title, not to append to it, so the whole value is selected.
+  it('opens the rename editor focused with its text selected', async () => {
+    board.taskAttachments = { [T1]: [attachment('a1')] };
+    renderSection();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Rename spec.pdf' }));
+
+    const input = screen.getByRole<HTMLInputElement>('textbox', { name: 'Rename spec.pdf' });
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+  });
+
   it('writes a rename left open when the section unmounts', async () => {
     const patch = vi.spyOn(board, 'patchAttachment').mockResolvedValue(undefined);
     board.taskAttachments = { [T1]: [attachment('a1')] };

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { focusIf } from '../lib/actions';
   import { board, type BoardContext } from '../lib/board.svelte';
   import { users } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -58,18 +59,12 @@
       onclose();
     }
   }
-
-  const maybeFocus = (node: HTMLInputElement): void => {
-    if (autofocus) {
-      node.focus();
-    }
-  };
 </script>
 
 <div class="flex flex-col gap-2">
   <input
     bind:value={query}
-    use:maybeFocus
+    use:focusIf={{ active: autofocus }}
     {onkeydown}
     oninput={() => (highlighted = 0)}
     aria-label="Filter users"

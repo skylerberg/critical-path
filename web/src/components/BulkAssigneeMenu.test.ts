@@ -39,6 +39,12 @@ afterEach(() => {
 });
 
 describe('BulkAssigneeMenu', () => {
+  it('opens with the caret in the filter field', () => {
+    render(BulkAssigneeMenu, { onclose: () => {} });
+
+    expect(screen.getByLabelText('Filter users')).toHaveFocus();
+  });
+
   it('names the selection size and reports each user as all, some or none', () => {
     render(BulkAssigneeMenu, { onclose: () => {} });
 

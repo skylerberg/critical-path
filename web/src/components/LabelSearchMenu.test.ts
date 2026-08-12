@@ -43,6 +43,18 @@ afterEach(() => {
 });
 
 describe('LabelSearchMenu', () => {
+  it('takes focus on mount only when asked', () => {
+    render(LabelSearchMenu, { taskId: 't1', autofocus: true });
+
+    expect(screen.getByLabelText('Filter labels')).toHaveFocus();
+  });
+
+  it('leaves focus alone without autofocus', () => {
+    render(LabelSearchMenu, { taskId: 't1' });
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it('filters labels by the query', async () => {
     render(LabelSearchMenu, { taskId: 't1' });
     expect(screen.getByLabelText('Filter labels')).toHaveAttribute('autocapitalize', 'sentences');

@@ -36,6 +36,12 @@ afterEach(() => {
 });
 
 describe('BulkLabelMenu', () => {
+  it('opens with the caret in the filter field', () => {
+    render(BulkLabelMenu, { onclose: () => {} });
+
+    expect(screen.getByLabelText('Filter labels')).toHaveFocus();
+  });
+
   it('names the selection size and reports each label as all, some or none', () => {
     render(BulkLabelMenu, { onclose: () => {} });
 

@@ -30,6 +30,12 @@ describe('BulkMoveMenu', () => {
     ]);
   });
 
+  it('opens with the caret in the search field', () => {
+    render(BulkMoveMenu, { onclose: () => {} });
+
+    expect(screen.getByLabelText('Search columns')).toHaveFocus();
+  });
+
   it('moves the whole selection in one call, closes, then announces', async () => {
     const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks').mockResolvedValue();
     const onclose = vi.fn();

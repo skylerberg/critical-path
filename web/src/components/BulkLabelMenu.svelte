@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { focusOnMount } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import { selection } from '../lib/selection.svelte';
   import ColorDot from './ui/ColorDot.svelte';
@@ -51,10 +52,6 @@
       }
     }
   }
-
-  const focusOnMount = (node: HTMLInputElement): void => {
-    node.focus();
-  };
 </script>
 
 <Modal open title="Labels on {ids.length} card{ids.length === 1 ? '' : 's'}" {onclose}>

@@ -8,6 +8,7 @@
     TRIGGERS,
     type DndEvent,
   } from 'svelte-dnd-action';
+  import { focusAndSelect } from '../lib/actions';
   import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { ChecklistItem } from '../lib/board-types';
   import { motion } from '../lib/motion.svelte';
@@ -125,11 +126,6 @@
       placementAfterDrop(items, event.detail.info.id)
     );
   }
-
-  const focusAndSelect = (node: HTMLInputElement): void => {
-    node.focus();
-    node.select();
-  };
 
   // The quick bar reveals an empty checklist; the field it should land in is here.
   export function focusAddItem(): void {
