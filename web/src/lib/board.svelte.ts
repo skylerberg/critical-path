@@ -48,6 +48,13 @@ export type TaskAttachment = components['schemas']['Attachment'];
 export type TaskComment = components['schemas']['Comment'];
 export type CommentBody = TaskComment['body'];
 
+// What an open card knows about the series that created it: enough to name the
+// recurrence and to edit it, which is all the card detail response carries.
+export interface TaskSeriesRef {
+  id: string;
+  summary: string;
+}
+
 type BulkRelationsResponse = components['schemas']['BulkTaskRelationsResponse'];
 type BulkTasksResponse = components['schemas']['TasksBatchResponse'];
 type DuplicatedColumnResponse = components['schemas']['DuplicatedColumnResponse'];
@@ -567,7 +574,7 @@ class BoardStore {
     // return visit to a board with no highlights at all.
     this.taskComments = {};
     this.taskChecklists = {};
-    this.taskSeriesSummaries = {};
+    this.taskSeriesRefs = {};
     this.taskAttachments = {};
     this.loading = false;
     this.syncedAt = null;
@@ -1867,17 +1874,53 @@ class BoardStore {
 
   taskComments = $state<Record<string, TaskComment[]>>({});
   taskChecklists = $state<Record<string, ChecklistItem[]>>({});
-  taskSeriesSummaries = $state<Record<string, string | null>>({});
+  // Id and summary together rather than in two records: they are read, written
+  // and cleared as one fact, and the card needs the id to edit the recurrence it
+  // is showing the summary of.
+  taskSeriesRefs = $state<Record<string, TaskSeriesRef | null>>({});
   taskAttachments = $state<Record<string, TaskAttachment[]>>({});
+
+  setTaskSeriesRef(taskId: string, ref: TaskSeriesRef | null): void {
+    this.taskSeriesRefs = { ...this.taskSeriesRefs, [taskId]: ref };
+  }
+
+  // Series events reach the board only for the card the overlay has open: a
+  // deleted series must stop being named there, and an edited rule must not go
+  // on showing the wording it had before the edit.
+  applySeriesRealtime(event: RealtimeEvent): void {
+    if (event.type === 'series_deleted') {
+      const { id } = event.data;
+      this.#mapSeriesRefs((ref) => (ref.id === id ? null : ref));
+    } else if (event.type === 'series_updated') {
+      const row = event.data;
+      this.#mapSeriesRefs((ref) => (ref.id === row.id ? { ...ref, summary: row.summary } : ref));
+    }
+  }
+
+  #mapSeriesRefs(patch: (ref: TaskSeriesRef) => TaskSeriesRef | null): void {
+    let changed = false;
+    const next: Record<string, TaskSeriesRef | null> = {};
+    for (const [taskId, ref] of Object.entries(this.taskSeriesRefs)) {
+      const updated = ref === null ? null : patch(ref);
+      if (updated !== ref) changed = true;
+      next[taskId] = updated;
+    }
+    if (changed) {
+      this.taskSeriesRefs = next;
+    }
+  }
 
   async loadTaskDetail(taskId: string): Promise<void> {
     try {
       const data = assertOk(await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } }));
       this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
       this.taskChecklists = { ...this.taskChecklists, [taskId]: data.checklist_items ?? [] };
-      this.taskSeriesSummaries = {
-        ...this.taskSeriesSummaries,
-        [taskId]: data.series_summary ?? null,
+      this.taskSeriesRefs = {
+        ...this.taskSeriesRefs,
+        [taskId]:
+          data.series_id === null || data.series_summary === null
+            ? null
+            : { id: data.series_id, summary: data.series_summary },
       };
       this.taskAttachments = { ...this.taskAttachments, [taskId]: data.attachments ?? [] };
       // Heals a card face whose realtime event was missed; short of a full board

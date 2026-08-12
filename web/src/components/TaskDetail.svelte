@@ -40,7 +40,7 @@
 
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const columnName = $derived(board.columns.find((c) => c.id === task?.column_id)?.name ?? '');
-  const seriesSummary = $derived(board.taskSeriesSummaries[taskId] ?? null);
+  const seriesSummary = $derived(board.taskSeriesRefs[taskId]?.summary ?? null);
   const mentionUsers = $derived(currentProjectMentionCandidates());
   // A viewer is read-only but still has an identity, so they keep the comment
   // stream, the history and the timestamps; a public reader has none of that and
@@ -549,24 +549,17 @@
         <Button variant="ghost" aria-label="Close" onclick={close}>✕</Button>
       </div>
 
-      {#if readonly || seriesSummary !== null}
+      <!-- The quick bar's own button carries the column for anyone who can move
+           the card; a reader has no bar, and still needs to know where it sits.
+           The recurrence is not here: it belongs to the Dates section, beside
+           the due date it shares its controls with. -->
+      {#if readonly}
         <div class="flex flex-wrap items-center gap-2">
-          <!-- The quick bar's own button carries the column for anyone who can move
-               the card; a reader has no bar, and still needs to know where it sits. -->
-          {#if readonly}
-            <p
-              class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
-            >
-              {columnName}
-            </p>
-          {/if}
-          {#if seriesSummary !== null}
-            <p
-              class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
-            >
-              Repeats: {seriesSummary}
-            </p>
-          {/if}
+          <p
+            class="w-fit max-w-full rounded-full border border-edge bg-surface px-2.5 py-1 text-xs font-medium text-muted"
+          >
+            {columnName}
+          </p>
         </div>
       {/if}
 
@@ -658,10 +651,23 @@
         </section>
       {/if}
 
-      {#if isCalendarDate(task.due_date)}
+      {#if isCalendarDate(task.due_date) || seriesSummary !== null}
         <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-semibold text-muted">Due date</h3>
-          <p class="text-sm">{formatFullDate(task.due_date)}</p>
+          <h3 class="text-sm font-semibold text-muted">Dates</h3>
+          <dl class="flex flex-col gap-1 text-sm">
+            {#if isCalendarDate(task.due_date)}
+              <div class="flex flex-wrap gap-x-2">
+                <dt class="text-muted">Due date</dt>
+                <dd>{formatFullDate(task.due_date)}</dd>
+              </div>
+            {/if}
+            {#if seriesSummary !== null}
+              <div class="flex flex-wrap gap-x-2">
+                <dt class="text-muted">Repeats</dt>
+                <dd>{seriesSummary}</dd>
+              </div>
+            {/if}
+          </dl>
         </section>
       {/if}
 
