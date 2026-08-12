@@ -1,6 +1,7 @@
 <script lang="ts">
   import { focusOnMount } from '../lib/actions';
   import { board } from '../lib/board.svelte';
+  import { heldBy, type Held } from '../lib/multi-select';
   import { selection } from '../lib/selection.svelte';
   import ColorDot from './ui/ColorDot.svelte';
   import Modal from './ui/Modal.svelte';
@@ -25,12 +26,8 @@
     board.labels.filter((label) => label.name.toLowerCase().includes(query.trim().toLowerCase()))
   );
 
-  function held(labelId: string): 'all' | 'some' | 'none' {
-    const count = tasks.filter((task) => task.label_ids.includes(labelId)).length;
-    if (count === 0) {
-      return 'none';
-    }
-    return count === tasks.length ? 'all' : 'some';
+  function held(labelId: string): Held {
+    return heldBy(tasks, (task) => task.label_ids.includes(labelId));
   }
 
   function toggle(labelId: string): void {

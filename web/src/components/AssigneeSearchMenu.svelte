@@ -1,6 +1,7 @@
 <script lang="ts">
   import { focusIf } from '../lib/actions';
   import { board, type BoardContext } from '../lib/board.svelte';
+  import { toggleMembership } from '../lib/multi-select';
   import { users } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
 
@@ -31,11 +32,7 @@
   );
 
   function toggle(userId: string): void {
-    const current = task?.assignee_ids ?? [];
-    const next = current.includes(userId)
-      ? current.filter((id) => id !== userId)
-      : [...current, userId];
-    void ctx.setTaskAssignees(taskId, next);
+    void ctx.setTaskAssignees(taskId, toggleMembership(task?.assignee_ids ?? [], userId));
   }
 
   function onkeydown(event: KeyboardEvent): void {

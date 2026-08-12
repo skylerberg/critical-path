@@ -1,6 +1,7 @@
 <script lang="ts">
   import { focusOnMount } from '../lib/actions';
   import { board } from '../lib/board.svelte';
+  import { heldBy, type Held } from '../lib/multi-select';
   import { selection } from '../lib/selection.svelte';
   import { users } from '../lib/users.svelte';
   import Avatar from './ui/Avatar.svelte';
@@ -34,12 +35,8 @@
     list.filter((user) => user.name.toLowerCase().includes(query.trim().toLowerCase()))
   );
 
-  function held(userId: string): 'all' | 'some' | 'none' {
-    const count = tasks.filter((task) => task.assignee_ids.includes(userId)).length;
-    if (count === 0) {
-      return 'none';
-    }
-    return count === tasks.length ? 'all' : 'some';
+  function held(userId: string): Held {
+    return heldBy(tasks, (task) => task.assignee_ids.includes(userId));
   }
 
   function toggle(userId: string): void {

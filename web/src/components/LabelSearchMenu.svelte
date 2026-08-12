@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { focusIf } from '../lib/actions';
   import { board, type BoardContext } from '../lib/board.svelte';
+  import { toggleMembership } from '../lib/multi-select';
   import ColorDot from './ui/ColorDot.svelte';
 
   interface Props {
@@ -44,11 +45,7 @@
   const rowCount = $derived(filtered.length + (showCreate ? 1 : 0));
 
   function toggle(labelId: string): void {
-    const current = task?.label_ids ?? [];
-    const next = current.includes(labelId)
-      ? current.filter((id) => id !== labelId)
-      : [...current, labelId];
-    void ctx.setTaskLabels(taskId, next);
+    void ctx.setTaskLabels(taskId, toggleMembership(task?.label_ids ?? [], labelId));
   }
 
   async function createAndApply(): Promise<void> {
