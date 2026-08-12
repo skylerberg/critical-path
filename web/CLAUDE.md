@@ -112,6 +112,32 @@ Both layout checks boot vite in-process on the first free port at or above 5180,
 so two worktrees can run them at the same time and a killed run leaves nothing
 behind.
 
+**Both also take `--selftest`, and a change to what they assert should run it:**
+
+```sh
+node scripts/check-board-layout.mjs --selftest
+node scripts/check-board-layout-real.mjs --selftest
+```
+
+Each re-runs its cases against a board deliberately put back on the bug — legacy
+markup in the fixture, the pre-fix `dndzone` option in the real component — and
+fails if any of them still *passes*. A browser check has a failure mode a unit
+test mostly does not: measuring nothing and reporting green, because the gesture
+never armed, the selector matched nothing, or the option it turns on was renamed
+out from under it. CI runs the checks without the flag; the flag is how you earn
+the right to believe them. The real check's selftest also asserts it rewrote
+exactly one call site, since rewriting none is that same failure wearing the
+selftest's face.
+
+`scripts/board-probe.ts` answers `/api` itself (`scripts/board-probe-net.ts`)
+and records every request. Nothing is mocked per-case: the probe is a board with
+no server behind it, and the checks assert it stays that way — mounting and
+scrolling must issue no requests at all, and a drop must issue exactly one PATCH,
+which is also where the destination column is read from. Leave that boundary in
+place. Without it the probe reaches a real API on any machine following the
+instructions above and running one on 3001, and measures that server's board
+instead of its own — a difference CI can never reproduce.
+
 ## Checking what jsdom cannot model
 
 Layout, scrolling, focus, `showModal()`, computed styles: jsdom implements none
