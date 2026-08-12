@@ -806,6 +806,36 @@ describe('Board drag placeholder', () => {
   });
 });
 
+// jsdom lays nothing out, so this can only assert the option is asked for; that it
+// changes where a card lands is scripts/check-board-layout-real.mjs's job.
+describe('Board drop targeting', () => {
+  it('lets the pointer, not the card it lifted, pick the column for a card', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+
+    const configs = configsOfType('task');
+    expect(configs.length).toBeGreaterThan(0);
+    for (const config of configs) {
+      expect(config.useCursorForDetection).toBe(true);
+    }
+  });
+
+  // A column is dragged by a grip in its header, so the pointer sits near its
+  // corner rather than in it, and reordering by pointer would take a full column
+  // of travel instead of half. The column's own center is the right proxy for
+  // where a whole column has been moved to.
+  it('leaves column reordering deciding by the dragged column', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+
+    const configs = configsOfType('column');
+    expect(configs.length).toBeGreaterThan(0);
+    for (const config of configs) {
+      expect(config.useCursorForDetection).toBeUndefined();
+    }
+  });
+});
+
 describe('Board pointer drops', () => {
   function twoColumns(): void {
     board.columns = [

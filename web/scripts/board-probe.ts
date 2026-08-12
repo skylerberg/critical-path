@@ -91,6 +91,26 @@ if (new Set(tasks.map((task) => task.id)).size !== tasks.length) {
 }
 (board as unknown as { tasks: unknown[] }).tasks = tasks;
 
+// A drop calls board.moveTask, which remaps the task locally and then PATCHes it.
+// Nothing answers /api here, so the real one resyncs the board a moment later and
+// puts the card back — undoing the very thing a drag check reads. Keep the local
+// half, which is what the DOM shows the user, and record the call instead of
+// sending it, so the check can assert the destination the board actually chose
+// rather than infer it.
+const moves: { taskId: string; columnId: string }[] = [];
+(window as unknown as { __moves: typeof moves }).__moves = moves;
+(
+  board as unknown as {
+    moveTask: (taskId: string, columnId: string, placement: object) => Promise<void>;
+  }
+).moveTask = async (taskId, columnId, placement) => {
+  moves.push({ taskId, columnId });
+  const current = (board as unknown as { tasks: { id: string }[] }).tasks;
+  (board as unknown as { tasks: unknown[] }).tasks = current.map((task) =>
+    task.id === taskId ? { ...task, column_id: columnId, ...placement } : task
+  );
+};
+
 // Shell mirrors App.svelte (fixed mobile nav + wrapper) and Project.svelte
 // (height container + header). Board mounts directly into the flex-col container
 // so its flex-1 sizing matches production.

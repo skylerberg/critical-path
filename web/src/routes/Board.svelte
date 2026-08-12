@@ -694,6 +694,13 @@
               dropAnimationDisabled: motion.reduced,
               dropTargetStyle,
               delayTouchStart: TOUCH_DRAG_DELAY_MS,
+              // The finger picks the column, not the center of the card under it.
+              // A card is nearly as wide as its column, so grabbing one anywhere
+              // but the middle leaves its center up to half a column from the
+              // finger — far enough on a phone to have the finger well inside the
+              // next column while the center, which is what decides by default,
+              // is still inside this one. That drop bounces back.
+              useCursorForDetection: true,
               zoneItemTabIndex: readonly ? -1 : 0,
               dragDisabled: readonly,
               dropFromOthersDisabled: readonly,
