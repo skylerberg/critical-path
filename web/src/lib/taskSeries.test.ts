@@ -254,6 +254,19 @@ describe('task series store', () => {
     expect(taskSeries.list[0].last_missed_date).toBeNull();
     expect(JSON.parse(String(await requestAt(1).text()))).toEqual({ clear_missed: true });
   });
+
+  it('restores the missed counter by refetching when the dismiss is refused', async () => {
+    const missed = series({ missed_occurrence_count: 4, last_missed_date: '2026-02-01' });
+    await loadWith([missed]);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Still missed' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { series: [missed] }));
+    await taskSeries.clearMissed('s-1');
+
+    expect(toasts.toasts.map((toast) => toast.message)).toEqual(['Still missed']);
+    expect(taskSeries.list[0].missed_occurrence_count).toBe(4);
+    expect(requestAt(2).url).toContain('/api/task-series?project_id=p-1');
+  });
 });
 
 describe('task series realtime events', () => {

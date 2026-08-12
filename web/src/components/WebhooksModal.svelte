@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { ApiError } from '../api/client';
+  import { apiMessage } from '../lib/apiMessages';
   import { webhooks, type Webhook, type WebhookDelivery } from '../lib/webhooks.svelte';
   import Badge from './ui/Badge.svelte';
   import Button from './ui/Button.svelte';
@@ -49,8 +49,7 @@
       await webhooks.create(projectId, trimmed);
       url = '';
     } catch (error) {
-      createError =
-        error instanceof ApiError ? error.message : 'Could not register that endpoint. Try again.';
+      createError = apiMessage(error, 'Could not register that endpoint. Try again.');
     } finally {
       creating = false;
     }

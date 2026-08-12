@@ -1,4 +1,5 @@
-import { api, ApiError, assertOk } from '../api/client';
+import { api, assertOk } from '../api/client';
+import { apiMessage } from './apiMessages';
 import type { components } from '../api/api.generated';
 import { projects } from './projects.svelte';
 import { SvelteMap } from 'svelte/reactivity';
@@ -73,7 +74,7 @@ class MyTasksStore {
       if (token !== this.#fetchToken) {
         return;
       }
-      this.error = error instanceof ApiError ? error.message : 'Failed to load my tasks';
+      this.error = apiMessage(error, 'Failed to load my tasks');
     }
   }
 

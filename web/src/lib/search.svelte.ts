@@ -1,4 +1,5 @@
-import { api, ApiError, assertOk } from '../api/client';
+import { api, assertOk } from '../api/client';
+import { apiMessage } from './apiMessages';
 import {
   groupByProject,
   SEARCH_MAX_QUERY_LENGTH,
@@ -51,7 +52,7 @@ export class SearchStore {
       }
       // Broad: an offline search rejects out of fetch as a TypeError, not an
       // ApiError, and an ApiError-only catch would pin the page on the spinner.
-      this.error = error instanceof ApiError ? error.message : 'Search failed';
+      this.error = apiMessage(error, 'Search failed');
       // Unlike the loading path, the rows cannot stay: they answer an older
       // query and would be read as this one's results next to the failure.
       this.results = [];

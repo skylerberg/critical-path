@@ -1,4 +1,5 @@
 import { api, ApiError, assertOk } from '../api/client';
+import { apiMessage } from './apiMessages';
 import type { components } from '../api/api.generated';
 import type { ProjectAccent } from './accents';
 import { newId } from './ids';
@@ -49,6 +50,30 @@ function membersForIds(project: Project, userIds: string[]): Project['members'] 
   }));
 }
 
+/**
+ * Every field the API sends, at the value a project that has just come into
+ * existence would have. Callers override only what they actually know.
+ */
+function defaultProject(id: string): Project {
+  return {
+    id,
+    name: '',
+    description: '',
+    archived_at: null,
+    created_by: null,
+    member_ids: [],
+    members: [],
+    is_public: false,
+    color: null,
+    created_at: new Date().toISOString(),
+    open_task_count: 0,
+    done_task_count: 0,
+    sort_key: null,
+    last_seen_at: null,
+    has_unseen_changes: false,
+  };
+}
+
 class ProjectsStore {
   projects = $state<Project[]>([]);
   loaded = $state(false);
@@ -84,7 +109,7 @@ class ProjectsStore {
       if (!(error instanceof ApiError) && (await this.#hydrateFromCache())) {
         return;
       }
-      this.loadError = error instanceof ApiError ? error.message : 'Failed to load projects';
+      this.loadError = apiMessage(error, 'Failed to load projects');
     } finally {
       this.loading = false;
     }
@@ -255,7 +280,7 @@ class ProjectsStore {
       users.invalidateAll();
       return { ok: true, status: 'member', name: user.name };
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : 'Failed to add member';
+      const message = apiMessage(error, 'Failed to add member');
       return { ok: false, error: message };
     }
   }
@@ -373,24 +398,7 @@ class ProjectsStore {
     if (event.type === 'project_created' || event.type === 'project_updated') {
       const incoming = event.data;
       const existing = this.projects.find((p) => p.id === incoming.id);
-      const base: Project = existing ?? {
-        id: incoming.id,
-        name: '',
-        description: '',
-        archived_at: null,
-        created_by: null,
-        member_ids: [],
-        members: [],
-        is_public: false,
-        color: null,
-        created_at: new Date().toISOString(),
-        open_task_count: 0,
-        done_task_count: 0,
-        sort_key: null,
-        last_seen_at: null,
-        has_unseen_changes: false,
-      };
-      const merged = { ...base, ...incoming };
+      const merged = { ...(existing ?? defaultProject(incoming.id)), ...incoming };
       this.projects = existing
         ? this.projects.map((p) => (p.id === incoming.id ? merged : p))
         : [...this.projects, merged];
@@ -399,21 +407,10 @@ class ProjectsStore {
 
   async #create(body: CreateProject): Promise<string> {
     const optimistic: Project = {
-      id: body.id,
+      ...defaultProject(body.id),
       name: body.name,
       description: body.description ?? '',
-      archived_at: null,
       created_by: session.user?.id ?? null,
-      member_ids: [],
-      members: [],
-      is_public: false,
-      color: null,
-      created_at: new Date().toISOString(),
-      open_task_count: 0,
-      done_task_count: 0,
-      sort_key: null,
-      last_seen_at: null,
-      has_unseen_changes: false,
     };
     this.projects = [...this.projects, optimistic];
     try {
@@ -477,7 +474,7 @@ class ProjectsStore {
   }
 
   async #mutationFailed(error: unknown, fallback: string): Promise<void> {
-    toasts.error(error instanceof ApiError ? error.message : fallback);
+    toasts.error(apiMessage(error, fallback));
     await this.load();
   }
 }

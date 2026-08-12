@@ -1,4 +1,5 @@
-import { api, ApiError, assertOk } from '../api/client';
+import { api, assertOk } from '../api/client';
+import { apiMessage } from './apiMessages';
 import type { User } from './users.svelte';
 
 export type UserSearchStatus = 'idle' | 'loading' | 'loaded' | 'error';
@@ -55,7 +56,7 @@ export class UserSearchStore {
       }
       // Broad: an offline search rejects out of fetch as a TypeError, not an
       // ApiError, and an ApiError-only catch would pin the picker on the spinner.
-      this.error = error instanceof ApiError ? error.message : 'Search failed';
+      this.error = apiMessage(error, 'Search failed');
       // Unlike the loading path, the rows cannot stay: they answer an older
       // query and adding one of them grants access to whoever it now names.
       this.results = [];

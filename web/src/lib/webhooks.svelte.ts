@@ -1,4 +1,6 @@
-import { api, ApiError, assertOk } from '../api/client';
+import { api, assertOk } from '../api/client';
+import { apiMessage } from './apiMessages';
+import { mutationFailed } from './store-sync';
 import type { components } from '../api/api.generated';
 import { newId } from './ids';
 import { toasts } from './toasts.svelte';
@@ -43,7 +45,7 @@ class WebhooksStore {
       this.loaded = true;
     } catch (error) {
       if (token !== this.#listToken) return;
-      this.loadError = error instanceof ApiError ? error.message : 'Failed to load webhooks';
+      this.loadError = apiMessage(error, 'Failed to load webhooks');
     }
   }
 
@@ -93,7 +95,7 @@ class WebhooksStore {
       );
       this.#replace(id, row);
     } catch (error) {
-      await this.#mutationFailed(error, 'Failed to rotate the secret');
+      await mutationFailed(this, error, 'Failed to rotate the secret');
     }
   }
 
@@ -105,7 +107,7 @@ class WebhooksStore {
     try {
       assertOk(await api.DELETE('/api/webhooks/{id}', { params: { path: { id } } }));
     } catch (error) {
-      await this.#mutationFailed(error, 'Failed to delete the webhook');
+      await mutationFailed(this, error, 'Failed to delete the webhook');
     }
   }
 
@@ -125,7 +127,7 @@ class WebhooksStore {
       if (token !== this.#deliveriesToken) return;
       this.deliveriesError = {
         ...this.deliveriesError,
-        [webhookId]: error instanceof ApiError ? error.message : 'Failed to load deliveries',
+        [webhookId]: apiMessage(error, 'Failed to load deliveries'),
       };
     } finally {
       if (token === this.#deliveriesToken) {
@@ -147,7 +149,7 @@ class WebhooksStore {
         })
       );
     } catch (error) {
-      toasts.error(error instanceof ApiError ? error.message : 'Failed to re-send the delivery');
+      toasts.error(apiMessage(error, 'Failed to re-send the delivery'));
     }
     await this.loadDeliveries(webhookId);
   }
@@ -165,7 +167,7 @@ class WebhooksStore {
       );
       this.#replace(id, row);
     } catch (error) {
-      await this.#mutationFailed(error, failMessage);
+      await mutationFailed(this, error, failMessage);
     }
   }
 
@@ -190,13 +192,6 @@ class WebhooksStore {
         delivery.id === deliveryId ? patch(delivery) : delivery
       ),
     };
-  }
-
-  async #mutationFailed(error: unknown, fallback: string): Promise<void> {
-    toasts.error(error instanceof ApiError ? error.message : fallback);
-    if (this.currentProjectId !== null) {
-      await this.load(this.currentProjectId);
-    }
   }
 
   #clear(): void {

@@ -1,4 +1,6 @@
-import { api, ApiError, assertOk } from '../api/client';
+import { api, assertOk } from '../api/client';
+import { apiMessage } from './apiMessages';
+import { mutationFailed } from './store-sync';
 import type { components } from '../api/api.generated';
 import type { RealtimeEvent } from './realtime-types';
 import { toasts } from './toasts.svelte';
@@ -39,7 +41,7 @@ class InvitationsStore {
       this.loaded = true;
     } catch (error) {
       if (token !== this.#token) return;
-      this.loadError = error instanceof ApiError ? error.message : 'Failed to load invitations';
+      this.loadError = apiMessage(error, 'Failed to load invitations');
     }
   }
 
@@ -94,7 +96,7 @@ class InvitationsStore {
       );
       toasts.success('Invitation resent');
     } catch (error) {
-      await this.#mutationFailed(error, 'Failed to resend the invitation');
+      await mutationFailed(this, error, 'Failed to resend the invitation');
     }
   }
 
@@ -112,19 +114,12 @@ class InvitationsStore {
         })
       );
     } catch (error) {
-      await this.#mutationFailed(error, 'Failed to revoke the invitation');
+      await mutationFailed(this, error, 'Failed to revoke the invitation');
     }
   }
 
   #update(invitationId: string, patch: (invitation: Invitation) => Invitation): void {
     this.list = this.list.map((row) => (row.id === invitationId ? patch(row) : row));
-  }
-
-  async #mutationFailed(error: unknown, fallback: string): Promise<void> {
-    toasts.error(error instanceof ApiError ? error.message : fallback);
-    if (this.currentProjectId !== null) {
-      await this.load(this.currentProjectId);
-    }
   }
 
   #clear(): void {

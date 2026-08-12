@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { ApiError } from '../api/client';
+  import { apiMessage } from '../lib/apiMessages';
   import { accentVar } from '../lib/accents';
   import { isProjectOwner, projects, type Project } from '../lib/projects.svelte';
   import { link, router } from '../lib/router.svelte';
@@ -73,7 +73,7 @@
         copySource === null
           ? 'Could not create the project. Try again.'
           : 'Could not copy the project. Try again.';
-      createError = error instanceof ApiError ? error.message : fallback;
+      createError = apiMessage(error, fallback);
     } finally {
       creating = false;
     }

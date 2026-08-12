@@ -1,5 +1,6 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { api, ApiError, assertOk } from '../api/client';
+import { apiMessage } from './apiMessages';
 import type { components } from '../api/api.generated';
 import { filtersToSearch, mergeFilterSearch, noFilters, type BoardFilters } from './board-filters';
 import type {
@@ -385,7 +386,7 @@ class BoardStore {
       if (quiet) {
         return;
       }
-      this.error = error instanceof ApiError ? error.message : 'Failed to load board';
+      this.error = apiMessage(error, 'Failed to load board');
       this.errorStatus = error instanceof ApiError ? error.status : null;
     }
   }
@@ -453,7 +454,7 @@ class BoardStore {
       if (token !== this.#archivedToken) {
         return;
       }
-      this.archivedError = error instanceof ApiError ? error.message : 'Failed to load the archive';
+      this.archivedError = apiMessage(error, 'Failed to load the archive');
     } finally {
       if (token === this.#archivedToken) {
         this.archivedLoading = false;
@@ -1938,7 +1939,7 @@ class BoardStore {
           : task
       );
     } catch (error) {
-      toasts.error(error instanceof ApiError ? error.message : 'Failed to load task details');
+      toasts.error(apiMessage(error, 'Failed to load task details'));
     }
   }
 
@@ -1982,7 +1983,7 @@ class BoardStore {
       }
       return attachment;
     } catch (error) {
-      toasts.error(error instanceof ApiError ? error.message : 'Attachment upload failed');
+      toasts.error(apiMessage(error, 'Attachment upload failed'));
       return null;
     }
   }
@@ -2081,7 +2082,7 @@ class BoardStore {
       );
       saveBlob(blob as Blob, attachment.filename ?? 'attachment');
     } catch (error) {
-      toasts.error(error instanceof ApiError ? error.message : 'Download failed');
+      toasts.error(apiMessage(error, 'Download failed'));
     }
   }
 
@@ -2771,7 +2772,7 @@ class BoardStore {
       toasts.error('You are offline. This one could not be saved and was not queued.');
       return;
     }
-    toasts.error(error instanceof ApiError ? error.message : 'Something went wrong');
+    toasts.error(apiMessage(error, 'Something went wrong'));
     await this.resync();
   }
 

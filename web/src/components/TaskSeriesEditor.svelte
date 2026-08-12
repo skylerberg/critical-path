@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { ApiError } from '../api/client';
+  import { apiMessage } from '../lib/apiMessages';
   import { board } from '../lib/board.svelte';
   import { todayISO } from '../lib/dates';
   import { newId } from '../lib/ids';
@@ -96,7 +96,7 @@
       }
       onsaved();
     } catch (err) {
-      error = err instanceof ApiError ? err.message : 'Could not save that. Try again.';
+      error = apiMessage(err, 'Could not save that. Try again.');
     } finally {
       saving = false;
     }
