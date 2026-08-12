@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ApiError } from '../api/client';
+  import { focusOnMount } from '../lib/actions';
+  import { apiMessage } from '../lib/apiMessages';
   import { board } from '../lib/board.svelte';
   import { isCalendarDate, todayISO } from '../lib/dates';
   import { newId } from '../lib/ids';
@@ -66,10 +67,6 @@
     oncleared?.();
   }
 
-  const focusOnMount = (node: HTMLInputElement): void => {
-    node.focus();
-  };
-
   async function run(action: () => Promise<void>): Promise<void> {
     busy = true;
     error = '';
@@ -77,7 +74,7 @@
       await action();
       choice = null;
     } catch (err) {
-      error = err instanceof ApiError ? err.message : 'Could not save that. Try again.';
+      error = apiMessage(err, 'Could not save that. Try again.');
     } finally {
       busy = false;
     }
