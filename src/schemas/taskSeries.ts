@@ -74,6 +74,18 @@ export const patchTaskSeriesSchema = type({
   'checklist_items?': checklistItemInputs(MAX_SERIES_CHECKLIST_ITEMS),
 });
 
+// What an open card needs to name its recurrence and change it: the rule as
+// English, plus the two fields a preset menu is built from. Deliberately not the
+// whole series — the template's labels, assignees and checklist belong to the
+// series panel, and a card that restated them would be a second copy to keep
+// honest.
+export const taskSeriesRefSchema = type({
+  id: 'string',
+  summary: 'string',
+  preset: recurrencePresetSchema.or('null'),
+  start_date: 'string',
+});
+
 export const taskSeriesChecklistItemSchema = type({
   id: 'string',
   text: 'string',
@@ -116,6 +128,7 @@ export const taskSeriesListResponseSchema = type({
 });
 
 export type TaskSeriesResponse = typeof taskSeriesSchema.infer;
+export type TaskSeriesRef = typeof taskSeriesRefSchema.infer;
 export type TaskSeriesCreateResponse = typeof taskSeriesCreateResponseSchema.infer;
 export type CreateTaskSeriesInput = typeof createTaskSeriesSchema.infer;
 export type CreateSeriesFromTaskInput = typeof createSeriesFromTaskSchema.infer;

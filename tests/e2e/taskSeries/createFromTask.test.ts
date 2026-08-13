@@ -29,8 +29,12 @@ interface SeriesBody {
 
 interface TaskDetail {
   id: string;
-  series_id: string | null;
-  series_summary: string | null;
+  series: {
+    id: string;
+    summary: string;
+    preset: string | null;
+    start_date: string;
+  } | null;
 }
 
 const TZ = 'UTC';
@@ -182,8 +186,33 @@ describe('Make a card repeat', () => {
     expect(cards).toEqual([{ id: taskId, occurrence: series.next_occurrence_date }]);
 
     const card = await detail(taskId);
-    expect(card.series_id).toBe(series.id);
-    expect(card.series_summary).toBe(series.summary);
+    // Everything the card's own recurrence menu is built from, so it never has
+    // to read the project's series list to render itself.
+    expect(card.series).toEqual({
+      id: series.id,
+      summary: series.summary,
+      preset: 'weekly',
+      start_date: series.start_date,
+    });
+  });
+
+  // The card's menu offers the curated presets, so a rule outside them has to
+  // arrive as a null preset rather than as the nearest match — otherwise picking
+  // "save" on a card would quietly rewrite a rule nobody touched.
+  it('reports a rule the curated set cannot name as no preset', async () => {
+    const taskId = await createTask();
+    const series = await repeated(taskId, {
+      preset: undefined,
+      rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU',
+    });
+
+    const card = await detail(taskId);
+    expect(card.series).toEqual({
+      id: series.id,
+      summary: series.summary,
+      preset: null,
+      start_date: series.start_date,
+    });
   });
 
   it('copies the card as the template', async () => {
@@ -233,8 +262,7 @@ describe('Make a card repeat', () => {
 
     const card = await detail(taskId);
     expect(card.id).toBe(taskId);
-    expect(card.series_id).toBeNull();
-    expect(card.series_summary).toBeNull();
+    expect(card.series).toBeNull();
   });
 
   it('refuses a card that already repeats', async () => {
