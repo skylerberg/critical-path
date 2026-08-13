@@ -1,7 +1,6 @@
 import type { Context } from 'hono';
-import { getConnInfo } from '@hono/node-server/conninfo';
 import { AppError, errorText } from '../utils/errors';
-import { env } from '../config/env';
+import { clientIp } from './clientIp';
 import { getRedis, redisConfigured } from './redis';
 import { logger } from '../utils/logger';
 
@@ -186,30 +185,6 @@ export function resetRateLimiter(): void {
   lastSweep = 0;
 }
 
-function socketAddress(c: Context): string | undefined {
-  try {
-    return getConnInfo(c).remote.address;
-  } catch {
-    return undefined;
-  }
-}
-
-function clientIp(c: Context): string {
-  if (env.trustProxy) {
-    // Entries left of the proxy-appended suffix are client-forgeable. GCP
-    // HTTPS load balancers append "<client-ip>, <lb-ip>", hence hops=2 there.
-    const forwarded = c.req.header('x-forwarded-for');
-    if (forwarded) {
-      const entries = forwarded.split(',');
-      const candidate = entries[entries.length - env.trustProxyHops]?.trim();
-      if (candidate) {
-        return candidate;
-      }
-    }
-  }
-  return socketAddress(c) ?? 'unknown';
-}
-
 const RESET_IP_WINDOW_MS = 60 * 60_000;
 export const RESET_IP_MAX_ATTEMPTS = 5;
 const RESET_EMAIL_WINDOW_MS = 60 * 60_000;
@@ -356,18 +331,38 @@ export async function enforceInvitationResendRateLimit(invitationId: string): Pr
   }
 }
 
+const AUTH_IP_WINDOW_MS = 60 * 60_000;
+export const AUTH_IP_MAX_ATTEMPTS = 300;
+
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
+  const now = Date.now();
+  const address = clientIp(c);
   const normalizedEmail = email.toLowerCase();
-  const ipAllowed = await consumeRateLimit(`ip:${clientIp(c)}:${normalizedEmail}`);
+  const pairAllowed = await consumeRateLimit(`ip:${address}:${normalizedEmail}`, now);
   // IP-independent dimension: bounds total guesses against one account even
   // when attempts arrive from many distinct source IPs.
   const emailAllowed = await consumeRateLimit(
     `email:${normalizedEmail}`,
-    Date.now(),
+    now,
     EMAIL_MAX_ATTEMPTS,
     EMAIL_WINDOW_MS
   );
-  if (!ipAllowed || !emailAllowed) {
+  // The address-independent dimension, and the only thing bounding what one
+  // source can spend in total: both budgets above are keyed on the address the
+  // caller supplies, so one that varies it every request gets a fresh counter
+  // every time and neither ever refuses. Every attempt costs an argon2 verify —
+  // an address with no account included, since login verifies a dummy hash to
+  // keep its timing flat — so without this an unauthenticated caller sets the
+  // pace of the most expensive operation in the product, against a hash that
+  // holds 64 MiB while it runs. Sized well above an office signing in for the
+  // day and well below what keeps the hash busy.
+  const addressAllowed = await consumeRateLimit(
+    `auth-ip:${address}`,
+    now,
+    AUTH_IP_MAX_ATTEMPTS,
+    AUTH_IP_WINDOW_MS
+  );
+  if (!pairAllowed || !emailAllowed || !addressAllowed) {
     throw new AppError(429, 'Too many attempts, please try again later');
   }
 }

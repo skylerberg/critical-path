@@ -7,6 +7,7 @@ import {
   enforceSignupRateLimit,
   enforceUserSearchRateLimit,
   resetRateLimiter,
+  AUTH_IP_MAX_ATTEMPTS,
   EMAIL_MAX_ATTEMPTS,
   RESET_IP_MAX_ATTEMPTS,
   RESET_EMAIL_MAX_ATTEMPTS,
@@ -142,6 +143,86 @@ describe('enforceAuthRateLimit client IP derivation', () => {
 
     const limited = await attempt({ 'X-Forwarded-For': '198.51.100.99' });
     expect(limited.status).toBe(429);
+  });
+});
+
+// Every attempt costs an argon2 verify whether or not the address has an
+// account, so the address-keyed budgets above bound nothing on their own: they
+// are keyed on a value the caller picks per request.
+describe('enforceAuthRateLimit source address budget', () => {
+  const app = new Hono();
+  app.onError(errorHandler);
+  app.post('/attempt/:email', async (c) => {
+    await enforceAuthRateLimit(c, c.req.param('email'));
+    return c.body(null, 204);
+  });
+
+  async function attempt(email: string, ip: string): Promise<number> {
+    const res = await app.request(`/attempt/${email}`, {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': ip },
+    });
+    return res.status;
+  }
+
+  // A distinct address every time, which is what leaves both of the other two
+  // budgets on their first attempt.
+  async function spendBudget(ip: string): Promise<void> {
+    for (let i = 0; i < AUTH_IP_MAX_ATTEMPTS; i++) {
+      expect(await attempt(`nobody-${i}@example.com`, ip)).toBe(204);
+    }
+  }
+
+  beforeEach(() => {
+    resetRateLimiter();
+    process.env.TRUST_PROXY = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.TRUST_PROXY;
+  });
+
+  it('refuses a source that varies the email on every attempt', async () => {
+    await spendBudget('203.0.113.1');
+    expect(await attempt('nobody-fresh@example.com', '203.0.113.1')).toBe(429);
+  });
+
+  it('leaves every other source a full budget once one has spent its own', async () => {
+    await spendBudget('203.0.113.1');
+    expect(await attempt('nobody-fresh@example.com', '203.0.113.1')).toBe(429);
+
+    expect(await attempt('nobody-fresh@example.com', '198.51.100.9')).toBe(204);
+  });
+
+  // Elapsed times are written out rather than derived from the window constant,
+  // which would move with any shortening of it.
+  it('holds a spent budget for the hour rather than a minute', async () => {
+    const start = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start);
+    try {
+      await spendBudget('203.0.113.1');
+      expect(await attempt('nobody-fresh@example.com', '203.0.113.1')).toBe(429);
+
+      clock.mockReturnValue(start + 30 * 60_000);
+      expect(await attempt('nobody-fresh@example.com', '203.0.113.1')).toBe(429);
+
+      clock.mockReturnValue(start + 60 * 60_000 + 1);
+      expect(await attempt('nobody-fresh@example.com', '203.0.113.1')).toBe(204);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  // The budget is a backstop against one source setting the pace, not a bound
+  // on how many people share an address: an office behind one NAT must still be
+  // able to sign in.
+  it('is far enough above the per-pair budget to leave ordinary sign-in unaffected', async () => {
+    for (let i = 0; i < 10; i++) {
+      expect(await attempt('member@example.com', '203.0.113.1')).toBe(204);
+    }
+    // Spent by the pair budget, not this one.
+    expect(await attempt('member@example.com', '203.0.113.1')).toBe(429);
+    expect(await attempt('colleague@example.com', '203.0.113.1')).toBe(204);
   });
 });
 
