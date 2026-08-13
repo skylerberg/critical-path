@@ -196,8 +196,11 @@ class BoardStore {
   loading = $state(false);
   error = $state<string | null>(null);
   errorStatus = $state<number | null>(null);
-  // When the board on screen last came from the server. Read by the sync
-  // indicator so "offline" can say how stale it is rather than only that it is.
+  // When the board on screen last came from the server. Rendered only by
+  // UnsyncedChangesPanel, which sits behind the sync indicator's Details button
+  // and so is reachable only while the outbox has something in it. Nothing shows
+  // it otherwise — the indicator's own line names the state, never its age, and
+  // `staleRead` below is what covers a board left behind with an empty queue.
   syncedAt = $state<string | null>(null);
   // The last refresh did not produce server data, and the board on screen is
   // whatever preceded it. Separate from `error`, which replaces the board with an

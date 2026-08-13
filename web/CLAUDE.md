@@ -226,6 +226,37 @@ await browser.close();
   from there: `` `${uid}-panel` ``, `` `${uid}-labels` `` (see
   `src/components/FilterBar.svelte`).
 - Event handlers are plain attributes (`onclick`, `onconsider`, `onfinalize`).
+- **`$state` hands back a proxy, and the object you passed it keeps its original
+  values.** Writes go through the proxy, so anything holding the raw object reads
+  a snapshot frozen at construction — silently, with no type error, because the
+  two have the same type:
+
+  ```ts
+  let card = $state(freshCard());
+  const raw = freshCard();
+  card = raw; // `card` is a proxy wrapping `raw`
+  card.titleDraft = 'typed';
+  raw.titleDraft; // null — the write never touched this object
+  ```
+
+  So a value captured for later use must be read back **off the `$state`
+  variable** after assignment, never taken from the constructor call:
+
+  ```ts
+  card = freshCard();
+  const opened = card; // the proxy — sees every later write
+  ```
+
+  `TaskDetail.svelte` does exactly this, and hands `opened` to the teardown that
+  saves an unsaved title. Capturing the constructor's return instead compiles,
+  typechecks, and flushes a card whose draft is forever `null`.
+
+- A `$state` field read inside an `$effect` teardown is still readable, and the
+  teardown does not track — which is what lets one effect reset state in its body
+  and flush the outgoing value in its teardown. Svelte runs an effect's teardown
+  immediately before that same effect's body, so pairing the two in **one** effect
+  makes the ordering a framework guarantee; splitting them across two effects
+  makes it depend on declaration order, which a reorder breaks silently.
 
 ## Router
 
