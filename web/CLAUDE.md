@@ -108,9 +108,18 @@ npm run check && npm run check:layout && npm run check:layout:real && npm run li
 `src/**/*.test.ts`), `scripts/**/*.ts` and `vite.config.ts`. Nothing about the
 test files is exempt from `strict`.
 
-Both layout checks boot vite in-process on the first free port at or above 5180,
-so two worktrees can run them at the same time and a killed run leaves nothing
-behind.
+The two layout checks are different tiers, and which one you are reading matters
+when one fails. `check:layout` loads `scripts/board-layout.fixture.html` over
+`file://` — a hand-written, dependency-free mirror of the board's class chain,
+with no vite and no components, so a failure there is a pure-CSS failure and the
+fixture is where to look. `check:layout:real` boots vite in-process on the first
+free port at or above 5180 (override with `VITE_PORT`) and mounts the real
+`Board.svelte` through `scripts/board-probe.ts`, so two worktrees can run it at
+the same time and a killed run leaves nothing behind.
+
+The fixture is a copy, so it can agree with a component it no longer resembles.
+`.pi/skills/browser-repro/SKILL.md` covers when not to trust it and how to
+reproduce against the real thing instead.
 
 ## Checking what jsdom cannot model
 
