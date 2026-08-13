@@ -220,4 +220,35 @@ describe('nearestSnapIndex', () => {
     expect(nearestSnapIndex(0, positions)).toBe(0);
     expect(nearestSnapIndex(261, positions)).toBe(1);
   });
+
+  // The defining property, and the one no center-distance implementation can
+  // satisfy on an uneven list: parked exactly ON a position, the answer is that
+  // position's own index, whatever the spacing either side of it. Stating it as a
+  // property rather than as cases is what makes it independent of the board's
+  // current geometry — the layout that produced these numbers can change without
+  // the rule that generated them changing with it.
+  //
+  // The two lists were measured off the board, but nothing here re-checks that
+  // they still describe it: the property holds for ANY list, so a column resized
+  // tomorrow leaves these numbers stale and the test green. Read them as a shape,
+  // not as a record — uneven at both ends, which is what a center-distance reading
+  // cannot handle. `check:layout:real` is what holds the real geometry to account.
+  it.each([
+    ['390px phone', [0, 261, 561, 861, 1161, 1461, 1761, 2061, 2322]],
+    ['740px phone', [0, 86, 386, 686, 986, 1286, 1586, 1886, 2186, 2486, 2786, 3086, 3172]],
+  ])('names every position in the %s list from its own scrollLeft', (_label, positions) => {
+    positions.forEach((position, index) => {
+      expect(nearestSnapIndex(position, positions)).toBe(index);
+    });
+  });
+
+  // And a pixel either side of a position still names it, so sub-pixel layout
+  // never reads as the neighbor.
+  it('tolerates a sub-pixel offset from the position it names', () => {
+    const positions = [0, 86, 386, 686];
+    for (const index of [1, 2, 3]) {
+      expect(nearestSnapIndex(positions[index]! - 1, positions)).toBe(index);
+      expect(nearestSnapIndex(positions[index]! + 1, positions)).toBe(index);
+    }
+  });
 });

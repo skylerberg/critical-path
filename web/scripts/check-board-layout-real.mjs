@@ -227,6 +227,26 @@ const SCROLL_PROBE = `(async () => {
   const offSnap = () => (targets.length ? Math.min(...targets.map(offBy)) : null);
   const landedOffSnap = offSnap();
 
+  // WHICH target the board is parked on, as an index. The swipe assertions below
+  // are written against this rather than against a scroll delta: a delta compared
+  // only to another delta is blind to the board counting from the wrong target,
+  // because both readings then move by the same wrong amount and still agree.
+  const snapIndex = () => {
+    if (!targets.length) {
+      return null;
+    }
+    let best = 0;
+    let bestDistance = Infinity;
+    targets.forEach((el, i) => {
+      const distance = offBy(el);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = i;
+      }
+    });
+    return best;
+  };
+
   // A real finger gesture, dispatched as real TouchEvents. The board takes the
   // horizontal gesture over on touch, so this drives the production path end to
   // end — which the previous native-snap arrangement could not be tested for at
@@ -235,6 +255,7 @@ const SCROLL_PROBE = `(async () => {
     board.scrollTo({ left: 0, behavior: 'auto' });
     await settle();
     const before = board.scrollLeft;
+    const indexBefore = snapIndex();
     const at = (x, y) => [new Touch({ identifier: 1, target: board, clientX: x, clientY: y })];
     const send = (type, x, y) =>
       board.dispatchEvent(
@@ -253,7 +274,7 @@ const SCROLL_PROBE = `(async () => {
     send('touchend', 200 + dx, 300 + dy);
     await settle();
     await pause(700);
-    return { before, after: board.scrollLeft };
+    return { before, after: board.scrollLeft, indexBefore, indexAfter: snapIndex() };
   };
 
   const swipeOne = await swipe(-120);
@@ -375,17 +396,35 @@ function checkScroll(s, mobile) {
   if (s.lastEdgeGap > 2)
     f.push(`blank canvas behind the last column (${s.lastEdgeGap}px past the gutter)`);
   if (mobile) {
-    const pitch = s.swipeOne.after - s.swipeOne.before;
     // The whole point: a swipe advances exactly one column, and a drag long enough
     // to cross two still advances one. The browser no longer chooses.
-    if (pitch <= 2) f.push(`a swipe advanced nothing (${JSON.stringify(s.swipeOne)})`);
-    if (Math.abs(s.swipeFar.after - s.swipeFar.before - pitch) > 2)
-      f.push(
-        `a long drag advanced past the next column (${s.swipeFar.after - s.swipeFar.before} vs ${pitch})`
-      );
-    if (Math.abs(s.swipeBack.after - s.swipeBack.before) > 2)
+    //
+    // Stated in snap-target INDICES, not scroll deltas. Every swipe here starts
+    // from the same place, so a delta measured against another delta cancels out
+    // the one error that matters most — the board counting from the wrong target.
+    // Both readings then move by the same wrong amount and agree with each other
+    // while the board skips a column. Only an absolute index can say so, and only
+    // at a width where more than one column fits, which is why the case list below
+    // does not go straight from one column to none.
+    const step = (name, gesture, expected) => {
+      if (gesture.indexBefore !== 0) {
+        f.push(`${name} did not start from the first column (${gesture.indexBefore})`);
+      } else if (gesture.indexAfter !== expected) {
+        f.push(
+          `${name} landed on target ${gesture.indexAfter}, wanted ${expected} (${JSON.stringify(gesture)})`
+        );
+      }
+    };
+    step('a swipe', s.swipeOne, 1);
+    step('a drag long enough to cross two columns', s.swipeFar, 1);
+    step('a swipe back from the first column', s.swipeBack, 0);
+    step('a drag too short to commit', s.swipeShort, 0);
+    step('a vertical gesture', s.swipeVertical, 0);
+    // ...and in pixels too where the expected position is known absolutely: the
+    // first column's snap position is scrollLeft 0 by construction.
+    if (Math.abs(s.swipeBack.after) > 2)
       f.push(`a swipe back from the first column moved it (${s.swipeBack.after})`);
-    if (Math.abs(s.swipeShort.after - s.swipeShort.before) > 2)
+    if (Math.abs(s.swipeShort.after) > 2)
       f.push(`a drag too short to commit still paged (${s.swipeShort.after})`);
     if (s.snapTargets < 2) f.push(`board exposed ${s.snapTargets} snap targets`);
     if (!s.snapStopAll) f.push('a snap target is missing scroll-snap-stop: always');
@@ -417,6 +456,13 @@ function checkScroll(s, mobile) {
 
 const SCROLL_CASES = [
   { w: 390, h: 844, cols: 12, tasks: 3 },
+  // A phone in landscape. Below md, so the columns still mix their alignment and
+  // the board still owns the gesture — but wide enough for two columns at once,
+  // which 390 is not. That gap is where "which target is the board on?" stops
+  // being answerable by looking at what is nearest the middle of the screen: at
+  // rest on the first column, the SECOND one is nearer the middle (86px against
+  // 214px). Between 390 and 1280 the check used to ask nothing at all.
+  { w: 740, h: 900, cols: 12, tasks: 3 },
   { w: 1280, h: 800, cols: 12, tasks: 3 },
 ];
 
