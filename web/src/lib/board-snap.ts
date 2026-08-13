@@ -9,7 +9,7 @@ import { nearestSnapIndex, snapScrollLeft, type SnapAlign } from './board-scroll
  * on.
  */
 
-export function columnSections(scroller: HTMLElement): HTMLElement[] {
+export function columnElements(scroller: HTMLElement): HTMLElement[] {
   return Array.from(scroller.querySelectorAll<HTMLElement>('[data-column-id]'));
 }
 

@@ -16,6 +16,10 @@ export default ts.config(
       // tsconfigRootDir auto-detection). Ignore them.
       '.pi/worktrees/**',
       '.claude/**',
+      // Throwaway probes, which are meant to be written fast and deleted. Linting
+      // them turns the gate red for a file that is not part of the project — and
+      // a stale one left behind makes `npm run lint` look broken on a clean tree.
+      'scripts/tmp-*',
     ],
   },
   js.configs.recommended,

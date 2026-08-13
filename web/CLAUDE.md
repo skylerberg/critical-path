@@ -310,6 +310,10 @@ Traps a probe of that shape hits:
 
 A probe has to sit inside the repo to resolve `vite`, `playwright` and the
 helper itself; one written to `/tmp` fails at the import, not at the assertion.
+**Name it `scripts/tmp-<what>.mjs`** — that prefix is ignored by git and by
+eslint, which is the difference between a scratch file and a commit risk that
+also reddens `npm run lint`. Delete it when done; the prefix is what keeps a
+forgotten one from making the gate look broken on a clean tree.
 
 ```js
 import { createBrowser } from './scripts/lib/browser.mjs';
