@@ -2558,6 +2558,23 @@ npm run lint
 npm run format
 ```
 
+## Benchmarks
+
+`bench/` seeds a large instance into a database of its own, drives the app
+in-process and reports p50/p95, statement counts, time spent in Postgres and
+payload size per endpoint. It runs on demand — never in CI, never as part of
+`npm test`.
+
+```sh
+npm run bench                 # ~37k cards, seeds in seconds
+npm run bench:heavy           # ~372k cards
+npm run bench -- --explain    # plus the plan for each scenario's slowest statement
+```
+
+`bench/README.md` covers the tiers, the seeded landmarks and how to add a
+scenario. `docs/scaling.md` records what the last sweep found: what was fixed,
+what is still unbounded and why, and what was checked and cleared.
+
 ## CLI (`cpath`)
 
 A full command-line client lives in `cli/` as a standalone npm package
