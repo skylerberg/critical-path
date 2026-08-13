@@ -55,8 +55,8 @@
         toggle(nav.activeKey);
       }
     } else if (event.key === 'Escape' && onclose !== undefined) {
-      // preventDefault suppresses the enclosing <dialog>'s close request so only
-      // the picker collapses; stopPropagation keeps it away from window shortcuts.
+      // Keeps Escape from closing the enclosing <dialog> or reaching the window
+      // shortcuts; only the picker collapses.
       event.preventDefault();
       event.stopPropagation();
       onclose();

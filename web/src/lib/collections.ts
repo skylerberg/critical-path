@@ -1,11 +1,8 @@
 /**
  * The three things every store here does to a list keyed by id.
  *
- * They were written out at roughly twenty call sites before this, each spelling
- * the same conditional spread a little differently — which is what buried the
- * per-event comments in `applyRealtime` that actually say something. All three
- * return a new array, because the stores replace values rather than mutating
- * them in place and `$state` is only notified by the assignment.
+ * All three return a new array, because the stores replace values rather than
+ * mutating them in place and `$state` is only notified by the assignment.
  */
 
 /** Replaces the entry with this id, or appends it. `compare` re-sorts after. */

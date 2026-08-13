@@ -28,6 +28,9 @@ class UsersStore {
   #inflight: Promise<void> | null = null;
   #projectInflight = new Map<string, Promise<void>>();
 
+  // Undefined for a user this account cannot see, which is what a byline wants:
+  // leaving them unnamed beats `displayFor`'s placeholder rendering as "Unknown
+  // user" against a teammate the activity log has just named.
   byId(id: string): User | undefined {
     return this.#byId.get(id);
   }

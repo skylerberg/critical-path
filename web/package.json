@@ -19,6 +19,7 @@
     "check:layout": "node scripts/check-board-layout.mjs",
     "check:layout:real": "node scripts/check-board-layout-real.mjs",
     "check:task-detail": "node scripts/check-task-detail.mjs",
+    "check:comments": "node scripts/check-comments.mjs",
     "playwright:install": "playwright install chromium webkit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

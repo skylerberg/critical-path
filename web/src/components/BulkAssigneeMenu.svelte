@@ -24,8 +24,6 @@
     }
   });
 
-  // Read live rather than snapshotted on open, so a card a teammate deletes
-  // leaves the target set without a line of code here.
   const ids = $derived(selection.selectedIds);
   const tasks = $derived.by(() => {
     const wanted = new Set(ids);

@@ -187,10 +187,15 @@ class BoardStore {
   currentProjectId = $state<string | null>(null);
   readonly = $state(false);
   canEdit = $derived(this.project !== null && canEditProject(this.project, session.user?.id));
-  // Read-only signal for the shortcut layer; nothing in this store reacts to it.
+  // Written by the board view for the length of a pointer or keyboard drag.
   dragging = $state(false);
   // The card overlay's checklist drags from its own zone, outside the board's.
   detailDragging = $state(false);
+  // What every reader outside this file actually gates on. `realtime.svelte.ts`
+  // holds board-structural events back while this is true — applying one
+  // mid-drag corrupts the dnd zones — so widening when either flag is set, or
+  // deferring when it clears, silently changes what the socket does with a
+  // burst of events rather than only what a keystroke does.
   dragBusy = $derived(this.dragging || this.detailDragging);
   filterLabelIds = $state<string[]>([]);
   filterAssigneeIds = $state<string[]>([]);
@@ -371,8 +376,8 @@ class BoardStore {
         // against; a signed-in viewer is not this, and gets the whole feature.
         if (!this.readonly) {
           this.changedTaskIds.clear();
-          // Coalesced despite the type: an API pod that predates the marker omits
-          // the key, and the feature has to degrade to invisible rather than throw.
+          // Coalesced: a pod predating the unseen-changes marker omits the key,
+          // and the feature degrades to invisible rather than throwing.
           for (const id of data.changed_task_ids ?? []) {
             if (!this.#lookedAtTaskIds.has(id)) {
               this.changedTaskIds.add(id);
@@ -517,8 +522,7 @@ class BoardStore {
     const comments: Record<string, TaskComment[]> = Object.fromEntries(
       data.tasks.map((task) => [task.id, [] as TaskComment[]])
     );
-    // Coalesced despite the type: an API pod that predates public comments omits
-    // the field entirely.
+    // Coalesced: a pod predating public comments omits the field entirely.
     for (const comment of data.comments ?? []) {
       comments[comment.task_id]?.push(comment);
     }
@@ -550,8 +554,7 @@ class BoardStore {
           created_at: '',
           updated_at: '',
           column_since: '',
-          // Coalesced despite the type, as the comments above are: an API pod that
-          // predates checklists omits both counts and svelte-check cannot see it.
+          // Coalesced: a pod predating checklists omits both counts.
           checklist_item_count: task.checklist_item_count ?? 0,
           checklist_done_count: task.checklist_done_count ?? 0,
           // Public boards deliberately withhold it, and a paperclip on a card
@@ -1218,8 +1221,8 @@ class BoardStore {
       });
       // The reconcile leaves an unlisted task alone, so one the server refused to
       // move — already archived, per an event we have not seen — would otherwise
-      // sit in the target column forever. Sets, not counts: an id we did not send
-      // can mask one the server skipped.
+      // sit in the target column forever. Compared as sets for the reason on
+      // #bulkDisagrees, which is the same check.
       if (byId.size !== moved.length || moved.some((task) => !byId.has(task.id))) {
         await this.resync();
       }
@@ -1291,8 +1294,8 @@ class BoardStore {
       const byId = new Map(result.data.tasks.map((task) => [task.id, task]));
       this.archivedTasks = this.archivedTasks.map((task) => byId.get(task.id) ?? task);
       // A card we dropped from the board but the server did not archive is gone
-      // from both lists until something else refetches. Sets, not counts: an id we
-      // did not send can mask one the server skipped.
+      // from both lists until something else refetches. Compared as sets for the
+      // reason on #bulkDisagrees, which is the same check.
       if (byId.size !== archivingIds.length || archivingIds.some((id) => !byId.has(id))) {
         await this.resync();
       }
@@ -1921,8 +1924,8 @@ class BoardStore {
   }
 
   // Everything below delegates to a sub-store. The bodies moved; the names did
-  // not, so every caller — a dozen files, plus the board's own realtime switch —
-  // is untouched by the split.
+  // not, so every caller — including the board's own realtime switch — is
+  // untouched by the split.
 
   createComment(taskId: string, body: CommentBody): Promise<void> {
     return this.#comments.create(taskId, body);
@@ -2007,8 +2010,8 @@ class BoardStore {
         // overlay's autosave flushed on close — lands after our optimistic remove).
         // Re-adding it here would resurrect a phantom node in the graph.
         const incoming = event.data;
-        // An API pod that predates comments omits comment_count; replacing the whole
-        // task with its payload would otherwise blank the badge until a full refetch.
+        // Coalesced: a pod predating comments omits comment_count, and replacing
+        // the whole task with its payload would blank the badge until a refetch.
         this.tasks = patchById(this.tasks, incoming.id, (t) => ({
           ...incoming,
           comment_count: incoming.comment_count ?? t.comment_count,
@@ -2289,7 +2292,7 @@ class BoardStore {
 
   /**
    * Every board write goes through here so that "offline" is decided in one
-   * place rather than at forty call sites. When the server is reachable this is
+   * place rather than at every call site. When the server is reachable this is
    * the request it always was; when it is not, the change is queued and the
    * optimistic update the caller already applied simply stands.
    */
@@ -2307,10 +2310,17 @@ class BoardStore {
    * passing a handler must wrap it — `(error) => this.#labelConflictOrFail(error)`,
    * never the bare reference, which would be called with `this` undefined.
    *
-   * Not every site can use this. Four run `taskActivity.invalidate` before the
-   * failure check, and both handlers refetch over the network — `invalidate`
-   * compares elapsed time against a refresh interval, so running the policy first
-   * changes what it decides. Those stay on #send.
+   * The sites left on #send have two different reasons, and both are about what
+   * must happen before the failure policy runs — which refetches over the
+   * network, so anything after it is judged against a board that has moved.
+   *
+   * - `updateTask` and `addBlocker` call `taskActivity.invalidate` first.
+   *   `invalidate` compares elapsed time against a refresh interval, so running
+   *   the policy ahead of it changes what it decides.
+   * - The three archive writes undo their optimistic `archivedTasks` insert
+   *   first. Handing that to `onFailure` would resync with the card still
+   *   showing as archived, and the row it puts back is the one being rolled
+   *   back.
    */
   async #sendOrFail<T>(
     input: Omit<SubmitInput, 'projectId'>,

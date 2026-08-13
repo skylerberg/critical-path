@@ -12,6 +12,10 @@ function omitKey<T>(map: Record<string, T>, key: string): Record<string, T> {
   return Object.fromEntries(Object.entries(map).filter(([id]) => id !== key));
 }
 
+// A project-scoped list store shaped like `taskSeries.svelte.ts`: same monotonic
+// load token, the same reports-rather-than-throws contract on `load`, and the
+// same rethrow-after-resync on a rejected write. Those are spelled out there and
+// in `projects.svelte.ts`; only what is particular to webhooks is noted here.
 class WebhooksStore {
   currentProjectId = $state<string | null>(null);
   list = $state<Webhook[]>([]);
@@ -21,14 +25,9 @@ class WebhooksStore {
   loaded = $state(false);
   loadError = $state<string | null>(null);
 
-  // Bumped by every mutation and by reset as well as by the reads themselves, so a
-  // response the server built before a write — or before a logout — cannot land on
-  // top of what the store already knows.
   #listToken = 0;
   #deliveriesToken = 0;
 
-  // Reports rather than throws: a client that reaches production ahead of the
-  // API rollout must render an error, not break the board it is opened from.
   async load(projectId: string): Promise<void> {
     if (projectId !== this.currentProjectId) {
       this.#clear();
@@ -73,7 +72,6 @@ class WebhooksStore {
       );
       this.#replace(id, row);
     } catch (error) {
-      // Rethrown after the resync so the form can surface the rejection inline.
       await this.load(projectId);
       throw error;
     }

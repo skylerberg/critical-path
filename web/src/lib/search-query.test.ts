@@ -78,8 +78,6 @@ describe('groupByProject', () => {
     expect(groups[0]?.results.map((r) => r.title)).toEqual(['Fix login', 'Fix logout']);
   });
 
-  // Groups follow first appearance, so they inherit the server's global ranking:
-  // the project holding the best hit leads.
   it('orders groups by first appearance, not by size', () => {
     const groups = groupByProject([
       result(SITE, 'Site', 'best hit'),

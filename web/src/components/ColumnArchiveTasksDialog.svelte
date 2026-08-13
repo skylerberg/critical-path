@@ -16,7 +16,6 @@
   // would archive a different set than the count the user was shown.
   const archiving = $derived(board.tasksInColumn(column.id));
   const archivingIds = $derived(new Set(archiving.map((task) => task.id)));
-  // Tasks, not edges, so a card blocked by two of these counts once.
   const dependentCount = $derived(
     board.tasks.filter(
       (task) => !archivingIds.has(task.id) && task.blocker_ids.some((id) => archivingIds.has(id))

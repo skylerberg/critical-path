@@ -2,9 +2,9 @@ import type { components } from '../api/api.generated';
 
 export type ProjectRole = components['schemas']['ProjectMember']['role'];
 
-// `members` is optional even though the payload types make it required: a
-// response from an API pod that predates roles has no such key, and this is read
-// during render, where a TypeError takes the whole board down.
+// `members` is optional even though the payload types make it required: a pod
+// predating roles omits the key, and this is read during render, where a
+// TypeError takes the whole board down.
 interface RoleReadable {
   created_by: string | null;
   member_ids: string[];

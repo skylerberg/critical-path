@@ -50,6 +50,9 @@ class CardCursorStore {
     return true;
   }
 
+  // The cursor only, never the rows: a refreshed list keeps its cursor, and the
+  // arriving screen owns the rows whichever order two screens swap in. That is
+  // why a list view clears on the way out rather than on the way in.
   clear(): void {
     this.taskId = null;
   }

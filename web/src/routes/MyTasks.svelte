@@ -42,8 +42,6 @@
   $effect(() => {
     cardCursor.setRows(rowIds);
   });
-  // Only the cursor, and only on the way out: a refreshed list keeps its cursor, and
-  // the arriving screen owns the rows whichever order the two screens swap in.
   onDestroy(() => cardCursor.clear());
 </script>
 

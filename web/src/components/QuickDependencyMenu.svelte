@@ -16,15 +16,14 @@
 
   const task = $derived(ctx.tasks.find((t) => t.id === taskId));
   const heading = $derived(direction === 'blocker' ? 'Blocked by' : 'Blocks');
-  // Opened by a keystroke over whatever view was on screen, so the title has to name
-  // the task: nothing else in the menu says which one the next Enter will link.
+  // Nothing else in the menu says which task the next Enter will link.
   const title = $derived(
     task === undefined ? heading : `${heading} — ${truncateTitle(task.title)}`
   );
 
   $effect(() => {
-    // A realtime delete can take the task out from under an open menu. Linking to it
-    // then either fails silently or strands a task the Create row just made.
+    // Linking to a task a realtime delete took out from under the open menu
+    // either fails silently or strands a task the Create row just made.
     if (task === undefined) {
       onclose();
     }

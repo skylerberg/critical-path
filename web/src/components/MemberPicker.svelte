@@ -98,8 +98,6 @@
     );
   });
 
-  // The debounce counts as searching, or a query the server has not been asked
-  // about yet reads as one it answered with nothing.
   const searching = $derived(searchPending || directory.status === 'loading');
   const statusText = $derived.by(() => {
     if (notice !== null) {
@@ -147,7 +145,6 @@
 
   onDestroy(() => {
     cancelSearch();
-    // Bumps the store's token, so a response landing after the close writes nothing.
     directory.reset();
   });
 

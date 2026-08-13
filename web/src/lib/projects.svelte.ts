@@ -272,8 +272,8 @@ class ProjectsStore {
           : {
               ...p,
               member_ids: [...p.member_ids, user.id],
-              // Coalesced despite the type: an API that predates roles omits it,
-              // and an undefined role reads as a viewer everywhere downstream.
+              // Coalesced: a pod predating roles omits role, and an undefined one
+              // reads as a viewer everywhere downstream.
               members: [...p.members, { user_id: user.id, role: role ?? 'editor' }],
             }
       );

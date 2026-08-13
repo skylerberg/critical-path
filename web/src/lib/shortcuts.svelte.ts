@@ -32,9 +32,11 @@ function modalOwnsKeymap(): boolean {
   return document.querySelector('dialog[data-modal][open]') !== null;
 }
 
-// CapsLock reports a plain press as 'K', so the chord comes from the modifier and
-// never the character. Ctrl+K is kill-to-end-of-line in every macOS text field, so
-// there the palette answers to Cmd alone; Cmd+Shift+K is the browser's console.
+// CapsLock inverts the character, so every shortcut below matches both cases and
+// takes its meaning from the modifiers alone — never from which case arrived.
+//
+// Ctrl+K is kill-to-end-of-line in every macOS text field, so there the palette
+// answers to Cmd alone; Cmd+Shift+K is the browser's console.
 function isPaletteChord(event: KeyboardEvent): boolean {
   if ((event.key !== 'k' && event.key !== 'K') || event.altKey || event.shiftKey) {
     return false;
@@ -165,8 +167,7 @@ class ShortcutController {
       return false;
     }
     switch (event.key) {
-      // 'J' and 'K' are the same press with Shift held, and CapsLock inverts the
-      // case either way; a list has no range to extend, so both move the cursor.
+      // A list has no range to extend, so Shift makes no difference here.
       case 'j':
       case 'J':
       case 'ArrowDown':
@@ -216,8 +217,6 @@ class ShortcutController {
   #handleSelectionKey(event: KeyboardEvent, projectId: string | null): boolean {
     const cursorId = selection.cursorTaskId;
     switch (event.key) {
-      // 'J' and 'K' are the same press with Shift held; the behavior comes from
-      // the modifier and never the character's case, as CapsLock inverts it.
       case 'j':
       case 'J':
       case 'ArrowDown':
@@ -269,8 +268,6 @@ class ShortcutController {
       }
       case 'd':
       case 'D':
-        // CapsLock inverts the character, so duplicate-versus-done comes from the
-        // modifier and never from the case of the key.
         if (cursorId === null || !board.canEdit || event.metaKey || event.ctrlKey || event.altKey) {
           return false;
         }
@@ -380,8 +377,6 @@ class ShortcutController {
         break;
       case 'b':
       case 'B':
-        // CapsLock reports a plain press as 'B', so the direction comes from the
-        // modifier and never the character.
         if (editTarget === null || event.metaKey || event.ctrlKey || event.altKey) {
           return;
         }

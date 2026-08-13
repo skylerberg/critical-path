@@ -61,6 +61,8 @@ export class SearchStore {
     }
   }
 
+  // Bumps the token as well as clearing, which is why closing a surface calls
+  // this: a response landing after the close then writes nothing.
   reset(): void {
     this.#token++;
     this.query = '';

@@ -83,6 +83,9 @@ class SelectionStore {
   /**
    * Position order, not display order: a transient filter must not decide where
    * the cards land after a bulk move.
+   *
+   * Live, never a snapshot, so a menu deriving its target set from this drops a
+   * card a teammate deletes mid-gesture without a line of code at the call site.
    */
   get selectedIds(): string[] {
     return this.#liveIds;

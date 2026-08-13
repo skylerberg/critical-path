@@ -66,7 +66,6 @@ describe('snapshots', () => {
     expect(await readSnapshot('board:never')).toBeNull();
   });
 
-  // A payload written by a previous build is not worth guessing at.
   it('discards a record left by a different snapshot version', async () => {
     await writeSnapshot('board:p1', ADA, { tasks: [] }, SAVED_AT);
     await putRaw({
@@ -122,8 +121,6 @@ describe('the outbox queue', () => {
     expect(await readQueue(ADA)).toEqual([]);
   });
 
-  // Replay order is the order the user worked in, and the store is keyed by op id
-  // rather than sequence, so the sort is what makes FIFO true.
   it('comes back in sequence order however it went in', async () => {
     await writeOp(op(3));
     await writeOp(op(1));

@@ -49,13 +49,9 @@
     linkError = false;
   }
 
-  // The teardown pairs with the reset in the same body, which is what makes it
-  // safe: Svelte runs an effect's teardown immediately before that same effect's
-  // body, so the open edit is always sent before `editingId = null` clears it, and
-  // no other effect can be reordered into the gap. The row is looked up in the store
-  // by the captured id rather than through `loaded`, which by then follows the card
-  // arriving. On a plain unmount this is the only half that runs — removing a
-  // focused input is not a blur.
+  // Reset and flush in one effect, so the teardown always sends the open edit
+  // before the body clears it. The row is looked up in the store by the captured
+  // id rather than through `loaded`, which by then follows the card arriving.
   $effect(() => {
     const id = taskId;
     addingLink = false;
@@ -173,10 +169,8 @@
     confirmingDeleteId = null;
   }
 
-  // Enter commits and unmounts the input, so the blur that follows finds the edit
-  // already closed and this returns without writing it twice. `id` is required
-  // rather than defaulted so it cannot silently be the wrong card: the teardown
-  // flush runs once taskId has already moved on.
+  // `id` is a required parameter, never defaulted from `taskId`, because the
+  // teardown above flushes after taskId has already moved on.
   function commitEdit(attachment: TaskAttachment, id: string): void {
     if (editingId !== attachment.id) {
       return;
