@@ -1,6 +1,7 @@
 import type { BoardPort } from './board-port';
 import type { CommentBody, TaskComment } from './board-types';
 import { nowIso } from './dates';
+import { patchById, removeById } from './collections';
 import { newId } from './ids';
 import { session } from './session.svelte';
 
@@ -83,9 +84,7 @@ export class BoardComments {
   async update(taskId: string, commentId: string, body: CommentBody): Promise<boolean> {
     const now = nowIso();
     this.replace(taskId, (comments) =>
-      comments.map((comment) =>
-        comment.id === commentId ? { ...comment, body, updated_at: now } : comment
-      )
+      patchById(comments, commentId, (comment) => ({ ...comment, body, updated_at: now }))
     );
     const result = await this.#board.send<TaskComment>({
       entityId: commentId,
@@ -104,15 +103,13 @@ export class BoardComments {
     }
     if (result.status === 'sent') {
       const updated = result.data;
-      this.replace(taskId, (comments) =>
-        comments.map((comment) => (comment.id === commentId ? updated : comment))
-      );
+      this.replace(taskId, (comments) => patchById(comments, commentId, () => updated));
     }
     return true;
   }
 
   async remove(taskId: string, commentId: string): Promise<void> {
-    this.replace(taskId, (comments) => comments.filter((comment) => comment.id !== commentId));
+    this.replace(taskId, (comments) => removeById(comments, commentId));
     this.setCount(taskId, (count) => Math.max(0, count - 1));
     const result = await this.#board.send({
       entityId: commentId,

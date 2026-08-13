@@ -21,6 +21,7 @@ import type {
   TaskAttachment,
   TaskComment,
 } from './board-types';
+import { patchById, removeById, upsertById } from './collections';
 import { type ColumnSort, sortTasks } from './column-sort';
 import { connectivity } from './connectivity.svelte';
 import { mergeVersion, type TaskVersion } from './conflictDrafts.svelte';
@@ -1588,9 +1589,7 @@ class BoardStore {
   }
 
   async setTaskLabels(taskId: string, labelIds: string[]): Promise<void> {
-    this.tasks = this.tasks.map((task) =>
-      task.id === taskId ? { ...task, label_ids: labelIds } : task
-    );
+    this.tasks = patchById(this.tasks, taskId, (task) => ({ ...task, label_ids: labelIds }));
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
     const result = await this.#send({
       entityId: taskId,
@@ -1609,9 +1608,7 @@ class BoardStore {
   }
 
   async setTaskAssignees(taskId: string, userIds: string[]): Promise<void> {
-    this.tasks = this.tasks.map((task) =>
-      task.id === taskId ? { ...task, assignee_ids: userIds } : task
-    );
+    this.tasks = patchById(this.tasks, taskId, (task) => ({ ...task, assignee_ids: userIds }));
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
     const result = await this.#send({
       entityId: taskId,
@@ -2050,9 +2047,7 @@ class BoardStore {
           comment_count: incoming.comment_count ?? 0,
           attachment_count: incoming.attachment_count ?? 0,
         };
-        this.tasks = this.tasks.some((t) => t.id === task.id)
-          ? this.tasks.map((t) => (t.id === task.id ? task : t))
-          : [...this.tasks, task];
+        this.tasks = upsertById(this.tasks, task);
         break;
       }
       case 'task_updated': {
@@ -2063,55 +2058,46 @@ class BoardStore {
         const incoming = event.data;
         // An API pod that predates comments omits comment_count; replacing the whole
         // task with its payload would otherwise blank the badge until a full refetch.
-        this.tasks = this.tasks.map((t) =>
-          t.id === incoming.id
-            ? {
-                ...incoming,
-                comment_count: incoming.comment_count ?? t.comment_count,
-                attachment_count: incoming.attachment_count ?? t.attachment_count,
-              }
-            : t
-        );
+        this.tasks = patchById(this.tasks, incoming.id, (t) => ({
+          ...incoming,
+          comment_count: incoming.comment_count ?? t.comment_count,
+          attachment_count: incoming.attachment_count ?? t.attachment_count,
+        }));
         taskActivity.invalidate(incoming.id);
         break;
       }
       case 'task_deleted': {
         const { id } = event.data;
         this.#dropTasks([id]);
-        this.archivedTasks = this.archivedTasks.filter((t) => t.id !== id);
+        this.archivedTasks = removeById(this.archivedTasks, id);
         break;
       }
       case 'task_archived': {
         const archived = event.data;
         this.#dropTasks([archived.id]);
+        // Prepended, not upsertById's append: the archive reads newest first.
         this.archivedTasks = this.archivedTasks.some((t) => t.id === archived.id)
-          ? this.archivedTasks.map((t) => (t.id === archived.id ? archived : t))
+          ? patchById(this.archivedTasks, archived.id, () => archived)
           : [archived, ...this.archivedTasks];
         taskActivity.invalidate(archived.id);
         break;
       }
       case 'task_restored': {
         const restored = event.data;
-        this.archivedTasks = this.archivedTasks.filter((t) => t.id !== restored.id);
-        this.tasks = this.tasks.some((t) => t.id === restored.id)
-          ? this.tasks.map((t) => (t.id === restored.id ? restored : t))
-          : [...this.tasks, restored];
+        this.archivedTasks = removeById(this.archivedTasks, restored.id);
+        this.tasks = upsertById(this.tasks, restored);
         taskActivity.invalidate(restored.id);
         break;
       }
       case 'task_relations_set': {
         const d = event.data;
-        this.tasks = this.tasks.map((t) =>
-          t.id === d.task_id
-            ? {
-                ...t,
-                label_ids: d.label_ids,
-                assignee_ids: d.assignee_ids,
-                blocker_ids: d.blocker_ids,
-                open_cross_project_blocker_count: d.open_cross_project_blocker_count,
-              }
-            : t
-        );
+        this.tasks = patchById(this.tasks, d.task_id, (t) => ({
+          ...t,
+          label_ids: d.label_ids,
+          assignee_ids: d.assignee_ids,
+          blocker_ids: d.blocker_ids,
+          open_cross_project_blocker_count: d.open_cross_project_blocker_count,
+        }));
         taskActivity.invalidate(d.task_id);
         crossProjectDeps.invalidate(d.task_id);
         break;
@@ -2135,16 +2121,12 @@ class BoardStore {
       case 'column_created':
       case 'column_updated': {
         const column = event.data;
-        this.columns = (
-          this.columns.some((c) => c.id === column.id)
-            ? this.columns.map((c) => (c.id === column.id ? column : c))
-            : [...this.columns, column]
-        ).sort(byRank);
+        this.columns = upsertById(this.columns, column, byRank);
         break;
       }
       case 'column_deleted': {
         const d = event.data;
-        this.columns = this.columns.filter((c) => c.id !== d.id);
+        this.columns = removeById(this.columns, d.id);
         const moved = new Map(d.moved_tasks.map((m) => [m.id, m]));
         const relocate = <T extends { id: string; column_id: string; sort_key: string }>(
           task: T
@@ -2221,14 +2203,12 @@ class BoardStore {
       case 'label_created':
       case 'label_updated': {
         const label = event.data;
-        this.labels = this.labels.some((l) => l.id === label.id)
-          ? this.labels.map((l) => (l.id === label.id ? label : l))
-          : [...this.labels, label];
+        this.labels = upsertById(this.labels, label);
         break;
       }
       case 'label_deleted': {
         const { id } = event.data;
-        this.labels = this.labels.filter((l) => l.id !== id);
+        this.labels = removeById(this.labels, id);
         this.tasks = this.tasks.map((t) =>
           t.label_ids.includes(id) ? { ...t, label_ids: t.label_ids.filter((l) => l !== id) } : t
         );
@@ -2250,21 +2230,20 @@ class BoardStore {
       case 'attachment_updated': {
         const d = event.data;
         this.#attachments.replace(d.task_id, (attachments) =>
-          attachments.map((a) => (a.id === d.id ? d : a))
+          patchById(attachments, d.id, () => d)
         );
         break;
       }
       case 'attachment_deleted': {
         const d = event.data;
         this.#attachments.setCount(d.task_id, () => d.attachment_count);
-        this.#attachments.replace(d.task_id, (attachments) =>
-          attachments.filter((a) => a.id !== d.id)
-        );
+        this.#attachments.replace(d.task_id, (attachments) => removeById(attachments, d.id));
         // The cover lives on the row, so a delete can clear it. This is the only
         // event that reports one now.
-        this.tasks = this.tasks.map((t) =>
-          t.id === d.task_id ? { ...t, cover_image_url: d.cover_image_url ?? null } : t
-        );
+        this.tasks = patchById(this.tasks, d.task_id, (t) => ({
+          ...t,
+          cover_image_url: d.cover_image_url ?? null,
+        }));
         break;
       }
       case 'comment_created': {
@@ -2289,16 +2268,14 @@ class BoardStore {
       case 'comment_updated': {
         const d = event.data;
         this.#comments.replace(d.task_id, (comments) =>
-          comments.map((c) =>
-            c.id === d.id ? { ...c, body: d.body, updated_at: d.updated_at } : c
-          )
+          patchById(comments, d.id, (c) => ({ ...c, body: d.body, updated_at: d.updated_at }))
         );
         break;
       }
       case 'comment_deleted': {
         const d = event.data;
         this.#comments.setCount(d.task_id, () => d.comment_count);
-        this.#comments.replace(d.task_id, (comments) => comments.filter((c) => c.id !== d.id));
+        this.#comments.replace(d.task_id, (comments) => removeById(comments, d.id));
         break;
       }
       case 'checklist_item_created':
@@ -2317,12 +2294,7 @@ class BoardStore {
           created_at: d.created_at,
           updated_at: d.updated_at,
         };
-        this.#checklists.replace(d.task_id, (items) =>
-          (items.some((i) => i.id === item.id)
-            ? items.map((i) => (i.id === item.id ? item : i))
-            : [...items, item]
-          ).sort(byRank)
-        );
+        this.#checklists.replace(d.task_id, (items) => upsertById(items, item, byRank));
         // A reposition writes no activity entry, but the event cannot say which kind
         // of patch it was; the store's refresh collapses a burst into one fetch.
         taskActivity.invalidate(d.task_id);
@@ -2334,7 +2306,7 @@ class BoardStore {
           total: d.checklist_item_count,
           done: d.checklist_done_count,
         }));
-        this.#checklists.replace(d.task_id, (items) => items.filter((i) => i.id !== d.id));
+        this.#checklists.replace(d.task_id, (items) => removeById(items, d.id));
         taskActivity.invalidate(d.task_id);
         break;
       }

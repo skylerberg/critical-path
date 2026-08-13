@@ -4,6 +4,7 @@ import type { BoardPort } from './board-port';
 import type { TaskAttachment } from './board-types';
 import { saveBlob } from './export';
 import { nowIso } from './dates';
+import { patchById, removeById } from './collections';
 import { newId } from './ids';
 import { toasts } from './toasts.svelte';
 
@@ -101,9 +102,7 @@ export class BoardAttachments {
       const created = assertOk(
         await api.POST('/api/attachments/links', { body: { id, task_id: taskId, url } })
       );
-      this.replace(taskId, (attachments) =>
-        attachments.map((attachment) => (attachment.id === id ? created : attachment))
-      );
+      this.replace(taskId, (attachments) => patchById(attachments, id, () => created));
     } catch (error) {
       await this.#board.mutationFailed(error);
       await this.#board.loadTaskDetail(taskId);
@@ -116,17 +115,13 @@ export class BoardAttachments {
     patch: { title?: string | null; description?: string | null }
   ): Promise<void> {
     this.replace(taskId, (attachments) =>
-      attachments.map((attachment) =>
-        attachment.id === id ? { ...attachment, ...patch } : attachment
-      )
+      patchById(attachments, id, (attachment) => ({ ...attachment, ...patch }))
     );
     try {
       const updated = assertOk(
         await api.PATCH('/api/attachments/{id}', { params: { path: { id } }, body: patch })
       );
-      this.replace(taskId, (attachments) =>
-        attachments.map((attachment) => (attachment.id === id ? updated : attachment))
-      );
+      this.replace(taskId, (attachments) => patchById(attachments, id, () => updated));
     } catch (error) {
       await this.#board.mutationFailed(error);
       await this.#board.loadTaskDetail(taskId);
@@ -139,12 +134,10 @@ export class BoardAttachments {
     const removed = (this.byTask[taskId] ?? []).find((entry) => entry.id === id);
     if (removed?.is_cover === true) {
       this.#board.setTasks(
-        this.#board
-          .tasks()
-          .map((task) => (task.id === taskId ? { ...task, cover_image_url: null } : task))
+        patchById(this.#board.tasks(), taskId, (task) => ({ ...task, cover_image_url: null }))
       );
     }
-    this.replace(taskId, (attachments) => attachments.filter((attachment) => attachment.id !== id));
+    this.replace(taskId, (attachments) => removeById(attachments, id));
     this.setCount(taskId, (count) => count - 1);
     try {
       assertOk(await api.DELETE('/api/attachments/{id}', { params: { path: { id } } }));
@@ -172,11 +165,10 @@ export class BoardAttachments {
   // the server owns, and flips is_cover on the list it just moved the flag on.
   async setCover(taskId: string, image: TaskAttachment | null): Promise<void> {
     this.#board.setTasks(
-      this.#board
-        .tasks()
-        .map((task) =>
-          task.id === taskId ? { ...task, cover_image_url: image?.image_url ?? null } : task
-        )
+      patchById(this.#board.tasks(), taskId, (task) => ({
+        ...task,
+        cover_image_url: image?.image_url ?? null,
+      }))
     );
     this.replace(taskId, (attachments) =>
       attachments.map((entry) =>

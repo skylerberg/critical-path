@@ -2,6 +2,7 @@ import type { BoardPort } from './board-port';
 import { optimisticTask } from './board-task';
 import type { BoardTask, ChecklistItem } from './board-types';
 import { nowIso } from './dates';
+import { patchById, removeById } from './collections';
 import { newId } from './ids';
 import { append, byRank, placeAtIndex, type Placement } from './ranks';
 import { taskActivity } from './taskActivity.svelte';
@@ -99,7 +100,7 @@ export class BoardChecklists {
     const before = (this.byTask[taskId] ?? []).find((item) => item.id === itemId);
     const now = nowIso();
     this.replace(taskId, (items) =>
-      items.map((item) => (item.id === itemId ? { ...item, checked, updated_at: now } : item))
+      patchById(items, itemId, (item) => ({ ...item, checked, updated_at: now }))
     );
     if (before !== undefined && before.checked !== checked) {
       this.setCounts(taskId, ({ total, done }) => ({
@@ -119,7 +120,7 @@ export class BoardChecklists {
   async rename(taskId: string, itemId: string, text: string): Promise<void> {
     const now = nowIso();
     this.replace(taskId, (items) =>
-      items.map((item) => (item.id === itemId ? { ...item, text, updated_at: now } : item))
+      patchById(items, itemId, (item) => ({ ...item, text, updated_at: now }))
     );
     await this.#patch(
       taskId,
@@ -134,7 +135,7 @@ export class BoardChecklists {
   // that must not refetch the log.
   async move(taskId: string, itemId: string, placement: Placement): Promise<void> {
     this.replace(taskId, (items) =>
-      items.map((item) => (item.id === itemId ? { ...item, ...placement } : item)).sort(byRank)
+      patchById(items, itemId, (item) => ({ ...item, ...placement })).sort(byRank)
     );
     await this.#patch(taskId, itemId, { ...placement }, false, 'Reordered a checklist item');
   }
@@ -158,9 +159,7 @@ export class BoardChecklists {
     });
     if (result.status === 'sent') {
       const updated = result.data;
-      this.replace(taskId, (items) =>
-        items.map((item) => (item.id === itemId ? updated : item)).sort(byRank)
-      );
+      this.replace(taskId, (items) => patchById(items, itemId, () => updated).sort(byRank));
     }
     if (result.status === 'failed') {
       await this.#board.mutationFailed(result.error);
@@ -173,7 +172,7 @@ export class BoardChecklists {
 
   async remove(taskId: string, itemId: string): Promise<void> {
     const removed = (this.byTask[taskId] ?? []).find((item) => item.id === itemId);
-    this.replace(taskId, (items) => items.filter((item) => item.id !== itemId));
+    this.replace(taskId, (items) => removeById(items, itemId));
     this.setCounts(taskId, ({ total, done }) => ({
       total: total - 1,
       done: removed?.checked === true ? done - 1 : done,
@@ -205,7 +204,7 @@ export class BoardChecklists {
     const siblings = this.#board.tasksInColumn(parent.column_id);
     const placement = placeAtIndex(siblings, siblings.findIndex((task) => task.id === taskId) + 1);
     const id = newId();
-    this.replace(taskId, (items) => items.filter((entry) => entry.id !== itemId));
+    this.replace(taskId, (items) => removeById(items, itemId));
     this.setCounts(taskId, ({ total, done }) => ({
       total: total - 1,
       done: item.checked ? done - 1 : done,
@@ -233,7 +232,7 @@ export class BoardChecklists {
     }
     if (result.status === 'sent') {
       const created = result.data;
-      this.#board.setTasks(this.#board.tasks().map((task) => (task.id === id ? created : task)));
+      this.#board.setTasks(patchById(this.#board.tasks(), id, () => created));
     }
     return id;
   }
