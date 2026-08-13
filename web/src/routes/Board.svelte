@@ -17,7 +17,7 @@
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { edgeScrollSpeed, fitsHorizontally } from '../lib/board-scroll';
   import {
-    columnSections,
+    columnElements,
     columnSnapAlign,
     restingSnapIndex,
     snapLeft,
@@ -230,7 +230,7 @@
   }
 
   // The destination is measured once, not per frame. `animate:flip` transforms the
-  // very sections that define the snap positions, and a rect read mid-flip reports
+  // very columns that define the snap positions, and a rect read mid-flip reports
   // the transformed box — so a slide that re-aimed each frame would chase the flip
   // animation rather than the column's resting place.
   function settleOn(scroller: HTMLElement, target: HTMLElement, onDone?: () => void): void {
@@ -336,13 +336,13 @@
     if (!scroller || dragging || target === null) {
       return;
     }
-    const section = columnSections(scroller).find((el) => el.dataset.columnId === target);
+    const column = columnElements(scroller).find((el) => el.dataset.columnId === target);
     const scrolled = dragScrolled;
     dragScrolled = false;
     if (
-      section === undefined ||
+      column === undefined ||
       (!scrolled &&
-        fitsHorizontally(scroller.getBoundingClientRect(), section.getBoundingClientRect()))
+        fitsHorizontally(scroller.getBoundingClientRect(), column.getBoundingClientRect()))
     ) {
       centeringTarget = null;
       return;
@@ -351,12 +351,12 @@
     // style, so the release inside the slide is a no-op and clearing
     // `centeringTarget` is what re-arms it — after the board is on the position,
     // which is the whole reason this waits for the slide to finish at all.
-    settleOn(scroller, section, () => (centeringTarget = null));
+    settleOn(scroller, column, () => (centeringTarget = null));
     // Only this effect's own slide. Its dependencies include `dragging`, so an
     // unguarded cleanup would cancel a swipe's slide the moment a drag began and
     // leave snap suspended with nothing left to re-arm it.
     return () => {
-      if (settleTarget === section) {
+      if (settleTarget === column) {
         cancelSettle();
       }
     };
@@ -508,7 +508,7 @@
         return;
       }
       swipe = null;
-      const section =
+      const destination =
         snapTargets(scroller)[
           swipeTarget(
             gesture.origin,
@@ -517,13 +517,13 @@
             gesture.lastIndex
           )
         ];
-      if (section === undefined) {
+      if (destination === undefined) {
         releaseSnap(scroller);
         return;
       }
       // Snap stays off until the slide lands exactly on the target, so re-arming
       // it is the no-op it should be rather than a second, visible correction.
-      settleOn(scroller, section);
+      settleOn(scroller, destination);
     };
 
     scroller.addEventListener('touchstart', onTouchStart, { passive: true });
