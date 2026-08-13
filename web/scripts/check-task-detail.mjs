@@ -14,10 +14,8 @@
 // either.
 //
 // Boots vite in-process on the first free port at or above 5190 (override with
-// TASK_DETAIL_PROBE_PORT — its own variable, not one shared with the layout
-// probe check, so overriding one cannot land both on the same port), measures,
-// tears down. Skips with exit 0 if Chromium isn't
-// installed. Exits non-zero on assertion failure.
+// TASK_DETAIL_PROBE_PORT), measures, tears down. Skips with exit 0 if Chromium
+// isn't installed. Exits non-zero on assertion failure.
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { createServer } from 'vite';

@@ -134,9 +134,15 @@ when one fails. `check:layout` loads `scripts/board-layout.fixture.html` over
 `file://` — a hand-written, dependency-free mirror of the board's class chain,
 with no vite and no components, so a failure there is a pure-CSS failure and the
 fixture is where to look. `check:layout:real` boots vite in-process on the first
-free port at or above 5180 (override with `LAYOUT_PROBE_PORT`) and mounts the real
-`Board.svelte` through `scripts/board-probe.ts`, so two worktrees can run it at
-the same time and a killed run leaves nothing behind.
+free port at or above 5180 and mounts the real `Board.svelte` through
+`scripts/board-probe.ts`, so two worktrees can run it at the same time and a
+killed run leaves nothing behind.
+
+Every check that boots vite takes its own port variable and its own default —
+`LAYOUT_PROBE_PORT` 5180, `TASK_DETAIL_PROBE_PORT` 5190, `A11Y_PROBE_PORT` 5200 —
+so moving one cannot move another. They shared a single variable once, which made
+the documented override a way to land two checks on the same port rather than a
+way to separate them; each header names only its own.
 
 The fixture is a copy, so it can agree with a component it no longer resembles.
 `.pi/skills/browser-repro/SKILL.md` covers when not to trust it and how to
