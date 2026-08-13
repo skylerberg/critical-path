@@ -457,9 +457,11 @@ describe('Recurring series materialization', () => {
 
     const detail = await ctx.request(owner.token).get(`/api/tasks/${card.id}`);
     expect(detail.status).toBe(200);
-    expect(((await detail.json()) as { series_summary: string | null }).series_summary).toBe(
-      'Every day'
-    );
+    expect(((await detail.json()) as { series: { summary: string } | null }).series).toMatchObject({
+      id: series.id,
+      summary: 'Every day',
+      preset: 'daily',
+    });
 
     const plainId = newId();
     await db
@@ -473,15 +475,13 @@ describe('Recurring series materialization', () => {
       })
       .execute();
     const plain = await ctx.request(owner.token).get(`/api/tasks/${plainId}`);
-    expect(((await plain.json()) as { series_summary: string | null }).series_summary).toBeNull();
+    expect(((await plain.json()) as { series: unknown }).series).toBeNull();
 
     expect((await ctx.request(owner.token).delete(`/api/task-series/${series.id}`)).status).toBe(
       204
     );
     const orphaned = await ctx.request(owner.token).get(`/api/tasks/${card.id}`);
-    expect(
-      ((await orphaned.json()) as { series_summary: string | null }).series_summary
-    ).toBeNull();
+    expect(((await orphaned.json()) as { series: unknown }).series).toBeNull();
   });
 
   it('creates nothing before the day the occurrence falls on', async () => {
