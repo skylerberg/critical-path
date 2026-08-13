@@ -908,7 +908,7 @@ export interface paths {
     };
     /**
      * Get task detail
-     * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), its attachments, its full comment stream oldest first, and its checklist in list order. Archived tasks are readable here even though they are absent from every board payload. `series_summary` names the recurrence in English for a card a recurring series created, and is null for every other card — including one whose series has since been deleted.
+     * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), its attachments, its full comment stream oldest first, and its checklist in list order. Archived tasks are readable here even though they are absent from every board payload. `series` describes the recurring series this card belongs to — its id, the rule as English, and the preset and anchor date a recurrence menu is built from — and is null for every other card, including one whose series has since been deleted. It is the whole of what a card knows about its series: the template’s labels, assignees and checklist stay on the series itself.
      */
     get: operations['getApiTasksById'];
     put?: never;
@@ -925,6 +925,26 @@ export interface paths {
      * @description Update title, description (a Tiptap doc, or null to clear it), due_date (a calendar day YYYY-MM-DD, or null to clear it; omit it to leave it alone), or move the task by sending column_id and position together. The new column must belong to the task’s project and due_date must be a real calendar day; violations return 422 with a plain error body. A sort_key already taken in the destination — including by an archived card the caller cannot see — ranks the task immediately after the card holding it rather than failing, so the echoed sort_key is not always the one that was sent. updated_at is bumped only when the patch changes title or description — a pure move or due-date change leaves it untouched. expected_updated_at is an optimistic-concurrency precondition on the task’s content: it is honored only when the patch includes title or description, a patch that only moves the task or sets its due date is always last-write-wins and ignores it, and a precondition that does not match the stored updated_at returns 409 and writes nothing.
      */
     patch: operations['patchApiTasksById'];
+    trace?: never;
+  };
+  '/api/tasks/{id}/series': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Make a card repeat
+     * @description Start a recurring series from a card that already exists. The template is the card itself — its title, description, destination column, due date, labels, assignees and checklist are copied as they are, so the body carries only the recurrence. The card is adopted as the series’ first occurrence rather than left beside it: it reports the series from that moment on, and the day that occurrence falls produces no second copy of it. Later cards are ordinary cards built from the template, and editing the card afterwards does not change the template. Returns 409 for a card already in a series, and 422 for an archived card, for a project at its series limit, or for a card holding more checklist items than a template may. Image nodes cannot belong to a template and are stripped from the copied description; `dropped_image_count` reports how many.
+     */
+    post: operations['postApiTasksByIdSeries'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   '/api/tasks/{id}/activity': {
@@ -1196,7 +1216,7 @@ export interface paths {
     };
     /**
      * List my tasks across projects
-     * @description List every unarchived, unfinished task assigned to the caller across all accessible, non-archived projects. Each task carries a bucket, fixed by the server: blocked (it has at least one unfinished blocker), blocking (someone else is assigned to a task it holds up), or ready. Tasks are ordered blocking, then ready, then blocked, and within a bucket by how many people are waiting, then project name and board position. Each task also carries its unfinished blockers and dependents with their assignees, plus waiting_user_ids: the other people whose unfinished work it blocks. The companion arrays group the same edges by person — waiting_on_you from the dependents, you_are_waiting_on from the blockers, which alone can carry an unassigned group.
+     * @description List every unarchived, unfinished task assigned to the caller across all accessible, non-archived projects. Each task carries a bucket, fixed by the server: blocked (it has at least one unfinished blocker), blocking (someone else is assigned to a task it holds up), or ready. Tasks are ordered blocking, then ready, then blocked, and within a bucket by how many people are waiting, then project name and board position. Each task also carries its unfinished blockers and dependents with their assignees, plus waiting_user_ids: the other people whose unfinished work it blocks. The companion arrays group the same edges by person — waiting_on_you from the dependents, you_are_waiting_on from the blockers, which alone can carry an unassigned group, and both cover this page only. At most 1000 tasks come back per call; next_offset carries the offset that fetches the next page and is null on the last one. The ordering above is applied before the page is cut, so the first page holds the most urgent work rather than an arbitrary slice of it.
      */
     get: operations['getApiMyTasks'];
     put?: never;
@@ -2248,7 +2268,7 @@ export interface components {
       label_ids: string[];
       open_cross_project_blocker_count: number;
       project_id: string;
-      series_summary: string | null;
+      series: components['schemas']['TaskSeriesRef'] | null;
       sort_key: string;
       title: string;
       updated_at: string;
@@ -2289,6 +2309,20 @@ export interface components {
       updated_at: string;
       user_id: string;
     };
+    TaskSeriesRef: {
+      id: string;
+      preset: components['schemas']['SeriesPreset'];
+      start_date: string;
+      summary: string;
+    };
+    SeriesPreset:
+      | 'daily'
+      | 'monthly_date'
+      | 'monthly_weekday'
+      | 'weekdays'
+      | 'weekly'
+      | 'yearly'
+      | null;
     PatchTask: {
       /** Format: uuid */
       column_id?: string;
@@ -2298,6 +2332,48 @@ export interface components {
       /** @description a sort key */
       sort_key?: string;
       title?: string;
+    };
+    TaskSeriesCreateResponse: {
+      assignee_ids: string[];
+      checklist_items: components['schemas']['TaskSeriesChecklistItem'][];
+      column_id: string | null;
+      created_at: string;
+      created_by: string | null;
+      description: components['schemas']['NullableTiptapDoc'];
+      dropped_image_count: number;
+      due_date: string | null;
+      ended_at: string | null;
+      id: string;
+      label_ids: string[];
+      last_error: string | null;
+      last_missed_date: string | null;
+      last_occurrence_date: string | null;
+      missed_occurrence_count: number;
+      next_occurrence_date: string | null;
+      open_occurrence_count: number;
+      preset: components['schemas']['SeriesPreset'];
+      project_id: string;
+      rrule: string;
+      start_date: string;
+      /** @enum {unknown} */
+      status: 'active' | 'ended' | 'paused';
+      summary: string;
+      timezone: string;
+      title: string;
+      updated_at: string;
+    };
+    TaskSeriesChecklistItem: {
+      id: string;
+      text: string;
+    };
+    CreateSeriesFromTask: {
+      /** Format: uuid */
+      id: string;
+      start_date: string;
+      timezone: string;
+      /** @enum {unknown} */
+      preset?: 'daily' | 'monthly_date' | 'monthly_weekday' | 'weekdays' | 'weekly' | 'yearly';
+      rrule?: string;
     };
     TaskActivityResponse: {
       activity: components['schemas']['TaskActivity'][];
@@ -2417,6 +2493,7 @@ export interface components {
       remove_user_ids?: string[];
     };
     MyTasksResponse: {
+      next_offset: number | null;
       tasks: components['schemas']['MyTask'][];
       waiting_on_you: components['schemas']['MyTaskPersonGroup'][];
       you_are_waiting_on: components['schemas']['MyTaskPersonGroup'][];
@@ -2574,47 +2651,6 @@ export interface components {
       created_at: string;
       created_by: string | null;
       description: components['schemas']['NullableTiptapDoc'];
-      due_date: string | null;
-      ended_at: string | null;
-      id: string;
-      label_ids: string[];
-      last_error: string | null;
-      last_missed_date: string | null;
-      last_occurrence_date: string | null;
-      missed_occurrence_count: number;
-      next_occurrence_date: string | null;
-      open_occurrence_count: number;
-      preset: components['schemas']['SeriesPreset'];
-      project_id: string;
-      rrule: string;
-      start_date: string;
-      /** @enum {unknown} */
-      status: 'active' | 'ended' | 'paused';
-      summary: string;
-      timezone: string;
-      title: string;
-      updated_at: string;
-    };
-    TaskSeriesChecklistItem: {
-      id: string;
-      text: string;
-    };
-    SeriesPreset:
-      | 'daily'
-      | 'monthly_date'
-      | 'monthly_weekday'
-      | 'weekdays'
-      | 'weekly'
-      | 'yearly'
-      | null;
-    TaskSeriesCreateResponse: {
-      assignee_ids: string[];
-      checklist_items: components['schemas']['TaskSeriesChecklistItem'][];
-      column_id: string | null;
-      created_at: string;
-      created_by: string | null;
-      description: components['schemas']['NullableTiptapDoc'];
-      dropped_image_count: number;
       due_date: string | null;
       ended_at: string | null;
       id: string;
@@ -6123,6 +6159,95 @@ export interface operations {
       };
     };
   };
+  postApiTasksByIdSeries: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateSeriesFromTask'];
+      };
+    };
+    responses: {
+      /** @description Created series */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskSeriesCreateResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Authentication required or failed */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Forbidden - insufficient permissions */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Conflict - resource already exists */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+      /** @description Validation error or domain-rule violation */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ValidationOrUnprocessableError'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
+        };
+      };
+    };
+  };
   getApiTasksByIdActivity: {
     parameters: {
       query?: never;
@@ -7083,7 +7208,9 @@ export interface operations {
   };
   getApiMyTasks: {
     parameters: {
-      query?: never;
+      query?: {
+        offset?: string;
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -7097,6 +7224,15 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['MyTasksResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
         };
       };
       /** @description Authentication required or failed */
