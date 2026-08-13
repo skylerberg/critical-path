@@ -30,7 +30,7 @@ export function snapTargets(scroller: HTMLElement): HTMLElement[] {
  * <inline>`, so the last token is the axis this scroller uses; a stylesheet-less
  * environment reports neither, which reads as start.
  */
-function snapLeft(scroller: HTMLElement, target: HTMLElement): number {
+export function snapLeft(scroller: HTMLElement, target: HTMLElement): number {
   const inline = getComputedStyle(target).scrollSnapAlign.split(' ').pop();
   const align: SnapAlign = inline === 'center' || inline === 'end' ? inline : 'start';
   const style = getComputedStyle(scroller);
@@ -54,14 +54,6 @@ export function restingSnapIndex(scroller: HTMLElement): number {
     scroller.scrollLeft,
     snapTargets(scroller).map((target) => snapLeft(scroller, target))
   );
-}
-
-export function slideColumnIntoView(
-  scroller: HTMLElement,
-  section: HTMLElement,
-  smooth: boolean
-): void {
-  scroller.scrollTo({ left: snapLeft(scroller, section), behavior: smooth ? 'smooth' : 'auto' });
 }
 
 /**

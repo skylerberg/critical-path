@@ -5,7 +5,7 @@ import { tick } from 'svelte';
 import { SHADOW_PLACEHOLDER_ITEM_ID, SOURCES, TRIGGERS, type Options } from 'svelte-dnd-action';
 import Board from './Board.svelte';
 import { board } from '../lib/board.svelte';
-import { SWIPE_COMMIT_PX } from '../lib/board-swipe';
+import { SWIPE_COMMIT_PX, SWIPE_SETTLE_MS } from '../lib/board-swipe';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';
@@ -120,6 +120,32 @@ function scroller(): HTMLElement {
     throw new Error('Board scroller not rendered');
   }
   return element;
+}
+
+// Every scrollLeft the board is put through, in order. The board drives its own
+// slide onto a column frame by frame rather than handing it to
+// `scrollTo({ behavior: 'smooth' })`, so "where did it commit to go?" is the LAST
+// of these and "did it move at all?" is whether there are any — questions a spy on
+// `scrollTo` used to answer and no longer can.
+function trackScroll(): number[] {
+  const element = scroller();
+  const writes: number[] = [];
+  let current = element.scrollLeft;
+  Object.defineProperty(element, 'scrollLeft', {
+    configurable: true,
+    get: () => current,
+    set: (next: number) => {
+      current = next;
+      writes.push(next);
+    },
+  });
+  return writes;
+}
+
+// Wait out the slide. Real frames rather than fake timers: this file drives Svelte
+// with real microtasks throughout, and a fake clock under it reorders them.
+async function slideEnds(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, SWIPE_SETTLE_MS + 80));
 }
 
 function taskList(name = 'Todo tasks'): HTMLElement {
@@ -964,16 +990,17 @@ describe('Board pointer drops', () => {
   // coordinates, so centering the column would slide the board out from under it —
   // and hold the scroller unswipeable while it did.
   it('leaves the board where it is when a card is dropped where it was picked up', async () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     const resting = scroller().className;
+    const writes = trackScroll();
 
     pickUp(T1);
     drop(T1, board.tasksInColumn('c1'));
     await tick();
+    await slideEnds();
 
-    expect(scrollTo).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
     expect(scroller().className).toBe(resting);
   });
 
@@ -987,20 +1014,23 @@ describe('Board pointer drops', () => {
   }
 
   it('follows the card to a destination column the user cannot see whole', async () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     placeColumn(new DOMRect(0, 0, 390, 600), new DOMRect(420, 0, 288, 600));
+    const writes = trackScroll();
     const [first, ...rest] = board.tasksInColumn('c1');
 
     pickUp(T1);
     drop(T1, [...rest, first!]);
     await tick();
 
-    expect(scrollTo).toHaveBeenCalledTimes(1);
     expect(scroller().className).toContain('overflow-x-hidden');
 
-    await fireEvent(scroller(), new Event('scrollend'));
+    // Snap comes back only once the slide has landed, and it lands on the column's
+    // snap position exactly — its left edge (420) against the board's, jsdom
+    // reporting no scroll padding to inset it by.
+    await slideEnds();
+    expect(writes.at(-1)).toBe(420);
     expect(scroller().className).toContain('snap-mandatory');
   });
 
@@ -1009,7 +1039,6 @@ describe('Board pointer drops', () => {
   // parks the board a half-column past the snap position, and mandatory snap then
   // rounds it to whichever column is nearer — which can be the next one over.
   it('centers the destination column where the columns snap to center', async () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     placeColumn(new DOMRect(0, 0, 390, 600), new DOMRect(420, 0, 288, 600));
@@ -1022,32 +1051,35 @@ describe('Board pointer drops', () => {
         ? ({ scrollSnapAlign: 'center' } as unknown as CSSStyleDeclaration)
         : computed(el, pseudo)
     );
+    const writes = trackScroll();
     const [first, ...rest] = board.tasksInColumn('c1');
 
     pickUp(T1);
     drop(T1, [...rest, first!]);
     await tick();
+    await slideEnds();
 
     // The column's center (564) onto the board's (195) — not its left edge (420)
     // onto the board's, which is where start alignment would have put it.
-    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: 369 }));
+    expect(writes.at(-1)).toBe(369);
   });
 
   // The whole point on desktop: a board wide enough to show the destination must
   // not move when a card lands in it, and neither must a reorder within the column
   // the user is already looking at.
   it('leaves the board alone when the destination column is already on screen', async () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     placeColumn(new DOMRect(0, 0, 1000, 600), new DOMRect(16, 0, 288, 600));
+    const writes = trackScroll();
     const [first, ...rest] = board.tasksInColumn('c1');
 
     pickUp(T1);
     drop(T1, [...rest, first!]);
     await tick();
+    await slideEnds();
 
-    expect(scrollTo).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
     // Snap is never dropped, so the board stays swipeable throughout.
     expect(scroller().className).toContain('snap-mandatory');
     // The move still commits: we skipped the scroll, not the write.
@@ -1156,43 +1188,79 @@ describe('Board swipe gestures', () => {
   // jsdom has no Touch constructor, so the handlers' one input — touches[0]'s
   // coordinates — is supplied directly.
   function touch(type: string, x: number, y: number): Event {
-    const event = new Event(type, { bubbles: true });
+    // Cancelable, as a real one is: the board cancels the moves it claims, and a
+    // non-cancelable stand-in would make `preventDefault` a silent no-op here.
+    const event = new Event(type, { bubbles: true, cancelable: true });
     Object.defineProperty(event, 'touches', {
       value: type === 'touchend' ? [] : [{ clientX: x, clientY: y }],
     });
     return event;
   }
 
-  async function swipe(dx: number, dy = 0): Promise<void> {
+  // A second finger landing on a swipe already in progress.
+  function pinch(x: number, y: number): Event {
+    const event = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(event, 'touches', {
+      value: [
+        { clientX: x, clientY: y },
+        { clientX: x + 80, clientY: y },
+      ],
+    });
+    return event;
+  }
+
+  // Where the drag left the board, and where the slide after it landed. Two
+  // readings and not one: the slide's destination is computed from the rects at
+  // the moment it starts, so its absolute value carries the drag's travel in it —
+  // only the difference says which column the board chose.
+  interface Landing {
+    dragged: number;
+    landed: number;
+  }
+
+  async function swipe(dx: number, dy = 0): Promise<Landing> {
     await fireEvent(scroller(), touch('touchstart', 200, 300));
     // Two moves: the first locks the axis, the second carries the travel, which is
     // how a real gesture arrives and what the axis lock is written against.
     await fireEvent(scroller(), touch('touchmove', 200 + Math.sign(dx) * 10, 300 + dy));
     await fireEvent(scroller(), touch('touchmove', 200 + dx, 300 + dy));
     await fireEvent(scroller(), touch('touchend', 0, 0));
+    // The slide runs in animation frames, so nothing has moved yet.
+    const dragged = scroller().scrollLeft;
+    await slideEnds();
+    return { dragged, landed: scroller().scrollLeft };
   }
 
-  // How many columns the board committed to move, inverted out of the scroll the
-  // component asked for. The rects above put snap target i at x = (i - centered) *
-  // 300 + 6, and jsdom reports no scroll-snap-align, which slideColumnIntoView
-  // reads as start-aligned against the mocked 12px scroll padding. Asserting the
-  // step rather than a pixel value is the point: the cap is a number of columns.
-  function columnsMoved(scrollTo: ReturnType<typeof vi.spyOn>): number {
-    const call = scrollTo.mock.calls.at(-1) as [ScrollToOptions] | undefined;
-    if (call === undefined) {
-      return 0;
-    }
-    return ((call[0].left ?? 0) - scroller().scrollLeft - 6 + 12) / 300;
+  // How many columns the board committed to move. The rects above put snap target
+  // i at x = (i - centered) * 300 + 6, and jsdom reports no scroll-snap-align,
+  // which the slide reads as start-aligned against the mocked 12px scroll padding.
+  // Asserting the step rather than a pixel value is the point: the cap is a number
+  // of columns.
+  function columnsMoved({ dragged, landed }: Landing): number {
+    return (landed - dragged - 6 + 12) / 300;
   }
 
   // jsdom applies no stylesheet, so it computes `scroll-snap-type: none` for
   // everything — which is exactly what the takeover treats as "desktop, leave it
   // alone". Every case has to say which of the two it is modelling.
+  //
+  // The inline value winning over the class one is not decoration: it is the
+  // relationship the whole guard turns on. A stub that reported the breakpoint's
+  // value unconditionally would hide the board's own suspension from the very
+  // reading that used to mistake it for a desktop board, and every case below
+  // would pass on the code that had the bug.
+  function computedSnapType(value: string): string {
+    return scroller().style.scrollSnapType || value;
+  }
+
   function setSnapType(value: string): void {
     const real = window.getComputedStyle;
     vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) =>
       element === scroller()
-        ? ({ scrollSnapType: value, scrollPaddingLeft: '12px' } as CSSStyleDeclaration)
+        ? ({
+            scrollSnapType: computedSnapType(value),
+            scrollPaddingLeft: '12px',
+          } as CSSStyleDeclaration)
         : real.call(window, element, pseudo)
     );
   }
@@ -1207,94 +1275,93 @@ describe('Board swipe gestures', () => {
     ];
   });
 
-  async function mount(snapType = 'x mandatory'): Promise<ReturnType<typeof vi.spyOn>> {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+  async function mount(snapType = 'x mandatory'): Promise<number[]> {
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     stubGeometry();
     setSnapType(snapType);
-    return scrollTo;
+    return trackScroll();
   }
 
   it('advances one column for a swipe past the commit threshold', async () => {
-    const scrollTo = await mount();
+    await mount();
 
-    await swipe(-SWIPE_COMMIT_PX - 20);
-
-    expect(columnsMoved(scrollTo)).toBe(1);
+    expect(columnsMoved(await swipe(-SWIPE_COMMIT_PX - 20))).toBe(1);
   });
 
   // The reported bug: a drag long enough to carry the board two columns still
   // lands on the next one. Nothing about drag length can widen the step.
   it('advances only one column for a drag that spans two', async () => {
-    const scrollTo = await mount();
+    const writes = await mount();
 
-    await swipe(-700);
+    const landing = await swipe(-700);
 
-    expect(scrollTo).toHaveBeenCalledTimes(1);
-    expect(columnsMoved(scrollTo)).toBe(1);
+    expect(columnsMoved(landing)).toBe(1);
+    // And the slide onto it never passes it. A correction is visible as the
+    // overshoot it undoes, which is the whole reason the landing is chosen here
+    // rather than left to the browser to resolve afterwards.
+    const slide = writes.slice(writes.indexOf(landing.dragged) + 1);
+    expect(slide.length).toBeGreaterThan(1);
+    expect(
+      slide.filter((position) => position < landing.dragged || position > landing.landed)
+    ).toEqual([]);
   });
 
   it('goes back one column for a swipe the other way', async () => {
-    const scrollTo = await mount();
+    await mount();
     centered = 2;
 
-    await swipe(700);
-
-    expect(columnsMoved(scrollTo)).toBe(-1);
+    expect(columnsMoved(await swipe(700))).toBe(-1);
   });
 
   it('returns to the column it started on for a drag too short to commit', async () => {
-    const scrollTo = await mount();
+    await mount();
 
-    await swipe(-20);
-
-    expect(columnsMoved(scrollTo)).toBe(0);
+    expect(columnsMoved(await swipe(-20))).toBe(0);
   });
 
   // The column card lists scroll vertically inside the board, and pan-y leaves
   // that to the browser — so a vertical gesture must never be claimed here.
   it('leaves a vertical gesture to the card list', async () => {
-    const scrollTo = await mount();
+    const writes = await mount();
 
     await swipe(-4, 120);
 
-    expect(scrollTo).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    expect(scroller().style.scrollSnapType).toBe('');
   });
 
   it('does not take over where the board does not snap', async () => {
-    const scrollTo = await mount('none');
+    const writes = await mount('none');
 
     await swipe(-700);
 
-    expect(scrollTo).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
   });
 
   // pointerdown precedes touchstart, so a swipe that starts on a card arms the
   // long-press first. Refusing the gesture for that would refuse nearly every
   // swipe there is, since cards cover most of the board.
   it('takes over a swipe that starts on a card with a press pending', async () => {
-    const scrollTo = await mount();
+    await mount();
     cardMenu.pressStart(
       new PointerEvent('pointerdown', { pointerType: 'touch', isPrimary: true }),
       T1
     );
     expect(cardMenu.pressPending).toBe(true);
 
-    await swipe(-700);
-
-    expect(columnsMoved(scrollTo)).toBe(1);
+    expect(columnsMoved(await swipe(-700))).toBe(1);
   });
 
   // A card drag owns the same finger; taking the gesture over would fight it.
   it('does not take over while a card is being dragged', async () => {
-    const scrollTo = await mount();
+    const writes = await mount();
     pickUp(T1);
     await tick();
 
     await swipe(-700);
 
-    expect(scrollTo).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
   });
 
   // The arrangement stubGeometry above does not model: the phone board's targets
@@ -1328,7 +1395,7 @@ describe('Board swipe gestures', () => {
     vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
       if (element === scroller()) {
         return {
-          scrollSnapType: 'x mandatory',
+          scrollSnapType: computedSnapType('x mandatory'),
           scrollPaddingLeft: `${GUTTER}px`,
           scrollPaddingRight: `${GUTTER}px`,
         } as CSSStyleDeclaration;
@@ -1345,9 +1412,15 @@ describe('Board swipe gestures', () => {
   // How far the board committed to move. The rects are stubbed for one resting
   // position while the drag has already written a different scrollLeft, so the
   // delta is the only reading that means anything — as in columnsMoved above.
-  function committedDelta(scrollTo: ReturnType<typeof vi.spyOn>): number {
-    const call = scrollTo.mock.calls.at(-1) as [ScrollToOptions] | undefined;
-    return call === undefined ? 0 : (call[0].left ?? 0) - scroller().scrollLeft;
+  function committedDelta({ dragged, landed }: Landing): number {
+    return landed - dragged;
+  }
+
+  async function mountMixed(resting = 0): Promise<number[]> {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    stubMixedAlignment(resting);
+    return trackScroll();
   }
 
   // The regression the mixed alignment introduces. Asking which target is nearest
@@ -1356,62 +1429,163 @@ describe('Board swipe gestures', () => {
   // (136px away against 164px), so an origin taken that way counts from target 1
   // and the swipe lands on target 2 — a whole column skipped.
   it('counts a swipe from the target the board is parked on, not the middle one', async () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    render(Board, { props: { projectId: PROJECT_ID } });
-    await screen.findByText('plain one');
-    stubMixedAlignment();
+    await mountMixed();
 
-    await swipe(-SWIPE_COMMIT_PX - 20);
-
-    expect(committedDelta(scrollTo)).toBe(136);
+    expect(committedDelta(await swipe(-SWIPE_COMMIT_PX - 20))).toBe(136);
   });
 
   it('does not move a board already parked on its start-aligned first column', async () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    render(Board, { props: { projectId: PROJECT_ID } });
-    await screen.findByText('plain one');
-    stubMixedAlignment();
+    await mountMixed();
 
-    await swipe(SWIPE_COMMIT_PX + 20);
-
-    expect(committedDelta(scrollTo)).toBe(0);
+    expect(committedDelta(await swipe(SWIPE_COMMIT_PX + 20))).toBe(0);
   });
 
   // The far end, through the component: the last target ends the board rather than
   // centering, so the final step is to 872 and not to a position past the scroll
   // range that the browser would have to resolve somewhere else.
   it('lands the last target flush against the right edge', async () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    render(Board, { props: { projectId: PROJECT_ID } });
-    await screen.findByText('plain one');
-    stubMixedAlignment(736);
+    await mountMixed(736);
 
-    await swipe(-SWIPE_COMMIT_PX - 20);
-
-    expect(committedDelta(scrollTo)).toBe(872 - 736);
+    expect(committedDelta(await swipe(-SWIPE_COMMIT_PX - 20))).toBe(872 - 736);
   });
 
-  // The settle that re-arms snap is scheduled from touchend and waits out
-  // `scrollend` or half a second, whichever comes first — so a board unmounted
-  // in between leaves it holding a scroller nobody is looking at any more. In a
-  // browser that is a stray style write; under a runner tearing jsdom down
-  // around it, `window` is already gone and it is an unhandled ReferenceError
-  // that fails a run in which every test passed. It failed CI exactly that way.
-  it('drops the pending settle when the board goes away before it fires', async () => {
-    vi.spyOn(Element.prototype, 'scrollTo');
+  // --- Chaining, which is where the two remaining reported bugs lived ---
+
+  // The gesture, up to the point where the board has committed to a column and is
+  // sliding onto it. Stopping here is the state every case below is about.
+  async function swipeIntoSlide(dx = -SWIPE_COMMIT_PX - 20): Promise<void> {
+    await fireEvent(scroller(), touch('touchstart', 200, 300));
+    await fireEvent(scroller(), touch('touchmove', 190, 300));
+    await fireEvent(scroller(), touch('touchmove', 200 + dx, 300));
+    await fireEvent(scroller(), touch('touchend', 0, 0));
+    // A couple of frames in, nowhere near the SWIPE_SETTLE_MS it needs.
+    await new Promise((resolve) => setTimeout(resolve, 32));
+  }
+
+  // Snap is suspended through an inline style while the board slides itself onto a
+  // column, and `getComputedStyle` cannot tell that apart from the `lg:snap-none`
+  // that means "desktop, don't take over". Reading the style alone therefore
+  // refused every swipe that arrived before the previous one had finished — and
+  // refused it with snap off, so whatever else moved the board moved it with
+  // nothing to snap it back. Measured in Chrome: two of eight swipes at an
+  // ordinary cadence did nothing at all.
+  it('takes over a swipe that arrives before the last one has settled', async () => {
+    await mount();
+
+    await swipeIntoSlide();
+
+    // Two swipes, two columns: `columnsMoved` counts from the target the board
+    // started on, so this is the total and not the second step alone.
+    expect(columnsMoved(await swipe(-SWIPE_COMMIT_PX - 20))).toBe(2);
+  });
+
+  // ...and a gesture that interrupts the slide without going anywhere hands it
+  // back. The board must not be left part-way onto a column with mandatory snap
+  // re-armed under it — that is the state the browser resolves onto whichever
+  // column it likes.
+  it('resumes the interrupted slide when the gesture comes to nothing', async () => {
+    await mount();
+
+    await swipeIntoSlide();
+    // A tap: down and up, no movement, no axis lock. The touchdown is what stops
+    // the slide, so the board's position is only stable to read after it.
+    await fireEvent(scroller(), touch('touchstart', 200, 300));
+    const midSlide = scroller().scrollLeft;
+    await fireEvent(scroller(), touch('touchend', 0, 0));
+    await slideEnds();
+
+    // Target 1's snap position, computed the way the component does from the rects
+    // stubbed above: one pitch along, less the 6px the gutter and scroll padding
+    // disagree by.
+    expect(scroller().scrollLeft).toBe(midSlide + 300 - 6);
+    expect(scroller().style.scrollSnapType).toBe('');
+  });
+
+  // `touch-action: pan-y` asks the browser not to pan the board sideways, but a
+  // browser that does it anyway carries the board past the column the gesture
+  // chose — and `origin ± 1` is only a cap on what THIS code does. Cancelling the
+  // moves it has claimed is what makes it a cap on the board.
+  //
+  // Only the claimed ones: a vertical gesture belongs to the card list, and
+  // cancelling its moves would stop that list scrolling at all.
+  it('cancels the moves it has claimed, and only those', async () => {
+    await mount();
+    const claimed: boolean[] = [];
+    const record = (event: Event) => claimed.push(event.defaultPrevented);
+    // After the component's own listener, so this reads the verdict it reached.
+    const element = scroller();
+    element.addEventListener('touchmove', record);
+    onTestFinished(() => element.removeEventListener('touchmove', record));
+
+    await swipe(-SWIPE_COMMIT_PX - 20);
+    const horizontal = [...claimed];
+    claimed.length = 0;
+    await swipe(-4, 120);
+
+    expect(horizontal).toEqual([true, true]);
+    expect(claimed).toEqual([false, false]);
+  });
+
+  // A second finger is a pinch, not a swipe — but refusing it used to null the
+  // gesture without releasing snap, and the board then read as "desktop" forever
+  // after and refused every swipe that followed.
+  it('releases snap when a second finger refuses the gesture mid-swipe', async () => {
+    await mount();
+
+    await fireEvent(scroller(), touch('touchstart', 200, 300));
+    await fireEvent(scroller(), touch('touchmove', 190, 300));
+    await fireEvent(scroller(), touch('touchmove', 120, 300));
+    await fireEvent(scroller(), pinch(120, 300));
+    await slideEnds();
+
+    expect(scroller().style.scrollSnapType).toBe('');
+    // And the board is still swipeable, which is the symptom that mattered.
+    expect(columnsMoved(await swipe(-SWIPE_COMMIT_PX - 20))).toBe(1);
+  });
+
+  // Mandatory snap may only come back once the board is stationary and exactly on
+  // the position. Re-armed while it is still moving, the browser resolves the
+  // in-flight scroll onto the NEXT snap position and the swipe lands a column too
+  // far — measured in Chrome as a swipe wanting the last real column arriving on
+  // the "+ Add column" tile instead.
+  it('re-arms snap only after the board has landed on the column', async () => {
+    await mount();
+
+    await swipeIntoSlide();
+
+    expect(scroller().style.scrollSnapType).toBe('none');
+
+    await slideEnds();
+
+    expect(scroller().style.scrollSnapType).toBe('');
+  });
+
+  // The slide is scheduled from touchend, so a board unmounted in between leaves
+  // it holding a scroller nobody is looking at any more. In a browser that is a
+  // stray style write; under a runner tearing jsdom down around it, `window` is
+  // already gone and it is an unhandled ReferenceError that fails a run in which
+  // every test passed. It failed CI exactly that way.
+  it('drops the pending slide when the board goes away before it finishes', async () => {
     const { unmount } = render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     stubGeometry();
     setSnapType('x mandatory');
     const el = scroller();
+    const writes = trackScroll();
 
-    await swipe(-SWIPE_COMMIT_PX - 20);
+    await fireEvent(el, touch('touchstart', 200, 300));
+    await fireEvent(el, touch('touchmove', 190, 300));
+    await fireEvent(el, touch('touchmove', 200 - SWIPE_COMMIT_PX - 20, 300));
+    await fireEvent(el, touch('touchend', 0, 0));
     unmount();
+    const settled = writes.length;
 
-    // Set AFTER unmount, so only a settle still holding the node can clear it.
+    // Set AFTER unmount, so only a slide still holding the node can clear it.
     el.style.scrollSnapType = 'x mandatory';
-    await new Promise((resolve) => setTimeout(resolve, 600)); // > SWIPE_SETTLE_TIMEOUT_MS
+    await slideEnds();
     expect(el.style.scrollSnapType).toBe('x mandatory');
+    // No frame survived either — the style is only half of what a live slide writes.
+    expect(writes.length).toBe(settled);
   });
 });
 
@@ -1424,37 +1598,38 @@ describe('Board quick-add shortcut', () => {
     shortcuts.quickAddColumn = null;
   });
 
-  async function target(columnRect: DOMRect): Promise<ReturnType<typeof vi.spyOn>> {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+  async function target(columnRect: DOMRect): Promise<number[]> {
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     vi.spyOn(scroller(), 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 390, 600));
     vi.spyOn(column(), 'getBoundingClientRect').mockReturnValue(columnRect);
-    return scrollTo;
+    return trackScroll();
   }
 
   it('slides a column the user cannot see whole into view, without focus scrolling', async () => {
     const focus = vi.spyOn(HTMLElement.prototype, 'focus');
-    const scrollTo = await target(new DOMRect(420, 0, 288, 600));
+    const writes = await target(new DOMRect(420, 0, 288, 600));
 
     shortcuts.quickAddColumn = 'c1';
     await tick();
     await tick();
+    await slideEnds();
 
-    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(writes.at(-1)).toBe(420);
     await screen.findByLabelText('Task title');
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(focus).not.toHaveBeenCalledWith();
   });
 
   it('leaves the board alone for a column already on screen', async () => {
-    const scrollTo = await target(new DOMRect(16, 0, 288, 600));
+    const writes = await target(new DOMRect(16, 0, 288, 600));
 
     shortcuts.quickAddColumn = 'c1';
     await tick();
     await tick();
+    await slideEnds();
 
-    expect(scrollTo).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
   });
 });
 
