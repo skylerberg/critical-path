@@ -175,7 +175,7 @@ export class BoardAttachments {
         entry.kind === 'image' ? { ...entry, is_cover: entry.id === image?.id } : entry
       )
     );
-    const result = await this.#board.send({
+    await this.#board.sendOrFail({
       entityId: taskId,
       label: image === null ? 'Removed a cover image' : 'Set a cover image',
       request: {
@@ -185,8 +185,5 @@ export class BoardAttachments {
         body: { image_id: image?.id ?? null },
       },
     });
-    if (result.status === 'failed') {
-      await this.#board.mutationFailed(result.error);
-    }
   }
 }

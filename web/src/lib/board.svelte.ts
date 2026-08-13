@@ -244,6 +244,7 @@ class BoardStore {
       },
       tasksInColumn: (columnId) => this.tasksInColumn(columnId),
       send: (input) => this.#send(input),
+      sendOrFail: (input, onFailure) => this.#sendOrFail(input, onFailure),
       mutationFailed: (error) => this.#mutationFailed(error),
       loadTaskDetail: (taskId) => this.loadTaskDetail(taskId),
     };
@@ -653,7 +654,7 @@ class BoardStore {
     const id = newId();
     const placement = append(this.tasksInColumn(columnId));
     this.tasks = [...this.tasks, optimisticTask(id, columnId, title, placement)];
-    const result = await this.#send<BoardTask>({
+    const result = await this.#sendOrFail<BoardTask>({
       entityId: id,
       label: `New card “${truncateTitle(title)}”`,
       semantics: 'create',
@@ -664,7 +665,6 @@ class BoardStore {
       },
     });
     if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
       return null;
     }
     if (result.status === 'sent') {
@@ -690,7 +690,7 @@ class BoardStore {
       optimisticTask(newId(), columnId, title, placements[index]!)
     );
     this.tasks = [...this.tasks, ...created];
-    const result = await this.#send<BulkTasksResponse>({
+    const result = await this.#sendOrFail<BulkTasksResponse>({
       // The batch is all-or-nothing on a duplicate id, so replaying it either
       // creates every card or reports that they are already there — never half.
       entityId: created[0]!.id,
@@ -711,7 +711,6 @@ class BoardStore {
       },
     });
     if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
       return null;
     }
     if (result.status === 'sent') {
@@ -744,7 +743,7 @@ class BoardStore {
       column_since: now,
     };
     this.tasks = [...this.tasks, optimistic];
-    const result = await this.#send<BoardTask>({
+    const result = await this.#sendOrFail<BoardTask>({
       entityId: id,
       label: `Duplicated “${truncateTitle(source.title)}”`,
       semantics: 'create',
@@ -756,7 +755,6 @@ class BoardStore {
       },
     });
     if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
       return null;
     }
     if (result.status === 'sent') {
@@ -812,7 +810,7 @@ class BoardStore {
       task.id === taskId ? { ...task, column_id: columnId, ...placement } : task
     );
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: taskId,
       label: `Moved “${truncateTitle(title)}”`,
       semantics: 'move',
@@ -824,9 +822,6 @@ class BoardStore {
         body: { column_id: columnId, ...placement },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
     // Not conditional on success: a failed move resyncs the board, and the log
     // has to end up showing what the server kept.
     taskActivity.invalidate(taskId);
@@ -940,14 +935,11 @@ class BoardStore {
     this.#dropTasks([taskId]);
     this.#discardArchivedLoad();
     this.archivedTasks = this.archivedTasks.filter((task) => task.id !== taskId);
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: taskId,
       label: `Deleted “${truncateTitle(title)}”`,
       request: { method: 'DELETE', path: '/api/tasks/{id}', pathParams: { id: taskId } },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
   }
 
   async archiveTask(taskId: string): Promise<void> {
@@ -981,13 +973,12 @@ class BoardStore {
     const archived = this.archivedTasks.find((t) => t.id === taskId);
     this.#discardArchivedLoad();
     this.archivedTasks = this.archivedTasks.filter((t) => t.id !== taskId);
-    const result = await this.#send<BoardTask>({
+    const result = await this.#sendOrFail<BoardTask>({
       entityId: taskId,
       label: `Restored “${truncateTitle(archived?.title ?? '')}”`,
       request: { method: 'POST', path: '/api/tasks/{id}/restore', pathParams: { id: taskId } },
     });
     if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
       taskActivity.invalidate(taskId);
       return;
     }
@@ -1016,7 +1007,7 @@ class BoardStore {
     const id = newId();
     const placement = append(this.columns);
     this.columns = [...this.columns, { id, name, ...placement, is_done: false }];
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: id,
       label: `New column “${truncateTitle(name)}”`,
       semantics: 'create',
@@ -1026,16 +1017,13 @@ class BoardStore {
         body: { id, project_id: projectId, name, ...placement },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
   }
 
   async renameColumn(columnId: string, name: string): Promise<void> {
     this.columns = this.columns.map((column) =>
       column.id === columnId ? { ...column, name } : column
     );
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: columnId,
       label: `Renamed a column to “${truncateTitle(name)}”`,
       request: {
@@ -1045,9 +1033,6 @@ class BoardStore {
         body: { name },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
   }
 
   async moveColumn(columnId: string, placement: Placement): Promise<void> {
@@ -1055,7 +1040,7 @@ class BoardStore {
       .map((column) => (column.id === columnId ? { ...column, ...placement } : column))
       .sort(byRank);
     const name = this.columns.find((column) => column.id === columnId)?.name ?? '';
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: columnId,
       label: `Moved column “${truncateTitle(name)}”`,
       request: {
@@ -1065,9 +1050,6 @@ class BoardStore {
         body: { ...placement },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
   }
 
   async toggleColumnDone(columnId: string): Promise<void> {
@@ -1077,7 +1059,7 @@ class BoardStore {
     }
     const is_done = !column.is_done;
     this.columns = this.columns.map((c) => (c.id === columnId ? { ...c, is_done } : c));
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: columnId,
       label: `Marked “${truncateTitle(column.name)}” as ${is_done ? 'done' : 'not done'}`,
       request: {
@@ -1087,9 +1069,6 @@ class BoardStore {
         body: { is_done },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
   }
 
   async duplicateColumn(columnId: string): Promise<void> {
@@ -1109,7 +1088,7 @@ class BoardStore {
       ...this.columns,
       { id, name: source.name, ...placement, is_done: source.is_done },
     ].sort(byRank);
-    const result = await this.#send<DuplicatedColumnResponse>({
+    const result = await this.#sendOrFail<DuplicatedColumnResponse>({
       entityId: id,
       label: `Duplicated column “${truncateTitle(source.name)}”`,
       semantics: 'create',
@@ -1121,7 +1100,6 @@ class BoardStore {
       },
     });
     if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
       return;
     }
     if (result.status !== 'sent') {
@@ -1173,7 +1151,7 @@ class BoardStore {
       this.archivedTasks = this.archivedTasks.filter((task) => task.column_id !== columnId);
     }
     const name = this.columns.find((column) => column.id === columnId)?.name ?? '';
-    const result = await this.#send<MovedTasksResponse | undefined>({
+    const result = await this.#sendOrFail<MovedTasksResponse | undefined>({
       entityId: columnId,
       label: `Deleted column “${truncateTitle(name)}”`,
       request: {
@@ -1183,9 +1161,6 @@ class BoardStore {
         query: moveTasksTo === undefined ? undefined : { move_tasks_to: moveTasksTo },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
     if (result.status === 'sent' && result.data !== undefined) {
       const byId = new Map(result.data.moved_tasks.map((task) => [task.id, task]));
       const apply = <T extends { id: string; column_id: string; sort_key: string }>(task: T): T => {
@@ -1219,7 +1194,7 @@ class BoardStore {
       const placement = optimistic.get(task.id);
       return placement === undefined ? task : { ...task, column_id: targetColumnId, ...placement };
     });
-    const result = await this.#send<MovedTasksResponse>({
+    const result = await this.#sendOrFail<MovedTasksResponse>({
       entityId: columnId,
       label: `Moved ${String(moved.length)} cards to another column`,
       request: {
@@ -1229,9 +1204,6 @@ class BoardStore {
         body: { target_column_id: targetColumnId },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
     if (result.status === 'sent') {
       const byId = new Map(result.data.moved_tasks.map((task) => [task.id, task]));
       this.tasks = this.tasks.map((task) => {
@@ -1274,7 +1246,7 @@ class BoardStore {
       const sortKey = optimistic.get(task.id);
       return sortKey === undefined ? task : { ...task, sort_key: sortKey };
     });
-    const result = await this.#send<MovedTasksResponse>({
+    const result = await this.#sendOrFail<MovedTasksResponse>({
       entityId: columnId,
       label: 'Sorted a column',
       request: {
@@ -1284,9 +1256,6 @@ class BoardStore {
         body: { task_ids: orderedIds },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
     if (result.status === 'sent') {
       const byId = new Map(result.data.moved_tasks.map((task) => [task.id, task]));
       this.tasks = this.tasks.map((task) => {
@@ -1351,7 +1320,7 @@ class BoardStore {
       const placement = optimistic.get(task.id);
       return placement === undefined ? task : { ...task, column_id: columnId, ...placement };
     });
-    const result = await this.#send<BulkMovedTasksResponse>({
+    const result = await this.#sendOrFail<BulkMovedTasksResponse>({
       entityId: columnId,
       label: `Moved ${String(taskIds.length)} cards`,
       request: {
@@ -1360,9 +1329,6 @@ class BoardStore {
         body: { project_id: projectId, task_ids: [...taskIds], column_id: columnId },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
     if (result.status === 'sent') {
       const byId = new Map(result.data.moved_tasks.map((task) => [task.id, task]));
       this.tasks = this.tasks.map((task) => {
@@ -1468,7 +1434,7 @@ class BoardStore {
           ? { ...task, label_ids: next(task.label_ids) }
           : { ...task, assignee_ids: next(task.assignee_ids) }
     );
-    const result = await this.#send<BulkRelationsResponse>({
+    const result = await this.#sendOrFail<BulkRelationsResponse>({
       entityId: taskIds[0]!,
       label: send.label,
       request: {
@@ -1477,9 +1443,6 @@ class BoardStore {
         body: { project_id: projectId, task_ids: [...taskIds], ...send.body },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
     if (result.status === 'sent') {
       const byId = new Map(result.data.tasks.map((task) => [task.task_id, task]));
       this.tasks = this.tasks.map((task) => {
@@ -1532,19 +1495,19 @@ class BoardStore {
     }
     const id = newId();
     this.labels = [...this.labels, { id, name, color }];
-    const result = await this.#send({
-      entityId: id,
-      label: `New label “${truncateTitle(name)}”`,
-      semantics: 'create',
-      request: {
-        method: 'POST',
-        path: '/api/labels',
-        body: { id, project_id: projectId, name, color },
+    await this.#sendOrFail(
+      {
+        entityId: id,
+        label: `New label “${truncateTitle(name)}”`,
+        semantics: 'create',
+        request: {
+          method: 'POST',
+          path: '/api/labels',
+          body: { id, project_id: projectId, name, color },
+        },
       },
-    });
-    if (result.status === 'failed') {
-      await this.#labelConflictOrFail(result.error);
-    }
+      (error) => this.#labelConflictOrFail(error)
+    );
   }
 
   async updateLabel(labelId: string, patch: { name?: string; color?: string }): Promise<void> {
@@ -1552,19 +1515,19 @@ class BoardStore {
       label.id === labelId ? { ...label, ...patch } : label
     );
     const name = this.labels.find((label) => label.id === labelId)?.name ?? '';
-    const result = await this.#send({
-      entityId: labelId,
-      label: `Edited label “${truncateTitle(name)}”`,
-      request: {
-        method: 'PATCH',
-        path: '/api/labels/{id}',
-        pathParams: { id: labelId },
-        body: patch,
+    await this.#sendOrFail(
+      {
+        entityId: labelId,
+        label: `Edited label “${truncateTitle(name)}”`,
+        request: {
+          method: 'PATCH',
+          path: '/api/labels/{id}',
+          pathParams: { id: labelId },
+          body: patch,
+        },
       },
-    });
-    if (result.status === 'failed') {
-      await this.#labelConflictOrFail(result.error);
-    }
+      (error) => this.#labelConflictOrFail(error)
+    );
   }
 
   async deleteLabel(labelId: string): Promise<void> {
@@ -1578,20 +1541,17 @@ class BoardStore {
       ...this.filters,
       labelIds: this.filterLabelIds.filter((id) => id !== labelId),
     });
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: labelId,
       label: 'Deleted a label',
       request: { method: 'DELETE', path: '/api/labels/{id}', pathParams: { id: labelId } },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
   }
 
   async setTaskLabels(taskId: string, labelIds: string[]): Promise<void> {
     this.tasks = patchById(this.tasks, taskId, (task) => ({ ...task, label_ids: labelIds }));
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: taskId,
       label: `Changed labels on “${truncateTitle(title)}”`,
       request: {
@@ -1601,16 +1561,13 @@ class BoardStore {
         body: { label_ids: labelIds },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
     taskActivity.invalidate(taskId);
   }
 
   async setTaskAssignees(taskId: string, userIds: string[]): Promise<void> {
     this.tasks = patchById(this.tasks, taskId, (task) => ({ ...task, assignee_ids: userIds }));
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: taskId,
       label: `Changed assignees on “${truncateTitle(title)}”`,
       request: {
@@ -1620,9 +1577,6 @@ class BoardStore {
         body: { user_ids: userIds },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
     taskActivity.invalidate(taskId);
   }
 
@@ -1698,7 +1652,7 @@ class BoardStore {
         : task
     );
     const title = this.tasks.find((task) => task.id === taskId)?.title ?? '';
-    const result = await this.#send({
+    await this.#sendOrFail({
       entityId: taskId,
       label: `Removed a blocker from “${truncateTitle(title)}”`,
       request: {
@@ -1707,9 +1661,6 @@ class BoardStore {
         pathParams: { id: taskId, blockerTaskId },
       },
     });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
     taskActivity.invalidate(taskId);
   }
 
@@ -2344,6 +2295,32 @@ class BoardStore {
    */
   async #send<T>(input: Omit<SubmitInput, 'projectId'>): Promise<SubmitResult<T>> {
     return outbox.submit<T>({ projectId: this.currentProjectId ?? '', ...input });
+  }
+
+  /**
+   * #send plus the failure policy, which was restated at nearly every call site.
+   * The result still comes back, so a caller that has something to do with a
+   * `sent` payload keeps its own branch.
+   *
+   * `onFailure` is an explicit parameter rather than a defaulted one: a default of
+   * `this.#mutationFailed` puts `this`-binding into parameter scope, and callers
+   * passing a handler must wrap it — `(error) => this.#labelConflictOrFail(error)`,
+   * never the bare reference, which would be called with `this` undefined.
+   *
+   * Not every site can use this. Four run `taskActivity.invalidate` before the
+   * failure check, and both handlers refetch over the network — `invalidate`
+   * compares elapsed time against a refresh interval, so running the policy first
+   * changes what it decides. Those stay on #send.
+   */
+  async #sendOrFail<T>(
+    input: Omit<SubmitInput, 'projectId'>,
+    onFailure?: (error: unknown) => Promise<void>
+  ): Promise<SubmitResult<T>> {
+    const result = await this.#send<T>(input);
+    if (result.status === 'failed') {
+      await (onFailure ? onFailure(result.error) : this.#mutationFailed(result.error));
+    }
+    return result;
   }
 
   async #mutationFailed(error: unknown): Promise<void> {

@@ -1208,6 +1208,48 @@ describe('board store mutations', () => {
     expect(toasts.toasts).toHaveLength(0);
   });
 
+  it('updateLabel rethrows a duplicate-name 409 after resyncing, without a toast', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === '/api/labels/l1'
+        ? jsonResponse(409, { error: 'Label name already in use' })
+        : undefined
+    );
+
+    await expect(board.updateLabel('l1', { name: 'art' })).rejects.toThrow(
+      'Label name already in use'
+    );
+
+    expect(toasts.toasts).toHaveLength(0);
+  });
+
+  // Why addBlocker cannot go through #sendOrFail. The invalidate has to run
+  // before the failure policy, which refetches over the network: taskActivity
+  // measures elapsed time since its last fetch to decide between fetching now and
+  // arming a timer, so running the policy first changes what it decides.
+  it('addBlocker invalidates the activity log before the failure policy refetches', async () => {
+    const order: string[] = [];
+    const invalidate = vi.spyOn(taskActivity, 'invalidate').mockImplementation(() => {
+      order.push('invalidate');
+    });
+    mockRoutes((request, url) => {
+      if (request.method === 'POST' && url.pathname === '/api/tasks/t1/blockers') {
+        return jsonResponse(409, { error: CYCLE_ERROR });
+      }
+      if (request.method === 'GET') {
+        order.push('refetch');
+      }
+      return undefined;
+    });
+
+    await board.addBlocker('t1', 't2');
+    // Restored here, not in an afterEach: the activity-refresh cases further down
+    // this file assert on the real invalidate.
+    invalidate.mockRestore();
+
+    expect(order[0]).toBe('invalidate');
+    expect(order).toContain('refetch');
+  });
+
   it('addBlocker names the loop from the 409 body, highlights it, and refetches', async () => {
     mockRoutes((request) =>
       request.method === 'POST'

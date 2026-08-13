@@ -20,6 +20,10 @@ export interface BoardPort {
   setTasks(tasks: BoardTask[]): void;
   tasksInColumn(columnId: string): BoardTask[];
   send<T>(input: Omit<SubmitInput, 'projectId'>): Promise<SubmitResult<T>>;
+  sendOrFail<T>(
+    input: Omit<SubmitInput, 'projectId'>,
+    onFailure?: (error: unknown) => Promise<void>
+  ): Promise<SubmitResult<T>>;
   mutationFailed(error: unknown): Promise<void>;
   loadTaskDetail(taskId: string): Promise<void>;
 }

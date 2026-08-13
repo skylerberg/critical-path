@@ -177,7 +177,7 @@ export class BoardChecklists {
       total: total - 1,
       done: removed?.checked === true ? done - 1 : done,
     }));
-    const result = await this.#board.send({
+    const result = await this.#board.sendOrFail({
       entityId: itemId,
       label: `Deleted checklist item “${truncateTitle(removed?.text ?? '')}”`,
       request: {
@@ -187,7 +187,6 @@ export class BoardChecklists {
       },
     });
     if (result.status === 'failed') {
-      await this.#board.mutationFailed(result.error);
       await this.#board.loadTaskDetail(taskId);
     }
     taskActivity.invalidate(taskId);
