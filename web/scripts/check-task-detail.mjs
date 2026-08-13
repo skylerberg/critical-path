@@ -14,7 +14,9 @@
 // either.
 //
 // Boots vite in-process on the first free port at or above 5190 (override with
-// VITE_PORT), measures, tears down. Skips with exit 0 if Chromium isn't
+// TASK_DETAIL_PROBE_PORT — its own variable, not one shared with the layout
+// probe check, so overriding one cannot land both on the same port), measures,
+// tears down. Skips with exit 0 if Chromium isn't
 // installed. Exits non-zero on assertion failure.
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -46,7 +48,7 @@ const server = await createServer({
   plugins: SELFTEST ? [disableWriteQueue] : [],
   server: {
     host: '127.0.0.1',
-    port: Number(process.env.VITE_PORT ?? '5190'),
+    port: Number(process.env.TASK_DETAIL_PROBE_PORT ?? '5190'),
     strictPort: false,
   },
 });

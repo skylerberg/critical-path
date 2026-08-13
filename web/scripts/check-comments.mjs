@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Two things comments here get wrong, both of which a reader takes on trust.
+// Two things written prose gets wrong, both of which a reader takes on trust.
 //
 //   npm run check:comments
 //
@@ -7,12 +7,19 @@
 //    code that changes is the one that goes stale, and nothing points the editor
 //    of one at the other. Fix by giving the rule a single owner — the module that
 //    implements it — and cutting the copy down to what is local to its own site.
-// 2. A file or symbol named in a comment that no longer resolves, or that
-//    resolves somewhere other than where the comment says it is.
+// 2. A file or symbol named in prose that no longer resolves, or that resolves
+//    somewhere other than where the prose places it.
 //
 // Neither is a style rule. Both were found live: a `#sendOrFail` doc that
 // miscounted its own call sites, and a comment placing a test helper in the
 // directory next door to the one it is actually in.
+//
+// The markdown under DOCS is read the same way, because it makes the same two
+// mistakes with none of the pressure that keeps a comment honest — nothing
+// recompiles when a doc goes wrong. Both had drifted by the time this grew to
+// cover them: a skill telling everyone to run the formatter the post-commit hook
+// already runs, and a README describing a generator flag that had changed
+// meaning.
 //
 // `--selftest` re-runs both checks against text that is deliberately wrong and
 // fails if either reports clean. Run it after changing what they assert: a
@@ -27,6 +34,15 @@ const SELFTEST = process.argv.includes('--selftest');
 
 const SCANNED = ['src', 'scripts'];
 const EXTENSIONS = ['.ts', '.svelte', '.mjs'];
+// Prose that is nobody's compile error. Plans under .claude/ are deliberately
+// out: they record what was decided at a moment and are not maintained against
+// the tree afterwards, so holding them to a reference check would only teach
+// people to delete the history.
+const DOCS = ['CLAUDE.md', 'README.md', '.pi/skills'];
+// Configuration is indexed as source without being read for prose: the docs name
+// compiler options and npm scripts as often as they name functions, and a key in
+// tsconfig.json is no less real for living outside src/.
+const CONFIG = ['svelte.config.js', 'eslint.config.js', 'tsconfig.json', 'package.json'];
 // Generated clients carry the API's own prose, which is duplicated across
 // endpoints by design and is not ours to edit.
 const SKIP = (path) => path.includes('.generated.') || path.includes('node_modules');
@@ -35,18 +51,31 @@ const SKIP = (path) => path.includes('.generated.') || path.includes('node_modul
 // two files can share without either being a copy of the other.
 const MIN_SENTENCE = 55;
 
+async function walkFor(dir, matches, found) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (SKIP(full)) continue;
+    if (entry.isDirectory()) await walkFor(full, matches, found);
+    else if (matches(entry.name)) found.push(full);
+  }
+}
+
 async function sourceFiles() {
   const found = [];
-  async function walk(dir) {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (SKIP(full)) continue;
-      if (entry.isDirectory()) await walk(full);
-      else if (EXTENSIONS.some((ext) => entry.name.endsWith(ext))) found.push(full);
-    }
-  }
-  for (const dir of SCANNED) await walk(join(ROOT, dir));
+  const matches = (name) => EXTENSIONS.some((ext) => name.endsWith(ext));
+  for (const dir of SCANNED) await walkFor(join(ROOT, dir), matches, found);
   found.push(join(ROOT, 'vite.config.ts'));
+  return found;
+}
+
+// A DOCS entry is either a file or a directory to walk for markdown.
+async function docFiles() {
+  const found = [];
+  for (const entry of DOCS) {
+    const full = join(ROOT, entry);
+    if (entry.endsWith('.md')) found.push(full);
+    else await walkFor(full, (name) => name.endsWith('.md'), found);
+  }
   return found;
 }
 
@@ -67,6 +96,41 @@ export function commentBlocks(source) {
       .replace(/-->$/, '')
       .trim();
     if (current === null) {
+      current = { line: index + 1, text };
+      blocks.push(current);
+    } else {
+      current.text += ` ${text}`;
+    }
+  });
+  return blocks;
+}
+
+// Markdown is prose all the way down, so its blocks are paragraphs, list items
+// and headings — one claim each, the way a run of comment lines is one claim.
+//
+// Fenced code is dropped. Two documents listing the same command are not two
+// copies of one rationale, and those commands are the part that SHOULD agree;
+// reading them as prose would report every shared example and bury the real hits.
+export function proseBlocks(source) {
+  const blocks = [];
+  let current = null;
+  let fenced = false;
+  source.split('\n').forEach((line, index) => {
+    const trimmed = line.trim();
+    if (/^(```|~~~)/.test(trimmed)) {
+      fenced = !fenced;
+      current = null;
+      return;
+    }
+    if (fenced || trimmed === '') {
+      current = null;
+      return;
+    }
+    const marker = /^(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/.exec(trimmed);
+    const text = trimmed.slice(marker === null ? 0 : marker[0].length);
+    // A marker starts a claim even with no blank line above it, so consecutive
+    // bullets are reported at their own line rather than at the top of the list.
+    if (current === null || marker !== null) {
       current = { line: index + 1, text };
       blocks.push(current);
     } else {
@@ -103,14 +167,26 @@ export function findDuplicates(files, allowed = new Set()) {
 // noun as often as it is a symbol, and flagging those buries the real hits.
 const IDENTIFIER = /`(#?[A-Za-z_$][A-Za-z0-9_$]*)(?:\(\))?`/g;
 // Must start with a word character, so a bare extension — comments here discuss
-// `.svelte.ts` as a category — is not read as a file that ought to exist.
-const FILENAME = /(?<![\w/.-])(\w[\w.-]*\.(?:ts|svelte|mjs|css|html))(?![\w-])/g;
+// `.svelte.ts` as a category — is not read as a file that ought to exist. The
+// extensions are narrower than REPO_PATH's on purpose: a bare `openapi.json` or
+// `realtime-events.json` is the api repo's, named here constantly and correctly.
+const FILENAME = /(?<![\w/.-])(\w[\w.-]*\.(?:ts|svelte|mjs|js|css|html))(?![\w-])/g;
+// A path is a claim about this repo's tree, and resolving it as one is what gives
+// the check any teeth on the docs, which cite `src/lib/ranks.ts` where a comment
+// would say `ranks.ts`. `/` is in the lookbehind so a path sitting inside a
+// longer one — `../critical-path-api/CLAUDE.md`, another repo's file — is not
+// read as a claim about this tree. A glob has no `/`-free segments and so never
+// matches, which is how `src/**/*.test.ts` stays out of it.
+const REPO_PATH =
+  /(?<![\w./-])((?:[\w.-]+\/)+[\w.-]+\.(?:ts|svelte|mjs|js|css|html|json|md|txt|ya?ml))(?![\w-])/g;
 const PROXIMITY = /\b(beside|next to|alongside|in the same (?:directory|folder)|in src\/\w+)\b/i;
 
 // Names that are real but belong to something other than this repo's source.
 const EXTERNAL = new Set([
   'skipWaiting', // Workbox, implied by registerType: 'autoUpdate' in vite.config.ts
   'clientsClaim',
+  'scrollY', // a browser global, named where the docs describe what focus does to it
+  'props_duplicate', // svelte's own compile-error code
 ]);
 
 export function findBadReferences(files, index) {
@@ -123,6 +199,18 @@ export function findBadReferences(files, index) {
         const bare = name.replace(/^#/, '');
         if (EXTERNAL.has(bare) || declared.has(bare)) continue;
         problems.push({ at, detail: `\`${name}\` matches no identifier in the tree` });
+      }
+      for (const [, named] of block.text.matchAll(REPO_PATH)) {
+        // Only a path rooted at something this repo actually has at top level is
+        // a claim about this repo. That is what separates a moved file under
+        // src/ from the three kinds of path that are nobody's mistake: the
+        // companion repo's, an import written relative to a directory other than
+        // this one, and the tail of a URL carrying a port. The selftest has one
+        // of each.
+        if (!index.roots.has(named.split('/')[0])) continue;
+        if (!index.paths.has(named)) {
+          problems.push({ at, detail: `${named} does not exist` });
+        }
       }
       for (const [, named] of block.text.matchAll(FILENAME)) {
         const matches = index.files.get(named);
@@ -166,6 +254,8 @@ async function repoFiles() {
 function buildIndex(loaded, allPaths) {
   const files = new Map();
   const symbols = new Set();
+  const paths = new Set(allPaths);
+  const roots = new Set(allPaths.map((path) => path.split('/')[0]));
   for (const path of allPaths) {
     const name = basename(path);
     if (!files.has(name)) files.set(name, []);
@@ -180,7 +270,7 @@ function buildIndex(loaded, allPaths) {
       for (const [, word] of line.matchAll(/([A-Za-z_$][A-Za-z0-9_$]*)/g)) symbols.add(word);
     }
   }
-  return { files, symbols };
+  return { files, paths, roots, symbols };
 }
 
 async function loadAllowlist() {
@@ -197,17 +287,22 @@ async function loadAllowlist() {
   }
 }
 
-async function run(paths, allowed) {
-  const loaded = await Promise.all(
-    paths.map(async (path) => ({ path, source: await readFile(path, 'utf8') }))
-  );
-  const files = loaded.map(({ path, source }) => ({
-    path: relative(ROOT, path),
-    blocks: commentBlocks(source),
-  }));
+const load = (paths) =>
+  Promise.all(paths.map(async (path) => ({ path, source: await readFile(path, 'utf8') })));
+
+async function run(allowed) {
+  const code = await load(await sourceFiles());
+  const docs = await load(await docFiles());
+  const config = await load(CONFIG.map((name) => join(ROOT, name)));
+  const blocksOf = (loaded, extract) =>
+    loaded.map(({ path, source }) => ({ path: relative(ROOT, path), blocks: extract(source) }));
+  const files = [...blocksOf(code, commentBlocks), ...blocksOf(docs, proseBlocks)];
+  // Symbols come from the code and config only. Indexing the docs would make
+  // every name they mention exist by virtue of being mentioned, which is the one
+  // thing this check is here to disprove.
   return {
     duplicates: findDuplicates(files, allowed),
-    references: findBadReferences(files, buildIndex(loaded, await repoFiles())),
+    references: findBadReferences(files, buildIndex([...code, ...config], await repoFiles())),
   };
 }
 
@@ -230,7 +325,24 @@ if (SELFTEST) {
     { path: 'a/one.ts', blocks: [{ line: 1, text: shared }] },
     { path: 'b/two.ts', blocks: [{ line: 1, text: shared }] },
   ];
-  const index = { files: new Map([['real.ts', ['src/elsewhere/real.ts']]]), symbols: new Set() };
+  const index = {
+    files: new Map([['real.ts', ['src/elsewhere/real.ts']]]),
+    paths: new Set(['src/elsewhere/real.ts']),
+    roots: new Set(['src']),
+    symbols: new Set(),
+  };
+  const doc = [
+    '# Heading',
+    '',
+    'A paragraph long enough that the duplicate check will not discard it as a fragment.',
+    '',
+    '```sh',
+    'npm run something-shared-between-two-documents-that-is-not-a-duplicated-rationale',
+    '```',
+    '',
+    '- A bullet that is also long enough to count as a sentence for these purposes.',
+    '- A second bullet, likewise long enough to be counted as a sentence of its own.',
+  ].join('\n');
   const cases = [
     ['duplicate sentence across two files', findDuplicates(files).length === 1],
     [
@@ -278,6 +390,62 @@ if (SELFTEST) {
         index
       ).length === 0,
     ],
+    [
+      'a path into this tree that does not exist',
+      findBadReferences(
+        [{ path: 'CLAUDE.md', blocks: [{ line: 1, text: 'see src/lib/gone.ts for this' }] }],
+        index
+      ).length === 1,
+    ],
+    [
+      'a path into this tree that does exist',
+      findBadReferences(
+        [{ path: 'CLAUDE.md', blocks: [{ line: 1, text: 'see src/elsewhere/real.ts here' }] }],
+        index
+      ).length === 0,
+    ],
+    [
+      "another repo's path is not read as a claim about this one",
+      findBadReferences(
+        [
+          {
+            path: 'CLAUDE.md',
+            blocks: [{ line: 1, text: 'the companion has critical-path-api/src/real.ts' }],
+          },
+        ],
+        index
+      ).length === 0,
+    ],
+    [
+      'a url tail is not read as a path',
+      findBadReferences(
+        [{ path: 'CLAUDE.md', blocks: [{ line: 1, text: 'open localhost:5180/src/probe.html' }] }],
+        index
+      ).length === 0,
+    ],
+    [
+      'a glob is not read as a path',
+      findBadReferences(
+        [{ path: 'CLAUDE.md', blocks: [{ line: 1, text: 'tests live at src/**/*.test.ts here' }] }],
+        index
+      ).length === 0,
+    ],
+    ['markdown prose is read as blocks', proseBlocks(doc).length === 4],
+    [
+      'a fenced command block is not read as prose',
+      proseBlocks(doc).every((block) => !block.text.startsWith('npm run')),
+    ],
+    [
+      'consecutive bullets are separate blocks at their own lines',
+      proseBlocks(doc).at(-1).line === 10,
+    ],
+    [
+      'a doc paragraph duplicating a code comment is caught',
+      findDuplicates([
+        { path: 'CLAUDE.md', blocks: [{ line: 1, text: shared }] },
+        { path: 'src/lib/a.ts', blocks: [{ line: 1, text: shared }] },
+      ]).length === 1,
+    ],
   ];
   console.log('check:comments --selftest — sensitivity');
   let failed = 0;
@@ -293,7 +461,7 @@ if (SELFTEST) {
   process.exit(0);
 }
 
-const problems = report(await run(await sourceFiles(), await loadAllowlist()));
+const problems = report(await run(await loadAllowlist()));
 if (problems > 0) {
   console.error(
     `\ncheck:comments — ${String(problems)} problem(s).\n` +
@@ -301,4 +469,4 @@ if (problems > 0) {
   );
   process.exit(1);
 }
-console.log('check:comments — no duplicated or unresolvable comment claims.');
+console.log('check:comments — no duplicated or unresolvable claims in comments or docs.');
