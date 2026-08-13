@@ -33,6 +33,14 @@ describe('syncState', () => {
     );
   });
 
+  // The drain backs off to minutes between attempts, so this gap outlives the
+  // outage that opened it. Calling it "Offline" names a problem that has passed.
+  it('does not call a queue waiting on a reachable server offline', () => {
+    expect(syncState(inputs({ pendingCount: 1, draining: false, reachable: true }))).toBe(
+      'pending'
+    );
+  });
+
   it('reports being offline with an empty queue', () => {
     expect(syncState(inputs({ reachable: false }))).toBe('offline');
   });
@@ -50,7 +58,10 @@ describe('syncState', () => {
   // "Offline" already says the board is the last one this device saw, and says why.
   it('prefers offline over a failed refresh, and unsent work over both', () => {
     expect(syncState(inputs({ staleRead: true, reachable: false }))).toBe('offline');
-    expect(syncState(inputs({ staleRead: true, pendingCount: 1 }))).toBe('offline-pending');
+    expect(syncState(inputs({ staleRead: true, pendingCount: 1, reachable: false }))).toBe(
+      'offline-pending'
+    );
+    expect(syncState(inputs({ staleRead: true, pendingCount: 1 }))).toBe('pending');
   });
 
   it('falls back to the socket only when nothing else is true', () => {
@@ -64,6 +75,7 @@ describe('syncMessage', () => {
   it('never describes queued work as saved, or the app as local-first', () => {
     const messages = [
       syncMessage('syncing', 2, 0),
+      syncMessage('pending', 2, 0),
       syncMessage('offline-pending', 2, 0),
       syncMessage('offline', 0, 0),
       syncMessage('reconnecting', 0, 0),
@@ -79,6 +91,11 @@ describe('syncMessage', () => {
   it('says where unsent work actually is', () => {
     expect(syncMessage('offline-pending', 2, 0)).toBe('Offline — 2 changes waiting on this device');
     expect(syncMessage('offline-pending', 1, 0)).toBe('Offline — 1 change waiting on this device');
+  });
+
+  it('claims neither an outage nor a send in progress for a waiting queue', () => {
+    expect(syncMessage('pending', 2, 0)).toBe('2 changes waiting to send');
+    expect(syncMessage('pending', 1, 0)).toBe('1 change waiting to send');
   });
 
   it('does not pretend the shown board is current', () => {

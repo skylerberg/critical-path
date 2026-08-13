@@ -1,6 +1,7 @@
 import { fetchMock, jsonResponse, requestAt } from './testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError, assertOk, setAuthHooks } from './client';
+import { connectivity } from '../lib/connectivity.svelte';
 
 function caught(fn: () => unknown): unknown {
   try {
@@ -115,5 +116,55 @@ describe('auth middleware', () => {
     await api.POST('/api/auth/login', { body: { email: 'a@b.c', password: 'nope' } });
 
     expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+});
+
+describe('reachability middleware', () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    setAuthHooks({ getToken: () => null, onUnauthorized: () => undefined });
+    connectivity.resetForTests();
+  });
+
+  it('counts any answer as proof, a refusal included', async () => {
+    connectivity.noteUnreachable();
+    fetchMock.mockResolvedValue(jsonResponse(500, { error: 'Boom' }));
+
+    await api.GET('/api/auth/me');
+
+    expect(connectivity.reachable).toBe(true);
+  });
+
+  it('records a request that got no answer', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await api.GET('/api/auth/me').catch(() => undefined);
+
+    expect(connectivity.reachable).toBe(false);
+  });
+
+  // The rejection an abort produces is otherwise indistinguishable from the one
+  // a dead network produces, and browsers abort in-flight requests on their own
+  // — a backgrounded tab, a service worker taking over. Counting those as an
+  // outage is what puts the offline notice up on a device that is online.
+  it('leaves an aborted request out of it', async () => {
+    fetchMock.mockRejectedValue(
+      Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    );
+
+    await api.GET('/api/auth/me').catch(() => undefined);
+
+    expect(connectivity.reachable).toBe(true);
+  });
+
+  it('does not let an abort clear an outage it never disproved', async () => {
+    connectivity.noteUnreachable();
+    fetchMock.mockRejectedValue(
+      Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    );
+
+    await api.GET('/api/auth/me').catch(() => undefined);
+
+    expect(connectivity.reachable).toBe(false);
   });
 });

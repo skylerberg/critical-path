@@ -58,7 +58,15 @@ const reachability: Middleware = {
   onResponse() {
     connectivity.noteReached();
   },
-  onError() {
+  onError({ error }) {
+    // An abort is the request being called off, not the server failing to
+    // answer, and it arrives here wearing the same rejection as a real outage.
+    // Browsers cancel in-flight requests as a matter of course — a tab going to
+    // the background, a service worker taking over — and on a phone that is
+    // most of what a rejection turns out to be.
+    if (error instanceof Error && error.name === 'AbortError') {
+      return;
+    }
     connectivity.noteUnreachable();
   },
 };

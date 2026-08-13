@@ -5,6 +5,8 @@ export type SyncState =
   | 'clean'
   /** Reachable, and the queue is going out now. */
   | 'syncing'
+  /** Reachable, with work queued behind the wait before the next attempt. */
+  | 'pending'
   /** Unreachable, with the user's work waiting on this device. */
   | 'offline-pending'
   /** Unreachable, nothing waiting. Reads are coming from the last snapshot. */
@@ -38,7 +40,14 @@ export interface SyncInputs {
  */
 export function syncState(inputs: SyncInputs): SyncState {
   if (inputs.pendingCount > 0) {
-    return inputs.reachable && inputs.draining ? 'syncing' : 'offline-pending';
+    if (!inputs.reachable) {
+      return 'offline-pending';
+    }
+    // Reachable with a queue that is not moving is a real state and not an
+    // offline one: the drain backs off to minutes between attempts, so the gap
+    // outlives the outage that opened it. Saying "Offline" through it names the
+    // wrong problem, and "Sending" would name work that is not going out.
+    return inputs.draining ? 'syncing' : 'pending';
   }
   if (!inputs.reachable) {
     return 'offline';
@@ -65,6 +74,8 @@ export function syncMessage(state: SyncState, pendingCount: number, issues: numb
   switch (state) {
     case 'syncing':
       return `Sending ${changes}…`;
+    case 'pending':
+      return `${changes} waiting to send`;
     case 'offline-pending':
       return `Offline — ${changes} waiting on this device`;
     case 'offline':

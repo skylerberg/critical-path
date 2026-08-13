@@ -1,6 +1,7 @@
 import { untrack } from 'svelte';
 import { board } from './board.svelte';
 import { boardAnnouncer } from './board-announcer.svelte';
+import { connectivity } from './connectivity.svelte';
 import { invitations } from './invitations.svelte';
 import { projects } from './projects.svelte';
 import { realtimeCoverage } from './realtime-coverage.svelte';
@@ -100,6 +101,14 @@ class RealtimeClient {
           untrack(() => this.#flushQueue());
         }
       });
+      $effect(() => {
+        const reachable = connectivity.reachable;
+        untrack(() => {
+          if (reachable) {
+            this.#reconnectNow();
+          }
+        });
+      });
     });
     this.#open();
   }
@@ -154,6 +163,12 @@ class RealtimeClient {
   }
 
   #onMessage(raw: unknown): void {
+    // Ahead of every guard below, because the fact being recorded is that a
+    // frame arrived at all — a type this client does not know still crossed the
+    // network. The API heartbeats every 30s, so this answers the reachability
+    // question continuously and for free, which matters because the reads that
+    // would otherwise answer it are skipped exactly while this socket is up.
+    connectivity.noteReached();
     if (typeof raw !== 'string') {
       return;
     }
@@ -297,6 +312,27 @@ class RealtimeClient {
     const delay = this.#backoff;
     this.#backoff = Math.min(this.#backoff * 2, MAX_BACKOFF_MS);
     this.#reconnectTimer = setTimeout(() => this.#open(), delay);
+  }
+
+  /**
+   * The backoff is sized for an outage that is still going. Something reaching
+   * the server is the news that it has ended, and waiting out the rest of a
+   * delay that can be half a minute keeps the indicator saying "Offline" long
+   * after the network came back — which on a phone is the whole of an ordinary
+   * return from the background.
+   *
+   * A live attempt is left alone rather than replaced: `#socket` is non-null
+   * from the moment one is opened until it closes, so this cannot stack a second
+   * socket on top of a handshake already in progress.
+   */
+  #reconnectNow(): void {
+    if (this.#stopped || this.#socket !== null) {
+      return;
+    }
+    clearTimeout(this.#reconnectTimer);
+    this.#reconnectTimer = undefined;
+    this.#backoff = INITIAL_BACKOFF_MS;
+    this.#open();
   }
 
   #armOfflineNotice(): void {
