@@ -3,7 +3,7 @@ import { api, type ApiError } from '../api/client';
 import { connectivity } from './connectivity.svelte';
 import { conflictDrafts, mergeVersion, type TaskVersion } from './conflictDrafts.svelte';
 import { newId } from './ids';
-import { clearForUser, deleteOps, readQueue, writeOp } from './offline-db';
+import { deleteOps, readQueue, writeOp } from './offline-db';
 import {
   isAlreadyApplied,
   sendRequest,
@@ -106,6 +106,14 @@ class OutboxStore {
   wakeDelayMs = 15_000;
   #wakeTimer: ReturnType<typeof setTimeout> | undefined;
   #wakeAttempts = 0;
+  /**
+   * Bumped by `reset()`, which is what a sign-out runs. A drain or a hydrate
+   * already waiting on the network resumes into an account that is no longer
+   * here, and both write — an issue, a conflict draft, the queue itself — so both
+   * check this after every await rather than trusting that the queue they were
+   * started for is still the queue on screen.
+   */
+  #generation = 0;
 
   constructor() {
     connectivity.onReachable = () => {
@@ -292,8 +300,12 @@ class OutboxStore {
       return;
     }
     this.#hydrated = true;
+    const generation = this.#generation;
     const stored = await readQueue(userId);
-    if (stored.length === 0) {
+    // A sign-out while the read was in flight has already emptied the queue.
+    // Assigning here would put the departing account's work back and then send it
+    // under whoever signs in next.
+    if (generation !== this.#generation || stored.length === 0) {
       return;
     }
     // Continue the sequence rather than restarting it, so ops queued this load
@@ -319,22 +331,31 @@ class OutboxStore {
     }
     this.#cancelWake();
     this.draining = true;
+    const generation = this.#generation;
     let applied = 0;
     try {
-      // One read of the server's board, taken before anything is replayed and
-      // advanced locally as moves land. Moves are the only ops that need it, so
-      // a queue without one never pays for it.
-      let board: BoardTasks | null = null;
+      // One read per project, taken before that project's first move is replayed
+      // and advanced locally as its moves land. Keyed by project rather than held
+      // as a single board: one queue can hold moves for several, and rekeying one
+      // against another's board places the card among neighbors it has never had.
+      // Moves are the only ops that need this, so a queue without one never pays
+      // for it.
+      const boards = new Map<string, BoardTasks>();
       while (this.#ops.length > 0) {
         const op = this.#ops[0]!;
-        let request = op.request;
-        if (op.semantics === 'move' && op.move !== undefined) {
-          board ??= await this.#readBoard(op.projectId);
-          if (board !== null) {
-            request = this.#rekey(op, board);
-          }
+        const board =
+          op.semantics === 'move' && op.move !== undefined
+            ? await this.#boardFor(boards, op.projectId)
+            : null;
+        if (generation !== this.#generation) {
+          return;
         }
+        const rekeyed = board === null ? null : this.#rekey(op, board);
+        const request = rekeyed?.request ?? op.request;
         const outcome = await sendRequest(request);
+        if (generation !== this.#generation) {
+          return;
+        }
         if (outcome.kind === 'unreachable') {
           // Nothing was decided. Everything stays queued, in order, for next time.
           break;
@@ -344,19 +365,49 @@ class OutboxStore {
           if (board !== null && op.move !== undefined) {
             applyMoveLocally(board, op.entityId, op.move.columnId, request);
           }
+          // Reported only once the move has landed. `adjusted` claims the change
+          // was applied somewhere other than where it was aimed, which a placement
+          // computed before the request cannot know — raising it from #rekey filed
+          // the same notice once per attempt, and a retry against fresh neighbors
+          // may not be approximate at all.
+          if (rekeyed?.exact === false) {
+            this.#raise(op, {
+              reason: 'approximate-placement',
+              severity: 'adjusted',
+              detail:
+                'The cards it was dropped between are gone, so it went to the end of the column.',
+            });
+          }
           this.#forget([op]);
           continue;
         }
         const verdict = await this.#handleHttpFailure(op, outcome.error, request);
+        if (generation !== this.#generation) {
+          return;
+        }
         if (verdict === 'halt') {
           break;
+        }
+        if (verdict === 'retry-fresh') {
+          // The cached board is what produced the key the server just refused, and
+          // #rekey is a pure function of it: retrying against the same read would
+          // send the identical request and spend the one attempt this op gets.
+          await this.#refreshBoard(boards, op.projectId);
+          if (generation !== this.#generation) {
+            return;
+          }
+          continue;
         }
         if (verdict === 'retry') {
           continue;
         }
       }
     } finally {
-      this.draining = false;
+      // Only for the run that is still the current one: an abandoned run
+      // resolving late must not clear the flag under the run that replaced it.
+      if (generation === this.#generation) {
+        this.draining = false;
+      }
     }
     if (applied > 0) {
       // Progress means the server is answering, so the next wait starts short
@@ -373,9 +424,12 @@ class OutboxStore {
     op: QueuedOp,
     error: ApiError,
     request: SerializedRequest
-  ): Promise<'halt' | 'retry' | 'next'> {
-    // The session is gone, not the work. Everything stays queued so signing back
-    // in on this device still has it.
+  ): Promise<'halt' | 'retry' | 'retry-fresh' | 'next'> {
+    // Nothing left in the queue can do better against a session the server is
+    // rejecting, so stop rather than spending the rest of it on the same answer.
+    // The work does not outlive this: the client's 401 hook clears the session,
+    // which drops the durable copy with `clearOfflineCache` and this one with
+    // `reset()`. The drain below notices that through `#generation`.
     if (error.status === 401) {
       return 'halt';
     }
@@ -395,9 +449,9 @@ class OutboxStore {
     }
     if (error.status === 409 && op.semantics === 'move' && op.attempts === 0) {
       // The slot was taken between reading the board and writing to it. One
-      // fresh read is the whole fix.
+      // fresh read is the whole fix, which is what separates this from 'retry'.
       this.#bumpAttempts(op);
-      return 'retry';
+      return 'retry-fresh';
     }
     if (error.status === 404 || error.status === 403) {
       const doomed = this.#ops.filter((queued) => queued.entityId === op.entityId);
@@ -435,7 +489,9 @@ class OutboxStore {
     return 'next';
   }
 
-  #rekey(op: QueuedOp, board: BoardTasks): SerializedRequest {
+  // Pure, and deliberately reports nothing: the caller raises the
+  // approximate-placement notice once the move has actually landed.
+  #rekey(op: QueuedOp, board: BoardTasks): { request: SerializedRequest; exact: boolean } {
     const move = op.move!;
     const siblings = board.tasks
       .filter((task) => task.column_id === move.columnId && task.id !== op.entityId)
@@ -444,15 +500,27 @@ class OutboxStore {
       afterId: move.afterId,
       beforeId: move.beforeId,
     });
-    if (!exact) {
-      this.#raise(op, {
-        reason: 'approximate-placement',
-        severity: 'adjusted',
-        detail: 'The cards it was dropped between are gone, so it went to the end of the column.',
-      });
-    }
     const body = { ...(op.request.body as Record<string, unknown>), ...placement };
-    return { ...op.request, body };
+    return { request: { ...op.request, body }, exact };
+  }
+
+  async #boardFor(boards: Map<string, BoardTasks>, projectId: string): Promise<BoardTasks | null> {
+    const cached = boards.get(projectId);
+    return cached ?? (await this.#refreshBoard(boards, projectId));
+  }
+
+  // A read that fails leaves the previous one in place rather than dropping back
+  // to no board at all: stale neighbors still beat replaying the offline
+  // `sort_key` the op recorded, which is the one thing rekeying exists to avoid.
+  async #refreshBoard(
+    boards: Map<string, BoardTasks>,
+    projectId: string
+  ): Promise<BoardTasks | null> {
+    const board = await this.#readBoard(projectId);
+    if (board !== null) {
+      boards.set(projectId, board);
+    }
+    return boards.get(projectId) ?? null;
   }
 
   async #readBoard(projectId: string): Promise<BoardTasks | null> {
@@ -506,13 +574,15 @@ class OutboxStore {
   /**
    * Signing out takes the queue with it. Anything still waiting belongs to the
    * account that is leaving, and replaying it under the next one would attribute
-   * one person's work to another.
+   * one person's work to another — as would leaving its issues on screen, which
+   * name the cards it was about.
+   *
+   * The durable copy is not dropped here. `session` clears it through
+   * `clearOfflineCache` on every path that ends a session deliberately, and on
+   * the one path that does not — an unreachable server with no remembered
+   * account — the rows are meant to survive: `#hydrated` going back to false is
+   * what lets the next signed-in load read them again.
    */
-  async clearForAccount(userId: string): Promise<void> {
-    this.reset();
-    await clearForUser(userId);
-  }
-
   reset(): void {
     this.#cancelWake();
     this.#wakeAttempts = 0;
@@ -521,6 +591,13 @@ class OutboxStore {
     this.#seq = 0;
     this.#hydrated = false;
     this.draining = false;
+    this.#generation += 1;
+    // Dropped along with the queue it was draining. `drain()` memoizes the run in
+    // flight, so leaving this set hands the next account's hydrate the run that
+    // was abandoned here instead of one of its own, and its work then sits unsent
+    // with no timer behind it. Safe to drop because every await in `#run` is
+    // followed by a generation check, so the abandoned run cannot write.
+    this.#drain = null;
   }
 }
 

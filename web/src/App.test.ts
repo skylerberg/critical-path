@@ -7,6 +7,7 @@ import { announcer } from './lib/announcer.svelte';
 import { board } from './lib/board.svelte';
 import { invitations } from './lib/invitations.svelte';
 import { myTasks } from './lib/myTasks.svelte';
+import { outbox } from './lib/outbox.svelte';
 import { projects } from './lib/projects.svelte';
 import { realtime } from './lib/realtime.svelte';
 import { router } from './lib/router.svelte';
@@ -170,6 +171,39 @@ describe('App chrome', () => {
 
     expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
     expect(navs().length).toBeGreaterThan(0);
+  });
+
+  // The shell owns clearing per-account state, and the queue was the one store it
+  // left behind: unsent work replayed under the next account sends one person's
+  // edits as another's, and the panel behind the sync indicator names their cards.
+  it('drops unsent work when the session ends', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/', { replace: true });
+    render(App);
+    await screen.findByRole('heading', { name: 'Projects' });
+
+    // A rejection rather than a status: only a request that never landed is
+    // queued, and this fetchMock answers every unknown path with a 404.
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await outbox.submit({
+      projectId: PROJECT_ID,
+      entityId: TASK_ID,
+      label: 'Renamed a card',
+      request: {
+        method: 'PATCH',
+        path: '/api/tasks/{id}',
+        pathParams: { id: TASK_ID },
+        body: { title: 'new' },
+      },
+    });
+    expect(outbox.count).toBe(1);
+
+    await session.logout();
+
+    await vi.waitFor(() => {
+      expect(outbox.count).toBe(0);
+      expect(outbox.issues).toHaveLength(0);
+    });
   });
 
   // Verification state belongs on the account page and nowhere else; a

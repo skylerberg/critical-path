@@ -399,6 +399,281 @@ describe('replaying a move made offline', () => {
     // Adjusted, not failed: the move did land.
     expect(outbox.count).toBe(0);
   });
+
+  function requestsOfMethod(method: string): Request[] {
+    return fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => request.method === method);
+  }
+
+  async function replayedSortKeys(): Promise<(string | undefined)[]> {
+    return Promise.all(
+      requestsOfMethod('PATCH').map(async (request) => {
+        const body = (await request.clone().json()) as { sort_key?: string };
+        return body.sort_key;
+      })
+    );
+  }
+
+  /** GET answers move the neighbors apart on the second read; PATCH answers 409 then 200. */
+  function serveShiftingBoard(secondRead: () => Promise<Response>): void {
+    let reads = 0;
+    let writes = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.method === 'GET') {
+        reads += 1;
+        return reads === 1
+          ? Promise.resolve(
+              jsonResponse(
+                200,
+                boardWith([
+                  { id: AFTER_ID, sort_key: 'V0' },
+                  { id: BEFORE_ID, sort_key: 'V1' },
+                ])
+              )
+            )
+          : secondRead();
+      }
+      writes += 1;
+      return Promise.resolve(
+        writes === 1
+          ? jsonResponse(409, { error: 'That position was taken' })
+          : jsonResponse(200, {})
+      );
+    });
+  }
+
+  // The retry exists because the slot was taken between the read and the write.
+  // Recomputing against the read that produced the refused key is a pure function
+  // of it, so it would send the identical request and spend the one attempt.
+  it('reads the board again after a 409 instead of replaying the refused key', async () => {
+    await queueMove();
+    serveShiftingBoard(() =>
+      Promise.resolve(
+        jsonResponse(
+          200,
+          boardWith([
+            { id: AFTER_ID, sort_key: 'V5' },
+            { id: BEFORE_ID, sort_key: 'V6' },
+          ])
+        )
+      )
+    );
+
+    await outbox.drain();
+
+    expect(requestsOfMethod('GET')).toHaveLength(2);
+    const keys = await replayedSortKeys();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]! > 'V0' && keys[0]! < 'V1').toBe(true);
+    // Against the second board, which the first read could not have produced.
+    expect(keys[1]! > 'V5' && keys[1]! < 'V6').toBe(true);
+    expect(outbox.count).toBe(0);
+    expect(outbox.issues).toHaveLength(0);
+  });
+
+  // Stale neighbors still beat the key the op recorded offline, which is the one
+  // thing rekeying exists to avoid sending.
+  it('keeps the board it has when the second read fails', async () => {
+    await queueMove();
+    serveShiftingBoard(() => Promise.reject(new TypeError('Failed to fetch')));
+
+    await outbox.drain();
+
+    const keys = await replayedSortKeys();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).not.toBe('V2');
+    expect(keys[1]! > 'V0' && keys[1]! < 'V1').toBe(true);
+  });
+
+  // The notice claims the move landed somewhere other than where it was aimed,
+  // so it belongs to the attempt that landed — not to every attempt.
+  it('reports an approximate placement once across a retry', async () => {
+    await queueMove();
+    let writes = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.method === 'GET') {
+        // Neither neighbor is left on either read, so both attempts append.
+        return Promise.resolve(
+          jsonResponse(200, boardWith([{ id: testUuid('x'), sort_key: 'V3' }]))
+        );
+      }
+      writes += 1;
+      return Promise.resolve(writes === 1 ? jsonResponse(409, {}) : jsonResponse(200, {}));
+    });
+
+    await outbox.drain();
+
+    expect(outbox.count).toBe(0);
+    expect(outbox.issues.filter((issue) => issue.reason === 'approximate-placement')).toHaveLength(
+      1
+    );
+  });
+
+  // One queue holds every project's work. Rekeying a move against another
+  // project's board places the card among neighbors it has never had.
+  it('rekeys each move against its own project', async () => {
+    const OTHER_PROJECT = testUuid('p2');
+    const OTHER_COLUMN = testUuid('c2');
+    unreachable();
+    await outbox.submit(
+      edit({
+        semantics: 'move',
+        label: 'Moved here',
+        move: { columnId: COLUMN_ID, afterId: AFTER_ID, beforeId: BEFORE_ID },
+        request: {
+          method: 'PATCH',
+          path: '/api/tasks/{id}',
+          pathParams: { id: TASK_ID },
+          body: { column_id: COLUMN_ID, sort_key: 'V2' },
+        },
+      })
+    );
+    await outbox.submit(
+      edit({
+        projectId: OTHER_PROJECT,
+        entityId: OTHER_ID,
+        semantics: 'move',
+        label: 'Moved there',
+        move: { columnId: OTHER_COLUMN, afterId: AFTER_ID, beforeId: BEFORE_ID },
+        request: {
+          method: 'PATCH',
+          path: '/api/tasks/{id}',
+          pathParams: { id: OTHER_ID },
+          body: { column_id: OTHER_COLUMN, sort_key: 'V2' },
+        },
+      })
+    );
+    fetchMock.mockReset();
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.method !== 'GET') {
+        return Promise.resolve(jsonResponse(200, {}));
+      }
+      // Each board holds its own anchors, in its own column and at keys the other
+      // never mentions. Rekeyed against the wrong one the anchors are missing
+      // entirely, which appends and files an approximate-placement notice.
+      const forOther = new URL(request.url).pathname.includes(OTHER_PROJECT);
+      return Promise.resolve(
+        jsonResponse(200, {
+          project: { id: forOther ? OTHER_PROJECT : PROJECT_ID },
+          columns: [],
+          labels: [],
+          tasks: forOther
+            ? [
+                { id: AFTER_ID, sort_key: 'V8', column_id: OTHER_COLUMN },
+                { id: BEFORE_ID, sort_key: 'V9', column_id: OTHER_COLUMN },
+              ]
+            : [
+                { id: AFTER_ID, sort_key: 'V0', column_id: COLUMN_ID },
+                { id: BEFORE_ID, sort_key: 'V1', column_id: COLUMN_ID },
+              ],
+        })
+      );
+    });
+    await outbox.drain();
+
+    expect(requestsOfMethod('GET')).toHaveLength(2);
+    const keys = await replayedSortKeys();
+    expect(keys[0]! > 'V0' && keys[0]! < 'V1').toBe(true);
+    // Between its own board's anchors, not appended past a board it never used.
+    expect(keys[1]! > 'V8' && keys[1]! < 'V9').toBe(true);
+    expect(outbox.issues).toHaveLength(0);
+  });
+});
+
+describe('a queue that outlives its account', () => {
+  it('drops unsent work and its issues when the session ends', async () => {
+    unreachable();
+    await outbox.submit(edit());
+    expect(outbox.count).toBe(1);
+
+    outbox.reset();
+
+    expect(outbox.count).toBe(0);
+    expect(outbox.issues).toHaveLength(0);
+  });
+
+  // Without this the next account's own queued work is never read back: hydrate
+  // latches, and the latch used to survive the sign-out that cleared everything else.
+  it('can hydrate again after a reset', async () => {
+    unreachable();
+    await outbox.submit(edit({ label: 'first account' }));
+    await outbox.hydrate();
+    outbox.reset();
+    expect(outbox.count).toBe(0);
+
+    await outbox.hydrate();
+
+    // By label rather than by count: the stored rows outlive a case here, since
+    // resetConnectionForTests only closes the connection.
+    expect(outbox.pending.map((op) => op.label)).toContain('first account');
+  });
+
+  // The drain resumes into whatever account is here now, and every branch of it
+  // writes: an issue, a conflict draft, the queue itself.
+  it('abandons a drain that resolves after the queue was reset', async () => {
+    unreachable();
+    await outbox.submit(edit());
+
+    fetchMock.mockReset();
+    let release = (): void => {};
+    const held = new Promise<Response>((resolve) => {
+      release = () => {
+        resolve(jsonResponse(422, { error: 'Title is too long' }));
+      };
+    });
+    fetchMock.mockImplementation(() => held);
+
+    const draining = outbox.drain();
+    outbox.reset();
+    release();
+    await draining;
+
+    // The issue is what the abandoned run would have written; the count is only
+    // here to show the reset itself stuck.
+    expect(outbox.issues).toHaveLength(0);
+    expect(outbox.count).toBe(0);
+  });
+
+  // `drain()` memoizes the run in flight, so a reset that leaves it in place
+  // hands the next account's hydrate the abandoned promise instead of a drain of
+  // its own — its work then sits unsent with no timer behind it.
+  it('drains the next account after a reset abandoned a run mid-flight', async () => {
+    unreachable();
+    await outbox.submit(edit({ label: 'account A' }));
+
+    fetchMock.mockReset();
+    let release = (): void => {};
+    const held = new Promise<Response>((resolve) => {
+      release = () => {
+        resolve(jsonResponse(200, {}));
+      };
+    });
+    let calls = 0;
+    fetchMock.mockImplementation(() => {
+      calls += 1;
+      return calls === 1 ? held : Promise.resolve(jsonResponse(200, {}));
+    });
+
+    const abandoned = outbox.drain();
+    outbox.reset();
+
+    // Still offline from the rejection above, so this queues rather than sending.
+    await outbox.submit(edit({ label: 'account B' }));
+    expect(outbox.count).toBe(1);
+
+    const drained = outbox.drain();
+    await vi.waitFor(() => {
+      expect(outbox.count).toBe(0);
+    });
+
+    release();
+    await Promise.all([abandoned, drained]);
+  });
 });
 
 describe('two offline edits to the same card', () => {
