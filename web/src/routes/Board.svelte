@@ -20,10 +20,16 @@
     columnSections,
     columnSnapAlign,
     restingSnapIndex,
-    slideColumnIntoView as slideIntoView,
+    snapLeft,
     snapTargets,
   } from '../lib/board-snap';
-  import { SWIPE_AXIS_LOCK_PX, swipeTarget, SWIPE_VELOCITY_SAMPLE_MS } from '../lib/board-swipe';
+  import {
+    settleScrollLeft,
+    SWIPE_AXIS_LOCK_PX,
+    SWIPE_SETTLE_MS,
+    swipeTarget,
+    SWIPE_VELOCITY_SAMPLE_MS,
+  } from '../lib/board-swipe';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
   import { truncateTitle } from '../lib/titles';
@@ -178,8 +184,6 @@
   // is what `useCursorForDetection` on the task zone below makes exact.
   const DRAG_EDGE_ZONE_PX = 80; // pointer within this band of an edge starts scrolling
   const DRAG_SCROLL_SPEED_PX_PER_S = 500; // top speed at the very edge; scales to 0 at the band's inner edge
-  const DROP_CENTER_TIMEOUT_MS = 500; // fallback restore if `scrollend` never fires
-  const SWIPE_SETTLE_TIMEOUT_MS = 500; // same, for the slide that ends a swipe
   let boardScroller: HTMLElement | undefined = $state();
   // Column to center after a pointer drop. While set, snap stays off so the
   // centering slide isn't fought by scroll-snap.
@@ -190,8 +194,80 @@
   let dragScrolled = false;
   const snapActive = $derived(!pointerDragging && centeringTarget === null);
 
-  function slideColumnIntoView(scroller: HTMLElement, section: HTMLElement): void {
-    slideIntoView(scroller, section, !motion.reduced);
+  // --- The slide onto a column, and the snap suspension around it ---
+  // Everything that moves the board deliberately goes through `settleOn`: the
+  // swipe, the drop-centering, the quick-add reveal. Mandatory snap may only be
+  // re-armed once the board is stationary and EXACTLY on the position, so the
+  // moment the slide ends has to be a moment this component knows.
+  let snapSuspended = false;
+  // The target the running slide is heading for — the element, not its index: a
+  // column arriving over the wire mid-slide renumbers the targets, and a swipe
+  // interrupting the slide has to count from the same column either way.
+  let settleTarget: HTMLElement | null = null;
+  let settleFrame = 0;
+
+  function suspendSnap(scroller: HTMLElement): void {
+    scroller.style.scrollSnapType = 'none';
+    snapSuspended = true;
+  }
+
+  function releaseSnap(scroller: HTMLElement): void {
+    scroller.style.scrollSnapType = '';
+    snapSuspended = false;
+  }
+
+  // Does this board snap AT THIS BREAKPOINT — not "is snapping switched on right
+  // now". The suspension above is the board's own doing and is indistinguishable
+  // from `lg:snap-none` through `getComputedStyle`, so reading the style alone made
+  // every swipe that began while the previous one was still settling look like a
+  // swipe on a desktop board, and be refused. Refused with snap off, which is the
+  // worse half: whatever did move the board then moved it unconstrained by snap.
+  function boardSnaps(scroller: HTMLElement): boolean {
+    return snapSuspended || getComputedStyle(scroller).scrollSnapType !== 'none';
+  }
+
+  // Cancelling is not finishing: this drops the slide without re-arming snap,
+  // which is what both callers want — a new gesture turns snap off again anyway,
+  // and teardown releases it once on its way out.
+  function cancelSettle(): void {
+    cancelAnimationFrame(settleFrame);
+    settleFrame = 0;
+    settleTarget = null;
+  }
+
+  // The destination is measured once, not per frame. `animate:flip` transforms the
+  // very sections that define the snap positions, and a rect read mid-flip reports
+  // the transformed box — so a slide that re-aimed each frame would chase the flip
+  // animation rather than the column's resting place.
+  function settleOn(scroller: HTMLElement, target: HTMLElement, onDone?: () => void): void {
+    cancelSettle();
+    settleTarget = target;
+    const from = scroller.scrollLeft;
+    const to = snapLeft(scroller, target);
+    const duration = motion.reduced ? 0 : SWIPE_SETTLE_MS;
+    const started = performance.now();
+    // `performance.now()` again rather than the frame timestamp the callback is
+    // handed: the two share a clock in a browser and do not in jsdom, where the
+    // frame time trails it by a few hundred ms. Subtracting one from the other
+    // there makes the first frames land at a negative elapsed and the slide take
+    // several times its duration — with the tests still passing, since they only
+    // wait longer.
+    const step = () => {
+      const elapsed = performance.now() - started;
+      scroller.scrollLeft = settleScrollLeft(from, to, elapsed, duration);
+      if (elapsed < duration) {
+        settleFrame = requestAnimationFrame(step);
+        return;
+      }
+      settleFrame = 0;
+      settleTarget = null;
+      releaseSnap(scroller);
+      onDone?.();
+    };
+    // Scheduled rather than run inline, so a zero-length slide under reduced motion
+    // still finishes a frame later the way a real one does — a caller that sets
+    // state in `onDone` behaves the same either way.
+    settleFrame = requestAnimationFrame(step);
   }
 
   // Slow, continuous edge scroll while dragging. Pointer drags only: a keyboard
@@ -277,35 +353,35 @@
       centeringTarget = null;
       return;
     }
-    slideColumnIntoView(scroller, section);
-    let done = false;
-    const finish = () => {
-      if (done) {
-        return;
-      }
-      done = true;
-      scroller.removeEventListener('scrollend', finish);
-      centeringTarget = null;
-    };
-    scroller.addEventListener('scrollend', finish);
-    const timeout = window.setTimeout(finish, DROP_CENTER_TIMEOUT_MS);
+    // Snap here is suspended by the `snapActive` class rather than by the inline
+    // style, so the release inside the slide is a no-op and clearing
+    // `centeringTarget` is what re-arms it — after the board is on the position,
+    // which is the whole reason this waits for the slide to finish at all.
+    settleOn(scroller, section, () => (centeringTarget = null));
+    // Only this effect's own slide. Its dependencies include `dragging`, so an
+    // unguarded cleanup would cancel a swipe's slide the moment a drag began and
+    // leave snap suspended with nothing left to re-arm it.
     return () => {
-      window.clearTimeout(timeout);
-      scroller.removeEventListener('scrollend', finish);
+      if (settleTarget === section) {
+        cancelSettle();
+      }
     };
   });
 
   // --- A touch swipe moves at most one column ---
   // The board owns the horizontal gesture on touch rather than letting the
-  // browser scroll and correcting afterwards. `touch-action: pan-y` below lg
-  // means no native horizontal pan and no momentum, so the only thing that moves
-  // the board sideways is the drag below — and the target it lands on is
+  // browser scroll and correcting afterwards: the target it lands on is
   // `origin ± 1` by construction, which nothing about drag length or engine
   // momentum can widen.
   //
   // Correcting after the fact cannot do this. `scroll-snap-stop: always` governs
   // only the inertial phase, so a long drag crosses two columns with it honoured;
   // and a correction is by definition visible as the overshoot it undoes.
+  //
+  // Owning it means the browser must not be scrolling the same element too.
+  // `touch-action: pan-y` asks for that, but it is a declaration, and a browser
+  // that scrolls anyway carries the board past the column this gesture chose —
+  // so every move the gesture has claimed is also `preventDefault`ed.
   //
   // Snap is suspended inline, not through `snapActive`: a class change lands a
   // microtask later, and mandatory snap re-snaps every scrollLeft written before
@@ -321,6 +397,10 @@
       startLeft: number;
       origin: number;
       lastIndex: number;
+      // The slide this gesture interrupted, if it interrupted one. A gesture that
+      // then comes to nothing hands it back rather than abandoning the board
+      // part-way through it.
+      carried: HTMLElement | null;
       horizontal: boolean;
       lastX: number;
       velX: number;
@@ -328,16 +408,6 @@
       velocity: number;
     }
     let swipe: Swipe | null = null;
-    // The settle below is scheduled from an event, so unlike the centering
-    // effect's identical fallback it has no cleanup of its own to be scoped to.
-    // This is that scope. A settle that outlives what it was settling re-arms
-    // snap under a gesture still in progress; one that outlives the component
-    // runs against a window that is no longer there, which is a crash rather
-    // than a glitch under a test runner tearing jsdom down around it.
-    let cancelSettle: (() => void) | null = null;
-    const releaseSnap = () => {
-      scroller.style.scrollSnapType = '';
-    };
     // A card drag owns the same finger, and the open menu is anchored to it.
     // A *pending* press is not in that list on purpose: pointerdown precedes
     // touchstart, so every swipe that starts on a card — nearly all of them —
@@ -345,25 +415,49 @@
     // passes its own slop, which any real swipe does.
     const busy = () => dragging || cardMenu.taskId !== null;
 
+    // Give the gesture back. The board must be left ON a snap position however
+    // this happens: re-arming mandatory snap anywhere else is what resolves it
+    // onto whichever column the browser likes, which is the jump this whole
+    // arrangement exists to avoid.
+    const abandon = () => {
+      const gesture = swipe;
+      swipe = null;
+      const resume = gesture?.horizontal
+        ? (snapTargets(scroller)[gesture.origin] ?? null)
+        : (gesture?.carried ?? null);
+      if (resume !== null) {
+        settleOn(scroller, resume);
+      } else if (settleTarget === null && snapSuspended) {
+        releaseSnap(scroller);
+      }
+    };
+
     const onTouchStart = (event: TouchEvent) => {
       const touch = event.touches[0];
       // Nothing to take over where the board doesn't snap (lg and up), and a
-      // second finger means a pinch, not a swipe.
-      if (
-        touch === undefined ||
-        event.touches.length !== 1 ||
-        busy() ||
-        getComputedStyle(scroller).scrollSnapType === 'none'
-      ) {
-        swipe = null;
+      // second finger means a pinch, not a swipe. Both go through `abandon` so a
+      // gesture refused mid-swipe cannot leave snap suspended behind it, which
+      // then reads as "desktop" and refuses every swipe after it too.
+      if (touch === undefined || event.touches.length !== 1 || busy() || !boardSnaps(scroller)) {
+        abandon();
         return;
       }
+      // A gesture that arrives mid-slide counts from the column the slide was
+      // heading for, not from wherever the animation had reached. That is what
+      // makes a second swipe advance exactly one more column instead of skipping
+      // or repeating one — the board's committed position is the target, and the
+      // live `scrollLeft` below only decides what follows the finger.
+      const targets = snapTargets(scroller);
+      const carried = settleTarget;
+      const carriedIndex = carried === null ? -1 : targets.indexOf(carried);
+      cancelSettle();
       swipe = {
         startX: touch.clientX,
         startY: touch.clientY,
         startLeft: scroller.scrollLeft,
-        origin: restingSnapIndex(scroller),
-        lastIndex: snapTargets(scroller).length - 1,
+        origin: carriedIndex === -1 ? restingSnapIndex(scroller) : carriedIndex,
+        lastIndex: targets.length - 1,
+        carried,
         horizontal: false,
         lastX: touch.clientX,
         velX: touch.clientX,
@@ -378,8 +472,7 @@
         return;
       }
       if (busy()) {
-        swipe = null;
-        releaseSnap();
+        abandon();
         return;
       }
       const dx = touch.clientX - swipe.startX;
@@ -391,12 +484,16 @@
         // A vertical gesture belongs to the column's card list; hand it back for
         // the rest of this touch rather than re-judging it every move.
         if (Math.abs(dy) >= Math.abs(dx)) {
-          swipe = null;
+          abandon();
           return;
         }
         swipe.horizontal = true;
-        scroller.style.scrollSnapType = 'none';
+        suspendSnap(scroller);
       }
+      // Claimed. Everything below this line is the board scrolling itself, and a
+      // browser scrolling it in parallel is the one thing that can carry it past
+      // `origin ± 1`. Vertical gestures return above and are never touched.
+      event.preventDefault();
       swipe.lastX = touch.clientX;
       const now = performance.now();
       const sample = now - swipe.velT;
@@ -410,10 +507,13 @@
 
     const onTouchEnd = () => {
       const gesture = swipe;
-      swipe = null;
+      // A tap, or a gesture the axis lock never resolved. It may still have
+      // interrupted a slide, which `abandon` resumes.
       if (gesture === null || !gesture.horizontal) {
+        abandon();
         return;
       }
+      swipe = null;
       const section =
         snapTargets(scroller)[
           swipeTarget(
@@ -424,39 +524,18 @@
           )
         ];
       if (section === undefined) {
-        releaseSnap();
+        releaseSnap(scroller);
         return;
       }
-      // Snap stays off until the slide settles on the target, so re-arming it is
-      // the no-op it should be rather than a second, visible correction.
-      slideColumnIntoView(scroller, section);
-      cancelSettle?.();
-      let done = false;
-      const finish = () => {
-        if (done) {
-          return;
-        }
-        done = true;
-        cancelSettle = null;
-        window.clearTimeout(timeout);
-        scroller.removeEventListener('scrollend', finish);
-        releaseSnap();
-      };
-      const timeout = window.setTimeout(finish, SWIPE_SETTLE_TIMEOUT_MS);
-      scroller.addEventListener('scrollend', finish);
-      // Cancelling is not finishing: this drops the settle without re-arming
-      // snap, which is what both callers want — a new gesture turns snap off
-      // again anyway, and teardown releases it once on its way out.
-      cancelSettle = () => {
-        done = true;
-        cancelSettle = null;
-        window.clearTimeout(timeout);
-        scroller.removeEventListener('scrollend', finish);
-      };
+      // Snap stays off until the slide lands exactly on the target, so re-arming
+      // it is the no-op it should be rather than a second, visible correction.
+      settleOn(scroller, section);
     };
 
     scroller.addEventListener('touchstart', onTouchStart, { passive: true });
-    scroller.addEventListener('touchmove', onTouchMove, { passive: true });
+    // The one non-passive listener here, and it has to be: `preventDefault` above
+    // is what stops the browser scrolling the board alongside the gesture.
+    scroller.addEventListener('touchmove', onTouchMove, { passive: false });
     scroller.addEventListener('touchend', onTouchEnd, { passive: true });
     scroller.addEventListener('touchcancel', onTouchEnd, { passive: true });
     return () => {
@@ -464,8 +543,11 @@
       scroller.removeEventListener('touchmove', onTouchMove);
       scroller.removeEventListener('touchend', onTouchEnd);
       scroller.removeEventListener('touchcancel', onTouchEnd);
-      cancelSettle?.();
-      releaseSnap();
+      // A slide that outlives the component runs against a window that is no
+      // longer there — a stray style write in a browser, and an unhandled
+      // ReferenceError under a runner tearing jsdom down around it.
+      cancelSettle();
+      releaseSnap(scroller);
     };
   });
 

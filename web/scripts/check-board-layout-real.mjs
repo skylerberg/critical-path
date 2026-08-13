@@ -265,27 +265,34 @@ const SCROLL_PROBE = `(async () => {
   // horizontal gesture over on touch, so this drives the production path end to
   // end — which the previous native-snap arrangement could not be tested for at
   // all, since no programmatic scroll imitates a fling.
+  const at = (x, y) => [new Touch({ identifier: 1, target: board, clientX: x, clientY: y })];
+  const send = (type, points) =>
+    board.dispatchEvent(
+      new TouchEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        touches: type === 'touchend' ? [] : points,
+        changedTouches: points.length ? points : at(0, 0),
+      })
+    );
+  // One gesture from wherever the board is now. Everything below that measures
+  // chaining needs that: resetting to the first column between gestures is exactly
+  // what kept the shipped check from ever seeing a swipe arrive mid-slide.
+  const gesture = async (dx, dy = 0, steps = 6) => {
+    send('touchstart', at(200, 300));
+    for (let i = 1; i <= steps; i++) {
+      send('touchmove', at(200 + (dx * i) / steps, 300 + (dy * i) / steps));
+      await pause(16); // one frame, so velocity is sampled the way it is in life
+    }
+    send('touchend', at(200 + dx, 300 + dy));
+  };
+
   const swipe = async (dx, dy = 0, steps = 6) => {
     board.scrollTo({ left: 0, behavior: 'auto' });
     await settle();
     const before = board.scrollLeft;
     const indexBefore = snapIndex();
-    const at = (x, y) => [new Touch({ identifier: 1, target: board, clientX: x, clientY: y })];
-    const send = (type, x, y) =>
-      board.dispatchEvent(
-        new TouchEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          touches: type === 'touchend' ? [] : at(x, y),
-          changedTouches: at(x, y),
-        })
-      );
-    send('touchstart', 200, 300);
-    for (let i = 1; i <= steps; i++) {
-      send('touchmove', 200 + (dx * i) / steps, 300 + (dy * i) / steps);
-      await pause(16); // one frame, so velocity is sampled the way it is in life
-    }
-    send('touchend', 200 + dx, 300 + dy);
+    await gesture(dx, dy, steps);
     await settle();
     await pause(700);
     return { before, after: board.scrollLeft, indexBefore, indexAfter: snapIndex() };
@@ -296,6 +303,66 @@ const SCROLL_PROBE = `(async () => {
   const swipeBack = await swipe(120);
   const swipeShort = await swipe(-10);
   const swipeVertical = await swipe(-6, 200);
+
+  // --- Gestures that arrive before the last one has finished ---
+  // The board suspends scroll-snap on itself while it slides onto a column, and
+  // that suspension used to be indistinguishable from the lg:snap-none that
+  // means "desktop, leave the board alone" — so a swipe arriving mid-slide was
+  // refused, with snap off, and whatever else moved the board moved it
+  // unconstrained. Everything above resets to the first column and waits 700ms
+  // between gestures, which is precisely why none of it could see that.
+  const restAt = async (left) => {
+    board.scrollTo({ left, behavior: 'auto' });
+    await settle();
+    await pause(200);
+  };
+
+  await restAt(0);
+  await gesture(-120);
+  await pause(150); // inside the slide, not after it
+  await gesture(-120);
+  await pause(1100);
+  const chained = { index: snapIndex(), off: offSnap() };
+
+  // ...and the same thing over the length of the board, at a cadence a thumb
+  // actually produces. Every target in order, none of them twice.
+  await restAt(0);
+  const walk = [snapIndex()];
+  for (let i = 0; i < targets.length + 1; i++) {
+    await gesture(-120);
+    await pause(230);
+    walk.push(snapIndex());
+  }
+  await pause(900);
+  const walked = { visited: walk, end: snapIndex(), off: offSnap() };
+
+  // The end of the board, where the reported bouncing was: the last snap target
+  // is the "+ Add column" tile, so a swipe onto the last real COLUMN has to rest
+  // on the column and not carry on to the tile behind it.
+  const positions = targets.map(snapLeft);
+  const lastColumn = targets.length - 2;
+  await restAt(positions[lastColumn - 1]);
+  await gesture(-120);
+  await pause(1100);
+  const intoLastColumn = { want: lastColumn, index: snapIndex(), off: offSnap() };
+
+  // A second finger is a pinch, not a swipe. Refusing it used to drop the gesture
+  // without releasing the suspension, and the board then read as a desktop board
+  // for the rest of its life and refused every swipe after it.
+  await restAt(0);
+  send('touchstart', at(200, 300));
+  await pause(16);
+  send('touchmove', at(160, 300));
+  await pause(16);
+  send('touchstart', [...at(160, 300), new Touch({ identifier: 2, target: board, clientX: 80, clientY: 300 })]);
+  await pause(16);
+  send('touchend', []);
+  await pause(1100);
+  const pinchedSnap = getComputedStyle(board).scrollSnapType;
+  const beforeRecovery = snapIndex();
+  await gesture(-120);
+  await pause(1100);
+  const afterPinch = { snap: pinchedSnap, from: beforeRecovery, to: snapIndex() };
 
   board.scrollTo({ left: 0, behavior: 'auto' });
   await settle();
@@ -373,6 +440,7 @@ const SCROLL_PROBE = `(async () => {
     requests: window.__requests.map((r) => r.method + ' ' + r.path),
     drift, resting, landed, afterWheel,
     swipeOne, swipeFar, swipeBack, swipeShort, swipeVertical, afterBareScrollEnd,
+    chained, walked, intoLastColumn, afterPinch,
     beforeInsert, afterInsert,
     columnBeforeAppend, columnAfterAppend, columnBeforePrepend, columnAfterPrepend,
     snapTargets: targets.length,
@@ -461,6 +529,34 @@ function checkScroll(s, mobile) {
       f.push(
         `a column arriving before the viewed one displaced it (${s.columnBeforePrepend} -> ${s.columnAfterPrepend})`
       );
+    // Two swipes in quick succession are two columns. The second one used to be
+    // dropped outright — the board reads as "desktop" while it is sliding — and
+    // dropped with snap suspended, which is the state anything else that moves it
+    // moves it in.
+    if (s.chained.index !== 2)
+      f.push(`a swipe during the last one's slide landed on ${s.chained.index}, wanted 2`);
+    if (s.chained.off > 2) f.push(`chained swipes left the board off-snap (${s.chained.off}px)`);
+    // Every target in order, none twice, ending on the last. A dropped swipe shows
+    // up here as a repeat; one that carries two columns as a gap.
+    const wanted = s.walked.visited.map((_, i) => Math.min(i, s.snapTargets - 1));
+    if (s.walked.visited.join() !== wanted.join())
+      f.push(`walking the board visited ${s.walked.visited.join(',')}, wanted ${wanted.join(',')}`);
+    if (s.walked.off > 2) f.push(`the walk left the board off-snap (${s.walked.off}px)`);
+    // The reported bounce, at the one place it was reported: the last real column,
+    // with the "+ Add column" tile one snap position behind it.
+    if (s.intoLastColumn.index !== s.intoLastColumn.want)
+      f.push(
+        `a swipe into the last column landed on ${s.intoLastColumn.index}, wanted ${s.intoLastColumn.want}`
+      );
+    if (s.intoLastColumn.off > 2)
+      f.push(`the last column is not a resting place (off by ${s.intoLastColumn.off}px)`);
+    // A pinch must cost the board nothing beyond the gesture it refused.
+    if (s.afterPinch.snap !== 'x mandatory')
+      f.push(`a second finger left scroll-snap-type=${s.afterPinch.snap}`);
+    if (s.afterPinch.to !== s.afterPinch.from + 1)
+      f.push(
+        `the swipe after a pinch went ${s.afterPinch.from} -> ${s.afterPinch.to} (wanted one column)`
+      );
     // Scrolled to the far end, the board must be ON that end's snap position and
     // not merely clamped against the scroll range with a real snap position it
     // cannot reach — which is what a centered last target with no trailing canvas
@@ -484,23 +580,33 @@ const SCROLL_CASES = [
   { w: 1280, h: 800, cols: 12, tasks: 3 },
 ];
 
-console.log('\ncheck:layout:real — board scroll behavior');
-for (const c of SCROLL_CASES) {
-  const mobile = c.w < 1024;
-  await setViewport({ width: c.w, height: c.h, mobile });
-  await goto(`${PROBE}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
-  const s = await evalPage(SCROLL_PROBE);
-  const failures = checkScroll(s, mobile);
-  const tag = `${mobile ? 'MOBILE' : 'DESKTOP'} ${c.w}x${c.h} cols=${c.cols}`;
-  if (failures.length) {
-    failed++;
-    console.log(`  ✗ ${tag}`);
+async function runScrollCases(probeUrl, { mustPass, only = () => true }) {
+  let bad = 0;
+  for (const c of SCROLL_CASES) {
+    const mobile = c.w < 1024;
+    if (!only(c, mobile)) {
+      continue;
+    }
+    await setViewport({ width: c.w, height: c.h, mobile });
+    await goto(`${probeUrl}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
+    const s = await evalPage(SCROLL_PROBE);
+    const failures = checkScroll(s, mobile);
+    const passed = failures.length === 0;
+    const tag = `${mobile ? 'MOBILE' : 'DESKTOP'} ${c.w}x${c.h} cols=${c.cols}`;
+    if (passed === mustPass) {
+      console.log(`  ✓ ${tag} (${mustPass ? JSON.stringify(s) : `should fail -> ${failures[0]}`})`);
+      continue;
+    }
+    bad++;
+    console.log(`  ✗ ${tag}${mustPass ? '' : ': should fail -> passed'}`);
     for (const x of failures) console.log(`      - ${x}`);
     console.log(`      metrics: ${JSON.stringify(s)}`);
-  } else {
-    console.log(`  ✓ ${tag} (${JSON.stringify(s)})`);
   }
+  return bad;
 }
+
+console.log('\ncheck:layout:real — board scroll behavior');
+failed += await runScrollCases(PROBE, { mustPass: true });
 
 // --- Card drags: which column a drop lands in ---
 // svelte-dnd-action hit-tests the CENTER of the floating card by default, not the
@@ -658,40 +764,89 @@ async function runDragCases(probeUrl, { mustPass }) {
 console.log('\ncheck:layout:real — card drop targeting');
 failed += await runDragCases(PROBE, { mustPass: true });
 
-if (SELFTEST) {
-  // Sensitivity proof. The whole phase above rests on one option, and an option
-  // is exactly the kind of thing a refactor drops without a word: a board back
-  // on the library's default — the CENTER of the dragged card decides, not the
-  // pointer — must make every case fail. A green run that stays green with the
-  // fix removed is measuring the harness, not the board.
-  console.log('\ncheck:layout:real --selftest — sensitivity');
-  let rewrote = 0;
-  const centerDetection = {
-    name: 'probe-selftest-center-detection',
-    // Ahead of the svelte plugin, so this still sees the component's source.
-    enforce: 'pre',
-    transform(code, id) {
-      if (!id.endsWith('src/routes/Board.svelte')) {
-        return null;
-      }
-      const next = code.replace('useCursorForDetection: true', 'useCursorForDetection: false');
-      if (next !== code) {
-        rewrote++;
-      }
-      return next;
+// Put the board back on a bug, so the phase that catches it can be shown to. Each
+// substitution must apply EXACTLY once: without that count the selftest passes by
+// rewriting nothing the day the code it names is renamed — the same failure it
+// exists to catch, wearing the check's own face.
+function regression(name, substitutions) {
+  const applied = substitutions.map(() => 0);
+  return {
+    plugin: {
+      name: `probe-selftest-${name}`,
+      // Ahead of the svelte plugin, so this still sees the component's source.
+      enforce: 'pre',
+      transform(code, id) {
+        if (!id.endsWith('src/routes/Board.svelte')) {
+          return null;
+        }
+        return substitutions.reduce((source, [from, to], index) => {
+          const next = source.replace(from, to);
+          if (next !== source) {
+            applied[index]++;
+          }
+          return next;
+        }, code);
+      },
+    },
+    report() {
+      return applied
+        .map((count, index) =>
+          count === 1
+            ? null
+            : `rewrote "${substitutions[index][0]}" ${count} times (want exactly 1)`
+        )
+        .filter(Boolean);
     },
   };
-  const selftestServer = await startServer([centerDetection]);
-  const selftestProbe = new URL('scripts/board-probe.html', selftestServer.resolvedUrls.local[0])
-    .href;
-  failed += await runDragCases(selftestProbe, { mustPass: false });
-  // Without this the selftest passes by rewriting nothing the day the option is
-  // renamed — the same failure it exists to catch, wearing the check's own face.
-  if (rewrote !== 1) {
-    failed++;
-    console.log(`  ✗ the selftest rewrote ${rewrote} call sites (want exactly 1)`);
+}
+
+async function runRegression({ plugin, report }, phase) {
+  const server = await startServer([plugin]);
+  const probe = new URL('scripts/board-probe.html', server.resolvedUrls.local[0]).href;
+  let bad = await phase(probe);
+  for (const problem of report()) {
+    bad++;
+    console.log(`  ✗ the selftest ${problem}`);
   }
-  await selftestServer.close();
+  await server.close();
+  return bad;
+}
+
+if (SELFTEST) {
+  // Sensitivity proof. A green run that stays green with the fix removed is
+  // measuring the harness, not the board.
+  console.log('\ncheck:layout:real --selftest — sensitivity');
+
+  // The drop phase rests on one option, and an option is exactly the kind of
+  // thing a refactor drops without a word: a board back on the library's default
+  // — the CENTER of the dragged card decides, not the pointer — must make every
+  // case fail.
+  failed += await runRegression(
+    regression('center-detection', [
+      ['useCursorForDetection: true', 'useCursorForDetection: false'],
+    ]),
+    (probe) => runDragCases(probe, { mustPass: false })
+  );
+
+  // ...and the scroll phase on the board being able to tell its own suspension of
+  // scroll-snap apart from the breakpoint that has none. Reading the computed
+  // style back conflates the two, and dropping the release with it strands the
+  // suspension for good. Desktop is excluded: it does not snap, so none of the
+  // chaining assertions apply there and the case legitimately passes.
+  failed += await runRegression(
+    // Both halves in one anchored substitution: the guard reading the computed
+    // style back, and the refusal that dropped the gesture without releasing the
+    // suspension. Anchored on one line rather than spanning several, because a
+    // reflow by the formatter is exactly what makes a multi-line anchor match
+    // nothing — which is what the count below is here to catch, and did.
+    regression('snap-suspension', [
+      [
+        '!boardSnaps(scroller)) {\n        abandon();',
+        "getComputedStyle(scroller).scrollSnapType === 'none') {\n        swipe = null;",
+      ],
+    ]),
+    (probe) => runScrollCases(probe, { mustPass: false, only: (_case, mobile) => mobile })
+  );
 }
 
 await close();
