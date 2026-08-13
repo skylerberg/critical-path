@@ -6,6 +6,7 @@
   import { formatFullDate, isCalendarDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { router } from '../lib/router.svelte';
+  import { crossProjectTotal } from '../lib/cross-project-counts';
   import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
   import { contentAuthorAt, taskActivity } from '../lib/taskActivity.svelte';
   import { sameDoc } from '../lib/tiptap';
@@ -49,19 +50,14 @@
 
   const cross = $derived(crossProjectDeps.get(taskId)?.deps ?? null);
   // The same idiom as TaskAttachments: the card already knows how many rows are
-  // coming, so the list can reserve them before the fetch answers. The count is
-  // of open blocked-by edges only, so a task whose cross-project edges are all
-  // done, or all outgoing, reserves nothing and simply fills in — which is why
-  // the fetch itself is never gated on it.
-  const crossPending = $derived(cross === null && !anonymous);
-  const crossSkeletons = $derived(crossPending ? (task?.open_cross_project_blocker_count ?? 0) : 0);
-  const crossBlockedByCount = $derived(
-    cross === null ? crossSkeletons : cross.blocked_by.length + cross.hidden_blocked_by_count
+  // coming, so the Dependencies section is reserved before the fetch answers.
+  const crossTotal = $derived(
+    crossProjectTotal({
+      deps: cross,
+      anonymous,
+      openBlockerCount: task?.open_cross_project_blocker_count ?? 0,
+    })
   );
-  const crossBlockingCount = $derived(
-    cross === null ? 0 : cross.blocking.length + cross.hidden_blocking_count
-  );
-  const crossTotal = $derived(crossBlockedByCount + crossBlockingCount);
 
   let dialog = $state<HTMLDialogElement>();
   let titleInput = $state<HTMLInputElement>();

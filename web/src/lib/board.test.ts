@@ -5,6 +5,7 @@ import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
 import { clearOfflineCache } from './offline-cache';
+import { outbox } from './outbox.svelte';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
@@ -1205,6 +1206,63 @@ describe('board store mutations', () => {
 
     expect(board.labels).toHaveLength(1);
     expect(toasts.toasts).toHaveLength(0);
+  });
+
+  it('updateLabel rethrows a duplicate-name 409 after resyncing, without a toast', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === '/api/labels/l1'
+        ? jsonResponse(409, { error: 'Label name already in use' })
+        : undefined
+    );
+
+    await expect(board.updateLabel('l1', { name: 'art' })).rejects.toThrow(
+      'Label name already in use'
+    );
+
+    expect(toasts.toasts).toHaveLength(0);
+  });
+
+  // Why three writes cannot go through #sendOrFail. Each invalidates the activity
+  // log BEFORE its failure check, and every failure handler refetches over the
+  // network; taskActivity measures elapsed time since its last fetch to choose
+  // between fetching now and arming a timer, so running the policy first changes
+  // what it decides. Routing any of the three through the helper inverts that
+  // order, and each case below then fails.
+  describe.each([
+    ['addBlocker', '/api/tasks/t1/blockers', () => board.addBlocker('t1', 't2')],
+    ['addChecklistItem', '/api/checklist-items', () => board.addChecklistItem('t1', 'a task')],
+    [
+      'promoteChecklistItem',
+      '/api/checklist-items/ci1/promote',
+      () => board.promoteChecklistItem('t1', 'ci1'),
+    ],
+  ])('%s', (_name, failingPath, run) => {
+    it('invalidates the activity log before the failure policy refetches', async () => {
+      board.taskChecklists = {
+        t1: [serverChecklistItem('a task', 'ci1', 0, false, 'V0')],
+      };
+      const order: string[] = [];
+      const invalidate = vi.spyOn(taskActivity, 'invalidate').mockImplementation(() => {
+        order.push('invalidate');
+      });
+      mockRoutes((request, url) => {
+        if (request.method !== 'GET' && url.pathname === failingPath) {
+          return jsonResponse(409, { error: CYCLE_ERROR });
+        }
+        if (request.method === 'GET') {
+          order.push('refetch');
+        }
+        return undefined;
+      });
+
+      await run();
+      // Restored here, not in an afterEach: the activity-refresh cases further
+      // down this file assert on the real invalidate.
+      invalidate.mockRestore();
+
+      expect(order[0]).toBe('invalidate');
+      expect(order).toContain('refetch');
+    });
   });
 
   it('addBlocker names the loop from the 409 body, highlights it, and refetches', async () => {
@@ -2956,6 +3014,22 @@ describe('board store cover images', () => {
 
     expect(coverOf('t1')).toBeNull();
     expect(await requestAt(0).json()).toEqual({ image_id: null });
+  });
+
+  // The label is what the unsynced-changes panel shows for a queued write, and
+  // clearing a cover passes null — never undefined, which is what the label used
+  // to test for and so never said "Removed".
+  it('setTaskCover names clearing a cover as a removal, not as setting one', async () => {
+    const submit = vi.spyOn(outbox, 'submit');
+
+    await board.setTaskCover('t1', cover);
+    expect(submit.mock.calls[0]?.[0].label).toBe('Set a cover image');
+
+    submit.mockClear();
+    await board.setTaskCover('t1', null);
+    expect(submit.mock.calls[0]?.[0].label).toBe('Removed a cover image');
+
+    submit.mockRestore();
   });
 
   it('setTaskCover toasts and refetches the board when the request fails', async () => {
