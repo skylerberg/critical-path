@@ -36,6 +36,19 @@ export function focusAndSelect(node: HTMLInputElement | HTMLTextAreaElement): vo
   node.select();
 }
 
+/**
+ * A focusout whose relatedTarget is still inside the element is focus moving
+ * between the element's own controls, not focus leaving it. A null relatedTarget
+ * (window blur, a click on dead space) counts as leaving.
+ *
+ * Not an action — a predicate for an `onfocusout` handler — but it lives here so
+ * that everything deciding what focus means has one home.
+ */
+export function focusRemainsInside(event: FocusEvent & { currentTarget: HTMLElement }): boolean {
+  const next = event.relatedTarget;
+  return next instanceof Node && event.currentTarget.contains(next);
+}
+
 const TOUCH_CONTEXT_MENU_MARKER = 'data-no-touch-context-menu';
 
 const directPointers = new Set<number>();

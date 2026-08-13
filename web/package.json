@@ -52,6 +52,7 @@
     "@testing-library/svelte": "~5.4.2",
     "@types/node": "^26.1.1",
     "eslint": "^10.6.0",
+    "eslint-plugin-import-x": "^4.17.1",
     "eslint-plugin-svelte": "~3.20.0",
     "fake-indexeddb": "^6.2.5",
     "globals": "^17.7.0",

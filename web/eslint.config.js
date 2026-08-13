@@ -1,6 +1,7 @@
 import js from '@eslint/js';
 import ts from 'typescript-eslint';
 import svelte from 'eslint-plugin-svelte';
+import importX from 'eslint-plugin-import-x';
 import globals from 'globals';
 import svelteConfig from './svelte.config.js';
 
@@ -37,6 +38,30 @@ export default ts.config(
         extraFileExtensions: ['.svelte'],
         svelteConfig,
       },
+    },
+  },
+  {
+    // Not the test files. They open with `import '../api/testUtils'`, whose
+    // stubs for fetch/Request/localStorage have to be installed before anything
+    // that reads them is imported — a parent import that must precede the
+    // package ones. That is the whole of the rule's disagreement with this
+    // codebase: 75 of the 76 files it flagged were tests obeying that rule.
+    ignores: ['**/*.test.ts'],
+    plugins: { 'import-x': importX },
+    rules: {
+      // Groups only, deliberately not alphabetized. What this buys is that a
+      // package import cannot hide in the middle of a run of local ones — the
+      // ordering question that actually costs a reader something, and the one
+      // real violation it found. Sorting within a group as well would rewrite
+      // the import block of almost every file in src/ for no reading benefit,
+      // and collide with every branch currently open.
+      'import-x/order': [
+        'error',
+        {
+          groups: [['builtin', 'external'], 'internal', ['parent', 'sibling', 'index']],
+          'newlines-between': 'never',
+        },
+      ],
     },
   },
   {

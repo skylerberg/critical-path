@@ -3,7 +3,7 @@
   import { board, type CommentBody, type TaskComment } from '../lib/board.svelte';
   import { formatTimestamp } from '../lib/dates';
   import { docDraftKey, drafts } from '../lib/drafts.svelte';
-  import { focusRemainsInside } from '../lib/focus';
+  import { focusRemainsInside } from '../lib/actions';
   import { currentProjectMentionCandidates } from '../lib/mentions';
   import { session } from '../lib/session.svelte';
   import { displayName, users } from '../lib/users.svelte';
