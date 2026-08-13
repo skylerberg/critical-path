@@ -5,7 +5,27 @@ import { conflictDrafts } from './conflictDrafts.svelte';
 import { outbox, type SubmitInput } from './outbox.svelte';
 import { resetConnectionForTests } from './offline-db';
 import { session } from './session.svelte';
-import { testUuid } from './test-ids';
+import { testSortKey, testUuid } from './test-ids';
+
+/**
+ * Sort keys by role, ascending in the order they are declared, and generated
+ * rather than written out: `ranks.ts` passes BASE_62_DIGITS, under which most
+ * strings are not legal keys as *input*. An invalid one throws from inside
+ * `fractional-indexing` as an unhandled rejection naming whichever test happened
+ * to be running, which is how a hand-picked `'W0'` here once failed a test three
+ * describes away from the fixture holding it.
+ */
+const ANCHOR = testSortKey(0);
+const NEXT_TO_ANCHOR = testSortKey(1);
+// The key a move computed while offline, meaningless by the time it replays.
+const OFFLINE_KEY = testSortKey(2);
+const UNRELATED = testSortKey(3);
+// A second read of the same board, with the anchors moved along it.
+const SHIFTED_ANCHOR = testSortKey(5);
+const SHIFTED_NEXT = testSortKey(6);
+// A different project's board entirely.
+const OTHER_ANCHOR = testSortKey(8);
+const OTHER_NEXT = testSortKey(9);
 
 const PROJECT_ID = testUuid('p1');
 const TASK_ID = testUuid('t1');
@@ -334,7 +354,7 @@ describe('replaying a move made offline', () => {
           pathParams: { id: TASK_ID },
           // Computed against the board as it looked offline, and meaningless by
           // the time this is replayed.
-          body: { column_id: COLUMN_ID, sort_key: 'V2' },
+          body: { column_id: COLUMN_ID, sort_key: OFFLINE_KEY },
         },
       })
     );
@@ -355,29 +375,29 @@ describe('replaying a move made offline', () => {
   it('recomputes the key from the neighbors against the board as it looks now', async () => {
     await queueMove();
     serveBoard([
-      { id: AFTER_ID, sort_key: 'V0' },
-      { id: BEFORE_ID, sort_key: 'V1' },
+      { id: AFTER_ID, sort_key: ANCHOR },
+      { id: BEFORE_ID, sort_key: NEXT_TO_ANCHOR },
     ]);
 
     await outbox.drain();
 
     const sortKey = await replayedSortKey();
     expect(sortKey).toBeDefined();
-    expect(sortKey! > 'V0' && sortKey! < 'V1').toBe(true);
+    expect(sortKey! > ANCHOR && sortKey! < NEXT_TO_ANCHOR).toBe(true);
     expect(outbox.issues).toHaveLength(0);
   });
 
   it('keeps the intent when only one of the two neighbors is left', async () => {
     await queueMove();
     serveBoard([
-      { id: AFTER_ID, sort_key: 'V0' },
-      { id: testUuid('unrelated'), sort_key: 'V3' },
+      { id: AFTER_ID, sort_key: ANCHOR },
+      { id: testUuid('unrelated'), sort_key: UNRELATED },
     ]);
 
     await outbox.drain();
 
     const sortKey = await replayedSortKey();
-    expect(sortKey! > 'V0' && sortKey! < 'V3').toBe(true);
+    expect(sortKey! > ANCHOR && sortKey! < UNRELATED).toBe(true);
     expect(outbox.issues).toHaveLength(0);
   });
 
@@ -385,12 +405,12 @@ describe('replaying a move made offline', () => {
   // told about rather than left to notice.
   it('appends and says so when both neighbors are gone', async () => {
     await queueMove();
-    serveBoard([{ id: testUuid('unrelated'), sort_key: 'V3' }]);
+    serveBoard([{ id: testUuid('unrelated'), sort_key: UNRELATED }]);
 
     await outbox.drain();
 
     const sortKey = await replayedSortKey();
-    expect(sortKey! > 'V3').toBe(true);
+    expect(sortKey! > UNRELATED).toBe(true);
     expect(outbox.issues).toHaveLength(1);
     expect(outbox.issues[0]).toMatchObject({
       reason: 'approximate-placement',
@@ -428,8 +448,8 @@ describe('replaying a move made offline', () => {
               jsonResponse(
                 200,
                 boardWith([
-                  { id: AFTER_ID, sort_key: 'V0' },
-                  { id: BEFORE_ID, sort_key: 'V1' },
+                  { id: AFTER_ID, sort_key: ANCHOR },
+                  { id: BEFORE_ID, sort_key: NEXT_TO_ANCHOR },
                 ])
               )
             )
@@ -454,8 +474,8 @@ describe('replaying a move made offline', () => {
         jsonResponse(
           200,
           boardWith([
-            { id: AFTER_ID, sort_key: 'V5' },
-            { id: BEFORE_ID, sort_key: 'V6' },
+            { id: AFTER_ID, sort_key: SHIFTED_ANCHOR },
+            { id: BEFORE_ID, sort_key: SHIFTED_NEXT },
           ])
         )
       )
@@ -466,9 +486,9 @@ describe('replaying a move made offline', () => {
     expect(requestsOfMethod('GET')).toHaveLength(2);
     const keys = await replayedSortKeys();
     expect(keys).toHaveLength(2);
-    expect(keys[0]! > 'V0' && keys[0]! < 'V1').toBe(true);
+    expect(keys[0]! > ANCHOR && keys[0]! < NEXT_TO_ANCHOR).toBe(true);
     // Against the second board, which the first read could not have produced.
-    expect(keys[1]! > 'V5' && keys[1]! < 'V6').toBe(true);
+    expect(keys[1]! > SHIFTED_ANCHOR && keys[1]! < SHIFTED_NEXT).toBe(true);
     expect(outbox.count).toBe(0);
     expect(outbox.issues).toHaveLength(0);
   });
@@ -483,8 +503,8 @@ describe('replaying a move made offline', () => {
 
     const keys = await replayedSortKeys();
     expect(keys).toHaveLength(2);
-    expect(keys[1]).not.toBe('V2');
-    expect(keys[1]! > 'V0' && keys[1]! < 'V1').toBe(true);
+    expect(keys[1]).not.toBe(OFFLINE_KEY);
+    expect(keys[1]! > ANCHOR && keys[1]! < NEXT_TO_ANCHOR).toBe(true);
   });
 
   // The notice claims the move landed somewhere other than where it was aimed,
@@ -497,7 +517,7 @@ describe('replaying a move made offline', () => {
       if (request.method === 'GET') {
         // Neither neighbor is left on either read, so both attempts append.
         return Promise.resolve(
-          jsonResponse(200, boardWith([{ id: testUuid('x'), sort_key: 'V3' }]))
+          jsonResponse(200, boardWith([{ id: testUuid('x'), sort_key: UNRELATED }]))
         );
       }
       writes += 1;
@@ -527,7 +547,7 @@ describe('replaying a move made offline', () => {
           method: 'PATCH',
           path: '/api/tasks/{id}',
           pathParams: { id: TASK_ID },
-          body: { column_id: COLUMN_ID, sort_key: 'V2' },
+          body: { column_id: COLUMN_ID, sort_key: OFFLINE_KEY },
         },
       })
     );
@@ -542,7 +562,7 @@ describe('replaying a move made offline', () => {
           method: 'PATCH',
           path: '/api/tasks/{id}',
           pathParams: { id: OTHER_ID },
-          body: { column_id: OTHER_COLUMN, sort_key: 'V2' },
+          body: { column_id: OTHER_COLUMN, sort_key: OFFLINE_KEY },
         },
       })
     );
@@ -564,12 +584,12 @@ describe('replaying a move made offline', () => {
           labels: [],
           tasks: forOther
             ? [
-                { id: AFTER_ID, sort_key: 'V8', column_id: OTHER_COLUMN },
-                { id: BEFORE_ID, sort_key: 'V9', column_id: OTHER_COLUMN },
+                { id: AFTER_ID, sort_key: OTHER_ANCHOR, column_id: OTHER_COLUMN },
+                { id: BEFORE_ID, sort_key: OTHER_NEXT, column_id: OTHER_COLUMN },
               ]
             : [
-                { id: AFTER_ID, sort_key: 'V0', column_id: COLUMN_ID },
-                { id: BEFORE_ID, sort_key: 'V1', column_id: COLUMN_ID },
+                { id: AFTER_ID, sort_key: ANCHOR, column_id: COLUMN_ID },
+                { id: BEFORE_ID, sort_key: NEXT_TO_ANCHOR, column_id: COLUMN_ID },
               ],
         })
       );
@@ -578,9 +598,9 @@ describe('replaying a move made offline', () => {
 
     expect(requestsOfMethod('GET')).toHaveLength(2);
     const keys = await replayedSortKeys();
-    expect(keys[0]! > 'V0' && keys[0]! < 'V1').toBe(true);
+    expect(keys[0]! > ANCHOR && keys[0]! < NEXT_TO_ANCHOR).toBe(true);
     // Between its own board's anchors, not appended past a board it never used.
-    expect(keys[1]! > 'V8' && keys[1]! < 'V9').toBe(true);
+    expect(keys[1]! > OTHER_ANCHOR && keys[1]! < OTHER_NEXT).toBe(true);
     expect(outbox.issues).toHaveLength(0);
   });
 });

@@ -101,7 +101,13 @@ export interface Neighbors {
 }
 
 // `items` is the display order *including* the moved card at its new index.
-export function neighborsAfterDrop(items: readonly Ranked[], movedId: string): Neighbors {
+//
+// `Keyed`, like the placement half it pairs with: its only caller is a drop on a
+// board, where every row is ranked. It used to take `Ranked` and carry a branch
+// for an unkeyed `previous` that treated every keyed sibling as ranking after
+// it — the wrong way round, since an unkeyed row sorts last — so the branch was
+// not merely unreachable, it was unreachable and wrong.
+export function neighborsAfterDrop(items: readonly Keyed[], movedId: string): Neighbors {
   const index = items.findIndex((item) => item.id === movedId);
   const others = items.filter((item) => item.id !== movedId);
   if (index === -1) {
@@ -116,11 +122,8 @@ export function neighborsAfterDrop(items: readonly Ranked[], movedId: string): N
   const previous = items[index - 1]!;
   // Strictly greater by key, not by rank: a sibling that merely ties on key and
   // loses the id tiebreak is not something to squeeze in front of.
-  const above = (candidate: Ranked): boolean =>
-    previous.sort_key === null
-      ? candidate.sort_key !== null
-      : candidate.sort_key !== null && candidate.sort_key > previous.sort_key;
-  let next: Ranked | null = null;
+  const above = (candidate: Keyed): boolean => candidate.sort_key > previous.sort_key;
+  let next: Keyed | null = null;
   for (const item of others) {
     if (above(item) && (next === null || byRank(item, next) < 0)) {
       next = item;
