@@ -20,6 +20,7 @@ import {
   socketsForCredential,
   socketsForUser,
   resetRealtimeState,
+  MAX_SUBSCRIPTIONS_PER_SOCKET,
 } from '../../src/services/realtime/state';
 import { deliver } from '../../src/services/realtime/delivery';
 import {
@@ -120,6 +121,47 @@ describe('realtime state', () => {
     expect(projectSockets('p2')).toEqual([]);
     expect(getSocketState(socket)).toBeUndefined();
     expect(socketsForUser('u1')).toEqual([]);
+  });
+
+  // Without a ceiling, a socket sending subscribe frames in a loop grows both
+  // the per-socket set and the room map for as long as it stays connected.
+  it('stops adding subscriptions past the per-socket ceiling', () => {
+    const socket = new FakeSocket();
+    registerSocket(socket, { kind: 'session', id: 's1', userId: 'u1' });
+
+    for (let i = 0; i < MAX_SUBSCRIPTIONS_PER_SOCKET; i++) {
+      expect(subscribeToProject(socket, `p${i}`)).toBe(true);
+    }
+
+    expect(subscribeToProject(socket, 'one-too-many')).toBe(false);
+    expect(projectSockets('one-too-many')).toEqual([]);
+    expect(getSocketState(socket)?.projectIds.size).toBe(MAX_SUBSCRIPTIONS_PER_SOCKET);
+  });
+
+  // Re-subscribing is how a reconnecting client restores its rooms, so the one
+  // frame that must not start failing at the ceiling is a repeat of one held.
+  it('keeps re-subscribing to a project already held idempotent at the ceiling', () => {
+    const socket = new FakeSocket();
+    registerSocket(socket, { kind: 'session', id: 's1', userId: 'u1' });
+    for (let i = 0; i < MAX_SUBSCRIPTIONS_PER_SOCKET; i++) {
+      subscribeToProject(socket, `p${i}`);
+    }
+
+    expect(subscribeToProject(socket, 'p0')).toBe(true);
+    expect(projectSockets('p0')).toEqual([socket]);
+    expect(getSocketState(socket)?.projectIds.size).toBe(MAX_SUBSCRIPTIONS_PER_SOCKET);
+  });
+
+  it('frees the ceiling again as subscriptions are dropped', () => {
+    const socket = new FakeSocket();
+    registerSocket(socket, { kind: 'session', id: 's1', userId: 'u1' });
+    for (let i = 0; i < MAX_SUBSCRIPTIONS_PER_SOCKET; i++) {
+      subscribeToProject(socket, `p${i}`);
+    }
+    expect(subscribeToProject(socket, 'fresh')).toBe(false);
+
+    unsubscribeFromProject(socket, 'p0');
+    expect(subscribeToProject(socket, 'fresh')).toBe(true);
   });
 
   it('socketsForCredential returns only that credential kind and id', () => {

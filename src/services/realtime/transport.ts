@@ -7,6 +7,8 @@ import { authenticateBearerToken, credentialIsLive } from '../credentials';
 import type { CredentialKind } from '../credentials';
 import { errorText } from '../../utils/errors';
 import { logger } from '../../utils/logger';
+import { isValidUuid } from '../../utils/uuid';
+import { clientIpFrom } from '../clientIp';
 import { recordPersonalAccessTokenUse } from '../personalAccessTokens';
 import { SESSIONS_REVOKED, subscribeBus } from './bus';
 import type { BusEntry } from './bus';
@@ -27,7 +29,21 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_MISSED_PONGS = 2;
 const MAX_MESSAGE_BYTES = 16 * 1024;
 const CLOSE_UNAUTHORIZED = 4401;
+const CLOSE_TOO_MANY = 4429;
 const OPEN = 1;
+
+// Two ceilings, because they bound different things. Per credential holder: a
+// live socket costs a `credentialIsLive` query every heartbeat, so socket count
+// is a multiplier on a pool of ten connections, and one account should not be
+// able to set that number. Per source address: the pre-auth window admits a
+// socket before any account is known, so this is the only thing bounding what
+// an unauthenticated caller can hold open.
+//
+// The per-address ceiling is generous on purpose — it is the whole office
+// behind one NAT that pays for it being tight, while an attacker holding 200
+// idle sockets costs little.
+export const MAX_SOCKETS_PER_USER = 20;
+export const MAX_SOCKETS_PER_ADDRESS = 200;
 
 export interface UpgradableServer {
   on(
@@ -38,6 +54,12 @@ export interface UpgradableServer {
 
 export interface RealtimeHandle {
   close(): void;
+}
+
+// The upgrade event types its socket as the Duplex a raw stream would be; the
+// one Node hands over is always a net.Socket, and a test double need not be.
+function remoteAddressOf(socket: Duplex): string | undefined {
+  return (socket as Duplex & { remoteAddress?: string }).remoteAddress;
 }
 
 function closeSockets(sockets: RealtimeSocket[]): void {
@@ -61,8 +83,28 @@ export function closeSocketsForCredential(kind: CredentialKind, id: string): voi
   closeSockets(socketsForCredential(kind, id));
 }
 
+// Oldest first, so the connection that just arrived is the one that survives: a
+// client reconnecting through a half-open socket its peer never closed would
+// otherwise be refused by the sockets it is trying to replace. Removed from
+// state before close() completes, for the same reason a revoke is.
+function evictExcessUserSockets(userId: string): void {
+  const sockets = socketsForUser(userId);
+  // Guarded rather than sliced straight: a negative end index counts from the
+  // end, so under the ceiling this would evict the oldest sockets instead of
+  // none of them.
+  const excess = sockets.length - MAX_SOCKETS_PER_USER;
+  if (excess <= 0) {
+    return;
+  }
+  for (const socket of sockets.slice(0, excess)) {
+    removeSocket(socket);
+    socket.close(CLOSE_TOO_MANY, 'Too many connections');
+  }
+}
+
 function handleConnection(ws: WebSocket): void {
   let missedPongs = 0;
+  let authenticating = false;
 
   const authTimer = setTimeout(() => {
     if (!getSocketState(ws)) {
@@ -109,10 +151,20 @@ function handleConnection(ws: WebSocket): void {
 
     const state = getSocketState(ws);
     if (!state) {
+      // Set before the await and never cleared, so one socket has at most one
+      // credential lookup in flight. Frames arrive from a single read
+      // synchronously, so without it a client could put thousands of `auth`
+      // frames in one write and start a lookup for each against a pool of ten —
+      // and two that resolved together would both registerSocket, the second
+      // replacing the first's subscription set and stranding its rooms.
+      if (authenticating) {
+        return;
+      }
       if (message.type !== 'auth' || typeof message.token !== 'string') {
         ws.close(CLOSE_UNAUTHORIZED, 'Expected auth message');
         return;
       }
+      authenticating = true;
       const credential = await authenticateBearerToken(db, message.token);
       if (!credential) {
         ws.close(CLOSE_UNAUTHORIZED, 'Invalid or expired token');
@@ -121,19 +173,28 @@ function handleConnection(ws: WebSocket): void {
       // The auth timeout may have closed the socket while the lookup ran.
       if (ws.readyState !== OPEN) return;
       registerSocket(ws, { kind: credential.kind, id: credential.id, userId: credential.user.id });
+      evictExcessUserSockets(credential.user.id);
+      // Evicting takes the oldest, so this socket is never the one dropped; the
+      // check keeps that an assertion rather than an assumption.
+      if (!getSocketState(ws)) return;
       ws.send(JSON.stringify({ type: 'auth_ok' }));
       return;
     }
 
     switch (message.type) {
+      // A project id is only ever a uuid, and an unvalidated one is a room key
+      // an attacker chooses the length and the number of. Lower-cased because a
+      // uuid validates in any casing but Postgres only ever gives one back
+      // lower-cased: an upper-cased subscribe would join a room no publish can
+      // ever name, leaving the client silently deaf on that project.
       case 'subscribe':
-        if (typeof message.project_id === 'string') {
-          subscribeToProject(ws, message.project_id);
+        if (typeof message.project_id === 'string' && isValidUuid(message.project_id)) {
+          subscribeToProject(ws, message.project_id.toLowerCase());
         }
         return;
       case 'unsubscribe':
         if (typeof message.project_id === 'string') {
-          unsubscribeFromProject(ws, message.project_id);
+          unsubscribeFromProject(ws, message.project_id.toLowerCase());
         }
         return;
       case 'pong':
@@ -189,12 +250,62 @@ export function attachRealtime(server: UpgradableServer): RealtimeHandle {
     handleConnection(ws);
   });
 
+  // Counted per live TCP socket rather than per WebSocket: a handshake that is
+  // refused, or aborted before it completes, still held a connection, and only
+  // the socket's own close event fires on every one of those paths.
+  const socketsByAddress = new Map<string, number>();
+
   server.on('upgrade', (request, socket, head) => {
-    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    let pathname: string;
+    try {
+      pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    } catch {
+      // llhttp accepts request targets WHATWG-URL rejects ("//[", "/\"). The
+      // throw used to escape to the process-wide handler, leaving the socket
+      // open — one leaked descriptor per request, and no ceiling involved.
+      socket.destroy();
+      return;
+    }
     if (pathname !== '/ws') {
       socket.destroy();
       return;
     }
+
+    const address = clientIpFrom(request.headers['x-forwarded-for'], remoteAddressOf(socket));
+    const held = socketsByAddress.get(address) ?? 0;
+    if (held >= MAX_SOCKETS_PER_ADDRESS) {
+      // Answered rather than reset, so a client that has run itself out of
+      // sockets can tell that from a network fault — but destroyed once the
+      // answer is flushed. end() alone only half-closes, and the peer decides
+      // when to close the other half: a client that never does held a
+      // descriptor this path deliberately does not count, so tripping the
+      // ceiling was the cheapest way to hold sockets outside it.
+      socket.once('finish', () => socket.destroy());
+      const body = 'Too many connections from this address';
+      socket.end(
+        'HTTP/1.1 429 Too Many Requests\r\n' +
+          'Connection: close\r\n' +
+          'Content-Type: text/plain\r\n' +
+          `Content-Length: ${String(Buffer.byteLength(body))}\r\n` +
+          '\r\n' +
+          body
+      );
+      return;
+    }
+
+    // Claimed here rather than once the socket is a WebSocket: handleUpgrade
+    // completes asynchronously, so a burst would clear the check above before
+    // any of it was counted.
+    socketsByAddress.set(address, held + 1);
+    socket.once('close', () => {
+      const remaining = (socketsByAddress.get(address) ?? 1) - 1;
+      if (remaining > 0) {
+        socketsByAddress.set(address, remaining);
+      } else {
+        socketsByAddress.delete(address);
+      }
+    });
+
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
     });

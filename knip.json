@@ -29,6 +29,7 @@
     "cli/src/api/*.generated.ts"
   ],
   "ignoreDependencies": [
-    "kysely-codegen"
+    "kysely-codegen",
+    "swagger-ui-dist"
   ]
 }
