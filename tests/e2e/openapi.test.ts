@@ -192,6 +192,34 @@ describe('GET /api/openapi.json', () => {
     expect(delivery.required).toContain('payload');
   });
 
+  it('serves the docs page without loading anything from another origin', async () => {
+    const res = await app.request('/api/docs');
+    expect(res.status).toBe(200);
+    const html = await res.text();
+
+    // One host serves the SPA and this API, and the SPA keeps its session token
+    // in that origin's localStorage: a script tag here pointing anywhere else
+    // hands every reader's credentials to whoever controls it.
+    const sources = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
+    expect(sources.length).toBeGreaterThan(0);
+    for (const source of sources) {
+      expect(source).toMatch(/^\//);
+    }
+
+    for (const source of sources) {
+      const asset = await app.request(source);
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    }
+  });
+
+  it('serves only the two named assets out of the package directory', async () => {
+    for (const name of ['package.json', 'index.html', '..%2F..%2Fpackage.json', 'swagger-ui.js']) {
+      const res = await app.request(`/api/docs/static/swagger-ui-dist/${name}`);
+      expect(res.status).toBe(404);
+    }
+  });
+
   it('has unique operationIds across all operations', async () => {
     const spec = await fetchSpec();
     const operationIds: string[] = [];

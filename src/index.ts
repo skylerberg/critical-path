@@ -40,7 +40,8 @@ import { closeRedis } from './services/redis';
 import { startJobWorker } from './services/jobs/index';
 import { registerJobHandlers } from './services/jobs/register';
 import { startWebhookWorker } from './services/webhooks/index';
-import { errorText } from './utils/errors';
+import { AppError, errorText } from './utils/errors';
+import { isSwaggerAssetName, readSwaggerAsset } from './services/swaggerAssets';
 import { startupFailureMessage } from './utils/serverStartup';
 import { logger } from './utils/logger';
 
@@ -183,7 +184,33 @@ app.get('/api/realtime-events.json', skipAuth, async (c) => {
   return c.json(await buildRealtimeEventsDocument());
 });
 
-app.get('/api/docs', skipAuth, swaggerUI({ url: '/api/openapi.json' }));
+// The helper appends `/swagger-ui-dist/<file>` to this, so the route below is
+// the path it generates and the two must move together.
+const SWAGGER_ASSET_BASE = '/api/docs/static';
+
+app.get('/api/docs/static/swagger-ui-dist/:asset', skipAuth, async (c) => {
+  const asset = c.req.param('asset');
+  if (!isSwaggerAssetName(asset)) {
+    throw new AppError(404, 'Not found');
+  }
+  const { body, contentType } = await readSwaggerAsset(asset);
+  // Built here rather than through c.body, which takes no Buffer: the bytes are
+  // held as one, and rereading them as a string would double what they cost.
+  return new Response(body, {
+    headers: {
+      'Content-Type': contentType,
+      'X-Content-Type-Options': 'nosniff',
+      // Served out of the deployed image, so it moves only when the image does.
+      'Cache-Control': 'public, max-age=3600',
+    },
+  });
+});
+
+app.get(
+  '/api/docs',
+  skipAuth,
+  swaggerUI({ url: '/api/openapi.json', baseUrl: SWAGGER_ASSET_BASE })
+);
 
 app.route('/api/auth', publicAuthRouter);
 app.route('/api/auth', authRouter);

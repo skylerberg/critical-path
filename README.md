@@ -42,22 +42,38 @@ npm start                   # run once
 
 Swagger UI at `http://localhost:3001/api/docs`, spec at `/api/openapi.json`.
 `npm run openapi:dump` writes the post-processed spec to `./openapi.json`
-without starting a server.
+without starting a server. The page serves Swagger UI's own bundle out of the
+image (`swagger-ui-dist`, two files, at `/api/docs/static/…`) rather than from a
+CDN: one host serves the SPA and this API, and the SPA keeps its session token in
+that origin's `localStorage`, so a third-party script tag on the docs page is a
+third party holding every reader's credentials.
 
 The auth rate limiter identifies clients by socket address. When deploying
 behind a reverse proxy that appends the client IP to `X-Forwarded-For`, set
 `TRUST_PROXY=true` so the rightmost forwarded entry is used instead; leave it
 unset otherwise, since the header is client-forgeable.
 
-Account creation is capped at **50 an hour per source IP**, identified the same
-way; past it `POST /api/auth/signup` answers `429` and creates nothing. Nothing
-else bounds it: the auth limiter keys both of its buckets on the address being
-signed up as, so every fresh address is a fresh bucket in both dimensions and
-one source faces no cap at all. Without this, someone can register thousands of
-addresses they do not own, and the real owner's only notice is a later
-`409 Email already in use` they cannot explain. Unlike the mail budgets this
-one refuses rather than withholding a side effect, because what is capped is
-the account and not a message. The ceiling is far above any real shared egress
+Signing in and signing up share the auth limiter, which spends three buckets:
+**10 a minute per (source IP, email address) pair**, **30 per 15 minutes per
+email address** whatever address they come from, and **300 an hour per source
+IP** whatever addresses are tried. The third exists because the first two are
+both keyed on a value the caller supplies, so one that sends a different address
+every time gets a fresh counter in both and neither ever refuses. Every attempt
+costs an argon2 verify — an address with no account included, since login
+verifies a dummy hash so an unknown address and a wrong password take the same
+time — so without a bucket keyed on the source alone, an unauthenticated caller
+sets the pace of the most expensive operation in the product, against a hash
+that holds 64 MiB while it runs. The ceiling sits far above an office signing in
+for the day and far below what keeps the hash busy.
+
+Account creation is capped separately at **50 an hour per source IP**, identified
+the same way; past it `POST /api/auth/signup` answers `429` and creates nothing.
+The auth limiter's own per-IP bucket sits far too high to bound registration in
+its place. Without this, someone can register thousands of addresses they do not
+own, and the real owner's only notice is a later `409 Email already in use` they
+cannot explain. Unlike the mail budgets this one refuses rather than withholding
+a side effect, because what is capped is the account and not a message. The
+ceiling is far above any real shared egress
 — a whole office onboarding together stays well under it — at the cost of a
 theoretical denial of registration behind a NAT that sustains fifty signups an
 hour.
@@ -1418,6 +1434,19 @@ server pings (`{ "type": "ping" }`) every 30 seconds and expects a `pong`;
 a socket is closed with code 4401 when **its own** credential is revoked or
 expires, so revoking one personal access token leaves the browser's sockets and
 every other token's sockets connected.
+
+Three ceilings bound what one caller can hold open, because a socket is reachable
+before any request is made and costs a `credentialIsLive` query every heartbeat:
+a handshake past **200 live sockets from one source address** is answered `429`
+rather than upgraded, and that is the only one of the three that applies before a
+token is presented; an account holding more than **20 sockets** has its oldest
+closed with code 4429, so the connection that just arrived is the one that
+survives and a client reconnecting through a half-open socket is never refused by
+the socket it is replacing; and a socket may hold **1000 subscriptions**, past
+which further `subscribe` frames are ignored. A `subscribe` naming anything that
+is not a project id is ignored too. The subscription ceiling is sized for
+`cpath watch` with no `--project`, which subscribes to every board the account
+can list.
 
 Every mutation emits an event after its transaction commits. The envelope is
 `{ type, project_id, data }`. The table below summarizes each payload; the

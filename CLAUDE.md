@@ -175,6 +175,13 @@ web app and the CLI generate from it.
   spec. Handshake: `{ type: 'auth', token }` within 10s, then
   `subscribe`/`unsubscribe` with a `project_id`; ping/pong heartbeat every 30s.
   The handshake token is either a session token or a personal access token.
+  Three ceilings bound what one caller holds open: 200 live sockets per source
+  address (refused in the handshake with 429, and the only one of the three that
+  applies before a token is presented), 20 per account (oldest closed with 4429,
+  so a reconnect is never refused by the socket it is replacing), and 1000
+  subscriptions per socket. A `subscribe` naming anything that is not a uuid is
+  ignored — an unvalidated project id is a room key whose length and number the
+  caller picks.
   Credential revocation publishes `sessions_revoked` on the realtime bus, which
   closes sockets with code 4401: a payload of `{ user_id }` closes that user's
   session sockets; one that also carries `personal_access_token_id` closes only

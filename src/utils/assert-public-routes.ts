@@ -11,6 +11,9 @@ const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   'GET /api/openapi.json',
   'GET /api/realtime-events.json',
   'GET /api/docs',
+  // Swagger UI's own bundle, served from the image so the docs page loads no
+  // third-party script onto the origin the SPA keeps its token on.
+  'GET /api/docs/static/swagger-ui-dist/:asset',
   'POST /api/auth/signup',
   'POST /api/auth/login',
   'POST /api/auth/forgot-password',
