@@ -152,7 +152,7 @@
                   {/each}
                   {#each series.assignee_ids as userId (userId)}
                     {@const person = users.displayFor(userId)}
-                    <Avatar name={person.name} src={person.avatar_url} size="sm" />
+                    <Avatar name={displayName(person)} src={person.avatar_url} size="sm" />
                   {/each}
                 </div>
               {/if}

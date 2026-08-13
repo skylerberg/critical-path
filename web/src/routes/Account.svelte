@@ -238,7 +238,7 @@
   {/if}
 {/snippet}
 
-<main class="mx-auto flex w-full max-w-xl flex-col gap-6 p-4 lg:p-8">
+<div class="mx-auto flex w-full max-w-xl flex-col gap-6 p-4 lg:p-8">
   <h1 class="text-2xl font-semibold">Account</h1>
 
   <section class="flex flex-col gap-3 rounded-lg border border-edge bg-surface p-6">
@@ -433,7 +433,7 @@
       </Button>
     </div>
   </section>
-</main>
+</div>
 
 <FeedbackDialog open={feedbackOpen} onclose={() => (feedbackOpen = false)} />
 <DeleteAccountDialog open={deleteOpen} onclose={() => (deleteOpen = false)} />

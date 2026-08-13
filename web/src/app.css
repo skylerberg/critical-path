@@ -5,13 +5,17 @@
   --cp-surface: #ffffff;
   --cp-edge: #e5e5e5;
   --cp-ink: #171717;
-  --cp-muted: #737373;
+  --cp-muted: #6b6b6b;
   --cp-accent: #4f46e5;
   --cp-accent-strong: #4338ca;
   --cp-accent-soft: #eef2ff;
   --cp-on-accent: #ffffff;
-  --cp-danger: #dc2626;
-  --cp-success: #16a34a;
+  --cp-danger: #c81e1e;
+  /* Paired with --cp-danger the way on-accent is with accent. White clears 4.5:1
+     on the light danger and not on the dark one, so the danger button's text
+     colour has to flip with the scheme rather than being hardcoded. */
+  --cp-on-danger: #ffffff;
+  --cp-success: #15803d;
   --cp-warning: #b45309;
   /* Board accents. Fill only — nothing is ever drawn on top of one, so each is
      held to the 3:1 non-text bar against surface, canvas and accent-soft in both
@@ -47,11 +51,19 @@
     --cp-edge: #2e2e2e;
     --cp-ink: #f5f5f5;
     --cp-muted: #a3a3a3;
-    --cp-accent: #6366f1;
-    --cp-accent-strong: #818cf8;
+    /* Accent carries two jobs that pull opposite ways here: it is text on a dark
+       background (wants lighter) and the fill under on-accent (wants darker). No
+       single indigo clears 4.5:1 for both — indigo-500 reaches only 4.01 as text
+       on surface and 4.47 under white. Resolved by keeping the fill light enough
+       to read as text and flipping on-accent to near-black, which is why these
+       two must move together: restoring white here drops the primary button to
+       2.98:1 on hover. */
+    --cp-accent: #818cf8;
+    --cp-accent-strong: #a5b4fc;
     --cp-accent-soft: #27274d;
-    --cp-on-accent: #ffffff;
-    --cp-danger: #ef4444;
+    --cp-on-accent: #0a0a0a;
+    --cp-danger: #f87171;
+    --cp-on-danger: #0a0a0a;
     --cp-success: #22c55e;
     --cp-warning: #f59e0b;
     --cp-project-rose: #fb7185;
@@ -76,6 +88,7 @@
   --color-accent-soft: var(--cp-accent-soft);
   --color-on-accent: var(--cp-on-accent);
   --color-danger: var(--cp-danger);
+  --color-on-danger: var(--cp-on-danger);
   --color-success: var(--cp-success);
   --color-warning: var(--cp-warning);
 }
@@ -90,6 +103,20 @@
 
 @utility touch-callout-none {
   -webkit-touch-callout: none;
+}
+
+/* The one focus indicator, so a control cannot pick up `outline-none` and be left
+   with a border-colour swap as its only focused state — which is what most of the
+   text fields here had, and what the permanently-border-accent ones had instead of
+   any state at all. An outline rather than a ring: it follows border-radius, costs
+   no layout, and survives inside the overflow-hidden scrollers on the board. */
+@utility focus-ring {
+  @variant focus-visible {
+    outline-width: 2px;
+    outline-style: solid;
+    outline-color: var(--cp-accent);
+    outline-offset: 2px;
+  }
 }
 
 /* Unlayered so a component <style> can opt an element back in with its own !important;

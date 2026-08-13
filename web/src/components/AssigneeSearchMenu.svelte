@@ -72,7 +72,7 @@
     oninput={() => nav.clear()}
     aria-label="Filter users"
     placeholder="Filter users"
-    class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
+    class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm focus-ring focus:border-accent"
   />
   <div
     bind:this={listEl}
@@ -92,7 +92,7 @@
           ? 'bg-accent-soft'
           : 'hover:bg-accent-soft'} {selectedIds.has(user.id) ? 'text-accent-strong' : 'text-ink'}"
       >
-        <Avatar name={user.name} src={user.avatar_url} size="sm" />
+        <Avatar name={user.name} src={user.avatar_url} size="sm" labelled />
         <span class="min-w-0 flex-1 truncate">{user.name}</span>
         {#if selectedIds.has(user.id)}
           <span aria-hidden="true">✓</span>

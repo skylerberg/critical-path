@@ -10,7 +10,7 @@ import { nearestSnapIndex, snapScrollLeft, type SnapAlign } from './board-scroll
  */
 
 export function columnSections(scroller: HTMLElement): HTMLElement[] {
-  return Array.from(scroller.querySelectorAll<HTMLElement>('section'));
+  return Array.from(scroller.querySelectorAll<HTMLElement>('[data-column-id]'));
 }
 
 // Every snap target, not just the columns: the "+ Add column" tile is one too,

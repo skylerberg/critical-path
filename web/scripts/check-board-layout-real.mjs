@@ -62,7 +62,7 @@ const MEASURE = `(() => {
     const cs = getComputedStyle(n);
     return cs.position === 'fixed' && cs.display !== 'none';
   });
-  const cols = [...document.querySelectorAll('section')];
+  const cols = [...document.querySelectorAll('[data-column-id]')];
   const nr = nav?.getBoundingClientRect();
   const bar = document.querySelector('[aria-label="Selection actions"]');
   const br = bar?.getBoundingClientRect();

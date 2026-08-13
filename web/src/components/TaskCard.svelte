@@ -12,7 +12,7 @@
   import { motion } from '../lib/motion.svelte';
   import { outbox } from '../lib/outbox.svelte';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
-  import { users } from '../lib/users.svelte';
+  import { displayName, users } from '../lib/users.svelte';
   import DueDatePill from './DueDatePill.svelte';
   import Avatar from './ui/Avatar.svelte';
   import ColorDot from './ui/ColorDot.svelte';
@@ -280,7 +280,7 @@
           focusCard(task.id);
         }
       }}
-      class="relative z-10 block w-full resize-none rounded-md border border-accent bg-canvas p-1 text-sm font-medium outline-none"
+      class="relative z-10 block w-full resize-none rounded-md border border-accent bg-canvas p-1 text-sm font-medium focus-ring"
     ></textarea>
   {:else}
     <p class="text-sm font-medium break-words">{shownTitle}</p>
@@ -320,7 +320,9 @@
             <circle cx="12" cy="12" r="9" />
             <line x1="5.6" y1="5.6" x2="18.4" y2="18.4" />
           </svg>
-          {blockedCount}
+          {blockedCount}<span class="sr-only"
+            >{` blocked by ${String(blockedCount)} open task${blockedCount === 1 ? '' : 's'}`}</span
+          >
         </span>
       {/if}
       {#if commentCount > 0}
@@ -342,7 +344,7 @@
               d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"
             />
           </svg>
-          {commentCount}
+          {commentCount}<span class="sr-only">{` comment${commentCount === 1 ? '' : 's'}`}</span>
         </span>
       {/if}
       {#if attachmentCount > 0}
@@ -364,7 +366,9 @@
               d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
             />
           </svg>
-          {attachmentCount}
+          {attachmentCount}<span class="sr-only"
+            >{` attachment${attachmentCount === 1 ? '' : 's'}`}</span
+          >
         </span>
       {/if}
       {#if checklistTotal > 0}
@@ -390,13 +394,15 @@
             <rect x="3" y="3" width="18" height="18" rx="2" />
             <path d="m7.5 12 3 3 6-6" />
           </svg>
-          {checklistDone}/{checklistTotal}
+          {checklistDone}/{checklistTotal}<span class="sr-only"
+            >{` checklist item${checklistTotal === 1 ? '' : 's'} done`}</span
+          >
         </span>
       {/if}
       {#if assignees.length > 0}
         <span class="pointer-events-auto ml-auto flex -space-x-1.5">
           {#each assignees as assignee (assignee.id)}
-            <Avatar name={assignee.name} src={assignee.avatar_url} size="sm" />
+            <Avatar name={displayName(assignee)} src={assignee.avatar_url} size="sm" />
           {/each}
         </span>
       {/if}

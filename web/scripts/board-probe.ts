@@ -9,6 +9,7 @@ import { mount } from 'svelte';
 import '../src/app.css';
 import { board } from '../src/lib/board.svelte';
 import { selection } from '../src/lib/selection.svelte';
+import { users } from '../src/lib/users.svelte';
 import { session } from '../src/lib/session.svelte';
 import SelectionBar from '../src/components/SelectionBar.svelte';
 import Board from '../src/routes/Board.svelte';
@@ -18,6 +19,10 @@ const COLS = Number(params.get('cols') ?? '4');
 const TASKS = Number(params.get('tasks') ?? '12');
 const READONLY = params.get('readonly') === '1';
 const SELECTED = Number(params.get('selected') ?? '0');
+// Off by default: the badge row it adds changes card height, and the layout
+// checks measure that. The a11y check turns it on, because an unassigned board
+// renders no avatars and so proves nothing about how one is named.
+const ASSIGNEES = params.get('assignees') === '1';
 
 // Card links are built by encoding the id, which rejects anything that is not a
 // uuid, so seeded ids have to be shaped like the real ones or nothing renders.
@@ -48,6 +53,7 @@ session.user = {
   avatar_url: null,
   email_verified: true,
 };
+users.users = [{ id: USER_ID, name: 'Probe Person', avatar_url: null }];
 // Minimal project: the board only needs project to be non-null for derived state.
 (board as unknown as { project: unknown }).project = {
   id: PROJECT_ID,
@@ -76,7 +82,7 @@ for (let c = 0; c < COLS; c++) {
       created_at: '',
       updated_at: '',
       label_ids: [],
-      assignee_ids: [],
+      assignee_ids: ASSIGNEES ? [USER_ID] : [],
       blocker_ids: [],
       image_count: 0,
       cover_image_url: null,
@@ -102,7 +108,7 @@ document.getElementById('app')!.innerHTML = `
     <a class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium text-accent">Projects</a>
     <a class="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium text-muted">Search</a>
   </nav>
-  <div class="pb-[var(--cp-bottom-nav-h)] lg:pb-0 lg:pl-56">
+  <main id="main" class="block pb-[var(--cp-bottom-nav-h)] lg:pb-0 lg:pl-56">
     <div id="project-shell" class="flex h-[var(--cp-board-h)] flex-col lg:h-dvh">
       <header class="shrink-0 border-b border-edge bg-surface px-3 py-2 lg:px-4">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -114,7 +120,7 @@ document.getElementById('app')!.innerHTML = `
         </div>
       </header>
     </div>
-  </div>
+  </main>
 `;
 
 const shell = document.getElementById('project-shell')!;

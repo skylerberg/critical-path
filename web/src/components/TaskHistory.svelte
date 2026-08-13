@@ -98,7 +98,7 @@
       {@const to = entry.new_value}
       {@const previous = previousValue(entry)}
       <li class="flex gap-2">
-        <Avatar name={actorName} src={actor.avatar_url} size="sm" />
+        <Avatar name={actorName} src={actor.avatar_url} size="sm" labelled />
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <p class="flex flex-wrap items-baseline gap-x-2 text-xs text-muted">
             <span class="font-medium text-ink">{actorName}</span>

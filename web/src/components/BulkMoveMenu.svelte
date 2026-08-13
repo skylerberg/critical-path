@@ -73,7 +73,7 @@
       oninput={() => nav.clear()}
       aria-label="Search columns"
       placeholder="Search columns…"
-      class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
+      class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm focus-ring focus:border-accent"
     />
     <div
       bind:this={listEl}

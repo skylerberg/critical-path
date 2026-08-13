@@ -38,7 +38,7 @@
       <span
         class="inline-flex min-h-11 items-center gap-2 rounded-full border border-edge py-1 pr-3 pl-1 text-sm font-medium text-muted"
       >
-        <Avatar {name} src={user.avatar_url} size="sm" />
+        <Avatar {name} src={user.avatar_url} size="sm" labelled />
         {name}
       </span>
     {:else}
@@ -48,7 +48,7 @@
         onclick={(event) => remove(user.id, event)}
         class="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-edge py-1 pr-3 pl-1 text-sm font-medium text-muted transition-colors hover:border-danger hover:text-danger"
       >
-        <Avatar {name} src={user.avatar_url} size="sm" />
+        <Avatar {name} src={user.avatar_url} size="sm" labelled />
         {name}
         <span aria-hidden="true">✕</span>
       </button>

@@ -203,7 +203,7 @@
               ? 'border-accent bg-accent-soft text-accent'
               : 'border-edge bg-surface text-muted'}"
           >
-            <Avatar name={person.name} src={person.avatar_url} size="sm" />
+            <Avatar name={person.name} src={person.avatar_url} size="sm" labelled />
             <span class="max-w-40 truncate">{person.name}</span>
           </button>
         {/each}

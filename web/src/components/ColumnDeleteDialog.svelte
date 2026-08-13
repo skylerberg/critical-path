@@ -76,7 +76,7 @@
   <select
     bind:value={targetId}
     aria-label="Move tasks to"
-    class="min-h-11 w-full rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
+    class="min-h-11 w-full rounded-md border border-edge bg-surface px-3 text-sm focus-ring focus:border-accent"
   >
     {#each targets as target (target.id)}
       <option value={target.id}>{target.name}</option>

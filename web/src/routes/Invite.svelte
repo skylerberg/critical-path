@@ -57,7 +57,7 @@
   }
 </script>
 
-<main class="flex min-h-dvh items-center justify-center p-4">
+<div class="flex min-h-dvh items-center justify-center p-4">
   <div class="w-full max-w-sm rounded-lg border border-edge bg-surface p-6 text-center">
     <h1 class="text-xl font-semibold">{APP_NAME}</h1>
     {#if error === ''}
@@ -78,4 +78,4 @@
       </p>
     {/if}
   </div>
-</main>
+</div>

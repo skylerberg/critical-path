@@ -281,7 +281,7 @@
                   editingId = null;
                 }
               }}
-              class="min-h-11 w-full min-w-0 flex-1 rounded-md border border-accent bg-canvas px-2 text-sm outline-none"
+              class="min-h-11 w-full min-w-0 flex-1 rounded-md border border-accent bg-canvas px-2 text-sm focus-ring"
             />
           {:else if inert}
             <span
@@ -373,7 +373,7 @@
         aria-label="Checklist item"
         placeholder="Add an item"
         autocapitalize="sentences"
-        class="min-h-11 min-w-0 flex-1 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
+        class="min-h-11 min-w-0 flex-1 rounded-md border border-edge bg-canvas px-3 text-sm focus-ring focus:border-accent"
       />
       <Button type="submit" variant="secondary">Add</Button>
     </form>

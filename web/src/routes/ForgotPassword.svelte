@@ -49,7 +49,7 @@
   }
 </script>
 
-<main class="flex min-h-dvh items-center justify-center p-4">
+<div class="flex min-h-dvh items-center justify-center p-4">
   <div class="w-full max-w-sm rounded-lg border border-edge bg-surface p-6">
     <h1 class="text-xl font-semibold">{APP_NAME}</h1>
     <p class="mt-1 text-sm text-muted">Reset your password</p>
@@ -81,4 +81,4 @@
       <a use:link href="/login" class="font-medium text-accent hover:underline">Back to log in</a>
     </p>
   </div>
-</main>
+</div>

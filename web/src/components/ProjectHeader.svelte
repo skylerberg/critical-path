@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { menuKeys } from '../lib/actions';
   import { accentVar, type ProjectAccent } from '../lib/accents';
   import { apiMessage } from '../lib/apiMessages';
   import { board } from '../lib/board.svelte';
@@ -35,6 +36,7 @@
   let exporting = $state(false);
   let menuOpen = $state(false);
   let menuEl = $state<HTMLDivElement>();
+  let triggerEl = $state<HTMLButtonElement>();
 
   async function exportProject(): Promise<void> {
     if (exporting) return;
@@ -80,6 +82,15 @@
   // One header per project, so a click elsewhere has to reach this instance to
   // close its menu — hence the containment check that keeps a click on our own
   // menu from closing it. Mirrors the column kebab menu.
+  // Focus returns to the trigger rather than the body: the rows it was on are
+  // gone, and the header behind them has no resting focus of its own.
+  function closeMenu(opts?: { restoreFocus?: boolean }): void {
+    menuOpen = false;
+    if (opts?.restoreFocus === true) {
+      triggerEl?.focus({ preventScroll: true });
+    }
+  }
+
   function closeMenuOnOutsideClick(event: MouseEvent): void {
     const target = event.target;
     if (target instanceof Node && menuEl?.contains(target) === true) {
@@ -92,7 +103,7 @@
 <svelte:window
   onclick={closeMenuOnOutsideClick}
   onkeydown={(event) => {
-    if (event.key === 'Escape') menuOpen = false;
+    if (event.key === 'Escape') closeMenu({ restoreFocus: true });
   }}
 />
 
@@ -140,6 +151,7 @@
     <div bind:this={menuEl} class="relative shrink-0">
       <button
         type="button"
+        bind:this={triggerEl}
         aria-label="More actions"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
@@ -155,12 +167,16 @@
       {#if menuOpen}
         <div
           role="menu"
+          tabindex="-1"
+          aria-label="More actions"
+          use:menuKeys={{ onclose: closeMenu }}
           class="absolute top-full left-0 z-30 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
         >
           {#if board.canEdit}
             <button
               type="button"
               role="menuitem"
+              tabindex="-1"
               class={menuItemClass}
               onclick={() => {
                 menuOpen = false;
@@ -185,6 +201,7 @@
             <button
               type="button"
               role="menuitem"
+              tabindex="-1"
               class={menuItemClass}
               onclick={() => {
                 menuOpen = false;
@@ -210,6 +227,7 @@
           <button
             type="button"
             role="menuitem"
+            tabindex="-1"
             class={menuItemClass}
             onclick={() => {
               menuOpen = false;
@@ -236,6 +254,7 @@
           <button
             type="button"
             role="menuitem"
+            tabindex="-1"
             class={menuItemClass}
             onclick={() => {
               menuOpen = false;
@@ -260,6 +279,7 @@
           <button
             type="button"
             role="menuitem"
+            tabindex="-1"
             class={menuItemClass}
             onclick={() => {
               menuOpen = false;
@@ -286,6 +306,7 @@
             <button
               type="button"
               role="menuitem"
+              tabindex="-1"
               class={menuItemClass}
               onclick={() => {
                 menuOpen = false;
@@ -315,6 +336,7 @@
           <button
             type="button"
             role="menuitem"
+            tabindex="-1"
             class="{menuItemClass} disabled:pointer-events-none disabled:opacity-50"
             onclick={exportProject}
             disabled={exporting}

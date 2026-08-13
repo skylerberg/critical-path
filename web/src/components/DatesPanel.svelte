@@ -117,7 +117,7 @@
         value={due ?? ''}
         use:focusOnMount
         onchange={(event) => set(event.currentTarget.value)}
-        class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
+        class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm focus-ring focus:border-accent"
       />
       {#if due !== null}
         <button
@@ -157,7 +157,7 @@
         id="{uid}-start"
         type="date"
         bind:value={startDate}
-        class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
+        class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm focus-ring focus:border-accent"
       />
     {/if}
   </div>

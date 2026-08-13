@@ -118,7 +118,7 @@
   </p>
 {/snippet}
 
-<main class="flex min-h-dvh items-center justify-center p-4">
+<div class="flex min-h-dvh items-center justify-center p-4">
   <div class="w-full max-w-sm rounded-lg border border-edge bg-surface p-6">
     <h1 class="text-xl font-semibold">{APP_NAME}</h1>
     <p class="mt-1 text-sm text-muted">Email verification</p>
@@ -169,4 +169,4 @@
       {@render onward()}
     {/if}
   </div>
-</main>
+</div>

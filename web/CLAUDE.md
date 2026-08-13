@@ -111,7 +111,7 @@ suite when a change is broad enough that you cannot name the files it affects
 Before finishing, run all of these:
 
 ```sh
-npm run check && npm run check:comments && npm run check:layout && npm run check:layout:real && npm run check:task-detail && npm run lint && npm run format:check && npm test && npm run build
+npm run check && npm run check:comments && npm run check:layout && npm run check:layout:real && npm run check:task-detail && npm run check:a11y && npm run lint && npm run format:check && npm test && npm run build
 ```
 
 `npm run check` covers `src/` (tests included — they are colocated as
@@ -163,7 +163,17 @@ down to what is local to its own site. `scripts/comment-allowlist.txt` is for th
 narrow case where a fact is needed *at* two sites and there is no module to hang
 it on; reaching for it instead is how the duplication gets re-admitted.
 
-**All four also take `--selftest`, and a change to what they assert should run
+`check:a11y` runs axe-core over the real board and the real card overlay, in
+**both colour schemes** — the palette is defined twice and half the tokens exist
+only under `prefers-color-scheme: dark`, so a light-only run reads none of them.
+It owns a named rule list rather than all of axe, so a new axe release cannot
+turn it red on a rule nobody adopted. Two things it cannot see, which is why the
+unit tests beside them exist: `title` counts as an accessible name of last
+resort, so a title-only avatar passes every rule while a bare `<span>` carrying
+one is named nothing at all; and anything behind a hover or a keypress, since it
+audits the resting page.
+
+**All five also take `--selftest`, and a change to what they assert should run
 it:**
 
 ```sh
@@ -171,12 +181,16 @@ node scripts/check-board-layout.mjs --selftest
 node scripts/check-board-layout-real.mjs --selftest
 node scripts/check-task-detail.mjs --selftest
 node scripts/check-comments.mjs --selftest
+node scripts/check-a11y.mjs --selftest
 ```
 
 Each re-runs its cases against something deliberately put back on the bug —
 legacy markup in the fixture, the pre-fix `dndzone` option in the real board, the
 write queue disabled in the card overlay, a planted duplicate and a planted dead
-reference — and fails if any of them still *passes*. All four share a failure
+reference, the pre-fix dark accent and a column back on `<section>` — and fails
+if any of them still *passes*. The a11y selftest also names the rule it expects,
+because with a dirty baseline any violation would otherwise read as the planted
+one being caught. All five share a failure
 mode a unit test mostly does not: measuring nothing and reporting green, because
 the gesture never armed, the selector matched nothing, the option it turns on was
 renamed out from under it, or the pattern it greps for stopped matching the
@@ -242,9 +256,16 @@ await writeFile(path, await browser.screenshot()); // returns a PNG Buffer; take
 `mobile` defaults to **true** and models the mobile layout viewport, where
 overflow _expands_ `innerWidth` past the requested width — which is how the
 layout checks catch a header that no longer fits, and why a desktop case has to
-say `mobile: false` rather than leave it out. Playwright fixes it per context,
-so flipping it discards the page: `goto` again after every `setViewport` rather
-than navigating once and resizing around it.
+say `mobile: false` rather than leave it out. `colorScheme` (`'light'` by
+default) drives `prefers-color-scheme`, which is the only way to reach the dark
+half of the palette. Playwright fixes both per context,
+so flipping either discards the page: `goto` again after every `setViewport`
+rather than navigating once and resizing around it.
+
+One more trap when measuring anything colour-valued: most controls here carry
+`transition-colors`, which transitions `outline-color` too, so reading a focus
+ring in the same tick as `focus()` samples it mid-fade and reports the colour it
+came *from*. Let it settle before believing the value.
 
 **To write a throwaway probe of some other component**, copy the shape
 `check:layout:real` already uses: a dev-only `.html` vite entry, a `.ts` beside
