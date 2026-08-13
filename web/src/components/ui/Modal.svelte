@@ -4,13 +4,25 @@
   interface Props {
     open?: boolean;
     title?: string;
+    // Drops the visible heading and keeps the title as the dialog's accessible
+    // name. Passing no title at all would leave the dialog unnamed, so a screen
+    // reader announces nothing when it opens.
+    titleHidden?: boolean;
     size?: 'md' | 'lg';
     onclose?: () => void;
     children?: Snippet;
     footer?: Snippet;
   }
 
-  let { open = false, title, size = 'md', onclose, children, footer }: Props = $props();
+  let {
+    open = false,
+    title,
+    titleHidden = false,
+    size = 'md',
+    onclose,
+    children,
+    footer,
+  }: Props = $props();
 
   const widths = { md: 'max-w-lg', lg: 'max-w-3xl' };
 
@@ -51,7 +63,7 @@
   }}
 >
   <div class="rounded-lg border border-edge bg-surface p-6 text-ink shadow-xl">
-    {#if title}
+    {#if title && !titleHidden}
       <h2 class="mb-4 text-lg font-semibold">{title}</h2>
     {/if}
     {@render children?.()}

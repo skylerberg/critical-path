@@ -203,6 +203,22 @@ describe('rendering and grouping', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Type to search tasks in every project.');
   });
 
+  it('shows no heading, and still hands the dialog a name to announce', () => {
+    open();
+
+    expect(screen.queryByRole('heading', { name: 'Command palette' })).toBeNull();
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-label', 'Command palette');
+  });
+
+  it('finds an action from its initials alone', async () => {
+    open();
+
+    await type('mkdn');
+
+    expect(optionLabels('Actions')).toEqual(['Mark done']);
+    expect(screen.getByRole('status')).toHaveTextContent('1 result');
+  });
+
   it('leads with the actions for the selected card, in the right-click menu order', () => {
     open();
 

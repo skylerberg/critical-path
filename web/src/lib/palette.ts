@@ -1,4 +1,5 @@
 import { CARD_ACTION_KEYS, type CardActionId } from './card-actions';
+import { fuzzyScore } from './fuzzy';
 import { searchPath, type SearchResult } from './search-query';
 import { projectHref, taskHref } from './short-links';
 import { truncateTitle } from './titles';
@@ -51,29 +52,48 @@ export interface PaletteContext {
 
 const ID_PREFIX_RE = /^[0-9a-f][0-9a-f-]{3,}$/;
 
+const FUZZY_TIER = 5;
+
+export interface MatchRank {
+  tier: number;
+  // Only the fuzzy tier ranks within itself; every tier above it scores 0, which
+  // is what leaves their order the one the caller supplied.
+  score: number;
+}
+
 // The CLI's resolution order, ranking where that resolver refuses: a one-shot
 // command may reject an ambiguous ref, but a live list has to show the candidates.
 // The name tier is split so a prefix beats a match buried mid-word.
-export function matchTier(query: string, name: string, id?: string): number | null {
+//
+// Beneath all of them sits the subsequence match, which only ever admits names
+// the tiers above missed: a query that hits any of them never reaches it, so
+// adding fuzzy moved nothing that already matched.
+export function matchRank(query: string, name: string, id?: string): MatchRank | null {
   const q = query.trim().toLowerCase();
   if (q === '') {
-    return 0;
+    return { tier: 0, score: 0 };
   }
   const lowerName = name.toLowerCase();
   const lowerId = id?.toLowerCase();
   if (lowerId === q) {
-    return 0;
+    return { tier: 0, score: 0 };
   }
   if (lowerName === q) {
-    return 1;
+    return { tier: 1, score: 0 };
   }
   if (lowerId !== undefined && ID_PREFIX_RE.test(q) && lowerId.startsWith(q)) {
-    return 2;
+    return { tier: 2, score: 0 };
   }
   if (lowerName.startsWith(q)) {
-    return 3;
+    return { tier: 3, score: 0 };
   }
-  return lowerName.includes(q) ? 4 : null;
+  if (lowerName.includes(q)) {
+    return { tier: 4, score: 0 };
+  }
+  // The untrimmed query, and the name with its case: the matcher reads a camel
+  // hump as a word start and does its own trimming.
+  const score = fuzzyScore(query, name);
+  return score === null ? null : { tier: FUZZY_TIER, score };
 }
 
 const LABELS_LABEL = 'Labels…';
@@ -97,9 +117,11 @@ function actionRows(context: PaletteContext): PaletteRow[] {
   if (card === null) {
     return [];
   }
+  // Filtered, never sorted: the order is the right-click menu's, and a fuzzy
+  // query should widen what survives rather than rearrange a learned menu.
   return ACTIONS.filter(
     ({ action, label }) =>
-      (action !== 'done' || card.completable) && matchTier(context.query, label) !== null
+      (action !== 'done' || card.completable) && matchRank(context.query, label) !== null
   ).map(({ action, label }) => ({
     kind: 'action',
     key: `action:${action}`,
@@ -153,7 +175,7 @@ function goRows(context: PaletteContext): PaletteRow[] {
   );
   const query = context.query.trim();
   return [
-    ...rows.filter((row) => matchTier(context.query, row.label) !== null),
+    ...rows.filter((row) => matchRank(context.query, row.label) !== null),
     // Never filtered out: it is where a query that matches nothing else goes, and
     // where the / binding is taught rather than retired.
     {
@@ -167,15 +189,19 @@ function goRows(context: PaletteContext): PaletteRow[] {
   ];
 }
 
-// Ids are internal here — nobody types a column or label id — so only the name
-// is offered to the matcher.
-function rankedByName<T extends { name: string }>(items: readonly T[], query: string): T[] {
+// Sorted on the tier, then on the score — which only the fuzzy tier carries, so
+// a tie anywhere above it keeps the caller's order (board order for columns).
+function ranked<T extends { name: string }>(
+  items: readonly T[],
+  query: string,
+  idOf?: (item: T) => string
+): T[] {
   return items
     .flatMap((item) => {
-      const tier = matchTier(query, item.name);
-      return tier === null ? [] : [{ item, tier }];
+      const rank = matchRank(query, item.name, idOf?.(item));
+      return rank === null ? [] : [{ item, rank }];
     })
-    .sort((a, b) => a.tier - b.tier)
+    .sort((a, b) => a.rank.tier - b.rank.tier || b.rank.score - a.rank.score)
     .map(({ item }) => item);
 }
 
@@ -186,7 +212,8 @@ function columnRows(context: PaletteContext): PaletteRow[] {
   if (context.card === null || context.query.trim() === '') {
     return [];
   }
-  return rankedByName(context.columns, context.query).map((column) => ({
+  // No id offered: nobody types a column or label id.
+  return ranked(context.columns, context.query).map((column) => ({
     kind: 'column' as const,
     key: `column:${column.id}`,
     label: column.name,
@@ -201,7 +228,7 @@ function labelRows(context: PaletteContext): PaletteRow[] {
   if (context.card === null || context.query.trim() === '') {
     return [];
   }
-  return rankedByName(context.labels, context.query).map((label) => ({
+  return ranked(context.labels, context.query).map((label) => ({
     kind: 'label' as const,
     key: `label:${label.id}`,
     label: label.name,
@@ -213,20 +240,15 @@ function labelRows(context: PaletteContext): PaletteRow[] {
 }
 
 function projectRows(context: PaletteContext): PaletteRow[] {
-  return context.projects
-    .flatMap((project) => {
-      const tier = matchTier(context.query, project.name, project.id);
-      return tier === null ? [] : [{ project, tier }];
-    })
-    .sort((a, b) => a.tier - b.tier)
-    .map(({ project }) => ({
-      kind: 'go' as const,
-      key: `project:${project.id}`,
-      label: project.name,
-      keys: [],
-      chord: false,
-      href: projectHref(project.id, project.name),
-    }));
+  // The id is offered here alone: a project ref is the one a link or the CLI hands out.
+  return ranked(context.projects, context.query, (project) => project.id).map((project) => ({
+    kind: 'go' as const,
+    key: `project:${project.id}`,
+    label: project.name,
+    keys: [],
+    chord: false,
+    href: projectHref(project.id, project.name),
+  }));
 }
 
 // Server order is kept: it is a global relevance ranking a local sort could only degrade.

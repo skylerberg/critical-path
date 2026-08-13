@@ -290,7 +290,7 @@
     'inline-flex min-h-6 min-w-6 items-center justify-center rounded border border-edge bg-canvas px-1.5 text-xs font-medium text-muted';
 </script>
 
-<Modal open title="Command palette" {onclose}>
+<Modal open title="Command palette" titleHidden {onclose}>
   <div class="flex flex-col gap-3">
     <Input
       bind:value={typed}

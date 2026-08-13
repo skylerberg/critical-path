@@ -5,7 +5,7 @@ import type { BoardTask } from './board-types';
 import { CARD_ACTION_KEYS } from './card-actions';
 import {
   flattenRows,
-  matchTier,
+  matchRank,
   paletteChordHint,
   paletteGroups,
   type PaletteContext,
@@ -54,38 +54,59 @@ function searchResult(taskKey: string, title: string, projectName = 'Colori'): S
   };
 }
 
-describe('matchTier', () => {
+describe('matchRank', () => {
+  const tier = (query: string, name: string, id?: string): number | null =>
+    matchRank(query, name, id)?.tier ?? null;
+
   it('ranks everything equally on an empty query', () => {
-    expect(matchTier('', 'Anything', PROJECT_ID)).toBe(0);
-    expect(matchTier('   ', 'Anything')).toBe(0);
+    expect(tier('', 'Anything', PROJECT_ID)).toBe(0);
+    expect(tier('   ', 'Anything')).toBe(0);
   });
 
   it('puts an exact id first, case-insensitively', () => {
-    expect(matchTier(PROJECT_ID.toUpperCase(), 'Colori', PROJECT_ID)).toBe(0);
+    expect(tier(PROJECT_ID.toUpperCase(), 'Colori', PROJECT_ID)).toBe(0);
   });
 
   it('puts an exact name second', () => {
-    expect(matchTier('colori', 'Colori', PROJECT_ID)).toBe(1);
+    expect(tier('colori', 'Colori', PROJECT_ID)).toBe(1);
   });
 
   it('accepts an id prefix only from a ref that could be one', () => {
-    expect(matchTier(PROJECT_ID.slice(0, 8), 'Colori', PROJECT_ID)).toBe(2);
+    expect(tier(PROJECT_ID.slice(0, 8), 'Colori', PROJECT_ID)).toBe(2);
     // Same leading characters, but 'zzzz' can never be the head of a uuid.
-    expect(matchTier('zzzz', 'Colori', `zzzz${PROJECT_ID.slice(4)}`)).toBeNull();
+    expect(tier('zzzz', 'Colori', `zzzz${PROJECT_ID.slice(4)}`)).toBeNull();
   });
 
   it('puts a name prefix ahead of a name substring', () => {
-    expect(matchTier('col', 'Colori', PROJECT_ID)).toBe(3);
-    expect(matchTier('lor', 'Colori', PROJECT_ID)).toBe(4);
+    expect(tier('col', 'Colori', PROJECT_ID)).toBe(3);
+    expect(tier('lor', 'Colori', PROJECT_ID)).toBe(4);
   });
 
   it('is a miss when nothing matches', () => {
-    expect(matchTier('zzz', 'Colori', PROJECT_ID)).toBeNull();
+    expect(tier('zzz', 'Colori', PROJECT_ID)).toBeNull();
   });
 
   it('matches on the name alone when there is no id to try', () => {
-    expect(matchTier('mark', 'Mark done')).toBe(3);
-    expect(matchTier('done', 'Mark done')).toBe(4);
+    expect(tier('mark', 'Mark done')).toBe(3);
+    expect(tier('done', 'Mark done')).toBe(4);
+  });
+
+  it('reaches the fuzzy tier only once every substring tier has missed', () => {
+    expect(tier('clr', 'Colori', PROJECT_ID)).toBe(5);
+    expect(tier('mkdn', 'Mark done')).toBe(5);
+    // 'col' is a prefix, so the same name never gets there.
+    expect(tier('col', 'Colori', PROJECT_ID)).toBe(3);
+  });
+
+  it('scores nothing above the fuzzy tier, so those keep the caller order', () => {
+    expect(matchRank('', 'Colori')?.score).toBe(0);
+    expect(matchRank('colori', 'Colori')?.score).toBe(0);
+    expect(matchRank('lor', 'Colori')?.score).toBe(0);
+    expect(matchRank('clr', 'Colori')?.score).not.toBe(0);
+  });
+
+  it('is still a miss when the characters are there but out of order', () => {
+    expect(tier('lrc', 'Colori')).toBeNull();
   });
 });
 
@@ -143,6 +164,24 @@ describe('paletteGroups — actions', () => {
 
   it('drops the whole group when nothing matches', () => {
     expect(group(paletteGroups(context({ card, query: 'zzz' })), 'actions')).toBeUndefined();
+  });
+
+  it('finds an action by its initials, which no substring can', () => {
+    expect(labels(paletteGroups(context({ card, query: 'mkdn' })), 'actions')).toEqual([
+      'Mark done',
+    ]);
+    expect(labels(paletteGroups(context({ card, query: 'blkby' })), 'actions')).toEqual([
+      'Blocked by…',
+    ]);
+  });
+
+  it('keeps the menu order under a fuzzy query rather than sorting by score', () => {
+    // 'Blocks…' is the tighter match of the two and still comes second, where
+    // the right-click menu puts it.
+    expect(labels(paletteGroups(context({ card, query: 'bs' })), 'actions')).toEqual([
+      'Labels…',
+      'Blocks…',
+    ]);
   });
 });
 
@@ -237,6 +276,23 @@ describe('paletteGroups — projects', () => {
     ).toEqual(['Color', 'Coloring', 'Recolor']);
   });
 
+  it('puts every substring match ahead of the fuzzy ones, which rank by score', () => {
+    const mixed = [
+      { id: testUuid('d'), name: 'Wildcat' },
+      { id: testUuid('e'), name: 'Web Console' },
+      { id: testUuid('f'), name: 'Newcomer' },
+    ];
+
+    // 'Newcomer' contains the query outright. Of the two that only match
+    // loosely, 'Web Console' lands both characters on a word start and so
+    // outranks the store order it was given in.
+    expect(labels(paletteGroups(context({ projects: mixed, query: 'wc' })), 'projects')).toEqual([
+      'Newcomer',
+      'Web Console',
+      'Wildcat',
+    ]);
+  });
+
   it('finds a project by an id prefix', () => {
     const groups = paletteGroups(context({ projects, query: projects[1]!.id.slice(0, 8) }));
 
@@ -269,6 +325,12 @@ describe('paletteGroups — tasks', () => {
     expect(rows[0]!.kind === 'task' && rows[0]!.href).toBe(
       taskHref(testUuid('t-1'), 'Ship the export API')
     );
+  });
+
+  it('never filters what the server matched, which read text this list cannot', () => {
+    const rows = group(paletteGroups(context({ tasks, query: 'zzzz' })), 'tasks')!.rows;
+
+    expect(rows.map((row) => row.label)).toEqual(['Ship the export API', 'Export docs']);
   });
 
   it('carries the project each task belongs to', () => {
@@ -318,6 +380,12 @@ describe('paletteGroups — columns and labels', () => {
     const groups = paletteGroups(context({ card, labels: boardLabels, query: 'rul' }));
 
     expect(labels(groups, 'labels')).toEqual(['rules']);
+  });
+
+  it('matches a column loosely, tightest first rather than in board order', () => {
+    const groups = paletteGroups(context({ card, columns, query: 'dn' }));
+
+    expect(labels(groups, 'columns')).toEqual(['Done', 'Doing']);
   });
 
   it('carries the name to seed the menu with, and names that menu', () => {
