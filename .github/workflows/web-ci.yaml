@@ -21,12 +21,7 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps chromium
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run check:comments
-      - run: npm run check
-      - run: npm run check:layout
-      - run: npm run check:layout:real
-      - run: npm run check:task-detail
-      - run: npm test
-      - run: npm run build
+      # One step, because the list of checks belongs in package.json where the
+      # docs can point at it instead of copying it. Splitting it back out buys a
+      # prettier failure summary and costs a fourth place for the list to drift.
+      - run: npm run check:all
