@@ -13,16 +13,29 @@
     NODE_HEIGHT,
     NODE_WIDTH,
     computeGraph,
-    edgeId,
     edgePath,
     panToNode,
-    type GraphLayout,
     type GraphResult,
     type LayoutEdge,
     type LayoutPoint,
     type CrossProjectExpansion,
     type ViewBox,
   } from '../lib/graph';
+  import {
+    cycleClosingEdge as closingEdgeOf,
+    cycleClosingPath,
+    cycleEdgeIds,
+    cycleNodeIds,
+  } from '../lib/graph-cycle';
+  import {
+    fitViewBox,
+    framesContent,
+    pannedViewBox,
+    svgPoint,
+    zoomedViewBox,
+    type PanOrigin,
+    type PinchOrigin,
+  } from '../lib/graph-viewport';
   import { crossProjectDeps } from '../lib/crossProjectDeps.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
 
@@ -32,10 +45,6 @@
   }
 
   let { projectId, readonly = false }: Props = $props();
-
-  const MIN_VB_WIDTH = 160;
-  const FIT_PADDING = 32;
-  const FIT_MIN_WIDTH = 640;
 
   const doneColumnIds = $derived(board.doneColumnIds);
   const doneTaskCount = $derived(
@@ -101,40 +110,11 @@
     return task !== undefined && board.taskMatchesFilters(task);
   }
 
-  // A redacted step carries no id and is on no board this view draws, so it
-  // cannot be highlighted. Dropped rather than substituted: leaving a gap in the
-  // chain would pair the wrong nodes into edges.
-  const cycleIds = $derived(
-    board.cyclePath?.flatMap((step) => (step.id === null ? [] : [step.id])) ?? []
-  );
+  const cycleIds = $derived(cycleNodeIds(board.cyclePath));
   const cycleNodes = $derived(new Set(cycleIds));
-  // Every pair but the last: the closing hop is the edge that does not exist yet.
-  const cycleEdges = $derived(
-    new Set(cycleIds.slice(0, -2).map((id, i) => edgeId(id, cycleIds[i + 1]!)))
-  );
-  const cycleClosingEdge = $derived(
-    cycleIds.length >= 3 ? { from: cycleIds.at(-2)!, to: cycleIds.at(-1)! } : null
-  );
-  // Every edge on the loop runs low rank to high rank, so the closing hop runs
-  // backwards: it leaves and enters the faces that point at each other and swings
-  // below the loop's row, where a straight line would instead lie along the very
-  // edges it has to be told apart from, behind the nodes and arrowhead first.
-  const CYCLE_CLOSING_BOW = 72;
-  const CYCLE_CLOSING_REACH = 60;
-  const cycleClosingPath = $derived.by(() => {
-    if (cycleClosingEdge === null || layout === null) return null;
-    const from = layout.nodes.find((n) => n.id === cycleClosingEdge.from);
-    const to = layout.nodes.find((n) => n.id === cycleClosingEdge.to);
-    if (from === undefined || to === undefined) return null;
-    const side = from.x > to.x ? -1 : 1;
-    const start = { x: from.x + (side * NODE_WIDTH) / 2, y: from.y };
-    const end = { x: to.x - (side * NODE_WIDTH) / 2, y: to.y };
-    const bowY =
-      Math.max(...layout.nodes.filter((n) => cycleNodes.has(n.id)).map((n) => n.y)) +
-      CYCLE_CLOSING_BOW;
-    const reach = side * CYCLE_CLOSING_REACH;
-    return `M ${start.x} ${start.y} C ${start.x + reach} ${bowY} ${end.x - reach} ${bowY} ${end.x} ${end.y}`;
-  });
+  const cycleEdges = $derived(cycleEdgeIds(cycleIds));
+  const cycleClosingEdge = $derived(closingEdgeOf(cycleIds));
+  const closingPath = $derived(cycleClosingPath(cycleClosingEdge, layout, cycleNodes));
 
   let cycleToastedFor: string | null = null;
   $effect(() => {
@@ -156,12 +136,6 @@
   let vb = $state<ViewBox>({ x: 0, y: 0, w: 1200, h: 800 });
   let panning = $state(false);
 
-  function framesContent(box: ViewBox, drawing: GraphLayout): boolean {
-    return (
-      box.x < drawing.width && box.x + box.w > 0 && box.y < drawing.height && box.y + box.h > 0
-    );
-  }
-
   let fittedProject: string | null = null;
   let fittedShowDone = false;
   $effect(() => {
@@ -175,18 +149,12 @@
     // Toggling done tasks keeps a deliberate pan or zoom, unless hiding them left
     // the viewbox pointing at empty space.
     if (toggled && untrack(() => framesContent(vb, current))) return;
-    let x = -FIT_PADDING;
-    let w = current.width + FIT_PADDING * 2;
-    if (w < FIT_MIN_WIDTH) {
-      x -= (FIT_MIN_WIDTH - w) / 2;
-      w = FIT_MIN_WIDTH;
-    }
-    vb = { x, y: -FIT_PADDING, w, h: current.height + FIT_PADDING * 2 };
+    vb = fitViewBox(current);
   });
 
   const pointers = new SvelteMap<number, { x: number; y: number }>();
-  let panOrigin: { vb: ViewBox; x: number; y: number } | null = null;
-  let pinchOrigin: { vb: ViewBox; dist: number; midX: number; midY: number } | null = null;
+  let panOrigin: PanOrigin | null = null;
+  let pinchOrigin: PinchOrigin | null = null;
   let didDrag = false;
   let listenersAttached = false;
 
@@ -325,47 +293,18 @@
     return () => el.removeEventListener('wheel', onWheel);
   });
 
-  function viewScale(v: ViewBox, rect: DOMRect): number {
-    const scale = Math.min(rect.width / v.w, rect.height / v.h);
-    return Number.isFinite(scale) && scale > 0 ? scale : 1;
-  }
-
-  function svgPoint(
-    v: ViewBox,
-    rect: DOMRect,
-    clientX: number,
-    clientY: number
-  ): { x: number; y: number } {
-    const scale = viewScale(v, rect);
-    const offsetX = (rect.width - v.w * scale) / 2;
-    const offsetY = (rect.height - v.h * scale) / 2;
-    return {
-      x: v.x + (clientX - rect.left - offsetX) / scale,
-      y: v.y + (clientY - rect.top - offsetY) / scale,
-    };
-  }
-
-  function clampVbWidth(w: number): number {
-    const max = Math.max((layout?.width ?? 0) * 4, 4000);
-    return Math.min(Math.max(w, MIN_VB_WIDTH), max);
-  }
-
   function zoomTo(width: number, anchorClientX: number, anchorClientY: number): void {
     const rect = svgEl?.getBoundingClientRect();
     if (!rect) return;
-    const base = pinchOrigin?.vb ?? vb;
-    const w = clampVbWidth(width);
-    const h = base.h * (w / base.w);
-    const anchorSource = pinchOrigin
-      ? svgPoint(pinchOrigin.vb, rect, pinchOrigin.midX, pinchOrigin.midY)
-      : svgPoint(vb, rect, anchorClientX, anchorClientY);
-    const next: ViewBox = { x: 0, y: 0, w, h };
-    const scale = viewScale(next, rect);
-    const offsetX = (rect.width - w * scale) / 2;
-    const offsetY = (rect.height - h * scale) / 2;
-    next.x = anchorSource.x - (anchorClientX - rect.left - offsetX) / scale;
-    next.y = anchorSource.y - (anchorClientY - rect.top - offsetY) / scale;
-    vb = next;
+    vb = zoomedViewBox({
+      vb,
+      rect,
+      width,
+      anchorClientX,
+      anchorClientY,
+      layoutWidth: layout?.width ?? 0,
+      pinchOrigin,
+    });
   }
 
   function onPointerDown(e: PointerEvent): void {
@@ -412,12 +351,7 @@
       if (Math.abs(e.clientX - panOrigin.x) + Math.abs(e.clientY - panOrigin.y) > 3) {
         didDrag = true;
       }
-      const scale = viewScale(panOrigin.vb, rect);
-      vb = {
-        ...panOrigin.vb,
-        x: panOrigin.vb.x - (e.clientX - panOrigin.x) / scale,
-        y: panOrigin.vb.y - (e.clientY - panOrigin.y) / scale,
-      };
+      vb = pannedViewBox(panOrigin, rect, e.clientX, e.clientY);
     }
   }
 
@@ -740,9 +674,9 @@
           marker-end="url(#cp-graph-arrow{onCycle ? '-cycle' : ''})"
         />
       {/each}
-      {#if cycleClosingPath}
+      {#if closingPath}
         <path
-          d={cycleClosingPath}
+          d={closingPath}
           data-cycle-closing-edge=""
           fill="none"
           class="stroke-danger"
