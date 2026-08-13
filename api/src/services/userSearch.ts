@@ -3,7 +3,7 @@ import type { DB } from '../db/types';
 import type { UserSearchResponse } from '../schemas/index';
 import { avatarUrl } from './avatars';
 import { prefixTsquery } from './tsquery';
-import { sharesProjectFilter } from './userDirectory';
+import { projectSharerIds } from './userDirectory';
 
 // The one place that answers about people the caller has no relationship with.
 // Kept out of ./userDirectory, whose whole premise is that visibility derives
@@ -27,7 +27,7 @@ export async function searchUsersByName(
     // matched. The caller's own row needs saying separately: someone with no
     // projects shares one with nobody, themselves included.
     .where('app_user.id', '!=', callerId)
-    .where((eb) => eb.not(sharesProjectFilter(callerId)(eb)))
+    .where(sql<SqlBool>`app_user.id not in (${projectSharerIds(callerId)})`)
     .orderBy('app_user.name')
     .orderBy('app_user.id')
     .limit(USER_SEARCH_LIMIT + 1)

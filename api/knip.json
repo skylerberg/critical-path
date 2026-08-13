@@ -11,13 +11,24 @@
         "src/**/*.ts",
         "scripts/**/*.{ts,mjs}",
         "eslint-rules/**/*.js",
-        "tests/**/*.ts"
+        "tests/**/*.ts",
+        "bench/**/*.ts"
       ]
     },
     "cli": {
-      "project": ["src/**/*.ts", "tests/**/*.ts", "bin/*.mjs", "scripts/*.mjs"]
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts",
+        "bin/*.mjs",
+        "scripts/*.mjs"
+      ]
     }
   },
-  "ignore": ["src/db/types.generated.ts", "cli/src/api/*.generated.ts"],
-  "ignoreDependencies": ["kysely-codegen"]
+  "ignore": [
+    "src/db/types.generated.ts",
+    "cli/src/api/*.generated.ts"
+  ],
+  "ignoreDependencies": [
+    "kysely-codegen"
+  ]
 }
