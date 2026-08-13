@@ -3,6 +3,7 @@
   import { announcer } from '../lib/announcer.svelte';
   import type { BoardContext } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
+  import { ListNav } from '../lib/list-nav.svelte';
   import { placeAtIndex } from '../lib/ranks';
   import { truncateTitle } from '../lib/titles';
   import Button from './ui/Button.svelte';
@@ -27,7 +28,6 @@
 
   let columnId = $state<string | null>(null);
   let query = $state(untrack(() => prefill));
-  let highlightedKey = $state<string | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement>();
   let committed = false;
@@ -101,11 +101,12 @@
   });
 
   // Keyed for the same reason as Target: rows shifting under the finger must not
-  // move the highlight.
-  const activeIndex = $derived.by(() => {
-    if (rows.length === 0) return -1;
-    const index = rows.findIndex((row) => row.key === highlightedKey);
-    return index === -1 ? 0 : index;
+  // move the highlight. A vanished row falls back to the top — every row here is a
+  // slot, and the top slot is always a safe one.
+  const nav = new ListNav({
+    keys: () => rows.map((row) => row.key),
+    list: () => listEl,
+    missing: 'first',
   });
 
   $effect(() => {
@@ -168,31 +169,15 @@
     }
     columnId = column.id;
     query = '';
-    highlightedKey = null;
+    nav.clear();
     inputEl?.focus();
   }
 
   function back(): void {
     columnId = null;
     query = '';
-    highlightedKey = null;
+    nav.clear();
     inputEl?.focus();
-  }
-
-  // Safe to read the DOM before Svelte re-renders: arrow keys move the highlight
-  // but never change the row set.
-  function revealHighlighted(): void {
-    const target = listEl?.querySelector<HTMLElement>(`[data-index="${activeIndex}"]`);
-    if (target == null) {
-      return;
-    }
-    target.scrollIntoView({ block: 'nearest' });
-    // Dragging focus along with the highlight keeps Enter and the row's own click
-    // activating the same slot; arrowing from the search field must not steal focus
-    // away from it.
-    if (listEl?.contains(document.activeElement) === true) {
-      target.focus();
-    }
   }
 
   // Bound to every focusable control in the menu, including the back button, whose
@@ -207,7 +192,7 @@
     event.stopPropagation();
     if (query.trim() !== '') {
       query = '';
-      highlightedKey = null;
+      nav.clear();
     } else {
       back();
     }
@@ -215,14 +200,9 @@
 
   function onkeydown(event: KeyboardEvent, rowIndex?: number): void {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      if (rows.length === 0) {
-        return;
+      if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
+        event.preventDefault();
       }
-      event.preventDefault();
-      const delta = event.key === 'ArrowDown' ? 1 : -1;
-      const next = Math.min(rows.length - 1, Math.max(0, activeIndex + delta));
-      highlightedKey = rows[next]!.key;
-      revealHighlighted();
     } else if (event.key === 'Enter') {
       // A composing IME commits its candidate with Enter, and a held Enter auto-repeats
       // after ~250ms; neither is a choice. The repeat matters here because choosing a
@@ -231,7 +211,7 @@
         return;
       }
       event.preventDefault();
-      activate(rows[rowIndex ?? activeIndex]);
+      activate(rows[rowIndex ?? nav.index]);
     } else {
       unwind(event);
     }
@@ -250,7 +230,7 @@
       bind:element={inputEl}
       autofocus
       {onkeydown}
-      oninput={() => (highlightedKey = null)}
+      oninput={() => nav.clear()}
       aria-label={searchLabel}
       placeholder="{searchLabel}…"
     />
@@ -271,10 +251,10 @@
               data-index={index}
               onclick={() => activate(row)}
               onkeydown={(event) => onkeydown(event, index)}
-              onfocus={() => (highlightedKey = row.key)}
-              onpointermove={() => (highlightedKey = row.key)}
+              onfocus={() => nav.highlight(row.key)}
+              onpointermove={() => nav.highlight(row.key)}
               class="flex min-h-11 w-full cursor-pointer items-center gap-2 border-l-2 px-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent {index ===
-              activeIndex
+              nav.index
                 ? 'border-accent bg-accent-soft text-ink'
                 : 'border-transparent hover:bg-accent-soft'}"
             >

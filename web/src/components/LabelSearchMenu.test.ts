@@ -43,6 +43,50 @@ afterEach(() => {
 });
 
 describe('LabelSearchMenu', () => {
+  it('takes focus on mount only when asked', () => {
+    render(LabelSearchMenu, { taskId: 't1', autofocus: true });
+
+    expect(screen.getByLabelText('Filter labels')).toHaveFocus();
+  });
+
+  it('leaves focus alone without autofocus', () => {
+    render(LabelSearchMenu, { taskId: 't1' });
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  // Rows here are [Create, art, rules]. Held as a row number, deleting "art" slides
+  // row 1 onto "rules" and Enter labels the card with it; and had the fallback been
+  // "first row" it would have hit Create instead. Neither is what was chosen.
+  it('leaves Enter inert when the highlighted label is deleted under it', async () => {
+    const setTaskLabels = vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
+    const createLabel = vi.spyOn(board, 'createLabel').mockResolvedValue(undefined);
+    render(LabelSearchMenu, { taskId: 't1' });
+
+    const input = screen.getByLabelText('Filter labels');
+    await fireEvent.input(input, { target: { value: 'r' } });
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    board.labels = board.labels.filter((label) => label.id !== 'l1');
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(setTaskLabels).not.toHaveBeenCalled();
+    expect(createLabel).not.toHaveBeenCalled();
+  });
+
+  it('clamps at the top, which is the Create row when a query is on', async () => {
+    const createLabel = vi.spyOn(board, 'createLabel').mockResolvedValue(undefined);
+    render(LabelSearchMenu, { taskId: 't1' });
+
+    const input = screen.getByLabelText('Filter labels');
+    await fireEvent.input(input, { target: { value: 'r' } });
+    await fireEvent.keyDown(input, { key: 'ArrowDown' });
+    await fireEvent.keyDown(input, { key: 'ArrowUp' });
+    await fireEvent.keyDown(input, { key: 'ArrowUp' });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(createLabel).toHaveBeenCalledWith('r', expect.any(String));
+  });
+
   it('filters labels by the query', async () => {
     render(LabelSearchMenu, { taskId: 't1' });
     expect(screen.getByLabelText('Filter labels')).toHaveAttribute('autocapitalize', 'sentences');

@@ -3,6 +3,7 @@
   import { announcer } from '../lib/announcer.svelte';
   import { board, type BoardContext } from '../lib/board.svelte';
   import { editableCardTarget } from '../lib/card-target';
+  import { ListNav } from '../lib/list-nav.svelte';
   import {
     flattenRows,
     paletteGroups,
@@ -35,7 +36,6 @@
   const paletteSearch = new SearchStore();
 
   let typed = $state('');
-  let highlightedKey = $state<string | null>(null);
   let listEl = $state<HTMLElement>();
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   let searchPending = $state(false);
@@ -93,14 +93,13 @@
   const rows = $derived(flattenRows(groups));
   const indexByKey = $derived(new Map(rows.map((row, index) => [row.key, index])));
 
-  // Stricter than the quick menus': null means "no choice yet, so the first row",
-  // but a row the user did choose and that has since vanished leaves Enter inert
-  // rather than silently re-pointing it at row 0.
-  const activeIndex = $derived.by(() => {
-    if (rows.length === 0) {
-      return -1;
-    }
-    return highlightedKey === null ? 0 : rows.findIndex((row) => row.key === highlightedKey);
+  // Stricter than the quick menus': a row the user did choose and that has since
+  // vanished leaves Enter inert rather than silently re-pointing it at row 0,
+  // which here could be any command at all.
+  const nav = new ListNav({
+    keys: () => rows.map((row) => row.key),
+    list: () => listEl,
+    missing: 'inert',
   });
 
   const query = $derived(typed.trim());
@@ -155,27 +154,18 @@
     }
   });
 
-  function reveal(index: number): void {
-    listEl?.querySelector(`[data-index="${index}"]`)?.scrollIntoView({ block: 'nearest' });
-  }
-
   function onkeydown(event: KeyboardEvent): void {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      if (rows.length === 0) {
-        return;
+      if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
+        event.preventDefault();
       }
-      event.preventDefault();
-      const delta = event.key === 'ArrowDown' ? 1 : -1;
-      const next = Math.min(rows.length - 1, Math.max(0, activeIndex + delta));
-      highlightedKey = rows[next]!.key;
-      reveal(next);
     } else if (event.key === 'Enter') {
       // A composing IME commits its candidate with Enter, and a held Enter repeats.
-      if (event.isComposing || event.repeat || activeIndex === -1) {
+      if (event.isComposing || event.repeat || nav.index === -1) {
         return;
       }
       event.preventDefault();
-      activate(rows[activeIndex]);
+      activate(rows[nav.index]);
     } else if (event.key === 'Escape') {
       // preventDefault suppresses the enclosing dialog's close request so cancel
       // cannot fire a second time; stopPropagation keeps it off the window keymap.
@@ -311,11 +301,11 @@
       aria-autocomplete="list"
       aria-expanded={rows.length > 0}
       aria-controls={listId}
-      aria-activedescendant={activeIndex === -1 ? undefined : optionId(activeIndex)}
+      aria-activedescendant={nav.index === -1 ? undefined : optionId(nav.index)}
       maxlength={SEARCH_MAX_QUERY_LENGTH}
       placeholder="Type a command or search every project…"
       oninput={() => {
-        highlightedKey = null;
+        nav.clear();
         scheduleSearch();
       }}
       {onkeydown}
@@ -356,13 +346,13 @@
               id={optionId(index)}
               data-index={index}
               tabindex={-1}
-              aria-selected={index === activeIndex}
+              aria-selected={index === nav.index}
               aria-keyshortcuts={row.keys.length > 0 && !row.chord ? row.keys.join(' ') : undefined}
               onmousedown={(event) => event.preventDefault()}
-              onpointermove={() => (highlightedKey = row.key)}
+              onpointermove={() => nav.highlight(row.key)}
               onclick={() => activate(row)}
               class="flex min-h-11 w-full shrink-0 cursor-pointer items-center gap-3 border-l-2 px-3 text-left text-sm {index ===
-              activeIndex
+              nav.index
                 ? 'border-accent bg-accent-soft text-ink'
                 : 'border-transparent hover:bg-accent-soft'}"
             >

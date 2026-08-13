@@ -1,6 +1,7 @@
 <script lang="ts">
   import { board, type BoardContext } from '../lib/board.svelte';
   import type { DependencyDirection } from '../lib/dependency-types';
+  import { ListNav } from '../lib/list-nav.svelte';
   import { TASK_TITLE_MAX_LENGTH, truncateTitle } from '../lib/titles';
   import Input from './ui/Input.svelte';
 
@@ -16,7 +17,6 @@
   let { taskId, ctx = board, direction, autofocus = false }: Props = $props();
 
   let query = $state('');
-  let highlightedKey = $state<string | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement>();
 
@@ -59,13 +59,13 @@
     ...(showCreate ? [{ kind: 'create', title: trimmed } as const] : []),
   ]);
 
-  // The highlight tracks a row's identity, not its index: when a realtime update
-  // removes the highlighted task it falls back to the top rather than sliding
-  // down onto Create, where Enter would create a task nobody asked for.
-  const activeIndex = $derived.by(() => {
-    if (rows.length === 0) return -1;
-    const index = rows.findIndex((row) => rowKey(row) === highlightedKey);
-    return index === -1 ? 0 : index;
+  // A removed row falls back to the top rather than sliding down onto Create,
+  // where Enter would create a task nobody asked for — which is safe only because
+  // Create sits last here.
+  const nav = new ListNav({
+    keys: () => rows.map(rowKey),
+    list: () => listEl,
+    missing: 'first',
   });
 
   function activate(index: number): void {
@@ -90,36 +90,15 @@
   // search field is what makes adding several dependencies in a row possible.
   function reset(): void {
     query = '';
-    highlightedKey = null;
+    nav.clear();
     inputEl?.focus();
-  }
-
-  // Safe to read the DOM before Svelte re-renders: arrow keys move the highlight
-  // but never change the row set.
-  function revealHighlighted(): void {
-    const target = listEl?.querySelector<HTMLElement>(`[data-index="${activeIndex}"]`);
-    if (target == null) {
-      return;
-    }
-    target.scrollIntoView({ block: 'nearest' });
-    // Dragging focus along with the highlight keeps Enter and the row's own click
-    // activating the same task; arrowing from the search field must not steal focus
-    // away from it.
-    if (listEl?.contains(document.activeElement) === true) {
-      target.focus();
-    }
   }
 
   function onkeydown(event: KeyboardEvent, rowIndex?: number): void {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      if (rows.length === 0) {
-        return;
+      if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
+        event.preventDefault();
       }
-      event.preventDefault();
-      const delta = event.key === 'ArrowDown' ? 1 : -1;
-      const next = Math.min(rows.length - 1, Math.max(0, activeIndex + delta));
-      highlightedKey = rowKey(rows[next]!);
-      revealHighlighted();
     } else if (event.key === 'Enter') {
       // A composing IME commits its candidate with Enter; that keystroke is not
       // a selection.
@@ -127,7 +106,7 @@
         return;
       }
       event.preventDefault();
-      activate(rowIndex ?? activeIndex);
+      activate(rowIndex ?? nav.index);
     } else if (event.key === 'Escape' && trimmed !== '') {
       // preventDefault suppresses the enclosing <dialog>'s close request so only the
       // suggestions collapse; stopPropagation keeps it away from window shortcuts.
@@ -144,7 +123,7 @@
     bind:element={inputEl}
     {autofocus}
     {onkeydown}
-    oninput={() => (highlightedKey = null)}
+    oninput={() => nav.clear()}
     aria-label={label}
     placeholder="{label}…"
     maxlength={TASK_TITLE_MAX_LENGTH}
@@ -161,17 +140,17 @@
           : 'Blocked task suggestions'}
         class="flex flex-col divide-y divide-edge overflow-hidden rounded-md border border-edge"
       >
-        {#each rows as row, index (row.kind === 'task' ? row.id : 'create')}
+        {#each rows as row, index (rowKey(row))}
           <li>
             <button
               type="button"
               data-index={index}
               onclick={() => activate(index)}
               onkeydown={(event) => onkeydown(event, index)}
-              onfocus={() => (highlightedKey = rowKey(row))}
-              onpointermove={() => (highlightedKey = rowKey(row))}
+              onfocus={() => nav.highlight(rowKey(row))}
+              onpointermove={() => nav.highlight(rowKey(row))}
               class="flex min-h-11 w-full cursor-pointer items-center gap-2 border-l-2 px-3 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent {index ===
-              activeIndex
+              nav.index
                 ? 'border-accent bg-accent-soft text-ink'
                 : 'border-transparent hover:bg-accent-soft'} {row.kind === 'create'
                 ? 'font-medium'

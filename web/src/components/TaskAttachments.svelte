@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { focusAndSelect } from '../lib/actions';
   import { announcer } from '../lib/announcer.svelte';
   import { board, type TaskAttachment } from '../lib/board.svelte';
   import Button from './ui/Button.svelte';
@@ -71,11 +72,6 @@
       }
     };
   });
-
-  const focusAndSelect = (node: HTMLInputElement): void => {
-    node.focus();
-    node.select();
-  };
 
   function formatBytes(bytes: number | null): string {
     if (bytes === null) return '';

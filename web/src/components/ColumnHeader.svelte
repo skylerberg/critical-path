@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dragHandle } from 'svelte-dnd-action';
+  import { focusAndSelect } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
   import { COLUMN_SORT_OPTIONS } from '../lib/column-sort';
@@ -63,11 +64,6 @@
 
   // The header sits above the column's scrolling card list, in no vertical
   // scroller of its own, so the only scroll focus() could perform is the board pan.
-  const focusAndSelect = (node: HTMLInputElement): void => {
-    node.focus({ preventScroll: true });
-    node.select();
-  };
-
   // One header per column, so a click on another column's kebab has to reach this
   // instance to close its menu — hence no stopPropagation on the trigger, and the
   // containment check here to keep a click on our own menu from closing it.

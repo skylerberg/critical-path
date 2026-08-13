@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
+  import { ListNav } from '../lib/list-nav.svelte';
   import { projects } from '../lib/projects.svelte';
   import { SEARCH_DEBOUNCE_MS } from '../lib/search-query';
   import { session } from '../lib/session.svelte';
@@ -26,11 +27,6 @@
   const directory = new UserSearchStore();
 
   let query = $state('');
-  // Null means "no choice yet, so the first row". A row the user did choose and
-  // that has since vanished leaves Enter inert rather than re-pointing it at
-  // whoever now occupies that position — a debounced response can insert rows
-  // while the user is arrowing, and Enter here grants board access.
-  let highlightedKey = $state<string | null>(null);
   let error = $state('');
   let notice = $state<{ message: string; pending: boolean } | null>(null);
   let inviting = $state(false);
@@ -75,11 +71,14 @@
     ...strangers.map((user) => ({ kind: 'stranger' as const, key: `stranger:${user.id}`, user })),
     ...(showInvite ? [{ kind: 'invite' as const, key: 'invite' as const }] : []),
   ]);
-  const activeIndex = $derived.by(() => {
-    if (rows.length === 0) {
-      return -1;
-    }
-    return highlightedKey === null ? 0 : rows.findIndex((row) => row.key === highlightedKey);
+  // A row the user did choose and that has since vanished leaves Enter inert
+  // rather than re-pointing it at whoever now occupies that position — a debounced
+  // response can insert rows while the user is arrowing, and Enter grants board
+  // access.
+  const nav = new ListNav({
+    keys: () => rows.map((row) => row.key),
+    list: () => listEl,
+    missing: 'inert',
   });
 
   // Two people sharing a name render identically down to the avatar color, and
@@ -158,7 +157,7 @@
     }
     addedIds.add(user.id);
     query = '';
-    highlightedKey = null;
+    nav.clear();
     error = '';
     notice = null;
     cancelSearch();
@@ -178,7 +177,7 @@
     inviting = false;
     if (result.ok) {
       query = '';
-      highlightedKey = null;
+      nav.clear();
       cancelSearch();
       // An address is all the client knows, so naming who it reached is the only
       // way to tell an account that just joined from one that was already here.
@@ -204,35 +203,11 @@
     add(row.user);
   }
 
-  // Safe to read the DOM before Svelte re-renders: arrow keys move the highlight
-  // but never change the row set.
-  function revealHighlighted(): void {
-    const target = listEl?.querySelector<HTMLButtonElement>(`[data-index="${activeIndex}"]`);
-    target?.scrollIntoView({ block: 'nearest' });
-    // Focus follows the highlight only once it is already in the list; arrowing
-    // from the search field must not steal focus away from it.
-    if (target != null && listEl?.contains(document.activeElement) === true) {
-      target.focus();
-    }
-  }
-
-  function move(delta: number): void {
-    if (rows.length === 0) {
-      return;
-    }
-    const from = activeIndex === -1 ? 0 : activeIndex;
-    const next = Math.max(0, Math.min(rows.length - 1, from + delta));
-    highlightedKey = rows[next]?.key ?? null;
-    revealHighlighted();
-  }
-
   function onkeydown(event: KeyboardEvent, rowIndex?: number): void {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      move(1);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      move(-1);
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
+        event.preventDefault();
+      }
     } else if (event.key === 'Enter') {
       event.preventDefault();
       // Adding someone grants board access, so a held key must not walk down the
@@ -240,12 +215,12 @@
       if (event.repeat) {
         return;
       }
-      activate(rowIndex ?? activeIndex);
+      activate(rowIndex ?? nav.index);
     }
   }
 
   function oninput(): void {
-    highlightedKey = null;
+    nav.clear();
     error = '';
     notice = null;
     scheduleSearch();
@@ -284,11 +259,11 @@
     aria-label={added ? `${label} added` : `Add ${label}`}
     onclick={() => add(user)}
     onkeydown={(event) => onkeydown(event, index)}
-    onfocus={() => (highlightedKey = row.key)}
-    onpointermove={() => (highlightedKey = row.key)}
+    onfocus={() => nav.highlight(row.key)}
+    onpointermove={() => nav.highlight(row.key)}
     class="flex min-h-11 shrink-0 items-center gap-2 rounded-md px-3 text-left text-sm {added
       ? 'cursor-default text-muted'
-      : 'cursor-pointer'} {activeIndex === index && !added ? 'bg-accent-soft' : ''} {added
+      : 'cursor-pointer'} {nav.index === index && !added ? 'bg-accent-soft' : ''} {added
       ? ''
       : 'hover:bg-accent-soft'}"
   >
@@ -346,9 +321,9 @@
           disabled={inviting}
           onclick={() => void invite()}
           onkeydown={(event) => onkeydown(event, index)}
-          onfocus={() => (highlightedKey = row.key)}
-          onpointermove={() => (highlightedKey = row.key)}
-          class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {activeIndex ===
+          onfocus={() => nav.highlight(row.key)}
+          onpointermove={() => nav.highlight(row.key)}
+          class="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-md px-3 text-left text-sm font-medium {nav.index ===
           index
             ? 'bg-accent-soft text-ink'
             : 'text-muted hover:bg-accent-soft hover:text-ink'}"

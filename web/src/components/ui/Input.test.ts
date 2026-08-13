@@ -18,4 +18,16 @@ describe('ui/Input', () => {
     expect(screen.getByLabelText('Name')).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByText('Required')).toBeInTheDocument();
   });
+
+  it('takes focus on mount when autofocus is set', () => {
+    render(Input, { label: 'Email', autofocus: true });
+
+    expect(screen.getByLabelText('Email')).toHaveFocus();
+  });
+
+  it('leaves focus alone otherwise', () => {
+    render(Input, { label: 'Email' });
+
+    expect(document.activeElement).toBe(document.body);
+  });
 });

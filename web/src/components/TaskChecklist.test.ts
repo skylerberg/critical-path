@@ -367,6 +367,18 @@ describe('TaskChecklist rows', () => {
     expect(screen.getByRole('button', { name: 'Cut prototype' })).not.toHaveClass('line-through');
   });
 
+  // Opened to replace the text, not to append to it, so the whole value is selected.
+  it('opens the inline editor focused with its text selected', async () => {
+    renderChecklist();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
+
+    const input = screen.getByRole<HTMLInputElement>('textbox', { name: 'Rename Cut prototype' });
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe('Cut prototype'.length);
+  });
+
   it('renames an item from the inline editor on Enter', async () => {
     const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
     renderChecklist();

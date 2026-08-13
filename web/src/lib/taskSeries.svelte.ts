@@ -1,7 +1,8 @@
-import { api, ApiError, assertOk } from '../api/client';
+import { api, assertOk } from '../api/client';
+import { apiMessage } from './apiMessages';
+import { mutationFailed } from './store-sync';
 import type { components } from '../api/api.generated';
 import type { RealtimeEvent } from './realtime-types';
-import { toasts } from './toasts.svelte';
 
 export type TaskSeries = components['schemas']['TaskSeries'];
 export type CreateTaskSeriesBody = components['schemas']['CreateTaskSeries'];
@@ -37,7 +38,7 @@ class TaskSeriesStore {
       this.loaded = true;
     } catch (error) {
       if (token !== this.#listToken) return;
-      this.loadError = error instanceof ApiError ? error.message : 'Failed to load recurring cards';
+      this.loadError = apiMessage(error, 'Failed to load recurring cards');
     }
   }
 
@@ -131,7 +132,8 @@ class TaskSeriesStore {
       );
       this.#replace(id, row);
     } catch (error) {
-      await this.#mutationFailed(
+      await mutationFailed(
+        this,
         error,
         paused ? 'Failed to pause the series' : 'Failed to resume the series'
       );
@@ -154,7 +156,7 @@ class TaskSeriesStore {
       );
       this.#replace(id, row);
     } catch (error) {
-      await this.#mutationFailed(error, 'Failed to dismiss the missed occurrences');
+      await mutationFailed(this, error, 'Failed to dismiss the missed occurrences');
     }
   }
 
@@ -164,7 +166,7 @@ class TaskSeriesStore {
     try {
       assertOk(await api.DELETE('/api/task-series/{id}', { params: { path: { id } } }));
     } catch (error) {
-      await this.#mutationFailed(error, 'Failed to delete the series');
+      await mutationFailed(this, error, 'Failed to delete the series');
     }
   }
 
@@ -174,13 +176,6 @@ class TaskSeriesStore {
 
   #replace(id: string, row: TaskSeries): void {
     this.#update(id, () => row);
-  }
-
-  async #mutationFailed(error: unknown, fallback: string): Promise<void> {
-    toasts.error(error instanceof ApiError ? error.message : fallback);
-    if (this.currentProjectId !== null) {
-      await this.load(this.currentProjectId);
-    }
   }
 
   #clear(): void {

@@ -274,6 +274,30 @@ describe('webhooks store', () => {
     expect(webhooks.deliveries['w-1'][0].redelivery_count).toBe(1);
   });
 
+  it('puts a refused disable back by refetching, and says why', async () => {
+    await loadWith([webhook()]);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Cannot disable' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { webhooks: [webhook()] }));
+    await webhooks.setDisabled('w-1', true);
+
+    expect(toasts.toasts.map((toast) => toast.message)).toEqual(['Cannot disable']);
+    expect(webhooks.list[0].disabled_at).toBeNull();
+    expect(requestAt(2).url).toContain('/api/webhooks?project_id=p-1');
+  });
+
+  it('keeps the old secret when a rotation is refused', async () => {
+    await loadWith([webhook()]);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'Rotation failed' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { webhooks: [webhook()] }));
+    await webhooks.rotateSecret('w-1');
+
+    expect(toasts.toasts.map((toast) => toast.message)).toEqual(['Rotation failed']);
+    expect(webhooks.list[0].secret).toBe('sec-1');
+    expect(requestAt(2).url).toContain('/api/webhooks?project_id=p-1');
+  });
+
   it('clears every cached secret on reset', async () => {
     await loadWith([webhook()]);
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { deliveries: [delivery()] }));
