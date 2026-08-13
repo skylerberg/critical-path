@@ -131,5 +131,41 @@
         </section>
       {/if}
     {/each}
+
+    <!-- Only ever rendered for someone past the server's page, which most people
+         never reach: the count is the whole explanation, so there is no empty
+         "page 1 of 1" furniture for everybody else to read past.
+         It outlives the last page (loadedMore) so the live region is still
+         mounted to announce the total — unmounting it at the moment the final
+         page lands leaves the reader who pressed the button hearing nothing. -->
+    {#if myTasks.hasMore || myTasks.loadedMore}
+      <div
+        class="flex flex-col items-center gap-3 rounded-lg border border-dashed border-edge p-6 text-center"
+      >
+        <!-- Live, so loading more announces the new total rather than leaving a
+             screen reader to discover it by walking the list again. -->
+        <p class="text-sm text-muted" aria-live="polite">
+          {#if myTasks.hasMore}
+            Showing {myTasks.tasks.length} of your tasks.
+          {:else}
+            All {myTasks.tasks.length} of your tasks are shown.
+          {/if}
+        </p>
+        {#if myTasks.hasMore}
+          <Button
+            variant="secondary"
+            onclick={() => void myTasks.loadMore()}
+            disabled={myTasks.loadingMore}
+          >
+            {#if myTasks.loadingMore}
+              <Spinner size="sm" />
+              Loading…
+            {:else}
+              Load more
+            {/if}
+          </Button>
+        {/if}
+      </div>
+    {/if}
   {/if}
 </main>

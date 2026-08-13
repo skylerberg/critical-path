@@ -73,7 +73,12 @@ function routeResponses(): void {
       return jsonResponse(200, { projects: [] });
     }
     if (path === '/api/my-tasks') {
-      return jsonResponse(200, { tasks: [], waiting_on_you: [], you_are_waiting_on: [] });
+      return jsonResponse(200, {
+        tasks: [],
+        waiting_on_you: [],
+        you_are_waiting_on: [],
+        next_offset: null,
+      });
     }
     if (path.startsWith('/api/public/projects/')) {
       return jsonResponse(200, publicBoard());

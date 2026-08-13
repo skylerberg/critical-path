@@ -1216,7 +1216,7 @@ export interface paths {
     };
     /**
      * List my tasks across projects
-     * @description List every unarchived, unfinished task assigned to the caller across all accessible, non-archived projects. Each task carries a bucket, fixed by the server: blocked (it has at least one unfinished blocker), blocking (someone else is assigned to a task it holds up), or ready. Tasks are ordered blocking, then ready, then blocked, and within a bucket by how many people are waiting, then project name and board position. Each task also carries its unfinished blockers and dependents with their assignees, plus waiting_user_ids: the other people whose unfinished work it blocks. The companion arrays group the same edges by person — waiting_on_you from the dependents, you_are_waiting_on from the blockers, which alone can carry an unassigned group.
+     * @description List every unarchived, unfinished task assigned to the caller across all accessible, non-archived projects. Each task carries a bucket, fixed by the server: blocked (it has at least one unfinished blocker), blocking (someone else is assigned to a task it holds up), or ready. Tasks are ordered blocking, then ready, then blocked, and within a bucket by how many people are waiting, then project name and board position. Each task also carries its unfinished blockers and dependents with their assignees, plus waiting_user_ids: the other people whose unfinished work it blocks. The companion arrays group the same edges by person — waiting_on_you from the dependents, you_are_waiting_on from the blockers, which alone can carry an unassigned group, and both cover this page only. At most 1000 tasks come back per call; next_offset carries the offset that fetches the next page and is null on the last one. The ordering above is applied before the page is cut, so the first page holds the most urgent work rather than an arbitrary slice of it.
      */
     get: operations['getApiMyTasks'];
     put?: never;
@@ -2493,6 +2493,7 @@ export interface components {
       remove_user_ids?: string[];
     };
     MyTasksResponse: {
+      next_offset: number | null;
       tasks: components['schemas']['MyTask'][];
       waiting_on_you: components['schemas']['MyTaskPersonGroup'][];
       you_are_waiting_on: components['schemas']['MyTaskPersonGroup'][];
@@ -7207,7 +7208,9 @@ export interface operations {
   };
   getApiMyTasks: {
     parameters: {
-      query?: never;
+      query?: {
+        offset?: string;
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -7221,6 +7224,15 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['MyTasksResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Error'];
         };
       };
       /** @description Authentication required or failed */

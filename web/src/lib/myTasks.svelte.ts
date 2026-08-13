@@ -1,10 +1,12 @@
 import { SvelteMap } from 'svelte/reactivity';
 import { api, assertOk } from '../api/client';
 import { apiMessage } from './apiMessages';
+import { mergePersonGroups } from './myTaskGroups';
 import type { components } from '../api/api.generated';
 import { projects } from './projects.svelte';
 
 export type MyTask = components['schemas']['MyTask'];
+export type MyTaskLink = components['schemas']['MyTaskLink'];
 export type MyTaskPersonGroup = components['schemas']['MyTaskPersonGroup'];
 
 class MyTasksStore {
@@ -15,6 +17,15 @@ class MyTasksStore {
   #youAreWaitingOn = $state<MyTaskPersonGroup[]>([]);
   loaded = $state(false);
   error = $state<string | null>(null);
+  // The server caps a response at a page most people never fill, so this is
+  // null for almost every caller and the screen shows nothing about paging.
+  #nextOffset = $state<number | null>(null);
+  loadingMore = $state(false);
+  hasMore = $derived(this.#nextOffset !== null);
+  // Sticky once a page has been pulled in, so the count line survives the last
+  // one. Without it the live region unmounts at the moment the final page
+  // lands, and the reader who pressed the button hears nothing at all.
+  loadedMore = $state(false);
 
   // Ranks projects in the order they appear on the Projects page (active, then
   // archived) so My Tasks can read top-to-bottom the same way.
@@ -69,6 +80,11 @@ class MyTasksStore {
       this.tasks = data.tasks;
       this.#waitingOnYou = data.waiting_on_you;
       this.#youAreWaitingOn = data.you_are_waiting_on;
+      // Coalesced because deploys are rolling: an API pod from the previous
+      // release answers without the field at all, and `undefined !== null`
+      // would offer a Load more button that fetches the same page forever.
+      this.#nextOffset = data.next_offset ?? null;
+      this.loadedMore = false;
       this.loaded = true;
     } catch (error) {
       if (token !== this.#fetchToken) {
@@ -78,11 +94,49 @@ class MyTasksStore {
     }
   }
 
+  // Deliberately does not take a new fetch token: this extends the load that is
+  // already on screen rather than replacing it, so it reads the current token
+  // and abandons its result if a reload or a reset has moved on since.
+  async loadMore(): Promise<void> {
+    const offset = this.#nextOffset;
+    if (offset === null || this.loadingMore) {
+      return;
+    }
+    this.error = null;
+    this.loadingMore = true;
+    const token = this.#fetchToken;
+    try {
+      const data = assertOk(
+        // A query parameter is a string on the wire, which is what the spec
+        // declares and the generated client asks for.
+        await api.GET('/api/my-tasks', { params: { query: { offset: String(offset) } } })
+      );
+      if (token !== this.#fetchToken) {
+        return;
+      }
+      this.tasks = [...this.tasks, ...data.tasks];
+      this.#waitingOnYou = mergePersonGroups(this.#waitingOnYou, data.waiting_on_you);
+      this.#youAreWaitingOn = mergePersonGroups(this.#youAreWaitingOn, data.you_are_waiting_on);
+      this.#nextOffset = data.next_offset ?? null;
+      this.loadedMore = true;
+    } catch (error) {
+      if (token !== this.#fetchToken) {
+        return;
+      }
+      this.error = apiMessage(error, 'Failed to load more tasks');
+    } finally {
+      this.loadingMore = false;
+    }
+  }
+
   reset(): void {
     this.#fetchToken++;
     this.tasks = [];
     this.#waitingOnYou = [];
     this.#youAreWaitingOn = [];
+    this.#nextOffset = null;
+    this.loadingMore = false;
+    this.loadedMore = false;
     this.loaded = false;
     this.error = null;
   }
