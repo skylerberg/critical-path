@@ -40,7 +40,8 @@ import { closeRedis } from './services/redis';
 import { startJobWorker } from './services/jobs/index';
 import { registerJobHandlers } from './services/jobs/register';
 import { startWebhookWorker } from './services/webhooks/index';
-import { errorText } from './utils/errors';
+import { AppError, errorText } from './utils/errors';
+import { isSwaggerAssetName, readSwaggerAsset } from './services/swaggerAssets';
 import { startupFailureMessage } from './utils/serverStartup';
 import { logger } from './utils/logger';
 
@@ -183,7 +184,56 @@ app.get('/api/realtime-events.json', skipAuth, async (c) => {
   return c.json(await buildRealtimeEventsDocument());
 });
 
-app.get('/api/docs', skipAuth, swaggerUI({ url: '/api/openapi.json' }));
+// The helper appends `/swagger-ui-dist/<file>` to this, so the route below is
+// the path it generates and the two must move together.
+const SWAGGER_ASSET_BASE = '/api/docs/static';
+
+app.get('/api/docs/static/swagger-ui-dist/:asset', skipAuth, async (c) => {
+  const name = c.req.param('asset');
+  if (!isSwaggerAssetName(name)) {
+    throw new AppError(404, 'Not found');
+  }
+  const asset = await readSwaggerAsset(name);
+
+  const headers: Record<string, string> = {
+    'Content-Type': asset.contentType,
+    'X-Content-Type-Options': 'nosniff',
+    // Served out of the deployed image, so it moves only when the image does.
+    'Cache-Control': 'public, max-age=3600',
+    ETag: asset.etag,
+    // The body varies with the request's encoding, and this is the one public,
+    // compressible route in the app: without it a shared cache in front of the
+    // API may hand gzipped bytes to a client that never asked for them.
+    Vary: 'Accept-Encoding',
+  };
+
+  if (c.req.header('if-none-match') === asset.etag) {
+    return new Response(null, { status: 304, headers });
+  }
+
+  const acceptsGzip = /(^|,)\s*gzip\s*(;|,|$)/.test(c.req.header('accept-encoding') ?? '');
+  const body = acceptsGzip ? asset.gzip : asset.body;
+  if (acceptsGzip) {
+    headers['Content-Encoding'] = 'gzip';
+  }
+  // Built here rather than through c.body, which takes no Buffer: the bytes are
+  // held as one, and rereading them as a string would double what they cost.
+  return new Response(body, {
+    status: 200,
+    headers: { ...headers, 'Content-Length': String(body.byteLength) },
+  });
+});
+
+app.get(
+  '/api/docs',
+  skipAuth,
+  // validatorUrl none: Swagger UI's default points an <img> badge at
+  // validator.swagger.io, which would both publish the spec URL to a third
+  // party and reintroduce the off-origin subresource this route exists to
+  // remove. It does not render for an OAS 3.1 document today; saying so keeps
+  // that a decision rather than a version's accident.
+  swaggerUI({ url: '/api/openapi.json', baseUrl: SWAGGER_ASSET_BASE, validatorUrl: 'none' })
+);
 
 app.route('/api/auth', publicAuthRouter);
 app.route('/api/auth', authRouter);

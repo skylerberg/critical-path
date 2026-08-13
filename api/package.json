@@ -2,6 +2,9 @@
   "name": "critical-path-api",
   "version": "1.0.0",
   "type": "module",
+  "scarfSettings": {
+    "enabled": false
+  },
   "scripts": {
     "dev": "node --env-file=.env --import tsx --watch src/index.ts",
     "start": "node --env-file=.env --import tsx src/index.ts",
@@ -46,6 +49,7 @@
     "redis": "^6.1.0",
     "rrule": "^2.8.1",
     "sharp": "^0.35.3",
+    "swagger-ui-dist": "5.32.12",
     "tsx": "^4.23.0",
     "ws": "^8.21.0"
   },

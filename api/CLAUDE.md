@@ -175,6 +175,23 @@ web app and the CLI generate from it.
   spec. Handshake: `{ type: 'auth', token }` within 10s, then
   `subscribe`/`unsubscribe` with a `project_id`; ping/pong heartbeat every 30s.
   The handshake token is either a session token or a personal access token.
+  Three ceilings bound what one caller holds open: 200 live sockets per source
+  address (refused in the handshake with 429 **and then destroyed** — `end()`
+  alone half-closes, and a peer that never closes its own half would hold a
+  descriptor this path deliberately does not count; it is also the only one of
+  the three that applies before a token is presented), 20 per account (oldest
+  closed with 4429, so a reconnect is never refused by the socket it is
+  replacing), and 1000 subscriptions per socket. A `subscribe` naming anything
+  that is not a uuid is ignored, and one that is gets lower-cased — an
+  unvalidated project id is a room key whose length and number the caller picks,
+  and a differently-cased one names a room no publish can reach. Only one `auth`
+  frame per socket is ever acted on: frames from one read dispatch
+  synchronously, so without that a client could start a credential lookup per
+  frame against a pool of ten, and two resolving together would both register,
+  the second replacing the first's subscription set and stranding its rooms. All
+  three ceilings are per process, so the fleet-wide figure is times the replica
+  count — they bound what one process can be made to hold, not what one person
+  may have.
   Credential revocation publishes `sessions_revoked` on the realtime bus, which
   closes sockets with code 4401: a payload of `{ user_id }` closes that user's
   session sockets; one that also carries `personal_access_token_id` closes only
