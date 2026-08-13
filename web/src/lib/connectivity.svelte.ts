@@ -2,16 +2,25 @@
  * One answer to "can we reach the server right now", because the app otherwise
  * has three that disagree.
  *
- * `navigator.onLine` knows about the network interface and nothing about
- * whether anything is listening. `realtime.interrupted` tracks the WebSocket,
- * which can be down behind a proxy that passes HTTP perfectly well, and is
- * latched behind a delay so it stays quiet during an ordinary handshake. Neither
- * answers the question the outbox actually has, which is whether writes are
- * landing.
+ * `navigator.onLine` knows about the network interface and nothing about whether
+ * anything is listening, so it only seeds and hints. What counts as proof is
+ * traffic that arrived: an HTTP request that got any answer at all — including a
+ * 500 — and any frame off the WebSocket. A fetch that rejects is the one thing
+ * that proves the negative, and only when it rejected for want of an answer
+ * rather than because it was aborted.
  *
- * So the authority here is the HTTP client: a request that got any answer at all
- * — including a 500 — proves the server is reachable, and a fetch that rejects
- * proves it is not. `navigator` events only seed and hint.
+ * Both proofs are needed, and each covers the gap the other leaves. The board's
+ * revalidating reads are skipped for exactly as long as the socket is carrying
+ * the project's events, so a healthy socket is also the state in which HTTP goes
+ * quiet — and it heartbeats, so it answers this on its own while it does. A
+ * socket that cannot connect takes that suppression with it, and the reads come
+ * back. There is deliberately no timer polling for this: neither regime leaves
+ * the question unanswered, and a poll of one's own would spend a request per
+ * check to learn what arriving traffic already says.
+ *
+ * `realtime.interrupted` is a different question and stays separate — whether
+ * live updates are flowing, not whether the server can be reached. It is latched
+ * behind a delay so it stays quiet during an ordinary handshake.
  */
 class ConnectivityStore {
   reachable = $state(true);

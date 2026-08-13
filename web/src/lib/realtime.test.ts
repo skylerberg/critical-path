@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { board } from './board.svelte';
 import { boardAnnouncer } from './board-announcer.svelte';
+import { connectivity } from './connectivity.svelte';
 import { invitations } from './invitations.svelte';
 import type { BoardPayload } from './board-types';
 import { outbox } from './outbox.svelte';
@@ -1031,6 +1032,85 @@ describe('reconnect', () => {
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
     expect(paths).not.toContain('/api/projects');
     expect(paths).not.toContain('/api/auth/me');
+  });
+});
+
+describe('the socket as a reachability signal', () => {
+  // The board's revalidating reads are skipped for as long as this socket holds
+  // coverage, so while it is healthy there is no HTTP traffic left to answer the
+  // question. The API heartbeats every 30s, which makes the socket itself the
+  // answer — and without this the app sits behind an offline notice applying
+  // live events from the very server it says it cannot reach.
+  it('counts any frame as proof, the heartbeat included', async () => {
+    const socket = await connectAndAuth('p1');
+    connectivity.noteUnreachable();
+    expect(connectivity.reachable).toBe(false);
+
+    socket.receive({ type: 'ping' });
+
+    expect(connectivity.reachable).toBe(true);
+  });
+
+  it('counts a frame it has no handler for', async () => {
+    const socket = await connectAndAuth('p1');
+    connectivity.noteUnreachable();
+
+    socket.receive({ type: 'something_this_client_has_never_heard_of' });
+
+    expect(connectivity.reachable).toBe(true);
+  });
+
+  // The backoff is sized for an outage that is still going, and reaching a
+  // maximum of 30s is the ordinary state after a phone has been in the
+  // background. Waiting it out keeps the indicator saying "Offline" long after
+  // the network came back.
+  it('reconnects at once when something else reaches the server', async () => {
+    const socket = await connectAndAuth('p1');
+    connectivity.noteUnreachable();
+    socket.serverClose();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    connectivity.noteReached();
+    flushSync();
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('resets the wait so a later drop is not still carrying the old backoff', async () => {
+    const socket = await connectAndAuth('p1');
+    vi.useFakeTimers();
+    connectivity.noteUnreachable();
+
+    // Four failures take the backoff from 1s to 16s. Each wait is advanced past
+    // the ceiling rather than by its own length, so this does not restate the
+    // schedule it is here to observe.
+    socket.serverClose();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      vi.advanceTimersByTime(30_000);
+      latestSocket().serverClose();
+    }
+    expect(FakeWebSocket.instances).toHaveLength(4);
+
+    connectivity.noteReached();
+    flushSync();
+    expect(FakeWebSocket.instances).toHaveLength(5);
+
+    // Back to the first interval rather than resuming where the outage left off.
+    latestSocket().serverClose();
+    vi.advanceTimersByTime(1000);
+    expect(FakeWebSocket.instances).toHaveLength(6);
+  });
+
+  it('leaves a handshake already in flight alone', async () => {
+    await connectAndAuth('p1');
+    connectivity.noteUnreachable();
+
+    // Still open: nothing to reconnect, and opening a second socket over a live
+    // one would leak it.
+    connectivity.noteReached();
+    flushSync();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
   });
 });
 
