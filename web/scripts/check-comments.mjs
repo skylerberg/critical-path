@@ -102,7 +102,9 @@ export function findDuplicates(files, allowed = new Set()) {
 // Only backticked identifiers. An unquoted CamelCase word in prose is a English
 // noun as often as it is a symbol, and flagging those buries the real hits.
 const IDENTIFIER = /`(#?[A-Za-z_$][A-Za-z0-9_$]*)(?:\(\))?`/g;
-const FILENAME = /(?<![\w/.-])([\w.-]+\.(?:ts|svelte|mjs|css|html))(?![\w-])/g;
+// Must start with a word character, so a bare extension — comments here discuss
+// `.svelte.ts` as a category — is not read as a file that ought to exist.
+const FILENAME = /(?<![\w/.-])(\w[\w.-]*\.(?:ts|svelte|mjs|css|html))(?![\w-])/g;
 const PROXIMITY = /\b(beside|next to|alongside|in the same (?:directory|folder)|in src\/\w+)\b/i;
 
 // Names that are real but belong to something other than this repo's source.
@@ -269,6 +271,13 @@ if (SELFTEST) {
       ).length === 0,
     ],
     ['a short shared fragment is not a duplicate', sentences('Test seam.').length === 0],
+    [
+      'a bare extension is not read as a missing file',
+      findBadReferences(
+        [{ path: 'a.ts', blocks: [{ line: 1, text: 'kept out of `.svelte.ts` on purpose' }] }],
+        index
+      ).length === 0,
+    ],
   ];
   console.log('check:comments --selftest — sensitivity');
   let failed = 0;

@@ -1191,6 +1191,7 @@ class BoardStore {
     if (this.currentProjectId === null || moved.length === 0) {
       return;
     }
+    const movedIds = moved.map((task) => task.id);
     const run = appendRun(this.tasksInColumn(targetColumnId), moved.length);
     const optimistic = new Map(moved.map((task, index) => [task.id, run[index]!] as const));
     this.tasks = this.tasks.map((task) => {
@@ -1219,11 +1220,10 @@ class BoardStore {
               sort_key: movedTask.sort_key,
             };
       });
-      // The reconcile leaves an unlisted task alone, so one the server refused to
-      // move — already archived, per an event we have not seen — would otherwise
-      // sit in the target column forever. Compared as sets for the reason on
-      // #bulkDisagrees, which is the same check.
-      if (byId.size !== moved.length || moved.some((task) => !byId.has(task.id))) {
+      // The reconcile above leaves an unlisted task alone, so one the server
+      // refused to move — already archived, per an event we have not seen — would
+      // otherwise sit in the target column forever.
+      if (this.#bulkDisagrees(movedIds, byId)) {
         await this.resync();
       }
     }
@@ -1294,9 +1294,8 @@ class BoardStore {
       const byId = new Map(result.data.tasks.map((task) => [task.id, task]));
       this.archivedTasks = this.archivedTasks.map((task) => byId.get(task.id) ?? task);
       // A card we dropped from the board but the server did not archive is gone
-      // from both lists until something else refetches. Compared as sets for the
-      // reason on #bulkDisagrees, which is the same check.
-      if (byId.size !== archivingIds.length || archivingIds.some((id) => !byId.has(id))) {
+      // from both lists until something else refetches.
+      if (this.#bulkDisagrees(archivingIds, byId)) {
         await this.resync();
       }
     }
@@ -1485,8 +1484,14 @@ class BoardStore {
     return true;
   }
 
-  // Sets, not counts: an id we did not send can mask one the server skipped, and
-  // the reconcile leaves an unlisted card holding its optimistic state.
+  /**
+   * Did the server act on something other than what we asked for? Every caller
+   * reconciles by id and leaves an unlisted card holding its optimistic state, so
+   * a disagreement here has to be answered with a resync rather than ignored.
+   *
+   * Sets, not counts: an id we did not send can mask one the server skipped, and
+   * the lengths would then match while the two sets differ.
+   */
   #bulkDisagrees(requested: readonly string[], applied: ReadonlyMap<string, unknown>): boolean {
     return applied.size !== requested.length || requested.some((id) => !applied.has(id));
   }
