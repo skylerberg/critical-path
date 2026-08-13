@@ -9,15 +9,21 @@ import {
   placeBetweenNeighbors,
   reorderRankUpdates,
   restack,
+  type Keyed,
   type Ranked,
 } from './ranks';
 import { placementAfterDrop } from './board.svelte';
 
+// Overloaded so a keyed fixture is a `Keyed` and only an explicit null widens to
+// `Ranked` — which is what lets the append family keep its non-null parameter
+// without every test having to assert its own fixtures.
+function item(id: string, sortKey: string): Keyed;
+function item(id: string, sortKey: string | null): Ranked;
 function item(id: string, sortKey: string | null): Ranked {
   return { id, sort_key: sortKey };
 }
 
-function ranked(...items: Ranked[]): Ranked[] {
+function ranked(...items: Keyed[]): Keyed[] {
   return [...items].sort(byRank);
 }
 
@@ -33,6 +39,35 @@ describe('byRank', () => {
 
   it('sorts a keyed row ahead of an unkeyed one', () => {
     expect(byRank(item('a', 'V0'), item('b', null))).toBeLessThan(0);
+  });
+});
+
+describe('the Keyed requirement on the append family', () => {
+  // Compile-time only, and never executed: `@ts-expect-error` fails `npm run
+  // check` if any of these ever start type-checking, which is the entire guard.
+  // An unkeyed row sorts last, so `extreme(items, true)` hands it back as the
+  // maximum and the generated key sorts *before* every real one — the card goes
+  // to the top of the column instead of the bottom, with no error anywhere.
+  it('will not take a list that may be unkeyed', () => {
+    const rows: Ranked[] = [item('a', null)];
+    const neverRun = (): void => {
+      // @ts-expect-error - append takes Keyed[]
+      append(rows);
+      // @ts-expect-error - appendRun takes Keyed[]
+      appendRun(rows, 1);
+      // @ts-expect-error - placeAtIndex takes Keyed[]
+      placeAtIndex(rows, 0);
+      // @ts-expect-error - placeBetweenNeighbors takes Keyed[]
+      placeBetweenNeighbors(rows, { afterId: null, beforeId: null });
+    };
+    expect(neverRun).toBeTypeOf('function');
+  });
+
+  // The repair path still takes them, which is the point of it.
+  it('still lets restack and reorderRankUpdates see an unkeyed row', () => {
+    const rows: Ranked[] = [item('a', null), item('b', 'V0')];
+    expect(restack(rows)).toHaveLength(2);
+    expect(reorderRankUpdates(rows, 'a')).toHaveLength(2);
   });
 });
 

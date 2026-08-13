@@ -608,9 +608,10 @@ describe('a queue that outlives its account', () => {
 
     await outbox.hydrate();
 
-    // By label rather than by count: the stored rows outlive a case here, since
-    // resetConnectionForTests only closes the connection.
-    expect(outbox.pending.map((op) => op.label)).toContain('first account');
+    // An exact count, which is only meaningful because resetConnectionForTests
+    // drops the stored rows as well as the connection.
+    expect(outbox.count).toBe(1);
+    expect(outbox.pending[0]?.label).toBe('first account');
   });
 
   // The drain resumes into whatever account is here now, and every branch of it

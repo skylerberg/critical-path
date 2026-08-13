@@ -7,6 +7,22 @@ export interface Ranked {
   sort_key: string | null;
 }
 
+/**
+ * A row that is definitely ranked, which is what everything reaching `append`
+ * below has to be.
+ *
+ * `byRank` sorts an unkeyed row *last*, so `extreme(items, true)` hands one back
+ * as the maximum and `append` then generates from `null` — a key that sorts
+ * before every real one. The card lands at the top of the column instead of the
+ * bottom, silently, because both types are `Ranked` and nothing else disagrees.
+ * Only the project list is ever unkeyed, and `restack` is what repairs it, so
+ * requiring this at the door costs those callers nothing and is a compile error
+ * for the one that would be wrong.
+ */
+export interface Keyed extends Ranked {
+  sort_key: string;
+}
+
 export interface Placement {
   sort_key: string;
 }
@@ -38,33 +54,35 @@ function extreme(items: readonly Ranked[], wantHighest: boolean): Ranked | null 
   }, null);
 }
 
-export function appendRun(items: readonly Ranked[], count: number): Placement[] {
+export function appendRun(items: readonly Keyed[], count: number): Placement[] {
   return keys(keyOf(extreme(items, true)), null, count).map((sort_key) => ({ sort_key }));
 }
 
-export function append(items: readonly Ranked[]): Placement {
+export function append(items: readonly Keyed[]): Placement {
   return appendRun(items, 1)[0]!;
 }
 
+// `Ranked`, unlike its opposite above: an unkeyed row sorts last, so it can
+// never be the minimum, and a list of nothing but unkeyed rows correctly
+// generates the first key of the run.
 export function prepend(items: readonly Ranked[]): Placement {
   return { sort_key: keys(null, keyOf(extreme(items, false)), 1)[0]! };
 }
 
-export function between(previous: Ranked | null, next: Ranked | null): Placement {
+export function between(previous: Keyed | null, next: Keyed | null): Placement {
   if (previous === null) return next === null ? append([]) : prepend([next]);
   if (next === null) return append([previous]);
-  const low = keyOf(previous);
-  const high = keyOf(next);
+  const low = previous.sort_key;
+  const high = next.sort_key;
   // Asking for a key between equal bounds throws. Ranking straight after
   // `previous` keeps the drop where it was aimed instead of failing the whole
   // mutation.
-  const collides = low !== null && high !== null && low >= high;
-  return { sort_key: collides ? keys(low, null, 1)[0]! : keys(low, high, 1)[0]! };
+  return { sort_key: low >= high ? keys(low, null, 1)[0]! : keys(low, high, 1)[0]! };
 }
 
 // `sorted` must already be in rank order and must not contain the item being
 // placed.
-export function placeAtIndex(sorted: readonly Ranked[], index: number): Placement {
+export function placeAtIndex(sorted: readonly Keyed[], index: number): Placement {
   if (sorted.length === 0) return append([]);
   if (index <= 0) return prepend(sorted);
   if (index >= sorted.length) return append(sorted);
@@ -128,7 +146,7 @@ export function neighborsAtIndex(sorted: readonly Ranked[], index: number): Neig
  * and a guess. Callers surface that rather than pretending the drop landed.
  */
 export function placeBetweenNeighbors(
-  siblings: readonly Ranked[],
+  siblings: readonly Keyed[],
   { afterId, beforeId }: Neighbors
 ): { placement: Placement; exact: boolean } {
   const after = siblings.find((item) => item.id === afterId) ?? null;
@@ -139,10 +157,10 @@ export function placeBetweenNeighbors(
   // One anchor still standing is enough: "immediately after this card" survives
   // whatever happened on the other side of the gap.
   if (after !== null) {
-    return { placement: between(after, neighborBy(siblings, after, true)), exact: true };
+    return { placement: between(after, adjacentSibling(siblings, after, 'after')), exact: true };
   }
   if (before !== null) {
-    return { placement: between(neighborBy(siblings, before, false), before), exact: true };
+    return { placement: between(adjacentSibling(siblings, before, 'before'), before), exact: true };
   }
   return {
     placement: append(siblings),
@@ -152,18 +170,29 @@ export function placeBetweenNeighbors(
   };
 }
 
-// The adjacent sibling on one side of `anchor` in rank order, or null at the end.
-function neighborBy(
-  siblings: readonly Ranked[],
+/**
+ * The sibling immediately on one side of `anchor` in rank order, or null at that
+ * end of the list.
+ *
+ * `side` names rank order, matching `Neighbors` and `between(previous, next)`
+ * above: 'after' is the next-higher sort key, which is the card *below* the
+ * anchor on screen. This used to take a boolean asking for the sibling "above",
+ * which meant the opposite of what it read as — passing true returned the one
+ * after the anchor — so both call sites had to be traced before they could be
+ * believed.
+ */
+function adjacentSibling<T extends Ranked>(
+  siblings: readonly T[],
   anchor: Ranked,
-  wantAbove: boolean
-): Ranked | null {
-  let best: Ranked | null = null;
+  side: 'after' | 'before'
+): T | null {
+  const wantsHigher = side === 'after';
+  let best: T | null = null;
   for (const item of siblings) {
     if (item.id === anchor.id) continue;
     const order = byRank(item, anchor);
-    if (wantAbove ? order <= 0 : order >= 0) continue;
-    if (best === null || (wantAbove ? byRank(item, best) < 0 : byRank(item, best) > 0)) {
+    if (wantsHigher ? order <= 0 : order >= 0) continue;
+    if (best === null || (wantsHigher ? byRank(item, best) < 0 : byRank(item, best) > 0)) {
       best = item;
     }
   }
@@ -186,9 +215,20 @@ export function reorderRankUpdates(orderedItems: readonly Ranked[], movedId: str
   if (index === -1) {
     return [];
   }
-  if (orderedItems.some((item) => item.sort_key === null)) {
+  // A predicate rather than `.some(... === null)` and a cast: the filter is the
+  // same test, and it is the one form that actually narrows the element type, so
+  // `placeAtIndex` is reached with proof rather than an assertion.
+  const keyed = orderedItems.filter((item): item is Keyed => item.sort_key !== null);
+  if (keyed.length !== orderedItems.length) {
     return restack(orderedItems);
   }
-  const others = orderedItems.filter((item) => item.id !== movedId);
-  return [{ id: movedId, ...placeAtIndex(others, index) }];
+  return [
+    {
+      id: movedId,
+      ...placeAtIndex(
+        keyed.filter((item) => item.id !== movedId),
+        index
+      ),
+    },
+  ];
 }

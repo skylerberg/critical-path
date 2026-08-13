@@ -111,6 +111,12 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/vitest-setup.ts'],
+    // Spies are restored between cases rather than by hand at the end of each.
+    // The convention here is `vi.spyOn(...)` … `spy.mockRestore()` as the last
+    // line, which is exactly the line a failing assertion skips — so one broken
+    // test used to leave a live spy on a shared store for every case after it,
+    // and the next failure reported was never the real one.
+    restoreMocks: true,
     // Worktrees live under .pi/worktrees/** and .claude/worktrees/**; keep them
     // out of test discovery so a run from the main checkout doesn't pick up
     // (stale) tests from sibling worktrees.

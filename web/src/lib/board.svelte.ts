@@ -40,9 +40,9 @@ import {
   placeAtIndex,
   placeBetweenNeighbors,
   restack,
+  type Keyed,
   type Neighbors,
   type Placement,
-  type Ranked,
 } from './ranks';
 import { canEditProject } from './roles';
 import { router, splitPath } from './router.svelte';
@@ -102,7 +102,7 @@ export type TaskUpdateOutcome =
 // display order is a filtered partition rather than pure rank order. Both this
 // and the neighbors a queued move remembers come from `neighborsAfterDrop`, so
 // what gets sent now and what gets replayed later cannot describe different drops.
-export function placementAfterDrop(items: readonly Ranked[], movedId: string): Placement {
+export function placementAfterDrop(items: readonly Keyed[], movedId: string): Placement {
   const others = items.filter((item) => item.id !== movedId);
   return placeBetweenNeighbors(others, neighborsAfterDrop(items, movedId)).placement;
 }

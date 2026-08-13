@@ -1,3 +1,27 @@
+import { BASE_62_DIGITS, generateNKeysBetween } from 'fractional-indexing';
+
+/**
+ * Sort keys for fixtures, in ascending order.
+ *
+ * Hand-written keys are a trap: `ranks.ts` passes `BASE_62_DIGITS`, under which
+ * the library generates `V0`, `V1`, `V2` … and rejects most other strings as
+ * *input* — `'W0'` and `'a0'` both throw, and `'a0'` looks safe only because it
+ * is what the library's *default* digit set produces. The throw comes from
+ * inside `fractional-indexing` as an unhandled rejection labelled with whichever
+ * test happened to be running, which is rarely the one holding the bad key.
+ *
+ * Asking the library removes the guesswork, and keeps a fixture valid if the
+ * digit set ever changes.
+ */
+export function testSortKeys(count: number): string[] {
+  return generateNKeysBetween(null, null, count, BASE_62_DIGITS);
+}
+
+/** The `index`-th key of an ascending run. `testSortKey(0) < testSortKey(1)`. */
+export function testSortKey(index: number): string {
+  return testSortKeys(index + 1)[index]!;
+}
+
 // Fixtures name ids 'p1' or 't9' for legibility, but ids now reach the URL through
 // an encoder that rejects anything that is not a uuid. Deriving one from the seed
 // keeps the fixture readable and stable across runs.

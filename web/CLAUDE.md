@@ -203,6 +203,27 @@ the right to believe them. The two that rewrite a source file to plant their bug
 exactly one call site, since rewriting none is that same failure wearing the
 selftest's face.
 
+`npm run check:test-guards` is the same idea aimed at the suite, which had no
+version of it: a unit test can measure nothing and report green too — a stale
+expectation, a fixture that stopped reaching the code path, an assertion that was
+already true before the fix. `scripts/test-guards.mjs` lists a bug and the edit
+that puts it back; the runner applies each one, requires the named tests to
+**fail**, and restores the file. A guard whose tests still pass has stopped
+guarding anything.
+
+It edits the source tree in place, so it restores in a `finally` and again on
+SIGINT, and refuses to start when a target file has uncommitted changes — the
+restore writes back what the file held at startup, and there must be no doubt
+about what that was. Each `find` must match **exactly once**, for the reason the
+two rewriting browser checks assert the same thing: a pattern that matches
+nothing leaves the source correct and the tests green, which is indistinguishable
+from a guard that works. That is not hypothetical — a hand-run revert once
+matched a four-space pattern against a six-space line in a different function,
+the "reverted" test passed, and the pass meant nothing.
+
+Like the `--selftest` flags, CI does not run it. Run it when you add a guard, or
+when you change what one asserts.
+
 `scripts/board-probe.ts` answers `/api` itself (`scripts/board-probe-net.ts`)
 and records every request. Nothing is mocked per-case: the probe is a board with
 no server behind it, and the checks assert it stays that way — mounting and
