@@ -174,11 +174,24 @@
   // resets the baseline and hands the next save a precondition it never loaded.
   const overlayKey = $derived(`${taskId}:${anonymous ? 'public' : 'private'}`);
 
+  // The teardown flushes the card this same run built, which is what makes the
+  // pairing safe: Svelte runs an effect's teardown immediately before that effect's
+  // own body, so the outgoing card is always sent before the incoming one replaces
+  // it, and no other effect can be reordered into the gap. It is also the only
+  // thing that runs on the dismissals that never reach close() — Back, a sidebar
+  // link, the auth redirect, a background read that fails and swaps this subtree
+  // out — none of which blur the field on the way past.
   $effect(() => {
     void overlayKey;
-    untrack(() => {
+    return untrack(() => {
       const id = taskId;
       card = freshCard();
+      // Read back off `card`, never the object handed to it: `$state` stores a
+      // deep proxy, every write goes through that proxy, and the raw object it
+      // wrapped keeps the values it was constructed with. Capturing the
+      // constructor's return would hand the teardown a card whose titleDraft is
+      // forever null.
+      const opened = card;
       if (!anonymous) {
         board.clearChanged(id);
         void board.loadTaskDetail(id);
@@ -188,6 +201,7 @@
         // runs, so the skeleton only ever shows on a cold open.
         crossProjectDeps.refresh(id);
       }
+      return () => commitTitle(opened, id);
     });
   });
 
@@ -267,7 +281,7 @@
   // title is sent here rather than left to the blur the ✕ tap fires, so the two
   // fields of one card behave alike: the description already flushes on teardown.
   function close(): void {
-    commitTitle();
+    commitTitle(card, taskId);
     card.closed = true;
     router.redirect(closePath);
   }
@@ -314,7 +328,11 @@
   // CardState object rather than copying its fields is deliberate — identity is
   // pinned, while the baseline stays the live one for that card, which a save queued
   // ahead of this one is still allowed to advance.
-  function commitTitle(state: CardState = card, id: string = taskId): void {
+  //
+  // Both parameters are required rather than defaulted to the mounted card, so that
+  // `onblur={commitTitle}` cannot typecheck: an all-optional signature reads as an
+  // event handler, and the FocusEvent would arrive silently as the card to write.
+  function commitTitle(state: CardState, id: string): void {
     const typed = state.titleDraft;
     if (typed === null) return;
     // Live over mirrored: a mobile keyboard finishing a word by composition can
@@ -366,18 +384,6 @@
       }
     });
   }
-
-  // Removing a focused input is not a blur, so the paths that never reach close()
-  // — Back, a sidebar link, the auth redirect, a background read that fails and
-  // swaps this subtree out — would otherwise drop what was typed. Declared after
-  // the reset effect above so the card it captures is the one the user typed into;
-  // the captured object reference survives `card = freshCard()` reassigning it.
-  $effect(() => {
-    void overlayKey;
-    const id = taskId;
-    const outgoing = untrack(() => card);
-    return () => commitTitle(outgoing, id);
-  });
 
   function saveDescription(doc: TiptapDoc | null): Promise<boolean> {
     // The editor flushes pending saves on teardown; skip that doomed PATCH once the
@@ -536,7 +542,7 @@
             aria-label="Task title"
             autocapitalize="sentences"
             oninput={(event) => (card.titleDraft = event.currentTarget.value)}
-            onblur={() => commitTitle()}
+            onblur={() => commitTitle(card, taskId)}
             onkeydown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();

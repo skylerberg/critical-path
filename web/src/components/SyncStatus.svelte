@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { board } from '../lib/board.svelte';
   import { connectivity } from '../lib/connectivity.svelte';
   import { outbox } from '../lib/outbox.svelte';
   import { realtime } from '../lib/realtime.svelte';
@@ -17,6 +18,7 @@
           draining: outbox.draining,
           socketInterrupted: realtime.interrupted,
           unresolvedIssues: outbox.issues.length,
+          staleRead: board.staleRead,
         })
   );
 

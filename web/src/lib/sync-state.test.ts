@@ -8,6 +8,7 @@ function inputs(overrides: Partial<SyncInputs> = {}): SyncInputs {
     draining: false,
     socketInterrupted: false,
     unresolvedIssues: 0,
+    staleRead: false,
     ...overrides,
   };
 }
@@ -40,6 +41,18 @@ describe('syncState', () => {
     expect(syncState(inputs({ unresolvedIssues: 1 }))).toBe('needs-attention');
   });
 
+  // A read that did not land means what is on screen may already be wrong, which
+  // is worse than knowing future changes will arrive late.
+  it('reports a failed refresh ahead of an interrupted socket', () => {
+    expect(syncState(inputs({ staleRead: true, socketInterrupted: true }))).toBe('stale');
+  });
+
+  // "Offline" already says the board is the last one this device saw, and says why.
+  it('prefers offline over a failed refresh, and unsent work over both', () => {
+    expect(syncState(inputs({ staleRead: true, reachable: false }))).toBe('offline');
+    expect(syncState(inputs({ staleRead: true, pendingCount: 1 }))).toBe('offline-pending');
+  });
+
   it('falls back to the socket only when nothing else is true', () => {
     expect(syncState(inputs({ socketInterrupted: true }))).toBe('reconnecting');
   });
@@ -54,6 +67,7 @@ describe('syncMessage', () => {
       syncMessage('offline-pending', 2, 0),
       syncMessage('offline', 0, 0),
       syncMessage('reconnecting', 0, 0),
+      syncMessage('stale', 0, 0),
       syncMessage('needs-attention', 0, 3),
     ];
     for (const message of messages) {
@@ -69,6 +83,7 @@ describe('syncMessage', () => {
 
   it('does not pretend the shown board is current', () => {
     expect(syncMessage('offline', 0, 0)).toBe('Offline — showing the last version on this device');
+    expect(syncMessage('stale', 0, 0)).toBe('Could not refresh — showing an older version');
   });
 });
 

@@ -459,6 +459,23 @@ describe('board store load', () => {
     expect(board.project?.id).toBe('p1');
   });
 
+  // Keeping the board up is only half the answer: without this the failure has no
+  // surface at all, because nothing else in the sync indicator can stand in for it
+  // — a read can fail with an empty outbox and a healthy socket.
+  it('records a failed background revalidation, and clears it on the next success', async () => {
+    await board.load('p1');
+    expect(board.staleRead).toBe(false);
+
+    mockRoutes(() => jsonResponse(500, { error: 'boom' }));
+    await board.resync();
+    expect(board.staleRead).toBe(true);
+    expect(board.error).toBeNull();
+
+    mockRoutes(() => undefined);
+    await board.resync();
+    expect(board.staleRead).toBe(false);
+  });
+
   // The other half: with nothing painted yet there is nothing to protect, and a
   // silent failure would leave a spinner with no way forward.
   it('still raises the error page when the first load fails', async () => {

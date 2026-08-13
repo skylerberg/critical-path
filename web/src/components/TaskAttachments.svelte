@@ -48,22 +48,15 @@
     linkError = false;
   }
 
-  // Declared above the reset below so its teardown still sees the open edit, and
-  // reading the store by the captured id rather than through `loaded` keeps the
-  // lookup on the card the title was typed on. On a plain unmount this is the only
-  // thing that runs — removing a focused input is not a blur.
+  // The teardown pairs with the reset in the same body, which is what makes it
+  // safe: Svelte runs an effect's teardown immediately before that same effect's
+  // body, so the open edit is always sent before `editingId = null` clears it, and
+  // no other effect can be reordered into the gap. The row is looked up in the store
+  // by the captured id rather than through `loaded`, which by then follows the card
+  // arriving. On a plain unmount this is the only half that runs — removing a
+  // focused input is not a blur.
   $effect(() => {
     const id = taskId;
-    return () => {
-      const target = (board.taskAttachments[id] ?? []).find((entry) => entry.id === editingId);
-      if (target !== undefined) {
-        commitEdit(target, id);
-      }
-    };
-  });
-
-  $effect(() => {
-    void taskId;
     addingLink = false;
     linkDraft = '';
     linkError = false;
@@ -71,6 +64,12 @@
     confirmingDeleteId = null;
     dropActive = false;
     pending = [];
+    return () => {
+      const target = (board.taskAttachments[id] ?? []).find((entry) => entry.id === editingId);
+      if (target !== undefined) {
+        commitEdit(target, id);
+      }
+    };
   });
 
   const focusAndSelect = (node: HTMLInputElement): void => {
@@ -179,9 +178,10 @@
   }
 
   // Enter commits and unmounts the input, so the blur that follows finds the edit
-  // already closed and this returns without writing it twice. `id` is a parameter
-  // for the teardown flush alone, which runs once taskId has already moved on.
-  function commitEdit(attachment: TaskAttachment, id: string = taskId): void {
+  // already closed and this returns without writing it twice. `id` is required
+  // rather than defaulted so it cannot silently be the wrong card: the teardown
+  // flush runs once taskId has already moved on.
+  function commitEdit(attachment: TaskAttachment, id: string): void {
     if (editingId !== attachment.id) {
       return;
     }
@@ -392,10 +392,10 @@
                 use:focusAndSelect
                 aria-label="Rename {label}"
                 maxlength={TITLE_MAX_LENGTH}
-                onblur={() => commitEdit(attachment)}
+                onblur={() => commitEdit(attachment, taskId)}
                 onkeydown={(event) => {
                   if (event.key === 'Enter') {
-                    commitEdit(attachment);
+                    commitEdit(attachment, taskId);
                   } else if (event.key === 'Escape') {
                     event.preventDefault();
                     event.stopPropagation();
