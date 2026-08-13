@@ -494,7 +494,7 @@
             ? 'bg-accent-soft'
             : 'hover:bg-accent-soft'}"
         >
-          <Avatar name={user.name} src={user.avatar_url} size="sm" />
+          <Avatar name={user.name} src={user.avatar_url} size="sm" labelled />
           <span class="min-w-0 flex-1 truncate font-medium">{user.name}</span>
         </button>
       {/each}

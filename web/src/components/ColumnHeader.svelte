@@ -1,6 +1,6 @@
 <script lang="ts">
   import { dragHandle } from 'svelte-dnd-action';
-  import { focusAndSelect } from '../lib/actions';
+  import { focusAndSelect, menuKeys } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import type { BoardColumn } from '../lib/board-types';
   import { COLUMN_SORT_OPTIONS } from '../lib/column-sort';
@@ -23,6 +23,7 @@
   let deleteOpen = $state(false);
   let menuOpen = $state(false);
   let menuEl = $state<HTMLDivElement>();
+  let triggerEl = $state<HTMLButtonElement>();
   let moveOpen = $state(false);
   let archiveOpen = $state(false);
   let sortSubmenuOpen = $state(false);
@@ -64,6 +65,15 @@
 
   // The header sits above the column's scrolling card list, in no vertical
   // scroller of its own, so the only scroll focus() could perform is the board pan.
+  // Focus goes back to the kebab rather than to the body: the rows are gone by
+  // then, and the board behind them has no resting focus of its own.
+  function closeMenu(opts?: { restoreFocus?: boolean }): void {
+    menuOpen = false;
+    if (opts?.restoreFocus === true) {
+      triggerEl?.focus({ preventScroll: true });
+    }
+  }
+
   // One header per column, so a click on another column's kebab has to reach this
   // instance to close its menu — hence no stopPropagation on the trigger, and the
   // containment check here to keep a click on our own menu from closing it.
@@ -79,7 +89,7 @@
 <svelte:window
   onclick={closeMenuOnOutsideClick}
   onkeydown={(event) => {
-    if (event.key === 'Escape') menuOpen = false;
+    if (event.key === 'Escape') closeMenu({ restoreFocus: true });
   }}
 />
 
@@ -119,7 +129,7 @@
           renaming = false;
         }
       }}
-      class="min-h-11 w-full min-w-0 flex-1 rounded-md border border-accent bg-canvas px-2 text-sm font-semibold outline-none"
+      class="min-h-11 w-full min-w-0 flex-1 rounded-md border border-accent bg-canvas px-2 text-sm font-semibold focus-ring"
     />
   {:else}
     <button
@@ -136,11 +146,12 @@
     <div bind:this={menuEl} class="relative shrink-0">
       <button
         type="button"
+        bind:this={triggerEl}
         aria-label="Options for {column.name}"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         onclick={() => (menuOpen = !menuOpen)}
-        class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-accent-soft hover:text-ink"
+        class="focus-ring flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-accent-soft hover:text-ink"
       >
         <svg class="size-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <circle cx="5" cy="12" r="1.8" />
@@ -151,12 +162,16 @@
       {#if menuOpen}
         <div
           role="menu"
+          tabindex="-1"
+          aria-label="Options for {column.name}"
+          use:menuKeys={{ onclose: closeMenu }}
           class="absolute top-full right-0 z-30 max-h-[80vh] w-56 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
         >
           {#if sortSubmenuOpen}
             <button
               type="button"
               role="menuitem"
+              tabindex="-1"
               class={menuItemClass}
               onclick={() => (sortSubmenuOpen = false)}
             >
@@ -179,6 +194,7 @@
               <button
                 type="button"
                 role="menuitem"
+                tabindex="-1"
                 class={menuItemClass}
                 onclick={() => {
                   menuOpen = false;
@@ -192,6 +208,7 @@
             <button
               type="button"
               role="menuitem"
+              tabindex="-1"
               class={menuItemClass}
               onclick={() => {
                 menuOpen = false;
@@ -216,6 +233,7 @@
             <button
               type="button"
               role="menuitemcheckbox"
+              tabindex="-1"
               aria-checked={column.is_done}
               class={menuItemClass}
               title="Tasks in a done column count as completed"
@@ -253,6 +271,7 @@
             <button
               type="button"
               role="menuitem"
+              tabindex="-1"
               aria-haspopup="menu"
               aria-expanded={sortSubmenuOpen}
               class={menuItemClass}
@@ -293,6 +312,7 @@
                 <button
                   type="button"
                   role="menuitem"
+                  tabindex="-1"
                   class={menuItemClass}
                   onclick={() => {
                     menuOpen = false;
@@ -318,6 +338,7 @@
               <button
                 type="button"
                 role="menuitem"
+                tabindex="-1"
                 class={menuItemClass}
                 onclick={() => {
                   menuOpen = false;
@@ -345,6 +366,7 @@
             <button
               type="button"
               role="menuitem"
+              tabindex="-1"
               class="{menuItemClass} hover:text-danger"
               onclick={() => {
                 menuOpen = false;

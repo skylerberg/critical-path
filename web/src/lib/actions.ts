@@ -135,3 +135,110 @@ export function scrollToTopOn(node: HTMLElement, key: string): ActionReturn<stri
     },
   };
 }
+
+interface MenuKeysParams {
+  onclose: (opts?: { restoreFocus?: boolean }) => void;
+  /**
+   * Last look at a key none of the menu keys claimed — the rows a menu advertises
+   * through `aria-keyshortcuts` have to work while they are on screen. Return true
+   * when handled.
+   */
+  onunhandledkey?: (event: KeyboardEvent, rows: HTMLElement[]) => boolean;
+}
+
+/**
+ * The keyboard half of `role="menu"`. The role is the part that costs something
+ * to get wrong: it puts NVDA and JAWS into application mode, where arrow keys are
+ * expected to drive the menu and Tab is not the navigation key — so a menu that
+ * carries the role and leaves the browser's tabbing in place is worse off than
+ * one that never claimed it.
+ *
+ * Focus moves to the first row on open and again whenever the rows are replaced
+ * under it — a submenu swaps the whole list, and removing the focused row drops
+ * focus to the body, where none of these keys reach.
+ */
+export function menuKeys(node: HTMLElement, params: MenuKeysParams): ActionReturn<MenuKeysParams> {
+  let current = params;
+
+  const rows = (): HTMLElement[] => [
+    ...node.querySelectorAll<HTMLElement>('[role^="menuitem"]:not([disabled])'),
+  ];
+
+  function focusFirst(): void {
+    rows()[0]?.focus({ preventScroll: true });
+  }
+
+  function moveFocus(to: number | 'first' | 'last'): void {
+    const focusable = rows();
+    if (focusable.length === 0) {
+      return;
+    }
+    const from = focusable.indexOf(document.activeElement as HTMLElement);
+    const index =
+      to === 'first'
+        ? 0
+        : to === 'last'
+          ? focusable.length - 1
+          : (from + to + focusable.length) % focusable.length;
+    focusable[index]?.focus();
+  }
+
+  function onkeydown(event: KeyboardEvent): void {
+    // Tab is deliberately not swallowed: the menu closes, focus lands back on the
+    // trigger, and the browser's own Tab carries on out of it from there rather
+    // than the menu trapping it.
+    if (event.key === 'Tab') {
+      current.onclose({ restoreFocus: true });
+      return;
+    }
+    switch (event.key) {
+      case 'ArrowDown':
+        moveFocus(1);
+        break;
+      case 'ArrowUp':
+        moveFocus(-1);
+        break;
+      case 'Home':
+        moveFocus('first');
+        break;
+      case 'End':
+        moveFocus('last');
+        break;
+      case 'Escape':
+        current.onclose({ restoreFocus: true });
+        break;
+      // Anchors have no Space activation of their own, and canceling the key is
+      // what keeps a button from firing a second time on keyup.
+      case ' ':
+        rows()
+          .find((row) => row === document.activeElement)
+          ?.click();
+        break;
+      default:
+        if (current.onunhandledkey?.(event, rows()) !== true) {
+          return;
+        }
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const observer = new MutationObserver(() => {
+    if (!node.contains(document.activeElement)) {
+      focusFirst();
+    }
+  });
+  observer.observe(node, { childList: true, subtree: true });
+  focusFirst();
+  node.addEventListener('keydown', onkeydown);
+
+  return {
+    update(next) {
+      current = next;
+    },
+    destroy() {
+      observer.disconnect();
+      node.removeEventListener('keydown', onkeydown);
+    },
+  };
+}

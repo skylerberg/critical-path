@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { menuKeys } from '../lib/actions';
   import { apiMessage } from '../lib/apiMessages';
   import { accentVar } from '../lib/accents';
   import { isProjectOwner, projects, type Project } from '../lib/projects.svelte';
@@ -103,8 +104,21 @@
     deleteTarget = null;
   }
 
-  function toggleMenu(event: MouseEvent, id: string): void {
+  // The list renders one trigger per card and only one menu is open, so the kebab
+  // that opened it is remembered rather than looked up: focus has to land back on
+  // that one, not on the first on screen.
+  let openTrigger: HTMLButtonElement | null = null;
+
+  function closeMenu(opts?: { restoreFocus?: boolean }): void {
+    openMenuId = null;
+    if (opts?.restoreFocus === true) {
+      openTrigger?.focus({ preventScroll: true });
+    }
+  }
+
+  function toggleMenu(event: MouseEvent & { currentTarget: HTMLButtonElement }, id: string): void {
     event.stopPropagation();
+    openTrigger = event.currentTarget;
     openMenuId = openMenuId === id ? null : id;
   }
 
@@ -128,7 +142,7 @@
 <svelte:window
   onclick={() => (openMenuId = null)}
   onkeydown={(event) => {
-    if (event.key === 'Escape') openMenuId = null;
+    if (event.key === 'Escape') closeMenu({ restoreFocus: true });
   }}
 />
 
@@ -137,6 +151,7 @@
     <button
       type="button"
       aria-label="Options for {project.name}"
+      aria-haspopup="menu"
       aria-expanded={openMenuId === project.id}
       onclick={(event) => toggleMenu(event, project.id)}
       class="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-md text-muted hover:bg-accent-soft hover:text-ink"
@@ -150,12 +165,16 @@
     {#if openMenuId === project.id}
       <div
         role="menu"
+        tabindex="-1"
+        aria-label="Options for {project.name}"
+        use:menuKeys={{ onclose: closeMenu }}
         class="absolute top-full right-0 z-20 w-56 rounded-md border border-edge bg-surface py-1 shadow-lg"
       >
         {#if projects.canEdit(project.id)}
           <button
             type="button"
             role="menuitem"
+            tabindex="-1"
             class={menuItemClass}
             onclick={() => openRename(project)}
           >
@@ -164,6 +183,7 @@
           <button
             type="button"
             role="menuitem"
+            tabindex="-1"
             class={menuItemClass}
             onclick={() => openColor(project)}
           >
@@ -175,6 +195,7 @@
         <button
           type="button"
           role="menuitem"
+          tabindex="-1"
           class={menuItemClass}
           onclick={() => openCreate(project)}
         >
@@ -183,6 +204,7 @@
         <button
           type="button"
           role="menuitem"
+          tabindex="-1"
           class={menuItemClass}
           onclick={() => openShare(project)}
         >
@@ -192,6 +214,7 @@
           <button
             type="button"
             role="menuitem"
+            tabindex="-1"
             class={menuItemClass}
             onclick={() => toggleArchive(project)}
           >
@@ -202,6 +225,7 @@
           <button
             type="button"
             role="menuitem"
+            tabindex="-1"
             class="{menuItemClass} text-danger"
             onclick={() => (deleteTarget = project)}
           >
@@ -258,7 +282,7 @@
   </article>
 {/snippet}
 
-<main use:link class="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 lg:p-8">
+<div use:link class="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 lg:p-8">
   <header class="flex items-center justify-between gap-4">
     <h1 class="text-2xl font-semibold">Projects</h1>
     <Button onclick={() => openCreate(null)}>New project</Button>
@@ -323,7 +347,7 @@
       </section>
     {/if}
   {/if}
-</main>
+</div>
 
 {#if createOpen}
   <Modal open title={copySource === null ? 'New project' : 'Copy project'} onclose={closeCreate}>

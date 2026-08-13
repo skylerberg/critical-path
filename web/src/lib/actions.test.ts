@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { focusIf, focusRemainsInside, suppressTouchContextMenu } from './actions';
+import { focusIf, focusRemainsInside, menuKeys, suppressTouchContextMenu } from './actions';
 
 function anchor(guarded = true): HTMLAnchorElement {
   const element = document.createElement('a');
@@ -175,5 +175,118 @@ describe('focusRemainsInside', () => {
 
   it('is false when nothing takes focus', () => {
     expect(focusOut(document.createElement('div'), null)).toBe(false);
+  });
+});
+
+function menu(rowCount = 3): {
+  node: HTMLElement;
+  rows: HTMLButtonElement[];
+  closed: { restoreFocus?: boolean }[];
+  destroy: () => void;
+} {
+  const node = document.createElement('div');
+  node.setAttribute('role', 'menu');
+  node.tabIndex = -1;
+  const rows = Array.from({ length: rowCount }, (_, i) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.setAttribute('role', 'menuitem');
+    row.tabIndex = -1;
+    row.textContent = `Row ${String(i)}`;
+    node.append(row);
+    return row;
+  });
+  document.body.append(node);
+  const closed: { restoreFocus?: boolean }[] = [];
+  const handle = menuKeys(node, { onclose: (opts) => closed.push(opts ?? {}) });
+  return { node, rows, closed, destroy: () => handle.destroy?.() };
+}
+
+function press(node: HTMLElement, key: string): boolean {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+  node.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+describe('menuKeys', () => {
+  it('focuses the first row on open, so the arrow keys have somewhere to start', () => {
+    const { rows, destroy } = menu();
+
+    expect(document.activeElement).toBe(rows[0]);
+    destroy();
+  });
+
+  it('wraps around the rows in both directions', () => {
+    const { node, rows, destroy } = menu();
+
+    press(node, 'ArrowDown');
+    expect(document.activeElement).toBe(rows[1]);
+    press(node, 'ArrowUp');
+    press(node, 'ArrowUp');
+    expect(document.activeElement).toBe(rows[2]);
+    destroy();
+  });
+
+  it('jumps to the ends with Home and End', () => {
+    const { node, rows, destroy } = menu();
+
+    press(node, 'End');
+    expect(document.activeElement).toBe(rows[2]);
+    press(node, 'Home');
+    expect(document.activeElement).toBe(rows[0]);
+    destroy();
+  });
+
+  it('cancels the keys it claims so the board behind it never sees them', () => {
+    const { node, destroy } = menu();
+
+    expect(press(node, 'ArrowDown')).toBe(true);
+    expect(press(node, 'Escape')).toBe(true);
+    destroy();
+  });
+
+  it('restores focus on Escape and leaves Tab uncancelled', () => {
+    const { node, closed, destroy } = menu();
+
+    press(node, 'Escape');
+    expect(closed).toEqual([{ restoreFocus: true }]);
+    expect(press(node, 'Tab')).toBe(false);
+    expect(closed[1]).toEqual({ restoreFocus: true });
+    destroy();
+  });
+
+  // A submenu replaces the whole list, and removing the focused row drops focus to
+  // the body — where none of these keys reach.
+  it('takes focus back when the rows are swapped underneath it', async () => {
+    const { node, destroy } = menu();
+    node.replaceChildren();
+    const replacement = document.createElement('button');
+    replacement.setAttribute('role', 'menuitem');
+    replacement.textContent = 'Sort by';
+    node.append(replacement);
+
+    await vi.waitFor(() => expect(document.activeElement).toBe(replacement));
+    destroy();
+  });
+
+  it('leaves an unclaimed key alone unless the menu asks for it', () => {
+    const node = document.createElement('div');
+    const row = document.createElement('button');
+    row.setAttribute('role', 'menuitem');
+    node.append(row);
+    document.body.append(node);
+    const seen: string[] = [];
+    const handle = menuKeys(node, {
+      onclose: () => undefined,
+      onunhandledkey: (event) => {
+        seen.push(event.key);
+        return event.key === 'a';
+      },
+    });
+
+    expect(press(node, 'a')).toBe(true);
+    expect(press(node, 'z')).toBe(false);
+    expect(seen).toEqual(['a', 'z']);
+    handle.destroy?.();
   });
 });

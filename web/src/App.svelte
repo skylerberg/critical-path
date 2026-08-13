@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { router } from './lib/router.svelte';
+  import { titleFor } from './lib/route-title';
   import { isAuthOptionalRoute, isPublicRoute, isSignedIn, session } from './lib/session.svelte';
   import { users } from './lib/users.svelte';
   import { announcer } from './lib/announcer.svelte';
@@ -154,6 +155,22 @@
     }
   });
 
+  // Every screen answered to the same title before this, so a tab, a bookmark and
+  // a history entry all read "Critical Path" and nothing distinguished them.
+  // Title only, deliberately: the usual companion — moving focus on navigation —
+  // would fire when a card overlay opens, since that is a route here too, and
+  // fight the dialog's own focus steps.
+  $effect(() => {
+    const openTaskId = route.name === 'project' ? route.params.taskId : undefined;
+    document.title = titleFor(route, {
+      projectName: board.project?.name,
+      taskTitle:
+        openTaskId === undefined
+          ? null
+          : (board.tasks.find((task) => task.id === openTaskId)?.title ?? null),
+    });
+  });
+
   // The shell owns the keymap so the chords and ? reach every signed-in screen, not
   // only the project routes; the shortcut layer gates the project-scoped keys itself.
   $effect(() => {
@@ -170,10 +187,19 @@
     <Spinner size="lg" />
   </div>
 {:else}
+  <!-- First in tab order, off-screen until focused: the board puts a column of
+       nav ahead of every screen, and a keyboard user otherwise tabs the whole of
+       it on each navigation. -->
+  <a
+    href="#main"
+    class="focus-ring sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:shadow-lg"
+  >
+    Skip to main content
+  </a>
   {#if showNav}
     <Nav />
   {/if}
-  <div class={showNav ? 'pb-[var(--cp-bottom-nav-h)] lg:pb-0 lg:pl-56' : ''}>
+  <main id="main" class={showNav ? 'block pb-[var(--cp-bottom-nav-h)] lg:pb-0 lg:pl-56' : 'block'}>
     {#if route.name === 'login'}
       <Login />
     {:else if route.name === 'signup'}
@@ -209,7 +235,7 @@
     {:else}
       <NotFound path={route.path} />
     {/if}
-  </div>
+  </main>
   <!-- Goes wherever the keymap listens: an open menu state with nothing rendering it
        swallows every key but Escape. -->
   {#if shortcuts.helpOpen}

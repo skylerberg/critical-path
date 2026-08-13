@@ -59,7 +59,7 @@
     bind:value={query}
     aria-label="Search archived cards"
     placeholder="Search archived cards"
-    class="mb-3 min-h-11 w-full rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
+    class="mb-3 min-h-11 w-full rounded-md border border-edge bg-canvas px-3 text-sm focus-ring focus:border-accent"
   />
 
   <!-- Load state, not emptiness: an optimistic archive fills archivedTasks before

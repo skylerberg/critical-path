@@ -52,7 +52,7 @@
         <span class="text-sm font-medium">Unassigned</span>
       {:else}
         {@const user = users.displayFor(group.user_id)}
-        <Avatar name={user.name} src={user.avatar_url} size="sm" />
+        <Avatar name={user.name} src={user.avatar_url} size="sm" labelled />
         <span class="text-sm font-medium">{displayName(user)}</span>
       {/if}
       <span class="text-xs text-muted">
@@ -80,7 +80,7 @@
   </div>
 {/snippet}
 
-<main use:link class="mx-auto flex w-full max-w-4xl flex-col gap-8 p-4 lg:p-8">
+<div use:link class="mx-auto flex w-full max-w-4xl flex-col gap-8 p-4 lg:p-8">
   <h1 class="text-2xl font-semibold">My tasks</h1>
 
   <!-- Above the list rather than in place of it: nothing keeps this screen live, so a
@@ -166,4 +166,4 @@
       </div>
     {/if}
   {/if}
-</main>
+</div>

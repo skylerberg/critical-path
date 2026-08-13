@@ -38,8 +38,8 @@ const VIEWPORTS = [
 const MEASURE = `(() => {
   const scroller = document.querySelector('[data-board-scroller]');
   const nav = document.querySelector('[data-bottom-nav]');
-  const cols = [...document.querySelectorAll('section')];
-  const list = document.querySelector('section [aria-label$="tasks"]');
+  const cols = [...document.querySelectorAll('[data-column-id]')];
+  const list = document.querySelector('[data-column-id] [aria-label$="tasks"]');
   const sr = scroller.getBoundingClientRect();
   const nr = nav.getBoundingClientRect();
   const de = document.documentElement;

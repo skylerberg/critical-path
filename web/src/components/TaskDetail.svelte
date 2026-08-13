@@ -560,7 +560,7 @@
                 event.currentTarget.blur();
               }
             }}
-            class="min-h-11 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-lg font-semibold outline-none hover:border-edge focus:border-accent focus:bg-canvas"
+            class="min-h-11 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-lg font-semibold focus-ring hover:border-edge focus:border-accent focus:bg-canvas"
           />
         {/if}
         <Button variant="ghost" aria-label="Close" onclick={close}>✕</Button>

@@ -183,7 +183,9 @@ describe('Projects', () => {
       'xl:grid-cols-3',
       '2xl:grid-cols-4'
     );
-    expect(card.closest('main')).toHaveClass('max-w-7xl', 'gap-6');
+    // The grid's parent, not a <main>: the shell owns the single main landmark now,
+    // and each screen keeps its own page container as a plain wrapper.
+    expect(card.parentElement?.parentElement).toHaveClass('max-w-7xl', 'gap-6');
   });
 
   it('keeps the options button outside the card link', async () => {

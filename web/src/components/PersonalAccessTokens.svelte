@@ -138,7 +138,7 @@
     <select
       id="token-expiry"
       bind:value={expiry}
-      class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm outline-none focus:border-accent"
+      class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm focus-ring focus:border-accent"
     >
       {#each EXPIRY_CHOICES as choice (choice.value)}
         <option value={choice.value}>{choice.label}</option>
@@ -220,7 +220,7 @@
       readonly
       value={created.token}
       aria-label="New personal access token"
-      class="min-h-11 w-full rounded-md border border-edge bg-canvas px-3 font-mono text-sm outline-none"
+      class="min-h-11 w-full rounded-md border border-edge bg-canvas px-3 font-mono text-sm focus-ring"
     />
   {/if}
   {#snippet footer()}

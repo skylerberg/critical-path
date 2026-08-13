@@ -131,7 +131,7 @@
     aria-label="Filter labels"
     placeholder="Filter or create a label"
     autocapitalize="sentences"
-    class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
+    class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm focus-ring focus:border-accent"
   />
   <div
     bind:this={listEl}

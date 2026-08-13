@@ -7,6 +7,7 @@
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { link } from '../lib/router.svelte';
   import { projectHref, taskHref } from '../lib/short-links';
+  import { shortcuts } from '../lib/shortcuts.svelte';
   import { toasts } from '../lib/toasts.svelte';
   import { truncateTitle } from '../lib/titles';
   import {
@@ -408,6 +409,24 @@
     attachWindowListeners();
   }
 
+  // The drag these handles advertise has no keyboard form — it ends wherever the
+  // pointer is released — so the key opens the picker the card menu and the task
+  // overlay already use, which reaches the same two endpoints by name. Without it
+  // the handles are focusable, announce as buttons, and do nothing when pressed.
+  function connectByKeyboard(
+    event: KeyboardEvent,
+    sourceId: string,
+    direction: 'front' | 'back'
+  ): void {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    event.stopPropagation();
+    shortcuts.dependencyMenu = {
+      taskId: sourceId,
+      direction: direction === 'back' ? 'blocker' : 'blocked',
+    };
+  }
+
   function onConnectMove(e: PointerEvent): void {
     if (e.pointerId !== connectPointerId) return;
     const rect = svgEl?.getBoundingClientRect();
@@ -511,7 +530,7 @@
               placeholder="Task title"
               aria-label="New task title"
               autocapitalize="sentences"
-              class="h-9 w-44 rounded bg-canvas px-2 text-sm text-ink outline-none"
+              class="h-9 w-44 rounded bg-canvas px-2 text-sm text-ink focus-ring"
             />
             <button
               type="submit"
@@ -697,7 +716,7 @@
           role="button"
           tabindex="0"
           aria-label="Dependency edge"
-          class="cursor-pointer outline-none"
+          class="cursor-pointer focus-ring"
           onclick={(event) => selectEdge(event, e.id)}
           onkeydown={(event) => onEdgeKeydown(event, e.id)}
         />
@@ -854,6 +873,7 @@
                 ? ''
                 : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
               onpointerdown={(event) => startConnect(event, n.id, 'front')}
+              onkeydown={(event) => connectByKeyboard(event, n.id, 'front')}
             />
             <circle
               cx={NODE_WIDTH}
@@ -879,6 +899,7 @@
                 ? ''
                 : 'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto'}"
               onpointerdown={(event) => startConnect(event, n.id, 'back')}
+              onkeydown={(event) => connectByKeyboard(event, n.id, 'back')}
             />
             <circle
               cx="0"

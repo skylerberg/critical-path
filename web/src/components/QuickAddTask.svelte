@@ -109,7 +109,7 @@
             close();
           }
         }}
-        class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
+        class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm focus-ring focus:border-accent"
       />
       <div class="flex gap-2">
         <Button type="submit" class="flex-1">Add task</Button>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { menuKeys } from '../lib/actions';
   import { board } from '../lib/board.svelte';
   import { CARD_ACTION_KEYS, type CardActionId } from '../lib/card-actions';
   import { cardMenu } from '../lib/card-menu.svelte';
@@ -112,10 +113,6 @@
     return keys.length === 0 ? undefined : keys.join(' ');
   }
 
-  function menuItems(): HTMLElement[] {
-    return [...(menuEl?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
-  }
-
   // Measured rather than guessed: the anchor is wherever the pointer was, so a
   // card low in a column would otherwise open the menu off the bottom of the screen.
   $effect(() => {
@@ -136,25 +133,6 @@
       cardMenu.close();
     }
   });
-
-  $effect(() => {
-    menuItems()[0]?.focus({ preventScroll: true });
-  });
-
-  function moveFocus(to: number | 'first' | 'last'): void {
-    const focusable = menuItems();
-    if (focusable.length === 0) {
-      return;
-    }
-    const from = focusable.indexOf(document.activeElement as HTMLElement);
-    const index =
-      to === 'first'
-        ? 0
-        : to === 'last'
-          ? focusable.length - 1
-          : (from + to + focusable.length) % focusable.length;
-    focusable[index]?.focus();
-  }
 
   async function copyLink(): Promise<void> {
     try {
@@ -191,48 +169,15 @@
     );
   }
 
-  function onkeydown(event: KeyboardEvent): void {
-    // Tab is deliberately not swallowed: the menu closes and focus carries on out
-    // of it rather than being trapped.
-    if (event.key === 'Tab') {
-      cardMenu.close({ restoreFocus: true });
-      return;
+  // The keys every row advertises have to work while the row is on screen, or the
+  // promise aria-keyshortcuts makes is one the menu does not keep.
+  function runRowShortcut(event: KeyboardEvent, rows: HTMLElement[]): boolean {
+    const index = rowForKey(event);
+    if (index === -1) {
+      return false;
     }
-    const rows = menuItems();
-    switch (event.key) {
-      case 'ArrowDown':
-        moveFocus(1);
-        break;
-      case 'ArrowUp':
-        moveFocus(-1);
-        break;
-      case 'Home':
-        moveFocus('first');
-        break;
-      case 'End':
-        moveFocus('last');
-        break;
-      case 'Escape':
-        cardMenu.close({ restoreFocus: true });
-        break;
-      // Anchors have no Space activation of their own, and canceling the key is
-      // what keeps a button from firing a second time on keyup. Clicking rather
-      // than calling the action: a link row does its work through its anchor.
-      case ' ':
-        rows.find((row) => row === document.activeElement)?.click();
-        break;
-      default: {
-        // The keys every row advertises have to work while the row is on screen,
-        // or the promise aria-keyshortcuts makes is one the menu does not keep.
-        const index = rowForKey(event);
-        if (index === -1) {
-          return;
-        }
-        rows[index]?.click();
-      }
-    }
-    event.preventDefault();
-    event.stopPropagation();
+    rows[index]?.click();
+    return true;
   }
 
   // pointerdown rather than click: a drag begun elsewhere on the board must not
@@ -282,7 +227,7 @@
     aria-label={multi
       ? `Actions for ${String(targets.length)} selected cards`
       : `Actions for ${truncateTitle(task.title)}`}
-    {onkeydown}
+    use:menuKeys={{ onclose: (opts) => cardMenu.close(opts), onunhandledkey: runRowShortcut }}
     style="left: {placed.x}px; top: {placed.y}px"
     class="fixed z-40 max-h-[80vh] w-64 overflow-y-auto rounded-md border border-edge bg-surface py-1 shadow-lg"
   >

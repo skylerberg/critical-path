@@ -99,7 +99,7 @@ afterEach(() => {
 });
 
 function column(): HTMLElement {
-  const section = document.querySelector('section[aria-label="Todo"]');
+  const section = document.querySelector('[data-column-id][aria-label="Todo"]');
   if (!(section instanceof HTMLElement)) {
     throw new Error('Todo column not rendered');
   }
@@ -107,7 +107,7 @@ function column(): HTMLElement {
 }
 
 function header(columnName: string): HTMLElement {
-  const element = document.querySelector(`section[aria-label="${columnName}"] header`);
+  const element = document.querySelector(`[data-column-id][aria-label="${columnName}"] header`);
   if (!(element instanceof HTMLElement)) {
     throw new Error(`${columnName} header not rendered`);
   }
@@ -383,7 +383,7 @@ describe('Board snapping', () => {
   ];
 
   function section(name: string): HTMLElement {
-    const element = document.querySelector(`section[aria-label="${name}"]`);
+    const element = document.querySelector(`[data-column-id][aria-label="${name}"]`);
     if (!(element instanceof HTMLElement)) {
       throw new Error(`${name} column not rendered`);
     }
@@ -630,7 +630,7 @@ describe('Board keyboard reordering', () => {
     await fireEvent.keyDown(section, { key: 'ArrowRight' });
     await vi.waitFor(() =>
       expect(
-        [...document.querySelectorAll('section[aria-label]')].map((s) =>
+        [...document.querySelectorAll('[data-column-id][aria-label]')].map((s) =>
           s.getAttribute('aria-label')
         )
       ).toEqual(['Doing', 'Todo'])

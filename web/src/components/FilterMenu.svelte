@@ -128,7 +128,7 @@
           {onkeydown}
           class="{rowClass} {selected ? 'text-accent-strong' : 'text-ink'}"
         >
-          <Avatar name={user.name} src={user.avatar_url} size="sm" />
+          <Avatar name={user.name} src={user.avatar_url} size="sm" labelled />
           <span class="min-w-0 flex-1 truncate">{displayName(user)}</span>
           <span class="text-xs text-muted">{assigneeCounts[user.id] ?? 0}</span>
           {#if selected}

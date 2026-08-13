@@ -260,7 +260,7 @@
         aria-invalid={linkError}
         placeholder="https://example.com/doc"
         onkeydown={handleLinkKeydown}
-        class="min-h-11 min-w-0 flex-1 rounded-md border bg-canvas px-3 text-sm outline-none {linkError
+        class="min-h-11 min-w-0 flex-1 rounded-md border bg-canvas px-3 text-sm focus-ring {linkError
           ? 'border-danger'
           : 'border-edge focus:border-accent'}"
       />
@@ -392,7 +392,7 @@
                     editingId = null;
                   }
                 }}
-                class="min-h-11 w-full min-w-0 flex-1 rounded-md border border-accent bg-canvas px-2 text-sm outline-none"
+                class="min-h-11 w-full min-w-0 flex-1 rounded-md border border-accent bg-canvas px-2 text-sm focus-ring"
               />
             {:else}
               <div class="flex min-w-0 flex-1 flex-col">

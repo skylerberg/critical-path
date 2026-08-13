@@ -50,7 +50,7 @@
     aria-label="Feedback message"
     rows="5"
     maxlength={MAX_LENGTH}
-    class="min-h-32 w-full resize-y rounded-md border border-edge bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+    class="min-h-32 w-full resize-y rounded-md border border-edge bg-surface px-3 py-2 text-sm focus-ring focus:border-accent"
   ></textarea>
   {#if message.length >= MAX_LENGTH - 1000}
     <p class="mt-1 text-right text-xs text-muted">{message.length} / {MAX_LENGTH}</p>

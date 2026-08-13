@@ -57,18 +57,21 @@ export async function createBrowser({ headless = true, engine = 'chromium' } = {
   let context = null;
   let page = null;
   let isMobile = null;
+  let scheme = null;
 
   async function ensureContext() {
     if (context === null) await applyViewport({ width: 1280, height: 720, mobile: false });
   }
 
-  async function applyViewport({ width, height, mobile, deviceScaleFactor }) {
-    if (context !== null && mobile === isMobile) {
+  async function applyViewport({ width, height, mobile, deviceScaleFactor, colorScheme }) {
+    const wanted = colorScheme ?? 'light';
+    if (context !== null && mobile === isMobile && wanted === scheme) {
       await page.setViewportSize({ width, height });
       return;
     }
     if (context !== null) await context.close();
     isMobile = mobile;
+    scheme = wanted;
     context = await browser.newContext({
       viewport: { width, height },
       deviceScaleFactor: deviceScaleFactor ?? (mobile ? 2 : 1),
@@ -76,14 +79,22 @@ export async function createBrowser({ headless = true, engine = 'chromium' } = {
       // mobile bottom-nav regression hinges on (overflow expands innerWidth).
       isMobile: mobile,
       hasTouch: mobile,
+      // Context-level like isMobile, so flipping it discards the page too: the
+      // palette is defined entirely under prefers-color-scheme, and half of it
+      // only exists in the scheme this selects.
+      colorScheme: wanted,
     });
     page = await context.newPage();
   }
 
   return {
-    /** Emulate a device. `mobile: true` models mobile viewport behavior. */
-    async setViewport({ width, height, mobile = true, deviceScaleFactor }) {
-      await applyViewport({ width, height, mobile, deviceScaleFactor });
+    /**
+     * Emulate a device. `mobile: true` models mobile viewport behavior.
+     * `colorScheme` drives prefers-color-scheme; like `mobile`, changing it
+     * replaces the page, so navigate again afterwards.
+     */
+    async setViewport({ width, height, mobile = true, deviceScaleFactor, colorScheme }) {
+      await applyViewport({ width, height, mobile, deviceScaleFactor, colorScheme });
     },
     /** Navigate and wait briefly for render to settle. */
     async goto(url, { wait = 350 } = {}) {

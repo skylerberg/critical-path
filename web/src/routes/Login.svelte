@@ -47,7 +47,7 @@
   }
 </script>
 
-<main class="flex min-h-dvh items-center justify-center p-4">
+<div class="flex min-h-dvh items-center justify-center p-4">
   <div class="w-full max-w-sm rounded-lg border border-edge bg-surface p-6">
     <h1 class="text-xl font-semibold">{APP_NAME}</h1>
     <p class="mt-1 text-sm text-muted">Log in to your account</p>
@@ -83,4 +83,4 @@
       <a use:link href="/signup" class="font-medium text-accent hover:underline">Sign up</a>
     </p>
   </div>
-</main>
+</div>

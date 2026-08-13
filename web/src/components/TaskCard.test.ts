@@ -120,6 +120,31 @@ describe('TaskCard', () => {
     expect(screen.getByTitle('1 comment')).toHaveTextContent('1');
   });
 
+  // The icons are aria-hidden and the unit lived only in `title`, which is a
+  // tooltip on a generic span — so the row read out as bare numbers.
+  it('reads each badge with its unit, not as a bare number', () => {
+    render(TaskCard, {
+      task: {
+        ...task,
+        comment_count: 3,
+        attachment_count: 1,
+        checklist_item_count: 4,
+        checklist_done_count: 2,
+      },
+      projectId: PROJECT_ID,
+      blockedCount: 2,
+    });
+
+    expect(screen.getByTitle('3 comments')).toHaveTextContent('3 comments');
+    expect(screen.getByTitle('1 attachment')).toHaveTextContent('1 attachment');
+    expect(screen.getByTitle('2 of 4 checklist items done')).toHaveTextContent(
+      '2/4 checklist items done'
+    );
+    expect(screen.getByTitle('Blocked by 2 open tasks')).toHaveTextContent(
+      '2 blocked by 2 open tasks'
+    );
+  });
+
   it('shows the badge row when the comment count is the only badge', () => {
     render(TaskCard, {
       task: {

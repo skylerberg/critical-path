@@ -3,9 +3,16 @@
     name: string;
     src?: string | null;
     size?: 'sm' | 'md' | 'lg';
+    /**
+     * Set where the name is already written next to the avatar, so a reader does
+     * not hear it twice. Left off, the avatar carries the name itself: `title` is
+     * a tooltip, not an accessible name, so an avatar that only had one was a
+     * silent stand-in for a person — which is every assignee on a board card.
+     */
+    labelled?: boolean;
   }
 
-  let { name, src = null, size = 'md' }: Props = $props();
+  let { name, src = null, size = 'md', labelled = false }: Props = $props();
 
   const COLORS = [
     '#e11d48',
@@ -44,7 +51,7 @@
 {#if imageSrc !== null}
   <img
     src={imageSrc}
-    alt=""
+    alt={labelled ? '' : name}
     title={name}
     draggable="false"
     class="inline-block shrink-0 rounded-full object-cover select-none {sizes[size]}"
@@ -57,6 +64,8 @@
     ]}"
     style="background-color: {color}"
     title={name}
+    role={labelled ? undefined : 'img'}
+    aria-label={labelled ? undefined : name}
   >
     {initials}
   </span>

@@ -169,7 +169,7 @@
 {#snippet memberRow(userId: string, owner: boolean)}
   {@const name = displayName(userId)}
   <li class="flex min-h-11 items-center gap-2">
-    <Avatar {name} src={users.displayFor(userId).avatar_url} size="sm" />
+    <Avatar {name} src={users.displayFor(userId).avatar_url} size="sm" labelled />
     <span class="min-w-0 flex-1 truncate text-sm">
       {name}{userId === session.user?.id ? ' (you)' : ''}
     </span>
@@ -180,7 +180,7 @@
         aria-label="Role for {name}"
         value={roleOf(userId)}
         onchange={(event) => changeRole(userId, event.currentTarget.value)}
-        class="min-h-11 rounded-md border border-edge bg-surface px-2 text-sm outline-none focus:border-accent"
+        class="min-h-11 rounded-md border border-edge bg-surface px-2 text-sm focus-ring focus:border-accent"
       >
         <option value="editor">Editor</option>
         <option value="viewer">Viewer</option>
@@ -278,7 +278,7 @@
                 aria-label="Public link"
                 value={publicUrl}
                 onfocus={(event) => event.currentTarget.select()}
-                class="min-h-11 min-w-0 flex-1 rounded-md border border-edge bg-canvas px-3 text-sm outline-none"
+                class="min-h-11 min-w-0 flex-1 rounded-md border border-edge bg-canvas px-3 text-sm focus-ring"
               />
               <Button variant="secondary" onclick={() => void copyLink()}>Copy link</Button>
             </div>

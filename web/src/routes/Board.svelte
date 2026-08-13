@@ -759,7 +759,7 @@
       onfinalize={handleColumnFinalize}
     >
       {#each localColumns as column, index (column.id)}
-        <section
+        <div
           data-column-id={column.id}
           data-snap-target
           animate:flip={{ duration: flipMs }}
@@ -829,7 +829,7 @@
               <QuickAddTask columnId={column.id} />
             </div>
           {/if}
-        </section>
+        </div>
       {/each}
     </div>
     {#if !readonly}
@@ -859,7 +859,7 @@
                   closeNewColumn();
                 }
               }}
-              class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm outline-none focus:border-accent"
+              class="min-h-11 rounded-md border border-edge bg-canvas px-3 text-sm focus-ring focus:border-accent"
             />
             <div class="flex gap-2">
               <Button type="submit" class="flex-1">Add column</Button>

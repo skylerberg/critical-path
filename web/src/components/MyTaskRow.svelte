@@ -67,7 +67,7 @@
       <Badge variant="accent">{waiting.length} waiting</Badge>
       <span class="flex -space-x-1.5">
         {#each waiting as user (user.id)}
-          <Avatar name={user.name} src={user.avatar_url} size="sm" />
+          <Avatar name={displayName(user)} src={user.avatar_url} size="sm" />
         {/each}
       </span>
     </span>
@@ -75,7 +75,7 @@
   {#if coAssignees.length > 0}
     <span class="flex -space-x-1.5">
       {#each coAssignees as user (user.id)}
-        <Avatar name={user.name} src={user.avatar_url} size="sm" />
+        <Avatar name={displayName(user)} src={user.avatar_url} size="sm" />
       {/each}
     </span>
   {/if}

@@ -232,7 +232,7 @@
   <div class="flex flex-col gap-5">
     <div class="flex items-center gap-2 text-sm text-muted">
       {#if author !== null}
-        <Avatar name={author.name} src={author.avatar_url} size="sm" />
+        <Avatar name={author.name} src={author.avatar_url} size="sm" labelled />
         <span>{author.name} edited this task · {storedAt}</span>
       {:else}
         <span>This task was last edited {storedAt}</span>
@@ -300,7 +300,7 @@
               id="merged-title"
               bind:value={mergeTitle}
               maxlength={TASK_TITLE_MAX_LENGTH}
-              class="min-h-11 w-full rounded-md border border-edge bg-canvas px-2 text-sm outline-none focus:border-accent"
+              class="min-h-11 w-full rounded-md border border-edge bg-canvas px-2 text-sm focus-ring focus:border-accent"
             />
           </div>
           {@render titlePanel('Their title', theirs.title)}
