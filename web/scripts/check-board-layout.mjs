@@ -9,6 +9,7 @@
 //
 //   node scripts/check-board-layout.mjs            # gate (used by `check:layout`)
 //   node scripts/check-board-layout.mjs --selftest # also prove the test is sensitive
+//   node scripts/check-board-layout.mjs --only=360 # one case; --list names them all
 //
 // Exits non-zero on any assertion failure. If Chromium isn't installed it
 // exits 0 with a warning; CI installs it (`npx playwright install chromium`).
@@ -18,9 +19,11 @@
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createBrowser } from './lib/browser.mjs';
+import { caseFilter } from './lib/case-filter.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = pathToFileURL(join(__dirname, 'board-layout.fixture.html')).href;
+const only = caseFilter(process.argv);
 
 const browser = await createBrowser();
 if (!browser) {
@@ -146,15 +149,18 @@ let failed = 0;
 console.log('check:layout — board + bottom-nav layout (real Chrome, fixture)');
 for (const viewport of VIEWPORTS) {
   for (const { cols, tasks, expectInternalScroll } of MATRIX) {
+    const name = `layout/${viewport.name} ${viewport.width}x${viewport.height} cols=${cols} tasks=${tasks}`;
+    if (!only.wants(name)) {
+      continue;
+    }
     const m = await render(`cols=${cols}&tasks=${tasks}`, viewport);
     const failures = checkInvariants(m, viewport, expectInternalScroll);
-    const tag = `${viewport.name} ${viewport.width}x${viewport.height} cols=${cols} tasks=${tasks}`;
     if (failures.length) {
       failed++;
-      console.log(`  ✗ ${tag}`);
+      console.log(`  ✗ ${name}`);
       for (const f of failures) console.log(`      - ${f}`);
     } else {
-      console.log(`  ✓ ${tag}`);
+      console.log(`  ✓ ${name}`);
     }
   }
 }
@@ -176,6 +182,12 @@ if (SELFTEST) {
     ['pct-height / legacy (sim)  ', 'cols=4&tasks=40&legacy=1&sim=1', false],
   ];
   for (const [label, query, mustPass] of cases) {
+    // Named under the phase they prove, so `--only=layout` brings its own
+    // sensitivity proof along and never leaves a filtered run asserting
+    // something about cases that did not run.
+    if (!only.wants(`layout/selftest ${label.trim()}`)) {
+      continue;
+    }
     const m = await render(query, vp);
     const failures = checkInvariants(m, vp, true);
     const passed = failures.length === 0;
@@ -190,9 +202,10 @@ if (SELFTEST) {
 }
 
 close();
+only.finish('check:layout');
 if (failed > 0) {
   console.log(`\ncheck:layout — FAILED (${failed})`);
   process.exit(1);
 }
-console.log('\ncheck:layout — passed');
+console.log(`\ncheck:layout — ${only.summary('passed')}`);
 process.exit(0);
