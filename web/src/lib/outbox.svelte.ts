@@ -12,7 +12,7 @@ import {
   type ConflictContext,
   type SerializedRequest,
 } from './outbox-ops';
-import { byRank, placeBetweenNeighbors, type Ranked } from './ranks';
+import { byRank, placeBetweenNeighbors, type Keyed } from './ranks';
 import { session } from './session.svelte';
 
 // A queue is a promise that the work is still coming, and an unbounded one is a
@@ -602,7 +602,7 @@ class OutboxStore {
 }
 
 interface BoardTasks {
-  tasks: (Ranked & { column_id: string })[];
+  tasks: (Keyed & { column_id: string })[];
 }
 
 // Keeps the shadow board in step as moves land, so two queued moves into the

@@ -182,7 +182,21 @@ export async function clearForUser(userId: string): Promise<void> {
   }, undefined);
 }
 
-// Test seam: the module-level connection would otherwise leak between cases.
+/**
+ * Test seam. Empties the stores as well as dropping the connection, which is the
+ * whole point: closing alone left every row a previous case wrote, so an absolute
+ * assertion about what a `hydrate()` read back was counting another test's work
+ * and the suite had to assert on labels instead.
+ *
+ * Emptying the stores through the live connection, rather than dropping the
+ * database: a drop waits on every open connection and resolves only once they
+ * are gone, so a caller that reopens one between cases — which every one of
+ * these does — leaves it blocked until the hook times out. Clearing changes no
+ * version and blocks on nothing.
+ */
 export async function resetConnectionForTests(): Promise<void> {
+  await withDb(async (db) => {
+    await Promise.all([db.clear('snapshots'), db.clear('outbox')]);
+  }, undefined);
   await close();
 }
