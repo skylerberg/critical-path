@@ -108,6 +108,19 @@ npm run check && npm run check:layout && npm run check:layout:real && npm run ch
 `src/**/*.test.ts`), `scripts/**/*.ts` and `vite.config.ts`. Nothing about the
 test files is exempt from `strict`.
 
+**Never run `prettier --write` or `eslint --fix` by hand.** `.githooks/post-commit`
+already runs both over the files each commit touched and amends the result in, so
+formatting is fixed the moment work is committed — including from a worktree, and
+including a worktree that never ran `npm install`, because `core.hooksPath` is
+repository config and `.githooks/` is checked in. Hand-formatting after every edit
+is redundant work that also churns files out from under whatever is reading them.
+
+The one thing to know is the ordering it implies: the hook runs *after* the commit,
+so `npm run format:check` is only meaningful on a committed tree. Failing it on
+uncommitted edits means nothing has fixed them yet, not that something is wrong —
+commit, and it resolves itself. `format:check` stays in the gate and in CI because
+that is the assertion that the hook actually ran.
+
 The two layout checks are different tiers, and which one you are reading matters
 when one fails. `check:layout` loads `scripts/board-layout.fixture.html` over
 `file://` — a hand-written, dependency-free mirror of the board's class chain,
@@ -304,6 +317,34 @@ await browser.close();
   immediately before that same effect's body, so pairing the two in **one** effect
   makes the ordering a framework guarantee; splitting them across two effects
   makes it depend on declaration order, which a reorder breaks silently.
+
+- **Reading `$state` during teardown is safe; writing it is not.** A write to
+  state owned by a component that is being torn down does not survive: the
+  assignment reads back correctly on the spot and is gone by the next read. There
+  is no error and no warning, so the field simply appears never to have been
+  written.
+
+  ```ts
+  // during teardown, on the same object, same tick:
+  card.pendingWrite = next; // stored
+  card.pendingWrite === next; // true
+  // …and by the next read it is back to what it was before
+  ```
+
+  So **bookkeeping that has to survive an unmount cannot live in `$state`** —
+  put it in a plain binding. That is not a niche concern, because teardown is
+  exactly when the last write of a session happens. `TaskDetail.svelte` kept its
+  write queue (`pendingWrite`) on the `$state` card, and the queue head reverting
+  mid-teardown made two flushes that should have serialised run concurrently
+  instead: both read the same baseline and one title edit went out as two PATCHes,
+  the second carrying a precondition the first had already superseded. Against a
+  real server that 409s and opens a conflict draft for a card the user has just
+  left.
+
+  The reason that survived so long is worth knowing too: removing a focused input
+  fires `blur` in Chromium and **not** in WebKit, so only Chromium ran both flush
+  paths at once — and jsdom fires no blur on unmount either, so no unit test could
+  reach it. `scripts/check-task-detail.mjs` is the guard.
 
 ## Router
 

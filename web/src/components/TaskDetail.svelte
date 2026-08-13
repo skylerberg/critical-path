@@ -256,15 +256,10 @@
    * the same baseline and the second would conflict against the first.
    *
    * Plain, and deliberately NOT a field on the `$state` card, which is where it
-   * used to live. A write to reactive state owned by a component that is being
-   * torn down does not survive — the assignment reads back correctly on the spot
-   * and is gone by the next read — so during an unmount the queue silently stopped
-   * serialising. That is not academic: on an engine where removing a focused input
-   * fires `blur` (Chromium does; WebKit does not) the dismissal runs both flush
-   * paths, and with the queue head reverting between them the two ran concurrently,
-   * both read the same baseline, and one edit went out as two PATCHes. The second
-   * carried a precondition the first had already superseded, so against a real
-   * server it 409s and opens a conflict draft for a card the user has just left.
+   * used to live: a write to reactive state during teardown does not survive, so
+   * the queue head reverted mid-unmount and stopped serialising the two flushes
+   * that race there. CLAUDE.md's Svelte conventions have the rule and what it
+   * cost; `scripts/check-task-detail.mjs` is the guard.
    *
    * One queue per component rather than per card is also what the callers want:
    * commitTitle is handed the OUTGOING card while the next one is already mounted,
