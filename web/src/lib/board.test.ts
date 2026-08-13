@@ -5,6 +5,7 @@ import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
 import { clearOfflineCache } from './offline-cache';
+import { outbox } from './outbox.svelte';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
@@ -2956,6 +2957,22 @@ describe('board store cover images', () => {
 
     expect(coverOf('t1')).toBeNull();
     expect(await requestAt(0).json()).toEqual({ image_id: null });
+  });
+
+  // The label is what the unsynced-changes panel shows for a queued write, and
+  // clearing a cover passes null — never undefined, which is what the label used
+  // to test for and so never said "Removed".
+  it('setTaskCover names clearing a cover as a removal, not as setting one', async () => {
+    const submit = vi.spyOn(outbox, 'submit');
+
+    await board.setTaskCover('t1', cover);
+    expect(submit.mock.calls[0]?.[0].label).toBe('Set a cover image');
+
+    submit.mockClear();
+    await board.setTaskCover('t1', null);
+    expect(submit.mock.calls[0]?.[0].label).toBe('Removed a cover image');
+
+    submit.mockRestore();
   });
 
   it('setTaskCover toasts and refetches the board when the request fails', async () => {

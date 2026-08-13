@@ -1631,8 +1631,6 @@ class BoardStore {
     taskActivity.invalidate(taskId);
   }
 
-  // Takes the image rather than its id so the store never rebuilds the URL the
-  // server owns.
   // Takes the attachment rather than its id so the store never rebuilds the URL
   // the server owns, and flips is_cover on the list it just moved the flag on.
   async setTaskCover(taskId: string, image: TaskAttachment | null): Promise<void> {
@@ -1646,7 +1644,7 @@ class BoardStore {
     );
     const result = await this.#send({
       entityId: taskId,
-      label: image === undefined ? 'Removed a cover image' : 'Set a cover image',
+      label: image === null ? 'Removed a cover image' : 'Set a cover image',
       request: {
         method: 'PUT',
         path: '/api/tasks/{id}/cover',
