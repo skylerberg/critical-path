@@ -334,46 +334,60 @@ export async function enforceInvitationResendRateLimit(invitationId: string): Pr
 const AUTH_IP_WINDOW_MS = 60 * 60_000;
 export const AUTH_IP_MAX_ATTEMPTS = 300;
 
+// Each budget is checked only once the ones before it have allowed the attempt,
+// which is what keeps a refused attempt from spending them. It matters most for
+// the last one: an attempt refused here never reaches a password hash, so
+// counting it would let one client in a retry loop spend a ceiling every other
+// caller at its address shares. `consumeBudgets` is the atomic form of this and
+// cannot be used — it applies one window to every budget it is given, and these
+// three run for a minute, a quarter of an hour and an hour.
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
   const now = Date.now();
   const address = clientIp(c);
   const normalizedEmail = email.toLowerCase();
-  const pairAllowed = await consumeRateLimit(`ip:${address}:${normalizedEmail}`, now);
-  // IP-independent dimension: bounds total guesses against one account even
-  // when attempts arrive from many distinct source IPs.
-  const emailAllowed = await consumeRateLimit(
-    `email:${normalizedEmail}`,
-    now,
-    EMAIL_MAX_ATTEMPTS,
-    EMAIL_WINDOW_MS
-  );
-  // The address-independent dimension, and the only thing bounding what one
-  // source can spend in total: both budgets above are keyed on the address the
-  // caller supplies, so one that varies it every request gets a fresh counter
-  // every time and neither ever refuses. Every attempt costs an argon2 verify —
-  // an address with no account included, since login verifies a dummy hash to
-  // keep its timing flat — so without this an unauthenticated caller sets the
-  // pace of the most expensive operation in the product, against a hash that
-  // holds 64 MiB while it runs. Sized well above an office signing in for the
-  // day and well below what keeps the hash busy.
-  const addressAllowed = await consumeRateLimit(
-    `auth-ip:${address}`,
-    now,
-    AUTH_IP_MAX_ATTEMPTS,
-    AUTH_IP_WINDOW_MS
-  );
-  if (!pairAllowed || !emailAllowed || !addressAllowed) {
+  const refuse = (): never => {
     throw new AppError(429, 'Too many attempts, please try again later');
+  };
+
+  if (!(await consumeRateLimit(`ip:${address}:${normalizedEmail}`, now))) {
+    refuse();
+  }
+  // Address-keyed but IP-independent: bounds total guesses against one account
+  // even when attempts arrive from many distinct source IPs.
+  if (
+    !(await consumeRateLimit(`email:${normalizedEmail}`, now, EMAIL_MAX_ATTEMPTS, EMAIL_WINDOW_MS))
+  ) {
+    refuse();
+  }
+  // Keyed on the source alone, and the only thing bounding what one of them can
+  // spend in total: both budgets above are keyed on the email the caller
+  // supplies, so one that varies it every request gets a fresh counter in each
+  // and neither ever refuses. Every attempt that gets this far costs an argon2
+  // verify — an email with no account included, since login verifies a dummy
+  // hash to keep its timing flat — so without this an unauthenticated caller
+  // sets the pace of the most expensive operation in the product.
+  //
+  // What that costs is CPU and queue depth, not memory: the hash holds 64 MiB
+  // while it runs, but concurrency is capped by the thread pool it runs on, so
+  // peak memory is the same whether attempts arrive four at a time or sixty. It
+  // is the pool that everything else — every fs read, every zlib pass — then
+  // queues behind. Sized well above an office signing in for the day and well
+  // below what keeps that pool busy.
+  if (
+    !(await consumeRateLimit(`auth-ip:${address}`, now, AUTH_IP_MAX_ATTEMPTS, AUTH_IP_WINDOW_MS))
+  ) {
+    refuse();
   }
 }
 
 const SIGNUP_IP_WINDOW_MS = 60 * 60_000;
 export const SIGNUP_IP_MAX_ATTEMPTS = 50;
 
-// The only bound on how many accounts one source can open on addresses it does
-// not own: the buckets signup already spends are keyed on the address, so a
-// fresh one costs an attacker nothing. The ceiling sits far above a whole office
-// signing up together.
+// What bounds how many accounts one source can open on addresses it does not
+// own. The auth limiter it runs beside does spend a bucket keyed on the source,
+// but that one is sized for password hashing and sits six times higher, so this
+// is the ceiling that actually binds. It is far above a whole office signing up
+// together.
 export async function enforceSignupRateLimit(c: Context): Promise<void> {
   const allowed = await consumeRateLimit(
     `signup-ip:${clientIp(c)}`,

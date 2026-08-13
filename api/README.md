@@ -48,10 +48,19 @@ CDN: one host serves the SPA and this API, and the SPA keeps its session token i
 that origin's `localStorage`, so a third-party script tag on the docs page is a
 third party holding every reader's credentials.
 
-The auth rate limiter identifies clients by socket address. When deploying
-behind a reverse proxy that appends the client IP to `X-Forwarded-For`, set
-`TRUST_PROXY=true` so the rightmost forwarded entry is used instead; leave it
-unset otherwise, since the header is client-forgeable.
+Clients are identified by socket address, by one derivation
+(`src/services/clientIp.ts`) shared by the rate limiters and the realtime
+socket ceiling. When deploying behind a reverse proxy that appends the client IP
+to `X-Forwarded-For`, set `TRUST_PROXY=true` so a forwarded entry is used
+instead; leave it unset otherwise, since the header is client-forgeable and
+everything left of what the proxy appends is caller-supplied. `TRUST_PROXY_HOPS`
+says how many entries the proxies in front of you append, counted from the right,
+and defaults to `1`. Production sets it to `2`, because a GCP HTTPS load
+balancer appends `<client-ip>, <lb-ip>` — so the client is second from the right
+and a caller cannot displace it by prepending entries of its own. A hop count
+that is too low reads a forged entry as the client and hands out a fresh budget
+per request; too high falls back to the socket address, which behind a load
+balancer is one bucket for the whole internet.
 
 Signing in and signing up share the auth limiter, which spends three buckets:
 **10 a minute per (source IP, email address) pair**, **30 per 15 minutes per
@@ -62,9 +71,21 @@ every time gets a fresh counter in both and neither ever refuses. Every attempt
 costs an argon2 verify — an address with no account included, since login
 verifies a dummy hash so an unknown address and a wrong password take the same
 time — so without a bucket keyed on the source alone, an unauthenticated caller
-sets the pace of the most expensive operation in the product, against a hash
-that holds 64 MiB while it runs. The ceiling sits far above an office signing in
-for the day and far below what keeps the hash busy.
+sets the pace of the most expensive operation in the product. What that costs is
+CPU and queue depth rather than memory: the hash holds 64 MiB while it runs, but
+concurrency is capped by the thread pool it runs on, so peak memory is the same
+whether attempts arrive four at a time or sixty — and that pool is the one every
+file read and every compression pass then waits behind. The ceiling sits far
+above an office signing in for the day and far below what keeps that pool busy.
+
+The three are spent in that order and stop at the first refusal, so an attempt
+one bucket turns away does not spend the others. That matters for the third:
+what it bounds is password hashing, an attempt refused earlier never reaches a
+hash, and counting those would let one client in a retry loop spend a ceiling
+every other caller at its address shares. It also means these buckets bound
+hashing per source and not much else — `POST /api/auth/change-password` and
+`DELETE /api/auth/me` verify a password with no budget at all, so an
+authenticated caller can still drive the hash as fast as it likes.
 
 Account creation is capped separately at **50 an hour per source IP**, identified
 the same way; past it `POST /api/auth/signup` answers `429` and creates nothing.
@@ -1438,15 +1459,29 @@ every other token's sockets connected.
 Three ceilings bound what one caller can hold open, because a socket is reachable
 before any request is made and costs a `credentialIsLive` query every heartbeat:
 a handshake past **200 live sockets from one source address** is answered `429`
-rather than upgraded, and that is the only one of the three that applies before a
-token is presented; an account holding more than **20 sockets** has its oldest
-closed with code 4429, so the connection that just arrived is the one that
-survives and a client reconnecting through a half-open socket is never refused by
-the socket it is replacing; and a socket may hold **1000 subscriptions**, past
-which further `subscribe` frames are ignored. A `subscribe` naming anything that
-is not a project id is ignored too. The subscription ceiling is sized for
-`cpath watch` with no `--project`, which subscribes to every board the account
-can list.
+rather than upgraded — and the refused socket is then destroyed, since a peer
+that never closes its own half would otherwise leave the process holding a
+descriptor this path deliberately does not count — and that is the only one of
+the three that applies before a token is presented; an account holding more than
+**20 sockets** has its oldest closed with code 4429, so the connection that just
+arrived is the one that survives and a client reconnecting through a half-open
+socket is never refused by the socket it is replacing; and a socket may hold
+**1000 subscriptions**, past which further `subscribe` frames are ignored. A
+`subscribe` naming anything that is not a uuid is ignored too — the id is a
+syntax check and nothing more, since delivery re-checks access per event, so
+subscribing to a project that does not exist or cannot be read is allowed and
+simply never delivers. It is lower-cased on the way in, because Postgres only
+ever gives an id back lower-cased and a socket in a differently-cased room would
+be silently deaf. The subscription ceiling is sized for `cpath watch` with no
+`--project`, which subscribes to every board the account can list.
+
+All three are **per process**, unlike the rate limiter, which shares counters
+through Redis. Production runs two replicas and the load balancer places each
+socket independently, so the fleet-wide figures are those numbers times the
+replica count, and the per-account eviction only ever sees the sockets on its own
+replica — a client's 21st socket landing on the other replica evicts nothing.
+They are concurrency bounds on what one process can be made to hold, not
+guarantees about a person; nothing above is a security boundary.
 
 Every mutation emits an event after its transaction commits. The envelope is
 `{ type, project_id, data }`. The table below summarizes each payload; the

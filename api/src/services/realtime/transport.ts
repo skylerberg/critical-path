@@ -104,6 +104,7 @@ function evictExcessUserSockets(userId: string): void {
 
 function handleConnection(ws: WebSocket): void {
   let missedPongs = 0;
+  let authenticating = false;
 
   const authTimer = setTimeout(() => {
     if (!getSocketState(ws)) {
@@ -150,10 +151,20 @@ function handleConnection(ws: WebSocket): void {
 
     const state = getSocketState(ws);
     if (!state) {
+      // Set before the await and never cleared, so one socket has at most one
+      // credential lookup in flight. Frames arrive from a single read
+      // synchronously, so without it a client could put thousands of `auth`
+      // frames in one write and start a lookup for each against a pool of ten —
+      // and two that resolved together would both registerSocket, the second
+      // replacing the first's subscription set and stranding its rooms.
+      if (authenticating) {
+        return;
+      }
       if (message.type !== 'auth' || typeof message.token !== 'string') {
         ws.close(CLOSE_UNAUTHORIZED, 'Expected auth message');
         return;
       }
+      authenticating = true;
       const credential = await authenticateBearerToken(db, message.token);
       if (!credential) {
         ws.close(CLOSE_UNAUTHORIZED, 'Invalid or expired token');
@@ -172,15 +183,18 @@ function handleConnection(ws: WebSocket): void {
 
     switch (message.type) {
       // A project id is only ever a uuid, and an unvalidated one is a room key
-      // an attacker chooses the length and the number of.
+      // an attacker chooses the length and the number of. Lower-cased because a
+      // uuid validates in any casing but Postgres only ever gives one back
+      // lower-cased: an upper-cased subscribe would join a room no publish can
+      // ever name, leaving the client silently deaf on that project.
       case 'subscribe':
         if (typeof message.project_id === 'string' && isValidUuid(message.project_id)) {
-          subscribeToProject(ws, message.project_id);
+          subscribeToProject(ws, message.project_id.toLowerCase());
         }
         return;
       case 'unsubscribe':
         if (typeof message.project_id === 'string') {
-          unsubscribeFromProject(ws, message.project_id);
+          unsubscribeFromProject(ws, message.project_id.toLowerCase());
         }
         return;
       case 'pong':
@@ -242,7 +256,16 @@ export function attachRealtime(server: UpgradableServer): RealtimeHandle {
   const socketsByAddress = new Map<string, number>();
 
   server.on('upgrade', (request, socket, head) => {
-    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    let pathname: string;
+    try {
+      pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    } catch {
+      // llhttp accepts request targets WHATWG-URL rejects ("//[", "/\"). The
+      // throw used to escape to the process-wide handler, leaving the socket
+      // open — one leaked descriptor per request, and no ceiling involved.
+      socket.destroy();
+      return;
+    }
     if (pathname !== '/ws') {
       socket.destroy();
       return;
@@ -252,8 +275,21 @@ export function attachRealtime(server: UpgradableServer): RealtimeHandle {
     const held = socketsByAddress.get(address) ?? 0;
     if (held >= MAX_SOCKETS_PER_ADDRESS) {
       // Answered rather than reset, so a client that has run itself out of
-      // sockets can tell that from a network fault.
-      socket.end('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n');
+      // sockets can tell that from a network fault — but destroyed once the
+      // answer is flushed. end() alone only half-closes, and the peer decides
+      // when to close the other half: a client that never does held a
+      // descriptor this path deliberately does not count, so tripping the
+      // ceiling was the cheapest way to hold sockets outside it.
+      socket.once('finish', () => socket.destroy());
+      const body = 'Too many connections from this address';
+      socket.end(
+        'HTTP/1.1 429 Too Many Requests\r\n' +
+          'Connection: close\r\n' +
+          'Content-Type: text/plain\r\n' +
+          `Content-Length: ${String(Buffer.byteLength(body))}\r\n` +
+          '\r\n' +
+          body
+      );
       return;
     }
 

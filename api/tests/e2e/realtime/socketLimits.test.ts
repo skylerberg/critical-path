@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import net from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
 import WebSocket from 'ws';
 import { app } from '../../../src/index';
@@ -52,6 +53,31 @@ describe('Realtime socket limits', () => {
     const client = await RtClient.connect(port, token);
     opened.push(client);
     return client;
+  }
+
+  // How many sockets the server itself still holds. A peer that keeps its half
+  // of a connection open sees no 'close' of its own when the server releases
+  // one, so this is the only thing that can distinguish a released descriptor
+  // from a leaked one.
+  const heldConnections = (): Promise<number> =>
+    new Promise((resolve, reject) => {
+      (server as unknown as import('node:http').Server).getConnections((err, count) => {
+        if (err) reject(err);
+        else resolve(count);
+      });
+    });
+
+  // Releases land asynchronously, so poll to the expected figure rather than
+  // sleeping a guessed interval; returns whatever it last read on timeout so
+  // the caller's assertion is what reports the mismatch.
+  async function settledConnections(expected: number): Promise<number> {
+    const deadline = Date.now() + 4000;
+    let held = await heldConnections();
+    while (held > expected && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      held = await heldConnections();
+    }
+    return held;
   }
 
   it('drops the oldest socket once an account holds more than the per-user ceiling', async () => {
@@ -108,33 +134,55 @@ describe('Realtime socket limits', () => {
   // Unauthenticated on purpose: the ceiling has to bite in the handshake
   // window, which is the only part of a socket's life that costs nothing to
   // reach and where no account is known yet.
-  it('refuses a handshake past the per-address ceiling with 429', async () => {
-    const sockets: WebSocket[] = [];
-    // Resolves null for a socket that opened and the status for one refused, so
-    // the assertion is "a refusal arrives, and it is a 429" rather than "the
-    // Nth attempt exactly": a socket a previous test is still closing counts
-    // against the same address and would move N by one.
-    const open = (): Promise<number | null> =>
+  //
+  // Raw sockets rather than the ws client, for two reasons: the refusal is a
+  // plain HTTP response that ws hides behind its own error handling, and
+  // allowHalfOpen is what makes the peer stop cooperating — it reads the
+  // refusal and never closes its own half, which is exactly the client the
+  // ceiling has to survive.
+  it('refuses a handshake past the per-address ceiling and closes what it refused', async () => {
+    const sockets: net.Socket[] = [];
+    const upgrade = (): Promise<{ socket: net.Socket; status: string }> =>
       new Promise((resolve, reject) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
-        ws.on('open', () => {
-          sockets.push(ws);
-          resolve(null);
+        const socket = net.connect({ port, host: '127.0.0.1', allowHalfOpen: true }, () => {
+          socket.write(
+            'GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+              `Sec-WebSocket-Key: ${Buffer.from('0123456789abcdef').toString('base64')}\r\n` +
+              'Sec-WebSocket-Version: 13\r\n\r\n'
+          );
         });
-        ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
-        ws.on('error', reject);
+        sockets.push(socket);
+        socket.once('data', (chunk) => resolve({ socket, status: chunk.toString('latin1') }));
+        socket.once('error', reject);
       });
 
     try {
-      let refused: number | null = null;
+      let refused: { socket: net.Socket; status: string } | null = null;
       for (let i = 0; i <= MAX_SOCKETS_PER_ADDRESS && refused === null; i++) {
-        refused = await open();
+        const attempt = await upgrade();
+        // Null after the loop means every attempt through the ceiling was
+        // accepted; a socket an earlier test is still closing would only move
+        // which attempt is refused, never whether one is.
+        if (!attempt.status.startsWith('HTTP/1.1 101')) {
+          refused = attempt;
+        }
       }
-      // Null here means every attempt through the ceiling was accepted.
-      expect(refused).toBe(429);
+      expect(refused?.status).toMatch(/^HTTP\/1\.1 429 /);
+
+      // What the server still holds, not what the client observes: the peer
+      // keeps its half open, so its own 'close' never fires and only the
+      // server's connection count can say whether the descriptor was released.
+      // Refusals are deliberately uncounted by the ceiling, so a refusal the
+      // server does not destroy is a socket held outside every bound there is —
+      // and tripping the ceiling would be the cheapest way to get one.
+      const held = await heldConnections();
+      for (let i = 0; i < 20; i++) {
+        await upgrade();
+      }
+      expect(await settledConnections(held)).toBeLessThanOrEqual(held);
     } finally {
-      for (const ws of sockets) {
-        ws.close();
+      for (const socket of sockets) {
+        socket.destroy();
       }
     }
 
@@ -147,6 +195,75 @@ describe('Realtime socket limits', () => {
       ws.on('error', reject);
     });
     afterRelease.close();
+  });
+
+  // llhttp accepts request targets WHATWG-URL rejects, and the parse used to
+  // throw past the destroy: one leaked descriptor per request, no ceiling
+  // involved.
+  it('destroys the socket for an upgrade target it cannot parse', async () => {
+    const held = await heldConnections();
+    const sockets: net.Socket[] = [];
+    try {
+      for (const target of ['//[', '/\\', '//%', 'http://[']) {
+        const socket = net.connect({ port, host: '127.0.0.1', allowHalfOpen: true }, () => {
+          socket.write(
+            `GET ${target} HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n` +
+              'Connection: Upgrade\r\n' +
+              `Sec-WebSocket-Key: ${Buffer.from('0123456789abcdef').toString('base64')}\r\n` +
+              'Sec-WebSocket-Version: 13\r\n\r\n'
+          );
+        });
+        socket.on('error', () => undefined);
+        sockets.push(socket);
+      }
+      expect(await settledConnections(held)).toBeLessThanOrEqual(held);
+    } finally {
+      for (const socket of sockets) {
+        socket.destroy();
+      }
+    }
+  });
+
+  // Frames from one read are dispatched synchronously, so two auth frames in a
+  // single write both used to pass the "not registered yet" check and both
+  // register. The second replaced the first's subscription set, stranding any
+  // room joined between them — an entry no close would ever clean up and that
+  // no longer counted toward the per-socket ceiling.
+  it('acts on one auth frame per socket however many arrive together', async () => {
+    const user = await ctx.createUser('rt-limit-double-auth');
+    const projectId = newId();
+    expect(
+      (await ctx.request(user.token).post('/api/projects', { id: projectId, name: 'double auth' }))
+        .status
+    ).toBe(201);
+
+    const authOks = await new Promise<number>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      let count = 0;
+      ws.on('error', reject);
+      ws.on('open', () => {
+        const auth = JSON.stringify({ type: 'auth', token: user.token });
+        for (let i = 0; i < 20; i++) {
+          ws.send(auth);
+        }
+        ws.send(JSON.stringify({ type: 'subscribe', project_id: projectId }));
+      });
+      ws.on('message', (raw) => {
+        if ((JSON.parse(String(raw)) as { type: string }).type === 'auth_ok') count++;
+      });
+      // Closed from here and awaited, so the registry assertions below read a
+      // settled state rather than one still unwinding.
+      setTimeout(() => ws.close(), 600);
+      ws.on('close', () => resolve(count));
+    });
+
+    expect(authOks).toBe(1);
+    await settle();
+    expect(socketsForUser(user.id)).toHaveLength(0);
+    // Empty because the socket's own cleanup found the subscription, not
+    // because a second registration replaced the set holding it — that is the
+    // membership no close would ever have reached.
+    expect(projectSockets(projectId)).toHaveLength(0);
   });
 
   it('still delivers to a project a live socket subscribed to', async () => {
