@@ -414,9 +414,11 @@ router.get(
       'Get a task in board-payload shape plus its project id, archived_at (null unless the ' +
       'task is archived), its attachments, its full comment stream oldest first, and its ' +
       'checklist in list order. Archived tasks are readable here even though they are absent ' +
-      'from every board payload. `series_id` names the recurring series this card belongs to and ' +
-      '`series_summary` renders that recurrence in English; both are null for every other card — ' +
-      'including one whose series has since been deleted.',
+      'from every board payload. `series` describes the recurring series this card belongs to — ' +
+      'its id, the rule as English, and the preset and anchor date a recurrence menu is built ' +
+      'from — and is null for every other card, including one whose series has since been ' +
+      'deleted. It is the whole of what a card knows about its series: the template’s labels, ' +
+      'assignees and checklist stay on the series itself.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...getTaskResponses,
@@ -488,8 +490,7 @@ router.get(
         ...result.task,
         project_id: result.project_id,
         archived_at: result.archived_at,
-        series_id: seriesRef?.id ?? null,
-        series_summary: seriesRef?.summary ?? null,
+        series: seriesRef,
         comments,
         checklist_items,
         attachments,

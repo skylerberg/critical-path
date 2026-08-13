@@ -12,6 +12,7 @@ import { boardTaskSchema } from './board';
 import { commentSchema } from './comments';
 import { checklistItemSchema } from './checklists';
 import { attachmentSchema } from './attachments';
+import { taskSeriesRefSchema } from './taskSeries';
 
 export const TASK_TITLE_MIN_LENGTH = 1;
 export const TASK_TITLE_MAX_LENGTH = 2000;
@@ -58,8 +59,7 @@ export const patchTaskSchema = type({
 export const taskDetailResponseSchema = boardTaskSchema.merge({
   project_id: 'string',
   archived_at: 'string | null',
-  series_id: 'string | null',
-  series_summary: 'string | null',
+  series: taskSeriesRefSchema.or('null'),
   comments: commentSchema.array(),
   checklist_items: checklistItemSchema.array(),
   attachments: attachmentSchema.array(),

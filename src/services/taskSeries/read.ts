@@ -1,7 +1,7 @@
 import type { Kysely, Selectable } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB, TaskSeries } from '../../db/types';
-import type { TaskSeriesResponse, TiptapDoc } from '../../schemas/index';
+import type { TaskSeriesRef, TaskSeriesResponse, TiptapDoc } from '../../schemas/index';
 import { dateText } from '../dateText';
 import { presetFor, summarize } from './rule';
 
@@ -125,13 +125,14 @@ export async function fetchSeries(
   }));
 }
 
-export interface TaskSeriesRef {
-  id: string;
-  summary: string;
-}
-
 // Card detail only. Every board payload carrying this would mean a join and a
 // rule render per card, for a line one open card at a time ever shows.
+//
+// The preset and the anchor ride along with the summary because the card's own
+// recurrence menu is built from them, and they cost nothing extra here: both are
+// pure functions of the rrule and start_date this row already selects. Without
+// them the card has to fetch the whole project's series list to preselect one
+// dropdown.
 export async function seriesRefForTask(
   db: Kysely<DB>,
   taskId: string
@@ -149,7 +150,13 @@ export async function seriesRefForTask(
   if (!row) {
     return null;
   }
-  return { id: row.id, summary: summarize(row.rrule, row.start_date as string) };
+  const startDate = row.start_date as string;
+  return {
+    id: row.id,
+    summary: summarize(row.rrule, startDate),
+    preset: presetFor(row.rrule, startDate),
+    start_date: startDate,
+  };
 }
 
 export type SeriesRow = Selectable<TaskSeries> & { start_date_text: string };
