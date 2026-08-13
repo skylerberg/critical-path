@@ -18,6 +18,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:layout": "node scripts/check-board-layout.mjs",
     "check:layout:real": "node scripts/check-board-layout-real.mjs",
+    "check:task-detail": "node scripts/check-task-detail.mjs",
     "playwright:install": "playwright install chromium webkit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

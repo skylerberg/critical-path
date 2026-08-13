@@ -89,9 +89,6 @@
     baseUpdatedAt: string | null;
     baseTitle: string | null;
     baseDescription: TiptapDoc | null;
-    // The title and the description share one queue: overlapping writes would carry
-    // the same baseline and the second would conflict against the first.
-    pendingWrite: Promise<unknown>;
     descriptionSaveState: SaveState;
     // A checklist or an attachment list with nothing in it has nothing to show, so
     // the quick bar asks for one and the section stays until the card is closed.
@@ -112,7 +109,6 @@
       baseUpdatedAt: null,
       baseTitle: null,
       baseDescription: null,
-      pendingWrite: Promise.resolve(),
       descriptionSaveState: 'idle',
       checklistRevealed: false,
       attachmentsRevealed: false,
@@ -255,9 +251,30 @@
     taskActivity.reset();
   });
 
+  /**
+   * The title and the description share one queue: overlapping writes would carry
+   * the same baseline and the second would conflict against the first.
+   *
+   * Plain, and deliberately NOT a field on the `$state` card, which is where it
+   * used to live. A write to reactive state owned by a component that is being
+   * torn down does not survive — the assignment reads back correctly on the spot
+   * and is gone by the next read — so during an unmount the queue silently stopped
+   * serialising. That is not academic: on an engine where removing a focused input
+   * fires `blur` (Chromium does; WebKit does not) the dismissal runs both flush
+   * paths, and with the queue head reverting between them the two ran concurrently,
+   * both read the same baseline, and one edit went out as two PATCHes. The second
+   * carried a precondition the first had already superseded, so against a real
+   * server it 409s and opens a conflict draft for a card the user has just left.
+   *
+   * One queue per component rather than per card is also what the callers want:
+   * commitTitle is handed the OUTGOING card while the next one is already mounted,
+   * and those two writes have to serialise against each other too.
+   */
+  let pendingWrite: Promise<unknown> = Promise.resolve();
+
   function queueWrite<T>(run: () => Promise<T>): Promise<T> {
-    const next = card.pendingWrite.then(run);
-    card.pendingWrite = next.catch(() => undefined);
+    const next = pendingWrite.then(run);
+    pendingWrite = next.catch(() => undefined);
     return next;
   }
 
