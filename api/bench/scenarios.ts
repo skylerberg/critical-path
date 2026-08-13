@@ -420,11 +420,20 @@ export const scenarios: Scenario[] = [
         .execute();
       moveColumns = columns.map((column) => column.id);
     },
-    async run(ctx, iteration) {
-      // Alternated so the run does not pile every card into one column and then
-      // measure an empty move.
-      const [from, to] =
-        iteration % 2 === 0 ? [moveColumns[0], moveColumns[1]] : [moveColumns[1], moveColumns[0]];
+    async run(ctx) {
+      // Read which column currently holds the cards rather than alternating on
+      // the iteration number: the cards stay wherever the last run left them, so
+      // a parity rule silently measures an empty move every other run.
+      const counts = await ctx.db
+        .selectFrom('task')
+        .select((eb) => ['task.column_id', eb.fn.countAll<string>().as('n')])
+        .where('task.column_id', 'in', moveColumns)
+        .groupBy('task.column_id')
+        .orderBy('n', 'desc')
+        .execute();
+      const from = counts[0]?.column_id ?? moveColumns[0];
+      const to = moveColumns.find((column) => column !== from);
+
       return consume(
         await ctx
           .as(ctx.ids.hubUser.token)

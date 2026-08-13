@@ -172,6 +172,20 @@ export async function runScenario(
   }
 }
 
+// Mutating scenarios delete the rows they create, but a write also logs
+// activity, and a single column move logs one row per card. Left alone that is
+// tens of thousands of rows per run, landing in exactly the table the unseen
+// dot and the activity log read — so the second run measures a heavier instance
+// than the first and the tool stops being a benchmark. Every seeded activity
+// row is stamped in the past, so the cutoff separates them cleanly.
+export async function pruneRunActivity(db: Kysely<DB>, since: Date): Promise<number> {
+  const result = await db
+    .deleteFrom('task_activity')
+    .where('task_activity.created_at', '>=', since)
+    .executeTakeFirst();
+  return Number(result.numDeletedRows);
+}
+
 /** Reads the body so the timing covers serialization, which is not free at 5,000 cards. */
 export async function consume(response: Response): Promise<ScenarioOutcome> {
   const text = await response.text();
