@@ -66,4 +66,45 @@ export const guards = [
     replace: '',
     tests: ['src/App.test.ts'],
   },
+  {
+    name: 'a socket frame proves the server is reachable',
+    file: 'src/lib/realtime.svelte.ts',
+    find: "    connectivity.noteReached();\n    if (typeof raw !== 'string') {",
+    replace: "    if (typeof raw !== 'string') {",
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    name: 'reachability returning reconnects the socket at once',
+    file: 'src/lib/realtime.svelte.ts',
+    find: `    if (this.#stopped || this.#socket !== null) {
+      return;
+    }
+    clearTimeout(this.#reconnectTimer);
+    this.#reconnectTimer = undefined;
+    this.#backoff = INITIAL_BACKOFF_MS;
+    this.#open();`,
+    replace: '    return;',
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    name: 'an aborted request is not an outage',
+    file: 'src/api/client.ts',
+    find: "    if (error instanceof Error && error.name === 'AbortError') {\n      return;\n    }\n",
+    replace: '',
+    tests: ['src/api/client.test.ts'],
+  },
+  {
+    name: 'only the states that mean it say "Offline"',
+    file: 'src/lib/sync-state.ts',
+    find: "      return 'Live updates paused — reconnecting';",
+    replace: "      return 'Offline — reconnecting';",
+    tests: ['src/lib/sync-state.test.ts'],
+  },
+  {
+    name: 'the reachability seed lowers but never raises',
+    file: 'src/lib/connectivity.svelte.ts',
+    find: '    if (!navigator.onLine) {\n      this.#become(false);\n    }',
+    replace: '    this.reachable = navigator.onLine;',
+    tests: ['src/lib/connectivity.svelte.test.ts'],
+  },
 ];
