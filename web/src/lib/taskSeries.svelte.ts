@@ -160,13 +160,19 @@ class TaskSeriesStore {
     }
   }
 
-  async remove(id: string): Promise<void> {
+  // Reports whether the series is actually gone rather than throwing, because
+  // the failure path here is a toast and a resync. A caller holding its own copy
+  // of the row — a card naming the recurrence it came from — has no other way to
+  // tell a delete that landed from one that was put back.
+  async remove(id: string): Promise<boolean> {
     this.#listToken += 1;
     this.list = this.list.filter((series) => series.id !== id);
     try {
       assertOk(await api.DELETE('/api/task-series/{id}', { params: { path: { id } } }));
+      return true;
     } catch (error) {
       await mutationFailed(this, error, 'Failed to delete the series');
+      return false;
     }
   }
 

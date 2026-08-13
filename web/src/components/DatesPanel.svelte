@@ -22,35 +22,22 @@
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   const due = $derived(isCalendarDate(task?.due_date) ? task.due_date : null);
 
-  const seriesRef = $derived(board.taskSeriesRefs[taskId] ?? null);
-  // The card detail carries the id and the wording; the rule itself lives in the
-  // series store, which is the only thing that knows which preset to preselect.
-  const series = $derived(
-    seriesRef === null ? null : (taskSeries.list.find((row) => row.id === seriesRef.id) ?? null)
-  );
-  const ruleLoaded = $derived(seriesRef === null || series !== null);
+  // The card's own detail carries the whole rule, so this panel never reads the
+  // project's series list — which is why there is no loading state below, and no
+  // window in which the card cannot say what it repeats on.
+  const series = $derived(board.taskSeriesRefs[taskId] ?? null);
 
   let startDate = $state(todayISO());
-  // null follows the store; a string is what this panel is mid-way through
+  // null follows the card; a string is what this panel is mid-way through
   // choosing, and outlives neither a save nor a cancel.
   let choice = $state<string | null>(null);
   let busy = $state(false);
   let error = $state('');
 
-  // Keyed on the ref, not the loaded rule: the ref is what decides whether the
-  // card repeats at all, and reading 'none' off a rule still in flight would
-  // both say "Doesn't repeat" about a card that does and spring the stop
-  // confirmation on someone who never asked for it.
-  const current = $derived(choice ?? (seriesRef === null ? 'none' : (series?.preset ?? 'custom')));
-  const stopping = $derived(current === 'none' && seriesRef !== null);
+  // 'custom' is a rule set outside the curated set — named, never re-picked.
+  const current = $derived(choice ?? (series === null ? 'none' : (series.preset ?? 'custom')));
+  const stopping = $derived(current === 'none' && series !== null);
   const anchor = $derived(series?.start_date ?? startDate);
-
-  $effect(() => {
-    const projectId = board.currentProjectId;
-    if (seriesRef !== null && projectId !== null) {
-      void taskSeries.load(projectId);
-    }
-  });
 
   // A date input reports '' for any incomplete value, so clearing one segment to
   // retype it looks exactly like a deliberate clear. Ignoring it keeps the field
@@ -83,36 +70,37 @@
   function choose(value: string): void {
     choice = value;
     error = '';
-    if (value === 'none' || value === 'custom' || !ruleLoaded) {
+    if (value === 'none' || value === 'custom') {
       return;
     }
     const preset = value as RecurrencePreset;
     void run(async () => {
-      if (series === null) {
-        const row = await taskSeries.createFromTask(taskId, {
-          id: newId(),
-          preset,
-          start_date: startDate,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        });
-        board.setTaskSeriesRef(taskId, { id: row.id, summary: row.summary });
-      } else {
-        const row = await taskSeries.patch(series.id, { preset });
-        board.setTaskSeriesRef(taskId, { id: row.id, summary: row.summary });
-      }
+      const row =
+        series === null
+          ? await taskSeries.createFromTask(taskId, {
+              id: newId(),
+              preset,
+              start_date: startDate,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            })
+          : await taskSeries.patch(series.id, { preset });
+      board.setTaskSeriesRef(taskId, {
+        id: row.id,
+        summary: row.summary,
+        preset: row.preset,
+        start_date: row.start_date,
+      });
     });
   }
 
   function stop(): void {
-    const id = seriesRef?.id;
+    const id = series?.id;
     if (id === undefined) return;
     void run(async () => {
-      // remove() reports its own failure and resyncs the list rather than
-      // throwing, so the list it leaves behind is what says whether the series
-      // is actually gone. Clearing the card unconditionally would name no
-      // recurrence on a card that still has one.
-      await taskSeries.remove(id);
-      if (!taskSeries.list.some((row) => row.id === id)) {
+      // remove() reports its failure with a toast rather than throwing, so its
+      // answer is what says whether the series is gone. Clearing the card
+      // regardless would name no recurrence on a card that still has one.
+      if (await taskSeries.remove(id)) {
         board.setTaskSeriesRef(taskId, null);
       }
     });
@@ -148,7 +136,7 @@
     <select
       id="{uid}-repeats"
       value={current}
-      disabled={busy || !ruleLoaded}
+      disabled={busy}
       onchange={(event) => choose(event.currentTarget.value)}
       class="min-h-11 rounded-md border border-edge bg-surface px-3 text-sm disabled:opacity-60"
     >
@@ -156,14 +144,14 @@
       {#if current === 'custom'}
         <!-- A rule from outside the curated set. Offered as the current value so
              the menu can say what it is, and disabled so it cannot be re-picked. -->
-        <option value="custom" disabled>{seriesRef?.summary ?? 'Custom'}</option>
+        <option value="custom" disabled>{series?.summary ?? 'Custom'}</option>
       {/if}
       {#each RECURRENCE_PRESETS as option (option)}
         <option value={option}>{presetLabel(option, anchor)}</option>
       {/each}
     </select>
 
-    {#if seriesRef === null && current !== 'none'}
+    {#if series === null && current !== 'none'}
       <label for="{uid}-start" class="mt-2 text-sm font-medium">Starts on</label>
       <input
         id="{uid}-start"
@@ -182,7 +170,7 @@
         <Button variant="secondary" disabled={busy} onclick={() => (choice = null)}>Cancel</Button>
       </div>
     </div>
-  {:else if seriesRef !== null}
+  {:else if series !== null}
     <p class="text-sm text-muted">
       A new card appears when its turn comes round. Cards already created stay as they are, and
       editing this one does not change what repeats.

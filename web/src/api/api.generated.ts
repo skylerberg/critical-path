@@ -908,7 +908,7 @@ export interface paths {
     };
     /**
      * Get task detail
-     * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), its attachments, its full comment stream oldest first, and its checklist in list order. Archived tasks are readable here even though they are absent from every board payload. `series_id` names the recurring series this card belongs to and `series_summary` renders that recurrence in English; both are null for every other card — including one whose series has since been deleted.
+     * @description Get a task in board-payload shape plus its project id, archived_at (null unless the task is archived), its attachments, its full comment stream oldest first, and its checklist in list order. Archived tasks are readable here even though they are absent from every board payload. `series` describes the recurring series this card belongs to — its id, the rule as English, and the preset and anchor date a recurrence menu is built from — and is null for every other card, including one whose series has since been deleted. It is the whole of what a card knows about its series: the template’s labels, assignees and checklist stay on the series itself.
      */
     get: operations['getApiTasksById'];
     put?: never;
@@ -2268,8 +2268,7 @@ export interface components {
       label_ids: string[];
       open_cross_project_blocker_count: number;
       project_id: string;
-      series_id: string | null;
-      series_summary: string | null;
+      series: components['schemas']['TaskSeriesRef'] | null;
       sort_key: string;
       title: string;
       updated_at: string;
@@ -2310,6 +2309,20 @@ export interface components {
       updated_at: string;
       user_id: string;
     };
+    TaskSeriesRef: {
+      id: string;
+      preset: components['schemas']['SeriesPreset'];
+      start_date: string;
+      summary: string;
+    };
+    SeriesPreset:
+      | 'daily'
+      | 'monthly_date'
+      | 'monthly_weekday'
+      | 'weekdays'
+      | 'weekly'
+      | 'yearly'
+      | null;
     PatchTask: {
       /** Format: uuid */
       column_id?: string;
@@ -2338,7 +2351,7 @@ export interface components {
       missed_occurrence_count: number;
       next_occurrence_date: string | null;
       open_occurrence_count: number;
-      preset: components['schemas']['PostPreset'];
+      preset: components['schemas']['SeriesPreset'];
       project_id: string;
       rrule: string;
       start_date: string;
@@ -2353,14 +2366,6 @@ export interface components {
       id: string;
       text: string;
     };
-    PostPreset:
-      | 'daily'
-      | 'monthly_date'
-      | 'monthly_weekday'
-      | 'weekdays'
-      | 'weekly'
-      | 'yearly'
-      | null;
     CreateSeriesFromTask: {
       /** Format: uuid */
       id: string;
@@ -2655,7 +2660,7 @@ export interface components {
       missed_occurrence_count: number;
       next_occurrence_date: string | null;
       open_occurrence_count: number;
-      preset: components['schemas']['PostPreset'];
+      preset: components['schemas']['SeriesPreset'];
       project_id: string;
       rrule: string;
       start_date: string;
