@@ -11,9 +11,9 @@ lives; nothing else should copy it.
 
 ## What to run by hand
 
-Not `check:all`. It is minutes of typecheck, three headless-browser checks, the
-suite and a production build, and CI runs it on every push anyway. Run what
-covers your change:
+Not `check:all`. It is minutes of typecheck, every browser check, the suite and
+a production build, and CI runs it on every push anyway. Run what covers your
+change:
 
 ```sh
 npm test -- src/lib/board.test.ts   # a file or a directory; seconds
