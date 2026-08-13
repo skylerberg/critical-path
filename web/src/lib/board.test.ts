@@ -1327,6 +1327,18 @@ describe('board store mutations', () => {
     expect(url.searchParams.has('move_tasks_to')).toBe(false);
   });
 
+  // The label is what the unsynced-changes panel shows for a queued delete, and
+  // the column is the only thing holding its own name — read after the removal it
+  // is always “”, which is a queued write the panel cannot describe.
+  it('deleteColumn names the column it deleted', async () => {
+    const submit = vi.spyOn(outbox, 'submit');
+
+    await board.deleteColumn('c3');
+
+    expect(submit.mock.calls[0]?.[0].label).toBe('Deleted column “Empty”');
+    submit.mockRestore();
+  });
+
   it('setTaskLabels applies optimistically and PUTs the full set', async () => {
     await board.setTaskLabels('t2', ['l1']);
 

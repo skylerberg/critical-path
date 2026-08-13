@@ -146,6 +146,21 @@ export function buildGraph(
   // Every synthetic node has in-degree 0 and out-degree 1, so none can sit on a
   // cycle and the cycle code needs no special case. In LR order they land
   // immediately left of their host, which is where blockers belong.
+  //
+  // One remote task can block several local ones, and each of those hosts expands
+  // independently, so the same remote is reached once per host. It gets one node
+  // and an edge per host: a second node under the same id is a duplicate key in
+  // the graph's `{#each}`, which throws and takes the whole route down.
+  const emittedRemoteIds = new Set<string>();
+  const emittedEdgeIds = new Set<string>();
+  const addCrossProjectEdge = (from: string, to: string): void => {
+    const id = edgeId(from, to);
+    if (emittedEdgeIds.has(id)) {
+      return;
+    }
+    emittedEdgeIds.add(id);
+    edges.push({ id, from, to });
+  };
   for (const task of tasks) {
     const count = task.open_cross_project_blocker_count;
     if (count === 0) continue;
@@ -153,23 +168,26 @@ export function buildGraph(
     if (loaded === undefined) {
       const id = crossProjectNodeId(task.id);
       nodes.push({ kind: 'placeholder', id, hostTaskId: task.id, count });
-      edges.push({ id: edgeId(id, task.id), from: id, to: task.id });
+      addCrossProjectEdge(id, task.id);
       continue;
     }
     for (const remote of loaded.tasks) {
-      nodes.push({
-        kind: 'remote',
-        id: remote.task_id,
-        title: remote.title,
-        projectName: remote.project_name,
-        isDone: remote.is_done,
-      });
-      edges.push({ id: edgeId(remote.task_id, task.id), from: remote.task_id, to: task.id });
+      if (!emittedRemoteIds.has(remote.task_id)) {
+        emittedRemoteIds.add(remote.task_id);
+        nodes.push({
+          kind: 'remote',
+          id: remote.task_id,
+          title: remote.title,
+          projectName: remote.project_name,
+          isDone: remote.is_done,
+        });
+      }
+      addCrossProjectEdge(remote.task_id, task.id);
     }
     if (loaded.hiddenCount > 0) {
       const id = crossProjectHiddenNodeId(task.id);
       nodes.push({ kind: 'hidden', id, hostTaskId: task.id, count: loaded.hiddenCount });
-      edges.push({ id: edgeId(id, task.id), from: id, to: task.id });
+      addCrossProjectEdge(id, task.id);
     }
   }
 

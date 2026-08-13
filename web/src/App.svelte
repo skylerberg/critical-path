@@ -105,6 +105,11 @@
       taskSeries.reset();
       drafts.clearAll();
       conflictDrafts.clearAll();
+      // Unsent work and the issues describing it belong to the account that is
+      // leaving: replayed under the next one they would send one person's edits as
+      // another's, and the panel would name their cards. This also puts the queue
+      // back in a state that can hydrate, which the next account needs.
+      outbox.reset();
       realtime.disconnect();
       shortcuts.reset();
     }

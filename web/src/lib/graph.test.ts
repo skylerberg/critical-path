@@ -316,6 +316,28 @@ describe('buildGraph cross-project placeholders', () => {
     expect(edges).toEqual([{ id: 'far->a', from: 'far', to: 'a' }]);
   });
 
+  // One upstream task can block several local ones, and each host expands on its
+  // own. A second node under the same id is a duplicate key in the graph's
+  // {#each}, which throws in dev and in prod alike and takes the route down.
+  it('emits one node for a remote task that blocks two expanded hosts', () => {
+    const remote = { task_id: 'far', title: 'Sign off', project_name: 'Design', is_done: false };
+    const { nodes, edges } = buildGraph([crossTask('a', 1), crossTask('b', 1)], columns, {
+      expanded: new Set(['a', 'b']),
+      loaded: new Map([
+        ['a', { tasks: [remote], hiddenCount: 0 }],
+        ['b', { tasks: [remote], hiddenCount: 0 }],
+      ]),
+    });
+
+    expect(nodes.filter((n) => n.id === 'far')).toHaveLength(1);
+    expect(new Set(nodes.map((n) => n.id)).size).toBe(nodes.length);
+    // One edge per host, so both cards still show what blocks them.
+    expect(edges).toEqual([
+      { id: 'far->a', from: 'far', to: 'a' },
+      { id: 'far->b', from: 'far', to: 'b' },
+    ]);
+  });
+
   it('collapses unreadable remote blockers into one unnamed node', () => {
     const { nodes } = buildGraph([crossTask('a', 2)], columns, {
       expanded: new Set(['a']),

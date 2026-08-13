@@ -1183,6 +1183,10 @@ class BoardStore {
   async deleteColumn(columnId: string, moveTasksTo?: string): Promise<void> {
     const movedLive = this.tasksInColumn(columnId);
     const movedArchived = this.archivedTasks.filter((task) => task.column_id === columnId);
+    // Captured before the drop, as deleteTask and archiveTask capture theirs: the
+    // column is the only thing holding its own name, so reading it afterwards
+    // labels every queued delete “”.
+    const name = this.columns.find((column) => column.id === columnId)?.name ?? '';
     this.columns = this.columns.filter((column) => column.id !== columnId);
     if (moveTasksTo !== undefined && movedLive.length + movedArchived.length > 0) {
       // Rank then id, the order the server relocates in.
@@ -1201,7 +1205,6 @@ class BoardStore {
       this.tasks = this.tasks.filter((task) => task.column_id !== columnId);
       this.archivedTasks = this.archivedTasks.filter((task) => task.column_id !== columnId);
     }
-    const name = this.columns.find((column) => column.id === columnId)?.name ?? '';
     const result = await this.#sendOrFail<MovedTasksResponse | undefined>({
       entityId: columnId,
       label: `Deleted column “${truncateTitle(name)}”`,
