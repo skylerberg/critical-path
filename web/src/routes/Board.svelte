@@ -15,13 +15,14 @@
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, TOUCH_DRAG_DELAY_MS } from '../lib/card-menu.svelte';
   import { draftKey, drafts } from '../lib/drafts.svelte';
+  import { edgeScrollSpeed, fitsHorizontally } from '../lib/board-scroll';
   import {
-    edgeScrollSpeed,
-    fitsHorizontally,
-    nearestSnapIndex,
-    type SnapAlign,
-    snapScrollLeft,
-  } from '../lib/board-scroll';
+    columnSections,
+    columnSnapAlign,
+    restingSnapIndex,
+    slideColumnIntoView as slideIntoView,
+    snapTargets,
+  } from '../lib/board-snap';
   import { SWIPE_AXIS_LOCK_PX, swipeTarget, SWIPE_VELOCITY_SAMPLE_MS } from '../lib/board-swipe';
   import { motion } from '../lib/motion.svelte';
   import { shortcuts } from '../lib/shortcuts.svelte';
@@ -142,12 +143,6 @@
   // start-alignment would flatten it to 300 everywhere; the centered middle is
   // what it would cost.
   const endColumnIndex = $derived(readonly ? localColumns.length - 1 : -1);
-  function columnSnapAlign(index: number): string {
-    if (index === 0) {
-      return 'snap-start';
-    }
-    return index === endColumnIndex ? 'snap-end' : 'snap-center';
-  }
 
   const columnKey = $derived(draftKey.addColumn(projectId));
   const newColumnName = $derived(drafts.get(columnKey));
@@ -195,56 +190,8 @@
   let dragScrolled = false;
   const snapActive = $derived(!pointerDragging && centeringTarget === null);
 
-  function columnSections(scroller: HTMLElement): HTMLElement[] {
-    return Array.from(scroller.querySelectorAll<HTMLElement>('section'));
-  }
-
-  // Every snap target, not just the columns: the "+ Add column" tile is one too,
-  // so leaving it out puts the index off by one whenever it is involved.
-  function snapTargets(scroller: HTMLElement): HTMLElement[] {
-    return Array.from(scroller.querySelectorAll<HTMLElement>('[data-snap-target]'));
-  }
-
-  // The `scrollLeft` that parks one snap target, alignment and all.
-  //
-  // Reading the alignment and scroll padding back off the elements keeps the
-  // breakpoints that set them in one place — the class list — rather than
-  // duplicating rem values and a `md` cutoff here. That matters more now that the
-  // three targets of a phone board do not agree: the first column starts, the last
-  // one ends, the rest center. `scroll-snap-align` serializes as `<block>
-  // <inline>`, so the last token is the axis this scroller uses; a stylesheet-less
-  // environment reports neither, which reads as start.
-  function snapLeft(scroller: HTMLElement, target: HTMLElement): number {
-    const inline = getComputedStyle(target).scrollSnapAlign.split(' ').pop();
-    const align: SnapAlign = inline === 'center' || inline === 'end' ? inline : 'start';
-    const style = getComputedStyle(scroller);
-    return snapScrollLeft(
-      scroller.scrollLeft,
-      scroller.getBoundingClientRect(),
-      target.getBoundingClientRect(),
-      align,
-      {
-        left: parseFloat(style.scrollPaddingLeft) || 0,
-        right: parseFloat(style.scrollPaddingRight) || 0,
-      }
-    );
-  }
-
-  // Which target the board is resting on — the swipe's origin. Compared as scroll
-  // positions rather than as distances from the middle of the screen, because with
-  // the ends aligned to the edges the resting target is not the middle one.
-  function restingSnapIndex(scroller: HTMLElement): number {
-    return nearestSnapIndex(
-      scroller.scrollLeft,
-      snapTargets(scroller).map((target) => snapLeft(scroller, target))
-    );
-  }
-
   function slideColumnIntoView(scroller: HTMLElement, section: HTMLElement): void {
-    scroller.scrollTo({
-      left: snapLeft(scroller, section),
-      behavior: motion.reduced ? 'auto' : 'smooth',
-    });
+    slideIntoView(scroller, section, !motion.reduced);
   }
 
   // Slow, continuous edge scroll while dragging. Pointer drags only: a keyboard
@@ -742,7 +689,8 @@
           animate:flip={{ duration: flipMs }}
           aria-label={column.name}
           class="flex max-h-full w-[var(--cp-board-col-w)] shrink-0 snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start {columnSnapAlign(
-            index
+            index,
+            endColumnIndex
           )}"
         >
           <ColumnHeader
