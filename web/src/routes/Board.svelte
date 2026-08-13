@@ -372,6 +372,13 @@
       velocity: number;
     }
     let swipe: Swipe | null = null;
+    // The settle below is scheduled from an event, so unlike the centering
+    // effect's identical fallback it has no cleanup of its own to be scoped to.
+    // This is that scope. A settle that outlives what it was settling re-arms
+    // snap under a gesture still in progress; one that outlives the component
+    // runs against a window that is no longer there, which is a crash rather
+    // than a glitch under a test runner tearing jsdom down around it.
+    let cancelSettle: (() => void) | null = null;
     const releaseSnap = () => {
       scroller.style.scrollSnapType = '';
     };
@@ -467,18 +474,29 @@
       // Snap stays off until the slide settles on the target, so re-arming it is
       // the no-op it should be rather than a second, visible correction.
       slideColumnIntoView(scroller, section);
+      cancelSettle?.();
       let done = false;
       const finish = () => {
         if (done) {
           return;
         }
         done = true;
+        cancelSettle = null;
         window.clearTimeout(timeout);
         scroller.removeEventListener('scrollend', finish);
         releaseSnap();
       };
       const timeout = window.setTimeout(finish, SWIPE_SETTLE_TIMEOUT_MS);
       scroller.addEventListener('scrollend', finish);
+      // Cancelling is not finishing: this drops the settle without re-arming
+      // snap, which is what both callers want — a new gesture turns snap off
+      // again anyway, and teardown releases it once on its way out.
+      cancelSettle = () => {
+        done = true;
+        cancelSettle = null;
+        window.clearTimeout(timeout);
+        scroller.removeEventListener('scrollend', finish);
+      };
     };
 
     scroller.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -490,6 +508,7 @@
       scroller.removeEventListener('touchmove', onTouchMove);
       scroller.removeEventListener('touchend', onTouchEnd);
       scroller.removeEventListener('touchcancel', onTouchEnd);
+      cancelSettle?.();
       releaseSnap();
     };
   });
