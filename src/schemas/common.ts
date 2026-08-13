@@ -97,6 +97,22 @@ export const hexColor = type('string').pipe((s, ctx) => {
   return s.toLowerCase();
 });
 
+// A query parameter arrives as a string, so this parses rather than validates.
+// Matched on digits before it is handed to Number, which is what rejects the
+// things Number accepts and a paging offset never means: '1e9', ' 12 ', '0x10',
+// '' and 'Infinity' all become numbers, and none of them is a count a client
+// meant to send.
+export const nonNegativeIntegerParam = type('string').pipe((s, ctx) => {
+  if (!/^\d+$/.test(s)) {
+    return ctx.error('a whole number of 0 or more');
+  }
+  const parsed = Number(s);
+  if (!Number.isSafeInteger(parsed)) {
+    return ctx.error('a whole number no larger than 2^53 - 1');
+  }
+  return parsed;
+});
+
 export const boundedUuidArray = (max: number) =>
   uuid.array().pipe((arr, ctx) => {
     if (arr.length > max) {

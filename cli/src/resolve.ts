@@ -108,8 +108,64 @@ export async function listProjects(ctx: RuntimeContext): Promise<ProjectListItem
   return assertOk(await ctx.api.GET('/api/projects')).projects;
 }
 
+// Each page groups only its own cards, so walking the pages means merging the
+// groups rather than concatenating them: one person can appear on two pages,
+// and the same card can reach a group from two of the caller's tasks.
+function mergePersonGroups(groups: readonly MyTaskPersonGroup[][]): MyTaskPersonGroup[] {
+  const byUser = new Map<string | null, Map<string, MyTaskLink>>();
+  for (const group of groups.flat()) {
+    let tasks = byUser.get(group.user_id);
+    if (tasks === undefined) {
+      tasks = new Map();
+      byUser.set(group.user_id, tasks);
+    }
+    for (const task of group.tasks) {
+      tasks.set(task.id, task);
+    }
+  }
+  // The server's ordering, restated because a merged group's size is not known
+  // until every page is in: busiest first, unassigned last.
+  return [...byUser]
+    .map(([user_id, tasks]) => ({ user_id, tasks: [...tasks.values()] }))
+    .sort((a, b) => {
+      if (a.user_id === null || b.user_id === null) {
+        return a.user_id === b.user_id ? 0 : a.user_id === null ? 1 : -1;
+      }
+      return b.tasks.length - a.tasks.length || a.user_id.localeCompare(b.user_id);
+    });
+}
+
+// The page is large enough that a second request is rare, but resolving a task
+// by name has to see every task the caller has: stopping at the first page
+// would report "no task matching" for one that plainly exists. Follows to the
+// end and hands callers one complete response.
 export async function listMyTasks(ctx: RuntimeContext): Promise<MyTasksResponse> {
-  return assertOk(await ctx.api.GET('/api/my-tasks'));
+  const pages: MyTasksResponse[] = [assertOk(await ctx.api.GET('/api/my-tasks'))];
+
+  for (;;) {
+    const offset = pages[pages.length - 1]!.next_offset;
+    if (offset === null) break;
+    // Stringified because a query parameter is a string on the wire, which is
+    // what the spec declares and the generated client asks for.
+    const page = assertOk(
+      await ctx.api.GET('/api/my-tasks', { params: { query: { offset: String(offset) } } })
+    );
+    // A next_offset that does not advance would loop forever against a server
+    // that disagrees with this client about paging; stopping is the only safe
+    // reading of it.
+    if (page.next_offset !== null && page.next_offset <= offset) {
+      pages.push({ ...page, next_offset: null });
+      break;
+    }
+    pages.push(page);
+  }
+
+  return {
+    tasks: pages.flatMap((page) => page.tasks),
+    waiting_on_you: mergePersonGroups(pages.map((page) => page.waiting_on_you)),
+    you_are_waiting_on: mergePersonGroups(pages.map((page) => page.you_are_waiting_on)),
+    next_offset: null,
+  };
 }
 
 type ProjectRef = { value: string; source: 'argument' | 'env' | 'config' };

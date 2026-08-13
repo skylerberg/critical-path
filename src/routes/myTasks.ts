@@ -1,10 +1,13 @@
 import { Hono } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import { getMyTasks } from '../services/myTasks';
+import { queryValidator } from '../middleware/requestValidator';
+import { getMyTasks, MY_TASKS_PAGE_SIZE } from '../services/myTasks';
 import {
+  myTasksQuerySchema,
   myTasksResponseSchema,
   jsonResponse,
   type Returned,
+  badRequestErrorResponse,
   unauthorizedErrorResponse,
   internalServerErrorResponse,
 } from '../schemas/index';
@@ -33,17 +36,24 @@ router.get(
       'carries its unfinished blockers and dependents with their assignees, plus ' +
       'waiting_user_ids: the other people whose unfinished work it blocks. The companion arrays ' +
       'group the same edges by person — waiting_on_you from the dependents, you_are_waiting_on ' +
-      'from the blockers, which alone can carry an unassigned group.',
+      'from the blockers, which alone can carry an unassigned group, and both cover this page ' +
+      `only. At most ${MY_TASKS_PAGE_SIZE} tasks come back per call; next_offset carries the ` +
+      'offset that fetches the next page and is null on the last one. The ordering above is ' +
+      'applied before the page is cut, so the first page holds the most urgent work rather ' +
+      'than an arbitrary slice of it.',
     security: [{ bearerAuth: [] }],
     responses: {
       ...getMyTasksResponses,
+      ...badRequestErrorResponse,
       ...unauthorizedErrorResponse,
       ...internalServerErrorResponse,
     },
   }),
+  queryValidator(myTasksQuerySchema),
   async (c): Promise<Returned<typeof getMyTasksResponses>> => {
     const user = c.get('user');
-    return c.json(await getMyTasks(c.get('db'), user.id), 200);
+    const { offset } = c.req.valid('query');
+    return c.json(await getMyTasks(c.get('db'), user.id, offset), 200);
   }
 );
 

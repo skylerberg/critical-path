@@ -1,8 +1,14 @@
-import { sql, type Kysely, type RawBuilder } from 'kysely';
+import { sql, type ExpressionBuilder, type Kysely, type RawBuilder } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import type { DB } from '../db/types';
 import type { MyTask, MyTaskLink, MyTaskPersonGroup, MyTasksResponse } from '../schemas/index';
 import { accessibleProjectsFilter } from './authorization';
+
+// Large enough that a person with a normal amount of work assigned never
+// reaches it — the whole point is that most callers never learn there is a page
+// at all. It is a ceiling on one response, not on what the caller may see:
+// next_offset walks the rest.
+export const MY_TASKS_PAGE_SIZE = 1000;
 
 interface AssigneeRow {
   user_id: string;
@@ -154,7 +160,56 @@ function hiddenEdgeCount(userId: string, direction: 'blocked_by' | 'blocking'): 
   )`;
 }
 
-function myTasksQuery(db: Kysely<DB>, userId: string) {
+type MyTasksEb = ExpressionBuilder<DB, 'project' | 'task' | 'board_column'>;
+
+// One definition of an edge worth showing, per direction: open at the far end,
+// unarchived, and in a project the caller may read. The visible list and the
+// number the ordering ranks by are both built from it, so the rank cannot come
+// to disagree with the list it ranks — which is what would silently put a card
+// on the wrong page.
+//
+// The two directions are spelled out rather than parameterised because the
+// alias is part of the table expression, and a computed one collapses Kysely's
+// inference to an uncallable union.
+function openBlockers(eb: MyTasksEb, userId: string) {
+  return eb
+    .selectFrom('task_dependency')
+    .innerJoin('task as blocker', 'blocker.id', 'task_dependency.blocker_task_id')
+    .innerJoin('board_column as blocker_column', 'blocker_column.id', 'blocker.column_id')
+    .whereRef('task_dependency.blocked_task_id', '=', 'task.id')
+    .where('blocker_column.is_done', '=', false)
+    .where('blocker.archived_at', 'is', null)
+    .where((ib) =>
+      ib.exists(
+        ib
+          .selectFrom('project')
+          .select('project.id')
+          .whereRef('project.id', '=', 'blocker.project_id')
+          .where(accessibleProjectsFilter(userId))
+      )
+    );
+}
+
+function openDependents(eb: MyTasksEb, userId: string) {
+  return eb
+    .selectFrom('task_dependency')
+    .innerJoin('task as dependent', 'dependent.id', 'task_dependency.blocked_task_id')
+    .innerJoin('board_column as dependent_column', 'dependent_column.id', 'dependent.column_id')
+    .whereRef('task_dependency.blocker_task_id', '=', 'task.id')
+    .where('dependent_column.is_done', '=', false)
+    .where('dependent.archived_at', 'is', null)
+    .where((ib) =>
+      ib.exists(
+        ib
+          .selectFrom('project')
+          .select('project.id')
+          .whereRef('project.id', '=', 'dependent.project_id')
+          .where(accessibleProjectsFilter(userId))
+      )
+    );
+}
+
+function myTasksRows(db: Kysely<DB>, userId: string) {
   return db
     .selectFrom('project')
     .innerJoin('task', 'task.project_id', 'project.id')
@@ -165,6 +220,10 @@ function myTasksQuery(db: Kysely<DB>, userId: string) {
       'project.name as project_name',
       'board_column.name as column_name',
       'task.title',
+      // Carried only to break ties in the outer ordering; not part of the
+      // response, and dropped by the mapper.
+      'board_column.sort_key as column_sort_key',
+      'task.sort_key as task_sort_key',
       jsonArrayFrom(
         eb
           .selectFrom('task_assignee')
@@ -173,10 +232,7 @@ function myTasksQuery(db: Kysely<DB>, userId: string) {
           .orderBy('task_assignee.user_id')
       ).as('assignee_rows'),
       jsonArrayFrom(
-        eb
-          .selectFrom('task_dependency')
-          .innerJoin('task as blocker', 'blocker.id', 'task_dependency.blocker_task_id')
-          .innerJoin('board_column as blocker_column', 'blocker_column.id', 'blocker.column_id')
+        openBlockers(eb, userId)
           .select((ib) => [
             'blocker.id',
             'blocker.project_id',
@@ -189,31 +245,12 @@ function myTasksQuery(db: Kysely<DB>, userId: string) {
                 .orderBy('task_assignee.user_id')
             ).as('assignee_rows'),
           ])
-          .whereRef('task_dependency.blocked_task_id', '=', 'task.id')
-          .where('blocker_column.is_done', '=', false)
-          .where('blocker.archived_at', 'is', null)
-          .where((ib) =>
-            ib.exists(
-              ib
-                .selectFrom('project')
-                .select('project.id')
-                .whereRef('project.id', '=', 'blocker.project_id')
-                .where(accessibleProjectsFilter(userId))
-            )
-          )
           .orderBy('blocker.title')
           .orderBy('blocker.id')
       ).as('blocked_by_rows'),
       hiddenEdgeCount(userId, 'blocked_by').as('hidden_blocked_by_count'),
       jsonArrayFrom(
-        eb
-          .selectFrom('task_dependency')
-          .innerJoin('task as dependent', 'dependent.id', 'task_dependency.blocked_task_id')
-          .innerJoin(
-            'board_column as dependent_column',
-            'dependent_column.id',
-            'dependent.column_id'
-          )
+        openDependents(eb, userId)
           .select((ib) => [
             'dependent.id',
             'dependent.project_id',
@@ -226,22 +263,23 @@ function myTasksQuery(db: Kysely<DB>, userId: string) {
                 .orderBy('task_assignee.user_id')
             ).as('assignee_rows'),
           ])
-          .whereRef('task_dependency.blocker_task_id', '=', 'task.id')
-          .where('dependent_column.is_done', '=', false)
-          .where('dependent.archived_at', 'is', null)
-          .where((ib) =>
-            ib.exists(
-              ib
-                .selectFrom('project')
-                .select('project.id')
-                .whereRef('project.id', '=', 'dependent.project_id')
-                .where(accessibleProjectsFilter(userId))
-            )
-          )
           .orderBy('dependent.title')
           .orderBy('dependent.id')
       ).as('blocking_rows'),
       hiddenEdgeCount(userId, 'blocking').as('hidden_blocking_count'),
+      // The two numbers the bucket is decided by, selected so the ordering can
+      // happen in SQL. It has to: the page boundary is applied there, and a
+      // LIMIT over board position would hand back an arbitrary thousand cards
+      // rather than the thousand the caller most needs, leaving the documented
+      // order holding only within a page.
+      openBlockers(eb, userId)
+        .select((ib) => ib.fn.countAll<string>().as('n'))
+        .as('readable_blocker_count'),
+      openDependents(eb, userId)
+        .innerJoin('task_assignee', 'task_assignee.task_id', 'dependent.id')
+        .where('task_assignee.user_id', '!=', userId)
+        .select((ib) => ib.fn.count<string>('task_assignee.user_id').distinct().as('n'))
+        .as('waiting_user_count'),
     ])
     .where('board_column.is_done', '=', false)
     .where('task.archived_at', 'is', null)
@@ -255,18 +293,61 @@ function myTasksQuery(db: Kysely<DB>, userId: string) {
           .where('task_assignee.user_id', '=', userId)
       )
     )
-    .where(accessibleProjectsFilter(userId))
-    .orderBy('project.name')
-    .orderBy('project.id')
-    .orderBy('board_column.sort_key')
-    .orderBy('task.sort_key')
-    .orderBy('task.id');
+    .where(accessibleProjectsFilter(userId));
 }
 
-export async function getMyTasks(db: Kysely<DB>, userId: string): Promise<MyTasksResponse> {
-  const rows: MyTaskRow[] = await myTasksQuery(db, userId).execute();
-  const tasks = bucketAndOrder(rows, userId);
+// Ordered in an outer query rather than beside the selects, because Postgres
+// will not let an output column name appear inside an ORDER BY expression and
+// the bucket is a CASE over two of them. Restating the two subqueries in the
+// CASE instead would run each of them twice per card.
+function myTasksPage(db: Kysely<DB>, userId: string, offset: number, limit: number) {
+  return db
+    .selectFrom(myTasksRows(db, userId).as('t'))
+    .selectAll()
+    .orderBy(
+      sql`case
+            when t.readable_blocker_count + t.hidden_blocked_by_count > 0 then ${BUCKET_RANK.blocked}
+            when t.waiting_user_count > 0 then ${BUCKET_RANK.blocking}
+            else ${BUCKET_RANK.ready}
+          end`
+    )
+    .orderBy('waiting_user_count', 'desc')
+    .orderBy('project_name')
+    .orderBy('project_id')
+    .orderBy('column_sort_key')
+    .orderBy('task_sort_key')
+    .orderBy('id')
+    .offset(offset)
+    .limit(limit);
+}
 
+export async function getMyTasks(
+  db: Kysely<DB>,
+  userId: string,
+  offset = 0
+): Promise<MyTasksResponse> {
+  // One past the page, so "is there more" costs a row rather than a count over
+  // the whole set.
+  const rows = await myTasksPage(db, userId, offset, MY_TASKS_PAGE_SIZE + 1).execute();
+  const hasMore = rows.length > MY_TASKS_PAGE_SIZE;
+  const page: MyTaskRow[] = (hasMore ? rows.slice(0, MY_TASKS_PAGE_SIZE) : rows).map((row) => ({
+    id: row.id,
+    project_id: row.project_id,
+    project_name: row.project_name,
+    column_name: row.column_name,
+    title: row.title,
+    assignee_rows: row.assignee_rows,
+    blocked_by_rows: row.blocked_by_rows,
+    blocking_rows: row.blocking_rows,
+    hidden_blocked_by_count: row.hidden_blocked_by_count,
+    hidden_blocking_count: row.hidden_blocking_count,
+  }));
+
+  const tasks = bucketAndOrder(page, userId);
+
+  // Grouped from this page's cards only, so a person group never names a card
+  // the caller has not been handed. A client walking the pages merges them.
+  //
   // An unassigned dependent means nobody is waiting, so it is dropped; an
   // unassigned blocker is the opposite — nothing is moving it along.
   return {
@@ -281,5 +362,6 @@ export async function getMyTasks(db: Kysely<DB>, userId: string): Promise<MyTask
       userId,
       { includeUnassigned: true }
     ),
+    next_offset: hasMore ? offset + MY_TASKS_PAGE_SIZE : null,
   };
 }

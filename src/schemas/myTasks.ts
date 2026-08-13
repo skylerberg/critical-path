@@ -1,4 +1,9 @@
 import { type } from 'arktype';
+import { nonNegativeIntegerParam } from './common';
+
+export const myTasksQuerySchema = type({
+  'offset?': nonNegativeIntegerParam,
+});
 
 export const myTaskLinkSchema = type({
   id: 'string',
@@ -42,6 +47,10 @@ export const myTasksResponseSchema = type({
   tasks: myTaskSchema.array(),
   waiting_on_you: myTaskPersonGroupSchema.array(),
   you_are_waiting_on: myTaskPersonGroupSchema.array(),
+  // The offset that fetches the next page, or null at the end. The page is big
+  // enough that most callers only ever see null, so a client that ignores this
+  // is correct for almost everyone — and wrong in exactly the case that matters.
+  next_offset: 'number | null',
 });
 
 export type MyTasksResponse = typeof myTasksResponseSchema.infer;
