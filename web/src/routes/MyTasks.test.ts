@@ -48,12 +48,14 @@ function mockResponse(overrides: {
   tasks?: MyTask[];
   waiting_on_you?: MyTaskPersonGroup[];
   you_are_waiting_on?: MyTaskPersonGroup[];
+  next_offset?: number | null;
 }): void {
   fetchMock.mockImplementation(async () =>
     jsonResponse(200, {
       tasks: overrides.tasks ?? [],
       waiting_on_you: overrides.waiting_on_you ?? [],
       you_are_waiting_on: overrides.you_are_waiting_on ?? [],
+      next_offset: overrides.next_offset ?? null,
     })
   );
 }
@@ -326,5 +328,52 @@ describe('MyTasks card cursor', () => {
     view.unmount();
 
     expect(cardCursor.taskId).toBeNull();
+  });
+
+  describe('paging', () => {
+    // The point of the page size: almost nobody should ever see this control.
+    it('says nothing about paging for a caller inside one page', async () => {
+      mockResponse({ tasks: [task('t-1', 'ready')] });
+
+      render(MyTasks);
+      await screen.findByText('Task t-1');
+
+      expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+      expect(screen.queryByText(/Showing/)).toBeNull();
+    });
+
+    it('offers the rest to a caller past the page, and appends on click', async () => {
+      mockResponse({ tasks: [task('t-1', 'ready')], next_offset: 1000 });
+
+      render(MyTasks);
+      await screen.findByText('Task t-1');
+      expect(screen.getByText('Showing 1 of your tasks.')).toBeTruthy();
+
+      mockResponse({ tasks: [task('t-2', 'ready')], next_offset: null });
+      await fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+      await screen.findByText('Task t-2');
+      // The button goes once the last page is in, rather than being left as a
+      // dead control; the line stays so the live region can announce the total.
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+      });
+      expect(screen.getByText('All 2 of your tasks are shown.')).toBeTruthy();
+    });
+
+    // The count is what a screen reader hears change, so it has to be live and
+    // it has to be the running total rather than the size of the last page.
+    it('announces the new total after loading more', async () => {
+      mockResponse({ tasks: [task('t-1', 'ready')], next_offset: 1000 });
+
+      render(MyTasks);
+      const count = await screen.findByText('Showing 1 of your tasks.');
+      expect(count.getAttribute('aria-live')).toBe('polite');
+
+      mockResponse({ tasks: [task('t-2', 'ready')], next_offset: 2000 });
+      await fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+      await screen.findByText('Showing 2 of your tasks.');
+    });
   });
 });

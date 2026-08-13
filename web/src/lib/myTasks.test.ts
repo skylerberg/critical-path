@@ -53,6 +53,7 @@ const payload = {
   you_are_waiting_on: [
     { user_id: null, tasks: [{ id: 't-8', project_id: 'p-1', title: 'Format', assignee_ids: [] }] },
   ],
+  next_offset: null,
 };
 
 beforeEach(() => {
@@ -178,6 +179,7 @@ describe('myTasks store', () => {
         ],
         waiting_on_you: [],
         you_are_waiting_on: [],
+        next_offset: null,
       })
     );
 
@@ -212,11 +214,135 @@ describe('myTasks store', () => {
             ],
           },
         ],
+        next_offset: null,
       })
     );
 
     await myTasks.load();
 
     expect(myTasks.youAreWaitingOn[0]?.tasks.map((t) => t.id)).toEqual(['t-1', 't-2']);
+  });
+
+  describe('paging', () => {
+    it('reports no further pages for the caller the server sends null for', async () => {
+      fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+
+      await myTasks.load();
+
+      expect(myTasks.hasMore).toBe(false);
+    });
+
+    // A pod from the previous release answers without the field at all, and a
+    // Load more button that refetches page one forever is worse than none.
+    it('treats a response with no next_offset as the last page', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { tasks: [], waiting_on_you: [], you_are_waiting_on: [] })
+      );
+
+      await myTasks.load();
+
+      expect(myTasks.hasMore).toBe(false);
+    });
+
+    it('appends the next page and merges its person groups', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, {
+          tasks: [task('t-1', 'ready')],
+          waiting_on_you: [
+            {
+              user_id: 'u-ada',
+              tasks: [{ id: 't-9', project_id: 'p-1', title: 'Importer', assignee_ids: ['u-ada'] }],
+            },
+          ],
+          you_are_waiting_on: [],
+          next_offset: 1000,
+        })
+      );
+      await myTasks.load();
+      expect(myTasks.hasMore).toBe(true);
+
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, {
+          tasks: [task('t-2', 'ready')],
+          waiting_on_you: [
+            {
+              user_id: 'u-ada',
+              // One repeated card and one new one: the repeat must not double up.
+              tasks: [
+                { id: 't-9', project_id: 'p-1', title: 'Importer', assignee_ids: ['u-ada'] },
+                { id: 't-10', project_id: 'p-1', title: 'Exporter', assignee_ids: ['u-ada'] },
+              ],
+            },
+          ],
+          you_are_waiting_on: [],
+          next_offset: null,
+        })
+      );
+      await myTasks.loadMore();
+
+      expect(new URL(requestAt(1).url).searchParams.get('offset')).toBe('1000');
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2']);
+      expect(myTasks.waitingOnYou).toHaveLength(1);
+      expect(myTasks.waitingOnYou[0]?.tasks.map((t) => t.id)).toEqual(['t-9', 't-10']);
+      expect(myTasks.hasMore).toBe(false);
+      expect(myTasks.loadingMore).toBe(false);
+    });
+
+    it('does nothing when there is no next page', async () => {
+      fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+      await myTasks.load();
+
+      await myTasks.loadMore();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps what is on screen when the next page fails', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      fetchMock.mockImplementation(async () => jsonResponse(500, { error: 'Boom' }));
+      await myTasks.loadMore();
+
+      expect(myTasks.error).toBe('Boom');
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+      expect(myTasks.loadingMore).toBe(false);
+      // Still offered, so the reader can retry rather than losing the rest.
+      expect(myTasks.hasMore).toBe(true);
+    });
+
+    // loadMore extends the list already on screen, so a reset while it is in
+    // flight must throw its result away rather than reviving a cleared list.
+    it('discards a page that lands after a reset', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      fetchMock.mockImplementation(async () => {
+        await gate;
+        return jsonResponse(200, {
+          tasks: [task('t-late', 'ready')],
+          waiting_on_you: [],
+          you_are_waiting_on: [],
+          next_offset: null,
+        });
+      });
+
+      const inflight = myTasks.loadMore();
+      myTasks.reset();
+      release?.();
+      await inflight;
+
+      expect(myTasks.tasks).toEqual([]);
+      expect(myTasks.loaded).toBe(false);
+      expect(myTasks.hasMore).toBe(false);
+    });
   });
 });
