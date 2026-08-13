@@ -1,7 +1,11 @@
+import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
+import { gzip as gzipCallback } from 'node:zlib';
 
 const require = createRequire(import.meta.url);
+const gzip = promisify(gzipCallback);
 
 // Swagger UI's own bundle, read from the installed package rather than fetched
 // from a CDN at render time. The docs page is served from the same origin as
@@ -28,17 +32,42 @@ export function isSwaggerAssetName(name: string): name is SwaggerAssetName {
 }
 
 export interface SwaggerAsset {
-  body: Buffer;
   contentType: string;
+  body: Buffer;
+  // Compressed once at first read. The route is public and the bundle is 1.5 MB
+  // of exactly the content type the global compress() middleware acts on, so
+  // without this every request from every reader — and every request an
+  // unauthenticated caller cares to make — costs a fresh gzip of the whole
+  // thing. Serving it pre-encoded is also what makes that middleware skip it.
+  gzip: Buffer;
+  // Strong and content-derived, so a reader that already holds the bytes
+  // revalidates into a 304 rather than being sent 1.5 MB again each hour.
+  etag: string;
 }
 
-const cache = new Map<SwaggerAssetName, Buffer>();
+async function load(name: SwaggerAssetName): Promise<SwaggerAsset> {
+  const body = await readFile(require.resolve(`swagger-ui-dist/${name}`));
+  return {
+    contentType: ASSET_CONTENT_TYPES[name],
+    body,
+    gzip: await gzip(body),
+    etag: `"${crypto.createHash('sha256').update(body).digest('base64url').slice(0, 27)}"`,
+  };
+}
 
-export async function readSwaggerAsset(name: SwaggerAssetName): Promise<SwaggerAsset> {
-  let body = cache.get(name);
-  if (body === undefined) {
-    body = await readFile(require.resolve(`swagger-ui-dist/${name}`));
-    cache.set(name, body);
+// The promise is cached, not the result, so concurrent first requests share one
+// read and one compression instead of racing to do both. A rejection is evicted
+// so a transient read failure is not cached for the life of the process.
+const cache = new Map<SwaggerAssetName, Promise<SwaggerAsset>>();
+
+export function readSwaggerAsset(name: SwaggerAssetName): Promise<SwaggerAsset> {
+  let pending = cache.get(name);
+  if (pending === undefined) {
+    pending = load(name).catch((err: unknown) => {
+      cache.delete(name);
+      throw err;
+    });
+    cache.set(name, pending);
   }
-  return { body, contentType: ASSET_CONTENT_TYPES[name] };
+  return pending;
 }

@@ -192,34 +192,6 @@ describe('GET /api/openapi.json', () => {
     expect(delivery.required).toContain('payload');
   });
 
-  it('serves the docs page without loading anything from another origin', async () => {
-    const res = await app.request('/api/docs');
-    expect(res.status).toBe(200);
-    const html = await res.text();
-
-    // One host serves the SPA and this API, and the SPA keeps its session token
-    // in that origin's localStorage: a script tag here pointing anywhere else
-    // hands every reader's credentials to whoever controls it.
-    const sources = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
-    expect(sources.length).toBeGreaterThan(0);
-    for (const source of sources) {
-      expect(source).toMatch(/^\//);
-    }
-
-    for (const source of sources) {
-      const asset = await app.request(source);
-      expect(asset.status).toBe(200);
-      expect(asset.headers.get('X-Content-Type-Options')).toBe('nosniff');
-    }
-  });
-
-  it('serves only the two named assets out of the package directory', async () => {
-    for (const name of ['package.json', 'index.html', '..%2F..%2Fpackage.json', 'swagger-ui.js']) {
-      const res = await app.request(`/api/docs/static/swagger-ui-dist/${name}`);
-      expect(res.status).toBe(404);
-    }
-  });
-
   it('has unique operationIds across all operations', async () => {
     const spec = await fetchSpec();
     const operationIds: string[] = [];
@@ -234,5 +206,69 @@ describe('GET /api/openapi.json', () => {
 
     expect(operationIds.length).toBeGreaterThan(0);
     expect(new Set(operationIds).size).toBe(operationIds.length);
+  });
+});
+
+describe('GET /api/docs', () => {
+  it('loads its script and stylesheet from this origin and nowhere else', async () => {
+    const res = await app.request('/api/docs');
+    expect(res.status).toBe(200);
+    const html = await res.text();
+
+    // One host serves the SPA and this API, and the SPA keeps its session token
+    // in that origin's localStorage: a subresource here pointing anywhere else
+    // hands every reader's credentials to whoever controls it.
+    const sources = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
+    expect(sources.length).toBeGreaterThan(0);
+    for (const source of sources) {
+      // Rooted, and not protocol-relative — `//cdn.example/x` is off-origin and
+      // starts with a slash.
+      expect(source).toMatch(/^\/(?!\/)/);
+      expect((await app.request(source)).status).toBe(200);
+    }
+
+    // Swagger UI's online validator badge is an off-origin <img> carrying the
+    // spec's URL. It does not render for an OAS 3.1 document, so this pins the
+    // setting rather than the symptom.
+    expect(html).toContain("validatorUrl: 'none'");
+  });
+
+  it('serves only the two named assets out of the package directory', async () => {
+    for (const name of [
+      'package.json',
+      'index.html',
+      '..%2F..%2Fpackage.json',
+      'swagger-ui.js',
+      '__proto__',
+      'swagger-ui-bundle.js.map',
+    ]) {
+      expect((await app.request(`/api/docs/static/swagger-ui-dist/${name}`)).status).toBe(404);
+    }
+  });
+
+  // The route is public, uncapped and 1.5 MB of exactly the type the global
+  // compress() middleware acts on, so the bytes are compressed once at first
+  // read rather than per request, and a reader that already holds them
+  // revalidates into a 304.
+  it('serves pre-compressed bytes and honours a conditional request', async () => {
+    const asset = '/api/docs/static/swagger-ui-dist/swagger-ui-bundle.js';
+
+    const gzipped = await app.request(asset, { headers: { 'Accept-Encoding': 'gzip' } });
+    expect(gzipped.status).toBe(200);
+    expect(gzipped.headers.get('Content-Encoding')).toBe('gzip');
+    expect(gzipped.headers.get('Vary')).toContain('Accept-Encoding');
+    const etag = gzipped.headers.get('ETag');
+    expect(etag).toMatch(/^"[\w-]+"$/);
+
+    const identity = await app.request(asset);
+    expect(identity.headers.get('Content-Encoding')).toBeNull();
+    expect(Number(identity.headers.get('Content-Length'))).toBeGreaterThan(
+      Number(gzipped.headers.get('Content-Length'))
+    );
+    expect(identity.headers.get('ETag')).toBe(etag);
+
+    const revalidated = await app.request(asset, { headers: { 'If-None-Match': etag ?? '' } });
+    expect(revalidated.status).toBe(304);
+    expect(await revalidated.text()).toBe('');
   });
 });

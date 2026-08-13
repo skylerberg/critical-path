@@ -213,16 +213,35 @@ describe('enforceAuthRateLimit source address budget', () => {
     }
   });
 
-  // The budget is a backstop against one source setting the pace, not a bound
-  // on how many people share an address: an office behind one NAT must still be
-  // able to sign in.
-  it('is far enough above the per-pair budget to leave ordinary sign-in unaffected', async () => {
+  // The budget bounds password hashing, and an attempt refused by an earlier
+  // budget never reaches a hash. Spending it on those too would let one client
+  // in a retry loop — a saved password gone stale, a script with no backoff —
+  // exhaust a ceiling every other caller at its address shares, at no cost to
+  // the server and none to itself.
+  it('does not spend the source budget on attempts an earlier budget refused', async () => {
     for (let i = 0; i < 10; i++) {
-      expect(await attempt('member@example.com', '203.0.113.1')).toBe(204);
+      expect(await attempt('loop@example.com', '203.0.113.4')).toBe(204);
     }
-    // Spent by the pair budget, not this one.
-    expect(await attempt('member@example.com', '203.0.113.1')).toBe(429);
-    expect(await attempt('colleague@example.com', '203.0.113.1')).toBe(204);
+    // Past the per-pair budget: refused before any hashing, twice over what the
+    // source budget would allow if these counted.
+    for (let i = 0; i < AUTH_IP_MAX_ATTEMPTS * 2; i++) {
+      expect(await attempt('loop@example.com', '203.0.113.4')).toBe(429);
+    }
+
+    expect(await attempt('colleague@example.com', '203.0.113.4')).toBe(204);
+  });
+
+  // Same rule one budget along: an attempt the email budget refuses has not
+  // been hashed either.
+  it('does not spend the source budget on attempts the email budget refused', async () => {
+    for (let i = 0; i < EMAIL_MAX_ATTEMPTS; i++) {
+      expect(await attempt('popular@example.com', `198.51.100.${i}`)).toBe(204);
+    }
+    for (let i = 0; i < AUTH_IP_MAX_ATTEMPTS * 2; i++) {
+      expect(await attempt('popular@example.com', '203.0.113.6')).toBe(429);
+    }
+
+    expect(await attempt('colleague@example.com', '203.0.113.6')).toBe(204);
   });
 });
 
