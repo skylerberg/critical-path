@@ -101,7 +101,7 @@ suite when a change is broad enough that you cannot name the files it affects
 Before finishing, run all of these:
 
 ```sh
-npm run check && npm run check:layout && npm run check:layout:real && npm run lint && npm run format:check && npm test && npm run build
+npm run check && npm run check:layout && npm run check:layout:real && npm run check:task-detail && npm run lint && npm run format:check && npm test && npm run build
 ```
 
 `npm run check` covers `src/` (tests included — they are colocated as
@@ -121,15 +121,27 @@ The fixture is a copy, so it can agree with a component it no longer resembles.
 `.pi/skills/browser-repro/SKILL.md` covers when not to trust it and how to
 reproduce against the real thing instead.
 
-**Both also take `--selftest`, and a change to what they assert should run it:**
+`check:task-detail` is the third of these, and the only one not about layout. It
+mounts the real `TaskDetail.svelte` through `scripts/task-detail-probe.ts` and
+asserts what jsdom cannot see about the card overlay: that opening it does not
+steal the caret into the title field, and that dismissing it with an unsaved
+title produces exactly **one** write. Chromium deliberately — removing a focused
+input fires `blur` there and not in WebKit, so Chromium is the only engine on
+which a dismissal runs both flush paths at once, and the double-write it used to
+produce was invisible on WebKit and to jsdom alike.
+
+**All three also take `--selftest`, and a change to what they assert should run
+it:**
 
 ```sh
 node scripts/check-board-layout.mjs --selftest
 node scripts/check-board-layout-real.mjs --selftest
+node scripts/check-task-detail.mjs --selftest
 ```
 
-Each re-runs its cases against a board deliberately put back on the bug — legacy
-markup in the fixture, the pre-fix `dndzone` option in the real component — and
+Each re-runs its cases against a component deliberately put back on the bug —
+legacy markup in the fixture, the pre-fix `dndzone` option in the real board, the
+write queue disabled in the card overlay — and
 fails if any of them still *passes*. A browser check has a failure mode a unit
 test mostly does not: measuring nothing and reporting green, because the gesture
 never armed, the selector matched nothing, or the option it turns on was renamed
