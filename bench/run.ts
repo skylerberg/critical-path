@@ -10,10 +10,17 @@ import {
   pointEnvAtBenchDatabase,
   readSeedMarker,
   tableSizes,
+  warmCache,
   writeSeedMarker,
 } from './database';
 import { formatBytes, formatMs, instrumentQueries, type QueryRecord } from './measure';
-import { BenchClient, runScenario, type BenchContext, type ScenarioResult } from './harness';
+import {
+  BenchClient,
+  pruneRunActivity,
+  runScenario,
+  type BenchContext,
+  type ScenarioResult,
+} from './harness';
 import { benchClient, benchIds, BENCH_PASSWORD, seed, type BenchIds } from './seed';
 import { scenarios } from './scenarios';
 
@@ -243,6 +250,8 @@ async function main(): Promise<void> {
 
   console.log(`Database size: ${formatBytes(await databaseSizeBytes())}`);
 
+  await warmCache();
+
   instrumentQueries();
 
   const ctx: BenchContext = {
@@ -266,12 +275,21 @@ async function main(): Promise<void> {
     throw new Error(`No scenario matched --only=${String(options.only)}`);
   }
 
+  // Stamped before the first write so the cleanup below can tell this run's
+  // activity rows from the seeded ones.
+  const startedAt = new Date();
+
   const results: ScenarioResult[] = [];
   for (const scenario of selected) {
     process.stdout.write(`\rrunning: ${pad(scenario.name, 60)}`);
     results.push(await runScenario(scenario, ctx, resetRateLimiter));
   }
   process.stdout.write(`\r${' '.repeat(72)}\r`);
+
+  const pruned = await pruneRunActivity(db, startedAt);
+  if (pruned > 0) {
+    console.log(`Removed ${pruned.toLocaleString()} activity rows this run wrote.`);
+  }
 
   for (const group of ['read', 'write', 'pathological']) {
     printTable(

@@ -73,8 +73,11 @@ which makes the graph acyclic by construction. A seeded cycle is unreachable
 through the API, so benchmarking the cycle guard against one would measure a
 state production cannot be in.
 
-Mutating scenarios create rows with ids they record and delete afterwards, so
-repeated runs do not drift.
+Mutating scenarios create rows with ids they record and delete afterwards, and
+the runner prunes the activity those writes logged — a single column move logs
+one row per card, so without that a second run would measure a heavier instance
+than the first, in exactly the table the unseen dot reads. Repeated runs report
+the same numbers; `--reseed` is only needed after changing the seeder.
 
 ## Adding a scenario
 

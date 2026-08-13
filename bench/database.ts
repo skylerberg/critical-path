@@ -107,6 +107,28 @@ export async function dropBenchSchema(): Promise<void> {
   });
 }
 
+// Whichever scenario runs first otherwise pays for pulling the instance off
+// disk and reports the disk rather than the query, which makes a result depend
+// on its position in the list. Reading the big tables once up front spreads
+// that cost onto nobody.
+export async function warmCache(): Promise<void> {
+  await withBenchClient(async (client) => {
+    const { rows } = await client.query<{ name: string }>(
+      `select c.relname as name
+       from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relkind = 'r'
+       order by pg_total_relation_size(c.oid) desc
+       limit 10`
+    );
+    for (const row of rows) {
+      // count(*) rather than pg_prewarm, which is an extension the developer's
+      // Postgres may not have installed.
+      await client.query(`select count(*) from "${row.name.replace(/"/g, '""')}"`);
+    }
+  });
+}
+
 export async function databaseSizeBytes(): Promise<number> {
   return withBenchClient(async (client) => {
     const { rows } = await client.query<{ bytes: string }>(
