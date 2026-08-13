@@ -13,15 +13,25 @@
 // down. Two worktrees can therefore run this check
 // at once, and a killed run leaves no server behind to fail the next one. Skips
 // with exit 0 if Chromium isn't installed. Exits non-zero on assertion failure.
+//
+// The scroll phase is most of the runtime — around 27s per case against 1s for a
+// layout case — so iterating on it wants `--only=scroll`, or `--only=740` for the
+// one case. `--list` prints the names, and a pattern is a plain substring of one:
+// `scroll/740` looks like it should work and matches nothing, because the name is
+// `scroll/mobile 740x900 cols=12`. See scripts/lib/case-filter.mjs; the name a
+// case prints is the key it is selected by, so pasting a printed line back always
+// works where inventing a shorthand may not.
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { createServer } from 'vite';
 import { createBrowser } from './lib/browser.mjs';
+import { caseFilter } from './lib/case-filter.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(__dirname); // repo root (worktree root)
 
 const SELFTEST = process.argv.includes('--selftest');
+const only = caseFilter(process.argv);
 
 async function startServer(plugins = []) {
   const created = await createServer({
@@ -152,9 +162,21 @@ const CASES = [
   { w: 1280, h: 800, cols: 4, tasks: 12, selected: 3 }, // desktop: bar docks above the fold, no nav to clear
 ];
 
+// The name is the phase plus what distinguishes the case inside it, and it is
+// both what gets printed and what `--only=` matches — so a failing line can be
+// pasted back verbatim to re-run just that case.
+function layoutName(c) {
+  const device = c.w < 1024 ? 'mobile' : 'desktop';
+  return `layout/${device} ${c.w}x${c.h} cols=${c.cols} tasks=${c.tasks} selected=${c.selected ?? 0}`;
+}
+
 let failed = 0;
 console.log(`check:layout:real — real Board.svelte in headless Chrome (${new URL(PROBE).origin})`);
 for (const c of CASES) {
+  const name = layoutName(c);
+  if (!only.wants(name)) {
+    continue;
+  }
   const mobile = c.w < 1024;
   await setViewport({ width: c.w, height: c.h, mobile });
   await goto(`${PROBE}?cols=${c.cols}&tasks=${c.tasks}&selected=${c.selected ?? 0}`, { wait: 700 });
@@ -164,14 +186,13 @@ for (const c of CASES) {
     ? check(m, { ...c, mobile })
     : check(m, { ...c, mobile }).filter((x) => !x.includes('bottom nav'));
   // The desktop case disables snap via lg:snap-none, so its resting value is 'none' too.
-  const tag = `${mobile ? 'MOBILE' : 'DESKTOP'} ${c.w}x${c.h} cols=${c.cols} tasks=${c.tasks} selected=${c.selected ?? 0}`;
   if (failures.length) {
     failed++;
-    console.log(`  ✗ ${tag}`);
+    console.log(`  ✗ ${name}`);
     for (const x of failures) console.log(`      - ${x}`);
     console.log(`      metrics: ${JSON.stringify(m)}`);
   } else {
-    console.log(`  ✓ ${tag} (htmlSW=${m.htmlSW}, navW=${m.navW})`);
+    console.log(`  ✓ ${name} (htmlSW=${m.htmlSW}, navW=${m.navW})`);
   }
 }
 
@@ -582,11 +603,16 @@ const SCROLL_CASES = [
   { w: 1280, h: 800, cols: 12, tasks: 3 },
 ];
 
-async function runScrollCases(probeUrl, { mustPass, only = () => true }) {
+function scrollName(c) {
+  return `scroll/${c.w < 1024 ? 'mobile' : 'desktop'} ${c.w}x${c.h} cols=${c.cols}`;
+}
+
+async function runScrollCases(probeUrl, { mustPass, include = () => true }) {
   let bad = 0;
   for (const c of SCROLL_CASES) {
     const mobile = c.w < 1024;
-    if (!only(c, mobile)) {
+    const name = scrollName(c);
+    if (!include(c, mobile) || !only.wants(name)) {
       continue;
     }
     await setViewport({ width: c.w, height: c.h, mobile });
@@ -594,13 +620,14 @@ async function runScrollCases(probeUrl, { mustPass, only = () => true }) {
     const s = await evalPage(SCROLL_PROBE);
     const failures = checkScroll(s, mobile);
     const passed = failures.length === 0;
-    const tag = `${mobile ? 'MOBILE' : 'DESKTOP'} ${c.w}x${c.h} cols=${c.cols}`;
     if (passed === mustPass) {
-      console.log(`  ✓ ${tag} (${mustPass ? JSON.stringify(s) : `should fail -> ${failures[0]}`})`);
+      console.log(
+        `  ✓ ${name} (${mustPass ? JSON.stringify(s) : `should fail -> ${failures[0]}`})`
+      );
       continue;
     }
     bad++;
-    console.log(`  ✗ ${tag}${mustPass ? '' : ': should fail -> passed'}`);
+    console.log(`  ✗ ${name}${mustPass ? '' : ': should fail -> passed'}`);
     for (const x of failures) console.log(`      - ${x}`);
     console.log(`      metrics: ${JSON.stringify(s)}`);
   }
@@ -739,24 +766,31 @@ const DRAG_CASES = [
   { w: 1280, h: 800, cols: 4, tasks: 3, pointer: 'mouse', toX: 600, hold: 400 }, // same rule for a mouse
 ];
 
+function dragName(c) {
+  return `drag/${c.w}x${c.h} ${c.pointer}`;
+}
+
 async function runDragCases(probeUrl, { mustPass }) {
   let bad = 0;
   for (const c of DRAG_CASES) {
+    const name = dragName(c);
+    if (!only.wants(name)) {
+      continue;
+    }
     await setViewport({ width: c.w, height: c.h, mobile: c.w < 1024 });
     await goto(`${probeUrl}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
     const d = await evalPage(`(${DRAG_PROBE})(${JSON.stringify(c)})`);
     const failures = checkDrag({ ...d, toX: c.toX });
     const passed = failures.length === 0;
-    const tag = `${c.w}x${c.h} ${c.pointer} drag to x=${c.toX}`;
     if (passed === mustPass) {
       const how = mustPass
         ? `${d.origin} -> ${d.landed}, card center at ${d.cardCenter}`
         : `should fail -> ${failures[0]}`;
-      console.log(`  ✓ ${tag} (${how})`);
+      console.log(`  ✓ ${name} (drag to x=${c.toX}: ${how})`);
       continue;
     }
     bad++;
-    console.log(`  ✗ ${tag}${mustPass ? '' : ': should fail -> passed'}`);
+    console.log(`  ✗ ${name}${mustPass ? '' : ': should fail -> passed'}`);
     for (const x of failures) console.log(`      - ${x}`);
     console.log(`      metrics: ${JSON.stringify(d)}`);
   }
@@ -802,7 +836,14 @@ function regression(name, substitutions) {
   };
 }
 
-async function runRegression({ plugin, report }, phase) {
+// `covers` is the case names this regression proves something about. A selftest
+// arm is only meaningful for a phase that actually ran, and booting a second vite
+// server to re-run cases the filter excluded is pure cost — so a filtered run
+// skips the arms it cannot speak for.
+async function runRegression({ plugin, report }, covers, phase) {
+  if (!only.wantsAny(covers)) {
+    return 0;
+  }
   const server = await startServer([plugin]);
   const probe = new URL('scripts/board-probe.html', server.resolvedUrls.local[0]).href;
   let bad = await phase(probe);
@@ -827,6 +868,7 @@ if (SELFTEST) {
     regression('center-detection', [
       ['useCursorForDetection: true', 'useCursorForDetection: false'],
     ]),
+    DRAG_CASES.map(dragName),
     (probe) => runDragCases(probe, { mustPass: false })
   );
 
@@ -847,15 +889,20 @@ if (SELFTEST) {
         "getComputedStyle(scroller).scrollSnapType === 'none') {\n        swipe = null;",
       ],
     ]),
-    (probe) => runScrollCases(probe, { mustPass: false, only: (_case, mobile) => mobile })
+    SCROLL_CASES.filter((c) => c.w < 1024).map(scrollName),
+    (probe) => runScrollCases(probe, { mustPass: false, include: (_case, mobile) => mobile })
   );
 }
 
 await close();
 await teardown();
+// After every phase has been offered its cases, so `--list` and the
+// matched-nothing error can enumerate them; before the exit code, so a filter
+// that selected nothing cannot leave through the success door below.
+only.finish('check:layout:real');
 if (failed > 0) {
   console.log(`\ncheck:layout:real — FAILED (${failed})`);
   process.exit(1);
 }
-console.log('\ncheck:layout:real — passed');
+console.log(`\ncheck:layout:real — ${only.summary('passed')}`);
 process.exit(0);

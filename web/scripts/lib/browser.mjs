@@ -31,6 +31,9 @@ import { chromium, webkit } from 'playwright';
 
 const ENGINES = { chromium, webkit };
 
+// How long to let a navigation announce itself after an evaluate has died on it.
+const NAVIGATION_SETTLE_MS = 500;
+
 /**
  * Launch a headless browser and return a small measurement helper.
  * @param {{headless?: boolean, engine?: 'chromium'|'webkit'}} [options]
@@ -58,6 +61,11 @@ export async function createBrowser({ headless = true, engine = 'chromium' } = {
   let page = null;
   let isMobile = null;
   let scheme = null;
+  // Where `goto` last sent the page, and any main-frame navigation since — so
+  // `eval` can tell a page that went somewhere on its own apart from one that
+  // merely lost its execution context where it stood.
+  let navigatedTo = null;
+  let lastNavigation = null;
 
   async function ensureContext() {
     if (context === null) await applyViewport({ width: 1280, height: 720, mobile: false });
@@ -72,6 +80,7 @@ export async function createBrowser({ headless = true, engine = 'chromium' } = {
     if (context !== null) await context.close();
     isMobile = mobile;
     scheme = wanted;
+    lastNavigation = null;
     context = await browser.newContext({
       viewport: { width, height },
       deviceScaleFactor: deviceScaleFactor ?? (mobile ? 2 : 1),
@@ -84,8 +93,26 @@ export async function createBrowser({ headless = true, engine = 'chromium' } = {
       // only exists in the scheme this selects.
       colorScheme: wanted,
     });
-    page = await context.newPage();
+    const created = await context.newPage();
+    // Recorded as an EVENT rather than read back from `page.url()` when something
+    // goes wrong: the context dies as a navigation commits, so at that moment the
+    // url and the load state both still describe the page being left. Polling
+    // them reports every navigation as "no navigation".
+    created.on('framenavigated', (frame) => {
+      if (frame === created.mainFrame()) {
+        lastNavigation = frame.url();
+      }
+    });
+    page = created;
   }
+
+  const href = (url) => {
+    try {
+      return new URL(url).href;
+    } catch {
+      return url;
+    }
+  };
 
   return {
     /**
@@ -99,13 +126,56 @@ export async function createBrowser({ headless = true, engine = 'chromium' } = {
     /** Navigate and wait briefly for render to settle. */
     async goto(url, { wait = 350 } = {}) {
       await ensureContext();
+      navigatedTo = href(url);
       await page.goto(url, { waitUntil: 'load' });
+      // This navigation is ours; only what happens after it is the page's doing.
+      lastNavigation = null;
       if (wait) await page.waitForTimeout(wait);
     },
-    /** Evaluate a JS expression in the page and return its value. */
+    /**
+     * Evaluate a JS expression in the page and return its value.
+     *
+     * "Execution context was destroyed" has two very different causes and
+     * Playwright reports them identically, so this separates them before doing
+     * anything else. If the page has moved off the URL it was sent to, the PAGE
+     * navigated — a probe that trips a link measures the page it left, so that is
+     * reported with both URLs and never retried. If it is still where it was put,
+     * the JS world went away underneath it with no navigation of ours, which is a
+     * harness-level hiccup: retried once, loudly, because the probe produced no
+     * measurement at all and a second failure is a real problem.
+     *
+     * Seen twice on a laptop and never in CI, both times immediately after a
+     * `goto`. Retrying is instrumentation for the next occurrence, not a
+     * diagnosis of that one.
+     */
     async eval(expression) {
       await ensureContext();
-      return page.evaluate(expression);
+      try {
+        return await page.evaluate(expression);
+      } catch (error) {
+        if (!/Execution context was destroyed/.test(String(error?.message))) {
+          throw error;
+        }
+        // Both arrive just AFTER the evaluate rejects: the rejection IS the
+        // context dying, and the navigation event is Playwright working out why a
+        // moment later. Deciding immediately reads state that has not arrived and
+        // calls every navigation "no navigation". Only runs on the failure path.
+        await page.waitForTimeout(NAVIGATION_SETTLE_MS);
+        const went = lastNavigation === null ? null : href(lastNavigation);
+        if (went !== null && went !== navigatedTo) {
+          throw new Error(
+            `the page navigated while it was being measured: ${navigatedTo} -> ${went}. ` +
+              `Not retried: a probe that causes a navigation is measuring the wrong page.`,
+            { cause: error }
+          );
+        }
+        console.warn(
+          `browser.eval: lost the execution context${went === null ? '' : ' to a reload'} with the ` +
+            `page still on ${navigatedTo}; retrying once.`
+        );
+        lastNavigation = null;
+        return await page.evaluate(expression);
+      }
     },
     /** Capture a PNG screenshot (Buffer). */
     async screenshot() {

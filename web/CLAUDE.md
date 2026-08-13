@@ -224,6 +224,31 @@ the "reverted" test passed, and the pass meant nothing.
 Like the `--selftest` flags, CI does not run it. Run it when you add a guard, or
 when you change what one asserts.
 
+**The two board-layout checks take `--only=` and `--list`,** which is how to
+iterate without paying for the whole gate — the scroll phase alone is around 27s
+per case against 1s for a layout case, so it is most of the two minutes:
+
+```sh
+node scripts/check-board-layout-real.mjs --list        # the case names
+node scripts/check-board-layout-real.mjs --only=scroll  # one phase
+node scripts/check-board-layout-real.mjs --only=740 --selftest   # one case
+```
+
+The name a case **prints** is the key it is selected by, so a failing line pastes
+straight back as `--only=<that line>`. Patterns are substrings, comma-separated
+or repeated. `scripts/lib/case-filter.mjs` is shared by both, and is meant to be
+what any other check with a case matrix adopts — `check:a11y` has one
+(screens × schemes) and its own ad-hoc `only` predicate, and would be the next
+one to move over. `check:comments` scans the whole codebase and
+`check:task-detail` is a single linear page, so neither has cases to select.
+
+Because a filter narrows what a gate covers, all three ways of getting one wrong
+are loud: a pattern matching nothing exits 2 listing the names rather than
+passing over zero cases, a filtered run never prints the summary an unfiltered
+one does, and under `CI` a filter is refused outright. A `--selftest` arm runs
+only when the phase it proves is in the selection, so a filtered run never
+asserts sensitivity for cases that did not run.
+
 `scripts/board-probe.ts` answers `/api` itself (`scripts/board-probe-net.ts`)
 and records every request. Nothing is mocked per-case: the probe is a board with
 no server behind it, and the checks assert it stays that way — mounting and
