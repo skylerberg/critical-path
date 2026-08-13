@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isQueueStale, syncMessage, syncState, type SyncInputs } from './sync-state';
+import {
+  isQueueStale,
+  syncMessage,
+  syncState,
+  type SyncInputs,
+  type SyncState,
+} from './sync-state';
 
 function inputs(overrides: Partial<SyncInputs> = {}): SyncInputs {
   return {
@@ -11,6 +17,27 @@ function inputs(overrides: Partial<SyncInputs> = {}): SyncInputs {
     staleRead: false,
     ...overrides,
   };
+}
+
+// Inputs that produce `state` with the server answering. The test using this
+// feeds each one back through syncState first, so a state that cannot in fact be
+// reached this way fails there rather than having its message quietly asserted
+// against the wrong condition.
+function reaching(state: SyncState): SyncInputs {
+  switch (state) {
+    case 'syncing':
+      return inputs({ pendingCount: 1, draining: true });
+    case 'pending':
+      return inputs({ pendingCount: 1 });
+    case 'stale':
+      return inputs({ staleRead: true });
+    case 'reconnecting':
+      return inputs({ socketInterrupted: true });
+    case 'needs-attention':
+      return inputs({ unresolvedIssues: 1 });
+    default:
+      throw new Error(`${state} does not happen while the server is answering`);
+  }
 }
 
 describe('syncState', () => {
@@ -86,6 +113,28 @@ describe('syncMessage', () => {
       expect(message.toLowerCase()).not.toContain('saved');
       expect(message.toLowerCase()).not.toContain('local-first');
     }
+  });
+
+  // The states below are only ever produced with `reachable: true`, so calling
+  // any of them offline sends someone looking at their signal for a problem that
+  // is not there. `reconnecting` is the one this caught: its whole definition is
+  // that HTTP works, and it said "Offline" for a year.
+  it('never calls a state offline that only happens while the server answers', () => {
+    const whileReachable: SyncState[] = [
+      'syncing',
+      'pending',
+      'stale',
+      'reconnecting',
+      'needs-attention',
+    ];
+    for (const state of whileReachable) {
+      expect(syncState(reaching(state))).toBe(state);
+      expect(syncMessage(state, 2, 3).toLowerCase()).not.toContain('offline');
+    }
+  });
+
+  it('says what a dropped socket actually costs', () => {
+    expect(syncMessage('reconnecting', 0, 0)).toBe('Live updates paused — reconnecting');
   });
 
   it('says where unsent work actually is', () => {

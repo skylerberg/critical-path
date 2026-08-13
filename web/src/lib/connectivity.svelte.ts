@@ -34,12 +34,28 @@ class ConnectivityStore {
 
   #started = false;
 
+  /**
+   * The seed can only lower, never raise.
+   *
+   * `navigator.onLine` is worth reading in one direction, and this runs at a
+   * moment when a request may already have answered — so assigning it either way
+   * would let a guess overwrite proof. It would do so silently, both being
+   * booleans of the same type, and in the direction that matters: an interface
+   * reporting itself up while the server is unreachable is the ordinary shape of
+   * a captive portal, and reading `true` there would clear a state that a failed
+   * request had correctly established.
+   *
+   * So a `false` is taken, a `true` is left alone, and the order this is called
+   * in stops being load-bearing.
+   */
   start(): void {
     if (this.#started || typeof window === 'undefined') {
       return;
     }
     this.#started = true;
-    this.reachable = navigator.onLine;
+    if (!navigator.onLine) {
+      this.#become(false);
+    }
     window.addEventListener('offline', this.#handleOffline);
     window.addEventListener('online', this.#handleOnline);
   }

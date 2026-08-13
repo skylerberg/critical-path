@@ -440,8 +440,11 @@ class OutboxStore {
       this.#raise(op, {
         reason: 'conflict',
         severity: 'failed',
+        // Not "while you were offline": an op also queues behind one already
+        // waiting, so this reaches someone whose network never went anywhere.
+        // What is true in every case that gets here is that theirs landed first.
         detail:
-          'Someone else edited this while you were offline. Your version is kept — open the card to merge.',
+          'Someone else edited this before your change was sent. Your version is kept — open the card to merge.',
         taskId: op.conflict.taskId,
       });
       this.#forget([op]);
