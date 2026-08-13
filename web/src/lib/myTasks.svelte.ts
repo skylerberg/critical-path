@@ -1,8 +1,8 @@
+import { SvelteMap } from 'svelte/reactivity';
 import { api, assertOk } from '../api/client';
 import { apiMessage } from './apiMessages';
 import type { components } from '../api/api.generated';
 import { projects } from './projects.svelte';
-import { SvelteMap } from 'svelte/reactivity';
 
 export type MyTask = components['schemas']['MyTask'];
 export type MyTaskPersonGroup = components['schemas']['MyTaskPersonGroup'];

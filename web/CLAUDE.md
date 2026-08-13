@@ -195,6 +195,25 @@ say `mobile: false` rather than leave it out. Playwright fixes it per context,
 so flipping it discards the page: `goto` again after every `setViewport` rather
 than navigating once and resizing around it.
 
+**To write a throwaway probe of some other component**, copy the shape
+`check:layout:real` already uses: a dev-only `.html` vite entry, a `.ts` beside
+it that seeds the stores and `mount()`s the component, and a `.mjs` driver that
+boots vite in-process and evaluates against it. `scripts/board-probe.html`,
+`scripts/board-probe.ts` and `scripts/check-board-layout-real.mjs` are the three
+to copy from; nothing about that trio is specific to the board.
+
+Two traps a probe of that shape hits:
+
+- **An open `<dialog>` makes the rest of the page inert.** Anything mounted
+  outside it cannot take focus, so a probe that opens a modal and then tests
+  focus elsewhere reports "nothing focused" under both engines and reads as
+  agreement. `dialog.close()` first.
+- **Give every negative assertion a control.** "`focus({ preventScroll: true })`
+  left `scrollY` at 0" means nothing until a plain `focus()` on the same page is
+  shown to move it. WebKit does not scroll on focus in cases where Chromium
+  does, so on WebKit that control is what tells you the check is inert rather
+  than passing.
+
 A probe has to sit inside the repo to resolve `vite`, `playwright` and the
 helper itself; one written to `/tmp` fails at the import, not at the assertion.
 
@@ -290,3 +309,16 @@ await browser.close();
 Vitest + jsdom; component mounting works because `svelteTesting()` from
 `@testing-library/svelte/vite` is in `vite.config.ts` plugins — do not remove it.
 Tests are colocated (`src/**/*.test.ts`).
+
+**A test that needs runes has to be named `*.svelte.test.ts`.** Without the
+infix the runes in it are never compiled, and the failure is not a compile
+error: a `$derived` under test simply never invalidates, so it keeps handing
+back its first value and every assertion reads a stale one. A plain
+`let rows = []` reassigned mid-test looks like it changed and does nothing —
+make it `$state`, in a `.svelte.test.ts` file. `realtime-effects.svelte.test.ts`
+and `list-nav.svelte.test.ts` are the two examples.
+
+The side-effecting `import '../api/testUtils'` goes **first** in any test that
+touches the network — it stubs `fetch`, `Request` and `localStorage`, and a
+module that reads them at import time gets the real ones if it loads first. This
+is why the `import-x/order` lint rule exempts `*.test.ts`.
