@@ -51,14 +51,18 @@ export class BoardComments {
     };
     this.replace(taskId, (comments) => [...comments, optimistic]);
     this.setCount(taskId, (count) => count + 1);
-    const result = await this.#board.sendOrFail<TaskComment>({
-      entityId: taskId,
-      label: 'New comment',
-      semantics: 'create',
-      request: { method: 'POST', path: '/api/comments', body: { id, task_id: taskId, body } },
-    });
+    const result = await this.#board.sendOrFail<TaskComment>(
+      {
+        entityId: taskId,
+        label: 'New comment',
+        semantics: 'create',
+        request: { method: 'POST', path: '/api/comments', body: { id, task_id: taskId, body } },
+      },
+      // The card, not the board: a rejected comment leaves nothing else wrong,
+      // and the default handler would re-read the whole board to find that out.
+      (error) => this.#board.detailMutationFailed(taskId, error)
+    );
     if (result.status === 'failed') {
-      await this.#board.loadTaskDetail(taskId);
       return;
     }
     if (result.status !== 'sent') {
@@ -85,18 +89,20 @@ export class BoardComments {
     this.replace(taskId, (comments) =>
       patchById(comments, commentId, (comment) => ({ ...comment, body, updated_at: now }))
     );
-    const result = await this.#board.sendOrFail<TaskComment>({
-      entityId: commentId,
-      label: 'Edited a comment',
-      request: {
-        method: 'PATCH',
-        path: '/api/comments/{id}',
-        pathParams: { id: commentId },
-        body: { body },
+    const result = await this.#board.sendOrFail<TaskComment>(
+      {
+        entityId: commentId,
+        label: 'Edited a comment',
+        request: {
+          method: 'PATCH',
+          path: '/api/comments/{id}',
+          pathParams: { id: commentId },
+          body: { body },
+        },
       },
-    });
+      (error) => this.#board.detailMutationFailed(taskId, error)
+    );
     if (result.status === 'failed') {
-      await this.#board.loadTaskDetail(taskId);
       return false;
     }
     if (result.status === 'sent') {
@@ -109,13 +115,13 @@ export class BoardComments {
   async remove(taskId: string, commentId: string): Promise<void> {
     this.replace(taskId, (comments) => removeById(comments, commentId));
     this.setCount(taskId, (count) => Math.max(0, count - 1));
-    const result = await this.#board.sendOrFail({
-      entityId: commentId,
-      label: 'Deleted a comment',
-      request: { method: 'DELETE', path: '/api/comments/{id}', pathParams: { id: commentId } },
-    });
-    if (result.status === 'failed') {
-      await this.#board.loadTaskDetail(taskId);
-    }
+    await this.#board.sendOrFail(
+      {
+        entityId: commentId,
+        label: 'Deleted a comment',
+        request: { method: 'DELETE', path: '/api/comments/{id}', pathParams: { id: commentId } },
+      },
+      (error) => this.#board.detailMutationFailed(taskId, error)
+    );
   }
 }

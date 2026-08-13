@@ -104,8 +104,7 @@ export class BoardAttachments {
       );
       this.replace(taskId, (attachments) => patchById(attachments, id, () => created));
     } catch (error) {
-      await this.#board.mutationFailed(error);
-      await this.#board.loadTaskDetail(taskId);
+      await this.#board.detailMutationFailed(taskId, error);
     }
   }
 
@@ -123,8 +122,7 @@ export class BoardAttachments {
       );
       this.replace(taskId, (attachments) => patchById(attachments, id, () => updated));
     } catch (error) {
-      await this.#board.mutationFailed(error);
-      await this.#board.loadTaskDetail(taskId);
+      await this.#board.detailMutationFailed(taskId, error);
     }
   }
 
@@ -142,8 +140,7 @@ export class BoardAttachments {
     try {
       assertOk(await api.DELETE('/api/attachments/{id}', { params: { path: { id } } }));
     } catch (error) {
-      await this.#board.mutationFailed(error);
-      await this.#board.loadTaskDetail(taskId);
+      await this.#board.detailMutationFailed(taskId, error);
     }
   }
 

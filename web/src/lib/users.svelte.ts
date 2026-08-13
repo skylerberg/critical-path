@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 import { api, ApiError, assertOk } from '../api/client';
 import type { components } from '../api/api.generated';
 import { readUsersSnapshot, saveUsersSnapshot } from './offline-cache';
@@ -144,7 +145,13 @@ class UsersStore {
   }
 
   async #fetch(): Promise<void> {
-    const userId = session.user?.id;
+    // Untracked, and load-bearing: this runs from inside effects — the shell's
+    // bootstrap, the members modal — and a tracked read here would subscribe
+    // every one of them to `session.user`, so a name change or a verified email
+    // would re-run the whole effect and re-fetch what it loads. Read before the
+    // first await rather than after, so the snapshot below is written for the
+    // account that was signed in when the read began.
+    const userId = untrack(() => session.user?.id);
     try {
       const data = assertOk(await api.GET('/api/users'));
       this.users = [...data.users].sort(byName);

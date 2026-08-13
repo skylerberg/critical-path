@@ -1,6 +1,7 @@
 import { fetchMock, jsonResponse } from './api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import App from './App.svelte';
 import { announcer } from './lib/announcer.svelte';
 import { board } from './lib/board.svelte';
@@ -236,6 +237,35 @@ describe('App chrome', () => {
     expect(invitations.currentProjectId).toBeNull();
     expect(invitations.loaded).toBe(false);
     expect(projects.projects).toEqual([]);
+  });
+
+  // Both moves used to re-run the shell's bootstrap: the promotion because the
+  // effect read `session.status` rather than whether anyone is signed in, and the
+  // account record because the users store read it on its way to the network,
+  // which subscribed the whole effect to it. The socket's reconnect is what heals
+  // the reads a spell offline missed; doing it here as well only made them twice.
+  it('does not re-read the account lists when the session record or status moves', async () => {
+    const reads = (path: string): number =>
+      fetchMock.mock.calls.filter((call) => new URL((call[0] as Request).url).pathname === path)
+        .length;
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/my-tasks', { replace: true });
+
+    render(App);
+    await screen.findByRole('heading', { name: 'My tasks' });
+    await vi.waitFor(() => expect(reads('/api/projects')).toBe(1));
+    expect(reads('/api/users')).toBe(1);
+
+    // A server that started answering again, and then a renamed account.
+    session.status = 'offline';
+    await tick();
+    session.status = 'authed';
+    await tick();
+    session.user = { ...me, name: 'Ada' };
+    await tick();
+
+    expect(reads('/api/projects')).toBe(1);
+    expect(reads('/api/users')).toBe(1);
   });
 
   it('runs the keymap off the project routes', async () => {

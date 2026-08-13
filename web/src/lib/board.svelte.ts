@@ -30,6 +30,7 @@ import { newId } from './ids';
 import { readBoardSnapshot, saveBoardSnapshot } from './offline-cache';
 import type { SerializedRequest } from './outbox-ops';
 import { outbox, type SubmitInput, type SubmitResult } from './outbox.svelte';
+import { realtimeCoverage } from './realtime-coverage.svelte';
 import type { RealtimeEvent } from './realtime-types';
 import {
   append,
@@ -63,6 +64,11 @@ export type { CommentBody, TaskAttachment, TaskComment };
 // rather than restated here, so a field the card stops being sent is a compile
 // error instead of a silently undefined dropdown.
 export type TaskSeriesRef = components['schemas']['TaskSeriesRef'];
+
+// Everything a card holds beyond its face: the comments, checklist and
+// attachments the board payload does not carry, plus the counts and cover the
+// board payload does.
+export type TaskDetail = components['schemas']['TaskDetailResponse'];
 
 type BulkRelationsResponse = components['schemas']['BulkTaskRelationsResponse'];
 type BulkTasksResponse = components['schemas']['TasksBatchResponse'];
@@ -101,6 +107,11 @@ export function placementAfterDrop(items: readonly Ranked[], movedId: string): P
   return placeBetweenNeighbors(others, neighborsAfterDrop(items, movedId)).placement;
 }
 
+// How long the payload that located a card may stand in for the card's own first
+// read of it. Long enough to cover the navigation that produced it — the board
+// load and the render that follow — and short enough that it can only ever be
+// the read that just happened.
+const DETAIL_HANDOFF_MS = 5000;
 const CYCLE_PATH_MS = 5000;
 const MAX_CYCLE_TITLES = 6;
 const MAX_CYCLE_TITLE_CHARS = 40;
@@ -219,6 +230,14 @@ class BoardStore {
   #fetchToken = 0;
   #archivedToken = 0;
   #seenArmed = false;
+  // The coverage token in force for the whole of the read that produced what is
+  // on screen, or null when no such run existed — a read that failed, one that
+  // raced the subscription, or a public board, which subscribes to nothing. Null
+  // is what makes the next read happen, so it is also the safe default.
+  #coverage: number | null = null;
+  #detailCoverage = new Map<string, number | null>();
+  // The payload that located a card, kept until that card is opened.
+  #detailHandoff = new Map<string, { detail: TaskDetail; at: number }>();
   #cyclePathTimer: ReturnType<typeof setTimeout> | null = null;
   readonly #ownsFilterUrl: boolean;
 
@@ -246,6 +265,7 @@ class BoardStore {
       send: (input) => this.#send(input),
       sendOrFail: (input, onFailure) => this.#sendOrFail(input, onFailure),
       mutationFailed: (error) => this.#mutationFailed(error),
+      detailMutationFailed: (taskId, error) => this.#detailMutationFailed(taskId, error),
       loadTaskDetail: (taskId) => this.loadTaskDetail(taskId),
     };
     this.#comments = new BoardComments(port);
@@ -263,7 +283,17 @@ class BoardStore {
     const wantsReadonly = opts.readonly ?? false;
     const sameProject = this.currentProjectId === projectId && this.readonly === wantsReadonly;
     if (!sameProject) {
+      // The read that located a card lands before the board it belongs to, so the
+      // reset that clears the outgoing project must not take it with it. Carried
+      // across for the incoming project alone; every other reset — the one on the
+      // way out of the account above all — still drops the lot.
+      const handed = [...this.#detailHandoff].filter(
+        ([, entry]) => entry.detail.project_id === projectId
+      );
       this.reset();
+      for (const [taskId, entry] of handed) {
+        this.#detailHandoff.set(taskId, entry);
+      }
     }
     this.currentProjectId = projectId;
     this.readonly = wantsReadonly;
@@ -274,7 +304,14 @@ class BoardStore {
       // nobody asked for would replace a working screen — and every open editor in
       // it — on one bad response. Opening a card runs this, so on a flaky network
       // it is the read most likely to fail under someone who is mid-sentence.
-      if (!this.loading) {
+      //
+      // Skipped entirely while the socket has been carrying this project's events
+      // without a break since the board last came from the server: every change
+      // this read could report has already been applied, so the whole payload
+      // would be re-downloaded to learn nothing. Opening and closing a card is
+      // this path twice, and it is the app's largest response. A gap of any kind
+      // clears the token and the read comes back.
+      if (!this.loading && !realtimeCoverage.holds(projectId, this.#coverage)) {
         void this.refetch({ quiet: true });
       }
       return;
@@ -330,6 +367,10 @@ class BoardStore {
       return;
     }
     const token = ++this.#fetchToken;
+    // Captured before the read and compared after it, never the other way round:
+    // a subscription that began while this was in flight carries neither the
+    // events published before it nor the payload the server built before those.
+    const coverage = realtimeCoverage.tokenFor(projectId);
     try {
       const { data, projectUsers, comments, checklists } = this.readonly
         ? await this.#fetchPublic(projectId)
@@ -383,10 +424,14 @@ class BoardStore {
       }
       this.syncedAt = new Date().toISOString();
       this.staleRead = false;
+      this.#coverage = realtimeCoverage.holds(projectId, coverage) ? coverage : null;
     } catch (error) {
       if (token !== this.#fetchToken) {
         return;
       }
+      // What is on screen no longer came from the server, whatever the socket has
+      // carried since, so the next read must not be skipped.
+      this.#coverage = null;
       // Set before the two returns below, because both of them leave the previous
       // board on screen: quiet is the whole point of those returns, and a quiet
       // failure nobody records is a board that silently stops matching the server.
@@ -592,6 +637,9 @@ class BoardStore {
     this.taskChecklists = {};
     this.taskSeriesRefs = {};
     this.taskAttachments = {};
+    this.#coverage = null;
+    this.#detailCoverage.clear();
+    this.#detailHandoff.clear();
     this.loading = false;
     this.syncedAt = null;
     this.staleRead = false;
@@ -1894,30 +1942,93 @@ class BoardStore {
     }
   }
 
+  /**
+   * The card's read of everything its face does not carry, skipped when the copy
+   * this store already holds cannot have drifted from the server's.
+   *
+   * Two things can make it skippable. The socket keeps a cached detail live —
+   * every comment, checklist and attachment event applies straight into the maps
+   * below — so an unbroken run of coverage since the copy landed is proof it is
+   * still current. And a card reached by short link was located by a read of this
+   * very payload, handed over here rather than made twice a navigation apart.
+   */
+  async ensureTaskDetail(taskId: string): Promise<void> {
+    if (realtimeCoverage.holds(this.currentProjectId, this.#detailCoverage.get(taskId) ?? null)) {
+      return;
+    }
+    if (this.#adoptHandoff(taskId)) {
+      return;
+    }
+    await this.loadTaskDetail(taskId);
+  }
+
+  /**
+   * Keep the payload that located a card, so opening it does not re-read what
+   * naming its project already read. Kept rather than applied on the spot: this
+   * store does not hold that project yet — a link straight to a card is exactly
+   * the case that gets here — and applying it now would seed one board with
+   * another board's card.
+   */
+  offerTaskDetail(detail: TaskDetail): void {
+    this.#detailHandoff.set(detail.id, { detail, at: Date.now() });
+  }
+
   async loadTaskDetail(taskId: string): Promise<void> {
+    const projectId = this.currentProjectId;
+    const coverage = realtimeCoverage.tokenFor(projectId);
     try {
       const data = assertOk(await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } }));
-      this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
-      this.taskChecklists = { ...this.taskChecklists, [taskId]: data.checklist_items ?? [] };
-      this.taskSeriesRefs = { ...this.taskSeriesRefs, [taskId]: data.series };
-      this.taskAttachments = { ...this.taskAttachments, [taskId]: data.attachments ?? [] };
-      // Heals a card face whose realtime event was missed; short of a full board
-      // refetch this is the only authoritative read of the counts and the cover.
-      this.tasks = this.tasks.map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              comment_count: data.comment_count ?? 0,
-              checklist_item_count: data.checklist_item_count ?? 0,
-              checklist_done_count: data.checklist_done_count ?? 0,
-              attachment_count: (data.attachments ?? []).length,
-              cover_image_url: data.cover_image_url ?? null,
-            }
-          : task
+      // Keyed by what was asked for, not by what came back: the two agree, and
+      // the id that was asked for is the one every caller is waiting on.
+      this.#applyTaskDetail(
+        taskId,
+        data,
+        realtimeCoverage.holds(projectId, coverage) ? coverage : null
       );
     } catch (error) {
       toasts.error(apiMessage(error, 'Failed to load task details'));
     }
+  }
+
+  // Taken once, and only while it is still the read that just happened: the card
+  // the resolver located is opened in the same navigation, and anything older is
+  // a payload nobody handed over for this open. Adopted with no coverage of its
+  // own — it predates this run of the subscription by that navigation — so the
+  // card revalidates the ordinary way the next time it is opened.
+  #adoptHandoff(taskId: string): boolean {
+    const handed = this.#detailHandoff.get(taskId);
+    this.#detailHandoff.delete(taskId);
+    if (
+      handed === undefined ||
+      Date.now() - handed.at > DETAIL_HANDOFF_MS ||
+      handed.detail.project_id !== this.currentProjectId
+    ) {
+      return false;
+    }
+    this.#applyTaskDetail(taskId, handed.detail, null);
+    return true;
+  }
+
+  #applyTaskDetail(taskId: string, data: TaskDetail, coverage: number | null): void {
+    this.#detailCoverage.set(taskId, coverage);
+    this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
+    this.taskChecklists = { ...this.taskChecklists, [taskId]: data.checklist_items ?? [] };
+    this.taskSeriesRefs = { ...this.taskSeriesRefs, [taskId]: data.series };
+    this.taskAttachments = { ...this.taskAttachments, [taskId]: data.attachments ?? [] };
+    // Heals a card face whose realtime event was missed; short of a full board
+    // refetch this is the only authoritative read of the counts and the cover.
+    this.tasks = this.tasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            comment_count: data.comment_count ?? 0,
+            checklist_item_count: data.checklist_item_count ?? 0,
+            checklist_done_count: data.checklist_done_count ?? 0,
+            attachment_count: (data.attachments ?? []).length,
+            cover_image_url: data.cover_image_url ?? null,
+          }
+        : task
+    );
   }
 
   // Everything below delegates to a sub-store. The bodies moved; the names did
@@ -2324,16 +2435,34 @@ class BoardStore {
   }
 
   async #mutationFailed(error: unknown): Promise<void> {
-    // Queued mutations never reach here — they are held rather than failed. What
-    // is left is the handful the outbox does not carry, chiefly attachments, and
-    // "something went wrong" is a poor description of a missing network when the
-    // app already knows that is what happened.
+    if (this.#reportMutationFailure(error)) {
+      await this.resync();
+    }
+  }
+
+  // The same failure for a write that moved nothing outside one card: a comment,
+  // a checklist item, an attachment. The board payload holds none of them, and
+  // the two fields of it they do move — this card's counts and its cover — are in
+  // the detail read that repairs them. Running the board resync as well would be
+  // two more requests to be told what this one already says.
+  async #detailMutationFailed(taskId: string, error: unknown): Promise<void> {
+    if (this.#reportMutationFailure(error)) {
+      await this.loadTaskDetail(taskId);
+    }
+  }
+
+  // Says what went wrong, and answers whether anything is left to repair. Queued
+  // mutations never reach here — they are held rather than failed. What is left
+  // is the handful the outbox does not carry, chiefly attachments, and "something
+  // went wrong" is a poor description of a missing network when the app already
+  // knows that is what happened; nothing was rejected, so nothing needs re-reading.
+  #reportMutationFailure(error: unknown): boolean {
     if (!(error instanceof ApiError) && !connectivity.reachable) {
       toasts.error('You are offline. This one could not be saved and was not queued.');
-      return;
+      return false;
     }
     toasts.error(apiMessage(error, 'Something went wrong'));
-    await this.resync();
+    return true;
   }
 
   async #cycleConflictOrFail(error: unknown): Promise<void> {

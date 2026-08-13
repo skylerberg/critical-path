@@ -337,6 +337,32 @@ class ProjectsStore {
   }
 
   async setRank(id: string, sortKey: string): Promise<void> {
+    const failure = await this.#putRank(id, sortKey);
+    if (failure !== null) {
+      await this.#mutationFailed(failure.error, 'Failed to reorder project');
+    }
+  }
+
+  async reorder(movedId: string, orderedIds: string[]): Promise<void> {
+    const byId = new Map(this.projects.map((p) => [p.id, p]));
+    const ordered = orderedIds.flatMap((id) => byId.get(id) ?? []);
+    const updates = reorderRankUpdates(ordered, movedId);
+    const results = await Promise.all(
+      updates.map(({ id, sort_key }) => this.#putRank(id, sort_key))
+    );
+    // One repair for the batch. The first drag on a list nothing has ever ranked
+    // restacks every project, so a server that refuses refuses all of them — and
+    // repairing per write would stack that many identical toasts over that many
+    // reads of the same list.
+    const failure = results.find((result) => result !== null);
+    if (failure !== undefined && failure !== null) {
+      await this.#mutationFailed(failure.error, 'Failed to reorder project');
+    }
+  }
+
+  // Applies the key and sends it, handing back what refused rather than repairing
+  // it: only the caller knows whether this write was on its own or one of a batch.
+  async #putRank(id: string, sortKey: string): Promise<{ error: unknown } | null> {
     this.#update(id, (p) => ({ ...p, sort_key: sortKey }));
     try {
       assertOk(
@@ -345,16 +371,10 @@ class ProjectsStore {
           body: { sort_key: sortKey },
         })
       );
+      return null;
     } catch (error) {
-      await this.#mutationFailed(error, 'Failed to reorder project');
+      return { error };
     }
-  }
-
-  async reorder(movedId: string, orderedIds: string[]): Promise<void> {
-    const byId = new Map(this.projects.map((p) => [p.id, p]));
-    const ordered = orderedIds.flatMap((id) => byId.get(id) ?? []);
-    const updates = reorderRankUpdates(ordered, movedId);
-    await Promise.all(updates.map(({ id, sort_key }) => this.setRank(id, sort_key)));
   }
 
   // No toast and no resync on failure, unlike every other write here: nobody

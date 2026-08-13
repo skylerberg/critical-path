@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { router } from './lib/router.svelte';
   import { isAuthOptionalRoute, isPublicRoute, isSignedIn, session } from './lib/session.svelte';
   import { users } from './lib/users.svelte';
@@ -59,6 +60,34 @@
     }
   });
 
+  // Whether this tab has an account, not which state it is in. `offline` counts,
+  // and a session promoted from `offline` to `authed` is the same account with a
+  // server that started answering — the socket's reconnect heals the reads that
+  // were missed, so re-running this on the promotion would only load them twice.
+  const signedIn = $derived(isSignedIn(session.status));
+
+  // Declared before the reset below so the two keep the order they had as one
+  // effect: a teardown runs before the bodies of the effects that follow it, so
+  // the users retry is called off before the stores it would refill are cleared.
+  $effect(() => {
+    if (!signedIn) {
+      return undefined;
+    }
+    // Untracked so `signedIn` is the whole of what re-runs this. Everything below
+    // reads the account on its way to the network — the outbox keys its queue by
+    // it, the users store keys its cache — and a tracked read there would put the
+    // shell's whole bootstrap behind a renamed account or a verified email.
+    return untrack(() => {
+      void outbox.hydrate();
+      // Connects in both states: the socket is the app's main way of noticing the
+      // network came back, and it backs off on its own until it does.
+      realtime.connect();
+      const cancelUsers = users.loadWithRetry(() => toasts.error('Failed to load users'));
+      void projects.load();
+      return cancelUsers;
+    });
+  });
+
   $effect(() => {
     if (session.status === 'anon') {
       // Per-account caches must not survive into the next session in this tab.
@@ -79,16 +108,6 @@
       realtime.disconnect();
       shortcuts.reset();
     }
-    if (!isSignedIn(session.status)) {
-      return undefined;
-    }
-    void outbox.hydrate();
-    // Connects in both states: the socket is the app's main way of noticing the
-    // network came back, and it backs off on its own until it does.
-    realtime.connect();
-    const cancelUsers = users.loadWithRetry(() => toasts.error('Failed to load users'));
-    void projects.load();
-    return cancelUsers;
   });
 
   // Reachability is deduced from whether requests get answers, so the listeners

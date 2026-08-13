@@ -75,8 +75,9 @@ export class BoardChecklists {
     });
     taskActivity.invalidate(taskId);
     if (result.status === 'failed') {
-      await this.#board.mutationFailed(result.error);
-      await this.#board.loadTaskDetail(taskId);
+      // The card, not the board: a rejected item leaves nothing else wrong, and
+      // the board resync would be two more requests to find that out.
+      await this.#board.detailMutationFailed(taskId, result.error);
       return;
     }
     if (result.status !== 'sent') {
@@ -162,8 +163,7 @@ export class BoardChecklists {
       this.replace(taskId, (items) => patchById(items, itemId, () => updated).sort(byRank));
     }
     if (result.status === 'failed') {
-      await this.#board.mutationFailed(result.error);
-      await this.#board.loadTaskDetail(taskId);
+      await this.#board.detailMutationFailed(taskId, result.error);
     }
     if (logged) {
       taskActivity.invalidate(taskId);
@@ -177,18 +177,18 @@ export class BoardChecklists {
       total: total - 1,
       done: removed?.checked === true ? done - 1 : done,
     }));
-    const result = await this.#board.sendOrFail({
-      entityId: itemId,
-      label: `Deleted checklist item “${truncateTitle(removed?.text ?? '')}”`,
-      request: {
-        method: 'DELETE',
-        path: '/api/checklist-items/{id}',
-        pathParams: { id: itemId },
+    await this.#board.sendOrFail(
+      {
+        entityId: itemId,
+        label: `Deleted checklist item “${truncateTitle(removed?.text ?? '')}”`,
+        request: {
+          method: 'DELETE',
+          path: '/api/checklist-items/{id}',
+          pathParams: { id: itemId },
+        },
       },
-    });
-    if (result.status === 'failed') {
-      await this.#board.loadTaskDetail(taskId);
-    }
+      (error) => this.#board.detailMutationFailed(taskId, error)
+    );
     taskActivity.invalidate(taskId);
   }
 
@@ -225,6 +225,8 @@ export class BoardChecklists {
     });
     taskActivity.invalidate(taskId);
     if (result.status === 'failed') {
+      // Both repairs, unlike its siblings: this one put a card on the board as
+      // well as taking an item off the list, and only the board read removes it.
       await this.#board.mutationFailed(result.error);
       await this.#board.loadTaskDetail(taskId);
       return null;

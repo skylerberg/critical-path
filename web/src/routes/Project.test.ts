@@ -7,6 +7,7 @@ import ProjectRoute from './ProjectRoute.svelte';
 import QuickMenus from '../components/QuickMenus.svelte';
 import { announcer } from '../lib/announcer.svelte';
 import { boardAnnouncer } from '../lib/board-announcer.svelte';
+import { realtimeCoverage } from '../lib/realtime-coverage.svelte';
 import { realtimeEvent } from '../lib/realtime-test-events';
 import { board } from '../lib/board.svelte';
 import { noFilters } from '../lib/board-filters';
@@ -175,6 +176,7 @@ beforeEach(() => {
   selection.clear();
   shortcuts.reset();
   users.reset();
+  realtimeCoverage.end();
   session.user = me;
   router.navigate('/', { replace: true });
 });
@@ -953,6 +955,45 @@ describe('Project mounted on the live route', () => {
           requestedPaths().filter((path) => path === `/api/projects/${projectId}`)
         ).toHaveLength(boardFetches + 1);
       });
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('does not revalidate while the socket has carried the project since the last read', async () => {
+    const projectId = testUuid('p-route-covered');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    realtimeCoverage.begin(projectId);
+    router.navigate(projectHref(projectId, PROJECT_NAME), { replace: true });
+
+    const app = mountOnRoute();
+    const boardFetches = (): number =>
+      requestedPaths().filter((path) => path === `/api/projects/${projectId}`).length;
+    try {
+      await screen.findByText('Boss fight');
+      expect(boardFetches()).toBe(1);
+
+      router.navigate(taskHref(T1, 'Boss fight', 'board'));
+      await waitFor(() => expect(requestedPaths()).toContain(`/api/tasks/${T1}`));
+      router.navigate(projectHref(projectId, PROJECT_NAME));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+      expect(boardFetches()).toBe(1);
+    } finally {
+      void unmount(app);
+    }
+  });
+
+  it('reads a card reached by short link once, not once to place it and again to show it', async () => {
+    const projectId = testUuid('p-route-short-link');
+    mockProjectApi(projectId, [task(T1, 'todo', 'Boss fight')]);
+    router.navigate(taskHref(T1, 'Boss fight', 'board'), { replace: true });
+
+    const app = mountOnRoute();
+    try {
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+      expect(requestedPaths().filter((path) => path === `/api/tasks/${T1}`)).toHaveLength(1);
     } finally {
       void unmount(app);
     }
