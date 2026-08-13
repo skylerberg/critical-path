@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Critical Path frontend: Svelte 5 (runes) + Vite SPA/PWA. No SvelteKit. Tailwind CSS v4.
-TypeScript strict. The app name lives in `src/lib/constants.ts` (`APP_NAME`).
+TypeScript strict.
 
 ## Companion repository
 
@@ -29,24 +29,12 @@ change not working.
 generators look for a sibling API checkout and fall back to the deployed API —
 never a dev server, whose age nothing here can determine.
 
-**Neither needs a dump first.** When a sibling checkout is there, the generator
-re-dumps it before reading. Both dumps are pure functions of the API's
-source — no database, under two seconds — so producing one on the spot is
-cheaper than deciding whether the old one is stale, and it is the only answer
-that cannot be a false alarm in either direction. A checkout that cannot run
-the dump (no `node_modules`, no `.env`) falls back to a freshness check on
-whatever dump is already there. A checkout that is behind `origin/main` is
-still refused: dumping it would produce a confidently wrong document rather
-than an obviously old one.
-
-**Read the path it prints.** Every local run logs the absolute file it read
-(`Re-dumped /…/openapi.json`, or `Reading existing /…` when the dump could not
-be re-run). That line is the only thing that distinguishes the checkout you
-meant from the one it found, and the difference is otherwise silent: the
-generator walks up from the script and then looks beside the _main_ checkout,
-so from a worktree it lands on `~/Code/critical-path-api` — which is on `main`,
-not on the branch carrying the schema change. It then succeeds, prints a
-re-dump, and writes a client with no diff.
+**Neither needs a dump first**, and neither is silent about what it read.
+`scripts/spec-source.mjs` re-dumps a sibling checkout before reading it, prints
+the absolute path it used, and refuses a checkout that is behind `origin/main`.
+Read that path — it is the only thing separating the checkout you meant from the
+one it found, and the search ends beside the _main_ checkout, so from a worktree
+it lands on `~/Code/critical-path-api` and writes a client with no diff.
 
 **A change spanning both repos therefore needs `API_REPO_DIR`**, set to the
 absolute path of the api worktree holding the change:
@@ -57,23 +45,23 @@ API_REPO_DIR=~/.worktrees/critical-path-api/<branch> npm run generate:api
 
 It is a lookup path only — generated headers are always labeled
 `critical-path-api/<file>`, so an override cannot record one machine's checkout
-in a committed file. Expect it to refuse until that worktree is itself current
-with `origin/main`. `RealtimeEvent` in
-`src/lib/realtime-types.ts` is the envelope union it produces: narrowing on
-`event.type` yields that event's payload, so an apply site never asserts a
-shape. The one assertion is in `realtime.svelte.ts` where a frame arrives, and
-the payload is deliberately not validated there. Tests build events with
-`realtimeEvent()` from `src/lib/realtime-test-events.ts`, which takes a
-`Partial` payload so a fixture stays short while its field _names_ are still
-checked — a fixture naming a field the API stopped sending is what hid the
+in a committed file.
+
+`RealtimeEvent` in `src/lib/realtime-types.ts` is the envelope union the realtime
+generator produces: narrowing on `event.type` yields that event's payload, so an
+apply site never asserts a shape. The one assertion is in `realtime.svelte.ts`
+where a frame arrives, and the payload is deliberately not validated there. Tests
+build events with `realtimeEvent()` from `src/lib/realtime-test-events.ts`, which
+takes a `Partial` payload so a fixture stays short while its field _names_ are
+still checked — a fixture naming a field the API stopped sending is what hid the
 `project_position_updated` bug for several releases.
 
 **A required field in the generated types is not a required field on the wire.**
 The spec describes the API as deployed, and a pod that predates a field omits it
 while the type still says it is there. So a reader of a newly-added field
 coalesces (`data.changed_task_ids ?? []`, `task.checklist_item_count ?? 0`) even
-though `svelte-check` sees the guard as dead. There are around a dozen of these;
-each is written as `// Coalesced: a pod predating <what> omits <which>`, so
+though `svelte-check` sees the guard as dead. Each is written as
+`// Coalesced: a pod predating <what> omits <which>`, so
 `grep -rn 'Coalesced: a pod predating' src` lists them. **They are removable once
 the API rollout they name has reached every environment** — the grep is how you
 find the ones whose moment has passed, and none of them is meant to be permanent.
@@ -82,8 +70,8 @@ find the ones whose moment has passed, and none of them is meant to be permanent
 
 `main` moves fast here and in the api repo, and a stale base is silent until a
 rebase conflicts or CI fails on a rule the base predates. `git fetch origin &&
-git rev-list --count HEAD..origin/main` before starting, before the full suite,
-and before pushing; rebase onto `main` rather than merging, and re-run the checks
+git rev-list --count HEAD..origin/main` before starting and before pushing;
+rebase onto `main` rather than merging, and re-run the checks
 afterwards rather than trusting the pre-rebase pass. Run `gh pr list` before
 starting too — the fix may already be open. `../critical-path-api/CLAUDE.md`
 carries the longer version, including two ways a stale base has produced wrong
@@ -108,11 +96,19 @@ wall-clock in a long session for almost no extra signal. Reach for the whole
 suite when a change is broad enough that you cannot name the files it affects
 (a shared helper, a store, a type everything imports) — and once at the end.
 
-Before finishing, run all of these:
+**Leave the full gate to CI.** `npm run check:all` is the whole list, in one
+place — which is why CI is a single step and this file no longer spells the
+commands out or counts them. It is minutes of typecheck, every browser check,
+the suite and a production build; running it locally at the end of a change
+mostly re-derives what the push is about to tell you anyway. Push, and read the
+run.
 
-```sh
-npm run check && npm run check:comments && npm run check:layout && npm run check:layout:real && npm run check:task-detail && npm run check:a11y && npm run lint && npm run format:check && npm test && npm run build
-```
+What is worth doing by hand is whatever your change actually touches: the test
+files near it, and the one check that covers the thing you changed if there is
+one — `check:layout:real` after a board layout change, `check:task-detail` after
+touching the card overlay, `check:a11y` after changing markup or a colour token,
+`check:comments` after moving a rule between a comment and this file. Those are
+seconds each.
 
 `npm run check` covers `src/` (tests included — they are colocated as
 `src/**/*.test.ts`), `scripts/**/*.ts` and `vite.config.ts`. Nothing about the
@@ -120,10 +116,12 @@ test files is exempt from `strict`.
 
 **Never run `prettier --write` or `eslint --fix` by hand.** `.githooks/post-commit`
 already runs both over the files each commit touched and amends the result in, so
-formatting is fixed the moment work is committed — including from a worktree, and
-including a worktree that never ran `npm install`, because `core.hooksPath` is
-repository config and `.githooks/` is checked in. Hand-formatting after every edit
-is redundant work that also churns files out from under whatever is reading them.
+formatting is fixed the moment work is committed — including from a worktree,
+since `core.hooksPath` is repository config and `.githooks/` is checked in. It
+does need the dependencies to be reachable: the hook shells out to `npx` and
+swallows the failure, so a worktree whose `node_modules` symlink is missing gets
+a hook that runs and formats nothing. Hand-formatting after every edit is
+redundant work that also churns files out from under whatever is reading them.
 
 The one thing to know is the ordering it implies: the hook runs *after* the commit,
 so `npm run format:check` is only meaningful on a committed tree. Failing it on
@@ -136,7 +134,7 @@ when one fails. `check:layout` loads `scripts/board-layout.fixture.html` over
 `file://` — a hand-written, dependency-free mirror of the board's class chain,
 with no vite and no components, so a failure there is a pure-CSS failure and the
 fixture is where to look. `check:layout:real` boots vite in-process on the first
-free port at or above 5180 (override with `VITE_PORT`) and mounts the real
+free port at or above 5180 (override with `LAYOUT_PROBE_PORT`) and mounts the real
 `Board.svelte` through `scripts/board-probe.ts`, so two worktrees can run it at
 the same time and a killed run leaves nothing behind.
 
@@ -144,24 +142,29 @@ The fixture is a copy, so it can agree with a component it no longer resembles.
 `.pi/skills/browser-repro/SKILL.md` covers when not to trust it and how to
 reproduce against the real thing instead.
 
-`check:task-detail` is the third of these, and the only one not about layout. It
+`check:task-detail` is a browser check that is not about layout. It
 mounts the real `TaskDetail.svelte` through `scripts/task-detail-probe.ts` and
 asserts what jsdom cannot see about the card overlay: that opening it does not
 steal the caret into the title field, and that dismissing it with an unsaved
-title produces exactly **one** write. Chromium deliberately — removing a focused
-input fires `blur` there and not in WebKit, so Chromium is the only engine on
-which a dismissal runs both flush paths at once, and the double-write it used to
-produce was invisible on WebKit and to jsdom alike.
+title produces exactly **one** write. It runs under Chromium for the reason the
+engine table below gives — it is the only engine on which a dismissal takes both
+flush paths at once, so it is the only one that can see the double write.
 
-`check:comments` is not a browser check and needs nothing installed. It reads
-the comments themselves and fails on two things a reader takes on trust: the
-same sentence in two files, where whichever copy is not next to the code goes
-stale silently; and a file or symbol a comment names that no longer resolves, or
-that resolves somewhere other than where the comment places it. When it fires,
-give the rule one owner — the module that implements it — and cut the other copy
-down to what is local to its own site. `scripts/comment-allowlist.txt` is for the
-narrow case where a fact is needed *at* two sites and there is no module to hang
-it on; reaching for it instead is how the duplication gets re-admitted.
+`check:comments` is not a browser check and needs nothing installed. It reads the
+prose — comments, plus this file, the README and the skills under `.pi/` — and
+fails on two things a reader takes on trust: the same sentence in two files,
+where whichever copy is not next to the code goes stale silently; and a file or
+symbol it names that no longer resolves, or that resolves somewhere other than
+where the prose places it. When it fires, give the rule one owner — the module
+that implements it — and cut the other copy down to what is local to its own
+site. `scripts/comment-allowlist.txt` is for the narrow case where a fact is
+needed *at* two sites and there is no module to hang it on; reaching for it
+instead is how the duplication gets re-admitted.
+
+It reads the docs because they had drifted worse than the code: the run-checks
+skill was telling people to run the formatter that the post-commit hook already
+runs, and the README described a generator flag that had changed meaning. Neither
+was anyone's compile error.
 
 `check:a11y` runs axe-core over the real board and the real card overlay, in
 **both colour schemes** — the palette is defined twice and half the tokens exist
@@ -195,7 +198,8 @@ mode a unit test mostly does not: measuring nothing and reporting green, because
 the gesture never armed, the selector matched nothing, the option it turns on was
 renamed out from under it, or the pattern it greps for stopped matching the
 codebase. CI runs the checks without the flag; the flag is how you earn
-the right to believe them. The real check's selftest also asserts it rewrote
+the right to believe them. The two that rewrite a source file to plant their bug
+— the real board check and the card-overlay one — also assert they rewrote
 exactly one call site, since rewriting none is that same failure wearing the
 selftest's face.
 
@@ -223,9 +227,9 @@ it — and are load-bearing under the test runner.
 
 `createBrowser()` wraps Playwright rather than re-exporting it: the returned
 object is `{ setViewport, goto, eval, screenshot, close }` and nothing more, so
-`newPage()` and the rest of the Playwright API are not on it. It returns `null`
-when the engine is missing (`npm run playwright:install`) — a local-only skip,
-since under `CI` a launch failure throws instead.
+`newPage()` and the rest of the Playwright API are not on it. Its own header
+documents the signatures and the null-on-missing-engine skip; the two things
+below are the ones that have cost time.
 
 **Chromium is not the target.** `createBrowser({ engine: 'webkit' })` runs the
 same probe under WebKit, which every iOS browser uses and which most bug reports
@@ -238,13 +242,14 @@ a focused input fires `blur` in Chromium and **not** in WebKit:
 ```
 
 That difference is why a field saved only `onblur` lost what was typed whenever
-the card was dismissed on a phone. Any question about focus, the on-screen
-keyboard, or what an unmount does to a focused field wants both engines; one
-green Chromium run is not an answer. Only the layout checks are committed and
-they are Chromium-only, so CI installs Chromium alone and a committed check
-asking for WebKit would fail loudly there rather than skip.
+the card was dismissed on a phone, and it is the whole reason `check:task-detail`
+runs where it does. Any question about focus, the on-screen keyboard, or what an
+unmount does to a focused field wants both engines; one green Chromium run is not
+an answer. Only the committed checks are Chromium-only, so CI installs Chromium
+alone and a committed check asking for WebKit would fail loudly there rather than
+skip.
 
-Those five take their own shapes, none of which match Playwright's:
+The five methods take their own shapes, none of which match Playwright's:
 
 ```js
 await browser.setViewport({ width: 375, height: 667, mobile: true }); // object, not (w, h)
@@ -267,12 +272,13 @@ One more trap when measuring anything colour-valued: most controls here carry
 ring in the same tick as `focus()` samples it mid-fade and reports the colour it
 came *from*. Let it settle before believing the value.
 
-**To write a throwaway probe of some other component**, copy the shape
-`check:layout:real` already uses: a dev-only `.html` vite entry, a `.ts` beside
-it that seeds the stores and `mount()`s the component, and a `.mjs` driver that
-boots vite in-process and evaluates against it. `scripts/board-probe.html`,
-`scripts/board-probe.ts` and `scripts/check-board-layout-real.mjs` are the three
-to copy from; nothing about that trio is specific to the board.
+**To write a throwaway probe of some other component**, copy the shape the two
+committed ones use: a dev-only `.html` vite entry, a `.ts` beside it that seeds
+the stores and `mount()`s the component, and a `.mjs` driver that boots vite
+in-process and evaluates against it. `scripts/board-probe.html`,
+`scripts/board-probe.ts` and `scripts/check-board-layout-real.mjs` are one such
+trio; `scripts/task-detail-probe.ts` and `scripts/check-task-detail.mjs` are the
+same shape around a single component, which is usually the closer model.
 
 Traps a probe of that shape hits:
 
@@ -320,8 +326,9 @@ await browser.close();
 
 ## Svelte 5 conventions
 
-- Runes only: `$state`, `$derived`, `$effect`, `$props()`, `$bindable()`. No legacy
-  `export let`, no `$:` labels, no svelte/store.
+- Runes only: `$state`, `$derived`, `$effect`, `$props()`, `$bindable()`. `runes`
+  is set in `svelte.config.js`, so legacy `export let`, `$:` labels and
+  svelte/store are compile errors rather than a convention to keep.
 - Shared reactive state lives in `.svelte.ts` modules exporting a class instance
   (see `src/lib/toasts.svelte.ts`); state fields use `$state`.
 - Components type their props with a local `interface Props` and destructure
@@ -329,8 +336,8 @@ await browser.close();
   (see `src/components/ui/Button.svelte`).
 - `$props.id()` may be called **once** per component — a second call is a compile
   error (`props_duplicate`), not a second id. A component needing several ids (a
-  panel plus the headings it labels) calls it once into `const uid` and suffixes
-  from there: `` `${uid}-panel` ``, `` `${uid}-labels` `` (see
+  panel plus the hint that describes it) calls it once into `const uid` and
+  suffixes from there: `` `${uid}-panel` ``, `` `${uid}-hint` `` (see
   `src/components/FilterBar.svelte`).
 - Event handlers are plain attributes (`onclick`, `onconsider`, `onfinalize`).
 - **`$state` hands back a proxy, and the object you passed it keeps its original
@@ -388,10 +395,9 @@ await browser.close();
   real server that 409s and opens a conflict draft for a card the user has just
   left.
 
-  The reason that survived so long is worth knowing too: removing a focused input
-  fires `blur` in Chromium and **not** in WebKit, so only Chromium ran both flush
-  paths at once — and jsdom fires no blur on unmount either, so no unit test could
-  reach it. `scripts/check-task-detail.mjs` is the guard.
+  The reason it survived so long is the engine difference above: only Chromium
+  ran both flush paths at once, and jsdom fires no blur on unmount either, so no
+  unit test could reach it. `scripts/check-task-detail.mjs` is the guard.
 
 ## Router
 
@@ -409,7 +415,8 @@ await browser.close();
 
 ## Data pattern (for the API/store agents)
 
-- IDs are client-generated via `newId()` (`src/lib/ids.ts`); never install `uuid`.
+- IDs are client-generated via `newId()` (`src/lib/ids.ts`); never install `uuid`,
+  which eslint restricts so the point is made where the import would go.
 - List ordering uses string `sort_key` ranks from `fractional-indexing`
   (`src/lib/ranks.ts`), not numbers — `append`, `prepend`, `between`,
   `placeAtIndex`. `byRank` sorts a keyed row ahead of an unkeyed one and breaks

@@ -1,6 +1,6 @@
 ---
 name: browser-repro
-description: Reproduce and debug CSS/layout/visual bugs against the REAL component in headless Chrome (measures the real box model that jsdom cannot). Use for any layout issue — elements overflowing or off-screen, fixed/sticky nav misbehavior, unexplained gaps, mobile viewport/scroll problems. Prevents the failure mode of diagnosing against an unfaithful hand-authored fixture.
+description: Reproduce and debug layout, focus and other bugs against the REAL component in a headless browser (measures what jsdom cannot — box model, focus, showModal, computed styles). Use for any layout issue — elements overflowing or off-screen, fixed/sticky nav misbehavior, unexplained gaps, mobile viewport/scroll problems — and for anything about focus or the on-screen keyboard, which wants WebKit as well as Chromium. Prevents the failure mode of diagnosing against an unfaithful hand-authored fixture.
 ---
 
 # Browser repro for layout bugs
@@ -28,6 +28,12 @@ pinned headless Chromium via `scripts/lib/browser.mjs`. First-time local setup:
   (first line of defense; runs in CI as `check:layout`).
 - `scripts/check-board-layout-real.mjs` — gate against the **real component**
   via the probe (boots `vite dev`, measures, tears down; CI: `check:layout:real`).
+- `scripts/task-detail-probe.ts` + `scripts/check-task-detail.mjs` — the same
+  shape around one component rather than a whole route, and the closer model to
+  copy for a new probe. It asks what jsdom cannot answer about focus.
+
+CLAUDE.md's "Checking what jsdom cannot model" is the owner of the engine
+differences and the traps a new probe hits; read it before writing one.
 
 ## Workflow for a board/layout bug
 
@@ -81,11 +87,26 @@ elements resolve against the oversized viewport — the classic "fixed bar is to
 wide / off-screen on mobile" symptom. Always assert `innerWidth <= device width`
 and `documentElement.scrollWidth <= device width`, not just visible element rects.
 
+## Chromium is not the target
+
+Pass the engine to run the same probe under WebKit:
+
+```js
+const b = await createBrowser({ engine: 'webkit' });
+```
+
+Do it for anything touching focus, the on-screen keyboard, or what an unmount
+does to a focused field: the two engines disagree there, Chromium is the
+optimistic one, and a green Chromium run on its own is not an answer. CLAUDE.md's
+"Checking what jsdom cannot model" has the specific difference and what it cost.
+
 ## Guardrails
 
 - Test the real component before trusting a fixture. If a repro doesn't
   reproduce, suspect the repro first — don't invent a "simulation" to paper over
   the gap.
+- Give every negative assertion a control. "Nothing was focused" reads the same
+  whether the check works or never armed.
 - Use `setViewport({ mobile: true })` for mobile behavior; plain width/height
   (mobile:false) gives a desktop-style viewport that won't expand on overflow.
 - Don't capture screenshots expecting to view them in this harness — read numeric

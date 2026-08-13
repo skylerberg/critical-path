@@ -29,26 +29,35 @@ Vite serves the app on <http://localhost:5173> and proxies `/api` to
 
 ## Generated API types
 
-`src/api/api.generated.ts` is generated from the API's OpenAPI spec and committed:
+`src/api/api.generated.ts` and `src/api/realtime.generated.ts` are generated from
+the API repo and committed:
 
 ```sh
-npm run generate:api                       # from a running API (SPEC_URL, default localhost:3001)
-SPEC_PATH=../critical-path-api/openapi.json npm run generate:api   # from a dumped spec (npm run openapi:dump in the API repo)
+npm run generate:api
+npm run generate:realtime
 ```
 
-Regenerate after any API schema change and commit the result.
+Each looks for a sibling `critical-path-api` checkout, re-dumps it, and prints
+the absolute path it read; with no checkout to find it falls back to the deployed
+API, never to a dev server. Dumping first is not needed. Regenerate after any API
+schema change and commit the result.
+
+Working across both repos at once — where the schema change is in an API worktree
+rather than the checkout beside this one — needs `API_REPO_DIR`; see CLAUDE.md.
 
 ## Checks
 
 ```sh
-npm run check         # svelte-check (type checking)
-npm run lint          # eslint
-npm run format        # prettier --write
-npm run format:check
-npm test              # vitest (jsdom)
-npm run build         # production build incl. PWA assets
+npm run check:all     # everything CI runs, in CI's order
+npm test              # vitest (jsdom); takes a path to run one file
 npm run preview       # serve the production build
 ```
+
+`check:all` is the list; `package.json` is where to read it. It includes three
+headless-browser checks, so run `npm run playwright:install` once first.
+
+Do not run `prettier --write` or `eslint --fix` by hand — `.githooks/post-commit`
+runs both over each commit's files and amends the result in.
 
 ## Production
 
