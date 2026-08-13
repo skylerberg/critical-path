@@ -3,6 +3,7 @@ import { TestContext, TestUser } from '../../setup/testContext';
 import { db } from '../../helpers/database';
 import { newId, rankKey } from '../../helpers/fixtures';
 import { BoardPayloadBody, deleteProjects, insertTask } from '../projects/helpers';
+import { MY_TASKS_PAGE_SIZE } from '../../../src/services/myTasks';
 
 interface MyTaskLinkBody {
   id: string;
@@ -28,6 +29,7 @@ interface MyTasksBody {
   tasks: MyTaskBody[];
   waiting_on_you: Array<{ user_id: string | null; tasks: MyTaskLinkBody[] }>;
   you_are_waiting_on: Array<{ user_id: string | null; tasks: MyTaskLinkBody[] }>;
+  next_offset: number | null;
 }
 
 describe('GET /api/my-tasks', () => {
@@ -551,5 +553,135 @@ describe('GET /api/my-tasks', () => {
     const body = await fetchMine(alice);
     expect(body.you_are_waiting_on.map((group) => group.user_id)).toEqual([bob.id, null]);
     expect(body.you_are_waiting_on[1].tasks.map((task) => task.id)).toEqual([orphanBlocker]);
+  });
+
+  describe('paging', () => {
+    // Bulk-inserted rather than created through the API: the page size is what
+    // is under test, so the fixture has to actually cross it, and a thousand
+    // POSTs would dominate the suite.
+    async function assignManyTasks(
+      projectId: string,
+      columnId: string,
+      userId: string,
+      count: number
+    ): Promise<string[]> {
+      const rows = Array.from({ length: count }, (_, index) => ({
+        id: newId(),
+        project_id: projectId,
+        column_id: columnId,
+        title: `Bulk task ${String(index)}`,
+        sort_key: rankKey(index),
+      }));
+      await db.insertInto('task').values(rows).execute();
+      await db
+        .insertInto('task_assignee')
+        .values(rows.map((row) => ({ task_id: row.id, user_id: userId })))
+        .execute();
+      return rows.map((row) => row.id);
+    }
+
+    async function fetchPage(user: TestUser, offset?: number): Promise<MyTasksBody> {
+      const path =
+        offset === undefined ? '/api/my-tasks' : `/api/my-tasks?offset=${String(offset)}`;
+      const res = await ctx.request(user.token).get(path);
+      expect(res.status).toBe(200);
+      return (await res.json()) as MyTasksBody;
+    }
+
+    it('reports no next page for a caller under the page size', async () => {
+      const alice = await newCaller();
+      const project = await createProject(alice, 'Small');
+      const task = await insertTask({
+        projectId: project.id,
+        columnId: project.todo.id,
+        title: 'Only',
+      });
+      await assign(task, alice.id);
+
+      const body = await fetchPage(alice);
+      expect(body.tasks).toHaveLength(1);
+      expect(body.next_offset).toBeNull();
+    });
+
+    it('splits a caller past the page size into two disjoint pages', async () => {
+      const alice = await newCaller();
+      const project = await createProject(alice, 'Overflowing');
+      const extra = 3;
+      const ids = await assignManyTasks(
+        project.id,
+        project.todo.id,
+        alice.id,
+        MY_TASKS_PAGE_SIZE + extra
+      );
+
+      const first = await fetchPage(alice);
+      expect(first.tasks).toHaveLength(MY_TASKS_PAGE_SIZE);
+      expect(first.next_offset).toBe(MY_TASKS_PAGE_SIZE);
+
+      const second = await fetchPage(alice, MY_TASKS_PAGE_SIZE);
+      expect(second.tasks).toHaveLength(extra);
+      expect(second.next_offset).toBeNull();
+
+      const seen = [...first.tasks, ...second.tasks].map((task) => task.id);
+      expect(new Set(seen).size).toBe(ids.length);
+      expect(new Set(seen)).toEqual(new Set(ids));
+    });
+
+    // The reason the ordering had to move into SQL: cut by board position
+    // instead, the one card somebody is actually waiting on lands on page two.
+    it('puts the urgent work on the first page however it sorts by board position', async () => {
+      const alice = await newCaller();
+      const project = await createProject(alice, 'Urgency');
+      await assignManyTasks(project.id, project.todo.id, alice.id, MY_TASKS_PAGE_SIZE);
+
+      // Last by board position, and the only card holding anyone up.
+      const holdsUpBob = await insertTask({
+        projectId: project.id,
+        columnId: project.todo.id,
+        title: 'Holds up Bob',
+        position: 999_999,
+      });
+      const bobsTask = await insertTask({
+        projectId: project.id,
+        columnId: project.todo.id,
+        title: "Bob's blocked work",
+        position: 1_000_000,
+      });
+      await assign(holdsUpBob, alice.id);
+      await assign(bobsTask, bob.id);
+      await blocks(holdsUpBob, bobsTask);
+
+      const first = await fetchPage(alice);
+      expect(first.tasks[0].id).toBe(holdsUpBob);
+      expect(first.tasks[0].bucket).toBe('blocking');
+      expect(first.next_offset).toBe(MY_TASKS_PAGE_SIZE);
+    });
+
+    // 400 rather than 422: a query parameter is validated by queryValidator,
+    // which answers 400, where a request body would answer 422.
+    it('rejects an offset that is not a whole number', async () => {
+      const alice = await newCaller();
+      for (const offset of ['-1', 'abc', '1e9', '1.5', '']) {
+        const res = await ctx.request(alice.token).get(`/api/my-tasks?offset=${offset}`);
+        expect(res.status, `offset=${offset}`).toBe(400);
+      }
+    });
+
+    it('answers an offset past the end with an empty last page', async () => {
+      const alice = await newCaller();
+      const project = await createProject(alice, 'Past the end');
+      const task = await insertTask({
+        projectId: project.id,
+        columnId: project.todo.id,
+        title: 'Only',
+      });
+      await assign(task, alice.id);
+
+      const body = await fetchPage(alice, MY_TASKS_PAGE_SIZE);
+      expect(body.tasks).toEqual([]);
+      expect(body.waiting_on_you).toEqual([]);
+      expect(body.you_are_waiting_on).toEqual([]);
+      expect(body.next_offset).toBeNull();
+    });
   });
 });
