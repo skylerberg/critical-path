@@ -53,6 +53,13 @@
 
   router.beforeNavigate = session.guardRoute;
 
+  // Above the first request rather than below it, which is what the sentence
+  // asking for it has always said and what the ordering here did not do. The
+  // seed refuses to overwrite an answer either way, so this is no longer the
+  // thing holding it up — but a listener installed after the request it is meant
+  // to cover is still the wrong shape to leave lying around.
+  connectivity.start();
+
   // beforeNavigate does not run on the first page load; guard it once the session is known.
   void session.init().then(() => {
     const redirected = session.guardRoute(router.current, router.path);
@@ -115,10 +122,6 @@
       shortcuts.reset();
     }
   });
-
-  // Reachability is deduced from whether requests get answers, so the listeners
-  // that seed it have to be running before the first one is made.
-  connectivity.start();
 
   // Once the queue lands, the board on screen is the user's optimistic state and
   // the server's is the truth; this is the one place that reconciles them. Wired

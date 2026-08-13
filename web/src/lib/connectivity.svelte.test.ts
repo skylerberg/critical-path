@@ -27,6 +27,28 @@ describe('connectivity', () => {
     expect(connectivity.reachable).toBe(false);
   });
 
+  // The seed runs at a moment when a request may already have answered, and an
+  // interface reporting itself up while the server is unreachable is the
+  // ordinary shape of a captive portal. Reading it would clear a state a failed
+  // request had correctly established.
+  it('does not let the interface overwrite an answer already given', () => {
+    connectivity.noteUnreachable();
+    setOnLine(true);
+
+    connectivity.start();
+
+    expect(connectivity.reachable).toBe(false);
+  });
+
+  it('still takes a down interface over an answer, whichever came first', () => {
+    connectivity.noteReached();
+    setOnLine(false);
+
+    connectivity.start();
+
+    expect(connectivity.reachable).toBe(false);
+  });
+
   it('treats losing the interface as proof and regaining it as a hint', () => {
     connectivity.start();
 

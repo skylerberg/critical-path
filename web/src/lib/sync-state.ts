@@ -68,6 +68,13 @@ export function syncState(inputs: SyncInputs): SyncState {
  * this feature must not make — and neither is "local-first", which would promise
  * an app designed to run offline indefinitely rather than one degrading
  * gracefully until the network returns.
+ *
+ * "Offline" is reserved for the states that mean it. Most of these arise only
+ * while the server is answering, and naming one of them offline sends someone
+ * looking at their signal for a problem that is not there — which is what
+ * `reconnecting` did, saying "Offline" for the one state whose whole definition
+ * is that HTTP works. The test beside this holds every reachable state to it,
+ * and derives that list by round-tripping rather than restating it.
  */
 export function syncMessage(state: SyncState, pendingCount: number, issues: number): string {
   const changes = `${String(pendingCount)} ${pendingCount === 1 ? 'change' : 'changes'}`;
@@ -83,7 +90,7 @@ export function syncMessage(state: SyncState, pendingCount: number, issues: numb
     case 'stale':
       return 'Could not refresh — showing an older version';
     case 'reconnecting':
-      return 'Offline — reconnecting';
+      return 'Live updates paused — reconnecting';
     case 'needs-attention':
       return `${String(issues)} ${issues === 1 ? 'change needs' : 'changes need'} your attention`;
     case 'clean':
