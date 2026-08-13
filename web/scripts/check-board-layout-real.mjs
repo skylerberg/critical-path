@@ -19,18 +19,26 @@ import { createBrowser } from './lib/browser.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(__dirname); // repo root (worktree root)
 
-const server = await createServer({
-  root: ROOT,
-  // logLevel keeps vite's ready-banner out of the check's output while leaving
-  // the warnings and transform errors that explain a failure on stderr.
-  logLevel: 'warn',
-  server: {
-    host: '127.0.0.1',
-    port: Number(process.env.VITE_PORT ?? '5180'),
-    strictPort: false,
-  },
-});
-await server.listen();
+const SELFTEST = process.argv.includes('--selftest');
+
+async function startServer(plugins = []) {
+  const created = await createServer({
+    root: ROOT,
+    // logLevel keeps vite's ready-banner out of the check's output while leaving
+    // the warnings and transform errors that explain a failure on stderr.
+    logLevel: 'warn',
+    plugins,
+    server: {
+      host: '127.0.0.1',
+      port: Number(process.env.VITE_PORT ?? '5180'),
+      strictPort: false,
+    },
+  });
+  await created.listen();
+  return created;
+}
+
+const server = await startServer();
 const teardown = () => server.close();
 process.on('SIGINT', () => process.exit(130));
 process.on('SIGTERM', () => process.exit(143));
@@ -60,6 +68,7 @@ const MEASURE = `(() => {
   const br = bar?.getBoundingClientRect();
   const de = document.documentElement;
   return {
+    requests: window.__requests.map((r) => r.method + ' ' + r.path),
     cols: cols.length,
     cards: document.querySelectorAll('[data-task-id]').length,
     vw: innerWidth,
@@ -86,6 +95,11 @@ const MEASURE = `(() => {
 
 function check(m, vp) {
   const f = [];
+  // Reading a board must not write to one. This is also what keeps the probe
+  // measuring its own fixture: a request that escapes here reaches a real API on
+  // the machine of anyone running one, and comes back with a different board.
+  if (m.requests.length)
+    f.push(`the board talked to the server just by being shown (${m.requests.join(', ')})`);
   // Every height assertion below is satisfied trivially by a column that drew no
   // cards, so a card that throws while rendering would otherwise pass this check.
   if (m.cards !== vp.cols * vp.tasks)
@@ -356,6 +370,7 @@ const SCROLL_PROBE = `(async () => {
   const columnAfterPrepend = centered();
 
   return {
+    requests: window.__requests.map((r) => r.method + ' ' + r.path),
     drift, resting, landed, afterWheel,
     swipeOne, swipeFar, swipeBack, swipeShort, swipeVertical, afterBareScrollEnd,
     beforeInsert, afterInsert,
@@ -371,6 +386,9 @@ const SCROLL_PROBE = `(async () => {
 
 function checkScroll(s, mobile) {
   const f = [];
+  // Scrolling a board is reading it, and a column arriving over the wire is the
+  // server talking to us — neither is a reason to talk back.
+  if (s.requests.length) f.push(`scrolling the board hit the server (${s.requests.join(', ')})`);
   if (s.drift > 2) f.push(`board drifted ${s.drift}px after arrival with no input`);
   if (mobile && s.resting > 2) f.push(`board did not arrive at the first column (${s.resting})`);
   if (Math.abs(s.afterWheel - s.landed) > 2)
@@ -569,10 +587,15 @@ const DRAG_PROBE = `(async (c) => {
   await pause(700);
 
   const el = document.querySelector('[data-task-id="' + taskId + '"]');
+  const isMove = (r) => r.method === 'PATCH' && r.path === '/api/tasks/' + taskId;
   return {
     ...at,
     landed: el ? el.closest('[data-task-list]').dataset.taskList : null,
-    moves: window.__moves.map((m) => m.columnId),
+    // The column the board asked the server for, not the one a stub was told to
+    // remember: this is the real moveTask, placement and all, so a drop that
+    // lands right on screen but writes the wrong column still fails here.
+    moved: window.__requests.filter(isMove).map((r) => r.body && r.body.column_id),
+    other: window.__requests.filter((r) => !isMove(r)).map((r) => r.method + ' ' + r.path),
   };
 })`;
 
@@ -589,9 +612,12 @@ function checkDrag(d) {
   else {
     if (d.landed !== d.underFinger)
       f.push(`dropped into ${d.landed} with the finger over ${d.underFinger}`);
-    if (d.moves.length !== 1 || d.moves[0] !== d.underFinger)
-      f.push(`board recorded moves [${d.moves.join(',')}] (want one, to ${d.underFinger})`);
+    if (d.moved.length !== 1 || d.moved[0] !== d.underFinger)
+      f.push(
+        `board moved the task to [${d.moved.join(',')}] (want one PATCH, to ${d.underFinger})`
+      );
   }
+  if (d.other.length) f.push(`a drop made requests beyond its own move (${d.other.join(', ')})`);
   return f;
 }
 
@@ -605,21 +631,67 @@ const DRAG_CASES = [
   { w: 1280, h: 800, cols: 4, tasks: 3, pointer: 'mouse', toX: 600, hold: 400 }, // same rule for a mouse
 ];
 
-console.log('\ncheck:layout:real — card drop targeting');
-for (const c of DRAG_CASES) {
-  await setViewport({ width: c.w, height: c.h, mobile: c.w < 1024 });
-  await goto(`${PROBE}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
-  const d = await evalPage(`(${DRAG_PROBE})(${JSON.stringify(c)})`);
-  const failures = checkDrag({ ...d, toX: c.toX });
-  const tag = `${c.w}x${c.h} ${c.pointer} drag to x=${c.toX}`;
-  if (failures.length) {
-    failed++;
-    console.log(`  ✗ ${tag}`);
+async function runDragCases(probeUrl, { mustPass }) {
+  let bad = 0;
+  for (const c of DRAG_CASES) {
+    await setViewport({ width: c.w, height: c.h, mobile: c.w < 1024 });
+    await goto(`${probeUrl}?cols=${c.cols}&tasks=${c.tasks}`, { wait: 700 });
+    const d = await evalPage(`(${DRAG_PROBE})(${JSON.stringify(c)})`);
+    const failures = checkDrag({ ...d, toX: c.toX });
+    const passed = failures.length === 0;
+    const tag = `${c.w}x${c.h} ${c.pointer} drag to x=${c.toX}`;
+    if (passed === mustPass) {
+      const how = mustPass
+        ? `${d.origin} -> ${d.landed}, card center at ${d.cardCenter}`
+        : `should fail -> ${failures[0]}`;
+      console.log(`  ✓ ${tag} (${how})`);
+      continue;
+    }
+    bad++;
+    console.log(`  ✗ ${tag}${mustPass ? '' : ': should fail -> passed'}`);
     for (const x of failures) console.log(`      - ${x}`);
     console.log(`      metrics: ${JSON.stringify(d)}`);
-  } else {
-    console.log(`  ✓ ${tag} (${d.origin} -> ${d.landed}, card center at ${d.cardCenter})`);
   }
+  return bad;
+}
+
+console.log('\ncheck:layout:real — card drop targeting');
+failed += await runDragCases(PROBE, { mustPass: true });
+
+if (SELFTEST) {
+  // Sensitivity proof. The whole phase above rests on one option, and an option
+  // is exactly the kind of thing a refactor drops without a word: a board back
+  // on the library's default — the CENTER of the dragged card decides, not the
+  // pointer — must make every case fail. A green run that stays green with the
+  // fix removed is measuring the harness, not the board.
+  console.log('\ncheck:layout:real --selftest — sensitivity');
+  let rewrote = 0;
+  const centerDetection = {
+    name: 'probe-selftest-center-detection',
+    // Ahead of the svelte plugin, so this still sees the component's source.
+    enforce: 'pre',
+    transform(code, id) {
+      if (!id.endsWith('src/routes/Board.svelte')) {
+        return null;
+      }
+      const next = code.replace('useCursorForDetection: true', 'useCursorForDetection: false');
+      if (next !== code) {
+        rewrote++;
+      }
+      return next;
+    },
+  };
+  const selftestServer = await startServer([centerDetection]);
+  const selftestProbe = new URL('scripts/board-probe.html', selftestServer.resolvedUrls.local[0])
+    .href;
+  failed += await runDragCases(selftestProbe, { mustPass: false });
+  // Without this the selftest passes by rewriting nothing the day the option is
+  // renamed — the same failure it exists to catch, wearing the check's own face.
+  if (rewrote !== 1) {
+    failed++;
+    console.log(`  ✗ the selftest rewrote ${rewrote} call sites (want exactly 1)`);
+  }
+  await selftestServer.close();
 }
 
 await close();

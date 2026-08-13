@@ -1390,6 +1390,29 @@ describe('Board swipe gestures', () => {
 
     expect(committedDelta(scrollTo)).toBe(872 - 736);
   });
+
+  // The settle that re-arms snap is scheduled from touchend and waits out
+  // `scrollend` or half a second, whichever comes first — so a board unmounted
+  // in between leaves it holding a scroller nobody is looking at any more. In a
+  // browser that is a stray style write; under a runner tearing jsdom down
+  // around it, `window` is already gone and it is an unhandled ReferenceError
+  // that fails a run in which every test passed. It failed CI exactly that way.
+  it('drops the pending settle when the board goes away before it fires', async () => {
+    vi.spyOn(Element.prototype, 'scrollTo');
+    const { unmount } = render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    stubGeometry();
+    setSnapType('x mandatory');
+    const el = scroller();
+
+    await swipe(-SWIPE_COMMIT_PX - 20);
+    unmount();
+
+    // Set AFTER unmount, so only a settle still holding the node can clear it.
+    el.style.scrollSnapType = 'x mandatory';
+    await new Promise((resolve) => setTimeout(resolve, 600)); // > SWIPE_SETTLE_TIMEOUT_MS
+    expect(el.style.scrollSnapType).toBe('x mandatory');
+  });
 });
 
 // The shortcut can name a column nowhere near the viewport, so something must
