@@ -8,6 +8,10 @@ export type UserSearchStatus = 'idle' | 'loading' | 'loaded' | 'error';
 export const USER_SEARCH_MIN_QUERY_LENGTH = 2;
 export const USER_SEARCH_MAX_QUERY_LENGTH = 100;
 
+// Deliberately shaped like `search.svelte.ts` — same token/debounce/status
+// contract, and the reasoning for it lives there. Only what differs is spelled
+// out below, so a change to the shared behavior has to be made in both.
+//
 // One per picker rather than a shared singleton: two open member pickers are
 // answering different questions, and the rows grant board access.
 export class UserSearchStore {
@@ -36,8 +40,6 @@ export class UserSearchStore {
       return;
     }
 
-    // Rows are deliberately left in place: the debounce re-arms on every
-    // keystroke, so clearing here would blank the list between words.
     this.status = 'loading';
     try {
       const data = assertOk(
@@ -57,8 +59,9 @@ export class UserSearchStore {
       // Broad: an offline search rejects out of fetch as a TypeError, not an
       // ApiError, and an ApiError-only catch would pin the picker on the spinner.
       this.error = apiMessage(error, 'Search failed');
-      // Unlike the loading path, the rows cannot stay: they answer an older
-      // query and adding one of them grants access to whoever it now names.
+      // Cleared here where the loading path leaves them, and for a sharper reason
+      // than the task search has: they answer an older query, and adding one of
+      // them grants board access to whoever it now names.
       this.results = [];
       this.truncated = false;
       this.status = 'error';

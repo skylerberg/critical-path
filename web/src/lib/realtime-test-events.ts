@@ -1,7 +1,7 @@
 import type { PayloadOf, RealtimeEvent, RealtimeEventType } from './realtime-types';
 
-// Test-only, in src/lib beside bulkTestSetup.ts because tests in both src/lib and
-// src/components import it.
+// Test-only, and in src/lib rather than beside the tests because tests in both
+// src/lib and src/components import it.
 //
 // The payload is a Partial so a test can name the two or three fields it is
 // exercising, but the field *names* are still checked — a fixture naming one the

@@ -77,7 +77,6 @@ class TaskSeriesStore {
     }
   }
 
-  // Nothing arrives while the socket is down, so the gap it left is re-read.
   resync(): void {
     if (this.currentProjectId !== null) {
       void this.load(this.currentProjectId);

@@ -154,8 +154,7 @@
   const draft = $derived(conflictDrafts.get(taskId));
   const conflicted = $derived(draft !== null);
 
-  // byId, not displayFor: a teammate the log names but this account cannot see
-  // is better left unnamed than announced as "Unknown user".
+  // byId, not displayFor — see the note on byId.
   const storedAuthorId = $derived(task === undefined ? null : contentAuthorAt(task.updated_at));
   const storedAuthor = $derived(storedAuthorId === null ? undefined : users.byId(storedAuthorId));
 

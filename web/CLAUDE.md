@@ -68,6 +68,16 @@ the payload is deliberately not validated there. Tests build events with
 checked — a fixture naming a field the API stopped sending is what hid the
 `project_position_updated` bug for several releases.
 
+**A required field in the generated types is not a required field on the wire.**
+The spec describes the API as deployed, and a pod that predates a field omits it
+while the type still says it is there. So a reader of a newly-added field
+coalesces (`data.changed_task_ids ?? []`, `task.checklist_item_count ?? 0`) even
+though `svelte-check` sees the guard as dead. There are around a dozen of these;
+each is written as `// Coalesced: a pod predating <what> omits <which>`, so
+`grep -rn 'Coalesced: a pod predating' src` lists them. **They are removable once
+the API rollout they name has reached every environment** — the grep is how you
+find the ones whose moment has passed, and none of them is meant to be permanent.
+
 ## Staying current with main
 
 `main` moves fast here and in the api repo, and a stale base is silent until a
@@ -101,7 +111,7 @@ suite when a change is broad enough that you cannot name the files it affects
 Before finishing, run all of these:
 
 ```sh
-npm run check && npm run check:layout && npm run check:layout:real && npm run check:task-detail && npm run lint && npm run format:check && npm test && npm run build
+npm run check && npm run check:comments && npm run check:layout && npm run check:layout:real && npm run check:task-detail && npm run lint && npm run format:check && npm test && npm run build
 ```
 
 `npm run check` covers `src/` (tests included — they are colocated as
@@ -143,22 +153,34 @@ input fires `blur` there and not in WebKit, so Chromium is the only engine on
 which a dismissal runs both flush paths at once, and the double-write it used to
 produce was invisible on WebKit and to jsdom alike.
 
-**All three also take `--selftest`, and a change to what they assert should run
+`check:comments` is not a browser check and needs nothing installed. It reads
+the comments themselves and fails on two things a reader takes on trust: the
+same sentence in two files, where whichever copy is not next to the code goes
+stale silently; and a file or symbol a comment names that no longer resolves, or
+that resolves somewhere other than where the comment places it. When it fires,
+give the rule one owner — the module that implements it — and cut the other copy
+down to what is local to its own site. `scripts/comment-allowlist.txt` is for the
+narrow case where a fact is needed *at* two sites and there is no module to hang
+it on; reaching for it instead is how the duplication gets re-admitted.
+
+**All four also take `--selftest`, and a change to what they assert should run
 it:**
 
 ```sh
 node scripts/check-board-layout.mjs --selftest
 node scripts/check-board-layout-real.mjs --selftest
 node scripts/check-task-detail.mjs --selftest
+node scripts/check-comments.mjs --selftest
 ```
 
-Each re-runs its cases against a component deliberately put back on the bug —
+Each re-runs its cases against something deliberately put back on the bug —
 legacy markup in the fixture, the pre-fix `dndzone` option in the real board, the
-write queue disabled in the card overlay — and
-fails if any of them still *passes*. A browser check has a failure mode a unit
-test mostly does not: measuring nothing and reporting green, because the gesture
-never armed, the selector matched nothing, or the option it turns on was renamed
-out from under it. CI runs the checks without the flag; the flag is how you earn
+write queue disabled in the card overlay, a planted duplicate and a planted dead
+reference — and fails if any of them still *passes*. All four share a failure
+mode a unit test mostly does not: measuring nothing and reporting green, because
+the gesture never armed, the selector matched nothing, the option it turns on was
+renamed out from under it, or the pattern it greps for stopped matching the
+codebase. CI runs the checks without the flag; the flag is how you earn
 the right to believe them. The real check's selftest also asserts it rewrote
 exactly one call site, since rewriting none is that same failure wearing the
 selftest's face.
@@ -174,12 +196,16 @@ instead of its own — a difference CI can never reproduce.
 
 ## Checking what jsdom cannot model
 
-Layout, scrolling, focus, `showModal()`, computed styles: jsdom implements none
-of them, so a green suite says nothing about any of it — the task overlay put
+Layout, scrolling, focus, `showModal()`, computed styles, `matchMedia`, `Touch`:
+jsdom implements none of them, so a green suite says nothing about any of it — the task overlay put
 the caret in its title field on every open for a month, invisibly to the tests,
 because `showModal()`'s focus steps only exist in a real browser.
 `scripts/lib/browser.mjs` is how to see the real thing, and it is worth a
 throwaway probe before believing a claim about any of the above.
+
+The absent ones are why a few modules guard on `typeof window.matchMedia`
+before reading a media query. Those guards look dead — the browser always has
+it — and are load-bearing under the test runner.
 
 `createBrowser()` wraps Playwright rather than re-exporting it: the returned
 object is `{ setViewport, goto, eval, screenshot, close }` and nothing more, so
@@ -363,8 +389,18 @@ await browser.close();
 ## Data pattern (for the API/store agents)
 
 - IDs are client-generated via `newId()` (`src/lib/ids.ts`); never install `uuid`.
-- List ordering uses float positions (`src/lib/positions.ts`): empty list 1000,
-  append max+1000, prepend min-1000, insert midpoint of neighbors.
+- List ordering uses string `sort_key` ranks from `fractional-indexing`
+  (`src/lib/ranks.ts`), not numbers — `append`, `prepend`, `between`,
+  `placeAtIndex`. `byRank` sorts a keyed row ahead of an unkeyed one and breaks
+  ties on id, so an unranked project list still has a stable order.
+
+  **A key only means anything against the list it was computed from.** A move
+  that has to wait — queued offline, replayed minutes later — must therefore
+  travel as `Neighbors` (`afterId`/`beforeId`) and be turned back into a key at
+  replay by `placeBetweenNeighbors`, which reports `exact: false` when both
+  anchors are gone so the caller can say the card landed somewhere it was not
+  aimed. `board.svelte.ts` and `outbox.svelte.ts` both depend on this; sending a
+  stored `sort_key` instead is the bug the split exists to prevent.
 - Optimistic updates: apply the store change immediately, then fire the API call.
   On failure: `toasts.error(...)` and refetch the affected payload to resync —
   never snapshot-rollback.

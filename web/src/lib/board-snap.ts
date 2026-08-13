@@ -59,9 +59,9 @@ export function restingSnapIndex(scroller: HTMLElement): number {
 /**
  * Where each column parks on a phone. The ends align to the board's edges and
  * everything between centers, so being flush against an edge means you are at
- * that end of the board and nothing else does. Centering the ends instead is
- * what used to cost half a viewport of blank canvas in front of the first column
- * and behind the last. From md up they all start-align, as before.
+ * that end of the board and nothing else does — and neither end costs half a
+ * viewport of blank canvas, which is what centering them would. From md up they
+ * all start-align.
  *
  * `endColumnIndex` is -1 whenever the "+ Add column" tile is rendered, because
  * that tile is then the board's last snap target and no column ends it. A lone

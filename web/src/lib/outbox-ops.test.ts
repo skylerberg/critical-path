@@ -148,8 +148,6 @@ describe('sendRequest', () => {
 });
 
 describe('isAlreadyApplied', () => {
-  // A create replayed after it already landed answers 409 on the client-supplied
-  // id. That is this op having succeeded, not a conflict.
   it('is true only for a create that came back 409', () => {
     expect(isAlreadyApplied(op({ semantics: 'create' }), http(409))).toBe(true);
   });

@@ -130,15 +130,9 @@
   let dragOrigin: { columnId: string; index: number } | null = null;
   let columnDragOrigin: number | null = null;
 
-  // Where each column parks on a phone. The ends align to the board's edges and
-  // everything between centers, so being flush against an edge means you are at
-  // that end of the board and nothing else does. Centering the ends instead is
-  // what used to cost half a viewport of blank canvas in front of the first
-  // column and behind the last. From md up they all start-align, as before.
-  //
-  // The board's last snap target is the "+ Add column" tile, so a column only ends
-  // the board when that tile is not rendered. A lone column on a readonly board
-  // matches both arms; start wins, which is right — such a board does not scroll.
+  // -1 unless the board is readonly, because otherwise the "+ Add column" tile is
+  // the last snap target and no column ends the board. `columnSnapAlign` in
+  // board-snap.ts is where the alignment that follows from this is decided.
   //
   // Mixing alignments makes the swipe pitch uneven at the ends. That is a cost of
   // this arrangement rather than an oversight in it, and it is bigger than it

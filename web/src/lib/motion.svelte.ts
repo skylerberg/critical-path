@@ -5,7 +5,7 @@ export class MotionPreference {
   #stop: (() => void) | null = null;
 
   init(): void {
-    // jsdom implements no matchMedia at all, so this guard is load-bearing in tests.
+    // Absent under jsdom; see CLAUDE.md on what the runner does not implement.
     if (typeof window.matchMedia !== 'function') {
       return;
     }

@@ -98,8 +98,6 @@
       search.groups.flatMap((group) => group.results.map((result) => result.task_id))
     );
   });
-  // Only the cursor, and only on the way out: a refreshed list keeps its cursor, and
-  // the arriving screen owns the rows whichever order the two screens swap in.
   onDestroy(() => cardCursor.clear());
 
   const showResults = $derived(search.results.length > 0);

@@ -5,8 +5,8 @@ export const SOON_DAYS = 1;
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MS_PER_DAY = 86_400_000;
 
-// Every caller gates on this first, which is what makes an API pod that predates
-// the field render as "no due date" instead of throwing on `undefined`.
+// Every caller gates on this first, which is what makes a pod predating due
+// dates render as "no due date" instead of throwing on `undefined`.
 export function isCalendarDate(value: unknown): value is string {
   return typeof value === 'string' && CALENDAR_DATE.test(value);
 }

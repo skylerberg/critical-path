@@ -72,7 +72,7 @@
     void taskActivity.load(taskId);
   });
 
-  // Test seam: there is no way to type into a ProseMirror contenteditable under jsdom.
+  // Test seam; see RichTextEditor's getEditor.
   export function getMergeEditor(): Editor | null {
     return mergeEditor?.getEditor() ?? null;
   }
@@ -130,8 +130,7 @@
 
   const mergeTitleEmpty = $derived(titleConflict && mergeTitle.trim() === '');
 
-  // byId, not displayFor: a teammate the log names but this account cannot see
-  // is better left unnamed than announced as "Unknown user".
+  // byId, not displayFor — see the note on byId.
   const authorId = $derived(contentAuthorAt(theirs.updated_at));
   const found = $derived(authorId === null ? undefined : users.byId(authorId));
   const author = $derived(found !== undefined && found.name !== '' ? found : null);

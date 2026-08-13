@@ -23,6 +23,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run format:check
       - run: npm run lint
+      - run: npm run check:comments
       - run: npm run check
       - run: npm run check:layout
       - run: npm run check:layout:real

@@ -141,7 +141,6 @@
     if (searchTimer !== null) {
       clearTimeout(searchTimer);
     }
-    // Bumps the store's token, so a response landing after the close writes nothing.
     paletteSearch.reset();
   });
 

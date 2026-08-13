@@ -41,8 +41,7 @@
 
   const assignees = $derived(task.assignee_ids.map((id) => users.displayFor(id)));
   const dated = $derived(isCalendarDate(task.due_date));
-  // Coalesced despite the type: a board served by an API pod that predates comments
-  // omits the field entirely.
+  // Coalesced: a pod predating comments and checklists omits all three counts.
   const commentCount = $derived(task.comment_count ?? 0);
   const checklistTotal = $derived(task.checklist_item_count ?? 0);
   const checklistDone = $derived(task.checklist_done_count ?? 0);
@@ -235,8 +234,8 @@
       class="absolute inset-0 rounded-md"
     ></a>
   {/if}
-  <!-- Truthy, not `!== null`: an API pod that predates covers omits the key, and
-       `src={undefined}` would render an empty box on every card. -->
+  <!-- Coalesced: a pod predating covers omits cover_image_url. Truthy rather than
+       `!== null`, since `src={undefined}` renders an empty box on every card. -->
   {#if task.cover_image_url}
     <img
       src={task.cover_image_url}

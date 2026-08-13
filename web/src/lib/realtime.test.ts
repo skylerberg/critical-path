@@ -1073,10 +1073,6 @@ describe('session revoked (4401)', () => {
     expect(FakeWebSocket.instances.length).toBeGreaterThan(1);
   });
 
-  // init() drops status through 'unknown', and the shell renders a spinner over the
-  // whole app while it is there — unmounting whatever the user had open, for a close
-  // code that is usually transient. A backgrounded phone reconnecting is the common
-  // way to get here, which is the worst moment to blank the screen.
   it('does not blank the app while revalidating a token that still works', async () => {
     const socket = await connectAndAuth('p1');
     const init = vi.spyOn(session, 'init');

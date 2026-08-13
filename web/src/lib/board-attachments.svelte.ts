@@ -30,8 +30,7 @@ export class BoardAttachments {
   }
 
   // A no-op when the list is not cached, for the same reason the comment stream
-  // is: the detail view fetches it on open, and seeding a partial list here would
-  // leave that view showing only fragments.
+  // is — see BoardComments.replace.
   replace(taskId: string, next: (attachments: TaskAttachment[]) => TaskAttachment[]): void {
     const cached = this.byTask[taskId];
     if (cached === undefined) {

@@ -83,6 +83,8 @@
     }
   }
 
+  // Test seam: there is no way to type into a ProseMirror contenteditable under
+  // jsdom, so a test drives the document through the editor instance instead.
   export function getEditor(): Editor | null {
     return editor;
   }

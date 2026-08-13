@@ -12,7 +12,7 @@ export class ThemeColor {
   #stop: (() => void) | null = null;
 
   init(): void {
-    // jsdom implements no matchMedia at all, so this guard is load-bearing in tests.
+    // Absent under jsdom; see CLAUDE.md on what the runner does not implement.
     if (typeof window.matchMedia === 'function') {
       const query = window.matchMedia(DARK_QUERY);
       const repaint = (): void => this.#paint();

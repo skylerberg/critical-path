@@ -46,7 +46,7 @@
   // elsewhere, so half-written text never loses its way to send.
   const composerActive = $derived(composerFocused || draftDoc !== null);
 
-  // Test seams: there is no way to type into a ProseMirror contenteditable under jsdom.
+  // Test seams; see RichTextEditor's getEditor.
   export function getComposerEditor(): Editor | null {
     return composer?.getEditor() ?? null;
   }
