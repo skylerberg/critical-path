@@ -53,8 +53,8 @@ npm test              # vitest (jsdom); takes a path to run one file
 npm run preview       # serve the production build
 ```
 
-`check:all` is the list; `package.json` is where to read it. It includes three
-headless-browser checks, so run `npm run playwright:install` once first.
+`check:all` is the list; `package.json` is where to read it. Some of it runs in a
+headless browser, so run `npm run playwright:install` once first.
 
 Do not run `prettier --write` or `eslint --fix` by hand — `.githooks/post-commit`
 runs both over each commit's files and amends the result in.
