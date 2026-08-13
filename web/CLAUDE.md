@@ -91,7 +91,7 @@ and the only thing it produced was the misleading diff in between.
 
 ## Checks
 
-**While working, run only the tests your change touches** — `npm test -- --run
+**While working, run only the tests your change touches** — `npm test --
 <path>` on a file or directory takes seconds. The full suite is minutes, CI
 runs it on every push, and re-running it after every edit is most of the
 wall-clock in a long session for almost no extra signal. Reach for the whole
@@ -202,8 +202,24 @@ boots vite in-process and evaluates against it. `scripts/board-probe.html`,
 `scripts/board-probe.ts` and `scripts/check-board-layout-real.mjs` are the three
 to copy from; nothing about that trio is specific to the board.
 
-Two traps a probe of that shape hits:
+Traps a probe of that shape hits:
 
+- **`import './board-probe-net'` first is load-bearing, not tidiness.** The api
+  client captures `globalThis.fetch` when `createClient()` runs at module init
+  (`src/api/client.ts`), so whoever installs a stub after that point is talking
+  to nobody. Imports are evaluated before any statement in the probe entry's
+  body, which puts a stub written **in the body** on the wrong side of that line
+  — silently: the app keeps hitting `board-probe-net` as though the stub were
+  never written. A probe that needs its own answer for a route wants a second
+  module, imported after `board-probe-net` and before anything reaching the
+  client.
+- **`board-probe-net` answers by echoing the request body, so a GET is answered
+  `{}`** — deliberately, because a refusal cascades, but it means the answer is
+  not the shape the OpenAPI types promise. Every store assigns straight off the
+  payload (`this.results = data.results`), which the generated types make safe
+  against the real API and not against this, so a probe of a component that GETs
+  a list crashes in a derived on `undefined.map`. Answer that route yourself; do
+  not add a guard to the store, whose contract is fine.
 - **An open `<dialog>` makes the rest of the page inert.** Anything mounted
   outside it cannot take focus, so a probe that opens a modal and then tests
   focus elsewhere reports "nothing focused" under both engines and reads as
