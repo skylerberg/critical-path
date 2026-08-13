@@ -8,13 +8,16 @@
  * a four-space pattern matched a six-space line inside a different function, the
  * "reverted" test passed, and the pass meant nothing.)
  *
- * `tests` are paths passed straight to vitest. Keep them narrow: the runner
- * asserts they FAIL with the mutation applied, so a broad path makes a guard pass
- * on some unrelated test's failure.
+ * `tests` are paths passed straight to vitest, and `testName` is the `-t` filter
+ * within them. Both want to be narrow, for the same reason: the runner asserts
+ * the run FAILS with the mutation applied, so anything broader than the cases
+ * that actually guard the bug lets an unrelated failure vouch for the guard.
+ * A `testName` matching nothing is reported rather than counted as a pass.
  */
 export const guards = [
   {
     name: 'a move refused with 409 re-reads the board before retrying',
+    testName: 'reads the board again after a 409 instead of replaying the refused key',
     file: 'src/lib/outbox.svelte.ts',
     find: "      return 'retry-fresh';",
     replace: "      return 'retry';",
@@ -22,6 +25,7 @@ export const guards = [
   },
   {
     name: 'each project rekeys against its own board',
+    testName: 'rekeys each move against its own project',
     file: 'src/lib/outbox.svelte.ts',
     find: '            ? await this.#boardFor(boards, op.projectId)',
     replace: "            ? await this.#boardFor(boards, 'every-project')",
@@ -29,6 +33,7 @@ export const guards = [
   },
   {
     name: 'an abandoned drain writes nothing into the next account',
+    testName: 'abandons a drain that resolves after the queue was reset',
     file: 'src/lib/outbox.svelte.ts',
     find: `        const outcome = await sendRequest(request);
         if (generation !== this.#generation) {
@@ -39,6 +44,7 @@ export const guards = [
   },
   {
     name: 'a reset drops the memoized drain so the next account can start one',
+    testName: 'drains the next account after a reset abandoned a run mid-flight',
     file: 'src/lib/outbox.svelte.ts',
     find: '    this.#drain = null;\n  }\n}',
     replace: '  }\n}',
@@ -46,6 +52,7 @@ export const guards = [
   },
   {
     name: 'deleteColumn names the column it deleted',
+    testName: 'deleteColumn names the column it deleted',
     file: 'src/lib/board.svelte.ts',
     find: "    const name = this.columns.find((column) => column.id === columnId)?.name ?? '';\n    this.columns = this.columns.filter((column) => column.id !== columnId);",
     replace:
@@ -54,6 +61,7 @@ export const guards = [
   },
   {
     name: 'one remote blocker of two expanded hosts is one node',
+    testName: 'emits one node for a remote task that blocks two expanded hosts',
     file: 'src/lib/graph.ts',
     find: '      if (!emittedRemoteIds.has(remote.task_id)) {\n        emittedRemoteIds.add(remote.task_id);',
     replace: '      if (true) {',
@@ -61,6 +69,7 @@ export const guards = [
   },
   {
     name: 'signing out empties the queue',
+    testName: 'drops unsent work when the session ends',
     file: 'src/App.svelte',
     find: '      outbox.reset();\n',
     replace: '',
