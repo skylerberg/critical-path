@@ -344,8 +344,15 @@ router.get(
     const db = c.get('db');
     const user = c.get('user');
 
+    // Access before assembly, for the same reason getPublicBoard reads its flag
+    // on its own: building first let any signed-in caller spend a whole board's
+    // worth of queries per 404, and made an inaccessible project measurably
+    // slower to refuse than one that does not exist — which is the existence
+    // oracle answering 404 rather than 403 exists to close.
+    await assertProjectAccess(db, user.id, id);
+
     const payload = await getBoardPayload(db, id);
-    if (!payload || !(await canAccessProject(db, user.id, payload.project))) {
+    if (!payload) {
       throw new AppError(404, 'Project not found');
     }
     return c.json({ ...payload, changed_task_ids: await changedTaskIds(db, id, user.id) }, 200);
@@ -450,8 +457,13 @@ router.get(
       .transaction()
       .setIsolationLevel('repeatable read')
       .execute(async (trx) => {
+        // Inside the snapshot so the check reads the same rows the export will,
+        // but ahead of the payload: an export is the most expensive read in the
+        // product to build and throw away.
+        await assertProjectAccess(trx, user.id, id);
+
         const payload = await getBoardPayload(trx, id);
-        if (!payload || !(await canAccessProject(trx, user.id, payload.project))) {
+        if (!payload) {
           return null;
         }
         return buildProjectExport(trx, payload, now);

@@ -20,6 +20,6 @@
   // against these options. Left out, every cli file falls back to an inferred
   // project with no module resolution, and reads as a wall of "cannot find
   // module" that has nothing to do with the code.
-  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "vitest.config.ts", "cli/**/*"],
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "vitest.config.ts", "cli/**/*", "bench/**/*"],
   "exclude": ["**/node_modules", "**/dist"]
 }
