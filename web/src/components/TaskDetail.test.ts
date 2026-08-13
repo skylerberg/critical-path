@@ -413,8 +413,12 @@ describe('TaskDetail', () => {
               ...board.tasks.find((t) => t.id === taskId),
               project_id: PROJECT_ID,
               due_date: dueDate,
-              series_id: 's1',
-              series_summary: 'Every Monday',
+              series: {
+                id: 's1',
+                summary: 'Every Monday',
+                preset: 'weekly',
+                start_date: '2026-02-02',
+              },
               images: [],
               comments: [],
             })

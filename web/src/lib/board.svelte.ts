@@ -49,12 +49,11 @@ export type TaskAttachment = components['schemas']['Attachment'];
 export type TaskComment = components['schemas']['Comment'];
 export type CommentBody = TaskComment['body'];
 
-// What an open card knows about the series that created it: enough to name the
-// recurrence and to edit it, which is all the card detail response carries.
-export interface TaskSeriesRef {
-  id: string;
-  summary: string;
-}
+// What an open card knows about the series that created it: the rule as English
+// plus the two fields its recurrence menu is built from. Taken from the API
+// rather than restated here, so a field the card stops being sent is a compile
+// error instead of a silently undefined dropdown.
+export type TaskSeriesRef = components['schemas']['TaskSeriesRef'];
 
 type BulkRelationsResponse = components['schemas']['BulkTaskRelationsResponse'];
 type BulkTasksResponse = components['schemas']['TasksBatchResponse'];
@@ -1892,9 +1891,8 @@ class BoardStore {
 
   taskComments = $state<Record<string, TaskComment[]>>({});
   taskChecklists = $state<Record<string, ChecklistItem[]>>({});
-  // Id and summary together rather than in two records: they are read, written
-  // and cleared as one fact, and the card needs the id to edit the recurrence it
-  // is showing the summary of.
+  // Everything the card's own Dates panel needs, so it never reads the project's
+  // series list to render one card's recurrence.
   taskSeriesRefs = $state<Record<string, TaskSeriesRef | null>>({});
   taskAttachments = $state<Record<string, TaskAttachment[]>>({});
 
@@ -1911,7 +1909,19 @@ class BoardStore {
       this.#mapSeriesRefs((ref) => (ref.id === id ? null : ref));
     } else if (event.type === 'series_updated') {
       const row = event.data;
-      this.#mapSeriesRefs((ref) => (ref.id === row.id ? { ...ref, summary: row.summary } : ref));
+      // Every field, not just the wording: the panel preselects from `preset` and
+      // labels its options from `start_date`, so refreshing the summary alone
+      // would leave an edited rule described correctly and edited wrongly.
+      this.#mapSeriesRefs((ref) =>
+        ref.id === row.id
+          ? {
+              id: row.id,
+              summary: row.summary,
+              preset: row.preset,
+              start_date: row.start_date,
+            }
+          : ref
+      );
     }
   }
 
@@ -1933,13 +1943,7 @@ class BoardStore {
       const data = assertOk(await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } }));
       this.taskComments = { ...this.taskComments, [taskId]: data.comments ?? [] };
       this.taskChecklists = { ...this.taskChecklists, [taskId]: data.checklist_items ?? [] };
-      this.taskSeriesRefs = {
-        ...this.taskSeriesRefs,
-        [taskId]:
-          data.series_id === null || data.series_summary === null
-            ? null
-            : { id: data.series_id, summary: data.series_summary },
-      };
+      this.taskSeriesRefs = { ...this.taskSeriesRefs, [taskId]: data.series };
       this.taskAttachments = { ...this.taskAttachments, [taskId]: data.attachments ?? [] };
       // Heals a card face whose realtime event was missed; short of a full board
       // refetch this is the only authoritative read of the counts and the cover.

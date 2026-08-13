@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { board, placementAfterDrop, type TaskAttachment } from './board.svelte';
+import { board, placementAfterDrop, type TaskAttachment, type TaskSeriesRef } from './board.svelte';
 import { noFilters, parseFilters } from './board-filters';
 import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
@@ -2145,26 +2145,42 @@ describe('archive', () => {
 
   // The open card names its recurrence from this record, so a series edited or
   // deleted elsewhere must not leave it quoting a rule that is gone.
+  function monday(id: string): TaskSeriesRef {
+    return { id, summary: 'Every Monday', preset: 'weekly', start_date: '2026-02-02' };
+  }
+
+  // Not just the wording: the card's panel preselects from `preset` and labels
+  // its options from `start_date`, so a rule edited elsewhere has to replace all
+  // three or the card describes the new rule while editing the old one.
   it('applySeriesRealtime re-words a card whose rule was edited', () => {
-    board.setTaskSeriesRef('t1', { id: 's1', summary: 'Every Monday' });
-    board.setTaskSeriesRef('t2', { id: 's2', summary: 'Every day' });
+    board.setTaskSeriesRef('t1', monday('s1'));
+    board.setTaskSeriesRef('t2', monday('s2'));
 
     board.applySeriesRealtime(
-      realtimeEvent('series_updated', { id: 's1', summary: 'Every Tuesday' }, 'p1')
+      realtimeEvent(
+        'series_updated',
+        { id: 's1', summary: 'Every Tuesday', preset: 'daily', start_date: '2026-03-03' },
+        'p1'
+      )
     );
 
-    expect(board.taskSeriesRefs['t1']).toEqual({ id: 's1', summary: 'Every Tuesday' });
-    expect(board.taskSeriesRefs['t2']).toEqual({ id: 's2', summary: 'Every day' });
+    expect(board.taskSeriesRefs['t1']).toEqual({
+      id: 's1',
+      summary: 'Every Tuesday',
+      preset: 'daily',
+      start_date: '2026-03-03',
+    });
+    expect(board.taskSeriesRefs['t2']).toEqual(monday('s2'));
   });
 
   it('applySeriesRealtime stops naming a series that was deleted', () => {
-    board.setTaskSeriesRef('t1', { id: 's1', summary: 'Every Monday' });
-    board.setTaskSeriesRef('t2', { id: 's2', summary: 'Every day' });
+    board.setTaskSeriesRef('t1', monday('s1'));
+    board.setTaskSeriesRef('t2', monday('s2'));
 
     board.applySeriesRealtime(realtimeEvent('series_deleted', { id: 's1' }, 'p1'));
 
     expect(board.taskSeriesRefs['t1']).toBeNull();
-    expect(board.taskSeriesRefs['t2']).toEqual({ id: 's2', summary: 'Every day' });
+    expect(board.taskSeriesRefs['t2']).toEqual(monday('s2'));
   });
 
   it('applyRealtime task_restored moves the card back onto the board', () => {

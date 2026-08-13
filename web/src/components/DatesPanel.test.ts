@@ -55,19 +55,13 @@ const series: TaskSeries = {
   checklist_items: [],
 };
 
-// The panel's own reads are the task PATCH and the series calls; anything else a
-// mounted store reaches for resolves to something harmless rather than 404ing
-// into an error toast the assertions would then have to ignore.
+// No route for the project's series list: the panel is not supposed to ask for
+// one, and an unrouted request would 404 into a toast rather than pass quietly.
 function route(handler: (pathname: string, request: Request) => Response | undefined): void {
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
     const { pathname } = new URL(request.url);
-    return (
-      handler(pathname, request) ??
-      (pathname === '/api/task-series'
-        ? jsonResponse(200, { series: [series] })
-        : jsonResponse(200, { ...task, due_date: null }))
-    );
+    return handler(pathname, request) ?? jsonResponse(200, { ...task, due_date: null });
   });
 }
 
@@ -91,12 +85,16 @@ async function patchBody(index = 0): Promise<unknown> {
   return request.clone().json();
 }
 
+// The card alone: no series list is seeded, because the panel is not allowed to
+// need one.
 function repeating(overrides: Partial<TaskSeries> = {}): void {
   const row = { ...series, ...overrides };
-  board.setTaskSeriesRef('t1', { id: row.id, summary: row.summary });
-  taskSeries.currentProjectId = 'p1';
-  taskSeries.list = [row];
-  taskSeries.loaded = true;
+  board.setTaskSeriesRef('t1', {
+    id: row.id,
+    summary: row.summary,
+    preset: row.preset,
+    start_date: row.start_date,
+  });
 }
 
 function repeatsSelect(): HTMLSelectElement {
@@ -181,7 +179,12 @@ describe('DatesPanel recurrence', () => {
     await fireEvent.change(repeatsSelect(), { target: { value: 'weekly' } });
 
     await waitFor(() => {
-      expect(board.taskSeriesRefs['t1']).toEqual({ id: 's1', summary: 'Every week on Monday' });
+      expect(board.taskSeriesRefs['t1']).toEqual({
+        id: 's1',
+        summary: 'Every week on Monday',
+        preset: 'weekly',
+        start_date: '2026-08-03',
+      });
     });
     const request = requestAt(0);
     expect(request.method).toBe('POST');
@@ -258,7 +261,12 @@ describe('DatesPanel recurrence', () => {
     await waitFor(() => {
       expect(repeatsSelect()).toHaveValue('weekly');
     });
-    expect(board.taskSeriesRefs['t1']).toEqual({ id: 's1', summary: 'Every week on Monday' });
+    expect(board.taskSeriesRefs['t1']).toEqual({
+      id: 's1',
+      summary: 'Every week on Monday',
+      preset: 'weekly',
+      start_date: '2026-08-03',
+    });
   });
 
   it('names a rule set outside the app without offering to re-pick it', async () => {
@@ -273,12 +281,16 @@ describe('DatesPanel recurrence', () => {
     expect(custom?.disabled).toBe(true);
   });
 
-  it('says nothing about repeating until the rule it holds has loaded', () => {
-    board.setTaskSeriesRef('t1', { id: 's1', summary: 'Every week on Monday' });
+  // The whole point of carrying the rule on the card: there is no window in
+  // which the panel knows the card repeats but not what it repeats on, so it
+  // renders right away and asks the server for nothing.
+  it('renders the rule without reading the project’s series list', () => {
+    repeating();
     render(DatesPanel, { taskId: 't1' });
 
-    expect(repeatsSelect()).toHaveValue('custom');
-    expect(repeatsSelect()).toBeDisabled();
+    expect(repeatsSelect()).toHaveValue('weekly');
+    expect(repeatsSelect()).not.toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.queryByText(/Stop this card repeating\?/)).toBeNull();
   });
 });
