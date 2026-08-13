@@ -747,6 +747,27 @@ describe('projects store', () => {
     expect(projects.active.map((p) => p.id)).toEqual(['p-a', 'p-c', 'p-b']);
   });
 
+  it('repairs a refused normalization once, not once per project in it', async () => {
+    const a = project({ id: 'p-a', rank: 1000 });
+    const b = project({ id: 'p-b', created_at: '2026-01-02T00:00:00.000Z' });
+    const c = project({ id: 'p-c', created_at: '2026-01-03T00:00:00.000Z' });
+    await loadWith([a, b, c]);
+    fetchMock.mockImplementation(async (input) =>
+      (input as Request).method === 'PUT'
+        ? jsonResponse(500, { error: 'nope' })
+        : jsonResponse(200, { projects: [a, b, c] })
+    );
+    fetchMock.mockClear();
+
+    await projects.reorder('p-c', ['p-a', 'p-c', 'p-b']);
+
+    const reads = fetchMock.mock.calls.filter(
+      (call) => new URL((call[0] as Request).url).pathname === '/api/projects'
+    );
+    expect(reads).toHaveLength(1);
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+  });
+
   it('applies project_position_updated to a loaded project', async () => {
     await loadWith([project()]);
 

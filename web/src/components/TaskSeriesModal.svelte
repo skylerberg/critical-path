@@ -38,9 +38,15 @@
   const columnNames = $derived(new Map(board.columns.map((column) => [column.id, column.name])));
   const labelById = $derived(new Map(board.labels.map((label) => [label.id, label])));
 
+  // Dropped on the way out, as the members modal does with its invitations: this
+  // panel is the only reader of the list, and a store still naming a project is
+  // one the socket's reconnect re-reads — every reconnect, for a modal that was
+  // closed hours ago. Nothing else needs it: a card's own recurrence comes from
+  // the card, and series events reach it without this list.
   $effect(() => {
     const id = projectId;
     untrack(() => void taskSeries.load(id));
+    return () => taskSeries.reset();
   });
 
   function nextCard(series: TaskSeries): string {

@@ -9,6 +9,7 @@ import { outbox } from './outbox.svelte';
 import { projects, type Project } from './projects.svelte';
 import { realtime } from './realtime.svelte';
 import { session } from './session.svelte';
+import { realtimeCoverage } from './realtime-coverage.svelte';
 import { taskSeries } from './taskSeries.svelte';
 import { router } from './router.svelte';
 import { projectHref } from './short-links';
@@ -219,6 +220,33 @@ describe('realtime handshake', () => {
     flushSync();
     expect(socket.messages()).toContainEqual({ type: 'unsubscribe', project_id: 'p1' });
     expect(socket.messages()).toContainEqual({ type: 'subscribe', project_id: 'p2' });
+  });
+
+  // What the stores read to decide a revalidating fetch would learn nothing. A
+  // token that outlives a gap is worse than no token at all: it would let a board
+  // that missed events go on looking current.
+  it('names the project it is carrying, and stops the moment it is not', async () => {
+    await connectAndAuth('p1');
+    const carried = realtimeCoverage.tokenFor('p1');
+    expect(carried).not.toBeNull();
+    expect(realtimeCoverage.holds('p1', carried)).toBe(true);
+    expect(realtimeCoverage.tokenFor('p2')).toBeNull();
+
+    board.currentProjectId = 'p2';
+    flushSync();
+    expect(realtimeCoverage.holds('p1', carried)).toBe(false);
+
+    const moved = realtimeCoverage.tokenFor('p2');
+    latestSocket().serverClose();
+    expect(realtimeCoverage.tokenFor('p2')).toBeNull();
+    expect(realtimeCoverage.holds('p2', moved)).toBe(false);
+  });
+
+  it('carries nothing for a read-only board, which it never subscribed to', async () => {
+    board.readonly = true;
+    await connectAndAuth('p1');
+
+    expect(realtimeCoverage.tokenFor('p1')).toBeNull();
   });
 
   it('never subscribes to a read-only board, and resubscribes on the way back', async () => {

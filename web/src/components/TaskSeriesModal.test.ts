@@ -108,6 +108,23 @@ describe('TaskSeriesModal', () => {
     expect(await screen.findByText('Weekly review')).toBeInTheDocument();
   });
 
+  // The store is the socket's cue to re-read this list on every reconnect, so a
+  // closed panel that still names a project is a read nobody is looking at.
+  it('lets the list go when it closes', async () => {
+    const { unmount } = renderWith([series()]);
+    expect(await screen.findByText('Weekly review')).toBeInTheDocument();
+
+    unmount();
+
+    expect(taskSeries.currentProjectId).toBeNull();
+    expect(taskSeries.loaded).toBe(false);
+    expect(taskSeries.list).toEqual([]);
+
+    const before = fetchMock.mock.calls.length;
+    taskSeries.resync();
+    expect(fetchMock.mock.calls.length).toBe(before);
+  });
+
   it('says so when a project has no series, and offers to add one', async () => {
     renderWith([]);
 

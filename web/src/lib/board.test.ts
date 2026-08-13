@@ -6,6 +6,7 @@ import type { BoardPayload } from './board-types';
 import { computeGraph } from './graph';
 import { clearOfflineCache } from './offline-cache';
 import { outbox } from './outbox.svelte';
+import { realtimeCoverage } from './realtime-coverage.svelte';
 import { router } from './router.svelte';
 import { selection } from './selection.svelte';
 import { session } from './session.svelte';
@@ -302,6 +303,7 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
 beforeEach(() => {
   fetchMock.mockReset();
   board.reset();
+  realtimeCoverage.end();
   session.user = null;
   taskActivity.reset();
   for (const toast of [...toasts.toasts]) {
@@ -504,6 +506,146 @@ describe('board store load', () => {
     expect(board.error).toBeNull();
     expect(board.project?.id).toBe('p1');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('reads the socket has already answered', () => {
+  function detailReads(): number {
+    return fetchMock.mock.calls.filter((call) => {
+      const request = call[0] as Request;
+      return (
+        request.method === 'GET' && /^\/api\/tasks\/[^/]+$/.test(new URL(request.url).pathname)
+      );
+    }).length;
+  }
+
+  function handedDetail(overrides: Record<string, unknown> = {}) {
+    return {
+      ...task('t1', 'c1', 1000, 'A'),
+      project_id: 'p1',
+      archived_at: null,
+      series: null,
+      comments: [serverComment('handed over', 'cm-handed')],
+      checklist_items: [],
+      attachments: [],
+      comment_count: 1,
+      checklist_item_count: 0,
+      checklist_done_count: 0,
+      attachment_count: 0,
+      ...overrides,
+    } as unknown as Parameters<typeof board.offerTaskDetail>[0];
+  }
+
+  it('skips the revalidating read while the socket has carried the board throughout', async () => {
+    realtimeCoverage.begin('p1');
+    await board.load('p1');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Opening a card and closing it again: two route moves within the project.
+    await board.load('p1');
+    await board.load('p1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads again after the socket dropped, however quickly it came back', async () => {
+    realtimeCoverage.begin('p1');
+    await board.load('p1');
+
+    realtimeCoverage.end();
+    realtimeCoverage.begin('p1');
+    await board.load('p1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not trust a subscription that began while the read was in flight', async () => {
+    mockRoutes((request, url) => {
+      if (request.method === 'GET' && url.pathname === '/api/projects/p1') {
+        realtimeCoverage.begin('p1');
+      }
+      return undefined;
+    });
+
+    await board.load('p1');
+    await board.load('p1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads a card once while the socket is carrying its board', async () => {
+    realtimeCoverage.begin('p1');
+    await board.load('p1');
+
+    await board.ensureTaskDetail('t1');
+    expect(detailReads()).toBe(1);
+    expect(board.taskComments.t1).toHaveLength(1);
+
+    await board.ensureTaskDetail('t1');
+    expect(detailReads()).toBe(1);
+
+    realtimeCoverage.end();
+    await board.ensureTaskDetail('t1');
+    expect(detailReads()).toBe(2);
+  });
+
+  it('opens a card from the payload that located it', async () => {
+    await board.load('p1');
+    board.offerTaskDetail(handedDetail());
+
+    await board.ensureTaskDetail('t1');
+
+    expect(detailReads()).toBe(0);
+    expect(board.taskComments.t1?.[0]?.id).toBe('cm-handed');
+    // Adopted with no coverage of its own, so the next open revalidates it.
+    await board.ensureTaskDetail('t1');
+    expect(detailReads()).toBe(1);
+  });
+
+  it('ignores a handed-over payload belonging to another board', async () => {
+    await board.load('p1');
+    board.offerTaskDetail(handedDetail({ project_id: 'p2' }));
+
+    await board.ensureTaskDetail('t1');
+
+    expect(detailReads()).toBe(1);
+    expect(board.taskComments.t1?.[0]?.id).toBe('srv');
+  });
+
+  it('ignores a handed-over payload that is no longer the read that just happened', async () => {
+    vi.useFakeTimers();
+    try {
+      await board.load('p1');
+      board.offerTaskDetail(handedDetail());
+      vi.advanceTimersByTime(6000);
+
+      await board.ensureTaskDetail('t1');
+
+      expect(detailReads()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('repairs the card, not the board, when a comment is rejected', async () => {
+    await board.load('p1');
+    board.taskComments = { t1: [] };
+    fetchMock.mockClear();
+    mockRoutes((request, url) =>
+      request.method === 'POST' && url.pathname === '/api/comments'
+        ? jsonResponse(500, { error: 'nope' })
+        : undefined
+    );
+
+    await board.createComment('t1', commentBody('hello'));
+
+    expect(
+      fetchMock.mock.calls.map((call) => {
+        const request = call[0] as Request;
+        return `${request.method} ${new URL(request.url).pathname}`;
+      })
+    ).toEqual(['POST /api/comments', 'GET /api/tasks/t1']);
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
   });
 });
 

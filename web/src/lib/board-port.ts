@@ -25,5 +25,8 @@ export interface BoardPort {
     onFailure?: (error: unknown) => Promise<void>
   ): Promise<SubmitResult<T>>;
   mutationFailed(error: unknown): Promise<void>;
+  // For a write that moved nothing outside one card: reports it and re-reads that
+  // card, where `mutationFailed` re-reads the whole board.
+  detailMutationFailed(taskId: string, error: unknown): Promise<void>;
   loadTaskDetail(taskId: string): Promise<void>;
 }

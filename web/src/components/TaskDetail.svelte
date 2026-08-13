@@ -186,7 +186,11 @@
       const opened = card;
       if (!anonymous) {
         board.clearChanged(id);
-        void board.loadTaskDetail(id);
+        // ensure, unlike the cross-project rows below: everything this reads —
+        // the comments, the checklist, the attachments — is on this board's own
+        // channel, so an unbroken subscription since the last read has already
+        // delivered whatever the read would find.
+        void board.ensureTaskDetail(id);
         // refresh, not ensure: a remote task changes on its own project's
         // channel, which this client does not subscribe to, so reopening the
         // panel is the moment to revalidate. Cached rows stay painted while it

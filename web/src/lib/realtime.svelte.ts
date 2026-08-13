@@ -3,6 +3,7 @@ import { board } from './board.svelte';
 import { boardAnnouncer } from './board-announcer.svelte';
 import { invitations } from './invitations.svelte';
 import { projects } from './projects.svelte';
+import { realtimeCoverage } from './realtime-coverage.svelte';
 import { taskSeries } from './taskSeries.svelte';
 import { users } from './users.svelte';
 import type { RealtimeEvent, RealtimeEventType } from './realtime-types';
@@ -114,6 +115,7 @@ class RealtimeClient {
     this.#hasSyncedOnce = false;
     this.#queue = [];
     this.#needsBoardRefetch = false;
+    realtimeCoverage.end();
     boardAnnouncer.reset();
     this.#disposeEffects?.();
     this.#disposeEffects = null;
@@ -134,6 +136,8 @@ class RealtimeClient {
     this.status = 'connecting';
     this.#authed = false;
     this.#subscribedProjectId = null;
+    // Whatever the previous socket was carrying, this one has not carried yet.
+    realtimeCoverage.end();
     const url = location.origin.replace(/^http/, 'ws') + '/ws';
     let socket: WebSocket;
     try {
@@ -249,6 +253,7 @@ class RealtimeClient {
     this.#socket = null;
     this.#authed = false;
     this.#subscribedProjectId = null;
+    realtimeCoverage.end();
     this.status = 'offline';
     this.#armOfflineNotice();
     if (event.code === AUTH_CLOSE_CODE) {
@@ -326,6 +331,14 @@ class RealtimeClient {
       this.#send({ type: 'subscribe', project_id: projectId });
     }
     this.#subscribedProjectId = projectId;
+    // Announced only where the subscription actually moves, which the early
+    // return above is what guarantees: bumping the token on every pass would
+    // invalidate every reader each time the effect re-ran over an unchanged board.
+    if (projectId === null) {
+      realtimeCoverage.end();
+    } else {
+      realtimeCoverage.begin(projectId);
+    }
   }
 
   #dispatch(event: RealtimeEvent): void {

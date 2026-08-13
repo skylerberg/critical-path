@@ -107,6 +107,11 @@ class TaskRouteResolver {
         await api.GET('/api/tasks/{id}', { params: { path: { id: taskId } } })
       );
       this.#byTask = { ...this.#byTask, [taskId]: detail.project_id };
+      // The whole card, not just the project it names. This read is the same one
+      // the overlay makes on open, and the overlay opens a moment later on every
+      // path that gets here — so handing it over is the difference between one
+      // GET /api/tasks/{id} and two back to back.
+      board.offerTaskDetail(detail);
     } catch (error) {
       // A 404 is also what no-access returns, deliberately, and is the only answer
       // worth keeping: anything else is transient, so ensure() will ask again.
