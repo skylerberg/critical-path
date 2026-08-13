@@ -188,11 +188,20 @@ describe('pannedViewBox', () => {
     expect(pannedViewBox(origin, rect, 500, 300).x).toBe(-50);
   });
 
-  // Always from the origin, never from the live box: accumulating each move would
-  // compound rounding across a drag and let the content slide under the cursor.
-  it('is measured from the gesture origin, so it is idempotent', () => {
-    const origin = { vb: { ...vb }, x: 400, y: 300 };
+  // Measured from the gesture origin, so only the delta matters. An
+  // implementation reaching for the absolute client coordinates instead would
+  // pass every case above — they all start a drag at the middle of the screen —
+  // and put the board somewhere else for a drag that started anywhere but there.
+  it('depends on the drag delta, not on where on the screen the drag happened', () => {
+    const fromCentre = pannedViewBox({ vb: { ...vb }, x: 400, y: 300 }, rect, 450, 320);
+    const fromCorner = pannedViewBox({ vb: { ...vb }, x: 100, y: 50 }, rect, 150, 70);
 
-    expect(pannedViewBox(origin, rect, 450, 300)).toEqual(pannedViewBox(origin, rect, 450, 300));
+    expect(fromCorner).toEqual(fromCentre);
+  });
+
+  it('leaves the box exactly where it was for a drag that has not moved', () => {
+    const origin = { vb: { x: 120, y: -40, w: 400, h: 300 }, x: 275, y: 190 };
+
+    expect(pannedViewBox(origin, rect, 275, 190)).toEqual(origin.vb);
   });
 });

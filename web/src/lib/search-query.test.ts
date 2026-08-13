@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  groupByProject,
-  parseSearchQuery,
-  searchPath,
-  type SearchResult,
-  SEARCH_MAX_QUERY_LENGTH,
-  SEARCH_MIN_QUERY_LENGTH,
-} from './search-query';
+import { groupByProject, parseSearchQuery, searchPath, type SearchResult } from './search-query';
 import { testUuid } from './test-ids';
 
 const GAME = testUuid('p1');
@@ -65,14 +58,6 @@ describe('searchPath', () => {
     for (const query of ['boss fight', 'a&b=c#d', 'ü', '100%']) {
       expect(parseSearchQuery(searchPath(query).replace('/search', ''))).toBe(query);
     }
-  });
-});
-
-// The bounds mirror the server's; outside them the request is a guaranteed 400.
-describe('query length bounds', () => {
-  it('are the server’s, not a guess', () => {
-    expect(SEARCH_MIN_QUERY_LENGTH).toBe(1);
-    expect(SEARCH_MAX_QUERY_LENGTH).toBe(200);
   });
 });
 

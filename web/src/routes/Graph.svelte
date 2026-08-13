@@ -25,7 +25,7 @@
     cycleClosingEdge as closingEdgeOf,
     cycleClosingPath,
     cycleEdgeIds,
-    cycleNodeIds,
+    cyclePathNodeIds,
   } from '../lib/graph-cycle';
   import {
     fitViewBox,
@@ -110,7 +110,7 @@
     return task !== undefined && board.taskMatchesFilters(task);
   }
 
-  const cycleIds = $derived(cycleNodeIds(board.cyclePath));
+  const cycleIds = $derived(cyclePathNodeIds(board.cyclePath));
   const cycleNodes = $derived(new Set(cycleIds));
   const cycleEdges = $derived(cycleEdgeIds(cycleIds));
   const cycleClosingEdge = $derived(closingEdgeOf(cycleIds));

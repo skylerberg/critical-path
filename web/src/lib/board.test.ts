@@ -1222,32 +1222,47 @@ describe('board store mutations', () => {
     expect(toasts.toasts).toHaveLength(0);
   });
 
-  // Why addBlocker cannot go through #sendOrFail. The invalidate has to run
-  // before the failure policy, which refetches over the network: taskActivity
-  // measures elapsed time since its last fetch to decide between fetching now and
-  // arming a timer, so running the policy first changes what it decides.
-  it('addBlocker invalidates the activity log before the failure policy refetches', async () => {
-    const order: string[] = [];
-    const invalidate = vi.spyOn(taskActivity, 'invalidate').mockImplementation(() => {
-      order.push('invalidate');
-    });
-    mockRoutes((request, url) => {
-      if (request.method === 'POST' && url.pathname === '/api/tasks/t1/blockers') {
-        return jsonResponse(409, { error: CYCLE_ERROR });
-      }
-      if (request.method === 'GET') {
-        order.push('refetch');
-      }
-      return undefined;
-    });
+  // Why three writes cannot go through #sendOrFail. Each invalidates the activity
+  // log BEFORE its failure check, and every failure handler refetches over the
+  // network; taskActivity measures elapsed time since its last fetch to choose
+  // between fetching now and arming a timer, so running the policy first changes
+  // what it decides. Routing any of the three through the helper inverts that
+  // order, and each case below then fails.
+  describe.each([
+    ['addBlocker', '/api/tasks/t1/blockers', () => board.addBlocker('t1', 't2')],
+    ['addChecklistItem', '/api/checklist-items', () => board.addChecklistItem('t1', 'a task')],
+    [
+      'promoteChecklistItem',
+      '/api/checklist-items/ci1/promote',
+      () => board.promoteChecklistItem('t1', 'ci1'),
+    ],
+  ])('%s', (_name, failingPath, run) => {
+    it('invalidates the activity log before the failure policy refetches', async () => {
+      board.taskChecklists = {
+        t1: [serverChecklistItem('a task', 'ci1', 0, false, 'V0')],
+      };
+      const order: string[] = [];
+      const invalidate = vi.spyOn(taskActivity, 'invalidate').mockImplementation(() => {
+        order.push('invalidate');
+      });
+      mockRoutes((request, url) => {
+        if (request.method !== 'GET' && url.pathname === failingPath) {
+          return jsonResponse(409, { error: CYCLE_ERROR });
+        }
+        if (request.method === 'GET') {
+          order.push('refetch');
+        }
+        return undefined;
+      });
 
-    await board.addBlocker('t1', 't2');
-    // Restored here, not in an afterEach: the activity-refresh cases further down
-    // this file assert on the real invalidate.
-    invalidate.mockRestore();
+      await run();
+      // Restored here, not in an afterEach: the activity-refresh cases further
+      // down this file assert on the real invalidate.
+      invalidate.mockRestore();
 
-    expect(order[0]).toBe('invalidate');
-    expect(order).toContain('refetch');
+      expect(order[0]).toBe('invalidate');
+      expect(order).toContain('refetch');
+    });
   });
 
   it('addBlocker names the loop from the 409 body, highlights it, and refetches', async () => {

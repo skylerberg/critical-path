@@ -1921,8 +1921,8 @@ class BoardStore {
   }
 
   // Everything below delegates to a sub-store. The bodies moved; the names did
-  // not, so every caller — 13 files, plus the board's own realtime switch — is
-  // untouched by the split.
+  // not, so every caller — a dozen files, plus the board's own realtime switch —
+  // is untouched by the split.
 
   createComment(taskId: string, body: CommentBody): Promise<void> {
     return this.#comments.create(taskId, body);

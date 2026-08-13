@@ -4,7 +4,7 @@ import {
   cycleClosingEdge,
   cycleClosingPath,
   cycleEdgeIds,
-  cycleNodeIds,
+  cyclePathNodeIds,
   CYCLE_CLOSING_BOW,
   CYCLE_CLOSING_REACH,
 } from './graph-cycle';
@@ -30,18 +30,18 @@ function controlPoints(d: string): { x: number; y: number }[] {
 
 describe('cycleNodeIds', () => {
   it('is empty without a reported cycle', () => {
-    expect(cycleNodeIds(null)).toEqual([]);
-    expect(cycleNodeIds(undefined)).toEqual([]);
+    expect(cyclePathNodeIds(null)).toEqual([]);
+    expect(cyclePathNodeIds(undefined)).toEqual([]);
   });
 
   // A redacted step is on no board this view draws, so it cannot be highlighted.
   // Dropped rather than substituted: a gap would pair the wrong nodes into edges.
   it('drops redacted steps rather than leaving a hole', () => {
-    expect(cycleNodeIds([step('a'), step(null), step('c')])).toEqual(['a', 'c']);
+    expect(cyclePathNodeIds([step('a'), step(null), step('c')])).toEqual(['a', 'c']);
   });
 
   it('keeps the repeated closing id, which is what makes it a loop', () => {
-    expect(cycleNodeIds([step('a'), step('b'), step('a')])).toEqual(['a', 'b', 'a']);
+    expect(cyclePathNodeIds([step('a'), step('b'), step('a')])).toEqual(['a', 'b', 'a']);
   });
 });
 
@@ -52,7 +52,7 @@ describe('cycleEdgeIds', () => {
     );
   });
 
-  it('is empty for a two-node loop, whose only hop is the closing one', () => {
+  it('is the single hop of a two-node loop, the other being the closing one', () => {
     expect(cycleEdgeIds(['a', 'b', 'a'])).toEqual(new Set([edgeId('a', 'b')]));
   });
 

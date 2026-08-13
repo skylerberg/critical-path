@@ -19,7 +19,7 @@ export const CYCLE_CLOSING_REACH = 60;
  * be highlighted. Dropped rather than substituted: leaving a gap in the chain
  * would pair the wrong nodes into edges.
  */
-export function cycleNodeIds(path: readonly CycleTask[] | null | undefined): string[] {
+export function cyclePathNodeIds(path: readonly CycleTask[] | null | undefined): string[] {
   return path?.flatMap((step) => (step.id === null ? [] : [step.id])) ?? [];
 }
 

@@ -30,7 +30,7 @@ export function snapTargets(scroller: HTMLElement): HTMLElement[] {
  * <inline>`, so the last token is the axis this scroller uses; a stylesheet-less
  * environment reports neither, which reads as start.
  */
-export function snapLeft(scroller: HTMLElement, target: HTMLElement): number {
+function snapLeft(scroller: HTMLElement, target: HTMLElement): number {
   const inline = getComputedStyle(target).scrollSnapAlign.split(' ').pop();
   const align: SnapAlign = inline === 'center' || inline === 'end' ? inline : 'start';
   const style = getComputedStyle(scroller);
