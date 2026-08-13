@@ -11,6 +11,20 @@ export function isCalendarDate(value: unknown): value is string {
   return typeof value === 'string' && CALENDAR_DATE.test(value);
 }
 
+/**
+ * The instant, as the API writes timestamps. Unlike `todayISO` below this one is
+ * deliberately UTC — it stamps `created_at`/`updated_at` on an optimistic row,
+ * which is a moment in time rather than a day on anyone's calendar.
+ *
+ * Here rather than inline at the call sites because a `new Date()` inside an
+ * exported class is what `svelte/prefer-svelte-reactivity` flags: the rule cannot
+ * see that the instance is consumed on the spot, and the stores that predate this
+ * one only slip past it by keeping their class unexported.
+ */
+export function nowIso(): string {
+  return new Date().toISOString();
+}
+
 // Built from the local fields, never toISOString(): west of Greenwich that would
 // name tomorrow for most of the evening.
 export function todayISO(now: Date = new Date()): string {

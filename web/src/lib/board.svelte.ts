@@ -2,7 +2,12 @@ import { SvelteSet } from 'svelte/reactivity';
 import { api, ApiError, assertOk } from '../api/client';
 import { apiMessage } from './apiMessages';
 import type { components } from '../api/api.generated';
+import { BoardAttachments } from './board-attachments.svelte';
+import { BoardChecklists } from './board-checklists.svelte';
+import { BoardComments, chronological } from './board-comments.svelte';
 import { filtersToSearch, mergeFilterSearch, noFilters, type BoardFilters } from './board-filters';
+import type { BoardPort } from './board-port';
+import { optimisticTask } from './board-task';
 import type {
   ArchivedTask,
   BoardColumn,
@@ -10,13 +15,15 @@ import type {
   BoardProject,
   BoardTask,
   ChecklistItem,
+  CommentBody,
   CycleTask,
   PublicBoardPayload,
+  TaskAttachment,
+  TaskComment,
 } from './board-types';
 import { type ColumnSort, sortTasks } from './column-sort';
 import { connectivity } from './connectivity.svelte';
 import { mergeVersion, type TaskVersion } from './conflictDrafts.svelte';
-import { saveBlob } from './export';
 import { buildGraph, cycleNodeIds, cyclePathIds } from './graph';
 import { newId } from './ids';
 import { readBoardSnapshot, saveBoardSnapshot } from './offline-cache';
@@ -45,9 +52,10 @@ import { truncateTitle } from './titles';
 import { toasts } from './toasts.svelte';
 import { users, type User } from './users.svelte';
 
-export type TaskAttachment = components['schemas']['Attachment'];
-export type TaskComment = components['schemas']['Comment'];
-export type CommentBody = TaskComment['body'];
+// Declared in board-types.ts because the sub-stores need them and this module
+// imports the sub-stores. Re-exported here, which is where every consumer already
+// reads them from.
+export type { CommentBody, TaskAttachment, TaskComment };
 
 // What an open card knows about the series that created it: the rule as English
 // plus the two fields its recurrence menu is built from. Taken from the API
@@ -102,35 +110,6 @@ const MAX_BATCH_TASKS = 100;
 // column's tasks doesn't see a fresh array on every read.
 const NO_TASKS: BoardTask[] = [];
 
-function optimisticTask(
-  id: string,
-  columnId: string,
-  title: string,
-  placement: Placement
-): BoardTask {
-  const now = new Date().toISOString();
-  return {
-    id,
-    column_id: columnId,
-    title,
-    description: null,
-    sort_key: placement.sort_key,
-    due_date: null,
-    created_at: now,
-    updated_at: now,
-    column_since: now,
-    label_ids: [],
-    assignee_ids: [],
-    blocker_ids: [],
-    open_cross_project_blocker_count: 0,
-    cover_image_url: null,
-    comment_count: 0,
-    checklist_item_count: 0,
-    checklist_done_count: 0,
-    attachment_count: 0,
-  };
-}
-
 // The response describes the card as created, so adopting it wholesale reverts
 // anything edited while it was in flight. Diffing against what was inserted finds
 // those fields without enumerating which are editable — which holds only because
@@ -181,10 +160,6 @@ function cycleFromApiError(error: unknown): { message: string; cycle: CycleTask[
       typeof (step as { title?: unknown }).title === 'string'
   );
   return steps.length === cycle.length ? { message: error.message, cycle: steps } : null;
-}
-
-function chronological(a: TaskComment, b: TaskComment): number {
-  return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
 }
 
 class BoardStore {
@@ -246,11 +221,34 @@ class BoardStore {
   #cyclePathTimer: ReturnType<typeof setTimeout> | null = null;
   readonly #ownsFilterUrl: boolean;
 
+  // Per instance, never module-level: `awayBoard` below is a second live board,
+  // and a shared sub-store would give the two of them one set of comments.
+  readonly #comments: BoardComments;
+  readonly #checklists: BoardChecklists;
+  readonly #attachments: BoardAttachments;
+
   // Only the board on screen owns the address bar. A second one loaded for a card
   // on another project has no filters of its own, and a response landing after the
   // user walks onto that same project would strip theirs out of the URL.
   constructor({ ownsFilterUrl = true }: { ownsFilterUrl?: boolean } = {}) {
     this.#ownsFilterUrl = ownsFilterUrl;
+    // Arrow functions so `this` is the store and every read happens at call time
+    // against the live `$state`. Handing over `this` instead would keep exactly
+    // the coupling the split removes.
+    const port: BoardPort = {
+      currentProjectId: () => this.currentProjectId,
+      tasks: () => this.tasks,
+      setTasks: (tasks) => {
+        this.tasks = tasks;
+      },
+      tasksInColumn: (columnId) => this.tasksInColumn(columnId),
+      send: (input) => this.#send(input),
+      mutationFailed: (error) => this.#mutationFailed(error),
+      loadTaskDetail: (taskId) => this.loadTaskDetail(taskId),
+    };
+    this.#comments = new BoardComments(port);
+    this.#checklists = new BoardChecklists(port);
+    this.#attachments = new BoardAttachments(port);
   }
 
   // Filters are adopted before the first await, so a link built from the store during
@@ -1631,30 +1629,8 @@ class BoardStore {
     taskActivity.invalidate(taskId);
   }
 
-  // Takes the attachment rather than its id so the store never rebuilds the URL
-  // the server owns, and flips is_cover on the list it just moved the flag on.
-  async setTaskCover(taskId: string, image: TaskAttachment | null): Promise<void> {
-    this.tasks = this.tasks.map((task) =>
-      task.id === taskId ? { ...task, cover_image_url: image?.image_url ?? null } : task
-    );
-    this.#replaceAttachments(taskId, (attachments) =>
-      attachments.map((entry) =>
-        entry.kind === 'image' ? { ...entry, is_cover: entry.id === image?.id } : entry
-      )
-    );
-    const result = await this.#send({
-      entityId: taskId,
-      label: image === null ? 'Removed a cover image' : 'Set a cover image',
-      request: {
-        method: 'PUT',
-        path: '/api/tasks/{id}/cover',
-        pathParams: { id: taskId },
-        body: { image_id: image?.id ?? null },
-      },
-    });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-    }
+  setTaskCover(taskId: string, image: TaskAttachment | null): Promise<void> {
+    return this.#attachments.setCover(taskId, image);
   }
 
   async addBlocker(taskId: string, blockerTaskId: string): Promise<boolean> {
@@ -1887,12 +1863,46 @@ class BoardStore {
     return count;
   }
 
-  taskComments = $state<Record<string, TaskComment[]>>({});
-  taskChecklists = $state<Record<string, ChecklistItem[]>>({});
+  /**
+   * The three caches live on their sub-stores; these are the names every consumer
+   * already reads and writes, so the move is invisible outside this file.
+   *
+   * Accessor pairs, not bare getters: `load`, `refetch` and `reset` below all
+   * assign to them, as do the component tests. A getter alone would be a
+   * TypeError at the first write.
+   *
+   * A getter is enough for the read half — it calls through to the sub-store's
+   * `$state` at access time, inside the reading component's reaction, which is
+   * where the subscription has to land. board-substores.svelte.test.ts is the
+   * proof, and fails if either half is dropped.
+   */
+  get taskComments(): Record<string, TaskComment[]> {
+    return this.#comments.byTask;
+  }
+
+  set taskComments(next: Record<string, TaskComment[]>) {
+    this.#comments.byTask = next;
+  }
+
+  get taskChecklists(): Record<string, ChecklistItem[]> {
+    return this.#checklists.byTask;
+  }
+
+  set taskChecklists(next: Record<string, ChecklistItem[]>) {
+    this.#checklists.byTask = next;
+  }
+
+  get taskAttachments(): Record<string, TaskAttachment[]> {
+    return this.#attachments.byTask;
+  }
+
+  set taskAttachments(next: Record<string, TaskAttachment[]>) {
+    this.#attachments.byTask = next;
+  }
+
   // Everything the card's own Dates panel needs, so it never reads the project's
   // series list to render one card's recurrence.
   taskSeriesRefs = $state<Record<string, TaskSeriesRef | null>>({});
-  taskAttachments = $state<Record<string, TaskAttachment[]>>({});
 
   setTaskSeriesRef(taskId: string, ref: TaskSeriesRef | null): void {
     this.taskSeriesRefs = { ...this.taskSeriesRefs, [taskId]: ref };
@@ -1962,486 +1972,68 @@ class BoardStore {
     }
   }
 
-  // A no-op when the list is not cached, for the same reason the comment stream
-  // is: the detail view fetches it on open, and seeding a partial list here
-  // would leave that view showing only fragments.
-  #replaceAttachments(
-    taskId: string,
-    next: (attachments: TaskAttachment[]) => TaskAttachment[]
-  ): void {
-    const cached = this.taskAttachments[taskId];
-    if (cached === undefined) {
-      return;
-    }
-    this.taskAttachments = { ...this.taskAttachments, [taskId]: next(cached) };
+  // Everything below delegates to a sub-store. The bodies moved; the names did
+  // not, so every caller — 13 files, plus the board's own realtime switch — is
+  // untouched by the split.
+
+  createComment(taskId: string, body: CommentBody): Promise<void> {
+    return this.#comments.create(taskId, body);
   }
 
-  async uploadTaskAttachment(taskId: string, file: File): Promise<TaskAttachment | null> {
-    try {
-      const attachment = assertOk(
-        await api.POST('/api/attachments/files', {
-          params: {
-            query: {
-              task_id: taskId,
-              filename: file.name || 'attachment',
-              content_type: file.type || 'application/octet-stream',
-            },
-          },
-          // The file is the body, so it is handed to fetch untouched: serializing
-          // it would read the whole thing into memory on both ends of the wire.
-          body: file as unknown as string,
-          bodySerializer: (body: unknown) => body as BodyInit,
-          headers: { 'Content-Type': 'application/octet-stream' },
-        })
-      );
-      // The realtime echo can land before this response does and append it already.
-      const cached = this.taskAttachments[taskId] ?? [];
-      if (!cached.some((existing) => existing.id === attachment.id)) {
-        this.taskAttachments = { ...this.taskAttachments, [taskId]: [...cached, attachment] };
-        this.#setAttachmentCount(taskId, (count) => count + 1);
-      }
-      return attachment;
-    } catch (error) {
-      toasts.error(apiMessage(error, 'Attachment upload failed'));
-      return null;
-    }
+  updateComment(taskId: string, commentId: string, body: CommentBody): Promise<boolean> {
+    return this.#comments.update(taskId, commentId, body);
   }
 
-  async addLinkAttachment(taskId: string, url: string): Promise<void> {
-    const id = newId();
-    const now = new Date().toISOString();
-    const optimistic: TaskAttachment = {
-      id,
-      task_id: taskId,
-      kind: 'link',
-      // A link is neither an image nor a cover.
-      image_url: null,
-      is_cover: false,
-      title: null,
-      description: null,
-      filename: null,
-      content_type: null,
-      size_bytes: null,
-      url,
-      preview_url: null,
-      favicon_url: null,
-      unfurl_state: 'pending',
-      created_at: now,
-      updated_at: now,
-    };
-    this.taskAttachments = {
-      ...this.taskAttachments,
-      [taskId]: [...(this.taskAttachments[taskId] ?? []), optimistic],
-    };
-    this.#setAttachmentCount(taskId, (count) => count + 1);
-    try {
-      const created = assertOk(
-        await api.POST('/api/attachments/links', { body: { id, task_id: taskId, url } })
-      );
-      this.#replaceAttachments(taskId, (attachments) =>
-        attachments.map((attachment) => (attachment.id === id ? created : attachment))
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
-      await this.loadTaskDetail(taskId);
-    }
+  deleteComment(taskId: string, commentId: string): Promise<void> {
+    return this.#comments.remove(taskId, commentId);
   }
 
-  async patchAttachment(
+  addChecklistItem(taskId: string, text: string): Promise<void> {
+    return this.#checklists.add(taskId, text);
+  }
+
+  setChecklistItemChecked(taskId: string, itemId: string, checked: boolean): Promise<void> {
+    return this.#checklists.setChecked(taskId, itemId, checked);
+  }
+
+  renameChecklistItem(taskId: string, itemId: string, text: string): Promise<void> {
+    return this.#checklists.rename(taskId, itemId, text);
+  }
+
+  moveChecklistItem(taskId: string, itemId: string, placement: Placement): Promise<void> {
+    return this.#checklists.move(taskId, itemId, placement);
+  }
+
+  deleteChecklistItem(taskId: string, itemId: string): Promise<void> {
+    return this.#checklists.remove(taskId, itemId);
+  }
+
+  promoteChecklistItem(taskId: string, itemId: string): Promise<string | null> {
+    return this.#checklists.promote(taskId, itemId);
+  }
+
+  uploadTaskAttachment(taskId: string, file: File): Promise<TaskAttachment | null> {
+    return this.#attachments.upload(taskId, file);
+  }
+
+  addLinkAttachment(taskId: string, url: string): Promise<void> {
+    return this.#attachments.addLink(taskId, url);
+  }
+
+  patchAttachment(
     taskId: string,
     id: string,
     patch: { title?: string | null; description?: string | null }
   ): Promise<void> {
-    this.#replaceAttachments(taskId, (attachments) =>
-      attachments.map((attachment) =>
-        attachment.id === id ? { ...attachment, ...patch } : attachment
-      )
-    );
-    try {
-      const updated = assertOk(
-        await api.PATCH('/api/attachments/{id}', { params: { path: { id } }, body: patch })
-      );
-      this.#replaceAttachments(taskId, (attachments) =>
-        attachments.map((attachment) => (attachment.id === id ? updated : attachment))
-      );
-    } catch (error) {
-      await this.#mutationFailed(error);
-      await this.loadTaskDetail(taskId);
-    }
+    return this.#attachments.patch(taskId, id, patch);
   }
 
-  async deleteAttachment(taskId: string, id: string): Promise<void> {
-    // The cover lives on the row, so removing that row takes the cover with it;
-    // the card would otherwise keep pointing at bytes that are gone.
-    const removed = (this.taskAttachments[taskId] ?? []).find((entry) => entry.id === id);
-    if (removed?.is_cover === true) {
-      this.tasks = this.tasks.map((task) =>
-        task.id === taskId ? { ...task, cover_image_url: null } : task
-      );
-    }
-    this.#replaceAttachments(taskId, (attachments) =>
-      attachments.filter((attachment) => attachment.id !== id)
-    );
-    this.#setAttachmentCount(taskId, (count) => count - 1);
-    try {
-      assertOk(await api.DELETE('/api/attachments/{id}', { params: { path: { id } } }));
-    } catch (error) {
-      await this.#mutationFailed(error);
-      await this.loadTaskDetail(taskId);
-    }
+  deleteAttachment(taskId: string, id: string): Promise<void> {
+    return this.#attachments.remove(taskId, id);
   }
 
-  async downloadAttachment(attachment: TaskAttachment): Promise<void> {
-    try {
-      const blob = assertOk(
-        await api.GET('/api/attachments/{id}/download', {
-          params: { path: { id: attachment.id } },
-          parseAs: 'blob',
-        })
-      );
-      saveBlob(blob as Blob, attachment.filename ?? 'attachment');
-    } catch (error) {
-      toasts.error(apiMessage(error, 'Download failed'));
-    }
-  }
-
-  #setAttachmentCount(taskId: string, next: (current: number) => number): void {
-    this.tasks = this.tasks.map((task) =>
-      task.id === taskId
-        ? { ...task, attachment_count: Math.max(0, next(task.attachment_count ?? 0)) }
-        : task
-    );
-  }
-
-  #setCommentCount(taskId: string, next: (current: number) => number): void {
-    this.tasks = this.tasks.map((task) =>
-      task.id === taskId ? { ...task, comment_count: next(task.comment_count ?? 0) } : task
-    );
-  }
-
-  // A no-op when the stream is not cached: the detail view fetches it on open,
-  // and seeding a partial list here would leave that view showing only fragments.
-  #replaceComments(taskId: string, next: (comments: TaskComment[]) => TaskComment[]): void {
-    const cached = this.taskComments[taskId];
-    if (cached === undefined) {
-      return;
-    }
-    this.taskComments = { ...this.taskComments, [taskId]: next(cached) };
-  }
-
-  async createComment(taskId: string, body: CommentBody): Promise<void> {
-    const id = newId();
-    const now = new Date().toISOString();
-    const optimistic: TaskComment = {
-      id,
-      task_id: taskId,
-      user_id: session.user?.id ?? '',
-      body,
-      created_at: now,
-      updated_at: now,
-    };
-    this.#replaceComments(taskId, (comments) => [...comments, optimistic]);
-    this.#setCommentCount(taskId, (count) => count + 1);
-    const result = await this.#send<TaskComment>({
-      entityId: taskId,
-      label: 'New comment',
-      semantics: 'create',
-      request: { method: 'POST', path: '/api/comments', body: { id, task_id: taskId, body } },
-    });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-      await this.loadTaskDetail(taskId);
-      return;
-    }
-    if (result.status !== 'sent') {
-      return;
-    }
-    // A detail fetch landing mid-flight replaces the whole stream, so the
-    // optimistic row may be gone and the server row has to be re-inserted.
-    if (this.taskComments[taskId] === undefined) {
-      await this.loadTaskDetail(taskId);
-      return;
-    }
-    const created = result.data;
-    this.#replaceComments(taskId, (comments) =>
-      comments.some((comment) => comment.id === id)
-        ? comments.map((comment) => (comment.id === id ? created : comment))
-        : [...comments, created].sort(chronological)
-    );
-  }
-
-  // Unlike its siblings this one has an outcome: a rejected edit must leave the
-  // caller's editor open, or the resync takes the user's rewrite with it.
-  async updateComment(taskId: string, commentId: string, body: CommentBody): Promise<boolean> {
-    const now = new Date().toISOString();
-    this.#replaceComments(taskId, (comments) =>
-      comments.map((comment) =>
-        comment.id === commentId ? { ...comment, body, updated_at: now } : comment
-      )
-    );
-    const result = await this.#send<TaskComment>({
-      entityId: commentId,
-      label: 'Edited a comment',
-      request: {
-        method: 'PATCH',
-        path: '/api/comments/{id}',
-        pathParams: { id: commentId },
-        body: { body },
-      },
-    });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-      await this.loadTaskDetail(taskId);
-      return false;
-    }
-    if (result.status === 'sent') {
-      const updated = result.data;
-      this.#replaceComments(taskId, (comments) =>
-        comments.map((comment) => (comment.id === commentId ? updated : comment))
-      );
-    }
-    return true;
-  }
-
-  async deleteComment(taskId: string, commentId: string): Promise<void> {
-    this.#replaceComments(taskId, (comments) =>
-      comments.filter((comment) => comment.id !== commentId)
-    );
-    this.#setCommentCount(taskId, (count) => Math.max(0, count - 1));
-    const result = await this.#send({
-      entityId: commentId,
-      label: 'Deleted a comment',
-      request: { method: 'DELETE', path: '/api/comments/{id}', pathParams: { id: commentId } },
-    });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-      await this.loadTaskDetail(taskId);
-    }
-  }
-
-  #setChecklistCounts(
-    taskId: string,
-    next: (counts: { total: number; done: number }) => { total: number; done: number }
-  ): void {
-    this.tasks = this.tasks.map((task) => {
-      if (task.id !== taskId) {
-        return task;
-      }
-      const { total, done } = next({
-        total: task.checklist_item_count ?? 0,
-        done: task.checklist_done_count ?? 0,
-      });
-      return {
-        ...task,
-        checklist_item_count: Math.max(0, total),
-        checklist_done_count: Math.max(0, done),
-      };
-    });
-  }
-
-  // A no-op when the list is not cached, for the same reason #replaceComments is.
-  #replaceChecklist(taskId: string, next: (items: ChecklistItem[]) => ChecklistItem[]): void {
-    const cached = this.taskChecklists[taskId];
-    if (cached === undefined) {
-      return;
-    }
-    this.taskChecklists = { ...this.taskChecklists, [taskId]: next(cached) };
-  }
-
-  async addChecklistItem(taskId: string, text: string): Promise<void> {
-    const id = newId();
-    const now = new Date().toISOString();
-    const placement = append(this.taskChecklists[taskId] ?? []);
-    const optimistic: ChecklistItem = {
-      id,
-      task_id: taskId,
-      text,
-      checked: false,
-      ...placement,
-      created_at: now,
-      updated_at: now,
-    };
-    this.#replaceChecklist(taskId, (items) => [...items, optimistic]);
-    this.#setChecklistCounts(taskId, ({ total, done }) => ({ total: total + 1, done }));
-    const result = await this.#send<ChecklistItem>({
-      entityId: taskId,
-      label: `New checklist item “${truncateTitle(text)}”`,
-      semantics: 'create',
-      request: {
-        method: 'POST',
-        path: '/api/checklist-items',
-        body: { id, task_id: taskId, text, ...placement },
-      },
-    });
-    taskActivity.invalidate(taskId);
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-      await this.loadTaskDetail(taskId);
-      return;
-    }
-    if (result.status !== 'sent') {
-      return;
-    }
-    // A detail fetch landing mid-flight replaces the whole list, so the optimistic
-    // row may be gone and the server row has to be re-inserted.
-    if (this.taskChecklists[taskId] === undefined) {
-      await this.loadTaskDetail(taskId);
-      return;
-    }
-    const created = result.data;
-    this.#replaceChecklist(taskId, (items) =>
-      items.some((item) => item.id === id)
-        ? items.map((item) => (item.id === id ? created : item))
-        : [...items, created].sort(byRank)
-    );
-  }
-
-  async setChecklistItemChecked(taskId: string, itemId: string, checked: boolean): Promise<void> {
-    const before = (this.taskChecklists[taskId] ?? []).find((item) => item.id === itemId);
-    const now = new Date().toISOString();
-    this.#replaceChecklist(taskId, (items) =>
-      items.map((item) => (item.id === itemId ? { ...item, checked, updated_at: now } : item))
-    );
-    if (before !== undefined && before.checked !== checked) {
-      this.#setChecklistCounts(taskId, ({ total, done }) => ({
-        total,
-        done: checked ? done + 1 : done - 1,
-      }));
-    }
-    await this.#patchChecklistItem(
-      taskId,
-      itemId,
-      { checked },
-      true,
-      `${checked ? 'Checked' : 'Unchecked'} “${truncateTitle(before?.text ?? '')}”`
-    );
-  }
-
-  async renameChecklistItem(taskId: string, itemId: string, text: string): Promise<void> {
-    const now = new Date().toISOString();
-    this.#replaceChecklist(taskId, (items) =>
-      items.map((item) => (item.id === itemId ? { ...item, text, updated_at: now } : item))
-    );
-    await this.#patchChecklistItem(
-      taskId,
-      itemId,
-      { text },
-      true,
-      `Renamed a checklist item to “${truncateTitle(text)}”`
-    );
-  }
-
-  // The only checklist write the server records no activity for, so the only one
-  // that must not refetch the log.
-  async moveChecklistItem(taskId: string, itemId: string, placement: Placement): Promise<void> {
-    this.#replaceChecklist(taskId, (items) =>
-      items.map((item) => (item.id === itemId ? { ...item, ...placement } : item)).sort(byRank)
-    );
-    await this.#patchChecklistItem(
-      taskId,
-      itemId,
-      { ...placement },
-      false,
-      'Reordered a checklist item'
-    );
-  }
-
-  async #patchChecklistItem(
-    taskId: string,
-    itemId: string,
-    body: { text?: string; checked?: boolean; sort_key?: string },
-    logged: boolean,
-    label: string
-  ): Promise<void> {
-    const result = await this.#send<ChecklistItem>({
-      entityId: itemId,
-      label,
-      request: {
-        method: 'PATCH',
-        path: '/api/checklist-items/{id}',
-        pathParams: { id: itemId },
-        body,
-      },
-    });
-    if (result.status === 'sent') {
-      const updated = result.data;
-      this.#replaceChecklist(taskId, (items) =>
-        items.map((item) => (item.id === itemId ? updated : item)).sort(byRank)
-      );
-    }
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-      await this.loadTaskDetail(taskId);
-    }
-    if (logged) {
-      taskActivity.invalidate(taskId);
-    }
-  }
-
-  async deleteChecklistItem(taskId: string, itemId: string): Promise<void> {
-    const removed = (this.taskChecklists[taskId] ?? []).find((item) => item.id === itemId);
-    this.#replaceChecklist(taskId, (items) => items.filter((item) => item.id !== itemId));
-    this.#setChecklistCounts(taskId, ({ total, done }) => ({
-      total: total - 1,
-      done: removed?.checked === true ? done - 1 : done,
-    }));
-    const result = await this.#send({
-      entityId: itemId,
-      label: `Deleted checklist item “${truncateTitle(removed?.text ?? '')}”`,
-      request: {
-        method: 'DELETE',
-        path: '/api/checklist-items/{id}',
-        pathParams: { id: itemId },
-      },
-    });
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-      await this.loadTaskDetail(taskId);
-    }
-    taskActivity.invalidate(taskId);
-  }
-
-  // Inserts the new card rather than waiting for its realtime echo: the caller
-  // navigates to it, and a card absent from `tasks` has no title to build a slug from.
-  async promoteChecklistItem(taskId: string, itemId: string): Promise<string | null> {
-    const parent = this.tasks.find((task) => task.id === taskId);
-    const item = (this.taskChecklists[taskId] ?? []).find((entry) => entry.id === itemId);
-    if (parent === undefined || item === undefined) {
-      return null;
-    }
-    const siblings = this.tasksInColumn(parent.column_id);
-    const placement = placeAtIndex(siblings, siblings.findIndex((task) => task.id === taskId) + 1);
-    const id = newId();
-    this.#replaceChecklist(taskId, (items) => items.filter((entry) => entry.id !== itemId));
-    this.#setChecklistCounts(taskId, ({ total, done }) => ({
-      total: total - 1,
-      done: item.checked ? done - 1 : done,
-    }));
-    // Optimistic so the caller can navigate to the new card straight away: a card
-    // absent from `tasks` has no title to build a slug from.
-    this.tasks = [...this.tasks, optimisticTask(id, parent.column_id, item.text, placement)];
-    const result = await this.#send<BoardTask>({
-      entityId: id,
-      label: `Promoted “${truncateTitle(item.text)}” to a card`,
-      semantics: 'create',
-      request: {
-        method: 'POST',
-        path: '/api/checklist-items/{id}/promote',
-        pathParams: { id: itemId },
-        body: { id, ...placement },
-      },
-    });
-    taskActivity.invalidate(taskId);
-    if (result.status === 'failed') {
-      await this.#mutationFailed(result.error);
-      await this.loadTaskDetail(taskId);
-      return null;
-    }
-    if (result.status === 'sent') {
-      const created = result.data;
-      this.tasks = this.tasks.map((task) => (task.id === id ? created : task));
-    }
-    return id;
+  downloadAttachment(attachment: TaskAttachment): Promise<void> {
+    return this.#attachments.download(attachment);
   }
 
   // Idempotent direct patches from realtime events; an echo of our own mutation
@@ -2648,24 +2240,24 @@ class BoardStore {
       }
       case 'attachment_created': {
         const d = event.data;
-        this.#setAttachmentCount(d.task_id, () => d.attachment_count);
+        this.#attachments.setCount(d.task_id, () => d.attachment_count);
         // Skips the adder's own echo, which the optimistic append already placed.
-        this.#replaceAttachments(d.task_id, (attachments) =>
+        this.#attachments.replace(d.task_id, (attachments) =>
           attachments.some((a) => a.id === d.id) ? attachments : [...attachments, d]
         );
         break;
       }
       case 'attachment_updated': {
         const d = event.data;
-        this.#replaceAttachments(d.task_id, (attachments) =>
+        this.#attachments.replace(d.task_id, (attachments) =>
           attachments.map((a) => (a.id === d.id ? d : a))
         );
         break;
       }
       case 'attachment_deleted': {
         const d = event.data;
-        this.#setAttachmentCount(d.task_id, () => d.attachment_count);
-        this.#replaceAttachments(d.task_id, (attachments) =>
+        this.#attachments.setCount(d.task_id, () => d.attachment_count);
+        this.#attachments.replace(d.task_id, (attachments) =>
           attachments.filter((a) => a.id !== d.id)
         );
         // The cover lives on the row, so a delete can clear it. This is the only
@@ -2677,7 +2269,7 @@ class BoardStore {
       }
       case 'comment_created': {
         const d = event.data;
-        this.#setCommentCount(d.task_id, () => d.comment_count);
+        this.#comments.setCount(d.task_id, () => d.comment_count);
         const comment: TaskComment = {
           id: d.id,
           task_id: d.task_id,
@@ -2687,7 +2279,7 @@ class BoardStore {
           updated_at: d.updated_at,
         };
         // Skips the author's own echo, which the optimistic append already placed.
-        this.#replaceComments(d.task_id, (comments) =>
+        this.#comments.replace(d.task_id, (comments) =>
           comments.some((c) => c.id === comment.id)
             ? comments
             : [...comments, comment].sort(chronological)
@@ -2696,7 +2288,7 @@ class BoardStore {
       }
       case 'comment_updated': {
         const d = event.data;
-        this.#replaceComments(d.task_id, (comments) =>
+        this.#comments.replace(d.task_id, (comments) =>
           comments.map((c) =>
             c.id === d.id ? { ...c, body: d.body, updated_at: d.updated_at } : c
           )
@@ -2705,14 +2297,14 @@ class BoardStore {
       }
       case 'comment_deleted': {
         const d = event.data;
-        this.#setCommentCount(d.task_id, () => d.comment_count);
-        this.#replaceComments(d.task_id, (comments) => comments.filter((c) => c.id !== d.id));
+        this.#comments.setCount(d.task_id, () => d.comment_count);
+        this.#comments.replace(d.task_id, (comments) => comments.filter((c) => c.id !== d.id));
         break;
       }
       case 'checklist_item_created':
       case 'checklist_item_updated': {
         const d = event.data;
-        this.#setChecklistCounts(d.task_id, () => ({
+        this.#checklists.setCounts(d.task_id, () => ({
           total: d.checklist_item_count,
           done: d.checklist_done_count,
         }));
@@ -2725,7 +2317,7 @@ class BoardStore {
           created_at: d.created_at,
           updated_at: d.updated_at,
         };
-        this.#replaceChecklist(d.task_id, (items) =>
+        this.#checklists.replace(d.task_id, (items) =>
           (items.some((i) => i.id === item.id)
             ? items.map((i) => (i.id === item.id ? item : i))
             : [...items, item]
@@ -2738,11 +2330,11 @@ class BoardStore {
       }
       case 'checklist_item_deleted': {
         const d = event.data;
-        this.#setChecklistCounts(d.task_id, () => ({
+        this.#checklists.setCounts(d.task_id, () => ({
           total: d.checklist_item_count,
           done: d.checklist_done_count,
         }));
-        this.#replaceChecklist(d.task_id, (items) => items.filter((i) => i.id !== d.id));
+        this.#checklists.replace(d.task_id, (items) => items.filter((i) => i.id !== d.id));
         taskActivity.invalidate(d.task_id);
         break;
       }
