@@ -80,7 +80,7 @@ export async function buildRealtimeEventsDocument(): Promise<Record<string, unkn
       title: 'Critical Path realtime and webhook events',
       version: String(ENVELOPE_VERSION),
       description:
-        'Generated from the declaration tables in src/services/realtime by `npm run realtime:dump`. ' +
+        'Generated from the declaration tables in src/services/realtime by `pnpm run realtime:dump`. ' +
         'RealtimeEvent is the envelope a /ws socket receives; WebhookEvent is the body ' +
         'POSTed to a project webhook registration; RealtimeCloseCode is what that socket ' +
         'can be closed with. Not an HTTP API: it declares no paths.',

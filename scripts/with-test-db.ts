@@ -3,7 +3,7 @@ import { ensureTestDatabase } from '../tests/setup/testDatabase';
 import { baseDatabaseName, resolveTestDatabaseName } from '../tests/setup/testDatabaseName';
 
 // vitest.config.ts covers the suite; this covers everything else that has to
-// reach the same database, which today is `npm run migrate:test`.
+// reach the same database, which today is `pnpm run migrate:test`.
 const [command, ...args] = process.argv.slice(2);
 if (!command) {
   console.error('usage: with-test-db <command> [args...]');

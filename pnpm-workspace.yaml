@@ -1,0 +1,38 @@
+# pnpm 11 reads settings from nowhere else: .npmrc carries auth and registry only, and
+# the package.json "pnpm" field is no longer read at all. Keys are camelCase — a
+# kebab-case key is ignored silently, with no warning and exit 0.
+#
+# No `packages:` key, so this file makes the root the only member. cli/ and
+# preview-edge/ each have their own copy of this file and their own lockfile, which is
+# what keeps deploy.yaml's path filter exact: a CLI dependency bump touches
+# cli/pnpm-lock.yaml and cannot trigger a production API deploy.
+
+# strictDepBuilds fails the install on any dependency whose install scripts have not
+# been ruled on, so a denial has to be written down rather than left out. Exact names
+# and name@range only: a glob is not rejected, it simply matches nothing, so `es*` and
+# an empty list fail identically. pnpm also appends the offending name here as
+# `set this to true or false` before it exits, so the tree is dirty afterwards.
+allowBuilds:
+  argon2: true # native addon via node-gyp-build
+  esbuild: true # downloads its platform binary
+  '@scarf/scarf': false # telemetry; scarfSettings.enabled already neuters it
+
+# Off, everywhere in both repos. The idea — fail loudly when node_modules is stale
+# rather than silently install — did not survive contact with this setup, in two
+# measured ways that each produce a hard failure with nothing actually wrong:
+#
+#   1. Any nested directory holding a package.json reads as a changed workspace
+#      structure, even with no `packages:` key and no membership. `pnpm install`
+#      answers "Already up to date" and the next `pnpm run` fails again.
+#   2. Under `CI`, pnpm computes a different `enableGlobalVirtualStore` default
+#      than the value recorded by an install run without it, so every command a
+#      CI-flagged child runs dies:
+#
+#        $ pnpm exec node -e 'console.log(1)'        → 1
+#        $ CI=1 pnpm exec node -e 'console.log(1)'   → ERR_PNPM_VERIFY_DEPS_BEFORE_RUN
+#
+#      check-test-guards.mjs spawns every child with CI=1, so this took out the
+#      whole guard suite.
+#
+# Off restores what npm did. Do not turn it back on without re-testing both.
+verifyDepsBeforeRun: false

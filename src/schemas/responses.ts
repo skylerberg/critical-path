@@ -34,8 +34,9 @@ export type Returned<D extends DeclaredResponses> = {
 
 // Annotated rather than inferred, like the two below: the inferred form names
 // types reachable only through `node_modules`, which `tsc --declaration` writes
-// into the .d.ts as a relative path. That path leaves the project root whenever
-// `node_modules` is a symlink — every worktree — and `npm run build` fails there
+// into the .d.ts as a relative path. Under pnpm every package sits behind a
+// symlink into `node_modules/.pnpm`, so that path is long, version-stamped and
+// resolved from somewhere the source never mentions — and `pnpm run build` fails
 // on code that is fine.
 export function jsonResponse<T extends Type>(
   description: string,

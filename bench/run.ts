@@ -48,7 +48,7 @@ function parseArgs(argv: string[]): Options {
     else if (arg === '--help' || arg === '-h') {
       console.log(
         [
-          'Usage: npm run bench -- [options]',
+          'Usage: pnpm run bench [options]',
           '',
           '  --scale=fast|heavy   Dataset size (default fast).',
           '  --reseed             Drop and rebuild the dataset even if it looks current.',

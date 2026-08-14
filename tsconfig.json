@@ -15,7 +15,7 @@
     "resolveJsonModule": true,
     "lib": ["ESNext"]
   },
-  // cli/ is a separate npm package with its own lock and node_modules, but it
+  // cli/ is a separate package with its own lock and node_modules, but it
   // belongs to this TypeScript project so that an editor resolves its files
   // against these options. Left out, every cli file falls back to an inferred
   // project with no module resolution, and reads as a wall of "cannot find

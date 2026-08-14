@@ -8,7 +8,8 @@ on:
     paths:
       - 'src/**'
       - 'package.json'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - 'Dockerfile'
       - 'k8s/**'
       - '.github/workflows/deploy.yaml'

@@ -1,0 +1,25 @@
+# cli/ resolves against its own lockfile and node_modules, so it needs its own copy of
+# the settings pnpm 11 will only read from this file. See the root file for the rest.
+allowBuilds:
+  esbuild: true
+
+overrides:
+  # Moved here from cli/package.json's `overrides`, which pnpm does not read. Keeping
+  # it in cli/ rather than at the root is the point of the separate lockfile: the pin
+  # stays scoped to the CLI's tree.
+  js-yaml: 4.3.0
+  # openapi-typescript declares a `^5.x` peer on typescript and this repo is on 6.
+  # npm's hoisting made that silently work; pnpm reports it on every install unless the
+  # version is stated. The api root has no such entry because nothing there depends on
+  # openapi-typescript.
+  #
+  # Spelled out rather than pulled from a catalog, which is what the web repo does for
+  # the identical override: knip resolves catalog references against the workspace file
+  # beside knip.json, so a catalog defined down here reads as unresolved and fails
+  # `pnpm run knip`. Keep this in step with cli/package.json's typescript devDependency.
+  openapi-typescript>typescript: 6.0.3
+
+# Off. The root pnpm-workspace.yaml carries the two measurements behind that; both
+# produce a hard failure with nothing actually wrong, and both survive the
+# `pnpm install` the error tells you to run.
+verifyDepsBeforeRun: false

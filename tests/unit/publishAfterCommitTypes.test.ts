@@ -7,7 +7,7 @@ import type { PublicContext } from '../../src/types/index';
 // can be caught is here, and the only thing that can catch it is the type
 // checker. Each @ts-expect-error is the assertion: if an overload is ever
 // widened enough to accept one of these calls, the directive stops suppressing
-// anything and `npm run type-check` fails on the unused directive.
+// anything and `pnpm run type-check` fails on the unused directive.
 //
 // Nothing is executed; the calls sit behind a false guard so the file still
 // runs as an ordinary test file.

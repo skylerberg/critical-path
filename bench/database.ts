@@ -9,10 +9,10 @@ import { ensureTestDatabase } from '../tests/setup/testDatabase';
 
 // A database of its own, never the suite's and never the one you develop
 // against. It carries the same `_test` suffix the suite's names do, which is
-// what lets `ensureTestDatabase` create it and `npm run test:db:prune` reclaim
+// what lets `ensureTestDatabase` create it and `pnpm run test:db:prune` reclaim
 // it: it is stamped with this checkout, so deleting the worktree is enough to
 // get the disk back. Sharing the suite's database instead would mean a
-// benchmark run and `npm test` racing to truncate each other, and 400k seeded
+// benchmark run and `pnpm test` racing to truncate each other, and 400k seeded
 // rows sitting under every future test run.
 //
 // Resolved once and remembered: `baseDatabaseName()` reads DB_DATABASE, which

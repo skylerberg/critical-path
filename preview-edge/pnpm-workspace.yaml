@@ -1,0 +1,9 @@
+# preview-edge/ builds from its own directory as its own Docker context, so it needs
+# its own lockfile and its own copy of the settings pnpm 11 reads only from here.
+allowBuilds:
+  esbuild: true
+
+# Off. The root pnpm-workspace.yaml carries the two measurements behind that; both
+# produce a hard failure with nothing actually wrong, and both survive the
+# `pnpm install` the error tells you to run.
+verifyDepsBeforeRun: false

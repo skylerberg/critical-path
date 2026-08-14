@@ -208,9 +208,9 @@ Measured, and either flat across tiers or comfortably cheap at both:
 ## Re-measuring
 
 ```sh
-npm run bench            # fast tier
-npm run bench:heavy      # heavy tier
-npm run bench -- --explain --only=my-tasks
+pnpm run bench            # fast tier
+pnpm run bench:heavy      # heavy tier
+pnpm run bench --explain --only=my-tasks
 ```
 
 The tiers keep separate databases and reseed themselves when the seeder,

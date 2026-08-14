@@ -13,21 +13,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm ci --prefix cli
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run type-check
-      - run: npm run knip
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -C cli install --frozen-lockfile
+      - run: pnpm run format:check
+      - run: pnpm run lint
+      - run: pnpm run type-check
+      - run: pnpm run knip
       # The root scripts cover src/, tests/, scripts/ and vitest.config.ts.
       # cli/ stays separate because its imports resolve from cli/node_modules,
-      # and npm test runs the CLI suites through tsx, which strips types
-      # without checking them.
-      - run: npm run --prefix cli check
+      # and pnpm test runs the CLI suites through tsx, which strips types
+      # without checking them. It gets its own install above for the same
+      # reason it has its own lockfile.
+      - run: pnpm -C cli run check
 
   # The suite runs with vitest fileParallelism:false: files within a run share
   # one database, so running them concurrently would collide. That leaves the
@@ -69,14 +71,15 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: 'npm'
-      - run: npm ci
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
       # The suite includes cli/tests/**, whose imports (commander,
       # openapi-fetch, mdast-*) resolve from cli/node_modules.
-      - run: npm ci --prefix cli
+      - run: pnpm -C cli install --frozen-lockfile
       # Node's --env-file hard-errors when the file is missing, so write it.
       - name: Write .env.test
         run: |
@@ -90,16 +93,46 @@ jobs:
           ENVIRONMENT=test
           REDIS_TEST_URL=redis://127.0.0.1:6379/15
           EOF
-      - run: npm test -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+      # No `--` before the flag. npm swallows that separator; pnpm forwards it
+      # into the script's argv, where vitest reads it as end-of-options and
+      # ignores everything after — so `pnpm test -- --shard=1/4` silently runs
+      # the whole suite in every shard and passes.
+      - run: pnpm test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   preview-edge:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: 'npm'
-          cache-dependency-path: 'preview-edge/package-lock.json'
-      - run: npm ci --prefix preview-edge
-      - run: npm --prefix preview-edge run type-check
+          cache: 'pnpm'
+          cache-dependency-path: 'preview-edge/pnpm-lock.yaml'
+      - run: pnpm -C preview-edge install --frozen-lockfile
+      - run: pnpm -C preview-edge run type-check
+
+  # The Dockerfiles are otherwise unverified until a merge to main triggers a
+  # production build and push. Build both here, without pushing, so a broken
+  # image fails on the pull request instead.
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v4
+      # Distinct cache scopes. The gha exporter defaults both to `buildkit`, so one
+      # image's export overwrites the other's on every run and neither ever hits.
+      - name: 'Build API image'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          cache-from: 'type=gha,scope=api'
+          cache-to: 'type=gha,mode=max,scope=api'
+      - name: 'Build preview-edge image'
+        uses: docker/build-push-action@v7
+        with:
+          context: preview-edge
+          push: false
+          cache-from: 'type=gha,scope=preview-edge'
+          cache-to: 'type=gha,mode=max,scope=preview-edge'

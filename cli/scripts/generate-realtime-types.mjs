@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Event types for `cpath watch`, generated from realtime-events.json at the repo
-// root — dumped by `npm run realtime:dump`, exactly as openapi.json is. Nothing
+// root — dumped by `pnpm run realtime:dump`, exactly as openapi.json is. Nothing
 // is filtered: that document declares no paths, so nothing in it is reachable
 // only through one — it is the envelope union plus the socket's close codes.
 
@@ -17,7 +17,7 @@ const OUTPUT_PATH = resolve(__dirname, '..', 'src', 'api', 'realtime.generated.t
 
 const source = relative(resolve(__dirname, '..', '..'), DOC_PATH);
 const HEADER = `// AUTO-GENERATED FROM ${source}
-// DO NOT EDIT. Regenerate with: npm run generate-realtime
+// DO NOT EDIT. Regenerate with: pnpm run generate-realtime
 `;
 
 if (process.env.REALTIME_DOC_PATH === undefined && redump('realtime:dump')) {

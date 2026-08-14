@@ -46,8 +46,8 @@ Conventions:
 ## 3. Run the migrations
 
 ```sh
-npm run migrate             # dev DB (game_dev)
-npm run migrate:test        # this checkout's test DB (game_dev_test_<checkout>_<hash>)
+pnpm run migrate             # dev DB (game_dev)
+pnpm run migrate:test        # this checkout's test DB (game_dev_test_<checkout>_<hash>)
 ```
 
 **Never** run `migrate:down` against a data-bearing column on `game_dev`, and
@@ -60,7 +60,7 @@ real projects. Only `game_dev_test` and `game_dev_test_*` may be reset.
 (not the `.env` `DB_*` vars):
 
 ```sh
-DATABASE_URL=postgres://skylerberg@127.0.0.1:5432/game_dev npm run kysely-codegen
+DATABASE_URL=postgres://skylerberg@127.0.0.1:5432/game_dev pnpm run kysely-codegen
 ```
 
 Commit the regenerated `src/db/types.ts` with the migration.

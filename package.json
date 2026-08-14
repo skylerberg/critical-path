@@ -2,6 +2,7 @@
   "name": "critical-path-api",
   "version": "1.0.0",
   "type": "module",
+  "packageManager": "pnpm@11.21.0",
   "scarfSettings": {
     "enabled": false
   },
