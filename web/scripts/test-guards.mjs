@@ -27,20 +27,56 @@ export const guards = [
     name: 'each project rekeys against its own board',
     testName: 'rekeys each move against its own project',
     file: 'src/lib/outbox.svelte.ts',
-    find: '            ? await this.#boardFor(boards, op.projectId)',
-    replace: "            ? await this.#boardFor(boards, 'every-project')",
+    find: '              ? await this.#boardFor(boards, op.projectId)',
+    replace: "              ? await this.#boardFor(boards, 'every-project')",
     tests: ['src/lib/outbox.test.ts'],
   },
   {
     name: 'an abandoned drain writes nothing into the next account',
     testName: 'abandons a drain that resolves after the queue was reset',
     file: 'src/lib/outbox.svelte.ts',
-    find: `        const outcome = await sendRequest(request);
-        if (generation !== this.#generation) {
-          return;
-        }`,
-    replace: '        const outcome = await sendRequest(request);',
+    find: `          const outcome = await sendRequest(request);
+          if (generation !== this.#generation) {
+            return;
+          }`,
+    replace: '          const outcome = await sendRequest(request);',
     tests: ['src/lib/outbox.test.ts'],
+  },
+  {
+    // First of the four, because deleting these three lines is not a stale
+    // value: the release then puts a write the server has already accepted back
+    // at the head of the queue and the loop sends it again, and again, for as
+    // long as the answer stays 200.
+    name: 'an accepted op is retired from the claim as well as from the queue',
+    testName: 'is not sent again once the server has accepted it',
+    file: 'src/lib/outbox.svelte.ts',
+    find: '    if (this.#inflight !== null && ids.has(this.#inflight.id)) {\n      this.#inflight = null;\n    }\n',
+    replace: '',
+    tests: ['src/lib/outbox-inflight.test.ts'],
+  },
+  {
+    name: 'a merge cannot reach the request already on the wire',
+    testName: 'is sent rather than merged into the request already in flight',
+    file: 'src/lib/outbox.svelte.ts',
+    find: '    const existing = this.#ops.find(',
+    replace: '    const existing = this.#unsent.find(',
+    tests: ['src/lib/outbox-inflight.test.ts'],
+  },
+  {
+    name: 'a release puts back only the op it claimed',
+    testName: 'does not push the next account’s in-flight op back into its queue',
+    file: 'src/lib/outbox.svelte.ts',
+    find: '    if (this.#inflight === null || this.#inflight.id !== claimed.id) {',
+    replace: '    if (this.#inflight === null) {',
+    tests: ['src/lib/outbox-inflight.test.ts'],
+  },
+  {
+    name: 'signing out takes the op on the wire with it',
+    testName: 'does not come back into the next account after a reset',
+    file: 'src/lib/outbox.svelte.ts',
+    find: '    this.#inflight = null;\n    this.#issues = [];',
+    replace: '    this.#issues = [];',
+    tests: ['src/lib/outbox-inflight.test.ts'],
   },
   {
     name: 'a reset drops the memoized drain so the next account can start one',
