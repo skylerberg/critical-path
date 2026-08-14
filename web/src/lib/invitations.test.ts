@@ -80,6 +80,29 @@ describe('invitations store', () => {
     expect(invitations.loadError).toBeNull();
   });
 
+  // Every invitation event refetches, so overlapping reads are routine here; a
+  // late failure would replace a list the panel is already showing with a retry.
+  it('leaves a loaded list alone when an older failure lands after it', async () => {
+    let failStale!: () => void;
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Promise<Response>((resolve) => {
+          failStale = () => resolve(jsonResponse(500, { error: 'Boom' }));
+        })
+    );
+    const stale = invitations.load('p-1');
+
+    fetchMock.mockImplementation(async () => jsonResponse(200, { invitations: [invitation()] }));
+    await invitations.load('p-1');
+
+    failStale();
+    await stale;
+
+    expect(invitations.loadError).toBeNull();
+    expect(invitations.list).toHaveLength(1);
+    expect(invitations.loaded).toBe(true);
+  });
+
   it('ignores a response that lands after a reset', async () => {
     let settle: (value: Response) => void = () => {};
     const inflight = new Promise<Response>((resolve) => {

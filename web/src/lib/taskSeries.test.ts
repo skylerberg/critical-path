@@ -102,6 +102,25 @@ describe('task series store', () => {
     expect(taskSeries.list.map((row) => row.id)).toEqual(['fresh']);
   });
 
+  it('leaves a loaded list alone when an older failure lands after it', async () => {
+    let failStale!: () => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        failStale = () => resolve(jsonResponse(500, { error: 'Boom' }));
+      })
+    );
+    const stale = taskSeries.load('p-1');
+
+    await loadWith([series({ id: 'fresh' })]);
+
+    failStale();
+    await stale;
+
+    expect(taskSeries.loadError).toBeNull();
+    expect(taskSeries.list.map((row) => row.id)).toEqual(['fresh']);
+    expect(taskSeries.loaded).toBe(true);
+  });
+
   it('invalidates an in-flight read on reset', async () => {
     let resolveRead: ((value: Response) => void) | undefined;
     fetchMock.mockReturnValueOnce(

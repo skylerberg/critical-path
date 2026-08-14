@@ -124,6 +124,29 @@ describe('myTasks store', () => {
     expect(myTasks.loaded).toBe(true);
   });
 
+  // The page reloads on its own as well as on demand, so a failing read is
+  // routinely overtaken; landing it anyway puts an error banner over a list that
+  // has since arrived.
+  it('leaves a newer load alone when an older failure lands after it', async () => {
+    let failStale!: () => void;
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Promise<Response>((resolve) => {
+          failStale = () => resolve(jsonResponse(500, { error: 'Boom' }));
+        })
+    );
+    const stale = myTasks.load();
+
+    fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+    await myTasks.load();
+
+    failStale();
+    await stale;
+
+    expect(myTasks.error).toBeNull();
+    expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+  });
+
   it('ignores a response that a reset has already superseded', async () => {
     let release: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
@@ -311,6 +334,31 @@ describe('myTasks store', () => {
       expect(myTasks.loadingMore).toBe(false);
       // Still offered, so the reader can retry rather than losing the rest.
       expect(myTasks.hasMore).toBe(true);
+    });
+
+    it('leaves a reloaded list alone when a failed page lands after it', async () => {
+      fetchMock.mockImplementation(async () =>
+        jsonResponse(200, { ...payload, next_offset: 1000 })
+      );
+      await myTasks.load();
+
+      let failStale!: () => void;
+      fetchMock.mockImplementationOnce(
+        async () =>
+          new Promise<Response>((resolve) => {
+            failStale = () => resolve(jsonResponse(500, { error: 'Boom' }));
+          })
+      );
+      const stale = myTasks.loadMore();
+
+      fetchMock.mockImplementation(async () => jsonResponse(200, payload));
+      await myTasks.load();
+
+      failStale();
+      await stale;
+
+      expect(myTasks.error).toBeNull();
+      expect(myTasks.tasks.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
     });
 
     // loadMore extends the list already on screen, so a reset while it is in

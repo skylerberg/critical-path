@@ -148,6 +148,27 @@ describe('search store', () => {
     expect(search.status).toBe('loaded');
   });
 
+  // The failure path clears the rows, so an overtaken one landing late empties a
+  // list the user is already reading and blames it on a query they have left.
+  it('discards a failure that lost the race with a newer query', async () => {
+    const stale = gate();
+    fetchMock.mockImplementationOnce(async () => {
+      await stale.wait;
+      return jsonResponse(500, { error: 'Boom' });
+    });
+    const slow = search.run('shi');
+
+    respondWith([result('fresh', 'p-1', 'Alpha')]);
+    await search.run('ship');
+
+    stale.open();
+    await slow;
+
+    expect(search.status).toBe('loaded');
+    expect(search.error).toBeNull();
+    expect(search.results.map((row) => row.task_id)).toEqual(['fresh']);
+  });
+
   it('reports the server error message and drops the older query rows', async () => {
     respondWith([result('t-1', 'p-1', 'Alpha')], true);
     await search.run('ship');

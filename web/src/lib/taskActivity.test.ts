@@ -76,6 +76,28 @@ describe('taskActivity store', () => {
     expect(taskActivity.entries).toEqual(activityFor('t2'));
   });
 
+  // The log refetches on every write to the open card, so a failing read is
+  // routinely overtaken; landing it anyway puts the error state — or, on a 404,
+  // an empty log — over entries the card is already showing.
+  it('leaves the log alone when a failure lands after the task moved on', async () => {
+    let failStale!: () => void;
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Promise<Response>((resolve) => {
+          failStale = () => resolve(jsonResponse(404, { error: 'Task not found' }));
+        })
+    );
+
+    const stale = taskActivity.load('t1');
+    await taskActivity.load('t2');
+    failStale();
+    await stale;
+
+    expect(taskActivity.entries).toEqual(activityFor('t2'));
+    expect(taskActivity.error).toBe(false);
+    expect(taskActivity.loading).toBe(false);
+  });
+
   it('reports a failed load without throwing', async () => {
     fetchMock.mockResolvedValue(jsonResponse(500, { error: 'boom' }));
 

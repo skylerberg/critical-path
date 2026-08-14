@@ -104,6 +104,28 @@ describe('UserSearchStore', () => {
     expect(store.error).toBe('boom');
   });
 
+  // Same race as the successful one above, on the arm that also empties the list:
+  // an overtaken failure would leave the picker showing an error for a query the
+  // typist has already moved past.
+  it('ignores a failure overtaken by a newer query', async () => {
+    const slow = gate();
+    fetchMock.mockImplementationOnce(async () => {
+      await slow.wait;
+      return jsonResponse(500, { error: 'boom' });
+    });
+    fetchMock.mockImplementation(async () => jsonResponse(200, { users: [sky], truncated: false }));
+
+    const first = store.run('ada');
+    const second = store.run('sky');
+    await second;
+    slow.open();
+    await first;
+
+    expect(store.results).toEqual([sky]);
+    expect(store.status).toBe('loaded');
+    expect(store.error).toBeNull();
+  });
+
   it('reports a failure that never reached the server', async () => {
     fetchMock.mockImplementation(async () => {
       throw new TypeError('Failed to fetch');
