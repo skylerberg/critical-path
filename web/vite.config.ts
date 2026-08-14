@@ -1,5 +1,5 @@
-import { realpathSync } from 'node:fs';
-import { defineConfig } from 'vite';
+import { realpathSync, writeFileSync } from 'node:fs';
+import { defineConfig, type Plugin } from 'vite';
 import { configDefaults } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
@@ -17,8 +17,61 @@ const apiProxy = {
   '/ws': { target: apiTarget, ws: true },
 };
 
+/**
+ * Puts one bug from `scripts/test-guards.mjs` back, for a vitest child
+ * `scripts/check-test-guards.mjs` spawns. The edit arrives through the
+ * environment and is applied as the module is transformed, so a guard run never
+ * writes to the source tree — which is what lets it run in CI, and beside
+ * whatever else is reading these files.
+ *
+ * `GUARD_APPLIED_MARKER` is touched whenever the anchor is *found*, not whenever
+ * the text changes, so a mutation that rewrites the anchor to itself still counts
+ * as applied. That is what lets the runner tell a guard that has stopped biting
+ * from one aimed at a module the named tests never load, and its selftest turns
+ * on the distinction.
+ *
+ * Inert with `GUARD_MUTATION` unset, which is every run but a guard run.
+ */
+function guardMutation(): Plugin | null {
+  const spec = process.env.GUARD_MUTATION;
+  if (spec === undefined) {
+    return null;
+  }
+  const { file, find, replace } = JSON.parse(spec) as {
+    file: string;
+    find: string;
+    replace: string;
+  };
+  const marker = process.env.GUARD_APPLIED_MARKER;
+  return {
+    name: 'guard-mutation',
+    // Ahead of the svelte and typescript transforms, so `find` is matched against
+    // the source the guard was written against rather than against output.
+    enforce: 'pre',
+    transform(code, id) {
+      if (!id.endsWith(file) || !code.includes(find)) {
+        return null;
+      }
+      if (marker !== undefined) {
+        writeFileSync(marker, id);
+      }
+      // A replacer function, so `$&` and friends in a `replace` are not expanded.
+      // The anchor count on the filesystem side counts literal occurrences, and
+      // the two halves of the check have to mean the same thing by `find`.
+      return code.replace(find, () => replace);
+    },
+  };
+}
+
 export default defineConfig({
+  // Guard jobs run several at a time, and the default node_modules/.vite is one
+  // directory every vite process on this machine shares (node_modules is a
+  // symlink into the main checkout from a worktree), so a pool without this
+  // pre-bundles over itself. check:a11y pins a fixed directory for the same
+  // reason; here each job needs a different one, so the runner supplies it.
+  ...(process.env.GUARD_CACHE_DIR === undefined ? {} : { cacheDir: process.env.GUARD_CACHE_DIR }),
   plugins: [
+    guardMutation(),
     svelte(),
     tailwindcss(),
     svelteTesting(),

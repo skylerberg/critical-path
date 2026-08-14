@@ -16,7 +16,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "check:all": "npm run format:check && npm run lint && npm run check:comments && npm run check:test-guards:anchors && npm run check && npm run check:layout && npm run check:layout:real && npm run check:task-detail && npm run check:a11y && npm test && npm run build",
+    "check:all": "npm run format:check && npm run lint && npm run check:comments && npm run check:test-guards && npm run check && npm run check:layout && npm run check:layout:real && npm run check:task-detail && npm run check:a11y && npm test && npm run build",
     "check:layout": "node scripts/check-board-layout.mjs",
     "check:layout:real": "node scripts/check-board-layout-real.mjs",
     "check:task-detail": "node scripts/check-task-detail.mjs",

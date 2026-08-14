@@ -182,7 +182,7 @@ resort, so a title-only avatar passes every rule while a bare `<span>` carrying
 one is named nothing at all; and anything behind a hover or a keypress, since it
 audits the resting page.
 
-**All five also take `--selftest`, and a change to what they assert should run
+**All six also take `--selftest`, and a change to what they assert should run
 it:**
 
 ```sh
@@ -191,44 +191,59 @@ node scripts/check-board-layout-real.mjs --selftest
 node scripts/check-task-detail.mjs --selftest
 node scripts/check-comments.mjs --selftest
 node scripts/check-a11y.mjs --selftest
+node scripts/check-test-guards.mjs --selftest
 ```
 
 Each re-runs its cases against something deliberately put back on the bug —
 legacy markup in the fixture, the pre-fix `dndzone` option in the real board, the
 write queue disabled in the card overlay, a planted duplicate and a planted dead
-reference, the pre-fix dark accent and a column back on `<section>` — and fails
+reference, the pre-fix dark accent and a column back on `<section>`, guards whose
+edit changes nothing and one aimed at a module its tests never load — and fails
 if any of them still *passes*. The a11y selftest also names the rule it expects,
 because with a dirty baseline any violation would otherwise read as the planted
-one being caught. All five share a failure
-mode a unit test mostly does not: measuring nothing and reporting green, because
-the gesture never armed, the selector matched nothing, the option it turns on was
-renamed out from under it, or the pattern it greps for stopped matching the
-codebase. CI runs the checks without the flag; the flag is how you earn
-the right to believe them. The two that rewrite a source file to plant their bug
+one being caught. All six share a failure mode a unit test mostly does not:
+measuring nothing and reporting green, because the gesture never armed, the
+selector matched nothing, the option it turns on was renamed out from under it,
+or the pattern it greps for stopped matching the codebase. CI runs the checks
+without the flag; the flag is how you earn the right to believe them. The two
+that rewrite a source file to plant their bug
 — the real board check and the card-overlay one — also assert they rewrote
 exactly one call site, since rewriting none is that same failure wearing the
-selftest's face.
+selftest's face. `check:test-guards` carries that assertion in its own shape: one
+of its controls is an unmodified guard that must still come back caught, because
+a transform that has stopped rewriting anything satisfies every control expecting
+a non-catch.
 
 `npm run check:test-guards` is the same idea aimed at the suite, which had no
 version of it: a unit test can measure nothing and report green too — a stale
 expectation, a fixture that stopped reaching the code path, an assertion that was
 already true before the fix. `scripts/test-guards.mjs` lists a bug and the edit
-that puts it back; the runner applies each one, requires the named tests to
-**fail**, and restores the file. A guard whose tests still pass has stopped
-guarding anything.
+that puts it back; the runner requires the named tests to **fail** with that edit
+in place. A guard whose tests still pass has stopped guarding anything.
 
-It edits the source tree in place, so it restores in a `finally` and again on
-SIGINT, and refuses to start when a target file has uncommitted changes — the
-restore writes back what the file held at startup, and there must be no doubt
-about what that was. Each `find` must match **exactly once**, for the reason the
-two rewriting browser checks assert the same thing: a pattern that matches
-nothing leaves the source correct and the tests green, which is indistinguishable
-from a guard that works. That is not hypothetical — a hand-run revert once
-matched a four-space pattern against a six-space line in a different function,
-the "reverted" test passed, and the pass meant nothing.
+Nothing is written to the source tree. Each guard is one spawned `vitest` child
+carrying its edit in the environment, applied by `guardMutation()` in
+`vite.config.ts` as the module is transformed — so a run is invisible to whatever
+else is reading those files and cannot leave a bug behind. That is what put the
+full mutating run in `check:all`: cost was never what kept it out — twelve guards
+take about fifteen seconds, four children at a time — the in-place write was.
+`check:test-guards:anchors` is still worth running mid-refactor because it is
+sub-second, but it is no longer what CI proves — it checks that every `find`
+still resolves and stops there, which cannot tell a guard that catches its bug
+from one that catches nothing.
 
-Like the `--selftest` flags, CI does not run it. Run it when you add a guard, or
-when you change what one asserts.
+Each `find` must match **exactly once**, for the reason the two rewriting browser
+checks assert the same thing: a pattern that matches nothing leaves the source
+correct and the tests green, which is indistinguishable from a guard that works.
+That is not hypothetical — a hand-run revert once matched a four-space pattern
+against a six-space line in a different function, the "reverted" test passed, and
+the pass meant nothing. That count is taken from the file on disk, ahead of the
+run, so a drifted anchor is reported as a drifted anchor. The other half is a
+marker file the plugin touches when it matches: it makes "the bug was in play"
+something the runner observed rather than assumed, which is what separates a
+guard aimed at a module the named tests never load (`NEVER-APPLIED`) from one
+that has stopped biting (`STILL-PASSED`), and both from a child that died before
+it measured anything (`RUN-FAILED`).
 
 **The two board-layout checks take `--only=` and `--list`,** which is how to
 iterate without paying for the whole gate — the scroll phase alone is around 27s
