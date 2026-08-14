@@ -488,7 +488,7 @@ describe('Graph dependency editing', () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(200, payload(projectId, [task('a', 'todo'), task('b', 'todo', ['a'])]))
     );
-    const spy = vi.spyOn(board, 'removeBlocker').mockResolvedValue(undefined);
+    const spy = vi.spyOn(board, 'removeBlocker');
 
     const { container } = render(Project, { props: { projectId, view: 'graph' } });
 

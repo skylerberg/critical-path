@@ -54,7 +54,7 @@ describe('TaskAssignees', () => {
   });
 
   it('unassigns the person it is asked to drop', async () => {
-    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
+    const setTaskAssignees = vi.spyOn(board, 'setTaskAssignees');
     render(TaskAssignees, { taskId: 't1' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Unassign Ada Lovelace' }));
@@ -62,7 +62,7 @@ describe('TaskAssignees', () => {
   });
 
   it('hands focus to a neighbor when one is unassigned', async () => {
-    vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
+    vi.spyOn(board, 'setTaskAssignees');
     render(TaskAssignees, { taskId: 't1' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Unassign Ada Lovelace' }));
@@ -70,7 +70,7 @@ describe('TaskAssignees', () => {
   });
 
   it('tells the caller when the last person goes', async () => {
-    vi.spyOn(board, 'setTaskAssignees').mockResolvedValue(undefined);
+    vi.spyOn(board, 'setTaskAssignees');
     board.tasks = [{ ...task, assignee_ids: ['u-ada'] }];
     const onemptied = vi.fn();
     render(TaskAssignees, { taskId: 't1', onemptied });

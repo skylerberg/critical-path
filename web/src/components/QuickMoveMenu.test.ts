@@ -53,7 +53,7 @@ beforeEach(() => {
     task('t3', 'doing', 'Print rules', 2000),
   ];
   onclose = vi.fn<() => void>();
-  moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+  moveTask = vi.spyOn(board, 'moveTask');
 });
 
 afterEach(() => {

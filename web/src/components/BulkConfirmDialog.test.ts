@@ -56,7 +56,7 @@ describe('BulkConfirmDialog', () => {
   });
 
   it('archives the selection once on confirm and clears it', async () => {
-    const bulkArchiveTasks = vi.spyOn(board, 'bulkArchiveTasks').mockResolvedValue();
+    const bulkArchiveTasks = vi.spyOn(board, 'bulkArchiveTasks');
     const onclose = vi.fn();
     render(BulkConfirmDialog, { onclose });
 
@@ -69,7 +69,7 @@ describe('BulkConfirmDialog', () => {
   });
 
   it('writes nothing and keeps the selection on cancel', async () => {
-    const bulkArchiveTasks = vi.spyOn(board, 'bulkArchiveTasks').mockResolvedValue();
+    const bulkArchiveTasks = vi.spyOn(board, 'bulkArchiveTasks');
     const onclose = vi.fn();
     render(BulkConfirmDialog, { onclose });
 

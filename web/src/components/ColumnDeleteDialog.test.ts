@@ -77,7 +77,7 @@ describe('ColumnDeleteDialog', () => {
 
   it('counts an archived card in a column that looks empty and moves it', async () => {
     mockArchive([archived('t9', 'c1')]);
-    const deleteColumn = vi.spyOn(board, 'deleteColumn').mockResolvedValue();
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
 
     render(ColumnDeleteDialog, { column: TODO, open: true, onclose: () => {} });
 
@@ -92,7 +92,7 @@ describe('ColumnDeleteDialog', () => {
   it('blocks deleting the last column when it still holds an archived card', async () => {
     board.columns = [TODO];
     mockArchive([archived('t9', 'c1')]);
-    const deleteColumn = vi.spyOn(board, 'deleteColumn').mockResolvedValue();
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
 
     render(ColumnDeleteDialog, { column: TODO, open: true, onclose: () => {} });
 
@@ -108,7 +108,7 @@ describe('ColumnDeleteDialog', () => {
 
   it('still supplies a target for a genuinely empty column when another exists', async () => {
     mockArchive([]);
-    const deleteColumn = vi.spyOn(board, 'deleteColumn').mockResolvedValue();
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
 
     render(ColumnDeleteDialog, { column: TODO, open: true, onclose: () => {} });
 
@@ -120,7 +120,7 @@ describe('ColumnDeleteDialog', () => {
   it('omits the target for a genuinely empty last column', async () => {
     board.columns = [TODO];
     mockArchive([]);
-    const deleteColumn = vi.spyOn(board, 'deleteColumn').mockResolvedValue();
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
 
     render(ColumnDeleteDialog, { column: TODO, open: true, onclose: () => {} });
 
@@ -142,7 +142,7 @@ describe('ColumnDeleteDialog', () => {
 
   it('re-checks on every open instead of confirming against counts from an earlier one', async () => {
     board.archivedLoaded = true;
-    const deleteColumn = vi.spyOn(board, 'deleteColumn').mockResolvedValue();
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
     let release!: (response: Response) => void;
     const inFlight = new Promise<Response>((resolve) => {
       release = resolve;
@@ -164,7 +164,7 @@ describe('ColumnDeleteDialog', () => {
 
   it('says the archive could not be checked but still allows the move', async () => {
     fetchMock.mockResolvedValue(jsonResponse(500, { error: 'nope' }));
-    const deleteColumn = vi.spyOn(board, 'deleteColumn').mockResolvedValue();
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
 
     render(ColumnDeleteDialog, { column: TODO, open: true, onclose: () => {} });
 

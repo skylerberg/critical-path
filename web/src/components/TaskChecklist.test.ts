@@ -139,9 +139,37 @@ function pickUp(id: string, items: ChecklistItem[]): Promise<void> {
   return consider(items, { trigger: TRIGGERS.DRAG_STARTED, id, source: SOURCES.POINTER });
 }
 
+// The store writes the response body over the row it just sent, so answering every
+// checklist write `204` puts `undefined` in the list. These are the two routes the
+// checklist mutations use; everything else keeps the blanket 204.
+const rows = new Map<string, ChecklistItem>();
+
+async function checklistApi(input: RequestInfo | URL): Promise<Response> {
+  const request = input as Request;
+  const { pathname } = new URL(request.url);
+  const prefix = '/api/checklist-items';
+  if (pathname === prefix && request.method === 'POST') {
+    const created = { ...A, ...((await request.clone().json()) as Partial<ChecklistItem>) };
+    rows.set(created.id, created);
+    return jsonResponse(201, created);
+  }
+  if (pathname.startsWith(`${prefix}/`) && request.method === 'PATCH') {
+    const id = pathname.slice(prefix.length + 1);
+    const before = rows.get(id) ?? { ...A, id };
+    const updated = { ...before, ...((await request.clone().json()) as Partial<ChecklistItem>) };
+    rows.set(id, updated);
+    return jsonResponse(200, updated);
+  }
+  return jsonResponse(204);
+}
+
 beforeEach(() => {
   fetchMock.mockReset();
-  fetchMock.mockImplementation(async () => jsonResponse(204));
+  fetchMock.mockImplementation(checklistApi);
+  rows.clear();
+  for (const row of [A, B, C]) {
+    rows.set(row.id, row);
+  }
   zoneOptions.length = 0;
   motion.reduced = false;
   board.reset();
@@ -199,7 +227,7 @@ describe('TaskChecklist progress', () => {
 
 describe('TaskChecklist reordering', () => {
   it('drops the placeholder before pricing the move, so the position stays finite', async () => {
-    const move = vi.spyOn(board, 'moveChecklistItem').mockResolvedValue(undefined);
+    const move = vi.spyOn(board, 'moveChecklistItem');
     renderChecklist();
 
     await pickUp(C.id, [A, B, SHADOW]);
@@ -218,7 +246,7 @@ describe('TaskChecklist reordering', () => {
   });
 
   it('writes nothing when a row is dropped back where it was picked up', async () => {
-    const move = vi.spyOn(board, 'moveChecklistItem').mockResolvedValue(undefined);
+    const move = vi.spyOn(board, 'moveChecklistItem');
     renderChecklist();
 
     await pickUp(B.id, [A, SHADOW, C]);
@@ -246,7 +274,7 @@ describe('TaskChecklist reordering', () => {
   });
 
   it('ignores a finalize that is not a drop into this zone', async () => {
-    const move = vi.spyOn(board, 'moveChecklistItem').mockResolvedValue(undefined);
+    const move = vi.spyOn(board, 'moveChecklistItem');
     renderChecklist();
 
     await pickUp(B.id, [A, SHADOW, C]);
@@ -262,7 +290,7 @@ describe('TaskChecklist reordering', () => {
 
 describe('TaskChecklist drag flag', () => {
   it('stays up across a keyboard finalize and comes down on the stop', async () => {
-    vi.spyOn(board, 'moveChecklistItem').mockResolvedValue(undefined);
+    vi.spyOn(board, 'moveChecklistItem');
     renderChecklist();
 
     await pickUp(B.id, [A, B, C]);
@@ -292,7 +320,7 @@ describe('TaskChecklist drag flag', () => {
   });
 
   it('comes down after a pointer finalize', async () => {
-    vi.spyOn(board, 'moveChecklistItem').mockResolvedValue(undefined);
+    vi.spyOn(board, 'moveChecklistItem');
     renderChecklist();
 
     await pickUp(B.id, [A, SHADOW, C]);
@@ -342,7 +370,7 @@ describe('TaskChecklist rows', () => {
   });
 
   it('ticks an item through the store', async () => {
-    const setChecked = vi.spyOn(board, 'setChecklistItemChecked').mockResolvedValue(undefined);
+    const setChecked = vi.spyOn(board, 'setChecklistItemChecked');
     renderChecklist();
 
     await fireEvent.click(screen.getByRole('checkbox', { name: 'Cut prototype' }));
@@ -351,7 +379,7 @@ describe('TaskChecklist rows', () => {
   });
 
   it('unticks an item that was done', async () => {
-    const setChecked = vi.spyOn(board, 'setChecklistItemChecked').mockResolvedValue(undefined);
+    const setChecked = vi.spyOn(board, 'setChecklistItemChecked');
     renderChecklist();
 
     expect(screen.getByRole('checkbox', { name: 'Sort tokens' })).toBeChecked();
@@ -380,7 +408,7 @@ describe('TaskChecklist rows', () => {
   });
 
   it('renames an item from the inline editor on Enter', async () => {
-    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const rename = vi.spyOn(board, 'renameChecklistItem');
     renderChecklist();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
@@ -392,7 +420,7 @@ describe('TaskChecklist rows', () => {
   });
 
   it('renames an item when the inline editor is blurred', async () => {
-    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const rename = vi.spyOn(board, 'renameChecklistItem');
     renderChecklist();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
@@ -404,7 +432,7 @@ describe('TaskChecklist rows', () => {
   });
 
   it('writes nothing for an unchanged or emptied rename', async () => {
-    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const rename = vi.spyOn(board, 'renameChecklistItem');
     renderChecklist();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
@@ -422,7 +450,7 @@ describe('TaskChecklist rows', () => {
   });
 
   it('discards the rename on Escape', async () => {
-    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const rename = vi.spyOn(board, 'renameChecklistItem');
     renderChecklist();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
@@ -437,7 +465,7 @@ describe('TaskChecklist rows', () => {
   // The checklist lives inside the task overlay, so it goes when the card is
   // dismissed — and dismissing it does not blur the row being renamed.
   it('renames an item left open when the checklist unmounts', async () => {
-    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const rename = vi.spyOn(board, 'renameChecklistItem');
     const { unmount } = renderChecklist();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
@@ -450,7 +478,7 @@ describe('TaskChecklist rows', () => {
   });
 
   it('still discards on Escape when the checklist then unmounts', async () => {
-    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const rename = vi.spyOn(board, 'renameChecklistItem');
     const { unmount } = renderChecklist();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
@@ -465,7 +493,7 @@ describe('TaskChecklist rows', () => {
   // The switch happens under a mounted component, and the reset that follows it
   // clears the open edit — so the flush has to name the task it was typed on.
   it('sends an open rename to the task it was typed on when the card switches', async () => {
-    const rename = vi.spyOn(board, 'renameChecklistItem').mockResolvedValue(undefined);
+    const rename = vi.spyOn(board, 'renameChecklistItem');
     const { rerender } = renderChecklist();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Cut prototype' }));
@@ -478,7 +506,7 @@ describe('TaskChecklist rows', () => {
   });
 
   it('deletes an item only on the second press, renaming the control in between', async () => {
-    const remove = vi.spyOn(board, 'deleteChecklistItem').mockResolvedValue(undefined);
+    const remove = vi.spyOn(board, 'deleteChecklistItem');
     renderChecklist();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Delete Cut prototype' }));
@@ -545,7 +573,7 @@ describe('TaskChecklist rows', () => {
 
 describe('TaskChecklist add row', () => {
   it('adds the trimmed text and keeps the field focused for the next one', async () => {
-    const add = vi.spyOn(board, 'addChecklistItem').mockResolvedValue(undefined);
+    const add = vi.spyOn(board, 'addChecklistItem');
     renderChecklist();
 
     const input = screen.getByRole('textbox', { name: 'Checklist item' });
@@ -558,7 +586,7 @@ describe('TaskChecklist add row', () => {
   });
 
   it('ignores an empty submit', async () => {
-    const add = vi.spyOn(board, 'addChecklistItem').mockResolvedValue(undefined);
+    const add = vi.spyOn(board, 'addChecklistItem');
     renderChecklist();
 
     const input = screen.getByRole('textbox', { name: 'Checklist item' });

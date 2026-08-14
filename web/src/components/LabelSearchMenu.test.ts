@@ -59,8 +59,8 @@ describe('LabelSearchMenu', () => {
   // row 1 onto "rules" and Enter labels the card with it; and had the fallback been
   // "first row" it would have hit Create instead. Neither is what was chosen.
   it('leaves Enter inert when the highlighted label is deleted under it', async () => {
-    const setTaskLabels = vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
-    const createLabel = vi.spyOn(board, 'createLabel').mockResolvedValue(undefined);
+    const setTaskLabels = vi.spyOn(board, 'setTaskLabels');
+    const createLabel = vi.spyOn(board, 'createLabel');
     render(LabelSearchMenu, { taskId: 't1' });
 
     const input = screen.getByLabelText('Filter labels');
@@ -74,7 +74,7 @@ describe('LabelSearchMenu', () => {
   });
 
   it('clamps at the top, which is the Create row when a query is on', async () => {
-    const createLabel = vi.spyOn(board, 'createLabel').mockResolvedValue(undefined);
+    const createLabel = vi.spyOn(board, 'createLabel');
     render(LabelSearchMenu, { taskId: 't1' });
 
     const input = screen.getByLabelText('Filter labels');
@@ -137,7 +137,7 @@ describe('LabelSearchMenu', () => {
         releaseCreate = resolve;
       });
     });
-    const setSpy = vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
+    const setSpy = vi.spyOn(board, 'setTaskLabels');
 
     render(LabelSearchMenu, { taskId: 't1' });
     const input = screen.getByLabelText('Filter labels');

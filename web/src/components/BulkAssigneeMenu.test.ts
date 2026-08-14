@@ -51,7 +51,7 @@ describe('BulkAssigneeMenu', () => {
     }
 
     it('acts on the first row when Enter comes with no arrow', async () => {
-      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee');
       render(BulkAssigneeMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'Enter' });
@@ -60,7 +60,7 @@ describe('BulkAssigneeMenu', () => {
     });
 
     it('moves down to the second row', async () => {
-      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee');
       render(BulkAssigneeMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
@@ -70,7 +70,7 @@ describe('BulkAssigneeMenu', () => {
     });
 
     it('clamps at the top', async () => {
-      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee');
       render(BulkAssigneeMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
@@ -84,7 +84,7 @@ describe('BulkAssigneeMenu', () => {
     // Held as a row number this assigns Ada across the whole selection — whoever
     // slid under the highlight, not the person the user arrowed onto.
     it('stays on its person when a search response inserts someone above', async () => {
-      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee');
       render(BulkAssigneeMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
@@ -108,7 +108,7 @@ describe('BulkAssigneeMenu', () => {
     });
 
     it('sends the highlight back to the top when the query changes', async () => {
-      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee');
       render(BulkAssigneeMenu, { onclose: () => {} });
 
       await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
@@ -128,7 +128,7 @@ describe('BulkAssigneeMenu', () => {
   });
 
   it('assigns a partly-assigned user across the whole set in one call', async () => {
-    const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+    const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee');
     render(BulkAssigneeMenu, { onclose: () => {} });
 
     await fireEvent.click(screen.getByRole('button', { name: /Bob/ }));
@@ -138,7 +138,7 @@ describe('BulkAssigneeMenu', () => {
   });
 
   it('unassigns a user every selected card already has', async () => {
-    const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee').mockResolvedValue();
+    const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee');
     render(BulkAssigneeMenu, { onclose: () => {} });
 
     await fireEvent.click(screen.getByRole('button', { name: /Ada/ }));

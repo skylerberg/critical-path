@@ -51,7 +51,7 @@ describe('TaskLabels', () => {
   });
 
   it('drops the label it is asked to remove', async () => {
-    const setTaskLabels = vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
+    const setTaskLabels = vi.spyOn(board, 'setTaskLabels');
     render(TaskLabels, { taskId: 't1' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Remove label art' }));
@@ -61,7 +61,7 @@ describe('TaskLabels', () => {
   // The clicked chip unmounts, so focus has to be handed somewhere before it goes
   // or it falls back to the dialog body.
   it('hands focus to a neighboring chip when one is removed', async () => {
-    vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
+    vi.spyOn(board, 'setTaskLabels');
     render(TaskLabels, { taskId: 't1' });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Remove label art' }));
@@ -69,7 +69,7 @@ describe('TaskLabels', () => {
   });
 
   it('tells the caller when the last chip goes', async () => {
-    vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
+    vi.spyOn(board, 'setTaskLabels');
     board.tasks = [{ ...task, label_ids: ['l1'] }];
     const onemptied = vi.fn();
     render(TaskLabels, { taskId: 't1', onemptied });

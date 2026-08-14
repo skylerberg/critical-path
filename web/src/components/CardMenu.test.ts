@@ -196,7 +196,7 @@ describe('CardMenu', () => {
   it('runs the board actions on the card', async () => {
     const markTaskDone = vi.spyOn(board, 'markTaskDone').mockReturnValue(true);
     const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('t2');
-    const archiveTask = vi.spyOn(board, 'archiveTask').mockResolvedValue();
+    const archiveTask = vi.spyOn(board, 'archiveTask');
 
     const first = open();
     await fireEvent.click(screen.getByRole('menuitem', { name: /Mark done/ }));

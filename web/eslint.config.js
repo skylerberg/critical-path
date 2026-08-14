@@ -5,6 +5,21 @@ import importX from 'eslint-plugin-import-x';
 import globals from 'globals';
 import svelteConfig from './svelte.config.js';
 
+const VOID_STORE_STUB =
+  'Delete this stub and let the store method run. A stub supplying a return the fixture cannot ' +
+  'produce (mockResolvedValue(task), mockReturnValue(false), mockImplementation) is legitimate; ' +
+  'this one only suppresses the method, so the test proves a call happened and nothing proves ' +
+  'the method does anything. What it does NOT buy: calling through is not coverage — a spy ' +
+  'asserting only toHaveBeenCalledWith still passes when the store method is broken, so behaviour ' +
+  'belongs in the store test (src/lib/*.test.ts). What it does buy: a fixture lying to the store ' +
+  'fails loudly instead of being absorbed, and no reader mistakes a suppressed method for a tested one.';
+
+// The store objects whose mutations this applies to. Spying is fine; only the
+// void-valued replacement is not.
+const STORES = '/^(board|awayBoard|projects|session|outbox)$/';
+
+const spiedStoreMethod = `[callee.object.callee.object.name='vi'][callee.object.callee.property.name='spyOn'][callee.object.arguments.0.name=${STORES}]`;
+
 export default ts.config(
   {
     ignores: [
@@ -77,6 +92,29 @@ export default ts.config(
         {
           groups: [['builtin', 'external'], 'internal', ['parent', 'sibling', 'index']],
           'newlines-between': 'never',
+        },
+      ],
+    },
+  },
+  {
+    // The UI layer, wherever it lives: `shortcuts.svelte.ts` drives the same
+    // store mutations a component does and its test reached for the same stub.
+    // A store's own test is deliberately out of scope — suppressing a *sibling*
+    // store there is how a unit under test gets isolated.
+    files: ['src/components/**/*.test.ts', 'src/routes/**/*.test.ts', 'src/lib/shortcuts.test.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: `CallExpression[callee.property.name='mockResolvedValue'][arguments.length=0]${spiedStoreMethod}`,
+          message: VOID_STORE_STUB,
+        },
+        {
+          // `[arguments.0.type='Identifier']` must precede the name test: esquery
+          // compares a missing `.name` against the string 'undefined' and finds
+          // them equal, so without it this also matches `mockResolvedValue(true)`.
+          selector: `CallExpression[callee.property.name='mockResolvedValue'][arguments.length=1][arguments.0.type='Identifier'][arguments.0.name='undefined']${spiedStoreMethod}`,
+          message: VOID_STORE_STUB,
         },
       ],
     },

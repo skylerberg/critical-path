@@ -447,7 +447,7 @@ describe('Project', () => {
       task(T2, 'done', 'Cut cards', 1000),
       task(T3, 'done', 'Print rules', 2000),
     ]);
-    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const moveTask = vi.spyOn(board, 'moveTask');
     const menus = mountShell();
 
     try {

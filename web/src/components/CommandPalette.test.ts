@@ -766,7 +766,7 @@ describe('activation', () => {
   });
 
   it('seeds the move menu from a column row instead of moving the card itself', async () => {
-    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const moveTask = vi.spyOn(board, 'moveTask');
     open();
     await type('done');
 
@@ -779,7 +779,7 @@ describe('activation', () => {
   });
 
   it('seeds the label menu from a label row instead of applying the label itself', async () => {
-    const setTaskLabels = vi.spyOn(board, 'setTaskLabels').mockResolvedValue(undefined);
+    const setTaskLabels = vi.spyOn(board, 'setTaskLabels');
     open();
     await type('rules');
 
@@ -866,7 +866,7 @@ describe('activation', () => {
   });
 
   it('archives a merely-selected card without leaving the board', async () => {
-    const archiveTask = vi.spyOn(board, 'archiveTask').mockResolvedValue(undefined);
+    const archiveTask = vi.spyOn(board, 'archiveTask');
     open();
 
     await fireEvent.click(screen.getByRole('option', { name: /^Archive/ }));
@@ -877,7 +877,7 @@ describe('activation', () => {
   });
 
   it('takes the overlay down with the card it archives, keeping the filters', async () => {
-    const archiveTask = vi.spyOn(board, 'archiveTask').mockResolvedValue(undefined);
+    const archiveTask = vi.spyOn(board, 'archiveTask');
     board.setFilters({ labelIds: [], assigneeIds: [], query: 'boss' });
     router.navigate(TASK_PATH + '?q=boss', { replace: true });
     open();
@@ -890,7 +890,7 @@ describe('activation', () => {
   });
 
   it('returns to my tasks when that is where the overlay was opened from', async () => {
-    vi.spyOn(board, 'archiveTask').mockResolvedValue(undefined);
+    vi.spyOn(board, 'archiveTask');
     router.navigate(TASK_PATH + '?from=my-tasks', { replace: true });
     open();
 

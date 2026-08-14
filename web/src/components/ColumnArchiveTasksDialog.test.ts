@@ -91,7 +91,7 @@ describe('ColumnArchiveTasksDialog', () => {
 
   it('archives the column and closes', async () => {
     board.tasks = [task('d1', 'c2')];
-    const archiveTasks = vi.spyOn(board, 'archiveTasksInColumn').mockResolvedValue();
+    const archiveTasks = vi.spyOn(board, 'archiveTasksInColumn');
     const onclose = vi.fn();
 
     render(ColumnArchiveTasksDialog, { column: DONE, open: true, onclose });

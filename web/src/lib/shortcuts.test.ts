@@ -154,7 +154,7 @@ describe('shortcut focus guards', () => {
     expect(board.filterAssigneeIds).toEqual([]);
     expect(mine.defaultPrevented).toBe(false);
 
-    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const moveTask = vi.spyOn(board, 'moveTask');
     selection.set(TASK_1);
     const done = press('d');
     expect(moveTask).not.toHaveBeenCalled();
@@ -311,7 +311,7 @@ describe('board shortcuts', () => {
   });
 
   it('moves the selected task to the first done column with d', () => {
-    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const moveTask = vi.spyOn(board, 'moveTask');
     selection.set(TASK_1);
     press('d');
     expect(moveTask).toHaveBeenCalledWith(
@@ -345,7 +345,7 @@ describe('board shortcuts', () => {
   });
 
   it('still marks done on a held d, which is idempotent', () => {
-    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const moveTask = vi.spyOn(board, 'moveTask');
     selection.set(TASK_1);
 
     press('d', { repeat: true });
@@ -360,7 +360,7 @@ describe('board shortcuts', () => {
 
   it('follows the shift modifier rather than the case of the key', () => {
     const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
-    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const moveTask = vi.spyOn(board, 'moveTask');
     selection.set(TASK_1);
 
     press('d', { shiftKey: true });
@@ -379,7 +379,7 @@ describe('board shortcuts', () => {
 
   it('leaves a modified d or Shift+D to the browser, and does nothing without a selection', () => {
     const duplicateTask = vi.spyOn(board, 'duplicateTask').mockResolvedValue('copy');
-    const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
+    const moveTask = vi.spyOn(board, 'moveTask');
     selection.set(TASK_1);
 
     expect(press('D', { shiftKey: true, metaKey: true }).defaultPrevented).toBe(false);
