@@ -20,6 +20,23 @@ const STORES = '/^(board|awayBoard|projects|session|outbox)$/';
 
 const spiedStoreMethod = `[callee.object.callee.object.name='vi'][callee.object.callee.property.name='spyOn'][callee.object.arguments.0.name=${STORES}]`;
 
+// Groups only, deliberately not alphabetized. What this buys is that a package
+// import cannot hide in the middle of a run of local ones — the ordering
+// question that actually costs a reader something, and the one real violation
+// it found. Sorting within a group as well would rewrite the import block of
+// almost every file in src/ for no reading benefit, and collide with every
+// branch currently open.
+const IMPORT_GROUPS = [['builtin', 'external'], 'internal', ['parent', 'sibling', 'index']];
+
+// Every specifier the test files reach api/testUtils by. Literal, not a glob:
+// minimatch will not cross a `..` segment, so `**/api/testUtils` matches none of
+// these and every test file goes back to being flagged.
+const TEST_UTILS_FIRST = ['../api/testUtils', './api/testUtils', './testUtils'].map((pattern) => ({
+  pattern,
+  group: 'builtin',
+  position: 'before',
+}));
+
 export default ts.config(
   {
     ignores: [
@@ -73,24 +90,37 @@ export default ts.config(
     },
   },
   {
-    // Not the test files. They open with `import '../api/testUtils'`, whose
-    // stubs for fetch/Request/localStorage have to be installed before anything
-    // that reads them is imported — a parent import that must precede the
-    // package ones. That is the whole of the rule's disagreement with this
-    // codebase: 75 of the 76 files it flagged were tests obeying that rule.
+    // Not the test files, which take the same rule plus the testUtils pin
+    // below. The split is what keeps `warnOnUnassignedImports` off this block:
+    // src/vitest-setup.ts opens with three side-effect imports in a deliberate
+    // order that the pin would object to.
     ignores: ['**/*.test.ts'],
     plugins: { 'import-x': importX },
     rules: {
-      // Groups only, deliberately not alphabetized. What this buys is that a
-      // package import cannot hide in the middle of a run of local ones — the
-      // ordering question that actually costs a reader something, and the one
-      // real violation it found. Sorting within a group as well would rewrite
-      // the import block of almost every file in src/ for no reading benefit,
-      // and collide with every branch currently open.
+      'import-x/order': ['error', { groups: IMPORT_GROUPS, 'newlines-between': 'never' }],
+    },
+  },
+  {
+    files: ['**/*.test.ts'],
+    plugins: { 'import-x': importX },
+    rules: {
+      // Ranking api/testUtils ahead of the packages is what lets the tests take
+      // the rule at all — see the Tests section of CLAUDE.md for why it loads
+      // first. Without the pin the rule flags every test file that obeys that
+      // convention, and the autofix "resolves" them by moving the stubs below
+      // the packages they exist to precede.
       'import-x/order': [
         'error',
         {
-          groups: [['builtin', 'external'], 'internal', ['parent', 'sibling', 'index']],
+          groups: IMPORT_GROUPS,
+          pathGroups: TEST_UTILS_FIRST,
+          pathGroupsExcludedImportTypes: [],
+          // The bare `import '../api/testUtils'` form is an unassigned import,
+          // which the rule ignores by default. Reporting it costs nothing here —
+          // testUtils is the only side-effect import in any test file — but the
+          // fixer still will not move it, since reordering a side effect can
+          // change what a module does. That one is reported and fixed by hand.
+          warnOnUnassignedImports: true,
           'newlines-between': 'never',
         },
       ],

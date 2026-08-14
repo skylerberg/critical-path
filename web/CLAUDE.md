@@ -123,11 +123,18 @@ swallows the failure, so a worktree whose `node_modules` symlink is missing gets
 a hook that runs and formats nothing. Hand-formatting after every edit is
 redundant work that also churns files out from under whatever is reading them.
 
+**The `eslint --fix` half of it decides where an import goes, so you do not have
+to.** `import-x/order` is autofixable: put a new import anywhere in the block and
+the commit sorts it into its group. There is no placement judgement to make here
+and no house style to infer from the file you happen to be looking at.
+
 The one thing to know is the ordering it implies: the hook runs *after* the commit,
 so `npm run format:check` is only meaningful on a committed tree. Failing it on
 uncommitted edits means nothing has fixed them yet, not that something is wrong —
 commit, and it resolves itself. `format:check` stays in the gate and in CI because
-that is the assertion that the hook actually ran.
+that is the assertion that the hook actually ran. The same goes for an import-order
+error out of `npm run lint` mid-edit: it is the unfixed state, not a decision
+waiting on you.
 
 The two layout checks are different tiers, and which one you are reading matters
 when one fails. `check:layout` loads `scripts/board-layout.fixture.html` over
@@ -581,8 +588,10 @@ and `list-nav.svelte.test.ts` are the two examples.
 
 The side-effecting `import '../api/testUtils'` goes **first** in any test that
 touches the network — it stubs `fetch`, `Request` and `localStorage`, and a
-module that reads them at import time gets the real ones if it loads first. This
-is why the `import-x/order` lint rule exempts `*.test.ts`.
+module that reads them at import time gets the real ones if it loads first.
+`import-x/order` enforces that placement rather than exempting the tests from it —
+`eslint.config.js` owns the mechanism, including which of the two import forms
+`--fix` can move back for you and which one you have to move yourself.
 
 **A UI-layer test may not stub a store mutation to nothing.** `eslint.config.js`
 bans `vi.spyOn(board, 'x').mockResolvedValue()` and its `(undefined)` twin under
