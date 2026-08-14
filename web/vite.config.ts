@@ -1,4 +1,4 @@
-import { realpathSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
 import { configDefaults } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
@@ -64,11 +64,10 @@ function guardMutation(): Plugin | null {
 }
 
 export default defineConfig({
-  // Guard jobs run several at a time, and the default node_modules/.vite is one
-  // directory every vite process on this machine shares (node_modules is a
-  // symlink into the main checkout from a worktree), so a pool without this
-  // pre-bundles over itself. check:a11y pins a fixed directory for the same
-  // reason; here each job needs a different one, so the runner supplies it.
+  // Guard jobs run several at a time against one checkout, all defaulting to the
+  // same node_modules/.vite, so a pool without this pre-bundles over itself.
+  // check:a11y solves the collision by pinning one directory of its own; here every
+  // job needs a distinct one, so the runner supplies it.
   ...(process.env.GUARD_CACHE_DIR === undefined ? {} : { cacheDir: process.env.GUARD_CACHE_DIR }),
   plugins: [
     guardMutation(),
@@ -148,12 +147,6 @@ export default defineConfig({
     // ts.net Host header to this localhost-bound server) isn't rejected.
     allowedHosts: ['.ts.net'],
     proxy: apiProxy,
-    fs: {
-      // node_modules may be a symlink into the main checkout when running from a
-      // git worktree; the svelteTesting() setup file resolves to its realpath,
-      // which vite's default allow-list (the worktree root) would deny.
-      allow: ['.', realpathSync('node_modules')],
-    },
   },
   preview: {
     port: 4173,

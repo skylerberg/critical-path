@@ -60,7 +60,7 @@ function findApiRoot() {
   return null;
 }
 
-// Which npm script in the api repo produces each document.
+// Which package script in the api repo produces each document.
 const DUMP_SCRIPTS = {
   'openapi.json': 'openapi:dump',
   'realtime-events.json': 'realtime:dump',
@@ -78,7 +78,7 @@ function redump(apiRoot, filename) {
   const script = DUMP_SCRIPTS[filename];
   if (script === undefined) return false;
   try {
-    execFileSync('npm', ['run', script], {
+    execFileSync('pnpm', ['run', script], {
       cwd: apiRoot,
       stdio: 'pipe',
       timeout: 120_000,

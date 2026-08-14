@@ -139,8 +139,8 @@ const controls = selftest
       },
       {
         // A deadline no honest run can meet — the quickest guard here spends
-        // seconds on npx and a cold dep-optimizer cache before its first
-        // assertion. It stands in for the run that never ends: at least one
+        // seconds starting vitest against a cold dep-optimizer cache before its
+        // first assertion. It stands in for the run that never ends: at least one
         // guard names a bug whose un-narrowed form is an unbounded resend
         // rather than a failed expectation, and a runner that cannot kill that
         // child reports nothing at all, for as long as CI lets it.
@@ -183,9 +183,11 @@ function sourceOf(file) {
 const children = new Set();
 
 /**
- * `npx` forwards nothing to the vitest it spawned, and vitest's own workers are
- * another generation below that, so the only thing that reliably ends a run is
- * the process group `detached` gave the child.
+ * `pnpm exec` forwards nothing to the vitest it spawned, and vitest's own workers
+ * are another generation below that, so the only thing that reliably ends a run is
+ * the process group `detached` gave the child. `pnpm exec` puts one more process
+ * between the runner and vitest than the npm-era runner did, which the group signal
+ * covers and a signal to the direct child would not.
  *
  * @param {import('node:child_process').ChildProcess} child
  * @param {NodeJS.Signals} signal
@@ -220,8 +222,9 @@ function runGuard(guard, jobDir, deadlineMs) {
   mkdirSync(jobDir, { recursive: true });
   const marker = join(jobDir, 'applied');
   const child = spawn(
-    'npx',
+    'pnpm',
     [
+      'exec',
       'vitest',
       'run',
       ...guard.tests,

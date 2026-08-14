@@ -23,7 +23,7 @@
 // fail loudly there rather than skip.
 //
 // createBrowser() returns null only when run locally without that engine
-// installed (so a dev who hasn't run `npm run playwright:install` isn't
+// installed (so a dev who hasn't run `pnpm run playwright:install` isn't
 // blocked). In CI (process.env.CI set) a launch failure is a real error and is
 // thrown, so the layout gate can't be silently bypassed by a missing browser.
 

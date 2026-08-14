@@ -14,7 +14,7 @@ browser before diagnosing.
 
 Everything here rides on Playwright (already a dev dependency): it drives a
 pinned headless Chromium via `scripts/lib/browser.mjs`. First-time local setup:
-`npm run playwright:install` (downloads Chromium once).
+`pnpm run playwright:install` (downloads Chromium once).
 
 ## The tools (already in the repo)
 
@@ -52,7 +52,7 @@ differences and the traps a new probe hits; read it before writing one.
    await b.close();
    ```
 
-   (Run `npm run dev` on any free port first, e.g. `vite --port 5180 --strictPort`,
+   (Run `pnpm run dev` on any free port first, e.g. `vite --port 5180 --strictPort`,
    or just `node scripts/check-board-layout-real.mjs` which does all of it.)
 
 2. **If a metric is wrong, isolate the offending element** before guessing:

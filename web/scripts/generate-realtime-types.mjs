@@ -24,7 +24,7 @@ const { doc, source } = await loadDocument({
 
 const header =
   `// AUTO-GENERATED FROM ${source}\n` +
-  `// DO NOT EDIT. Regenerate with: npm run generate:realtime\n`;
+  `// DO NOT EDIT. Regenerate with: pnpm run generate:realtime\n`;
 await mkdir(dirname(OUTPUT_PATH), { recursive: true });
 await writeFile(OUTPUT_PATH, header + '\n' + astToString(await openapiTS(doc)), 'utf8');
 console.log(`Wrote ${OUTPUT_PATH}`);

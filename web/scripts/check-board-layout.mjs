@@ -12,10 +12,10 @@
 //   node scripts/check-board-layout.mjs --only=360 # one case; --list names them all
 //
 // Exits non-zero on any assertion failure. If Chromium isn't installed it
-// exits 0 with a warning; CI installs it (`npx playwright install chromium`).
+// exits 0 with a warning; CI installs it (`pnpm exec playwright install chromium`).
 //
 // NOTE: this checks a FAITHFUL FIXTURE, not the real component. For the real
-// component, run `npm run check:layout:real` (scripts/check-board-layout-real.mjs).
+// component, run `pnpm run check:layout:real` (scripts/check-board-layout-real.mjs).
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createBrowser } from './lib/browser.mjs';
@@ -28,7 +28,7 @@ const only = caseFilter(process.argv);
 const browser = await createBrowser();
 if (!browser) {
   console.warn('check:layout — skipped (Playwright Chromium not installed).');
-  console.warn('  Run `npx playwright install chromium`.');
+  console.warn('  Run `pnpm exec playwright install chromium`.');
   process.exit(0);
 }
 const { setViewport, goto, eval: evalPage, close } = browser;

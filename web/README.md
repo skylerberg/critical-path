@@ -10,18 +10,20 @@ The companion API lives in [`critical-path-api`](../critical-path-api).
 Requires Node >= 22.
 
 ```sh
-npm install
+pnpm install
 ```
 
-`npm install` also activates the repo's git hooks (`.githooks/`) via the `prepare` script.
-If your npm config sets `ignore-scripts=true`, run `npm run prepare` once manually.
+`pnpm install` also activates the repo's git hooks (`.githooks/`) via the `prepare` script.
+If your pnpm config disables lifecycle scripts, run `pnpm run prepare` once manually.
+That setting is unrelated to `allowBuilds` in `pnpm-workspace.yaml`, which governs
+whether *dependencies* may run install scripts, not whether this project runs its own.
 
 ## Development
 
 Start the API first (port 3001, see the `critical-path-api` README), then:
 
 ```sh
-npm run dev
+pnpm run dev
 ```
 
 Vite serves the app on <http://localhost:5173> and proxies `/api` to
@@ -33,8 +35,8 @@ Vite serves the app on <http://localhost:5173> and proxies `/api` to
 the API repo and committed:
 
 ```sh
-npm run generate:api
-npm run generate:realtime
+pnpm run generate:api
+pnpm run generate:realtime
 ```
 
 Each looks for a sibling `critical-path-api` checkout, re-dumps it, and prints
@@ -48,13 +50,13 @@ rather than the checkout beside this one — needs `API_REPO_DIR`; see CLAUDE.md
 ## Checks
 
 ```sh
-npm run check:all     # everything CI runs, in CI's order
-npm test              # vitest (jsdom); takes a path to run one file
-npm run preview       # serve the production build
+pnpm run check:all     # everything CI runs, in CI's order
+pnpm test              # vitest (jsdom); takes a path to run one file
+pnpm run preview       # serve the production build
 ```
 
 `check:all` is the list; `package.json` is where to read it. Some of it runs in a
-headless browser, so run `npm run playwright:install` once first.
+headless browser, so run `pnpm run playwright:install` once first.
 
 Do not run `prettier --write` or `eslint --fix` by hand — `.githooks/post-commit`
 runs both over each commit's files and amends the result in.

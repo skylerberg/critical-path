@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Two things written prose gets wrong, both of which a reader takes on trust.
 //
-//   npm run check:comments
+//   pnpm run check:comments
 //
 // 1. The same rationale copied into two files. Whichever copy is not next to the
 //    code that changes is the one that goes stale, and nothing points the editor
@@ -40,7 +40,7 @@ const EXTENSIONS = ['.ts', '.svelte', '.mjs'];
 // people to delete the history.
 const DOCS = ['CLAUDE.md', 'README.md', '.pi/skills'];
 // Configuration is indexed as source without being read for prose: the docs name
-// compiler options and npm scripts as often as they name functions, and a key in
+// compiler options and package scripts as often as they name functions, and a key in
 // tsconfig.json is no less real for living outside src/.
 const CONFIG = ['svelte.config.js', 'eslint.config.js', 'tsconfig.json', 'package.json'];
 // Generated clients carry the API's own prose, which is duplicated across
@@ -191,6 +191,9 @@ const EXTERNAL = new Set([
   'clientsClaim',
   'scrollY', // a browser global, named where the docs describe what focus does to it
   'props_duplicate', // svelte's own compile-error code
+  'allowBuilds', // pnpm settings, which live in pnpm-workspace.yaml rather than in src/
+  'strictDepBuilds',
+  'verifyDepsBeforeRun',
 ]);
 
 export function findBadReferences(files, index) {
@@ -342,7 +345,7 @@ if (SELFTEST) {
     'A paragraph long enough that the duplicate check will not discard it as a fragment.',
     '',
     '```sh',
-    'npm run something-shared-between-two-documents-that-is-not-a-duplicated-rationale',
+    'pnpm run something-shared-between-two-documents-that-is-not-a-duplicated-rationale',
     '```',
     '',
     '- A bullet that is also long enough to count as a sentence for these purposes.',
@@ -438,7 +441,7 @@ if (SELFTEST) {
     ['markdown prose is read as blocks', proseBlocks(doc).length === 4],
     [
       'a fenced command block is not read as prose',
-      proseBlocks(doc).every((block) => !block.text.startsWith('npm run')),
+      proseBlocks(doc).every((block) => !block.text.startsWith('pnpm run')),
     ],
     [
       'consecutive bullets are separate blocks at their own lines',

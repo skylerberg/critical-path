@@ -61,7 +61,7 @@ describe('byRank', () => {
 });
 
 describe('the Keyed requirement on the append family', () => {
-  // Compile-time only, and never executed: `@ts-expect-error` fails `npm run
+  // Compile-time only, and never executed: `@ts-expect-error` fails `pnpm run
   // check` if any of these ever start type-checking, which is the entire guard.
   // An unkeyed row sorts last, so `extreme(items, true)` hands it back as the
   // maximum and the generated key sorts *before* every real one — the card goes

@@ -1,5 +1,5 @@
 // AUTO-GENERATED FROM critical-path-api/openapi.json
-// DO NOT EDIT. Regenerate with: npm run generate:api
+// DO NOT EDIT. Regenerate with: pnpm run generate:api
 // Deprecated operations and schemas are filtered out at generation time.
 
 export interface paths {

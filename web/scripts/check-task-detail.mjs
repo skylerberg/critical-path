@@ -5,7 +5,7 @@
 // one edit produces, to which card, when the overlay is dismissed or moved to
 // another card with text still unsaved in either field.
 //
-//   npm run check:task-detail
+//   pnpm run check:task-detail
 //   node scripts/check-task-detail.mjs --selftest
 //
 // Chromium deliberately, and not only because CI installs it: removing a focused
@@ -91,7 +91,7 @@ const PROBE = new URL('scripts/task-detail-probe.html', server.resolvedUrls.loca
 const browser = await createBrowser();
 if (!browser) {
   console.warn('check:task-detail — skipped (Playwright Chromium not installed).');
-  console.warn('  Run `npx playwright install chromium`.');
+  console.warn('  Run `pnpm exec playwright install chromium`.');
   await teardown();
   process.exit(0);
 }

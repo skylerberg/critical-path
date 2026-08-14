@@ -1,0 +1,37 @@
+# pnpm 11 reads settings from nowhere else: .npmrc carries auth and registry only, and
+# the package.json "pnpm" field is no longer read at all — neither is npm's top-level
+# `overrides`, which is why the block below moved here rather than staying put. Keys are
+# camelCase; a kebab-case key is ignored silently, with no warning and exit 0.
+#
+# No `packages:` key, so the root is the only member. This repo has no nested packages.
+
+# One entry, and it has to be spelled out: strictDepBuilds refuses to install while any
+# dependency's install scripts are unruled, and `es*` buys nothing because a glob is
+# not rejected — it just matches nothing.
+allowBuilds:
+  unrs-resolver: true # eslint-plugin-import-x's resolver; prebuilt binary
+
+# One version of TypeScript, named once. openapi-typescript declares a `^5.x` peer and
+# this repo is on 6, so without the override pnpm reports an unmet peer on every
+# install. npm expressed the same thing as `"typescript": "$typescript"`; pnpm 11 still
+# accepts `$name` but deprecates it, and a catalog is the replacement.
+catalog:
+  typescript: 6.0.3
+
+overrides:
+  openapi-typescript>typescript: 'catalog:'
+
+# Off. The idea — fail loudly when node_modules is stale rather than install behind
+# your back — does not survive this repo, and the failure it produces is a hard error
+# with nothing actually wrong. Under `CI` pnpm computes a different
+# `enableGlobalVirtualStore` default than an install without it recorded, so every
+# CI-flagged child dies:
+#
+#   $ pnpm exec node -e 'console.log(1)'        → 1
+#   $ CI=1 pnpm exec node -e 'console.log(1)'   → ERR_PNPM_VERIFY_DEPS_BEFORE_RUN
+#
+# check-test-guards.mjs spawns all 33 children with CI=1, which took the guard suite
+# from 33 caught bugs to 33 RUN-FAILED — a runner that can no longer tell a guard that
+# bites from one that does not. `pnpm install` does not clear it. The api repo has a
+# second, unrelated trigger; its root file records that one.
+verifyDepsBeforeRun: false

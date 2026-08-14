@@ -5,7 +5,7 @@
 // hand-authored fixture): this catches bugs the fixture can't model (real
 // Tailwind output, real svelte-dnd-action, real component structure).
 //
-//   npm run check:layout:real
+//   pnpm run check:layout:real
 //
 // Boots vite in-process on the first free port at or above 5180 (override with
 // LAYOUT_PROBE_PORT), measures, tears down. Two worktrees can therefore run this
@@ -59,7 +59,7 @@ const PROBE = new URL('scripts/board-probe.html', server.resolvedUrls.local[0]).
 const browser = await createBrowser();
 if (!browser) {
   console.warn('check:layout:real — skipped (Playwright Chromium not installed).');
-  console.warn('  Run `npx playwright install chromium`.');
+  console.warn('  Run `pnpm exec playwright install chromium`.');
   await teardown();
   process.exit(0);
 }

@@ -3,7 +3,7 @@
 // scripts/board-probe.html, the card overlay via scripts/task-detail-probe.html —
 // in both colour schemes.
 //
-//   npm run check:a11y
+//   pnpm run check:a11y
 //
 // Both schemes because the palette is defined twice: half the tokens exist only
 // under prefers-color-scheme: dark, so a light-only run reads none of them. Four
@@ -69,12 +69,12 @@ async function startServer(plugins = []) {
   const created = await createServer({
     root: ROOT,
     logLevel: 'warn',
-    // Its own optimizer cache. node_modules is a symlink shared by every worktree,
-    // so the default node_modules/.vite is one directory that every vite server on
-    // this machine pre-bundles into — and a server whose deps/ is swapped out from
-    // under it by a neighbour serves nothing for the one bare dependency this probe
-    // imports. That is axe-core, and it fails as `axe never loaded` on all six
-    // cases at once, only ever when another check is running.
+    // Its own optimizer cache, pinned rather than defaulted. Two checks started
+    // together in one checkout would otherwise pre-bundle into the same
+    // node_modules/.vite, and a server whose deps/ is swapped out from under it by a
+    // neighbour serves nothing for the one bare dependency this probe imports. That
+    // is axe-core, and it fails as `axe never loaded` on all six cases at once, only
+    // ever when another check is running.
     cacheDir: 'node_modules/.vite-check-a11y',
     plugins: [injectAxe, ...plugins],
     server: {
@@ -153,7 +153,7 @@ const SCHEMES = ['light', 'dark'];
 const browser = await createBrowser();
 if (!browser) {
   console.warn('check:a11y — skipped (Playwright Chromium not installed).');
-  console.warn('  Run `npm run playwright:install`.');
+  console.warn('  Run `pnpm run playwright:install`.');
   process.exit(0);
 }
 const { setViewport, goto, eval: evalPage, close } = browser;

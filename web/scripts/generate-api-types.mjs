@@ -103,7 +103,7 @@ async function main() {
   const ast = await openapiTS(spec);
   const header =
     `// AUTO-GENERATED FROM ${source}\n` +
-    `// DO NOT EDIT. Regenerate with: npm run generate:api\n` +
+    `// DO NOT EDIT. Regenerate with: pnpm run generate:api\n` +
     `// Deprecated operations and schemas are filtered out at generation time.\n`;
   const output = header + '\n' + astToString(ast);
   await mkdir(dirname(OUTPUT_PATH), { recursive: true });

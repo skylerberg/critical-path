@@ -1,5 +1,5 @@
 // AUTO-GENERATED FROM critical-path-api/realtime-events.json
-// DO NOT EDIT. Regenerate with: npm run generate:realtime
+// DO NOT EDIT. Regenerate with: pnpm run generate:realtime
 
 export type paths = Record<string, never>;
 export type webhooks = Record<string, never>;

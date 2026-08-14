@@ -18,13 +18,13 @@ TS="$(command -v tailscale || true)"
 [ -z "$TS" ] && { echo "Tailscale CLI not found." >&2; exit 1; }
 
 curl -sf http://localhost:3001/health >/dev/null \
-  || echo "Warning: API not reachable on :3001 — start it in critical-path-api (npm run dev) or the app's API calls will fail." >&2
+  || echo "Warning: API not reachable on :3001 — start it in critical-path-api (pnpm run dev) or the app's API calls will fail." >&2
 
-echo "Building..."; npm run build >/dev/null
+echo "Building..."; pnpm run build >/dev/null
 
 # Restart the preview server (localhost-bound; tailscale serve reaches it).
 lsof -ti :4173 | xargs kill -9 2>/dev/null || true
-nohup npm run preview >/tmp/critpath-preview.log 2>&1 &
+nohup pnpm run preview >/tmp/critpath-preview.log 2>&1 &
 sleep 3
 
 if [ "${1:-}" = "--https" ]; then
