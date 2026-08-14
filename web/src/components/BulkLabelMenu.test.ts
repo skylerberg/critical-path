@@ -104,6 +104,17 @@ describe('BulkLabelMenu', () => {
       expect(bulkSetLabel).not.toHaveBeenCalled();
     });
 
+    it('takes the arrow keys only while rows match the filter', async () => {
+      render(BulkLabelMenu, { onclose: () => {} });
+
+      expect(await fireEvent.keyDown(filter(), { key: 'ArrowDown' })).toBe(false);
+      expect(await fireEvent.keyDown(filter(), { key: 'ArrowUp' })).toBe(false);
+
+      await fireEvent.input(filter(), { target: { value: 'no label by that name' } });
+
+      expect(await fireEvent.keyDown(filter(), { key: 'ArrowDown' })).toBe(true);
+    });
+
     // This list scrolls at max-h-64 and had no reveal at all before, so arrowing
     // past the visible rows highlighted one nobody could see.
     it('scrolls the newly highlighted row into view', async () => {

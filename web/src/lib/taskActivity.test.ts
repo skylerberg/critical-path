@@ -118,6 +118,19 @@ describe('taskActivity store', () => {
     expect(taskActivity.entries).toEqual(activityFor('t1'));
   });
 
+  // TaskHistory renders the failure notice above the list rather than instead of
+  // it, so an error left set outlives the failure as a banner over a current log.
+  it('clears the failure once the same task loads again', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: 'boom' }));
+    await taskActivity.load('t1');
+    expect(taskActivity.error).toBe(true);
+
+    await taskActivity.load('t1');
+
+    expect(taskActivity.error).toBe(false);
+    expect(taskActivity.entries).toEqual(activityFor('t1'));
+  });
+
   it('empties the log when a refresh finds the task gone', async () => {
     await taskActivity.load('t1');
     fetchMock.mockResolvedValue(jsonResponse(404, { error: 'Task not found' }));
@@ -167,6 +180,25 @@ describe('taskActivity store', () => {
 
     await vi.runAllTimersAsync();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // The overlay resets on unmount, so a response in flight belongs to a card the
+  // reader has already left; landing it would flash that history into the next one.
+  it('discards a response still in flight when the overlay resets', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    fetchMock.mockImplementationOnce(async () => {
+      await held;
+      return jsonResponse(200, { activity: activityFor('t1') });
+    });
+
+    const pending = taskActivity.load('t1');
+    taskActivity.reset();
+    release();
+    await pending;
+
+    expect(taskActivity.entries).toEqual([]);
+    expect(taskActivity.loading).toBe(false);
   });
 
   it('cancels a pending refetch on reset', async () => {

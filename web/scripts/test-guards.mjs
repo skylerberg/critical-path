@@ -872,4 +872,262 @@ export const guards = [
       "    const id = group?.getAttribute('data-node-id') ?? null;\n    connectTarget = id !== null && id !== connectSource ? id : null;\n  }\n\n  async function onConnectEnd",
     tests: ['src/routes/Graph.test.ts'],
   },
+  {
+    // Unreachable until DB_VERSION is bumped, and unrecoverable once it is: the
+    // second create aborts the upgrade, `withDb` swallows the abort, and every
+    // user who already had the old database silently stops remembering anything.
+    name: 'a bumped database version does not re-create the stores it already has',
+    testName: 'keeps what version 1 stored when it is opened at a bumped version',
+    file: 'src/lib/offline-db.ts',
+    find: '  if (oldVersion < 1) {',
+    replace: '  if (oldVersion < 2) {',
+    tests: ['src/lib/offline-db.test.ts'],
+  },
+  {
+    name: 'a refused IndexedDB costs the caller nothing',
+    testName: 'resolves rather than rejects when opening the database is refused',
+    file: 'src/lib/offline-db.ts',
+    find: '  } catch {\n    return fallback;\n  } finally {',
+    replace: '  } finally {',
+    tests: ['src/lib/offline-db.test.ts'],
+  },
+  {
+    // The other half of the same promise, and the worse one: a storage layer
+    // that never answers leaves every caller waiting forever rather than
+    // rejecting once.
+    name: 'a storage layer that stops answering is given up on',
+    testName: 'stops waiting on a database that never answers',
+    file: 'src/lib/offline-db.ts',
+    find: '    return await Promise.race([work, guard]);',
+    replace: '    return await work;',
+    tests: ['src/lib/offline-db.test.ts'],
+  },
+  {
+    // One board is read for a project and reused for every move it has queued,
+    // so a landing that is not applied to it leaves the next move ranked against
+    // the card's old position — under the card it was dropped on top of.
+    name: 'a replayed move is ranked against where the move before it landed',
+    testName: 'rekeys a move against where the move before it just landed',
+    file: 'src/lib/outbox.svelte.ts',
+    find: '              applyMoveLocally(board, op.entityId, op.move.columnId, request);\n',
+    replace: '',
+    tests: ['src/lib/outbox.test.ts'],
+  },
+  {
+    name: 'a failed mutation resolves only once the resync it ordered has',
+    testName: 'resolves only once the re-read has',
+    file: 'src/lib/store-sync.ts',
+    find: '    await store.load(store.currentProjectId);',
+    replace: '    void store.load(store.currentProjectId);',
+    tests: ['src/lib/store-sync.test.ts'],
+  },
+  {
+    // The menu is fixed to viewport coordinates while the board scrolls beneath
+    // it, so without this it stays put and names a card that has moved on.
+    name: 'a scroll of the board takes the card menu with it',
+    testName: 'closes when the board is scrolled out from under it',
+    file: 'src/components/CardMenu.svelte',
+    find: ' onwheel={closeOnOutside}',
+    replace: '',
+    tests: ['src/components/CardMenu.test.ts'],
+  },
+  {
+    // Both halves of the same escape hatch: an OS chord must neither be swallowed
+    // nor fire the row that happens to advertise its letter.
+    name: 'a chord carrying a modifier is not read as a card-menu shortcut',
+    testName: 'leaves a chord carrying a modifier to the browser',
+    file: 'src/components/CardMenu.svelte',
+    find: "if (event.key === 'Enter' || event.metaKey || event.ctrlKey || event.altKey) {",
+    replace: "if (event.key === 'Enter') {",
+    tests: ['src/components/CardMenu.test.ts'],
+  },
+  {
+    // A column named '' has no label to click, so the rename that emptied it is
+    // also the last one the header can offer.
+    name: 'a column name blanked to whitespace is discarded, not sent',
+    testName: 'discards a name blanked to whitespace and keeps the old one',
+    file: 'src/components/ColumnHeader.svelte',
+    find: "if (name !== '' && name !== column.name) {",
+    replace: 'if (name !== column.name) {',
+    tests: ['src/components/ColumnHeader.test.ts'],
+  },
+  {
+    // Without the default the Move button never leaves `disabled`, and the dialog
+    // can move nothing at all.
+    name: 'the move dialog opens with a target already chosen',
+    testName: 'moves to the first target when the user picks nothing',
+    file: 'src/components/ColumnMoveTasksDialog.svelte',
+    find: "targetId = targets[0]?.id ?? '';",
+    replace: "targetId = '';",
+    tests: ['src/components/ColumnMoveTasksDialog.test.ts'],
+  },
+  {
+    name: 'dismissing the delete dialog deletes nothing',
+    testName: 'deletes nothing when the dialog is cancelled',
+    file: 'src/components/ColumnDeleteDialog.svelte',
+    find: '<Button variant="secondary" onclick={onclose}>Cancel</Button>',
+    replace: '<Button variant="secondary" onclick={confirm}>Cancel</Button>',
+    tests: ['src/components/ColumnDeleteDialog.test.ts'],
+  },
+  {
+    // The sole guard between a failed archive check on a one-column board and a
+    // delete with no `move_tasks_to`, which drops whatever the archive was hiding.
+    name: 'an unchecked archive counts as cards the last column may still hold',
+    testName: 'blocks deleting the last column when the archive could not be checked',
+    file: 'src/components/ColumnDeleteDialog.svelte',
+    find: 'const mayHoldCards = $derived(liveCount > 0 || !archivedKnown || archivedCount > 0);',
+    replace: 'const mayHoldCards = $derived(liveCount > 0 || archivedCount > 0);',
+    tests: ['src/components/ColumnDeleteDialog.test.ts'],
+  },
+  {
+    // Board order cuts the run's last ids, and a run grown upward ends at its
+    // anchor: the set then slides a card per press away from where the user
+    // started, count pinned at 100 and the one-shot toast long since spent.
+    name: 'the selection cap counts outward from the anchor, not from the top of the board',
+    testName: 'keeps the anchor when a run overflows upward',
+    file: 'src/lib/selection.svelte.ts',
+    find: '    const anchor = this.#anchorId === null ? -1 : live.indexOf(this.#anchorId);',
+    replace: '    const anchor = -1;',
+    tests: ['src/lib/selection.test.ts'],
+  },
+  {
+    name: 'a click that overflows the cap keeps the card it landed on',
+    testName: 'keeps the card whose click overflowed',
+    file: 'src/lib/selection.svelte.ts',
+    find: '    this.#anchorId = taskId;\n    this.#capped();',
+    replace: '    this.#capped();\n    this.#anchorId = taskId;',
+    tests: ['src/lib/selection.test.ts'],
+  },
+  {
+    // `board.tasks` is insertion-ordered — a card created mid-session sits at the
+    // end — and `bulkMoveTasks` appends in the order it is sent, so a set read
+    // off it reshuffles the cards on arrival.
+    name: 'the selected ids come out in board order, column by column',
+    testName: 'reports rank order even when the board rows are not in it',
+    file: 'src/lib/selection.svelte.ts',
+    find: `    for (const column of board.columns) {
+      for (const task of board.tasksInColumn(column.id)) {
+        if (this.#picked.has(task.id)) {
+          ids.push(task.id);
+        }
+      }
+    }`,
+    replace: `    for (const task of board.tasks) {
+      if (this.#picked.has(task.id)) {
+        ids.push(task.id);
+      }
+    }`,
+    tests: ['src/lib/selection.test.ts'],
+  },
+  {
+    // Accumulating instead: the second shift-click then only ever grows the run,
+    // so a user correcting an overshoot cannot get back to what they meant.
+    name: 'shift-click ranges are recomputed from a fixed anchor',
+    testName: 'keeps the anchor fixed across a second shift-click',
+    file: 'src/lib/selection.svelte.ts',
+    find: '    this.#selectRun(columnId, anchor, taskId);\n    this.cursorTaskId = taskId;',
+    replace:
+      '    this.#selectRun(columnId, anchor, taskId);\n    this.cursorTaskId = taskId;\n    this.#anchorId = taskId;\n    this.#rangeBase = new Set(this.#picked);',
+    tests: ['src/lib/selection.test.ts'],
+  },
+  {
+    name: 'a bulk menu leaves with the edit rights that opened it',
+    testName: 'closes itself when the set outlives the edit rights that made it',
+    file: 'src/components/BulkActions.svelte',
+    find: 'if (selection.count === 0 || !board.canEdit) {',
+    replace: 'if (selection.count === 0) {',
+    tests: ['src/components/BulkActions.test.ts'],
+  },
+  {
+    // Enter here moves every selected card, so the neighbour that slid under the
+    // highlight is the worst possible guess.
+    name: 'a deleted column leaves the move menu’s Enter inert',
+    testName: 'leaves Enter inert when the highlighted column is deleted under it',
+    file: 'src/components/BulkMoveMenu.svelte',
+    find: "    missing: 'inert',",
+    replace: "    missing: 'first',",
+    tests: ['src/components/BulkMoveMenu.test.ts'],
+  },
+  {
+    name: 'a departed member leaves the assignee menu’s Enter inert',
+    testName: 'leaves Enter inert when the highlighted person leaves the project',
+    file: 'src/components/BulkAssigneeMenu.svelte',
+    find: "    missing: 'inert',",
+    replace: "    missing: 'first',",
+    tests: ['src/components/BulkAssigneeMenu.test.ts'],
+  },
+  {
+    // Without the exclusion the dialog counts the set against itself: archiving a
+    // chain of three warns about cards that are going with it.
+    name: 'the archive warning counts only the cards left behind',
+    testName: 'says nothing when the only dependent card is itself being archived',
+    file: 'src/components/BulkConfirmDialog.svelte',
+    find: '      (task) => !chosen.has(task.id) && task.blocker_ids.some((id) => chosen.has(id))',
+    replace: '      (task) => task.blocker_ids.some((id) => chosen.has(id))',
+    tests: ['src/components/BulkConfirmDialog.test.ts'],
+  },
+  {
+    // Both halves of one rule: the arrow belongs to the list while there are rows
+    // to walk, and to the caret when there are none.
+    name: 'the move menu’s arrows are consumed while rows match',
+    testName: 'takes the arrow keys only while rows match the filter',
+    file: 'src/components/BulkMoveMenu.svelte',
+    find: `      if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
+        event.preventDefault();
+      }`,
+    replace: "      nav.move(event.key === 'ArrowDown' ? 1 : -1);",
+    tests: ['src/components/BulkMoveMenu.test.ts'],
+  },
+  {
+    name: 'the assignee menu’s arrows are consumed while rows match',
+    testName: 'takes the arrow keys only while rows match the filter',
+    file: 'src/components/BulkAssigneeMenu.svelte',
+    find: `      if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
+        event.preventDefault();
+      }`,
+    replace: "      nav.move(event.key === 'ArrowDown' ? 1 : -1);",
+    tests: ['src/components/BulkAssigneeMenu.test.ts'],
+  },
+  {
+    // The only feedback a screen-reader user gets that the set changed at all.
+    name: 'the selection announces its new size, singular and plural',
+    testName: 'speaks the size a click leaves behind',
+    file: 'src/lib/selection.svelte.ts',
+    find: "count === 1 ? '' : 's'",
+    replace: "count === 1 ? 's' : ''",
+    tests: ['src/lib/selection.test.ts'],
+  },
+  {
+    // The board store's first act on a cached board is `payload.project.id`, so a
+    // record that satisfies the rest of the validator and has no project crashes
+    // the board it was meant to restore rather than missing the cache.
+    name: 'a cached board with no project is refused rather than restored',
+    testName: 'refuses a board that names no project',
+    file: 'src/lib/offline-cache.ts',
+    find: `  typeof (payload as BoardSnapshot).project === 'object' &&
+  (payload as BoardSnapshot).project !== null &&
+`,
+    replace: '',
+    tests: ['src/lib/offline-cache.test.ts'],
+  },
+  {
+    // The third of the three bulk menus, on the same two lines as the other two:
+    // Enter here toggles a label across every selected card.
+    name: 'a deleted label leaves the label menu’s Enter inert',
+    testName: 'leaves Enter inert when the highlighted label is deleted under it',
+    file: 'src/components/BulkLabelMenu.svelte',
+    find: "    missing: 'inert',",
+    replace: "    missing: 'first',",
+    tests: ['src/components/BulkLabelMenu.test.ts'],
+  },
+  {
+    name: 'the label menu’s arrows are consumed while rows match',
+    testName: 'takes the arrow keys only while rows match the filter',
+    file: 'src/components/BulkLabelMenu.svelte',
+    find: `      if (nav.move(event.key === 'ArrowDown' ? 1 : -1)) {
+        event.preventDefault();
+      }`,
+    replace: "      nav.move(event.key === 'ArrowDown' ? 1 : -1);",
+    tests: ['src/components/BulkLabelMenu.test.ts'],
+  },
 ];

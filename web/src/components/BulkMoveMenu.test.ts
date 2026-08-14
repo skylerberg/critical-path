@@ -37,6 +37,20 @@ describe('BulkMoveMenu', () => {
     expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c2');
   });
 
+  // Its row is gone; the neighbour that slid into it is not a safe guess when
+  // Enter moves the whole selection.
+  it('leaves Enter inert when the highlighted column is deleted under it', async () => {
+    const bulkMoveTasks = vi.spyOn(board, 'bulkMoveTasks');
+    render(BulkMoveMenu, { onclose: () => {} });
+
+    const search = screen.getByLabelText('Search columns');
+    await fireEvent.keyDown(search, { key: 'ArrowDown' });
+    board.columns = board.columns.filter((column) => column.id !== 'c2');
+    await fireEvent.keyDown(search, { key: 'Enter' });
+
+    expect(bulkMoveTasks).not.toHaveBeenCalled();
+  });
+
   it('scrolls the newly highlighted row into view', async () => {
     const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
     render(BulkMoveMenu, { onclose: () => {} });
@@ -60,11 +74,16 @@ describe('BulkMoveMenu', () => {
     expect(bulkMoveTasks).toHaveBeenCalledWith(['t1', 't2'], 'c1');
   });
 
-  // Nothing to move to, so the key belongs to the caret.
-  it('leaves the arrow keys alone when nothing matches the filter', async () => {
+  // Consumed while there are rows to walk, or the caret jumps to the end of the
+  // query and the page scrolls on every press; left alone when there is nothing
+  // to move to, because then the key belongs to the caret.
+  it('takes the arrow keys only while rows match the filter', async () => {
     render(BulkMoveMenu, { onclose: () => {} });
 
     const search = screen.getByLabelText('Search columns');
+    expect(await fireEvent.keyDown(search, { key: 'ArrowDown' })).toBe(false);
+    expect(await fireEvent.keyDown(search, { key: 'ArrowUp' })).toBe(false);
+
     await fireEvent.input(search, { target: { value: 'nothing matches this' } });
 
     expect(await fireEvent.keyDown(search, { key: 'ArrowDown' })).toBe(true);

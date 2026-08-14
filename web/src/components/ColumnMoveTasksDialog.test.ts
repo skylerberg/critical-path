@@ -1,6 +1,6 @@
 import { fetchMock } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ColumnMoveTasksDialog from './ColumnMoveTasksDialog.svelte';
 import { board } from '../lib/board.svelte';
 import type { BoardColumn, BoardTask } from '../lib/board-types';
@@ -74,6 +74,49 @@ describe('ColumnMoveTasksDialog', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Move cards' }));
 
     expect(moveTasks).toHaveBeenCalledWith('c1', 'c3');
+    expect(onclose).toHaveBeenCalled();
+  });
+
+  // Without a default the Move button is disabled forever and the dialog can move
+  // nothing at all.
+  it('moves to the first target when the user picks nothing', async () => {
+    const moveTasks = vi.spyOn(board, 'moveTasksToColumn');
+
+    render(ColumnMoveTasksDialog, { column: TODO, open: true, onclose: () => {} });
+
+    const confirm = screen.getByRole('button', { name: 'Move cards' });
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+    await fireEvent.click(confirm);
+
+    expect(moveTasks).toHaveBeenCalledWith('c1', 'c2');
+  });
+
+  // A teammate deleting the chosen target arrives as a realtime column_deleted,
+  // which takes it out of board.columns under the open dialog.
+  it('re-picks a target when the selected one is deleted under the dialog', async () => {
+    const moveTasks = vi.spyOn(board, 'moveTasksToColumn');
+
+    render(ColumnMoveTasksDialog, { column: TODO, open: true, onclose: () => {} });
+
+    const select = screen.getByLabelText('Move cards to');
+    await fireEvent.change(select, { target: { value: 'c2' } });
+    board.columns = [TODO, EMPTY];
+    await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(1));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Move cards' }));
+
+    expect(moveTasks).toHaveBeenCalledWith('c1', 'c3');
+  });
+
+  it('moves nothing when the dialog is cancelled', async () => {
+    const moveTasks = vi.spyOn(board, 'moveTasksToColumn');
+    const onclose = vi.fn();
+
+    render(ColumnMoveTasksDialog, { column: TODO, open: true, onclose });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(moveTasks).not.toHaveBeenCalled();
     expect(onclose).toHaveBeenCalled();
   });
 

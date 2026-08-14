@@ -62,10 +62,12 @@ describe('projectMentionCandidates', () => {
 });
 
 describe('filterMentionCandidates', () => {
-  it('matches names case-insensitively and never an address', () => {
+  it('matches names case-insensitively and never the id', () => {
     expect(filterMentionCandidates([ada, brin, zed], 'AD')).toEqual([ada]);
     expect(filterMentionCandidates([ada, brin, zed], 'BRIN')).toEqual([brin]);
-    expect(filterMentionCandidates([ada, brin, zed], 'ada@example.com')).toEqual([]);
+    // The id is what a mention stores, not what anyone types: matching it would
+    // offer a name the query has nothing to do with.
+    expect(filterMentionCandidates([ada, brin, zed], 'u-ada')).toEqual([]);
     expect(filterMentionCandidates([ada, brin, zed], 'nobody')).toEqual([]);
   });
 

@@ -162,6 +162,70 @@ describe('ColumnDeleteDialog', () => {
     await waitFor(() => expect(screen.getByText(/1 archived card/)).toBeInTheDocument());
   });
 
+  // The only guard between a failed archive check on a one-column board and a
+  // delete with no move target, which drops whatever the archive was hiding.
+  it('blocks deleting the last column when the archive could not be checked', async () => {
+    board.columns = [TODO];
+    fetchMock.mockResolvedValue(jsonResponse(500, { error: 'nope' }));
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
+
+    render(ColumnDeleteDialog, { column: TODO, open: true, onclose: () => {} });
+
+    await waitFor(() => expect(screen.getByText(/Add another column first/)).toBeInTheDocument());
+    const confirm = screen.getByRole('button', { name: 'Move and delete' });
+    expect(confirm).toBeDisabled();
+
+    await fireEvent.click(confirm);
+    expect(deleteColumn).not.toHaveBeenCalled();
+  });
+
+  it('re-picks a target when the selected one is deleted under the dialog', async () => {
+    board.tasks = [task('t1', 'c1')];
+    board.columns = [TODO, DONE, { ...DONE, id: 'c3', name: 'Later', is_done: false }];
+    mockArchive([]);
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
+
+    render(ColumnDeleteDialog, { column: TODO, open: true, onclose: () => {} });
+
+    const select = await screen.findByLabelText('Move tasks to');
+    await fireEvent.change(select, { target: { value: 'c2' } });
+    board.columns = [TODO, { ...DONE, id: 'c3', name: 'Later', is_done: false }];
+    await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(1));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Move and delete' }));
+
+    expect(deleteColumn).toHaveBeenCalledWith('c1', 'c3');
+  });
+
+  it('deletes nothing when the dialog is cancelled', async () => {
+    mockArchive([]);
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
+    const onclose = vi.fn();
+
+    render(ColumnDeleteDialog, { column: TODO, open: true, onclose });
+
+    await waitFor(() => expect(screen.getByText(/empty column/)).toBeInTheDocument());
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(deleteColumn).not.toHaveBeenCalled();
+    expect(onclose).toHaveBeenCalled();
+  });
+
+  // Escape reaches the dialog as `cancel`, not as a click on either button.
+  it('deletes nothing when the dialog is dismissed with Escape', async () => {
+    mockArchive([]);
+    const deleteColumn = vi.spyOn(board, 'deleteColumn');
+    const onclose = vi.fn();
+
+    render(ColumnDeleteDialog, { column: TODO, open: true, onclose });
+
+    await waitFor(() => expect(screen.getByText(/empty column/)).toBeInTheDocument());
+    await fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }));
+
+    expect(deleteColumn).not.toHaveBeenCalled();
+    expect(onclose).toHaveBeenCalled();
+  });
+
   it('says the archive could not be checked but still allows the move', async () => {
     fetchMock.mockResolvedValue(jsonResponse(500, { error: 'nope' }));
     const deleteColumn = vi.spyOn(board, 'deleteColumn');

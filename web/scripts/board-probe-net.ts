@@ -22,8 +22,20 @@ export interface ProbeRequest {
   body: Record<string, unknown> | null;
 }
 
+// Long enough that a check can read the DOM between the request and the answer,
+// short enough to stay well inside the waits those checks already do.
+const REORDER_DELAY_MS = 250;
+
 const requests: ProbeRequest[] = [];
 (window as unknown as { __requests: ProbeRequest[] }).__requests = requests;
+
+// Counts reorders that have been ANSWERED, which `requests` cannot: it records
+// on arrival, so it says nothing about which side of the delay above a reader
+// is standing on. A check reading the board mid-flight asserts this is still at
+// the value it zeroed, otherwise "the cards moved before the answer" quietly
+// becomes "the cards moved" the day something makes the read slower than 250ms.
+const answered = { reorders: 0 };
+(window as unknown as { __answered: typeof answered }).__answered = answered;
 
 const realFetch = window.fetch.bind(window);
 
@@ -46,7 +58,37 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   }
   requests.push({ method: request.method, path: url.pathname, body });
 
-  // Everything is answered, including requests no case expects, because a
+  // The echo below is only harmless for a response nothing reads back. A column
+  // sort reads one: `sortColumn` re-stamps the column from `moved_tasks`, so an
+  // echoed `{ task_ids }` throws inside the store and the probe measures that
+  // crash while looking like it reproduced whatever it was driving. The keys are
+  // invented rather than fractional — `byRank` compares them as strings and this
+  // is the only thing the board asks of them — but the ORDER is the caller's, so
+  // what comes back is the reorder the board actually requested.
+  if (request.method === 'POST' && /^\/api\/columns\/[^/]+\/reorder$/.test(url.pathname)) {
+    // Answered late on purpose. Because the response repeats the caller's own
+    // order, a store that sent the right request and only ordered the column
+    // from the reply would render the same DOM as one that ordered it
+    // optimistically — so a check reading the order after the answer cannot
+    // tell the optimistic update from its absence. This window is where it can.
+    await new Promise((resolve) => setTimeout(resolve, REORDER_DELAY_MS));
+    const requested = body?.task_ids;
+    const taskIds: string[] = Array.isArray(requested)
+      ? requested.filter((id): id is string => typeof id === 'string')
+      : [];
+    answered.reorders += 1;
+    return new Response(
+      JSON.stringify({
+        moved_tasks: taskIds.map((id, index) => ({
+          id,
+          sort_key: `a${String(index).padStart(6, '0')}`,
+        })),
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  }
+
+  // Everything else is answered, including requests no case expects, because a
   // refusal is not inert: the board reports it, resyncs, and asks again, so one
   // unexpected call becomes a cascade that buries the assertion meant to catch
   // it. The check reads the recording and fails on the request itself instead.

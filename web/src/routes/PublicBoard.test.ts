@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import PublicBoard from './PublicBoard.svelte';
 import { board } from '../lib/board.svelte';
+import type { PublicBoardPayload } from '../lib/board-types';
 import { matchRoute, router } from '../lib/router.svelte';
 import { publicBoardHref, publicTaskHref } from '../lib/short-links';
 import { testUuid } from '../lib/test-ids';
@@ -12,12 +13,14 @@ const PROJECT_ID = testUuid('p-public');
 const DESIGN_CARDS_ID = testUuid('t1');
 const PICK_A_NAME_ID = testUuid('t2');
 
-function payload() {
+// Typed against the generated schema: an untyped literal is how a fixture keeps
+// naming fields the API stopped sending while the suite stays green.
+function payload(): PublicBoardPayload {
   return {
     project: { id: PROJECT_ID, name: 'Roadmap', description: 'What is coming' },
     columns: [
-      { id: 'todo', name: 'To Do', position: 1000, sort_key: 'V0000010001', is_done: false },
-      { id: 'done', name: 'Shipped', position: 2000, sort_key: 'V0000020001', is_done: true },
+      { id: 'todo', name: 'To Do', sort_key: 'V0000010001', is_done: false },
+      { id: 'done', name: 'Shipped', sort_key: 'V0000020001', is_done: true },
     ],
     tasks: [
       {
@@ -30,8 +33,9 @@ function payload() {
         label_ids: [],
         assignee_ids: ['u-ada'],
         blocker_ids: [],
-        open_cross_project_blocker_count: 0,
-        image_count: 1,
+        attachment_count: 0,
+        checklist_item_count: 2,
+        checklist_done_count: 1,
         cover_image_url: '/api/images/img1',
         comment_count: 2,
       },
@@ -45,10 +49,28 @@ function payload() {
         label_ids: [],
         assignee_ids: [],
         blocker_ids: [],
-        open_cross_project_blocker_count: 0,
-        image_count: 0,
+        attachment_count: 0,
+        checklist_item_count: 0,
+        checklist_done_count: 0,
         cover_image_url: null,
         comment_count: 0,
+      },
+    ],
+    attachments: [],
+    checklist_items: [
+      {
+        id: 'ck1',
+        task_id: DESIGN_CARDS_ID,
+        text: 'Pick a corner radius',
+        checked: true,
+        sort_key: 'V0000010001',
+      },
+      {
+        id: 'ck2',
+        task_id: DESIGN_CARDS_ID,
+        text: 'Ship the shadow',
+        checked: false,
+        sort_key: 'V0000020001',
       },
     ],
     labels: [],
@@ -149,7 +171,7 @@ describe('PublicBoard', () => {
     await screen.findByText('Design cards');
     expect(screen.queryByRole('button', { name: '+ Add column' })).toBeNull();
     expect(screen.queryByTitle('Rename column')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Options for Design cards' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Options for To Do' })).toBeNull();
   });
 
   it('shows a published due date as an inert pill', async () => {
@@ -209,7 +231,8 @@ describe('PublicBoard', () => {
 
     expect(await screen.findByRole('heading', { name: 'Design cards' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Task title')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dates' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
     expect(requestedPaths()).not.toContain(`/api/tasks/${DESIGN_CARDS_ID}`);
   });
 
@@ -224,6 +247,31 @@ describe('PublicBoard', () => {
     expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
 
     expect(requestedPaths()).toEqual([`/api/public/projects/${PROJECT_ID}/board`]);
+  });
+
+  it('reads the checklist out of the board payload, inert and with no second request', async () => {
+    mockPublicApi(jsonResponse(200, payload()));
+
+    render(PublicBoard, { props: { projectId: PROJECT_ID, taskId: DESIGN_CARDS_ID } });
+
+    const first = await screen.findByRole('checkbox', { name: 'Pick a corner radius' });
+    expect(first).toBeChecked();
+    expect(first).toBeDisabled();
+    const second = screen.getByRole('checkbox', { name: 'Ship the shadow' });
+    expect(second).not.toBeChecked();
+    expect(second).toBeDisabled();
+    expect(screen.queryByLabelText('Checklist item')).toBeNull();
+
+    expect(requestedPaths()).toEqual([`/api/public/projects/${PROJECT_ID}/board`]);
+  });
+
+  it('counts checklist progress on the card face', async () => {
+    mockPublicApi(jsonResponse(200, payload()));
+
+    render(PublicBoard, { props: { projectId: PROJECT_ID } });
+
+    await screen.findByText('Design cards');
+    expect(screen.getByTitle('1 of 2 checklist items done')).toBeInTheDocument();
   });
 
   it('counts comments on the card face', async () => {

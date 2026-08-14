@@ -1,5 +1,5 @@
-import { openDB } from 'idb';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { deleteDB, openDB } from 'idb';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearForUser,
   deleteOps,
@@ -7,8 +7,10 @@ import {
   readSnapshot,
   resetConnectionForTests,
   SNAPSHOT_VERSION,
+  upgradeStores,
   writeOp,
   writeSnapshot,
+  type OfflineSchema,
   type SnapshotRecord,
 } from './offline-db';
 import type { QueuedOp } from './outbox-ops';
@@ -198,7 +200,120 @@ describe('clearForUser', () => {
     expect(await readQueue(GRACE)).toHaveLength(1);
   });
 
-  it('is fine for a user with nothing stored', async () => {
+  // Resolving is guaranteed by the catch-all in `withDb` whatever the callback
+  // does, so the observation has to be what survived.
+  it('leaves everything alone for a user with nothing stored', async () => {
+    await writeSnapshot('board:p1', ADA, { tasks: [] }, SAVED_AT);
+    await writeOp(op(1));
+
     await expect(clearForUser(testUuid('nobody'))).resolves.toBeUndefined();
+
+    expect(await readSnapshot('board:p1')).not.toBeNull();
+    expect(await readQueue(ADA)).toHaveLength(1);
   });
 });
+
+describe('the database a later build inherits', () => {
+  it('keeps what version 1 stored when it is opened at a bumped version', async () => {
+    await writeOp(op(1));
+
+    // The module's own upgrade, run the way a bumped DB_VERSION would run it:
+    // against a database that already has both stores.
+    const bumped = await openDB<OfflineSchema>('critical-path-offline', 2, {
+      upgrade: upgradeStores,
+    });
+    const stored = await bumped.getAllFromIndex('outbox', 'by-user', ADA);
+    bumped.close();
+    await deleteDB('critical-path-offline');
+
+    expect(stored).toHaveLength(1);
+  });
+});
+
+/**
+ * Persistence here is best-effort, and the promise is that a device which cannot
+ * provide it costs the app nothing: IndexedDB is missing in some private modes,
+ * can be refused outright, and can stop answering rather than fail. Callers rely
+ * on that hard — `writeOp` is invoked as `void writeOp(op)`, so a rejection is an
+ * unhandled one, and a read that never settles wedges the caller forever.
+ */
+describe('a device whose storage will not cooperate', () => {
+  afterEach(async () => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    await resetConnectionForTests();
+  });
+
+  it('hands back the fallback when there is no IndexedDB at all', async () => {
+    await resetConnectionForTests();
+    vi.stubGlobal('indexedDB', undefined);
+
+    expect(await readSnapshot('board:p1')).toBeNull();
+    expect(await readQueue(ADA)).toEqual([]);
+    await expect(writeSnapshot('board:p1', ADA, { tasks: [] }, SAVED_AT)).resolves.toBeUndefined();
+    await expect(writeOp(op(1))).resolves.toBeUndefined();
+    await expect(clearForUser(ADA)).resolves.toBeUndefined();
+  });
+
+  it('resolves rather than rejects when opening the database is refused', async () => {
+    await resetConnectionForTests();
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        throw new DOMException('Storage is disabled', 'InvalidStateError');
+      },
+    });
+
+    expect(await readQueue(ADA)).toEqual([]);
+    await expect(writeOp(op(1))).resolves.toBeUndefined();
+  });
+
+  it('stops waiting on a database that never answers', async () => {
+    await resetConnectionForTests();
+    const stuck = stuckDatabase();
+    vi.stubGlobal('indexedDB', stuck.factory);
+    vi.useFakeTimers();
+
+    const reading = readQueue(ADA);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(await reading).toEqual([]);
+    // Lets the latched connection settle, so the next case opens one of its own
+    // instead of awaiting this one forever.
+    stuck.fail();
+  });
+});
+
+/**
+ * An open request that is neither answered nor refused, which is what a wedged
+ * upgrade or a browser in a bad state looks like from in here.
+ *
+ * It has to be a real `IDBRequest` to be one: `idb` only turns a request into a
+ * promise after an `instanceof` check, and hands anything else straight back
+ * unwrapped — so a plain object makes `openDB` throw on the spot instead of
+ * hanging, and the whole probe passes without ever reaching the timeout it is
+ * about.
+ */
+function stuckDatabase() {
+  const listeners = new Map<string, () => void>();
+  const request = Object.create(IDBRequest.prototype) as IDBRequest;
+  Object.defineProperties(request, {
+    result: { value: undefined },
+    error: { value: new DOMException('gave up', 'AbortError') },
+    addEventListener: {
+      value: (type: string, handler: () => void) => {
+        listeners.set(type, handler);
+      },
+    },
+    removeEventListener: {
+      value: (type: string) => {
+        listeners.delete(type);
+      },
+    },
+  });
+  return {
+    factory: { open: () => request },
+    fail: () => {
+      listeners.get('error')?.();
+    },
+  };
+}

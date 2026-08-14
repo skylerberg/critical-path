@@ -138,9 +138,11 @@ class SelectionStore {
     } else {
       this.#picked.add(taskId);
     }
-    this.#capped();
+    // Anchor before capping, so the card just clicked is the one the cap counts
+    // outward from rather than the first casualty of a set already at 100.
     this.cursorTaskId = taskId;
     this.#anchorId = taskId;
+    this.#capped();
     this.#rangeBase = new Set(this.#picked);
     this.#announce();
   }
@@ -248,10 +250,12 @@ class SelectionStore {
       this.#atCap = false;
       return;
     }
-    const keep = live.slice(0, MAX_SELECTION);
+    const keep = new Set(this.#nearestTheAnchor(live).slice(0, MAX_SELECTION));
     this.#picked.clear();
-    for (const id of keep) {
-      this.#picked.add(id);
+    for (const id of live) {
+      if (keep.has(id)) {
+        this.#picked.add(id);
+      }
     }
     // Every further press of a held Shift+Arrow overflows again, and twenty
     // identical refusals are a wall, not a message.
@@ -259,6 +263,21 @@ class SelectionStore {
       toasts.info(`You can select at most ${String(MAX_SELECTION)} cards at a time`);
     }
     this.#atCap = true;
+  }
+
+  // Board order would always cut the run's *last* ids, and a run grown upward
+  // ends at its anchor: the set would then slide one card per press away from
+  // the card the user started on, still reading 100 and still silent, because
+  // the toast fires only on the press that first overflowed.
+  #nearestTheAnchor(live: readonly string[]): string[] {
+    const anchor = this.#anchorId === null ? -1 : live.indexOf(this.#anchorId);
+    if (anchor === -1) {
+      return [...live];
+    }
+    return live
+      .map((id, index) => ({ id, distance: Math.abs(index - anchor) }))
+      .sort((a, b) => a.distance - b.distance)
+      .map((entry) => entry.id);
   }
 
   #announce(): void {
