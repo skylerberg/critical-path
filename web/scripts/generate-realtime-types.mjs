@@ -1,7 +1,10 @@
 #!/usr/bin/env node
-// Event types for the /ws envelope, from the API's realtime-events.json. Nothing
-// is filtered, unlike the API client: that document declares no paths, so every
-// schema in it is part of the envelope union rather than something a path reaches.
+// Types for the /ws contract, from the API's realtime-events.json. Nothing is
+// filtered, unlike the API client: that document declares no paths, so nothing in
+// it is reachable-from-a-path in the way that filter selects for. Most of its
+// schemas are envelope members, but not all — RealtimeCloseCode is a standalone
+// union of the codes the socket can be closed with, and src/lib/realtime-types.ts
+// re-exports it.
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
