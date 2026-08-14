@@ -151,6 +151,12 @@ swallows the failure, so a worktree nobody has run `pnpm install` in yet gets a
 hook that runs and formats nothing. Hand-formatting after every edit is
 redundant work that also churns files out from under whatever is reading them.
 
+A rebase is the one path that does not go through that hook: git builds those
+commits itself, so `.githooks/post-rewrite` takes the whole rebased range once
+the rebase has finished, with one caveat its header explains. Resolving a
+conflict by hand is the only way unformatted code enters a rebase, and it is
+covered.
+
 **The `eslint --fix` half of it decides where an import goes, so you do not have
 to.** `import-x/order` is autofixable: put a new import anywhere in the block and
 the commit sorts it into its group. There is no placement judgement to make here
