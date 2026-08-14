@@ -220,6 +220,14 @@ class RealtimeClient {
     if (message.type === 'pong') {
       return;
     }
+    // The payload is asserted, not validated — but it has to BE one. #dispatch
+    // destructures `event.data` for several types, so a known type arriving
+    // without it throws out of onmessage and takes the rest of that frame's
+    // handling with it. The frames with no payload at all are the control ones
+    // above, which have already returned.
+    if (typeof message.data !== 'object' || message.data === null) {
+      return;
+    }
     // The one assertion the union rests on: a frame is untrusted and the
     // generated output is types only. An event type this client does not know
     // matches nothing in #dispatch and is ignored, as it was before.

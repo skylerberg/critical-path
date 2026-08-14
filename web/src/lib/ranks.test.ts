@@ -143,6 +143,21 @@ describe('between', () => {
       low = next;
     }
   });
+
+  // Both bounds come off rows stored minutes apart, so nothing guarantees the
+  // low one is still below the high one. `generateNKeysBetween` throws outright
+  // on that, which would fail the whole mutation rather than the placement.
+  it('ranks after the low anchor when the two bounds tie', () => {
+    const placed = between(item('a', k(2)), item('b', k(2)));
+
+    expect(placed.sort_key > k(2)).toBe(true);
+  });
+
+  it('ranks after the low anchor when the bounds are the wrong way round', () => {
+    const placed = between(item('a', k(5)), item('b', k(1)));
+
+    expect(placed.sort_key > k(5)).toBe(true);
+  });
 });
 
 describe('reorderRankUpdates', () => {
@@ -214,15 +229,39 @@ describe('neighbors as the durable form of a drop', () => {
   });
 
   // The property that makes a queued move survive: what gets sent now and what
-  // gets replayed later describe the same drop.
-  it('agrees with the placement computed at drop time', () => {
+  // gets replayed later describe the same drop. Asserted against two different
+  // lists, because both halves computed from the drop-time list is the same
+  // expression twice — `placementAfterDrop` is `placeBetweenNeighbors` of its own
+  // `intent`, so comparing them can only ever agree.
+  it('describes the same drop now and after the list has moved on', () => {
     const items = rows(k(0), k(1), k(2));
+    // Moving the last card into the middle.
     const display = [items[0]!, items[2]!, items[1]!];
-    const others = display.filter((item) => item.id !== 't2');
-    expect(placeBetweenNeighbors(others, neighborsAfterDrop(display, 't2')!)).toEqual({
-      placement: placementAfterDrop(display, 't2')!.placement,
-      exact: true,
+    const drop = placementAfterDrop(display, 't2')!;
+
+    expect(drop.placement.sort_key > k(0) && drop.placement.sort_key < k(1)).toBe(true);
+
+    // Minutes later: an unrelated card has gone and both anchors have been
+    // re-ranked, so the key computed above now means somewhere else entirely.
+    const later = ranked(item('t0', k(3)), item('t1', k(7)), item('t9', k(9)));
+    const replayed = placeBetweenNeighbors(later, drop.intent);
+
+    expect(replayed.exact).toBe(true);
+    expect(replayed.placement.sort_key > k(3) && replayed.placement.sort_key < k(7)).toBe(true);
+  });
+
+  // The anchors are two rows the queue has no control over, so a teammate can
+  // move one past the other before the drop is replayed.
+  it('replays a drop whose anchors have swapped places without failing', () => {
+    const later = ranked(item('a', k(5)), item('b', k(1)));
+    const replayed = placeBetweenNeighbors(later, {
+      kind: 'between',
+      afterId: 'a',
+      beforeId: 'b',
     });
+
+    expect(replayed.exact).toBe(true);
+    expect(replayed.placement.sort_key > k(5)).toBe(true);
   });
 });
 

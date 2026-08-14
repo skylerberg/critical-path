@@ -48,6 +48,10 @@ function moved(id: string, columnId: string) {
   return { id, column_id: columnId, sort_key: 'V000020001' };
 }
 
+function archived(id: string, title: string) {
+  return { ...task(id, TODO, title), archived_at: '2026-08-01T00:00:00Z' };
+}
+
 /** Records the event and drains the announce window. */
 async function fire(...events: RealtimeEvent[]): Promise<void> {
   for (const event of events) {
@@ -113,6 +117,32 @@ describe('announcing a teammate’s board changes', () => {
     expect(boardAnnouncer.message).toBe('Ana moved 3 cards to Done');
   });
 
+  // The ordinary case — one teammate moves one card — and the only sentence that
+  // carries both the card and where it went.
+  it('names the card and its destination when one card moves', async () => {
+    board.tasks = [task('t1', TODO, 'A')];
+
+    await fire(
+      theirs('column_tasks_moved', {
+        column_id: TODO,
+        target_column_id: DONE,
+        moved_tasks: [moved('t1', DONE)],
+      })
+    );
+
+    expect(boardAnnouncer.message).toBe('Ana moved "A" to Done');
+  });
+
+  // Pinning what the `?? ''` in columnName reads like: a card moved into a column
+  // this board has not been told about yet leaves the destination unsaid.
+  it('leaves the destination blank for a column the board does not hold', async () => {
+    board.tasks = [task('t1', TODO, 'A')];
+
+    await fire(theirs('bulk_tasks_moved', { moved_tasks: [moved('t1', 'c-unseen')] }));
+
+    expect(boardAnnouncer.message).toBe('Ana moved "A" to ');
+  });
+
   it('drops the destination when one batch landed in two columns', async () => {
     board.columns = [...board.columns, column('c-other', 'Backlog')];
     board.tasks = [task('t1', TODO, 'A'), task('t2', TODO, 'B')];
@@ -136,6 +166,32 @@ describe('announcing a teammate’s board changes', () => {
     expect(boardAnnouncer.message).toBe('Ana added 2 cards, archived 1 card');
   });
 
+  it('names a card a teammate took back out of the archive', async () => {
+    await fire(theirs('task_restored', task('t1', TODO, 'Zed')));
+
+    expect(boardAnnouncer.message).toBe('Ana restored "Zed"');
+    expect(board.changedTaskIds.has('t1')).toBe(true);
+  });
+
+  // Archiving a whole column is one of the largest changes a teammate can make
+  // to a board someone else is looking at, and the count has to be of the cards
+  // that were actually on it.
+  it.each([
+    [
+      'column_tasks_archived' as const,
+      (tasks: ReturnType<typeof archived>[]) => ({ column_id: TODO, tasks }),
+    ],
+    ['bulk_tasks_archived' as const, (tasks: ReturnType<typeof archived>[]) => ({ tasks })],
+  ])('counts only the cards the board held for %s', async (type, payload) => {
+    board.tasks = [task('t1', TODO, 'A'), task('t2', TODO, 'B')];
+
+    await fire(
+      theirs(type, payload([archived('t1', 'A'), archived('t2', 'B'), archived('gone', 'Gone')]))
+    );
+
+    expect(boardAnnouncer.message).toBe('Ana archived 2 cards');
+  });
+
   it('falls back to a count when the burst spans two people', async () => {
     users.users = [...users.users, { id: 'u-cy', name: 'Cy', avatar_url: null }];
 
@@ -153,6 +209,17 @@ describe('announcing a teammate’s board changes', () => {
     await fire(theirs('column_created', column('c-new', 'Review')));
 
     expect(boardAnnouncer.message).toBe('Ana added the Review column');
+  });
+
+  // A column change alone is named; a column change beside any card change is
+  // counted, so this is the only route to the singular of the column clause.
+  it('counts one column change beside a card change without pluralising it', async () => {
+    await fire(
+      theirs('task_created', task('t1', TODO, 'A')),
+      theirs('column_created', column('c-new', 'Review'))
+    );
+
+    expect(boardAnnouncer.message).toBe('Ana added 1 card, added 1 column');
   });
 
   // The payload carries no name, so this can only pass if record() read the
@@ -296,12 +363,19 @@ describe('announcing a teammate’s board changes', () => {
     expect(board.changedTaskIds.has('t1')).toBe(false);
   });
 
+  // Sampled between the flush and the tick after it, because the blank is the
+  // whole property: a region whose text does not change is not read a second
+  // time, and settling on the same string is what both a working flush and no
+  // flush at all look like from the outside.
   it('blanks between identical sentences so a repeat is read again', async () => {
     await fire(theirs('task_created', task('t1', TODO, 'Ship it')));
     expect(boardAnnouncer.message).toBe('Ana added "Ship it"');
 
     boardAnnouncer.record(theirs('task_created', task('t2', TODO, 'Ship it')));
-    await vi.advanceTimersByTimeAsync(1500);
+    vi.advanceTimersByTime(1500);
+    expect(boardAnnouncer.message).toBe('');
+
+    await vi.advanceTimersByTimeAsync(0);
     expect(boardAnnouncer.message).toBe('Ana added "Ship it"');
   });
 
@@ -315,8 +389,12 @@ describe('announcing a teammate’s board changes', () => {
 });
 
 describe('tinting the cards a teammate touched', () => {
+  // The deleted card is one the burst never touched otherwise: deleting a card
+  // the same burst had moved leaves it in the set either way, so a delete that
+  // started tinting would not show. A tint on a row that is no longer on the
+  // board is a mark nothing can ever clear.
   it('tints created and cross-column-moved cards, but not ones that left the board', async () => {
-    board.tasks = [task('t2', TODO, 'B')];
+    board.tasks = [task('t2', TODO, 'B'), task('t3', TODO, 'C')];
 
     await fire(
       theirs('task_created', task('t1', TODO, 'A')),
@@ -325,10 +403,29 @@ describe('tinting the cards a teammate touched', () => {
         target_column_id: DONE,
         moved_tasks: [moved('t2', DONE)],
       }),
-      theirs('task_deleted', { id: 't2' })
+      theirs('task_deleted', { id: 't3' })
     );
 
     expect([...board.changedTaskIds].sort()).toEqual(['t1', 't2']);
+  });
+
+  // The column sentence deliberately says nothing about the cards it displaced,
+  // so the tint is the reader's only signal that they moved.
+  it('tints the cards a deleted column relocated, minus the one already open', async () => {
+    const open = testUuid('open');
+    router.navigate(taskHref(open, 'Ship it'), { replace: true });
+    board.tasks = [task('t1', DONE, 'A'), task(open, DONE, 'Open')];
+
+    await fire(
+      theirs('column_deleted', {
+        id: DONE,
+        moved_tasks: [moved('t1', TODO), moved(open, TODO)],
+      })
+    );
+
+    expect(boardAnnouncer.message).toBe('Ana deleted the Done column');
+    expect(board.changedTaskIds.has('t1')).toBe(true);
+    expect(board.changedTaskIds.has(open)).toBe(false);
   });
 
   it('never tints the card whose overlay is open', async () => {

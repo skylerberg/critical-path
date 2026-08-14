@@ -330,12 +330,19 @@
   $effect(() => {
     const scroller = boardScroller;
     const target = centeringTarget;
-    if (!scroller || dragging || target === null) {
+    if (!scroller || dragging) {
+      return;
+    }
+    // Read and cleared as the drag ends, whether or not anything is being
+    // centered: a drag that scrolled and then centered nothing — let go over no
+    // zone, or unwound by the card menu — otherwise leaves the flag set, and the
+    // next drop or quick-add reveal slides a board that should stay put.
+    const scrolled = dragScrolled;
+    dragScrolled = false;
+    if (target === null) {
       return;
     }
     const column = columnElements(scroller).find((el) => el.dataset.columnId === target);
-    const scrolled = dragScrolled;
-    dragScrolled = false;
     if (
       column === undefined ||
       (!scrolled &&
@@ -635,17 +642,15 @@
       columnDragOrigin = null;
       // Same as a card put back where it was, except a wasted column write also
       // fans a realtime update out to everyone else looking at the project.
-      if (origin === items.findIndex((column) => column.id === event.detail.info.id)) {
-        return;
-      }
-      const drop = placementAfterDrop(items, event.detail.info.id);
-      if (drop === null) {
-        return;
-      }
-      if (event.detail.info.source === SOURCES.POINTER) {
+      const unmoved = origin === items.findIndex((column) => column.id === event.detail.info.id);
+      const drop = unmoved ? null : placementAfterDrop(items, event.detail.info.id);
+      // Landed on a snap position for the same reason the card path is.
+      if (event.detail.info.source === SOURCES.POINTER && (drop !== null || dragScrolled)) {
         centeringTarget = event.detail.info.id;
       }
-      void board.moveColumn(event.detail.info.id, drop.placement);
+      if (drop !== null) {
+        void board.moveColumn(event.detail.info.id, drop.placement);
+      }
     }
   }
 
@@ -677,23 +682,23 @@
       const origin = dragOrigin;
       dragOrigin = null;
       // A card put back exactly where it was is not a move: writing one would
-      // renumber it and log it for nothing, and a long press opening the card menu
-      // has to unwind its drag through this path — which must not then slide the
-      // board under the menu it just anchored to the finger.
-      if (
+      // renumber it and log it for nothing.
+      const unmoved =
         origin?.columnId === columnId &&
-        origin.index === items.findIndex((task) => task.id === event.detail.info.id)
-      ) {
-        return;
-      }
-      const drop = placementAfterDrop(items, event.detail.info.id);
-      if (drop === null) {
-        return;
-      }
-      if (event.detail.info.source === SOURCES.POINTER) {
+        origin.index === items.findIndex((task) => task.id === event.detail.info.id);
+      const drop = unmoved ? null : placementAfterDrop(items, event.detail.info.id);
+      // A drag that scrolled parked the board off every snap position, so it is
+      // landed on one even when nothing moved — but only then, because a long
+      // press opening the card menu unwinds its drag through here and must not
+      // slide the board under the menu it just anchored to the finger. The edge
+      // scroller refuses to run for a pending or open press, so that unwind
+      // arrives here with `dragScrolled` false.
+      if (event.detail.info.source === SOURCES.POINTER && (drop !== null || dragScrolled)) {
         centeringTarget = columnId;
       }
-      void board.moveTask(event.detail.info.id, columnId, drop.placement, drop.intent);
+      if (drop !== null) {
+        void board.moveTask(event.detail.info.id, columnId, drop.placement, drop.intent);
+      }
     }
   }
 

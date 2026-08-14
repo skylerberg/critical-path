@@ -169,6 +169,12 @@ function cardTitles(): string[] {
   return [...column().querySelectorAll('[data-task-id] p')].map((p) => p.textContent ?? '');
 }
 
+function columnNames(): string[] {
+  return [...document.querySelectorAll('[data-column-id][aria-label]')].map(
+    (section) => section.getAttribute('aria-label') ?? ''
+  );
+}
+
 function renderedTaskIds(): string[] {
   return [...column().querySelectorAll<HTMLElement>('[data-task-id]')].map(
     (card) => card.dataset.taskId ?? ''
@@ -217,6 +223,30 @@ function drop(id: string, items: BoardTask[], list = 'Todo tasks'): void {
       detail: {
         items,
         info: { trigger: TRIGGERS.DROPPED_INTO_ZONE, id, source: SOURCES.POINTER },
+      },
+    })
+  );
+}
+
+function columnZone(): HTMLElement {
+  const element = document.querySelector('[aria-label="Columns"]');
+  if (!(element instanceof HTMLElement)) {
+    throw new Error('Column zone not rendered');
+  }
+  return element;
+}
+
+function dragColumn(id: string, type: 'consider' | 'finalize', items: unknown[]): void {
+  void fireEvent(
+    columnZone(),
+    new CustomEvent(type, {
+      detail: {
+        items,
+        info: {
+          trigger: type === 'consider' ? TRIGGERS.DRAG_STARTED : TRIGGERS.DROPPED_INTO_ZONE,
+          id,
+          source: SOURCES.POINTER,
+        },
       },
     })
   );
@@ -545,6 +575,20 @@ describe('Board add-column drafts', () => {
     expect(drafts.get(draftKey.addColumn(PROJECT_ID))).toBeNull();
   });
 
+  // Without the trim guard the board POSTs a column named '' and closes the
+  // composer over it, so the only way back is to rename the blank column.
+  it('refuses a whitespace-only name and keeps the composer open', async () => {
+    board.currentProjectId = PROJECT_ID;
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await typeName('   ');
+
+    await fireEvent.submit(nameInput().closest('form')!);
+
+    expect(board.columns.map((column) => column.name)).toEqual(['Todo']);
+    expect(nameInput()).toHaveValue('   ');
+    expect(fetchMock.mock.calls.map((call) => (call[0] as Request).method)).not.toContain('POST');
+  });
+
   it('stays closed on remount after Escape discarded the draft', async () => {
     const first = render(Board, { props: { projectId: PROJECT_ID } });
     await typeName('Discard me');
@@ -591,6 +635,10 @@ describe('Board keyboard reordering', () => {
       column_id: 'c1',
       sort_key: expect.any(String),
     });
+    // The library finalizes on EVERY arrow, so the flag has to be re-raised there:
+    // dropped mid-drag it lets shortcuts and realtime board edits in underneath a
+    // gesture that is still running.
+    expect(board.dragging).toBe(true);
 
     await fireEvent.keyDown(item, { key: 'Enter' });
     await vi.waitFor(() => expect(board.dragging).toBe(false));
@@ -629,17 +677,13 @@ describe('Board keyboard reordering', () => {
 
     const section = column();
     await fireEvent.keyDown(section, { key: 'ArrowRight' });
-    await vi.waitFor(() =>
-      expect(
-        [...document.querySelectorAll('[data-column-id][aria-label]')].map((s) =>
-          s.getAttribute('aria-label')
-        )
-      ).toEqual(['Doing', 'Todo'])
-    );
+    await vi.waitFor(() => expect(columnNames()).toEqual(['Doing', 'Todo']));
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
     const patch = patchRequests()[0]!;
     expect(new URL(patch.url).pathname).toBe('/api/columns/c1');
     expect(await patch.clone().json()).toEqual({ sort_key: expect.any(String) });
+    // Re-raised per arrow, as on the card path above.
+    expect(board.dragging).toBe(true);
 
     await fireEvent.keyDown(section, { key: 'Enter' });
     await vi.waitFor(() => expect(board.dragging).toBe(false));
@@ -871,6 +915,29 @@ describe('Board drag placeholder', () => {
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
 
     expect(new URL(patchRequests()[0]!.url).pathname).toBe(`/api/tasks/${T1}`);
+  });
+
+  // The rendered list is frozen for the length of the drag. Re-syncing it from the
+  // store mid-gesture rewrites the very array svelte-dnd-action is mutating and
+  // tears the DOM out from under it — and a card arriving over the wire is exactly
+  // what does that at an arbitrary moment.
+  it('ignores a card that arrives over the wire mid-drag, then shows it on the drop', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+
+    pickUp(T1);
+    await tick();
+    board.tasks = [...board.tasks, task(T5, 'c1', 5000, 'arrived')];
+    await tick();
+
+    expect(renderedTaskIds()).toEqual([SHADOW_PLACEHOLDER_ITEM_ID, T2, T3, T4]);
+    expect(screen.queryByText('arrived')).toBeNull();
+
+    drop(
+      T1,
+      board.tasksInColumn('c1').filter((t) => t.id !== T5)
+    );
+    await vi.waitFor(() => expect(screen.getByText('arrived')).toBeInTheDocument());
   });
 });
 
@@ -1114,30 +1181,6 @@ describe('Board pointer drops', () => {
 });
 
 describe('Board column drops', () => {
-  function columnZone(): HTMLElement {
-    const element = document.querySelector('[aria-label="Columns"]');
-    if (!(element instanceof HTMLElement)) {
-      throw new Error('Column zone not rendered');
-    }
-    return element;
-  }
-
-  function dragColumn(id: string, type: 'consider' | 'finalize', items: unknown[]): void {
-    void fireEvent(
-      columnZone(),
-      new CustomEvent(type, {
-        detail: {
-          items,
-          info: {
-            trigger: type === 'consider' ? TRIGGERS.DRAG_STARTED : TRIGGERS.DROPPED_INTO_ZONE,
-            id,
-            source: SOURCES.POINTER,
-          },
-        },
-      })
-    );
-  }
-
   beforeEach(() => {
     board.columns = [
       { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
@@ -1159,6 +1202,27 @@ describe('Board column drops', () => {
     expect(patchRequests()).toHaveLength(0);
   });
 
+  // Same freeze as the card list, and the same hazard: the column zone is the
+  // array the library is reordering under the pointer.
+  it('ignores a column that arrives over the wire mid-drag, then shows it on the drop', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const [first, second] = board.columns;
+
+    dragColumn('c1', 'consider', [first, second]);
+    await tick();
+    board.columns = [
+      ...board.columns,
+      { id: 'c3', name: 'Done', sort_key: 'V0000030001', is_done: true },
+    ];
+    await tick();
+
+    expect(columnNames()).toEqual(['Todo', 'Doing']);
+
+    dragColumn('c1', 'finalize', [first, second]);
+    await vi.waitFor(() => expect(columnNames()).toEqual(['Todo', 'Doing', 'Done']));
+  });
+
   it('still writes a drop that reorders the columns', async () => {
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
@@ -1172,18 +1236,23 @@ describe('Board column drops', () => {
   });
 
   it('leaves the board alone when the reordered column is already on screen', async () => {
-    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     render(Board, { props: { projectId: PROJECT_ID } });
     await screen.findByText('plain one');
     vi.spyOn(scroller(), 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1000, 600));
     vi.spyOn(column(), 'getBoundingClientRect').mockReturnValue(new DOMRect(16, 0, 288, 600));
+    const writes = trackScroll();
     const [first, second] = board.columns;
 
     dragColumn('c1', 'consider', [first, second]);
     dragColumn('c1', 'finalize', [second, first]);
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
+    await tick();
+    await slideEnds();
 
-    expect(scrollTo).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    // Snap never dropped, which is what tells a slide that was correctly skipped
+    // apart from one that never armed at all.
+    expect(scroller().className).toContain('snap-mandatory');
   });
 });
 
@@ -1657,6 +1726,25 @@ describe('Board quick-add shortcut', () => {
 
     expect(writes).toEqual([]);
   });
+
+  // A composer already open is the board's own branch: the case above ends at
+  // QuickAddTask's mount-time focus, which fires whoever opened the form. The spy
+  // goes on after that focus has happened, so only a second one can satisfy it.
+  it('focuses a composer that is already open, without scrolling to it', async () => {
+    const writes = await target(new DOMRect(16, 0, 288, 600));
+    await fireEvent.click(within(column()).getByRole('button', { name: '+ Add task' }));
+    const input = await screen.findByLabelText('Task title');
+    const focus = vi.spyOn(input, 'focus');
+
+    shortcuts.quickAddColumn = 'c1';
+    await tick();
+    await tick();
+    await slideEnds();
+
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(focus).not.toHaveBeenCalledWith();
+    expect(writes).toEqual([]);
+  });
 });
 
 describe('Board drag edge scrolling', () => {
@@ -1723,6 +1811,109 @@ describe('Board drag edge scrolling', () => {
     await frames();
 
     expect(scrollBy).not.toHaveBeenCalled();
+  });
+});
+
+// A drag that edge-scrolled leaves the board wherever the pointer stopped, which
+// is almost never a snap position. Re-arming mandatory snap there is what lets the
+// browser resolve the board onto a neighbouring column, so the end of such a drag
+// has to land on a position first — including when the drag committed no move.
+describe('Board drag scroll settling', () => {
+  function edgeScrolled(): number[] {
+    vi.spyOn(scroller(), 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 390, 600));
+    vi.spyOn(column(), 'getBoundingClientRect').mockReturnValue(new DOMRect(16, 0, 288, 600));
+    scroller().scrollBy = vi.fn();
+    return trackScroll();
+  }
+
+  // The board only edge-scrolls for a pointer drag already in progress, so this
+  // is always the second half of one — a card's or a column's.
+  async function pushAgainstTheEdge(): Promise<void> {
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 5 }));
+    await frames();
+  }
+
+  async function dragAgainstTheEdge(): Promise<void> {
+    pickUp(T1);
+    await tick();
+    await pushAgainstTheEdge();
+  }
+
+  it('slides onto the column even when the card is dropped where it was picked up', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const writes = edgeScrolled();
+
+    await dragAgainstTheEdge();
+    drop(T1, board.tasksInColumn('c1'));
+    await tick();
+    await slideEnds();
+
+    // The column fits the board whole, so only the scroll the drag itself did can
+    // ask for this slide — onto the column's snap position, 16px in.
+    expect(writes.at(-1)).toBe(16);
+    expect(scroller().className).toContain('snap-mandatory');
+    // The drop is still not a move: we landed the board, not renumbered the card.
+    expect(patchRequests()).toHaveLength(0);
+  });
+
+  // The column handler has its own copy of the same arm, and a column drag reaches
+  // the edge scroller by the same route a card drag does.
+  it('slides onto the column even when a column is dropped where it was picked up', async () => {
+    board.columns = [
+      { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Doing', sort_key: 'V0000020001', is_done: false },
+    ];
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const writes = edgeScrolled();
+    const columns = [...board.columns];
+
+    dragColumn('c1', 'consider', columns);
+    await tick();
+    await pushAgainstTheEdge();
+    dragColumn('c1', 'finalize', columns);
+    await tick();
+    await slideEnds();
+
+    expect(writes.at(-1)).toBe(16);
+    expect(scroller().className).toContain('snap-mandatory');
+    // Still not a move: a wasted column write would also fan out to everyone else
+    // looking at the project.
+    expect(patchRequests()).toHaveLength(0);
+  });
+
+  it('forgets the scroll when the drag ends over no zone at all', async () => {
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const writes = edgeScrolled();
+
+    await dragAgainstTheEdge();
+    void fireEvent(
+      taskList(),
+      new CustomEvent('finalize', {
+        detail: {
+          items: board.tasksInColumn('c1'),
+          info: {
+            trigger: TRIGGERS.DROPPED_OUTSIDE_OF_ANY,
+            id: T1,
+            source: SOURCES.POINTER,
+          },
+        },
+      })
+    );
+    await tick();
+    await slideEnds();
+    const settled = writes.length;
+
+    // A reveal of a column that fits the board whole must move nothing. It does
+    // once a stale "this drag scrolled" flag survives the drag that set it.
+    shortcuts.quickAddColumn = 'c1';
+    await tick();
+    await tick();
+    await slideEnds();
+
+    expect(writes.length).toBe(settled);
   });
 });
 

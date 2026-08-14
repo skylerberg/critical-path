@@ -5,7 +5,7 @@ import { board } from './board.svelte';
 import { boardAnnouncer } from './board-announcer.svelte';
 import { connectivity } from './connectivity.svelte';
 import { invitations } from './invitations.svelte';
-import type { BoardPayload } from './board-types';
+import type { BoardPayload, BoardTask, TaskComment } from './board-types';
 import { outbox } from './outbox.svelte';
 import { projects, type Project } from './projects.svelte';
 import { realtime } from './realtime.svelte';
@@ -17,6 +17,7 @@ import { projectHref } from './short-links';
 import { testUuid } from './test-ids';
 import { users } from './users.svelte';
 import { realtimeEvent } from './realtime-test-events';
+import type { RealtimeEventType } from './realtime-types';
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -24,7 +25,9 @@ class FakeWebSocket {
   readyState = 0;
   sent: string[] = [];
   onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
+  // `data` is unknown rather than string so `receiveRaw` can deliver the frames
+  // a real socket can and `JSON.stringify` cannot.
+  onmessage: ((event: { data: unknown }) => void) | null = null;
   onclose: ((event: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
 
@@ -54,6 +57,13 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(message) });
   }
 
+  // Delivers the frame verbatim, which is the only way to reach the guards
+  // #onMessage opens with: a binary frame, one that is not JSON at all, one whose
+  // type is not a string.
+  receiveRaw(data: unknown): void {
+    this.onmessage?.({ data });
+  }
+
   serverClose(code = 1006): void {
     this.readyState = 3;
     this.onclose?.({ code });
@@ -66,7 +76,10 @@ class FakeWebSocket {
 
 vi.stubGlobal('WebSocket', FakeWebSocket);
 
-function task(id: string, columnId = 'c1', position = 1000) {
+// Annotated, not inferred: an inferred literal reaches `realtimeEvent()` as a
+// function return, where excess-property checking no longer applies and a field
+// the API does not have goes unnoticed — `image_count` sat here for months.
+function task(id: string, columnId = 'c1', position = 1000): BoardTask {
   return {
     id,
     column_id: columnId,
@@ -76,11 +89,10 @@ function task(id: string, columnId = 'c1', position = 1000) {
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     column_since: '2026-01-01T00:00:00Z',
-    label_ids: [] as string[],
-    assignee_ids: [] as string[],
-    blocker_ids: [] as string[],
+    label_ids: [],
+    assignee_ids: [],
+    blocker_ids: [],
     open_cross_project_blocker_count: 0,
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -90,7 +102,7 @@ function task(id: string, columnId = 'c1', position = 1000) {
   };
 }
 
-function comment(id: string, text: string) {
+function comment(id: string, text: string): TaskComment {
   return {
     id,
     task_id: 't1',
@@ -258,6 +270,137 @@ describe('realtime handshake', () => {
     board.readonly = false;
     flushSync();
     expect(socket.messages()).toContainEqual({ type: 'subscribe', project_id: 'p1' });
+  });
+});
+
+// #dispatch decides an event's fate by set membership alone: a type missing from
+// BOARD_EVENTS, SERIES_EVENTS or PROJECT_EVENTS matches no branch and is dropped
+// without a sound. Every other case in this file hands the event to a store
+// directly, so this describe is the only thing standing over the routing.
+describe('routing a frame to the store that owns it', () => {
+  type Destination =
+    | 'board'
+    | 'board-series'
+    | 'series'
+    | 'projects'
+    | 'unseen-dot'
+    | 'invitations'
+    | 'users'
+    | 'account';
+
+  // Keyed by the generated union, which is what makes it exhaustive both ways: a
+  // type the API adds stops this compiling until someone routes it, and one it
+  // retires leaves an excess key here.
+  const DESTINATIONS: Record<RealtimeEventType, Destination[]> = {
+    task_created: ['board'],
+    task_updated: ['board'],
+    task_deleted: ['board'],
+    task_archived: ['board'],
+    task_restored: ['board'],
+    task_relations_set: ['board'],
+    cross_project_blockers_changed: ['board'],
+    column_created: ['board'],
+    column_updated: ['board'],
+    column_deleted: ['board'],
+    column_tasks_moved: ['board'],
+    column_tasks_archived: ['board'],
+    column_tasks_reordered: ['board'],
+    bulk_tasks_moved: ['board'],
+    bulk_tasks_archived: ['board'],
+    bulk_tasks_relations_set: ['board'],
+    label_created: ['board'],
+    label_updated: ['board'],
+    label_deleted: ['board'],
+    comment_created: ['board'],
+    comment_updated: ['board'],
+    comment_deleted: ['board'],
+    checklist_item_created: ['board'],
+    checklist_item_updated: ['board'],
+    checklist_item_deleted: ['board'],
+    attachment_created: ['board'],
+    attachment_updated: ['board'],
+    attachment_deleted: ['board'],
+    series_created: ['series', 'board-series'],
+    series_updated: ['series', 'board-series'],
+    series_deleted: ['series', 'board-series'],
+    project_created: ['projects'],
+    // The open board too: what it may be edited into is read off this payload.
+    project_updated: ['projects', 'board'],
+    project_deleted: ['projects'],
+    project_position_updated: ['projects'],
+    project_seen: ['projects'],
+    project_changed: ['unseen-dot'],
+    invitations_changed: ['invitations'],
+    user_updated: ['users'],
+    account_updated: ['account'],
+    // Deliberately nowhere: the API closes the socket 4401 alongside it, and the
+    // close is what this client acts on.
+    sessions_revoked: [],
+  };
+
+  // Only the two payloads #dispatch itself reads. Every other branch hands the
+  // data straight to a store, which is stubbed here — routing is the subject,
+  // and what each store does with the payload is tested against that store.
+  const FRAMES: Partial<Record<RealtimeEventType, { projectId?: string; data: unknown }>> = {
+    account_updated: {
+      data: { id: 'u1', name: 'Renamed', avatar_url: null, email: 'm@e.com', email_verified: true },
+    },
+    project_changed: { projectId: 'p2', data: { id: 'p2', actor_user_id: 'u-them' } },
+  };
+
+  it('lands every type the API publishes where its set says, and nowhere else', async () => {
+    const spies = {
+      board: vi.spyOn(board, 'applyRealtime').mockImplementation(() => {}),
+      'board-series': vi.spyOn(board, 'applySeriesRealtime').mockImplementation(() => {}),
+      series: vi.spyOn(taskSeries, 'applyRealtime').mockImplementation(() => {}),
+      projects: vi.spyOn(projects, 'applyRealtime').mockImplementation(() => {}),
+      'unseen-dot': vi.spyOn(projects, 'markChanged').mockImplementation(() => {}),
+      invitations: vi.spyOn(invitations, 'applyRealtime').mockImplementation(() => {}),
+      // Null rather than undefined: the caller compares the return against null
+      // before reading an id off it.
+      users: vi.spyOn(users, 'applyRealtime').mockReturnValue(null),
+    };
+    const named = Object.keys(spies) as (keyof typeof spies)[];
+
+    try {
+      const socket = await connectAndAuth('p1');
+      const reached: Record<string, Destination[]> = {};
+
+      for (const type of Object.keys(DESTINATIONS) as RealtimeEventType[]) {
+        for (const spy of Object.values(spies)) {
+          spy.mockClear();
+        }
+        session.user = {
+          id: 'u1',
+          name: 'Me',
+          avatar_url: null,
+          email: 'm@e.com',
+          email_verified: false,
+        };
+        const frame = FRAMES[type];
+
+        socket.receive({ type, project_id: frame?.projectId ?? 'p1', data: frame?.data ?? {} });
+
+        const landed: Destination[] = named.filter((name) => spies[name].mock.calls.length > 0);
+        if (session.user?.name !== 'Me') {
+          landed.push('account');
+        }
+        reached[type] = landed.sort();
+      }
+
+      expect(reached).toEqual(
+        Object.fromEntries(
+          Object.entries(DESTINATIONS).map(([type, destinations]) => [
+            type,
+            [...destinations].sort(),
+          ])
+        )
+      );
+    } finally {
+      for (const spy of Object.values(spies)) {
+        spy.mockRestore();
+      }
+    }
   });
 });
 
@@ -715,14 +858,14 @@ describe('drag-aware queue', () => {
     const data = {
       column_id: 'c1',
       target_column_id: 'c2',
-      moved_tasks: [{ id: 't1', column_id: 'c2', position: 3000, sort_key: 'V0000030001' }],
+      moved_tasks: [{ id: 't1', column_id: 'c2', sort_key: 'V0000030001' }],
     };
 
-    socket.receive({ type: 'column_tasks_moved', project_id: 'p2', data });
+    socket.receive(realtimeEvent('column_tasks_moved', data, 'p2'));
     expect(board.tasks[0]!.column_id).toBe('c1');
 
     board.dragging = true;
-    socket.receive({ type: 'column_tasks_moved', project_id: 'p1', data });
+    socket.receive(realtimeEvent('column_tasks_moved', data, 'p1'));
     expect(board.tasks[0]!.column_id).toBe('c1');
 
     board.dragging = false;
@@ -737,16 +880,16 @@ describe('drag-aware queue', () => {
     const data = {
       column_id: 'c1',
       moved_tasks: [
-        { id: 't1', position: 2000, sort_key: 'V0000020001' },
-        { id: 't2', position: 1000, sort_key: 'V0000010001' },
+        { id: 't1', column_id: 'c1', sort_key: 'V0000020001' },
+        { id: 't2', column_id: 'c1', sort_key: 'V0000010001' },
       ],
     };
 
-    socket.receive({ type: 'column_tasks_reordered', project_id: 'p2', data });
+    socket.receive(realtimeEvent('column_tasks_reordered', data, 'p2'));
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2']);
 
     board.dragging = true;
-    socket.receive({ type: 'column_tasks_reordered', project_id: 'p1', data });
+    socket.receive(realtimeEvent('column_tasks_reordered', data, 'p1'));
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t1', 't2']);
 
     board.dragging = false;
@@ -762,11 +905,11 @@ describe('drag-aware queue', () => {
       tasks: [{ ...task('t1', 'c1'), archived_at: '2026-03-01T00:00:00Z' }],
     };
 
-    socket.receive({ type: 'column_tasks_archived', project_id: 'p2', data });
+    socket.receive(realtimeEvent('column_tasks_archived', data, 'p2'));
     expect(board.tasks.map((t) => t.id)).toEqual(['t1', 't2']);
 
     board.dragging = true;
-    socket.receive({ type: 'column_tasks_archived', project_id: 'p1', data });
+    socket.receive(realtimeEvent('column_tasks_archived', data, 'p1'));
     expect(board.tasks.map((t) => t.id)).toEqual(['t1', 't2']);
 
     board.dragging = false;
@@ -794,8 +937,9 @@ describe('drag-aware queue', () => {
     expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
   });
 
-  it('reloads the archive as well as the board when the queued batch is discarded', async () => {
+  it('defers the reconnect refetch past the drag, then discards what queued behind it', async () => {
     board.archivedLoaded = true;
+    board.tasks = [task('t-before')];
     const socket = await connectAndAuth('p1');
     board.dragging = true;
 
@@ -810,6 +954,8 @@ describe('drag-aware queue', () => {
       }
       return jsonResponse(200, boardPayload());
     });
+    const paths = (): string[] =>
+      fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
 
     // Re-authenticating mid-drag defers the self-heal and drops the queued batch,
     // so the flush has to reload rather than replay.
@@ -818,6 +964,17 @@ describe('drag-aware queue', () => {
     const socket2 = latestSocket();
     socket2.open();
     socket2.receive({ type: 'auth_ok' });
+    socket2.receive(realtimeEvent('task_created', task('t-queued'), 'p1'));
+
+    for (let i = 0; i < 20; i++) {
+      await Promise.resolve();
+    }
+    // The one read that waits. A board replaced wholesale mid-gesture rewrites
+    // the very arrays svelte-dnd-action is mutating; the account and the project
+    // list are not the board and go out at once.
+    expect(paths()).not.toContain('/api/projects/p1');
+    expect(paths()).toContain('/api/projects');
+    expect(board.tasks.map((t) => t.id)).toEqual(['t-before']);
 
     board.dragging = false;
     flushSync();
@@ -825,9 +982,12 @@ describe('drag-aware queue', () => {
       await Promise.resolve();
     }
 
-    const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
-    expect(paths).toContain('/api/projects/p1');
-    expect(paths).toContain('/api/projects/p1/archived-tasks');
+    expect(paths()).toContain('/api/projects/p1');
+    expect(paths()).toContain('/api/projects/p1/archived-tasks');
+    // The refetched board wins outright: an event that queued during the drag
+    // describes a change the reload already carries, and replaying it on top
+    // would apply it twice against a board it was never computed from.
+    expect(board.tasks).toEqual([]);
   });
 
   it('routes every attachment event to the board and drops an unlisted type', async () => {
@@ -1035,6 +1195,66 @@ describe('reconnect', () => {
   });
 });
 
+// The schedule itself, which every other reconnect case here is satisfied by a
+// constant one second: each retry is closed the instant it opens, so the only
+// thing deciding when the next socket appears is the backoff.
+describe('the reconnect schedule', () => {
+  it('doubles each wait and then holds at thirty seconds', async () => {
+    const socket = await connectAndAuth('p1');
+    connectivity.noteUnreachable();
+    vi.useFakeTimers();
+
+    socket.serverClose();
+    let opened = 1;
+    for (const wait of [1000, 2000, 4000, 8000, 16_000, 30_000]) {
+      vi.advanceTimersByTime(wait - 1);
+      expect(FakeWebSocket.instances).toHaveLength(opened);
+      vi.advanceTimersByTime(1);
+      opened += 1;
+      expect(FakeWebSocket.instances).toHaveLength(opened);
+      latestSocket().serverClose();
+    }
+
+    // Doubling 30s would be a minute; the ceiling is what keeps it at 30s.
+    vi.advanceTimersByTime(29_999);
+    expect(FakeWebSocket.instances).toHaveLength(opened);
+    vi.advanceTimersByTime(1);
+    expect(FakeWebSocket.instances).toHaveLength(opened + 1);
+  });
+
+  it('starts over at one second once a retry re-authenticates', async () => {
+    const socket = await connectAndAuth('p1');
+    connectivity.noteUnreachable();
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL((input as Request).url);
+      if (url.pathname === '/api/projects') {
+        return jsonResponse(200, { projects: [] });
+      }
+      return jsonResponse(200, boardPayload());
+    });
+
+    // Two failed retries take the next wait to four seconds.
+    socket.serverClose();
+    vi.advanceTimersByTime(1000);
+    latestSocket().serverClose();
+    vi.advanceTimersByTime(2000);
+    expect(FakeWebSocket.instances).toHaveLength(3);
+
+    const revived = latestSocket();
+    revived.open();
+    revived.receive({ type: 'auth_ok' });
+
+    // The connection that just succeeded is what resets it; without that the
+    // next drop would wait out the four seconds the outage left behind.
+    revived.serverClose();
+    vi.advanceTimersByTime(999);
+    expect(FakeWebSocket.instances).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(FakeWebSocket.instances).toHaveLength(4);
+  });
+});
+
 describe('the socket as a reachability signal', () => {
   // The board's revalidating reads are skipped for as long as this socket holds
   // coverage, so while it is healthy there is no HTTP traffic left to answer the
@@ -1056,6 +1276,19 @@ describe('the socket as a reachability signal', () => {
     connectivity.noteUnreachable();
 
     socket.receive({ type: 'something_this_client_has_never_heard_of' });
+
+    expect(connectivity.reachable).toBe(true);
+  });
+
+  // Counted before the frame is understood, not after: a frame this client
+  // cannot even parse still crossed the network, and it is the only evidence
+  // there is while the socket is up and the revalidating reads are skipped.
+  it('counts a frame it could not parse at all', async () => {
+    const socket = await connectAndAuth('p1');
+    connectivity.noteUnreachable();
+    expect(connectivity.reachable).toBe(false);
+
+    socket.receiveRaw('{not json');
 
     expect(connectivity.reachable).toBe(true);
   });
@@ -1111,6 +1344,53 @@ describe('the socket as a reachability signal', () => {
     flushSync();
 
     expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+});
+
+describe('frames that are not events', () => {
+  // Every case pairs the bad frame with a good one afterwards, because "nothing
+  // was applied" is also what a socket that died on the bad frame looks like.
+  it('drops a binary frame and keeps applying the next good event', async () => {
+    const socket = await connectAndAuth('p1');
+
+    socket.receiveRaw(new ArrayBuffer(8));
+    expect(board.tasks).toEqual([]);
+
+    socket.receive(realtimeEvent('task_created', task('t1'), 'p1'));
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('drops a frame that is not JSON and keeps applying the next good event', async () => {
+    const socket = await connectAndAuth('p1');
+
+    socket.receiveRaw('{not json');
+    expect(board.tasks).toEqual([]);
+
+    socket.receive(realtimeEvent('task_created', task('t1'), 'p1'));
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  // Not a hypothetical shape: the frame is a type this client knows and a pod that
+  // predates the payload it now carries. #dispatch destructures `event.data`, so
+  // without the guard this throws out of onmessage rather than being ignored.
+  it('drops a known type that carries no payload and keeps applying the next good event', async () => {
+    const socket = await connectAndAuth('p1');
+
+    socket.receiveRaw(JSON.stringify({ type: 'project_changed', project_id: 'p2' }));
+    expect(board.tasks).toEqual([]);
+
+    socket.receive(realtimeEvent('task_created', task('t1'), 'p1'));
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('drops a frame whose type is not a string and keeps applying the next good event', async () => {
+    const socket = await connectAndAuth('p1');
+
+    socket.receiveRaw(JSON.stringify({ type: 7, project_id: 'p1', data: task('t1') }));
+    expect(board.tasks).toEqual([]);
+
+    socket.receive(realtimeEvent('task_created', task('t1'), 'p1'));
+    expect(board.tasks.map((t) => t.id)).toEqual(['t1']);
   });
 });
 
@@ -1189,6 +1469,21 @@ describe('logout', () => {
     vi.advanceTimersByTime(60_000);
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
+
+  // disconnect() nulls the handlers before closing, so #onClose never runs and
+  // the end() in disconnect() is the only thing that stops the token. Left
+  // answering, it would tell board.load() a board nothing is feeding is covered
+  // and suppress the revalidating read for it.
+  it('stops carrying the project it was covering', async () => {
+    await connectAndAuth('p1');
+    const carried = realtimeCoverage.tokenFor('p1');
+    expect(realtimeCoverage.holds('p1', carried)).toBe(true);
+
+    realtime.disconnect();
+
+    expect(realtimeCoverage.tokenFor('p1')).toBeNull();
+    expect(realtimeCoverage.holds('p1', carried)).toBe(false);
+  });
 });
 
 describe('offline notice', () => {
@@ -1265,9 +1560,14 @@ describe('offline notice', () => {
 
     vi.advanceTimersByTime(1999);
     expect(realtime.interrupted).toBe(false);
+    // t=2999, and the second retry is due at t=3000 rather than t=2000: the wait
+    // after the second close is two seconds, not another one. A fixed 1s backoff
+    // satisfies every other timing here, and only this says otherwise.
+    expect(FakeWebSocket.instances).toHaveLength(2);
 
     vi.advanceTimersByTime(1);
     expect(realtime.interrupted).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(3);
   });
 
   it('clears the latch when a later retry re-auths', async () => {
@@ -1404,6 +1704,11 @@ describe('user_updated dispatch', () => {
       realtimeEvent('user_updated', { id: 'u-peer', name: 'Peer', avatar_url: null }, null)
     );
 
+    // A macrotask before the negative assertion, for the reason the case above
+    // gives: a request started by the handler is not on `fetchMock` yet in the
+    // turn `receive()` returns in.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     expect(session.user?.email).toBe('m@e.com');
     expect(session.user?.email_verified).toBe(true);
     expect(users.byId('u-peer')?.name).toBe('Peer');
@@ -1432,6 +1737,10 @@ describe('account_updated dispatch', () => {
     session.user = { ...session.user!, email: 'old@e.com', email_verified: false };
 
     socket.receive(realtimeEvent('account_updated', ME, null));
+    // The event carries the whole account, so this is the assertion that it
+    // costs no round trip — and it only holds once a request the handler started
+    // would have reached `fetchMock`, which is a macrotask later.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(session.user?.email).toBe('new@e.com');
     expect(session.user?.email_verified).toBe(true);
