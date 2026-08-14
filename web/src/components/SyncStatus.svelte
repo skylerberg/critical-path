@@ -17,6 +17,7 @@
           pendingCount: outbox.count,
           draining: outbox.draining,
           socketInterrupted: realtime.interrupted,
+          socketEvicted: realtime.evicted,
           unresolvedIssues: outbox.issues.length,
           staleRead: board.staleRead,
         })
