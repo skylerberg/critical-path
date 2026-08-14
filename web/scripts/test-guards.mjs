@@ -543,4 +543,203 @@ export const guards = [
     replace: '    vi.unstubAllGlobals();',
     tests: ['src/components/ProjectHeader.test.ts'],
   },
+  {
+    // The card arms singularise and the column arms did not, and the counted
+    // form is reached by any burst holding more than one clause — so one column
+    // added beside one card added spoke "added 1 columns" to a screen reader.
+    name: 'the column clause singularises like the card one',
+    testName: 'counts one column change beside a card change without pluralising it',
+    file: 'src/lib/board-announcer.svelte.ts',
+    find: '      return `added ${columns(group.length)}`;',
+    replace: '      return `added ${String(group.length)} columns`;',
+    tests: ['src/lib/board-announcer.test.ts'],
+  },
+  {
+    // `columns` is rank-ordered by contract and Board.svelte renders straight
+    // off it, so this trailing sort is the only thing re-establishing that after
+    // a drop. Nothing called moveColumn until now, so deleting it was green.
+    name: 'a dropped column lands in rank order, not at the end of the array',
+    testName: 'moveColumn re-orders the columns before the response and PATCHes the new rank',
+    file: 'src/lib/board.svelte.ts',
+    find: '      .map((column) => (column.id === columnId ? { ...column, ...placement } : column))\n      .sort(byRank);',
+    replace:
+      '      .map((column) => (column.id === columnId ? { ...column, ...placement } : column));',
+    tests: ['src/lib/board.test.ts'],
+  },
+  {
+    // Clearing it only on the centering path leaves it set for every drag that
+    // centered nothing, and the flag then forces a slide on the next drop or
+    // reveal — one the user asked for nothing about.
+    name: 'a drag that scrolled and centered nothing still clears the flag',
+    testName: 'forgets the scroll when the drag ends over no zone at all',
+    file: 'src/routes/Board.svelte',
+    find: '    const scrolled = dragScrolled;\n    dragScrolled = false;\n    if (target === null) {\n      return;\n    }',
+    replace:
+      '    if (target === null) {\n      return;\n    }\n    const scrolled = dragScrolled;\n    dragScrolled = false;',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // The drop that commits nothing is exactly the one that skipped the landing:
+    // snap came back with the board parked wherever the edge scroll stopped, free
+    // to resolve onto a neighbouring column.
+    name: 'a drop that commits no move still lands a scrolled board on a snap position',
+    testName: 'slides onto the column even when the card is dropped where it was picked up',
+    file: 'src/routes/Board.svelte',
+    find: '      if (event.detail.info.source === SOURCES.POINTER && (drop !== null || dragScrolled)) {\n        centeringTarget = columnId;',
+    replace:
+      '      if (event.detail.info.source === SOURCES.POINTER && drop !== null) {\n        centeringTarget = columnId;',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // A keyboard drag finalizes on every arrow press, so this reads as the end of
+    // the drag and is not one. Dropping the flag there lets realtime board edits
+    // and shortcuts land underneath a gesture still in progress.
+    name: 'a card keyboard drag keeps the drag flag up between arrows',
+    testName: 'reorders task cards with Enter and arrows, committing each move',
+    file: 'src/routes/Board.svelte',
+    find: '      taskDragging = event.detail.info.source === SOURCES.KEYBOARD;',
+    replace: '      taskDragging = false;',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    name: 'a column keyboard drag keeps the drag flag up between arrows',
+    testName: 'reorders columns by keyboard via the drag handle',
+    file: 'src/routes/Board.svelte',
+    find: '    columnDragging = event.detail.info.source === SOURCES.KEYBOARD;',
+    replace: '    columnDragging = false;',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // Re-syncing the rendered lists mid-gesture rewrites the very arrays
+    // svelte-dnd-action is mutating, and a realtime arrival is what does it at an
+    // arbitrary moment. Both freezes read as redundant until one is deleted.
+    name: 'the card list is frozen for the length of a drag',
+    testName: 'ignores a card that arrives over the wire mid-drag',
+    file: 'src/routes/Board.svelte',
+    find: '    if (!taskDragging) {\n      syncLocalTasks();\n    }',
+    replace: '    syncLocalTasks();',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    name: 'the column list is frozen for the length of a drag',
+    testName: 'ignores a column that arrives over the wire mid-drag',
+    file: 'src/routes/Board.svelte',
+    find: '    if (!columnDragging) {\n      localColumns = [...board.columns];\n    }',
+    replace: '    localColumns = [...board.columns];',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // The routing sets decide by membership alone, so a type dropped from one
+    // reaches no branch and is discarded in silence — no error, no toast, just a
+    // board that stops hearing about renames.
+    name: 'every event type the API publishes is routed somewhere',
+    testName: 'lands every type the API publishes where its set says, and nowhere else',
+    file: 'src/lib/realtime.svelte.ts',
+    find: "  'task_updated',\n",
+    replace: '',
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    name: 'the reconnect wait doubles rather than repeating',
+    testName: 'doubles each wait and then holds at thirty seconds',
+    file: 'src/lib/realtime.svelte.ts',
+    find: '    this.#backoff = Math.min(this.#backoff * 2, MAX_BACKOFF_MS);',
+    replace: '    this.#backoff = Math.min(this.#backoff, MAX_BACKOFF_MS);',
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    // Otherwise one bad afternoon leaves the tab waiting half a minute after
+    // every drop for the rest of the session.
+    name: 'a connection that succeeds puts the wait back to one second',
+    testName: 'starts over at one second once a retry re-authenticates',
+    file: 'src/lib/realtime.svelte.ts',
+    find: '    this.#clearOfflineNotice();\n    this.#backoff = INITIAL_BACKOFF_MS;',
+    replace: '    this.#clearOfflineNotice();',
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    // disconnect() nulls the handlers before closing, so #onClose never runs and
+    // this end() is the only one on the path. Left out, coverage keeps answering
+    // for a board no socket is feeding and the revalidating read is skipped.
+    name: 'disconnecting stops the coverage token as well as the socket',
+    testName: 'stops carrying the project it was covering',
+    file: 'src/lib/realtime.svelte.ts',
+    find: '    this.#needsBoardRefetch = false;\n    realtimeCoverage.end();',
+    replace: '    this.#needsBoardRefetch = false;',
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    name: 'a reconnect mid-drag waits for the drag before replacing the board',
+    testName: 'defers the reconnect refetch past the drag, then discards what queued behind it',
+    file: 'src/lib/realtime.svelte.ts',
+    find: '      if (board.dragBusy) {\n        this.#needsBoardRefetch = true;\n      } else {\n        void board.resync();\n      }',
+    replace: '      void board.resync();',
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    // The other half of the same mechanism: the deferred refetch has to throw
+    // the batch away, because those events describe changes the reload carries.
+    name: 'the deferred refetch discards the batch that queued behind the drag',
+    testName: 'defers the reconnect refetch past the drag, then discards what queued behind it',
+    file: 'src/lib/realtime.svelte.ts',
+    find: '    if (this.#needsBoardRefetch) {\n      this.#needsBoardRefetch = false;\n      // This branch discards the whole queued batch, archive events included, so\n      // it has to reload the archive as well as the board.\n      boardAnnouncer.reset();\n      void board.resync();\n      return;\n    }\n',
+    replace: '',
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    name: 'a frame that is not JSON is dropped rather than thrown out of onmessage',
+    testName: 'drops a frame that is not JSON and keeps applying the next good event',
+    file: 'src/lib/realtime.svelte.ts',
+    find: '    let message: { type?: unknown; project_id?: unknown; data?: unknown };\n    try {\n      message = JSON.parse(raw);\n    } catch {\n      return;\n    }',
+    replace:
+      '    const message: { type?: unknown; project_id?: unknown; data?: unknown } = JSON.parse(raw);',
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    // Ahead of the guards, not after them: while the socket is up the reads that
+    // would otherwise answer the reachability question are being skipped, so a
+    // frame this client cannot parse is still the only evidence there is.
+    name: 'a frame counts as reachability before anything tries to understand it',
+    testName: 'counts a frame it could not parse at all',
+    file: 'src/lib/realtime.svelte.ts',
+    find: "    connectivity.noteReached();\n    if (typeof raw !== 'string') {\n      return;\n    }\n    let message: { type?: unknown; project_id?: unknown; data?: unknown };\n    try {\n      message = JSON.parse(raw);\n    } catch {\n      return;\n    }",
+    replace:
+      "    if (typeof raw !== 'string') {\n      return;\n    }\n    let message: { type?: unknown; project_id?: unknown; data?: unknown };\n    try {\n      message = JSON.parse(raw);\n    } catch {\n      return;\n    }\n    connectivity.noteReached();",
+    tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    // The column handler's own copy of the arm two guards above. Two copies means
+    // two mutations: the card test never fires a column drag, so the card guard
+    // says nothing about this line and it could be deleted with the suite green.
+    name: 'a column drop that commits no move still lands a scrolled board',
+    testName: 'slides onto the column even when a column is dropped where it was picked up',
+    file: 'src/routes/Board.svelte',
+    find: '      if (event.detail.info.source === SOURCES.POINTER && (drop !== null || dragScrolled)) {\n        centeringTarget = event.detail.info.id;',
+    replace:
+      '      if (event.detail.info.source === SOURCES.POINTER && drop !== null) {\n        centeringTarget = event.detail.info.id;',
+    tests: ['src/routes/Board.test.ts'],
+  },
+  {
+    // #adoptHandoff re-checks the project, so dropping this filter is invisible
+    // from the board being loaded — the entry simply sits in the map until the
+    // project it names is opened, and is then adopted for a navigation that ended
+    // several screens ago.
+    name: 'a handoff for another project does not outlive the load that passed it by',
+    testName: 'drops a payload handed over for a board other than the one being loaded',
+    file: 'src/lib/board.svelte.ts',
+    find: '        ([, entry]) => entry.detail.project_id === projectId',
+    replace: '        () => true',
+    tests: ['src/lib/board.test.ts'],
+  },
+  {
+    // Not a malformed frame: a known type from a pod that predates the payload it
+    // now carries. #dispatch destructures event.data, so the throw escapes
+    // onmessage and the socket stops applying anything that frame was carrying.
+    name: 'a frame with no payload is dropped rather than thrown out of onmessage',
+    testName: 'drops a known type that carries no payload',
+    file: 'src/lib/realtime.svelte.ts',
+    find: "    if (typeof message.data !== 'object' || message.data === null) {\n      return;\n    }\n",
+    replace: '',
+    tests: ['src/lib/realtime.test.ts'],
+  },
 ];

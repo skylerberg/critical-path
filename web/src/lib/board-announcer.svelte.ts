@@ -129,6 +129,13 @@ function cards(count: number): string {
   return `${String(count)} card${count === 1 ? '' : 's'}`;
 }
 
+// A burst holding one column change and any card change is counted rather than
+// named, so the singular is reached by the ordinary case and not only by a
+// teammate adding two columns at once.
+function columns(count: number): string {
+  return `${String(count)} column${count === 1 ? '' : 's'}`;
+}
+
 const CLAUSE_ORDER = [
   'added',
   'restored',
@@ -180,9 +187,9 @@ function countedClause(kind: Change['kind'], group: Change[]): string {
         : `moved ${cards(group.length)}`;
     }
     case 'column-added':
-      return `added ${String(group.length)} columns`;
+      return `added ${columns(group.length)}`;
     case 'column-deleted':
-      return `deleted ${String(group.length)} columns`;
+      return `deleted ${columns(group.length)}`;
   }
 }
 

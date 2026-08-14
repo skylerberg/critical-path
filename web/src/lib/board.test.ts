@@ -2,7 +2,8 @@ import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { board, placementAfterDrop, type TaskAttachment, type TaskSeriesRef } from './board.svelte';
 import { noFilters, parseFilters } from './board-filters';
-import type { BoardPayload } from './board-types';
+import { connectivity } from './connectivity.svelte';
+import type { BoardPayload, BoardTask } from './board-types';
 import { computeGraph } from './graph';
 import { clearOfflineCache } from './offline-cache';
 import { outbox } from './outbox.svelte';
@@ -23,6 +24,15 @@ const SERVER_CREATED_AT = '2026-01-15T00:00:00Z';
 const SERVER_UPDATED_AT = '2026-02-01T00:00:00Z';
 const SERVER_COVER_IMAGE_URL = '/api/images/copied-img';
 const SERVER_ARCHIVED_AT = '2026-03-01T00:00:00Z';
+
+// Nothing here issues a request synchronously: every write goes through the
+// outbox or openapi-fetch's middleware, both of which await before touching
+// fetch. So `expect(fetchMock).not.toHaveBeenCalled()` in a synchronous test
+// body is satisfied by a method that fired a request and returned — which is
+// exactly the regression those assertions exist to catch. Drain first.
+function settled(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function commentBody(text: string) {
   return {
@@ -67,7 +77,7 @@ function serverChecklistItem(
   };
 }
 
-function task(id: string, columnId: string, position: number, title: string) {
+function task(id: string, columnId: string, position: number, title: string): BoardTask {
   return {
     id,
     column_id: columnId,
@@ -81,7 +91,6 @@ function task(id: string, columnId: string, position: number, title: string) {
     assignee_ids: [],
     blocker_ids: [],
     open_cross_project_blocker_count: 0,
-    image_count: 0,
     cover_image_url: null,
     due_date: null,
     comment_count: 0,
@@ -248,7 +257,7 @@ function mockRoutes(override?: (request: Request, url: URL) => Response | undefi
         id: string;
         task_id: string;
         text: string;
-        position: number;
+        sort_key: string;
       };
       return jsonResponse(201, {
         ...body,
@@ -603,6 +612,39 @@ describe('reads the socket has already answered', () => {
     expect(detailReads()).toBe(1);
   });
 
+  // The order production actually uses: a short link reads the card to find out
+  // which project it is in, so the offer always precedes that project's load —
+  // and that load resets the store, which the payload has to survive.
+  it('opens a card handed over before its board had been loaded', async () => {
+    board.offerTaskDetail(handedDetail());
+
+    await board.load('p1');
+    await board.ensureTaskDetail('t1');
+
+    expect(detailReads()).toBe(0);
+    expect(board.taskComments.t1?.[0]?.id).toBe('cm-handed');
+  });
+
+  // The drop has to be observed on p2's own board, because that is the only place
+  // it shows: #adoptHandoff rejects a foreign payload anyway, so a load of p1 that
+  // carried the p2 entry across looks identical from p1. What the load filter alone
+  // decides is whether the entry is still sitting there when p2 arrives.
+  it('drops a payload handed over for a board other than the one being loaded', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === '/api/projects/p2'
+        ? jsonResponse(200, payload())
+        : undefined
+    );
+    board.offerTaskDetail(handedDetail({ project_id: 'p2' }));
+
+    await board.load('p1');
+    await board.load('p2');
+    await board.ensureTaskDetail('t1');
+
+    expect(detailReads()).toBe(1);
+    expect(board.taskComments.t1?.[0]?.id).toBe('srv');
+  });
+
   it('ignores a handed-over payload belonging to another board', async () => {
     await board.load('p1');
     board.offerTaskDetail(handedDetail({ project_id: 'p2' }));
@@ -654,8 +696,8 @@ describe('board store readonly mode', () => {
   const publicPayload = {
     project: { id: 'p1', name: 'Public Game', description: 'shared' },
     columns: [
-      { id: 'c2', name: 'Done', position: 2000, sort_key: 'V0000020001', is_done: true },
-      { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
+      { id: 'c2', name: 'Done', sort_key: 'V0000020001', is_done: true },
+      { id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false },
     ],
     tasks: [
       {
@@ -668,7 +710,6 @@ describe('board store readonly mode', () => {
         assignee_ids: ['u-ada'],
         blocker_ids: [],
         open_cross_project_blocker_count: 0,
-        image_count: 2,
         cover_image_url: '/api/images/img1',
         comment_count: 2,
         checklist_item_count: 2,
@@ -685,7 +726,6 @@ describe('board store readonly mode', () => {
         assignee_ids: [],
         blocker_ids: [],
         open_cross_project_blocker_count: 0,
-        image_count: 0,
         cover_image_url: null,
         comment_count: 0,
         checklist_item_count: 0,
@@ -717,8 +757,11 @@ describe('board store readonly mode', () => {
       },
     ],
     checklist_items: [
-      { id: 'ci2', task_id: 't1', text: 'second', checked: false, position: 2000 },
-      { id: 'ci1', task_id: 't1', text: 'first', checked: true, position: 1000 },
+      // Keys and ids deliberately disagree. `byRank` breaks a tie on id and
+      // treats an unkeyed row as tied, so a fixture whose id order matches its
+      // intended order cannot tell a rank sort from no sort at all.
+      { id: 'ci1', task_id: 't1', text: 'second', checked: false, sort_key: 'V2' },
+      { id: 'ci2', task_id: 't1', text: 'first', checked: true, sort_key: 'V1' },
     ],
   };
 
@@ -921,13 +964,28 @@ describe('board store mutations', () => {
 
     const moved = board.tasks.find((t) => t.id === 't1');
     expect(moved?.column_id).toBe('c2');
+    expect(moved?.sort_key).toBe('V3000');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const request = requestAt(0);
     expect(request.method).toBe('PATCH');
     expect(new URL(request.url).pathname).toBe('/api/tasks/t1');
-    expect(await request.json()).toEqual({
+    expect(await request.json()).toEqual({ column_id: 'c2', sort_key: 'V3000' });
+  });
+
+  // The destination column alone cannot tell a drop from an append: every card
+  // sent to c2 ends up in c2 either way. The slot within it is the half a caller
+  // has to hand over intact.
+  it('moveTask lands the card in the slot it was dropped into, not at the end', async () => {
+    const display = [board.tasks.find((t) => t.id === 't1')!, ...board.tasksInColumn('c2')];
+    const drop = placementAfterDrop(display, 't1')!;
+
+    await board.moveTask('t1', 'c2', drop.placement, drop.intent);
+
+    expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t1', 't3']);
+    expect(board.tasks.find((t) => t.id === 't1')?.sort_key).toBe(drop.placement.sort_key);
+    expect(await requestAt(0).json()).toEqual({
       column_id: 'c2',
-      sort_key: expect.any(String),
+      sort_key: drop.placement.sort_key,
     });
   });
 
@@ -1048,6 +1106,19 @@ describe('board store mutations', () => {
     expect(toasts.toasts).toHaveLength(0);
   });
 
+  // The size the endpoint accepts, and the only case that separates `>` from
+  // `>=`: at 101 both refuse, at 0 both decline for another reason.
+  it('createTasks accepts a paste of exactly 100 titles', async () => {
+    const titles = Array.from({ length: 100 }, (_, i) => `T${String(i)}`);
+
+    const ids = await board.createTasks('c1', titles);
+
+    expect(ids).toHaveLength(100);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/tasks/batch');
+    expect(toasts.toasts).toHaveLength(0);
+  });
+
   it('createTasks refuses more than 100 titles without touching the board', async () => {
     const titles = Array.from({ length: 101 }, (_, i) => `T${i}`);
 
@@ -1109,10 +1180,11 @@ describe('board store mutations', () => {
     expect(board.tasksInColumn('c2').map((t) => t.id)).toEqual(['t3', 't1']);
   });
 
-  it('markTaskDone declines and issues nothing when no column is done', () => {
+  it('markTaskDone declines and issues nothing when no column is done', async () => {
     board.columns = board.columns.map((column) => ({ ...column, is_done: false }));
 
     expect(board.markTaskDone('t1')).toBe(false);
+    await settled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1296,8 +1368,8 @@ describe('board store mutations', () => {
       request.method === 'DELETE' && url.pathname === '/api/columns/c1'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' },
-              { id: 't2', column_id: 'c2', position: 5000, sort_key: 'V0000050001' },
+              { id: 't1', column_id: 'c2', sort_key: 'V0000040001' },
+              { id: 't2', column_id: 'c2', sort_key: 'V0000050001' },
             ],
           })
         : undefined
@@ -1338,6 +1410,62 @@ describe('board store mutations', () => {
 
     expect(submit.mock.calls[0]?.[0].label).toBe('Deleted column “Empty”');
     submit.mockRestore();
+  });
+
+  it('createColumn appends the column before the response and POSTs its id and rank', async () => {
+    const pending = board.createColumn('Review');
+
+    const added = board.columns.at(-1)!;
+    expect(board.columns.map((c) => c.name)).toEqual(['Todo', 'Done', 'Empty', 'Review']);
+    expect(added.is_done).toBe(false);
+    expect(added.sort_key > board.columns[2]!.sort_key).toBe(true);
+
+    await pending;
+
+    const request = requestAt(0);
+    expect(request.method).toBe('POST');
+    expect(new URL(request.url).pathname).toBe('/api/columns');
+    expect(await request.json()).toEqual({
+      id: added.id,
+      project_id: 'p1',
+      name: 'Review',
+      sort_key: added.sort_key,
+    });
+  });
+
+  // The store is what keeps `columns` in rank order — Board.svelte renders
+  // straight off it — and the trailing sort here is the only thing maintaining
+  // that after a drop.
+  it('moveColumn re-orders the columns before the response and PATCHes the new rank', async () => {
+    const drop = placementAfterDrop(
+      [board.columns[2]!, board.columns[0]!, board.columns[1]!],
+      'c3'
+    )!;
+
+    const pending = board.moveColumn('c3', drop.placement);
+
+    expect(board.columns.map((c) => c.id)).toEqual(['c3', 'c1', 'c2']);
+
+    await pending;
+
+    const request = requestAt(0);
+    expect(request.method).toBe('PATCH');
+    expect(new URL(request.url).pathname).toBe('/api/columns/c3');
+    expect(await request.json()).toEqual({ sort_key: drop.placement.sort_key });
+  });
+
+  it('moveColumn toasts and refetches the board rather than rolling the rank back', async () => {
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === '/api/columns/c3'
+        ? jsonResponse(422, { error: 'nope' })
+        : undefined
+    );
+
+    await board.moveColumn('c3', { sort_key: 'V00000005' });
+
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
+    expect(requestAt(1).method).toBe('GET');
+    expect(board.columns.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
   });
 
   it('renameColumn renames the column and PATCHes the new name', async () => {
@@ -1458,10 +1586,14 @@ describe('board store mutations', () => {
         : undefined
     );
 
-    await expect(board.updateLabel('l1', { name: 'art' })).rejects.toThrow(
+    // A rename the store can be seen undoing: patching 'art' to 'art' leaves the
+    // labels identical whether or not the resync ran.
+    await expect(board.updateLabel('l1', { name: 'sound' })).rejects.toThrow(
       'Label name already in use'
     );
 
+    expect(board.labels.map((l) => l.name)).toEqual(['art']);
+    expect(requestAt(1).method).toBe('GET');
     expect(toasts.toasts).toHaveLength(0);
   });
 
@@ -2015,13 +2147,27 @@ describe('sortColumn', () => {
     ];
   });
 
+  // Asserted before the await, because the reorder route echoes keys derived
+  // from the ids it was sent: after it resolves, both the order and the ascending
+  // keys hold on the server's answer alone and the optimistic restack could be
+  // deleted outright. An ascending check on `tasksInColumn` is no help either —
+  // that bucket comes back sorted by the same comparison.
   it('rewrites sort keys to match the sort, one-shot', async () => {
-    await board.sortColumn('c1', 'title-asc');
+    const before = new Map(board.tasksInColumn('c1').map((t) => [t.id, t.sort_key]));
+
+    const pending = board.sortColumn('c1', 'title-asc');
+
+    const restamped = board.tasksInColumn('c1');
+    expect(restamped.map((t) => t.id)).toEqual(['t2', 't3', 't1']);
+    // The whole column, not just the cards that moved, so a later drag has room
+    // between any two of them.
+    for (const moved of restamped) {
+      expect(moved.sort_key).not.toBe(before.get(moved.id));
+    }
+
+    await pending;
 
     expect(board.tasksInColumn('c1').map((t) => t.id)).toEqual(['t2', 't3', 't1']);
-    // The whole column is re-stamped, not just the cards that moved.
-    const keys = board.tasksInColumn('c1').map((t) => t.sort_key);
-    expect([...keys].sort()).toEqual(keys);
   });
 
   it('posts the ordered ids to the reorder endpoint', async () => {
@@ -2441,9 +2587,9 @@ describe('archive', () => {
       request.method === 'DELETE' && url.pathname === '/api/columns/c1'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 4000, sort_key: 'V0000040001' },
-              { id: 't9', column_id: 'c2', position: 5000, sort_key: 'V0000050001' },
-              { id: 't2', column_id: 'c2', position: 6000, sort_key: 'V0000060001' },
+              { id: 't1', column_id: 'c2', sort_key: 'V0000040001' },
+              { id: 't9', column_id: 'c2', sort_key: 'V0000050001' },
+              { id: 't2', column_id: 'c2', sort_key: 'V0000060001' },
             ],
           })
         : undefined
@@ -2590,8 +2736,8 @@ describe('column bulk actions', () => {
       request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 2000, sort_key: 'V0000020001' },
-              { id: 't2', column_id: 'c2', position: 3000, sort_key: 'V0000030001' },
+              { id: 't1', column_id: 'c2', sort_key: 'V0000020001' },
+              { id: 't2', column_id: 'c2', sort_key: 'V0000030001' },
             ],
           })
         : undefined
@@ -2618,8 +2764,8 @@ describe('column bulk actions', () => {
       request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 8000, sort_key: 'V0000080001' },
-              { id: 't2', column_id: 'c2', position: 9000, sort_key: 'V0000090001' },
+              { id: 't1', column_id: 'c2', sort_key: 'V0000080001' },
+              { id: 't2', column_id: 'c2', sort_key: 'V0000090001' },
             ],
           })
         : undefined
@@ -2635,7 +2781,7 @@ describe('column bulk actions', () => {
     mockRoutes((request, url) =>
       request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
         ? jsonResponse(200, {
-            moved_tasks: [{ id: 't1', column_id: 'c2', position: 8000, sort_key: 'V0000080001' }],
+            moved_tasks: [{ id: 't1', column_id: 'c2', sort_key: 'V0000080001' }],
           })
         : undefined
     );
@@ -2651,8 +2797,8 @@ describe('column bulk actions', () => {
       request.method === 'POST' && url.pathname === '/api/columns/c1/move-tasks'
         ? jsonResponse(200, {
             moved_tasks: [
-              { id: 't1', column_id: 'c2', position: 8000, sort_key: 'V0000080001' },
-              { id: 't9', column_id: 'c2', position: 9000, sort_key: 'V0000090001' },
+              { id: 't1', column_id: 'c2', sort_key: 'V0000080001' },
+              { id: 't9', column_id: 'c2', sort_key: 'V0000090001' },
             ],
           })
         : undefined
@@ -2877,8 +3023,8 @@ describe('selection bulk actions', () => {
     it('appends in the order it was given and adopts the server positions', async () => {
       answer('/api/tasks/bulk-move', {
         moved_tasks: [
-          { id: 't2', column_id: 'c2', position: 7000, sort_key: 'V0000070001' },
-          { id: 't1', column_id: 'c2', position: 8000, sort_key: 'V0000080001' },
+          { id: 't2', column_id: 'c2', sort_key: 'V0000070001' },
+          { id: 't1', column_id: 'c2', sort_key: 'V0000080001' },
         ],
         skipped_task_ids: [],
       });
@@ -2900,7 +3046,7 @@ describe('selection bulk actions', () => {
 
     it('names the counts and resyncs when the server skipped a card', async () => {
       answer('/api/tasks/bulk-move', {
-        moved_tasks: [{ id: 't1', column_id: 'c2', position: 7000, sort_key: 'V0000070001' }],
+        moved_tasks: [{ id: 't1', column_id: 'c2', sort_key: 'V0000070001' }],
         skipped_task_ids: ['t2'],
       });
 
@@ -2915,8 +3061,8 @@ describe('selection bulk actions', () => {
     it('resyncs when the server moved a card we did not send', async () => {
       answer('/api/tasks/bulk-move', {
         moved_tasks: [
-          { id: 't1', column_id: 'c2', position: 7000, sort_key: 'V0000070001' },
-          { id: 't9', column_id: 'c2', position: 8000, sort_key: 'V0000080001' },
+          { id: 't1', column_id: 'c2', sort_key: 'V0000070001' },
+          { id: 't9', column_id: 'c2', sort_key: 'V0000080001' },
         ],
         skipped_task_ids: [],
       });
@@ -3485,7 +3631,7 @@ describe('board store comments', () => {
     expect(board.taskComments.t1!.map((c) => c.id)).toEqual(['early', 'late']);
   });
 
-  it('applyRealtime patches a comment_updated in place and removes a comment_deleted by id', () => {
+  it('applyRealtime patches a comment_updated in place and removes a comment_deleted by id', async () => {
     board.taskComments = { t1: [serverComment('before', 'cm1')] };
 
     board.applyRealtime(
@@ -3505,6 +3651,7 @@ describe('board store comments', () => {
 
     expect(board.taskComments.t1).toEqual([]);
     expect(board.tasks.find((t) => t.id === 't1')?.comment_count).toBe(0);
+    await settled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -3706,6 +3853,24 @@ describe('board store checklists', () => {
     // The server's own echo lands afterwards and must not double the card.
     board.applyRealtime(realtimeEvent('task_created', task(id!, 'c1', 1500, 'promoted'), 'p1'));
     expect(board.tasks.filter((t) => t.id === id)).toHaveLength(1);
+  });
+
+  // The one checklist write with two sides to repair — an item off the list and
+  // a card onto the board — and both repairs issue a GET, so "invalidate, then
+  // some GET" is satisfied by either of them alone.
+  it('promoteChecklistItem failure takes the phantom card back off and restores the item', async () => {
+    board.taskChecklists = { t1: [serverChecklistItem('a task', 'ci1', 0, false, 'V0')] };
+    mockRoutes((_request, url) =>
+      url.pathname === '/api/checklist-items/ci1/promote'
+        ? jsonResponse(500, { error: 'boom' })
+        : undefined
+    );
+
+    expect(await board.promoteChecklistItem('t1', 'ci1')).toBeNull();
+
+    expect(board.tasks.some((t) => t.title === 'a task')).toBe(false);
+    expect(board.taskChecklists.t1!.map((item) => item.id)).toEqual(['ci-srv']);
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['boom']);
   });
 
   it('promoteChecklistItem returns null and calls nothing when the parent is gone', async () => {
@@ -4322,9 +4487,7 @@ describe('what changed since you last looked', () => {
       return url.pathname === '/api/public/projects/p1/board'
         ? jsonResponse(200, {
             project: { id: 'p1', name: 'Public Game', description: '' },
-            columns: [
-              { id: 'c1', name: 'Todo', position: 1000, sort_key: 'V0000010001', is_done: false },
-            ],
+            columns: [{ id: 'c1', name: 'Todo', sort_key: 'V0000010001', is_done: false }],
             tasks: [
               {
                 id: 't1',
@@ -4336,7 +4499,6 @@ describe('what changed since you last looked', () => {
                 assignee_ids: [],
                 blocker_ids: [],
                 open_cross_project_blocker_count: 0,
-                image_count: 0,
                 cover_image_url: null,
                 comment_count: 0,
               },
@@ -4576,7 +4738,7 @@ describe('board store attachments', () => {
     expect(board.taskAttachments.t1).toBeUndefined();
   });
 
-  it('applyRealtime swaps in an unfurled row and deletes by the id the event carries', () => {
+  it('applyRealtime swaps in an unfurled row and deletes by the id the event carries', async () => {
     board.taskAttachments = {
       t1: [serverAttachment({ kind: 'link', url: 'https://x.test/', unfurl_state: 'pending' })],
     };
@@ -4604,6 +4766,7 @@ describe('board store attachments', () => {
       realtimeEvent('attachment_deleted', { id: A1, task_id: 't1', attachment_count: 0 }, 'p1')
     );
     expect(board.taskAttachments.t1).toEqual([]);
+    await settled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -4657,6 +4820,25 @@ describe('board store attachments', () => {
 
       expect(countOf()).toBe(2);
     });
+  });
+
+  // The one attachment operation whose failure path nothing reached. It runs
+  // whenever the blob GET 404s — the row was deleted from another tab — and it
+  // must not hand a saved file the error body instead of the bytes.
+  it('downloadAttachment surfaces the server message and saves nothing', async () => {
+    const createObjectURL = vi.fn(() => 'blob:never');
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL }));
+    mockRoutes((request, url) =>
+      request.method === 'GET' && url.pathname === `/api/attachments/${A1}/download`
+        ? jsonResponse(404, { error: 'Attachment not found' })
+        : undefined
+    );
+
+    await board.downloadAttachment(serverAttachment());
+
+    expect(toasts.toasts.map((t) => t.message)).toEqual(['Attachment not found']);
+    expect(createObjectURL).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it('reset clears the cached lists', async () => {
@@ -4721,5 +4903,118 @@ describe('a board read that cannot reach the server', () => {
     await board.load('p-never-seen', noFilters());
 
     expect(board.error).toBe('Failed to load board');
+  });
+});
+
+// Every board write goes through the outbox, which queues rather than sends
+// whenever the server is unreachable. Several methods have a bespoke branch for
+// that answer and nothing here had ever reached one.
+describe('mutations made while the server is unreachable', () => {
+  const OFFLINE_MESSAGE = 'You are offline. This one could not be saved and was not queued.';
+  const ATTACHMENT_ID = testUuid('att-offline');
+
+  function attachmentRow(): TaskAttachment {
+    return {
+      id: ATTACHMENT_ID,
+      task_id: 't1',
+      kind: 'file',
+      image_url: null,
+      is_cover: false,
+      title: null,
+      description: null,
+      filename: 'spec.pdf',
+      content_type: 'application/pdf',
+      size_bytes: 12,
+      url: null,
+      preview_url: null,
+      favicon_url: null,
+      unfurl_state: null,
+      created_at: SERVER_CREATED_AT,
+      updated_at: SERVER_CREATED_AT,
+    };
+  }
+
+  function gets(): string[] {
+    return fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => request.method === 'GET')
+      .map((request) => new URL(request.url).pathname);
+  }
+
+  beforeEach(async () => {
+    await board.load('p1');
+    fetchMock.mockClear();
+    connectivity.reachable = false;
+  });
+
+  // The row was taken out of the archive before the send, so with no server
+  // version to put on the board the card would otherwise be in neither list
+  // until the network came back.
+  it('restoreTask puts the card back from the archived copy it already had', async () => {
+    board.archivedTasks = [{ ...task('t9', 'c1', 4000, 'Old'), archived_at: SERVER_ARCHIVED_AT }];
+
+    await board.restoreTask('t9');
+
+    expect(board.tasks.find((t) => t.id === 't9')?.title).toBe('Old');
+    expect(board.archivedTasks).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('updateTask reports the write as queued and leaves the optimistic patch standing', async () => {
+    const outcome = await board.updateTask('t1', { title: 'Renamed' });
+
+    expect(outcome).toEqual({ status: 'queued' });
+    expect(board.tasks.find((t) => t.id === 't1')?.title).toBe('Renamed');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The two fields that make a queued edit resolvable: without them the replay
+  // is an ordinary patch, so a 409 minutes later has no both-versions choice to
+  // offer and a second offline edit is judged against the user's own first one.
+  it('updateTask queues a guarded edit as a contentEdit carrying both versions', async () => {
+    const submit = vi.spyOn(outbox, 'submit');
+    const base = { title: 'A', description: null };
+
+    await board.updateTask('t1', { title: 'Renamed' }, '2026-01-01T00:00:00Z', base);
+
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        semantics: 'contentEdit',
+        conflict: { taskId: 't1', base, mine: { title: 'Renamed', description: null } },
+      })
+    );
+    submit.mockRestore();
+  });
+
+  it('updateTask queues an unguarded edit as a plain op with no conflict context', async () => {
+    const submit = vi.spyOn(outbox, 'submit');
+
+    await board.updateTask('t1', { title: 'Renamed' }, '2026-01-01T00:00:00Z');
+
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({ semantics: 'plain', conflict: undefined })
+    );
+    submit.mockRestore();
+  });
+
+  it('bulkSetLabel queues one op with the optimistic label standing', async () => {
+    await board.bulkSetLabel(['t2'], 'l1', true);
+
+    expect(board.tasks.find((t) => t.id === 't2')?.label_ids).toEqual(['l1']);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(outbox.count).toBe(1);
+  });
+
+  // Attachments bypass the outbox, so a rejected fetch reaches the failure
+  // policy as a raw TypeError rather than an ApiError — the one path on which
+  // "offline" is the honest description and there is nothing to re-read.
+  it('says an attachment delete was not saved, and reads nothing back', async () => {
+    board.taskAttachments = { t1: [attachmentRow()] };
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await board.deleteAttachment('t1', ATTACHMENT_ID);
+
+    expect(toasts.toasts.map((t) => t.message)).toEqual([OFFLINE_MESSAGE]);
+    expect(gets()).toEqual([]);
   });
 });
