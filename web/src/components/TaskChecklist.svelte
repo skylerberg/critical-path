@@ -11,6 +11,7 @@
   import { focusAndSelect } from '../lib/actions';
   import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { ChecklistItem } from '../lib/board-types';
+  import { DROP_TARGET_STYLE } from '../lib/dnd';
   import { motion } from '../lib/motion.svelte';
   import { router } from '../lib/router.svelte';
   import { isDragPlaceholder } from '../lib/short-links';
@@ -28,7 +29,6 @@
   let { taskId, taskPath, readonly = false }: Props = $props();
 
   const FLIP_MS = 150;
-  const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
 
   const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
   const task = $derived(board.tasks.find((t) => t.id === taskId));
@@ -220,7 +220,7 @@
         type: 'checklist',
         flipDurationMs: flipMs,
         dropAnimationDisabled: motion.reduced,
-        dropTargetStyle,
+        dropTargetStyle: DROP_TARGET_STYLE,
         dropFromOthersDisabled: true,
         dragDisabled: readonly,
         zoneItemTabIndex: readonly ? -1 : 0,

@@ -10,6 +10,7 @@
   import { accentVar } from '../lib/accents';
   import { suppressTouchContextMenu } from '../lib/actions';
   import { APP_NAME } from '../lib/constants';
+  import { DROP_TARGET_STYLE } from '../lib/dnd';
   import { motion } from '../lib/motion.svelte';
   import { paletteChordHint } from '../lib/palette';
   import { projects, type Project } from '../lib/projects.svelte';
@@ -23,7 +24,6 @@
   import ColorDot from './ui/ColorDot.svelte';
 
   const FLIP_MS = 150;
-  const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
 
   const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
 
@@ -233,7 +233,7 @@
       type: 'sidebar-project',
       flipDurationMs: flipMs,
       dropAnimationDisabled: motion.reduced,
-      dropTargetStyle,
+      dropTargetStyle: DROP_TARGET_STYLE,
       delayTouchStart: true,
       zoneItemTabIndex: 0,
     }}
