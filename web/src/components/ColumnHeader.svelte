@@ -136,7 +136,7 @@
       type="button"
       onclick={startRename}
       title="Rename column"
-      class="min-h-11 min-w-0 flex-1 cursor-text truncate text-left text-sm font-semibold"
+      class="min-h-11 min-w-0 flex-1 cursor-text truncate text-left text-sm font-semibold focus-ring"
     >
       {column.name}
     </button>

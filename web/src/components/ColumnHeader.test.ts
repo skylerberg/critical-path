@@ -265,6 +265,14 @@ describe('ColumnHeader rename', () => {
     return screen.getByLabelText('Column name');
   }
 
+  // The trigger had a cursor and no focused state at all; the input it opens has
+  // carried focus-ring all along, so the pair was inconsistent with itself.
+  it('gives the trigger the shared focus indicator', () => {
+    renderHeader(TODO);
+
+    expect(screen.getByTitle('Rename column').classList).toContain('focus-ring');
+  });
+
   it('commits a rename left open when the header unmounts', async () => {
     const rename = vi.spyOn(board, 'renameColumn');
     const { unmount } = renderHeader(TODO);

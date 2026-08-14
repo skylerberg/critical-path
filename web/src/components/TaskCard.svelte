@@ -224,6 +224,10 @@
     </button>
   {/if}
   {#if !renaming && !placeholder}
+    <!-- Flush rather than `focus-ring`, matching the wrapper this overlays: the card
+         is separately a tab stop for the keyboard drag, so the two consecutive stops
+         have to draw the same ring. Unstyled it took the browser's own — blue under
+         Chromium, near-black under WebKit, neither of them the accent. -->
     <a
       use:link
       href={board.readonly
@@ -231,7 +235,7 @@
         : taskHref(task.id, task.title) + board.filterSearch}
       draggable="false"
       aria-label={shownTitle}
-      class="absolute inset-0 rounded-md"
+      class="absolute inset-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent"
     ></a>
   {/if}
   <!-- Coalesced: a pod predating covers omits cover_image_url. Truthy rather than

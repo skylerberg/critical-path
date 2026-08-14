@@ -120,7 +120,7 @@
     <button
       type="button"
       onclick={start}
-      class="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink"
+      class="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium text-muted hover:bg-accent-soft hover:text-ink focus-ring"
     >
       + Add task
     </button>
