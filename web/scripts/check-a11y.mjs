@@ -69,6 +69,13 @@ async function startServer(plugins = []) {
   const created = await createServer({
     root: ROOT,
     logLevel: 'warn',
+    // Its own optimizer cache. node_modules is a symlink shared by every worktree,
+    // so the default node_modules/.vite is one directory that every vite server on
+    // this machine pre-bundles into — and a server whose deps/ is swapped out from
+    // under it by a neighbour serves nothing for the one bare dependency this probe
+    // imports. That is axe-core, and it fails as `axe never loaded` on all six
+    // cases at once, only ever when another check is running.
+    cacheDir: 'node_modules/.vite-check-a11y',
     plugins: [injectAxe, ...plugins],
     server: {
       host: '127.0.0.1',
@@ -79,6 +86,24 @@ async function startServer(plugins = []) {
   await created.listen();
   return created;
 }
+
+// Resolves as soon as the probe has finished evaluating, or gives up loudly. A
+// healthy page resolves in the first tick or two, so the budget only ever elapses
+// when something is genuinely wrong.
+const AXE_READY = `new Promise((resolve) => {
+  const deadline = Date.now() + 10000;
+  const tick = () => {
+    if (typeof window.axe !== 'undefined') return resolve('ready');
+    if (Date.now() > deadline) return resolve('timed out after 10s');
+    setTimeout(tick, 50);
+  };
+  tick();
+})`;
+
+// Two frames: one to run the mount's effects, one to lay out what they produced.
+const SETTLED = `new Promise((resolve) =>
+  requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))
+)`;
 
 const AUDIT = `(async () => {
   const results = await window.axe.run(document, {
@@ -154,14 +179,21 @@ async function runCases(origin, { mustPass = true, only, expect } = {}) {
         mobile: screen.mobile,
         colorScheme: scheme,
       });
-      await goto(new URL(screen.page, origin).href, { wait: 600 });
+      await goto(new URL(screen.page, origin).href, { wait: 150 });
 
-      const ready = await evalPage('typeof window.axe');
-      if (ready !== 'object' && ready !== 'function') {
-        console.log(`  ✗ ${screen.name} / ${scheme}: axe never loaded (got ${ready})`);
+      // Waited for rather than slept past, so a slow machine cannot fail a page
+      // that was merely still evaluating. This is not what fixed the concurrency
+      // bug — see cacheDir above for that — but it is the difference between a
+      // legible timeout and a bare "axe never loaded" after an arbitrary 600ms.
+      // The probe imports axe last, so window.axe existing means its mount() has
+      // run; two frames after that is a laid-out page to audit.
+      const ready = await evalPage(AXE_READY);
+      if (ready !== 'ready') {
+        console.log(`  ✗ ${screen.name} / ${scheme}: axe never loaded (${ready})`);
         bad++;
         continue;
       }
+      await evalPage(SETTLED);
       const violations = await evalPage(AUDIT);
       const label = `${screen.name} / ${scheme}`;
       if (violations.length === 0) {
