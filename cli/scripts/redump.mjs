@@ -17,7 +17,7 @@ const API_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export function redump(script) {
   try {
-    execFileSync('npm', ['run', script], { cwd: API_ROOT, stdio: 'pipe', timeout: 120_000 });
+    execFileSync('pnpm', ['run', script], { cwd: API_ROOT, stdio: 'pipe', timeout: 120_000 });
     return true;
   } catch {
     return false;

@@ -3,8 +3,9 @@
 #
 # A fresh `git worktree add` gives you tracked files and nothing else, so
 # type-check, lint and the test suite all fail on a missing node_modules, and
-# the suite fails again later on a missing .env.test. This does the four steps
-# that close that gap, in the order the repo's CLAUDE.md describes them.
+# the suite fails again later on a missing .env.test. This closes both gaps: it copies
+# the untracked .env files out of the main checkout, then installs each package's
+# dependencies where they belong.
 #
 # Repo-agnostic: everything is resolved from the git checkout it is run in, so
 # it works from a sibling project too (`../critical-path-api/scripts/new-worktree.sh <branch>`).
@@ -19,8 +20,8 @@ base=${2-}
 if [ -z "$branch" ] || [ "$branch" = "-h" ] || [ "$branch" = "--help" ]; then
   echo "Usage: ${0##*/} <branch> [base-ref]" >&2
   echo >&2
-  echo "Creates ~/.worktrees/<repo>/<branch>, symlinks node_modules from the main" >&2
-  echo "checkout, and copies the untracked .env files the suite needs." >&2
+  echo "Creates ~/.worktrees/<repo>/<branch>, installs each package's dependencies," >&2
+  echo "and copies the untracked .env files the suite needs." >&2
   exit 1
 fi
 
@@ -62,19 +63,13 @@ fi
 
 git -C "$main_checkout" worktree add "$worktree" "$branch"
 
-# Absolute, so the link does not depend on how deep the worktree sits. A nested
-# package with its own dependencies needs its own link.
-for dir in "" $(cd "$main_checkout" && git ls-files '*/package.json' | xargs -n1 dirname 2>/dev/null || true); do
-  src="$main_checkout${dir:+/$dir}/node_modules"
-  dest="$worktree${dir:+/$dir}/node_modules"
-  if [ -d "$src" ] && [ ! -e "$dest" ] && [ -d "$(dirname "$dest")" ]; then
-    ln -s "$src" "$dest"
-    echo "==> linked ${dir:-.}/node_modules"
-  fi
-done
-
-# Untracked by design (they hold secrets), so the worktree starts without them
-# and the suite cannot load .env.test. Examples are tracked already.
+# Before the installs, not after. An install can fail — `strictDepBuilds` rejects any
+# dependency whose install scripts nothing has ruled on — and `set -e` then leaves a
+# worktree that also has no .env.test, so the suite fails on the missing file rather
+# than on the thing that actually went wrong.
+#
+# Untracked by design (they hold secrets), so the worktree starts without them.
+# Examples are tracked already.
 copied=0
 for env_file in "$main_checkout"/.env*; do
   [ -f "$env_file" ] || continue
@@ -85,6 +80,22 @@ for env_file in "$main_checkout"/.env*; do
   copied=$((copied + 1))
 done
 [ "$copied" -gt 0 ] && echo "==> copied $copied env file(s)"
+
+# A real install per package, not a symlink into the main checkout. pnpm hardlinks
+# from one content-addressable store, so this costs inodes rather than downloads —
+# and it ends the failure mode the symlink had, where `pnpm install` in a worktree
+# rewrote the tree the main checkout was using. Each nested package installs
+# separately because each has its own lockfile.
+#
+# Not --silent: that suppresses the ERR_PNPM_IGNORED_BUILDS output too, so a refused
+# install prints nothing at all and the script dies with no clue why.
+while IFS= read -r dir; do
+  [ -f "$worktree${dir:+/$dir}/package.json" ] || continue
+  echo "==> installing ${dir:-.}"
+  (cd "$worktree${dir:+/$dir}" && pnpm install)
+done <<EOT
+$(printf '%s\n' ""; cd "$main_checkout" && git ls-files '*/package.json' | xargs -n1 dirname 2>/dev/null || true)
+EOT
 
 echo
 echo "Ready: $worktree"

@@ -3,16 +3,16 @@
 An on-demand load harness. It seeds a large instance into a database of its own,
 drives the real Hono app in-process, and reports where the time goes.
 
-Nothing here runs in CI or in `npm test`. It is a tool you reach for when you
+Nothing here runs in CI or in `pnpm test`. It is a tool you reach for when you
 change a read path, add an index, or want to know what a bigger customer would
 feel.
 
 ```sh
-npm run bench                     # fast tier, ~37k cards, seeds in ~4s
-npm run bench:heavy               # heavy tier, ~400k cards, seeds in a few minutes
-npm run bench -- --explain        # add the query plan for each scenario's slowest statement
-npm run bench -- --only=projects  # just the scenarios whose name or group matches
-npm run bench -- --reseed         # rebuild the dataset even if it looks current
+pnpm run bench                     # fast tier, ~37k cards, seeds in ~4s
+pnpm run bench:heavy               # heavy tier, ~400k cards, seeds in a few minutes
+pnpm run bench --explain        # add the query plan for each scenario's slowest statement
+pnpm run bench --only=projects  # just the scenarios whose name or group matches
+pnpm run bench --reseed         # rebuild the dataset even if it looks current
 ```
 
 ## What it measures
@@ -35,7 +35,7 @@ instance.
 
 `fast` and `heavy` each get their own database (`..._bench_fast_<hash>`,
 `..._bench_heavy_<hash>`), so switching between them reconnects rather than
-reseeds. Both are stamped with this checkout, so `npm run test:db:prune`
+reseeds. Both are stamped with this checkout, so `pnpm run test:db:prune`
 reclaims them once the worktree is gone.
 
 The dataset is rebuilt automatically when the scale, `bench/seed.ts`, or the

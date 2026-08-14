@@ -18,13 +18,13 @@ from `src/schemas/index.ts` — the schema-name registry reads that barrel.
 ## 2. Dump the spec
 
 ```sh
-npm run openapi:dump        # writes ./openapi.json without starting a server
+pnpm run openapi:dump        # writes ./openapi.json without starting a server
 ```
 
 ## 3. Regenerate the CLI client
 
 ```sh
-npm run --prefix cli generate-api    # rewrites cli/src/api/api.generated.ts
+pnpm -C cli run generate-api    # rewrites cli/src/api/api.generated.ts
 ```
 
 ## 4. Regenerate the web client
@@ -32,7 +32,7 @@ npm run --prefix cli generate-api    # rewrites cli/src/api/api.generated.ts
 From `../critical-path-web`, the generator auto-finds the sibling spec:
 
 ```sh
-cd ../critical-path-web && npm run generate:api
+cd ../critical-path-web && pnpm run generate:api
 # rewrites src/api/api.generated.ts
 ```
 
@@ -47,5 +47,5 @@ regenerated `api.generated.ts` files.
 
 ## 6. Check
 
-Run `npm run --prefix cli check` here, plus the `run-checks` skill in both
+Run `pnpm -C cli run check` here, plus the `run-checks` skill in both
 repos.

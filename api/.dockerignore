@@ -2,7 +2,9 @@
 .githooks
 .github
 .claude
-node_modules
+# Globbed: the bare name matches only the top level, and pnpm gives every nested
+# package a node_modules of its own.
+**/node_modules
 dist
 data
 coverage

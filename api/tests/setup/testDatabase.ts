@@ -201,7 +201,7 @@ export function isAbandoned(database: TestDatabase): boolean {
 }
 
 // Only databases this scheme created and stamped are pruned. Anything older
-// carries no checkout comment and is left for `npm run test:db:prune --legacy`.
+// carries no checkout comment and is left for `pnpm run test:db:prune --legacy`.
 export async function pruneAbandonedTestDatabases(): Promise<string[]> {
   const abandoned = (await listTestDatabases())
     .filter(isAbandoned)

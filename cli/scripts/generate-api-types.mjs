@@ -18,7 +18,7 @@ const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', '
 // Repo-relative so the committed header never records an absolute checkout path.
 const source = SPEC_URL ?? relative(resolve(__dirname, '..', '..'), SPEC_PATH);
 const HEADER = `// AUTO-GENERATED FROM ${source}
-// DO NOT EDIT. Regenerate with: npm run generate-api
+// DO NOT EDIT. Regenerate with: pnpm run generate-api
 // Deprecated operations and schemas are filtered out at generation time.
 `;
 

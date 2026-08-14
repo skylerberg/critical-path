@@ -31,7 +31,7 @@ try {
   ];
 } catch (err) {
   console.error(`Could not diff against ${base}: ${err.message}`);
-  console.error('Pass a different base, e.g. npm run test:changed -- main');
+  console.error('Pass a different base, e.g. pnpm run test:changed main');
   process.exit(1);
 }
 
