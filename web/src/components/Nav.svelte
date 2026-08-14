@@ -10,7 +10,7 @@
   import { accentVar } from '../lib/accents';
   import { suppressTouchContextMenu } from '../lib/actions';
   import { APP_NAME } from '../lib/constants';
-  import { DROP_TARGET_STYLE } from '../lib/dnd';
+  import { DROP_TARGET_STYLE, flipDuration } from '../lib/dnd';
   import { motion } from '../lib/motion.svelte';
   import { paletteChordHint } from '../lib/palette';
   import { projects, type Project } from '../lib/projects.svelte';
@@ -22,10 +22,6 @@
   import SyncStatus from './SyncStatus.svelte';
   import Avatar from './ui/Avatar.svelte';
   import ColorDot from './ui/ColorDot.svelte';
-
-  const FLIP_MS = 150;
-
-  const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
 
   const projectsActive = $derived(router.current.name === 'projects');
   const myTasksActive = $derived(router.current.name === 'my-tasks');
@@ -231,7 +227,7 @@
     use:dndzone={{
       items: localProjects,
       type: 'sidebar-project',
-      flipDurationMs: flipMs,
+      flipDurationMs: flipDuration(),
       dropAnimationDisabled: motion.reduced,
       dropTargetStyle: DROP_TARGET_STYLE,
       delayTouchStart: true,
@@ -242,7 +238,7 @@
   >
     {#each localProjects as project (project.id)}
       <div
-        animate:flip={{ duration: flipMs }}
+        animate:flip={{ duration: flipDuration() }}
         aria-label={project.name}
         class="rounded-md focus-visible:outline-2 focus-visible:outline-accent"
       >

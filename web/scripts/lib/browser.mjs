@@ -1,6 +1,6 @@
 // Headless-browser helper for the layout checks and ad-hoc repro, backed by
 // Playwright. Exposes the same minimal surface the old hand-rolled CDP helper
-// did — createBrowser() -> { setViewport, goto, eval, screenshot, close } — so
+// did — createBrowser() -> { setViewport, goto, eval, press, screenshot, close } — so
 // the check scripts and the browser-repro workflow don't change shape, only the
 // engine underneath. Playwright owns the hard parts the hand-rolled version got
 // wrong: robust launch, orphan killing, and per-platform flags.
@@ -37,7 +37,7 @@ const NAVIGATION_SETTLE_MS = 500;
 /**
  * Launch a headless browser and return a small measurement helper.
  * @param {{headless?: boolean, engine?: 'chromium'|'webkit'}} [options]
- * @returns {Promise<{setViewport, goto, eval, screenshot, close}|null>}
+ * @returns {Promise<{setViewport, goto, eval, press, screenshot, close}|null>}
  */
 export async function createBrowser({ headless = true, engine = 'chromium' } = {}) {
   const launcher = ENGINES[engine];
@@ -176,6 +176,25 @@ export async function createBrowser({ headless = true, engine = 'chromium' } = {
         lastNavigation = null;
         return await page.evaluate(expression);
       }
+    },
+    /**
+     * Press a key through the browser's real input pipeline, on whatever holds
+     * focus — or on `selector`, focused first. `key` is Playwright's name for it:
+     * 'Enter', 'Escape', 'Tab', 'ArrowDown', ' ' for space.
+     *
+     * The distinction from dispatching a KeyboardEvent inside `eval` is default
+     * behaviour, and it is the whole point of having this. A synthetic event runs
+     * listeners and nothing else: Tab does not move focus, space does not scroll
+     * or click, a printable key puts no text in a field. Those are exactly the
+     * things jsdom cannot model either, so a probe that hand-dispatches is back to
+     * testing what the unit tests already cover. A library listening for the key
+     * (svelte-dnd-action's keyboard drag, this app's shortcuts) reacts to either,
+     * which is what makes the difference easy to miss.
+     */
+    async press(key, { selector } = {}) {
+      await ensureContext();
+      if (selector !== undefined) await page.focus(selector);
+      await page.keyboard.press(key);
     },
     /** Capture a PNG screenshot (Buffer). */
     async screenshot() {

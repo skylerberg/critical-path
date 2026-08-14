@@ -14,7 +14,7 @@
   import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, TOUCH_DRAG_DELAY_MS } from '../lib/card-menu.svelte';
-  import { DROP_TARGET_STYLE } from '../lib/dnd';
+  import { DROP_TARGET_STYLE, flipDuration } from '../lib/dnd';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { edgeScrollSpeed, fitsHorizontally } from '../lib/board-scroll';
   import {
@@ -47,7 +47,6 @@
 
   let { projectId, readonly = false }: Props = $props();
 
-  const FLIP_MS = 150;
   const cardClass = 'rounded-md focus-visible:outline-2 focus-visible:outline-accent';
 
   // Svelte's animate: directive measures EVERY item in the list with two
@@ -58,8 +57,6 @@
   // thread. Past this many cards the animation is dropped; a card that jumps to
   // its new place beats a board that stalls.
   const FLIP_MAX_CARDS = 80;
-
-  const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
 
   function tasksByColumn(): Record<string, BoardTask[]> {
     const next: Record<string, BoardTask[]> = {};
@@ -752,7 +749,7 @@
       use:dragHandleZone={{
         items: localColumns,
         type: 'column',
-        flipDurationMs: flipMs,
+        flipDurationMs: flipDuration(),
         dropAnimationDisabled: motion.reduced,
         dropTargetStyle: DROP_TARGET_STYLE,
         delayTouchStart: true,
@@ -766,7 +763,7 @@
         <div
           data-column-id={column.id}
           data-snap-target
-          animate:flip={{ duration: flipMs }}
+          animate:flip={{ duration: flipDuration() }}
           aria-label={column.name}
           class="flex max-h-full w-[var(--cp-board-col-w)] shrink-0 snap-always flex-col rounded-lg border border-edge bg-surface md:snap-start {columnSnapAlign(
             index,
@@ -787,7 +784,7 @@
             use:dndzone={{
               items: localTasks.get(column.id) ?? [],
               type: 'task',
-              flipDurationMs: animatedColumns.has(column.id) ? flipMs : 0,
+              flipDurationMs: animatedColumns.has(column.id) ? flipDuration() : 0,
               dropAnimationDisabled: motion.reduced,
               dropTargetStyle: DROP_TARGET_STYLE,
               delayTouchStart: TOUCH_DRAG_DELAY_MS,
@@ -808,7 +805,7 @@
             {#if animatedColumns.has(column.id)}
               {#each localTasks.get(column.id) ?? [] as task (task.id)}
                 <div
-                  animate:flip={{ duration: flipMs }}
+                  animate:flip={{ duration: flipDuration() }}
                   data-task-id={task.id}
                   aria-label={truncateTitle(task.title)}
                   class={cardClass}

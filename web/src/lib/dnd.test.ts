@@ -1,8 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { DROP_TARGET_STYLE } from './dnd';
+import { DROP_TARGET_STYLE, flipDuration } from './dnd';
+import { motion } from './motion.svelte';
 
 const SRC = resolve(import.meta.dirname, '..');
 const ZONE = /use:(?:dndzone|dragHandleZone)=\{\{/g;
@@ -53,5 +54,25 @@ describe('drop target style', () => {
   // transparent containers, so this is the only thing rounding the highlight.
   it('rounds the highlight it draws', () => {
     expect(DROP_TARGET_STYLE.borderRadius).toMatch(/^[\d.]+(?:rem|px)$/);
+  });
+});
+
+describe('flip duration', () => {
+  afterEach(() => {
+    motion.reduced = false;
+  });
+
+  // The whole reason this is shared: a zone that hardcodes a duration animates
+  // against the preference, on every machine but the one whose author had it set.
+  it('is zero under reduced motion', () => {
+    expect(flipDuration()).toBeGreaterThan(0);
+    motion.reduced = true;
+    expect(flipDuration()).toBe(0);
+  });
+
+  it('is the shared duration on every zone', () => {
+    for (const { file, options } of zoneOptions()) {
+      expect(`${file}: ${options}`).toContain('flipDuration(');
+    }
   });
 });

@@ -11,7 +11,7 @@
   import { focusAndSelect } from '../lib/actions';
   import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { ChecklistItem } from '../lib/board-types';
-  import { DROP_TARGET_STYLE } from '../lib/dnd';
+  import { DROP_TARGET_STYLE, flipDuration } from '../lib/dnd';
   import { motion } from '../lib/motion.svelte';
   import { router } from '../lib/router.svelte';
   import { isDragPlaceholder } from '../lib/short-links';
@@ -28,9 +28,6 @@
 
   let { taskId, taskPath, readonly = false }: Props = $props();
 
-  const FLIP_MS = 150;
-
-  const flipMs = $derived(motion.reduced ? 0 : FLIP_MS);
   const task = $derived(board.tasks.find((t) => t.id === taskId));
   // The card's counts, never the drawn list: that list stops resyncing for the whole
   // of a drag and holds a placeholder whose fields are the library's, not ours.
@@ -218,7 +215,7 @@
       use:dragHandleZone={{
         items: localItems,
         type: 'checklist',
-        flipDurationMs: flipMs,
+        flipDurationMs: flipDuration(),
         dropAnimationDisabled: motion.reduced,
         dropTargetStyle: DROP_TARGET_STYLE,
         dropFromOthersDisabled: true,
@@ -235,7 +232,7 @@
              it is disabled or absent: each would address an id no row has. -->
         {@const inert = readonly || isDragPlaceholder(item.id)}
         <div
-          animate:flip={{ duration: flipMs }}
+          animate:flip={{ duration: flipDuration() }}
           aria-label={item.text}
           class="group flex items-center gap-1 rounded-md focus-visible:outline-2 focus-visible:outline-accent"
         >
