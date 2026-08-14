@@ -254,7 +254,8 @@ function explain(guard, verdict, output) {
     case 'NO-TESTS-RAN':
       return (
         `no test actually ran in ${guard.tests.join(' ')} — either its \`testName\` matches ` +
-        `nothing, or the mutation stopped the file compiling. Inconclusive, which is not a pass`
+        `nothing, or the mutation stopped the file compiling. Inconclusive, which is not a ` +
+        `pass:\n${tail(output)}`
       );
     case 'NEVER-APPLIED':
       return (
