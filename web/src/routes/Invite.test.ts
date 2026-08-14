@@ -97,6 +97,53 @@ describe('Invite', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // A launch that could not reach /api/auth/me leaves a perfectly good session
+  // unvalidated, and that is exactly the state a link opened from a mail client
+  // on a phone arrives in.
+  it('redeems for a session that could not be checked at launch', async () => {
+    session.status = 'offline';
+    fetchMock.mockImplementation(async (input) => {
+      const path = new URL((input as Request).url).pathname;
+      if (path === '/api/auth/me') {
+        return jsonResponse(200, session.user);
+      }
+      return path === '/api/invitations/accept'
+        ? jsonResponse(200, { project_id: SHARED_ID, role: 'editor' })
+        : jsonResponse(200, { projects: [sharedBoard] });
+    });
+
+    render(Invite, { token: 'tok-123' });
+
+    await waitFor(() => expect(router.path).toBe(projectHref(SHARED_ID, SHARED_NAME)));
+    expect(session.status).toBe('authed');
+    expect(pathsCalled()).toContain('/api/invitations/accept');
+  });
+
+  it('reports an unreachable server rather than dropping an unchecked session', async () => {
+    session.status = 'offline';
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    render(Invite, { token: 'tok-123' });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not reach the server. Check your connection and try again.'
+    );
+    expect(router.path).toBe('/invite?token=tok-123');
+    expect(sessionStorage.getItem('cp.intendedPath')).toBeNull();
+  });
+
+  it('sends a visitor whose stored token has been revoked to log in', async () => {
+    session.adopt('tok-revoked', session.user!);
+    session.status = 'offline';
+    fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Unauthorized' }));
+
+    render(Invite, { token: 'tok-123' });
+
+    await waitFor(() => expect(router.path).toBe('/login'));
+    expect(sessionStorage.getItem('cp.intendedPath')).toBe('/invite?token=tok-123');
+    expect(pathsCalled()).not.toContain('/api/invitations/accept');
+  });
+
   it('explains a spent or withdrawn link rather than reporting a server error', async () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(422, { error: 'This invitation is no longer valid' })

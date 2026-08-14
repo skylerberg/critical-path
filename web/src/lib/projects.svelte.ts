@@ -84,7 +84,10 @@ class ProjectsStore {
   active = $derived(this.#sorted.filter((p) => p.archived_at === null));
   archived = $derived(this.#sorted.filter((p) => p.archived_at !== null));
 
-  #stampedSinceLoad = new Set<string>();
+  // id -> the marker this client stamped, not just the fact that it did: the
+  // stale answer carries the pre-stamp marker too, and the dot is clamped to
+  // boards that have one.
+  #stampedSinceLoad = new Map<string, string>();
 
   async load(): Promise<void> {
     this.loading = true;
@@ -94,10 +97,15 @@ class ProjectsStore {
       const data = assertOk(await api.GET('/api/projects'));
       // A stamp that landed while this read was in flight is not in its answer,
       // which is what a deep link straight to a board does: adopting the list
-      // wholesale would light the dot back up on the board being read.
-      this.projects = data.projects.map((p) =>
-        this.#stampedSinceLoad.has(p.id) ? { ...p, has_unseen_changes: false } : p
-      );
+      // wholesale would light the dot back up on the board being read, and for a
+      // board opened for the first time would put its marker back to null —
+      // silencing every later change on it until the next load.
+      this.projects = data.projects.map((p) => {
+        const stamped = this.#stampedSinceLoad.get(p.id);
+        return stamped === undefined
+          ? p
+          : { ...p, has_unseen_changes: false, last_seen_at: stamped };
+      });
       this.loaded = true;
       const userId = session.user?.id;
       if (userId !== undefined) {
@@ -481,11 +489,12 @@ class ProjectsStore {
   }
 
   #clearUnseen(id: string): void {
-    this.#stampedSinceLoad.add(id);
+    const stampedAt = new Date().toISOString();
+    this.#stampedSinceLoad.set(id, stampedAt);
     this.#update(id, (p) => ({
       ...p,
       has_unseen_changes: false,
-      last_seen_at: new Date().toISOString(),
+      last_seen_at: stampedAt,
     }));
   }
 

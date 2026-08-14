@@ -206,20 +206,44 @@ describe('webhooks store', () => {
     expect(webhooks.list).toEqual([webhook()]);
   });
 
+  // Read while each PATCH is still open, and against a server answer that differs
+  // from the optimistic value: assertions made after the response has landed are
+  // reading `#replace`, and would pass with the optimistic write deleted.
   it('patches disabled_at optimistically in both directions', async () => {
     await loadWith([webhook()]);
 
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, webhook({ disabled_at: '2026-02-02T00:00:00.000Z' }))
+    let settleDisable: (response: Response) => void = () => {};
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        settleDisable = resolve;
+      })
     );
-    await webhooks.setDisabled('w-1', true);
+    const disabling = webhooks.setDisabled('w-1', true);
+    await Promise.resolve();
+    const optimistic = webhooks.list[0].disabled_at;
+    expect(optimistic).not.toBeNull();
+    expect(Number.isNaN(Date.parse(optimistic ?? ''))).toBe(false);
+    expect(optimistic).not.toBe('2026-02-02T00:00:00.000Z');
+
+    settleDisable(jsonResponse(200, webhook({ disabled_at: '2026-02-02T00:00:00.000Z' })));
+    await disabling;
     expect(webhooks.list[0].disabled_at).toBe('2026-02-02T00:00:00.000Z');
     const disableBody = (await requestAt(1).clone().json()) as { disabled_at: string };
     expect(Number.isNaN(Date.parse(disableBody.disabled_at))).toBe(false);
 
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, webhook()));
-    await webhooks.setDisabled('w-1', false);
+    let settleEnable: (response: Response) => void = () => {};
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        settleEnable = resolve;
+      })
+    );
+    const enabling = webhooks.setDisabled('w-1', false);
+    await Promise.resolve();
     expect(webhooks.list[0].disabled_at).toBeNull();
+
+    settleEnable(jsonResponse(200, webhook({ disabled_at: '2026-03-03T00:00:00.000Z' })));
+    await enabling;
+    expect(webhooks.list[0].disabled_at).toBe('2026-03-03T00:00:00.000Z');
     expect(await requestAt(2).clone().json()).toEqual({ disabled_at: null });
   });
 

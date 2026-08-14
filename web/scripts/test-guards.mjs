@@ -328,4 +328,219 @@ export const guards = [
     replace: '          socketEvicted: false,',
     tests: ['src/components/SyncStatus.test.ts'],
   },
+  {
+    // The mutation is the shipped code as it stood: the effect runs *after* the
+    // rows changed, by which point the focused row is gone and focus is on
+    // <body>, so a containment check can only be false and the recovery below it
+    // was unreachable for the whole life of a mounted picker.
+    name: 'a search result that removes the focused row hands focus back',
+    testName: 'puts focus back in the search field when the row holding it disappears',
+    file: 'src/components/MemberPicker.svelte',
+    find: '    if (document.activeElement === null || document.activeElement === document.body) {',
+    replace:
+      '    if (listEl !== undefined && !listEl.contains(document.activeElement)) {\n      return;\n    }\n    if (document.activeElement === document.body) {',
+    tests: ['src/components/MemberPicker.test.ts'],
+  },
+  {
+    // Adding someone clears the query, which re-expands the list and puts the
+    // highlight back on row 0 — so the repeats land on a different person, and
+    // the dedupe in `add` is not what holds this shut.
+    name: 'a held Enter grants board access to one person, not to the list',
+    testName: 'grants access once when Enter is held down',
+    file: 'src/components/MemberPicker.svelte',
+    find: '      if (event.repeat) {\n        return;\n      }\n',
+    replace: '',
+    tests: ['src/components/MemberPicker.test.ts'],
+  },
+  {
+    name: 'an invitation survives a session that could not be checked at launch',
+    testName: 'reports an unreachable server rather than dropping an unchecked session',
+    file: 'src/routes/Invite.svelte',
+    find: '    if (!isSignedIn(session.status)) {',
+    replace: "    if (session.status !== 'authed') {",
+    tests: ['src/routes/Invite.test.ts'],
+  },
+  {
+    name: 'an unchecked session is settled before the invitation is spent on it',
+    testName: 'sends a visitor whose stored token has been revoked to log in',
+    file: 'src/routes/Invite.svelte',
+    find: "    if (session.status === 'offline') {\n      await session.revalidate();\n    }\n",
+    replace: '',
+    tests: ['src/routes/Invite.test.ts'],
+  },
+  {
+    // `loaded` is set once and never reset, so the gate this puts back hides
+    // every load after the first — including the refetch that follows a failed
+    // revoke, leaving the row gone from the list with nothing said.
+    name: 'a token list that fails to reload says so',
+    testName: 'says why the list is short when the refetch after a failed revoke also fails',
+    file: 'src/components/PersonalAccessTokens.svelte',
+    find: '{#if loadError !== null}',
+    replace: '{#if !loaded && loadError !== null}',
+    tests: ['src/components/PersonalAccessTokens.test.ts'],
+  },
+  {
+    // The stale answer carries the *pre-stamp* marker as well as the dot, and
+    // `markChanged` refuses to light a dot for a board with no marker — so
+    // dropping the stamp here silences the board that was just opened for the
+    // rest of the session, which is the opposite of what the guard above it does.
+    name: 'a stamp that outran the list read keeps its marker, not just its cleared dot',
+    testName: 'keeps the marker the in-flight list read does not carry',
+    file: 'src/lib/projects.svelte.ts',
+    find: '          : { ...p, has_unseen_changes: false, last_seen_at: stamped };',
+    replace: '          : { ...p, has_unseen_changes: false };',
+    tests: ['src/lib/projects.test.ts'],
+  },
+  {
+    // The trigger is `bind:this` on an always-rendered button, so an unguarded
+    // window handler moves focus onto the header kebab on every Escape — the
+    // ones that cancel a selection, a drag, or the filter dropdown included.
+    name: 'Escape with the header menu closed leaves focus where the user put it',
+    testName: 'leaves focus alone when Escape dismisses something else on the screen',
+    file: 'src/components/ProjectHeader.svelte',
+    find: "    if (event.key === 'Escape' && menuOpen) closeMenu({ restoreFocus: true });",
+    replace: "    if (event.key === 'Escape') closeMenu({ restoreFocus: true });",
+    tests: ['src/components/ProjectHeader.test.ts'],
+  },
+  {
+    // Same shape on the projects list, where `openTrigger` outlives the menu it
+    // was captured from: focus lands on whichever card's kebab was opened last.
+    name: 'Escape with every card menu closed leaves focus where the user put it',
+    testName: 'leaves focus where it is when Escape arrives with no menu open',
+    file: 'src/routes/Projects.svelte',
+    find: "    if (event.key === 'Escape' && openMenuId !== null) closeMenu({ restoreFocus: true });",
+    replace: "    if (event.key === 'Escape') closeMenu({ restoreFocus: true });",
+    tests: ['src/routes/Projects.test.ts'],
+  },
+  {
+    // use:link sits on whole containers, so each of the next four lines is what
+    // keeps an anchor that was never an in-app navigation from becoming one. This
+    // one covers the card menu's "Open in new tab", which is an anchor inside a
+    // use:link container on every card.
+    name: 'a new-tab link is left to the browser',
+    testName: 'leaves a new-tab link to the browser',
+    file: 'src/lib/router.svelte.ts',
+    find: "    if (anchor.target !== '' && anchor.target !== '_self') return;\n",
+    replace: '',
+    tests: ['src/lib/router.test.ts'],
+  },
+  {
+    name: 'a click an inner handler already took is not navigated again',
+    testName: 'leaves a click an inner handler already took',
+    file: 'src/lib/router.svelte.ts',
+    find: '    if (event.defaultPrevented || event.button !== 0) return;',
+    replace: '    if (event.button !== 0) return;',
+    tests: ['src/lib/router.test.ts'],
+  },
+  {
+    name: 'a download link is left to the browser',
+    testName: 'leaves a download link to the browser',
+    file: 'src/lib/router.svelte.ts',
+    find: "    if (anchor.hasAttribute('download')) return;\n",
+    replace: '',
+    tests: ['src/lib/router.test.ts'],
+  },
+  {
+    name: 'an anchor with no href is left alone rather than routed to the current path',
+    testName: 'leaves an anchor with no href to the browser',
+    file: 'src/lib/router.svelte.ts',
+    find: "    if (!anchor.getAttribute('href')) return;\n",
+    replace: '',
+    tests: ['src/lib/router.test.ts'],
+  },
+  {
+    // Without it the SPA swallows a link off this origin and preventDefaults it
+    // into doing nothing at all.
+    name: 'a cross-origin link is left to the browser',
+    testName: 'leaves a cross-origin link to the browser',
+    file: 'src/lib/router.svelte.ts',
+    find: '    if (anchor.origin !== window.location.origin) return;\n',
+    replace: '',
+    tests: ['src/lib/router.test.ts'],
+  },
+  {
+    // The mutation is a popstate listener that applies the route directly, which
+    // is the shape that skips the auth guard: Back then walks a signed-out
+    // visitor onto the screen they were bounced off, with no /login and no
+    // remembered path.
+    name: 'the Back button goes through the auth guard',
+    testName: 'runs the auth guard on a popped history entry',
+    file: 'src/lib/router.svelte.ts',
+    find: `        this.#apply(window.location.pathname + window.location.search + window.location.hash, {
+          replace: true,
+        });`,
+    replace: `        this.current = matchRoute(window.location.pathname, window.location.search);
+        this.path = window.location.pathname + window.location.search + window.location.hash;`,
+    tests: ['src/lib/router.test.ts'],
+  },
+  {
+    // beforeNavigate does not run on the first page load, so this is the only
+    // thing standing between a bookmarked /login and a signed-in visitor. The
+    // anon half of it has a second caller in the effect below; this half has none.
+    name: 'the first page load is guarded once the session is known',
+    testName: 'sends a signed-in visitor off the login page on first load',
+    file: 'src/App.svelte',
+    find: `  void session.init().then(() => {
+    const redirected = session.guardRoute(router.current, router.path);
+    if (typeof redirected === 'string') {
+      router.redirect(redirected);
+    }
+  });`,
+    replace: '  void session.init();',
+    tests: ['src/App.test.ts'],
+  },
+  {
+    name: 'the sidebar Log out button signs out',
+    testName: 'signs out from the sidebar',
+    file: 'src/components/Nav.svelte',
+    find: '      onclick={logout}\n      class="flex min-h-11 cursor-pointer',
+    replace: '      class="flex min-h-11 cursor-pointer',
+    tests: ['src/components/Nav.test.ts'],
+  },
+  {
+    // The phone-sized bar is a second copy of the same button, and the only way
+    // out of the app on a phone.
+    name: 'the bottom bar Log out button signs out',
+    testName: 'signs out from the bottom bar',
+    file: 'src/components/Nav.svelte',
+    find: '    onclick={logout}\n    class="flex min-h-14 flex-1 cursor-pointer',
+    replace: '    class="flex min-h-14 flex-1 cursor-pointer',
+    tests: ['src/components/Nav.test.ts'],
+  },
+  {
+    // A takeover reloading the document on its own discards whatever was typed;
+    // the toast is what makes it the user's choice. Every other case in that file
+    // injects a spy past this function, so this is the one that runs it.
+    name: 'a service-worker takeover is offered rather than taken',
+    testName: 'puts the takeover in a toast whose Reload button is the only thing that reloads',
+    file: 'src/lib/appUpdate.ts',
+    find: `  toasts.action(\`A new version of \${APP_NAME} is available.\`, {
+    label: 'Reload',
+    run: () => window.location.reload(),
+  });`,
+    replace: '  window.location.reload();',
+    tests: ['src/lib/appUpdate.test.ts'],
+  },
+  {
+    // The mutated file is a test file, deliberately: `vi.unstubAllGlobals()` in a
+    // case takes testUtils' fetch, Request and storage stubs down with the one
+    // the case installed, so every case after it runs against a different
+    // environment than the file started in. The afterEach assertion is the guard,
+    // and it is armed by the case's own afterEach — so it bites under `-t` too.
+    name: 'the members modal keeps the file-wide stubs after stubbing navigator',
+    testName: 'copies the link to the clipboard',
+    file: 'src/components/ProjectMembersModal.test.ts',
+    find: '    expect(writeText).toHaveBeenCalledWith(`${location.origin}${publicBoardHref(PROJECT_ID)}`);',
+    replace:
+      '    expect(writeText).toHaveBeenCalledWith(`${location.origin}${publicBoardHref(PROJECT_ID)}`);\n    vi.unstubAllGlobals();',
+    tests: ['src/components/ProjectMembersModal.test.ts'],
+  },
+  {
+    name: 'the header chrome block keeps the file-wide stubs after stubbing getComputedStyle',
+    testName: 'restores the app default when the color is taken off the board',
+    file: 'src/components/ProjectHeader.test.ts',
+    find: "    vi.stubGlobal('getComputedStyle', realGetComputedStyle);",
+    replace: '    vi.unstubAllGlobals();',
+    tests: ['src/components/ProjectHeader.test.ts'],
+  },
 ];

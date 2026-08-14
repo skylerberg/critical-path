@@ -227,13 +227,13 @@
   }
 
   // Results landing can remove the focused row, and focus falling to <body>
-  // inside a dialog is a dead end with nothing to tab from.
+  // inside a dialog is a dead end with nothing to tab from. Keyed on where focus
+  // ended up rather than on whether it was inside the list: this runs after the
+  // rows have changed, by which point the removed row is gone and its focus with
+  // it, so the list can never contain the element to ask about.
   $effect(() => {
     void rows;
-    if (listEl !== undefined && !listEl.contains(document.activeElement)) {
-      return;
-    }
-    if (document.activeElement === document.body) {
+    if (document.activeElement === null || document.activeElement === document.body) {
       inputEl?.focus();
     }
   });

@@ -152,18 +152,17 @@
   <p role="alert" class="text-sm text-danger">{createError}</p>
 {/if}
 
-{#if !loaded}
-  {#if loadError !== null}
-    <div class="flex flex-col items-start gap-3">
-      <p role="alert" class="text-sm text-danger">{loadError}</p>
-      <Button variant="secondary" onclick={() => void load()}>Retry</Button>
-    </div>
-  {:else}
-    <p class="text-sm text-muted">Loading tokens…</p>
-  {/if}
-{:else if tokens.length === 0}
-  <p class="text-sm text-muted">You have no personal access tokens yet.</p>
-{:else}
+<!-- Outside the not-yet-loaded gate, as in Sessions.svelte: `loaded` never goes
+     back to false, so a gate on it would swallow every load after the first —
+     including the refetch a failed revoke makes to put the row back. -->
+{#if loadError !== null}
+  <div class="flex flex-col items-start gap-3">
+    <p role="alert" class="text-sm text-danger">{loadError}</p>
+    <Button variant="secondary" onclick={() => void load()}>Retry</Button>
+  </div>
+{/if}
+
+{#if tokens.length > 0}
   <ul class="flex flex-col divide-y divide-edge">
     {#each tokens as token (token.id)}
       <li class="flex items-center justify-between gap-3 py-3">
@@ -202,6 +201,10 @@
       </li>
     {/each}
   </ul>
+{:else if loaded && loadError === null}
+  <p class="text-sm text-muted">You have no personal access tokens yet.</p>
+{:else if loadError === null}
+  <p class="text-sm text-muted">Loading tokens…</p>
 {/if}
 
 <Modal

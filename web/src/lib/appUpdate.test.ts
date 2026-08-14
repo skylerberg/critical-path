@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RegisterSWOptions } from 'vite-plugin-pwa/types';
 import { AppUpdate } from './appUpdate';
+import { APP_NAME } from './constants';
+import { toasts } from './toasts.svelte';
 
 function setVisibility(state: DocumentVisibilityState): void {
   Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
@@ -20,7 +22,9 @@ function registrationWith(update: () => Promise<void>): ServiceWorkerRegistratio
   return { update } as unknown as ServiceWorkerRegistration;
 }
 
-function start() {
+// `defaultNotifier` leaves `notifyUpdate` out, which is how main.ts calls init:
+// the toast is then the real one rather than a spy standing in for it.
+function start({ defaultNotifier = false }: { defaultNotifier?: boolean } = {}) {
   // Stands in for the registration shim, which reloads the document itself
   // unless the caller supplies onNeedReload.
   const reload = vi.fn();
@@ -31,7 +35,7 @@ function start() {
     return () => Promise.resolve();
   });
   const instance = new AppUpdate();
-  instance.init({ register, notifyUpdate });
+  instance.init(defaultNotifier ? { register } : { register, notifyUpdate });
   instances.push(instance);
   return {
     reload,
@@ -70,6 +74,35 @@ describe('never reloading the document', () => {
   it('leaves the new worker to activate itself', () => {
     const sw = start();
     expect(sw.options().onNeedRefresh).toBeUndefined();
+  });
+
+  // Every case above injects past the default notifier, which is the one main.ts
+  // runs (`appUpdate.init()`, no deps): what a spy called once proves is that
+  // something was called, not that the user is offered anything.
+  it('puts the takeover in a toast whose Reload button is the only thing that reloads', () => {
+    const reload = vi.fn();
+    const location = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...location, reload },
+    });
+    try {
+      const sw = start({ defaultNotifier: true });
+
+      sw.fireActivated();
+
+      const toast = toasts.toasts.at(-1);
+      expect(toast?.message).toBe(`A new version of ${APP_NAME} is available.`);
+      expect(toast?.action?.label).toBe('Reload');
+      expect(reload).not.toHaveBeenCalled();
+
+      toasts.runAction(toast!.id);
+
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(toasts.toasts.some((t) => t.id === toast!.id)).toBe(false);
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: location });
+    }
   });
 });
 

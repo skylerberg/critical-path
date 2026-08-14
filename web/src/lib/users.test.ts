@@ -1,10 +1,26 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { users } from './users.svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearOfflineCache, readUsersSnapshot, saveUsersSnapshot } from './offline-cache';
+import { session } from './session.svelte';
+import { testUuid } from './test-ids';
+import { users, type User } from './users.svelte';
 
 const ada = { id: 'u-ada', name: 'Ada' };
 const brin = { id: 'u-brin', name: 'Brin' };
 const zed = { id: 'u-zed', name: 'Zed' };
+
+const ACCOUNT_ID = testUuid('ada');
+const me = {
+  id: ACCOUNT_ID,
+  email: 'ada@example.com',
+  name: 'Ada',
+  avatar_url: null,
+  email_verified: true,
+};
+const cached: User[] = [
+  { id: 'u-ada', name: 'Ada', avatar_url: null },
+  { id: 'u-brin', name: 'Brin', avatar_url: null },
+];
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -236,5 +252,55 @@ describe('users applyRealtime', () => {
     expect(users.applyRealtime(null)).toBeNull();
     expect(users.applyRealtime({ id: 42 })).toBeNull();
     expect(users.users).toEqual([]);
+  });
+});
+
+// Every case above runs signed out, where the snapshot arm short-circuits on the
+// missing account id and the store always rethrows — so the whole fallback, and
+// the write that feeds it, only exist once someone is signed in.
+describe('users offline snapshot', () => {
+  beforeEach(async () => {
+    session.user = me;
+    await clearOfflineCache(ACCOUNT_ID);
+  });
+
+  afterEach(() => {
+    session.user = null;
+  });
+
+  it('shows the last visit’s names rather than blank placeholders when the network is gone', async () => {
+    await saveUsersSnapshot(ACCOUNT_ID, cached);
+    fetchMock.mockRejectedValue(new TypeError('network down'));
+
+    await expect(users.load()).resolves.toBeUndefined();
+
+    expect(users.users).toEqual(cached);
+  });
+
+  it('still rejects a read the server refused, and shows nobody', async () => {
+    await saveUsersSnapshot(ACCOUNT_ID, cached);
+    fetchMock.mockResolvedValue(jsonResponse(403, { error: 'Forbidden' }));
+
+    await expect(users.load()).rejects.toThrow('Forbidden');
+
+    expect(users.users).toEqual([]);
+  });
+
+  it('rejects when there is nothing cached to fall back to', async () => {
+    fetchMock.mockRejectedValue(new TypeError('network down'));
+
+    await expect(users.load()).rejects.toThrow('network down');
+  });
+
+  it('writes the snapshot the next offline load reads', async () => {
+    await users.load();
+
+    await vi.waitFor(async () => {
+      expect(await readUsersSnapshot(ACCOUNT_ID)).toEqual([
+        { id: 'u-ada', name: 'Ada' },
+        { id: 'u-brin', name: 'Brin' },
+        { id: 'u-zed', name: 'Zed' },
+      ]);
+    });
   });
 });

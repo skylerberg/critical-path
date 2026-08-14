@@ -1062,7 +1062,8 @@ describe('Project shell for a viewer', () => {
     expect(await screen.findByText('View only')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ Add column' })).toBeNull();
     expect(screen.queryByLabelText('Task title')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Delete task' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Duplicate' })).toBeNull();
     // The identity-backed half of the overlay survives the demotion.
     expect(screen.getByText(/^Comments \(/)).toBeInTheDocument();
   });

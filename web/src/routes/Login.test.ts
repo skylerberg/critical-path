@@ -61,6 +61,36 @@ describe('Login', () => {
     expect(session.status).toBe('anon');
   });
 
+  // The arm that catches a login attempted with no connectivity. Without it the
+  // button re-enables and the screen says nothing at all, which reads as a
+  // password that was silently rejected.
+  it('reports an unreachable server rather than failing silently', async () => {
+    fetchMock.mockRejectedValue(new TypeError('network down'));
+    render(Login);
+
+    await fillCredentials('ada@example.com', 'password123');
+    await fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not reach the server. Check your connection and try again.'
+    );
+    expect(session.status).toBe('anon');
+    expect(screen.getByRole('button', { name: 'Log in' })).toBeEnabled();
+  });
+
+  it('names the wait when the attempts are throttled', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(429, { error: 'Too many requests' }));
+    render(Login);
+
+    await fillCredentials('ada@example.com', 'password123');
+    await fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Too many attempts. Wait a minute and try again.'
+    );
+    expect(session.status).toBe('anon');
+  });
+
   it('logs in and navigates to the remembered path', async () => {
     sessionStorage.setItem('cp.intendedPath', '/projects/p9');
     fetchMock.mockResolvedValue(jsonResponse(200, { token: 'tok-new', user }));

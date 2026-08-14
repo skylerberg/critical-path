@@ -173,6 +173,21 @@ describe('App chrome', () => {
     expect(navs().length).toBeGreaterThan(0);
   });
 
+  // beforeNavigate does not run on the first page load, so the shell re-runs the
+  // guard once session.init settles. Its anon half is covered twice over by the
+  // effect that watches for a session ending in another tab; this half — a
+  // signed-in visitor opening a bookmarked /login — has only that one caller.
+  it('sends a signed-in visitor off the login page on first load', async () => {
+    localStorage.setItem('cp.token', 'token');
+    router.navigate('/login', { replace: true });
+
+    render(App);
+
+    expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+    expect(screen.queryByRole('button', { name: 'Log in' })).toBeNull();
+  });
+
   // The shell owns clearing per-account state, and the queue was the one store it
   // left behind: unsent work replayed under the next account sends one person's
   // edits as another's, and the panel behind the sync indicator names their cards.
