@@ -240,6 +240,17 @@ function mockRoutes(
   });
 }
 
+// Every card's patches, not T1's: which card a write landed on is the assertion
+// the switch cases exist to make, and a filter naming one id cannot fail on it.
+function anyTaskPatches(): Request[] {
+  return fetchMock.mock.calls
+    .map((call) => call[0] as Request)
+    .filter(
+      (request) =>
+        request.method === 'PATCH' && /^\/api\/tasks\/[^/]+$/.test(new URL(request.url).pathname)
+    );
+}
+
 function activityRequests(taskId: string): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
@@ -1546,6 +1557,117 @@ describe('TaskDetail', () => {
       title: 'Design cards v2',
       expected_updated_at: '2026-01-02T00:00:00Z',
     });
+  });
+
+  // The overlay is reused between cards, so the editor's teardown flush runs with
+  // the NEXT card's id already live. Reading it there dropped the text outright,
+  // and reading it one line later would have sent it to the wrong card.
+  it('sends an unsaved description to the card it was typed on, not the one that replaced it', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === T2 ? { ...t, updated_at: '2026-04-04T00:00:00Z' } : t
+    );
+    const { container, rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await tick();
+    descriptionEditor(container).commands.insertContent('Typed on the first card');
+
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
+
+    await waitFor(() => expect(anyTaskPatches().length).toBeGreaterThan(0));
+    const patches = anyTaskPatches();
+    expect(patches).toHaveLength(1);
+    expect(new URL(patches[0]!.url).pathname).toBe(`/api/tasks/${T1}`);
+    const body = (await patches[0]!.json()) as {
+      description: unknown;
+      expected_updated_at: string;
+    };
+    expect(JSON.stringify(body.description)).toContain('Typed on the first card');
+    expect(body.expected_updated_at).toBe('2026-01-02T00:00:00Z');
+  });
+
+  // A rejection is not cancelled by walking away from the card. The draft is the
+  // only thing holding the text, and the banner is waiting on the next visit.
+  it('files a title rejected after the switch under the card that was typed on', async () => {
+    mockConflict();
+    const { rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await fireEvent.input(screen.getByLabelText('Task title'), {
+      target: { value: 'Design cards v2' },
+    });
+
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
+
+    await waitFor(() => expect(conflictDrafts.get(T1)).not.toBeNull());
+    expect(conflictDrafts.get(T1)?.mine.title).toBe('Design cards v2');
+    expect(conflictDrafts.get(T1)?.base.title).toBe('Design cards');
+    expect(conflictDrafts.get(T2)).toBeNull();
+    // One, not two: the refused patch used to be re-sent against the same baseline
+    // it had already been refused for.
+    expect(anyTaskPatches()).toHaveLength(1);
+  });
+
+  // Decided deliberately, and user-visible: coming back to a card keeps the
+  // baseline the user was shown rather than adopting whatever the board holds by
+  // then, so a teammate's edit made in between is a conflict they are offered
+  // instead of a version they silently overwrite.
+  it('writes card A against the version it showed, after a trip to card B and back', async () => {
+    mockConflict();
+    const { rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await tick();
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
+    board.applyRealtime(realtimeEvent('task_updated', teammateVersion(), PROJECT_ID));
+    await rerender({ taskId: T1, closePath: BOARD_PATH });
+
+    await editTitle('Design cards v2');
+
+    expect(await taskPatches()[0]!.json()).toEqual({
+      title: 'Design cards v2',
+      expected_updated_at: '2026-01-02T00:00:00Z',
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(/changed somewhere else/);
+  });
+
+  // The other direction of the same switch: B is a card this overlay has written
+  // nothing to, so it takes its own current version instead of inheriting A's.
+  it('writes the card switched TO against that card’s own version', async () => {
+    board.tasks = board.tasks.map((t) =>
+      t.id === T2 ? { ...t, updated_at: '2026-04-04T00:00:00Z' } : t
+    );
+    mockRoutes((request, url) =>
+      request.method === 'PATCH' && url.pathname === `/api/tasks/${T2}`
+        ? jsonResponse(200, {
+            ...task(T2, 'c1', 'Cut prototype v2'),
+            updated_at: SERVER_UPDATED_AT,
+          })
+        : undefined
+    );
+    const { rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await tick();
+
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
+    await editTitle('Cut prototype v2');
+
+    await waitFor(() => expect(anyTaskPatches()).toHaveLength(1));
+    const patch = anyTaskPatches()[0]!;
+    expect(new URL(patch.url).pathname).toBe(`/api/tasks/${T2}`);
+    expect(await patch.json()).toEqual({
+      title: 'Cut prototype v2',
+      expected_updated_at: '2026-04-04T00:00:00Z',
+    });
+  });
+
+  // Re-seeding the field is gated per open, not per session: by the time the user
+  // comes back, A's session already holds a baseline, so gating on that instead
+  // would leave the rejected text in the store and the stored title on screen.
+  it('shows the rejected title again when the card is returned to mid-conflict', async () => {
+    mockConflict();
+    const { rerender } = renderDetail({ taskId: T1, closePath: BOARD_PATH });
+    await editTitle('Design cards v2');
+    await screen.findByRole('alert');
+
+    await rerender({ taskId: T2, closePath: BOARD_PATH });
+    await rerender({ taskId: T1, closePath: BOARD_PATH });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/changed somewhere else/);
+    expect(screen.getByLabelText('Task title')).toHaveValue('Design cards v2');
   });
 
   it('sets the due date from the quick bar, and shows no section until there is one', async () => {

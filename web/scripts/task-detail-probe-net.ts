@@ -1,11 +1,15 @@
 // Dev-only, imported by task-detail-probe.ts AFTER board-probe-net (NOT shipped).
 //
 // board-probe-net answers /api by echoing the request body, which is the right
-// default and the wrong answer for two routes here: taskActivity does
-// `this.entries = data.activity` with no guard and would crash the overlay, and a
+// default and the wrong answer for three routes here: taskActivity does
+// `this.entries = data.activity` with no guard and would crash the overlay; a
 // PATCH echoed back carries no `updated_at` — the very field the baseline advance
 // is keyed on, so echoing would manufacture the double-write this check exists to
-// catch.
+// catch; and a detail read echoed as `{}` lands on the fixture as a card with no
+// comments, no checklist and no attachments, so anything seeded beyond the bare
+// row is silently undone the moment the overlay opens.
+import { PROJECT_ID, TASKS } from './task-detail-probe-fixture';
+
 const echo = window.fetch;
 const ANSWERS: Record<string, unknown> = {
   '/cross-project-dependencies': {
@@ -36,6 +40,23 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
       }),
       { status: 200, headers: { 'content-type': 'application/json' } }
     );
+  }
+  const detail = /^\/api\/tasks\/([^/]+)$/.exec(url.pathname);
+  if (request.method === 'GET' && detail !== null) {
+    const seeded = TASKS.find((t) => t.id === detail[1]);
+    if (seeded !== undefined) {
+      return new Response(
+        JSON.stringify({
+          ...seeded,
+          project_id: PROJECT_ID,
+          comments: [],
+          checklist_items: [],
+          attachments: [],
+          series: null,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
   }
   const key = Object.keys(ANSWERS).find((s) => url.pathname.endsWith(s));
   if (request.method === 'GET' && key !== undefined) {

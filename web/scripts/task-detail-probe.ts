@@ -1,8 +1,8 @@
 // Dev-only entry (NOT part of the production build) that mounts the REAL
 // TaskDetail so a browser can answer what jsdom cannot: where showModal() leaves
-// the caret, and how many writes one edit produces when the overlay is dismissed.
-// Served by `vite dev` at /scripts/task-detail-probe.html. See
-// scripts/check-task-detail.mjs.
+// the caret, and how many writes one edit produces when the overlay is dismissed
+// or moved to another card. Served by `vite dev` at
+// /scripts/task-detail-probe.html. See scripts/check-task-detail.mjs.
 import './board-probe-net';
 import './task-detail-probe-net';
 import { mount, unmount } from 'svelte';
@@ -11,12 +11,8 @@ import { board } from '../src/lib/board.svelte';
 import { connectivity } from '../src/lib/connectivity.svelte';
 import { session } from '../src/lib/session.svelte';
 import TaskDetail from '../src/components/TaskDetail.svelte';
-
-const id = (n: number): string => `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
-const PROJECT_ID = id(1),
-  USER_ID = id(2),
-  TASK_ID = id(10),
-  COLUMN_ID = id(20);
+import { COLUMN_ID, FIRST_TASK_ID, PROJECT_ID, TASKS, USER_ID } from './task-detail-probe-fixture';
+import { switchableProps } from './task-detail-probe-props.svelte';
 
 session.user = {
   id: USER_ID,
@@ -37,34 +33,18 @@ board.project = {
 board.columns = [
   { id: COLUMN_ID, name: 'Todo', sort_key: 'V0', is_done: false },
 ] as unknown as typeof board.columns;
-board.tasks = [
-  {
-    id: TASK_ID,
-    column_id: COLUMN_ID,
-    title: 'Stored title',
-    description: null,
-    sort_key: 'V0',
-    due_date: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    column_since: '2026-01-01T00:00:00Z',
-    label_ids: [],
-    assignee_ids: [],
-    blocker_ids: [],
-    open_cross_project_blocker_count: 0,
-    cover_image_url: null,
-    comment_count: 0,
-    checklist_item_count: 0,
-    checklist_done_count: 0,
-    attachment_count: 0,
-  },
-] as unknown as typeof board.tasks;
+board.tasks = TASKS as unknown as typeof board.tasks;
 
-const app = mount(TaskDetail, {
-  target: document.getElementById('app')!,
-  props: { taskId: TASK_ID, closePath: '/p/probe', taskPath: (t: string) => `/t/${t}` },
-});
+const props = switchableProps(FIRST_TASK_ID);
+const app = mount(TaskDetail, { target: document.getElementById('app')!, props });
 (window as unknown as { __unmount: () => void }).__unmount = () => {
   void unmount(app);
 };
+(window as unknown as { __switch: (id: string) => void }).__switch = (id: string) => {
+  props.taskId = id;
+};
+// The driver asserts which card a write landed on and what it was written
+// against, so it reads the ids and the timestamps from the seeded rows rather
+// than repeating them.
+(window as unknown as { __fixture: typeof TASKS }).__fixture = TASKS;
 export {};
