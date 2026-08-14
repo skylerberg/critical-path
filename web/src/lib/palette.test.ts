@@ -611,7 +611,14 @@ describe('advertised keys really are bound', () => {
         continue;
       }
       shortcuts.reset();
-      router.navigate(projectHref(PROJECT_ID, 'Colori'), { replace: true });
+      // Started from somewhere the row cannot already be, and still on a project
+      // route, since g b and g g are the only chords that need one. Starting on
+      // the board asserted the navigate this loop had just done for the board
+      // row, and passed with the binding gone.
+      const boardPath = projectHref(PROJECT_ID, 'Colori');
+      const graphPath = projectHref(PROJECT_ID, 'Colori', 'graph');
+      router.navigate(row.href === boardPath ? graphPath : boardPath, { replace: true });
+      expect(router.path).not.toBe(row.href);
       for (const hint of row.keys) {
         press(hint);
       }

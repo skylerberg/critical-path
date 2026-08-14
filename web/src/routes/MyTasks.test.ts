@@ -145,6 +145,28 @@ describe('MyTasks', () => {
     );
   });
 
+  // The server files a row as blocked on the blockers it can name plus the ones
+  // it cannot, so a row can be blocked with an empty blocked_by. Counting only
+  // the named ones leaves it looking exactly like a ready card.
+  it('counts the blockers it cannot name into the badge', async () => {
+    mockResponse({
+      tasks: [
+        task('t-1', 'blocked', { blocked_by: [], hidden_blocked_by_count: 2 }),
+        task('t-2', 'blocked', {
+          blocked_by: [
+            { id: testUuid('t-8'), project_id: PROJECT_ID, title: 'Format', assignee_ids: [] },
+          ],
+          hidden_blocked_by_count: 3,
+        }),
+      ],
+    });
+
+    render(MyTasks);
+
+    expect(await screen.findByText('Blocked by 2')).toBeInTheDocument();
+    expect(screen.getByText('Blocked by 4')).toBeInTheDocument();
+  });
+
   it('names a person the caller can no longer see rather than showing a blank', async () => {
     mockResponse({
       tasks: [task('t-1', 'ready', { waiting_user_ids: ['u-gone'] })],
@@ -275,10 +297,15 @@ describe('MyTasks', () => {
 });
 
 describe('MyTasks card cursor', () => {
+  // t-1 is on screen twice: it is the caller's own card and it is also what Ada
+  // is waiting on. The cursor walks ids, and `indexOf` on a repeated one sends
+  // the third press back to the first copy — leaving the last row unreachable.
   it('publishes its rows in screen order so j and k walk the page', async () => {
     mockResponse({
       tasks: [task('t-1', 'blocking'), task('t-2', 'ready')],
-      waiting_on_you: [{ user_id: ada.id, tasks: [link('t-3', 'Their card')] }],
+      waiting_on_you: [
+        { user_id: ada.id, tasks: [link('t-1', 'Their copy'), link('t-3', 'Their card')] },
+      ],
     });
 
     render(MyTasks);
@@ -359,6 +386,27 @@ describe('MyTasks card cursor', () => {
         expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
       });
       expect(screen.getByText('All 2 of your tasks are shown.')).toBeTruthy();
+    });
+
+    // The line is sticky so the live region survives the final page, which makes
+    // clearing it on the next load the only thing that stops it being read out
+    // to somebody comfortably inside one page on a later visit.
+    it('says nothing about paging again once a later load fits in one page', async () => {
+      mockResponse({ tasks: [task('t-1', 'ready')], next_offset: 1000 });
+
+      render(MyTasks);
+      await screen.findByText('Task t-1');
+
+      mockResponse({ tasks: [task('t-2', 'ready')], next_offset: null });
+      await fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      await screen.findByText('All 2 of your tasks are shown.');
+
+      mockResponse({ tasks: [task('t-1', 'ready')], next_offset: null });
+      await myTasks.load();
+
+      await waitFor(() => {
+        expect(screen.queryByText(/of your tasks/)).toBeNull();
+      });
     });
 
     // The count is what a screen reader hears change, so it has to be live and

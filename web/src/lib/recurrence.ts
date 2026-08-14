@@ -1,3 +1,5 @@
+import { isCalendarDate } from './dates';
+
 export type RecurrencePreset =
   | 'daily'
   | 'weekdays'
@@ -39,6 +41,19 @@ const MONTH_NAMES = [
   'December',
 ];
 
+// What each preset can say with no day to quote. `utcDate('')` is not an Invalid
+// Date — Number('') is 0, so it is 30 November 1899 — and a date input reports ''
+// for any empty or half-typed value, so without these the menu relabels itself
+// after that 1899 day while the caller is still retyping the start date.
+const UNANCHORED_LABELS: Record<RecurrencePreset, string> = {
+  daily: 'Every day',
+  weekdays: 'Every weekday',
+  weekly: 'Every week',
+  monthly_date: 'Monthly on the same date',
+  monthly_weekday: 'Monthly on the same weekday',
+  yearly: 'Every year',
+};
+
 // Built from the string's own fields, never a local Date: toISOString() on one
 // names the previous day for most of the evening west of Greenwich.
 function utcDate(date: string): Date {
@@ -69,6 +84,9 @@ function daysInMonth(year: number, month: number): number {
 // server's `summary`, which is the record; minor wording drift between the two
 // is expected.
 export function presetLabel(preset: RecurrencePreset, startDate: string): string {
+  if (!isCalendarDate(startDate)) {
+    return UNANCHORED_LABELS[preset];
+  }
   const start = utcDate(startDate);
   const dayOfMonth = start.getUTCDate();
   const weekday = WEEKDAY_NAMES[start.getUTCDay()];

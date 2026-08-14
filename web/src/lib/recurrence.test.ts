@@ -52,4 +52,28 @@ describe('presetLabel', () => {
       expect(presetLabel(preset, '2026-12-31').length).toBeGreaterThan(0);
     }
   });
+
+  // Both call sites bind this straight to a date input, which reports '' for an
+  // empty value and for every keystroke of a half-typed one.
+  it.each(['', '2026-', '2026-08', 'nonsense'])('quotes no day for a start date of %p', (value) => {
+    const labels = RECURRENCE_PRESETS.map((preset) => presetLabel(preset, value));
+
+    expect(labels).toEqual([
+      'Every day',
+      'Every weekday',
+      'Every week',
+      'Monthly on the same date',
+      'Monthly on the same weekday',
+      'Every year',
+    ]);
+    // 30 November 1899 is what Date.UTC makes of an empty string.
+    expect(labels.join(' ')).not.toMatch(/1899|November|30th|Thursday/);
+  });
+
+  it('offers a distinct label per preset whether or not the date is there', () => {
+    for (const startDate of ['', '2026-08-13']) {
+      const labels = RECURRENCE_PRESETS.map((preset) => presetLabel(preset, startDate));
+      expect(new Set(labels).size).toBe(RECURRENCE_PRESETS.length);
+    }
+  });
 });

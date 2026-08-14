@@ -18,6 +18,57 @@ function open(onclose = vi.fn()): {
   return { onclose, trigger, panel: screen.getByRole('group', { name: 'Labels' }) };
 }
 
+/**
+ * jsdom measures nothing, so the three inputs to the clamp are stubbed and the
+ * trigger arrives on a rerender — the effect reads it as a prop, so that is what
+ * makes it run against measurements that exist.
+ */
+async function positioned(metrics: {
+  triggerLeft: number;
+  room: number;
+  panelWidth: number;
+}): Promise<HTMLElement> {
+  const trigger = document.createElement('button');
+  document.body.append(trigger);
+  Object.defineProperty(trigger, 'offsetLeft', { configurable: true, value: metrics.triggerLeft });
+
+  const wrapper = document.createElement('div');
+  Object.defineProperty(wrapper, 'clientWidth', { configurable: true, value: metrics.room });
+
+  const { rerender } = render(Popover, {
+    props: { trigger: undefined, label: 'Labels', onclose: vi.fn(), children },
+  });
+  const panel = screen.getByRole('group', { name: 'Labels' });
+  Object.defineProperty(panel, 'offsetParent', { configurable: true, get: () => wrapper });
+  Object.defineProperty(panel, 'offsetWidth', { configurable: true, value: metrics.panelWidth });
+
+  await rerender({ trigger });
+  return panel;
+}
+
+// The panel is clipped rather than scrolled back into view: it lives inside the
+// task overlay's scrollport, so a left the trigger's own offset would give it is
+// a panel the user cannot reach.
+describe('Popover placement', () => {
+  it('lines the panel up with its trigger when the row has room', async () => {
+    const panel = await positioned({ triggerLeft: 40, room: 400, panelWidth: 200 });
+
+    expect(panel.style.left).toBe('40px');
+  });
+
+  it('pulls a panel opened near the right edge back inside the row', async () => {
+    const panel = await positioned({ triggerLeft: 350, room: 400, panelWidth: 200 });
+
+    expect(panel.style.left).toBe('200px');
+  });
+
+  it('keeps a panel wider than the row at the left edge rather than off it', async () => {
+    const panel = await positioned({ triggerLeft: 40, room: 200, panelWidth: 320 });
+
+    expect(panel.style.left).toBe('0px');
+  });
+});
+
 describe('Popover', () => {
   it('renders a labeled panel holding its body', () => {
     const { panel } = open();

@@ -65,6 +65,15 @@ describe('fuzzyScore', () => {
     expect(score('ab', 'a zzzz ab')).toBe(score('ab', 'z zzzz ab'));
   });
 
+  // Project, column and label names are user-supplied and reach this verbatim,
+  // and 'İ' (U+0130) lowercases to two code units: a scan string longer than the
+  // text it is aligned with used to walk the boundary test off the end and throw.
+  it('keeps its two indexes aligned when lowercasing lengthens a character', () => {
+    expect(() => fuzzyScore('is', 'İstanbul Boss')).not.toThrow();
+    expect(fuzzyScore('ib', 'İstanbul Boss')).not.toBeNull();
+    expect(score('b', 'İstanbul Boss')).toBe(score('b', 'Istanbul Boss'));
+  });
+
   it('punishes a late start, but not without bound', () => {
     const early = score('x', `x${'-'.repeat(30)}`);
     const late = score('x', `${'-'.repeat(20)}x`);

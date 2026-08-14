@@ -215,6 +215,11 @@ class ShortcutController {
   }
 
   #handleSelectionKey(event: KeyboardEvent, projectId: string | null): boolean {
+    // Cmd+←/Alt+← is Back, Cmd+N a window, Cmd+O a file: none of them are ours.
+    // Shift is, though — it extends the selection.
+    if (event.metaKey || event.ctrlKey || event.altKey) {
+      return false;
+    }
     const cursorId = selection.cursorTaskId;
     switch (event.key) {
       case 'j':
@@ -253,7 +258,7 @@ class ShortcutController {
       }
       case 's':
       case 'S':
-        if (cursorId === null || !board.canEdit || event.metaKey || event.ctrlKey || event.altKey) {
+        if (cursorId === null || !board.canEdit) {
           return false;
         }
         selection.toggle(cursorId);
@@ -268,7 +273,7 @@ class ShortcutController {
       }
       case 'd':
       case 'D':
-        if (cursorId === null || !board.canEdit || event.metaKey || event.ctrlKey || event.altKey) {
+        if (cursorId === null || !board.canEdit) {
           return false;
         }
         if (event.shiftKey) {
@@ -398,6 +403,10 @@ class ShortcutController {
         break;
       case 'g':
       case 'G':
+        // Cmd+G / Ctrl+G is find-next; arming the chord would eat the key after it.
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+          return;
+        }
         this.#armChord();
         break;
       case 'Escape':

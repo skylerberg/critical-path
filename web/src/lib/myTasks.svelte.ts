@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity';
 import { api, assertOk } from '../api/client';
 import { apiMessage } from './apiMessages';
-import { mergePersonGroups } from './myTaskGroups';
+import { mergePersonGroups, mergeTaskPages } from './myTaskGroups';
 import type { components } from '../api/api.generated';
 import { projects } from './projects.svelte';
 
@@ -114,7 +114,8 @@ class MyTasksStore {
       if (token !== this.#fetchToken) {
         return;
       }
-      this.tasks = [...this.tasks, ...data.tasks];
+      // Merged rather than appended, for the same reason the person groups are.
+      this.tasks = mergeTaskPages(this.tasks, data.tasks);
       this.#waitingOnYou = mergePersonGroups(this.#waitingOnYou, data.waiting_on_you);
       this.#youAreWaitingOn = mergePersonGroups(this.#youAreWaitingOn, data.you_are_waiting_on);
       this.#nextOffset = data.next_offset ?? null;

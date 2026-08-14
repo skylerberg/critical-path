@@ -42,8 +42,8 @@
     });
   });
 
-  // A request raised while the bar is unmounted (board still loading) must not
-  // fire a surprise focus on the next mount.
+  // A request the unmount overtook — f pressed as the board is left — must not
+  // fire a surprise focus when the bar comes back.
   onDestroy(() => {
     shortcuts.filterFocusRequested = false;
   });
@@ -91,6 +91,7 @@
       {onkeydown}
       aria-label="Filter tasks by title"
       aria-describedby={hasOptions ? hintId : undefined}
+      aria-controls={open && hasOptions ? panelId : undefined}
       placeholder="Filter tasks…"
       class="min-h-11 w-36 min-w-0 rounded-md border border-edge bg-canvas pl-8 text-sm focus-ring focus:border-accent sm:w-48 {optionCount >
       0

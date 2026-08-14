@@ -136,6 +136,44 @@ describe('shortcut focus guards', () => {
     expect(cleared.defaultPrevented).toBe(false);
   });
 
+  // The task description is a contenteditable div that does not stop the keydown,
+  // and the keymap is bound on window, so this guard is the only thing between a
+  // typed word and the commands its letters name.
+  it('ignores keys while a contenteditable is focused', () => {
+    const moveTask = vi.spyOn(board, 'moveTask');
+    const editor = document.createElement('div');
+    // jsdom hardcodes isContentEditable to false.
+    Object.defineProperty(editor, 'isContentEditable', { value: true });
+    editor.tabIndex = 0;
+    document.body.append(editor);
+    editor.focus();
+    selection.set(TASK_1);
+
+    for (const key of ['j', 'd', 'm', 'l', 'b', 'n', 'x', 'Escape']) {
+      expect(press(key).defaultPrevented).toBe(false);
+    }
+
+    expect(selection.cursorTaskId).toBe(TASK_1);
+    expect(shortcuts.anyMenuOpen).toBe(false);
+    expect(shortcuts.quickAddColumn).toBeNull();
+    expect(moveTask).not.toHaveBeenCalled();
+  });
+
+  it('ignores keys while a select is focused, whose own type-ahead owns them', () => {
+    const select = document.createElement('select');
+    document.body.append(select);
+    select.focus();
+    selection.set(TASK_1);
+
+    for (const key of ['j', 'm', 'n', 'Escape']) {
+      expect(press(key).defaultPrevented).toBe(false);
+    }
+
+    expect(selection.cursorTaskId).toBe(TASK_1);
+    expect(shortcuts.moveMenu).toBeNull();
+    expect(shortcuts.quickAddColumn).toBeNull();
+  });
+
   it('ignores keys while a modal dialog is open', () => {
     const dialog = document.createElement('dialog');
     dialog.setAttribute('data-modal', '');
@@ -175,6 +213,48 @@ describe('board shortcuts', () => {
     expect(selection.cursorTaskId).toBe(TASK_2);
     press('k');
     expect(selection.cursorTaskId).toBe(TASK_1);
+  });
+
+  it('moves the selection between columns with ArrowLeft and ArrowRight', () => {
+    const TASK_3 = testUuid('t3');
+    board.tasks = [...board.tasks, task(TASK_3, 'done', 1000, 'C')];
+    selection.set(TASK_1);
+
+    const right = press('ArrowRight');
+    expect(selection.cursorTaskId).toBe(TASK_3);
+    expect(right.defaultPrevented).toBe(true);
+
+    const left = press('ArrowLeft');
+    expect(selection.cursorTaskId).toBe(TASK_1);
+    expect(left.defaultPrevented).toBe(true);
+  });
+
+  // Cmd+←/Cmd+→ and Alt+←/Alt+→ are Back and Forward, Cmd+N a window, Cmd+O a
+  // file: the board view has to leave every one of them alone. (Modified k is the
+  // one exception, and it is the palette's — see the command palette suite.)
+  it('leaves modified selection keys to the browser', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+    selection.set(TASK_1);
+
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      for (const key of [
+        'j',
+        'ArrowDown',
+        'ArrowUp',
+        'ArrowLeft',
+        'ArrowRight',
+        'Enter',
+        'o',
+        'e',
+        'n',
+      ]) {
+        expect(press(key, init).defaultPrevented).toBe(false);
+      }
+    }
+
+    expect(selection.cursorTaskId).toBe(TASK_1);
+    expect(shortcuts.quickAddColumn).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('opens the selected task with Enter', () => {
@@ -301,13 +381,19 @@ describe('board shortcuts', () => {
     expect(shortcuts.anyMenuOpen).toBe(false);
   });
 
+  // The cursor has to be somewhere other than the first column for the two halves
+  // to be telling apart at all.
   it('requests quick-add in the selected column, else the first column', () => {
+    const TASK_3 = testUuid('t3');
+    board.tasks = [...board.tasks, task(TASK_3, 'done', 1000, 'C')];
+
     press('n');
     expect(shortcuts.quickAddColumn).toBe('c1');
+
     shortcuts.quickAddColumn = null;
-    selection.set(TASK_1);
+    selection.set(TASK_3);
     press('n');
-    expect(shortcuts.quickAddColumn).toBe('c1');
+    expect(shortcuts.quickAddColumn).toBe('done');
   });
 
   it('moves the selected task to the first done column with d', () => {
@@ -788,6 +874,18 @@ describe('g-chords', () => {
     press('m');
     expect(navigate).toHaveBeenLastCalledWith('/my-tasks');
     expect(shortcuts.moveMenu).toBeNull();
+  });
+
+  // Cmd+G and Ctrl+G are find-next with the page still focused: claiming one both
+  // suppresses the browser's search and leaves the next key to the chord.
+  it('leaves a modified g to the browser and arms nothing', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockImplementation(() => {});
+
+    for (const init of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      expect(press('g', init).defaultPrevented).toBe(false);
+      press('p');
+      expect(navigate).not.toHaveBeenCalled();
+    }
   });
 
   it('does not complete the chord after the window elapses', () => {

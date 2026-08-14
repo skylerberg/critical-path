@@ -1,7 +1,9 @@
 import { fetchMock } from '../api/testUtils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { flushSync } from 'svelte';
 import FilterBar from './FilterBar.svelte';
+import FilterBarUnmountFixture from './FilterBarUnmountFixture.svelte';
 import { board } from '../lib/board.svelte';
 import { router } from '../lib/router.svelte';
 import { projectHref } from '../lib/short-links';
@@ -40,6 +42,10 @@ function task(id: string, assigneeIds: string[]): BoardTask {
 
 function searchBox(): HTMLInputElement {
   return screen.getByLabelText<HTMLInputElement>('Filter tasks by title');
+}
+
+function searchBoxOrNull(): HTMLInputElement | null {
+  return screen.queryByLabelText<HTMLInputElement>('Filter tasks by title');
 }
 
 async function openPanel(): Promise<HTMLInputElement> {
@@ -222,6 +228,47 @@ describe('FilterBar', () => {
     });
     expect(input.selectionStart).toBe(0);
     expect(input.selectionEnd).toBe('boss'.length);
+  });
+
+  // Popover's id is the caller's to point at; unpointed-at it is dead markup and
+  // the panel is a box that opened with nothing saying so.
+  it('points the search box at the panel it opens, and only while it is open', async () => {
+    board.tasks = [task('t1', ['u1'])];
+
+    render(FilterBar);
+    const input = await openPanel();
+    const panel = screen.getByRole('group', { name: 'Label and assignee filters' });
+
+    expect(input.getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.id).not.toBe('');
+
+    await fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(input).not.toHaveAttribute('aria-controls');
+  });
+
+  // The press and the unmount race whenever f is the last key on a board being
+  // left: the effect that would have consumed the request is discarded with the
+  // branch it belonged to, so the request outlives the bar. Taken away through
+  // the header for that reason — unmounting the component itself flushes the
+  // effect first, and there is then no race left to guard.
+  it('drops a focus request the unmount overtook rather than firing it on the next mount', () => {
+    board.tasks = [task('t1', [])];
+    render(FilterBarUnmountFixture);
+
+    flushSync(() => {
+      board.currentProjectId = null;
+      shortcuts.filterFocusRequested = true;
+    });
+
+    expect(searchBoxOrNull()).toBeNull();
+    expect(shortcuts.filterFocusRequested).toBe(false);
+
+    flushSync(() => {
+      board.currentProjectId = PROJECT_ID;
+    });
+
+    expect(document.activeElement).not.toBe(searchBox());
   });
 
   it('makes the narrowed board a shareable URL without growing the history', async () => {

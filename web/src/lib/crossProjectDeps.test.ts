@@ -118,8 +118,46 @@ describe('crossProjectDeps store', () => {
     crossProjectDeps.reset();
     release!();
 
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // Control: a read that started after the release and has finished, so the
+    // released one has had its turn at the store too. Waiting on the call count
+    // instead proved nothing — it was already 1 before the release.
+    respondWith(deps());
+    crossProjectDeps.ensure('t2');
+    await vi.waitFor(() => expect(crossProjectDeps.get('t2')?.loading).toBe(false));
+
     expect(crossProjectDeps.get('t1')).toBeUndefined();
+  });
+
+  // The t1 → t2 → t1 flip the token exists for: two reads of the same task can
+  // only overlap across a reset, and the first of them can land last.
+  it('keeps the newer response when an older one for the same task lands after it', async () => {
+    const releases: (() => void)[] = [];
+    const bodies = [deps({ hidden_blocked_by_count: 1 }), deps({ hidden_blocked_by_count: 2 })];
+    fetchMock.mockImplementation(async (input) => {
+      const { pathname } = new URL((input as Request).url);
+      if (!pathname.includes('/t1/')) {
+        return jsonResponse(200, deps());
+      }
+      const which = releases.length;
+      await new Promise<void>((resolve) => releases.push(resolve));
+      return jsonResponse(200, bodies[which] ?? deps());
+    });
+
+    crossProjectDeps.ensure('t1');
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+    crossProjectDeps.reset();
+    crossProjectDeps.ensure('t1');
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+
+    releases[1]!();
+    await settle();
+    expect(crossProjectDeps.get('t1')?.deps?.hidden_blocked_by_count).toBe(2);
+
+    releases[0]!();
+    crossProjectDeps.ensure('t2');
+    await vi.waitFor(() => expect(crossProjectDeps.get('t2')?.loading).toBe(false));
+
+    expect(crossProjectDeps.get('t1')?.deps?.hidden_blocked_by_count).toBe(2);
   });
 
   // The entry is the panel's whole state, so a failure landing for a task that is

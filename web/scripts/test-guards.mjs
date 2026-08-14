@@ -742,4 +742,134 @@ export const guards = [
     replace: '',
     tests: ['src/lib/realtime.test.ts'],
   },
+  {
+    // A repeat is not a doubled row here: the keyed each throws each_key_duplicate
+    // and takes the screen down.
+    name: 'a card served on two pages of My Tasks is held once',
+    testName: 'keeps a card that arrives on two pages once',
+    file: 'src/lib/myTaskGroups.ts',
+    find: '  const byId = new Map(existing.map((task) => [task.id, task]));',
+    replace: '  const byId = new Map();',
+    tests: ['src/lib/myTasks.test.ts'],
+  },
+  {
+    // The server files the row as blocked on these counts, so dropping them
+    // leaves a row nothing can start looking exactly like a ready one.
+    name: 'blockers the caller cannot read still count on the row',
+    testName: 'counts the blockers it cannot name into the badge',
+    file: 'src/components/MyTaskRow.svelte',
+    find: 'task.blocked_by.length + (task.hidden_blocked_by_count ?? 0)',
+    replace: 'task.blocked_by.length',
+    tests: ['src/routes/MyTasks.test.ts'],
+  },
+  {
+    // The mutation is the whole of the original bug: the POST was built on the
+    // select's change, before the field asking for this had ever been shown.
+    name: 'a series starts on the date the panel asked for',
+    testName: 'starts the series on the date typed into Starts on',
+    file: 'src/components/DatesPanel.svelte',
+    find: '          start_date: startDate,',
+    replace: '          start_date: todayISO(),',
+    tests: ['src/components/DatesPanel.test.ts'],
+  },
+  {
+    // Without this the menu goes on displaying a rule the card does not have.
+    name: 'a refused rule change falls back to the rule the card still has',
+    testName: 'falls back to the rule the card still has when the change is refused',
+    file: 'src/components/DatesPanel.svelte',
+    find: '    if (!saved) {',
+    replace: '    if (false) {',
+    tests: ['src/components/DatesPanel.test.ts'],
+  },
+  {
+    // remove() reports a refused delete by returning false rather than throwing.
+    name: 'a refused delete leaves the recurrence named on the card',
+    testName: 'keeps the recurrence on the card when the delete is refused',
+    file: 'src/components/DatesPanel.svelte',
+    find: '      if (await taskSeries.remove(id)) {',
+    replace: '      if ((await taskSeries.remove(id)) || true) {',
+    tests: ['src/components/DatesPanel.test.ts'],
+  },
+  {
+    // Not an Invalid Date: Number('') is 0, so the menu names 30 November 1899
+    // at every keystroke of a half-typed start date.
+    name: 'the recurrence menu quotes no day it was not given',
+    testName: 'quotes no day for a start date of',
+    file: 'src/lib/recurrence.ts',
+    find: '  if (!isCalendarDate(startDate)) {\n    return UNANCHORED_LABELS[preset];\n  }\n',
+    replace: '',
+    tests: ['src/lib/recurrence.test.ts'],
+  },
+  {
+    // Both creates go through #append for this: a create outlives the modal it
+    // was submitted from, and the next project's list is what it lands in.
+    name: 'a create that outlives its modal cannot land under the next board',
+    testName: 'keeps a new series out of the list the store has moved on to',
+    file: 'src/lib/taskSeries.svelte.ts',
+    find: '    if (this.loaded && row.project_id === this.currentProjectId) {',
+    replace: '    if (true) {',
+    tests: ['src/lib/taskSeries.test.ts'],
+  },
+  {
+    // Indexing code units splits a surrogate pair, and the half renders as a
+    // replacement glyph on every card the person is assigned to.
+    name: 'an avatar abbreviates a name by code point',
+    testName: 'takes a whole first character, not half of a surrogate pair',
+    file: 'src/components/ui/Avatar.svelte',
+    find: ".map((word) => [...word][0]?.toUpperCase() ?? '')",
+    replace: ".map((word) => word[0]?.toUpperCase() ?? '')",
+    tests: ['src/components/ui/Avatar.test.ts'],
+  },
+  {
+    // toLowerCase is not length-preserving, and the scan indexes the folded text
+    // and the original with the same j: a whole-string fold walks the boundary
+    // test off the end of a name holding 'İ' and throws out of a derived.
+    name: 'fuzzy matching folds case one character at a time',
+    testName: 'keeps its two indexes aligned when lowercasing lengthens a character',
+    file: 'src/lib/fuzzy.ts',
+    find: '  const lower = foldCase(text);',
+    replace: '  const lower = text.toLowerCase();',
+    tests: ['src/lib/fuzzy.test.ts'],
+  },
+  {
+    // Without the bail the board view swallows Cmd+←/Alt+← (Back), Cmd+→
+    // (Forward), Cmd+N and Cmd+O.
+    name: 'the board selection keys leave a modified press to the browser',
+    testName: 'leaves modified selection keys to the browser',
+    file: 'src/lib/shortcuts.svelte.ts',
+    find: '    if (event.metaKey || event.ctrlKey || event.altKey) {\n      return false;\n    }\n    const cursorId = selection.cursorTaskId;',
+    replace: '    const cursorId = selection.cursorTaskId;',
+    tests: ['src/lib/shortcuts.test.ts'],
+  },
+  {
+    // Cmd+G/Ctrl+G is find-next: claiming it also armed the chord, so the next
+    // key navigated off the board.
+    name: 'a modified g is find-next and arms no chord',
+    testName: 'leaves a modified g to the browser and arms nothing',
+    file: 'src/lib/shortcuts.svelte.ts',
+    find: '        if (event.metaKey || event.ctrlKey || event.altKey) {\n          return;\n        }\n        this.#armChord();',
+    replace: '        this.#armChord();',
+    tests: ['src/lib/shortcuts.test.ts'],
+  },
+  {
+    // `undefined === 0` is false, so a pod that predates the field made every
+    // task sprout a placeholder reading "Show undefined blocking tasks".
+    name: 'a missing cross-project count reads as none, not as a placeholder',
+    testName: 'emits nothing for a task whose payload carries no count at all',
+    file: 'src/lib/graph.ts',
+    find: '    const count = task.open_cross_project_blocker_count ?? 0;',
+    replace: '    const count = task.open_cross_project_blocker_count;',
+    tests: ['src/lib/graph.test.ts'],
+  },
+  {
+    // A synthetic node's id is not a task id: accepting a drop on one links the
+    // card optimistically and POSTs a blocker id the server cannot resolve.
+    name: 'a connect drop is refused unless it lands on a real task node',
+    testName: 'refuses a connect drop onto',
+    file: 'src/routes/Graph.svelte',
+    find: "    const id =\n      group?.getAttribute('data-node-kind') === 'task'\n        ? (group.getAttribute('data-node-id') ?? null)\n        : null;\n    connectTarget = id !== null && id !== connectSource ? id : null;\n  }\n\n  async function onConnectEnd",
+    replace:
+      "    const id = group?.getAttribute('data-node-id') ?? null;\n    connectTarget = id !== null && id !== connectSource ? id : null;\n  }\n\n  async function onConnectEnd",
+    tests: ['src/routes/Graph.test.ts'],
+  },
 ];

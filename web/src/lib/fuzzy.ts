@@ -14,6 +14,20 @@ const GAP = 1;
 // word sits in a long name says much less than how scattered the match is.
 const LEADING_GAP_MAX = 12;
 
+// `String.prototype.toLowerCase` is not length-preserving — 'İ' (U+0130) folds to
+// two code units — and the scan below indexes the folded text and the original
+// with the same j, reading the case off the original. Folding one character at a
+// time and keeping the original's width is what keeps those two indexes the same
+// index; whole-string folding walks `isBoundary` off the end of `text`.
+function foldCase(text: string): string {
+  let out = '';
+  for (const char of text) {
+    const lower = char.toLowerCase();
+    out += lower.length === char.length ? lower : lower.slice(0, char.length);
+  }
+  return out;
+}
+
 // Case comes from the original text: lowercasing first would erase the camel
 // hump, which is the only boundary a separator does not already announce.
 function isBoundary(text: string, index: number): boolean {
@@ -34,11 +48,11 @@ function isBoundary(text: string, index: number): boolean {
 // this runs over are short and few, so the full search is free.
 export function fuzzyScore(query: string, text: string): number | null {
   // Stripped from the query alone, so "proj a" reaches "Project Alpha".
-  const q = query.replace(/\s+/g, '').toLowerCase();
+  const q = foldCase(query.replace(/\s+/g, ''));
   if (q === '') {
     return 0;
   }
-  const lower = text.toLowerCase();
+  const lower = foldCase(text);
   if (q.length > lower.length) {
     return null;
   }

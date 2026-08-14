@@ -19,6 +19,20 @@ describe('ui/Input', () => {
     expect(screen.getByText('Required')).toBeInTheDocument();
   });
 
+  // Visible next to the field is not read with the field: without the
+  // describedby link the message is announced only if the reader wanders onto it.
+  it('reads the message as the field’s description', () => {
+    render(Input, { label: 'Name', error: 'Required' });
+
+    expect(screen.getByLabelText('Name')).toHaveAccessibleDescription('Required');
+  });
+
+  it('leaves the field undescribed while there is no error', () => {
+    render(Input, { label: 'Name' });
+
+    expect(screen.getByLabelText('Name')).not.toHaveAccessibleDescription();
+  });
+
   it('takes focus on mount when autofocus is set', () => {
     render(Input, { label: 'Email', autofocus: true });
 

@@ -89,7 +89,7 @@ class TaskSeriesStore {
   async create(body: CreateTaskSeriesBody): Promise<TaskSeries> {
     this.#listToken += 1;
     const row = assertOk(await api.POST('/api/task-series', { body }));
-    this.list = [...this.list, row];
+    this.#append(row);
     return row;
   }
 
@@ -101,12 +101,7 @@ class TaskSeriesStore {
     const row = assertOk(
       await api.POST('/api/tasks/{id}/series', { params: { path: { id: taskId } }, body })
     );
-    // Only into a list this project already loaded: appending to a list still
-    // holding another project's series is how a row shows up under the wrong
-    // board, and the load this project has yet to do will fetch it anyway.
-    if (this.loaded && row.project_id === this.currentProjectId) {
-      this.list = [...this.list, row];
-    }
+    this.#append(row);
     return row;
   }
 
@@ -172,6 +167,16 @@ class TaskSeriesStore {
     } catch (error) {
       await mutationFailed(this, error, 'Failed to delete the series');
       return false;
+    }
+  }
+
+  // Only into a list this project already loaded: a create outlives the form it
+  // was submitted from, and appending to a list now holding another project's
+  // series is how a row shows up under the wrong board. The load that project
+  // has yet to do will fetch it anyway.
+  #append(row: TaskSeries): void {
+    if (this.loaded && row.project_id === this.currentProjectId) {
+      this.list = [...this.list, row];
     }
   }
 
