@@ -362,10 +362,14 @@ Traps a probe of that shape hits:
 
 A probe has to sit inside the repo to resolve `vite`, `playwright` and the
 helper itself; one written to `/tmp` fails at the import, not at the assertion.
-**Name it `scripts/tmp-<what>.mjs`** — that prefix is ignored by git and by
-eslint, which is the difference between a scratch file and a commit risk that
-also reddens `npm run lint`. Delete it when done; the prefix is what keeps a
-forgotten one from making the gate look broken on a clean tree.
+**Name it `scripts/tmp-<what>.mjs`** — that prefix is the one thing that makes a
+scratch file safe to forget. It is ignored by git, by eslint, by vitest's test
+discovery and by `check:comments`, which is every gate that walks the tree. Each
+of those has been red because of a leftover probe: eslint on an import order,
+`npm test` on a `tmp-*.test.ts` that failed on purpose to print a value,
+`check:comments` on a probe copied wholesale from a real module. Delete it when
+you are done anyway — the prefix is what keeps the gate honest in the meantime,
+on a tree `git status` calls clean.
 
 ```js
 import { createBrowser } from './scripts/lib/browser.mjs';
