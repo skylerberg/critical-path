@@ -194,6 +194,8 @@ function runGuard(guard, jobDir) {
         }),
         GUARD_APPLIED_MARKER: marker,
         GUARD_CACHE_DIR: join(jobDir, 'vite'),
+        NO_COLOR: '1',
+        FORCE_COLOR: '0',
       },
     }
   );
@@ -210,7 +212,13 @@ function runGuard(guard, jobDir) {
       // Whether anything actually ran is read from the summary rather than from
       // the exit code, because the exit code cannot tell "no tests" from "tests
       // passed": a `-t` matching nothing skips every case and exits 0.
-      const summary = /^\s*Tests\s+(.*)$/m.exec(output)?.[1] ?? '';
+      //
+      // Read off a decolored copy. The child is asked for plain output below, but
+      // a summary line that arrives styled begins with an escape rather than
+      // whitespace, and every guard then reports NO-TESTS-RAN while genuinely
+      // catching its bug — which is how this passed every local run and failed
+      // all twelve on a runner that advertises color.
+      const summary = /^\s*Tests\s+(.*)$/m.exec(decolor(output))?.[1] ?? '';
       settle({
         applied: existsSync(marker),
         ran: /\d+ (passed|failed)/.test(summary),
@@ -233,8 +241,13 @@ function verdictOf({ applied, ran, passed }) {
 }
 
 /** @param {string} output */
+/** Styling a child emitted anyway, so neither the parse nor the log has to wear it. */
+function decolor(output) {
+  return output.replaceAll(/\u001b\[[0-9;]*m/g, '');
+}
+
 function tail(output) {
-  return output
+  return decolor(output)
     .split('\n')
     .filter((line) => line.trim() !== '')
     .slice(-6)
