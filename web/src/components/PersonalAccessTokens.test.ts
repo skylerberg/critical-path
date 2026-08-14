@@ -55,9 +55,15 @@ beforeEach(() => {
   toasts.toasts = [];
 });
 
+// `navigator` is the only global this file stubs, and it is put back by hand:
+// `vi.unstubAllGlobals()` restores the ones testUtils installs at import time
+// too — fetch, Request and both storages — leaving every case after the first
+// running against a different environment than the file started in.
+const realNavigator = navigator;
+
 afterEach(() => {
   vi.useRealTimers();
-  vi.unstubAllGlobals();
+  vi.stubGlobal('navigator', realNavigator);
 });
 
 describe('PersonalAccessTokens', () => {
@@ -300,6 +306,31 @@ describe('PersonalAccessTokens', () => {
     releaseDelete(jsonResponse(204));
   });
 
+  // The refetch that puts the row back usually fails too — whatever broke the
+  // DELETE is still broken — and the row is gone from the list by then, so
+  // silence here reads as a revoke that worked.
+  it('says why the list is short when the refetch after a failed revoke also fails', async () => {
+    let gets = 0;
+    fetchMock.mockImplementation(async (input) => {
+      if ((input as Request).method === 'GET') {
+        gets += 1;
+        return gets === 1 ? listResponse([token()]) : jsonResponse(500, { error: 'boom' });
+      }
+      return jsonResponse(500, { error: 'boom' });
+    });
+    render(PersonalAccessTokens);
+    await screen.findByText('CI runner');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Revoke CI runner' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirm revoke of CI runner' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('boom');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByText('CI runner')).not.toBeInTheDocument();
+    expect(screen.queryByText('You have no personal access tokens yet.')).not.toBeInTheDocument();
+    expect(toasts.toasts.map((entry) => entry.message)).toContain('Could not revoke that token');
+  });
+
   it('restores the row and toasts when the revoke fails', async () => {
     fetchMock.mockImplementation(async (input) => {
       const request = input as Request;
@@ -319,5 +350,14 @@ describe('PersonalAccessTokens', () => {
     expect(
       fetchMock.mock.calls.filter((call) => (call[0] as Request).method === 'GET')
     ).toHaveLength(2);
+  });
+
+  // Last on purpose: it is the afterEach above that this guards, and only a case
+  // that has already had one run behind it can see what the afterEach left.
+  it('leaves the suite-wide network and storage stubs in place for the case after it', () => {
+    expect(globalThis.fetch).toBe(fetchMock);
+    localStorage.setItem('cp.probe', 'kept');
+    expect(localStorage.getItem('cp.probe')).toBe('kept');
+    localStorage.removeItem('cp.probe');
   });
 });

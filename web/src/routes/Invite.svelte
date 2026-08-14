@@ -6,7 +6,7 @@
   import { projects } from '../lib/projects.svelte';
   import { link, router } from '../lib/router.svelte';
   import { projectHref } from '../lib/short-links';
-  import { rememberIntendedPath, session } from '../lib/session.svelte';
+  import { isSignedIn, rememberIntendedPath, session } from '../lib/session.svelte';
   import { toasts } from '../lib/toasts.svelte';
   import Spinner from '../components/ui/Spinner.svelte';
 
@@ -34,7 +34,16 @@
       error = DEAD_LINK;
       return;
     }
-    if (session.status !== 'authed') {
+    // 'offline' is a signed-in session whose token init() could not check, which
+    // is the ordinary state of a cold launch on a flaky network — the case a
+    // mailed link arrives in. Treating it as signed out sends the visitor to
+    // /login, which guardRoute then rewrites to '/' because they are signed in
+    // after all, so the invitation is dropped with nothing said. Settle it first;
+    // a token that turns out to be dead lands here as 'anon'.
+    if (session.status === 'offline') {
+      await session.revalidate();
+    }
+    if (!isSignedIn(session.status)) {
       rememberIntendedPath(router.path);
       router.redirect('/login');
       return;

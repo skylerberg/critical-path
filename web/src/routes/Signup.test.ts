@@ -50,6 +50,51 @@ describe('Signup', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // The other half of validatePassword. Sending a short password instead gets
+  // the server's raw 'Validation failed: password: …' against the form as a
+  // whole, rather than the rule under the field it belongs to.
+  it('refuses a password under eight characters without asking the server', async () => {
+    render(Signup);
+
+    await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'Ada' } });
+    await fireEvent.input(screen.getByLabelText('Email'), {
+      target: { value: 'ada@example.com' },
+    });
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'short' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Sign up' }));
+
+    expect(await screen.findByText('Password must be at least 8 characters')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'true');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reports an unreachable server rather than failing silently', async () => {
+    fetchMock.mockRejectedValue(new TypeError('network down'));
+    render(Signup);
+
+    await fillForm();
+    await fireEvent.click(screen.getByRole('button', { name: 'Sign up' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not reach the server. Check your connection and try again.'
+    );
+    expect(session.status).toBe('anon');
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it('names the wait when the attempts are throttled', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(429, { error: 'Too many requests' }));
+    render(Signup);
+
+    await fillForm();
+    await fireEvent.click(screen.getByRole('button', { name: 'Sign up' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Too many attempts. Wait a minute and try again.'
+    );
+    expect(session.status).toBe('anon');
+  });
+
   it('reports a taken address without starting a session', async () => {
     fetchMock.mockResolvedValue(jsonResponse(409, { error: 'duplicate' }));
     render(Signup);

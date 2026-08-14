@@ -128,6 +128,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  expect(globalThis.fetch).toBe(fetchMock);
 });
 
 describe('ProjectHeader', () => {
@@ -326,6 +327,32 @@ describe('ProjectHeader', () => {
     expect(screen.getByRole('menuitem', { name: 'Export' })).toBeInTheDocument();
   });
 
+  // The window handler here sees every Escape on the board — dismissing the
+  // filter dropdown, cancelling a card selection or a keyboard drag — and the
+  // trigger it restores focus to is mounted the whole time.
+  it('leaves focus alone when Escape dismisses something else on the screen', async () => {
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
+    const search = screen.getByLabelText('Filter tasks by title');
+    const trigger = screen.getByRole('button', { name: 'More actions' });
+    search.focus();
+
+    await fireEvent.keyDown(search, { key: 'Escape' });
+
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it('closes the menu on Escape and hands focus back to the trigger', async () => {
+    render(ProjectHeader, { projectId: PROJECT_ID, view: 'board' });
+    const trigger = screen.getByRole('button', { name: 'More actions' });
+    await fireEvent.click(trigger);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('downloads the project and shows a busy state until the archive arrives', async () => {
     let settle: (response: Response) => void = () => {};
     fetchMock.mockReturnValueOnce(
@@ -492,6 +519,7 @@ describe('ProjectHeader browser chrome', () => {
   const APP_ACCENT = '#4f46e5';
   const VIOLET = '#123456';
   let meta: HTMLMetaElement;
+  const realGetComputedStyle = getComputedStyle;
 
   beforeEach(() => {
     meta = document.createElement('meta');
@@ -504,17 +532,18 @@ describe('ProjectHeader browser chrome', () => {
     ]);
     // jsdom resolves no custom property declared inside a media query, so only the
     // root lookup is faked — every other element keeps its real computed style.
-    const real = getComputedStyle;
     vi.stubGlobal('getComputedStyle', (element: Element) =>
       element === document.documentElement
         ? { getPropertyValue: (name: string) => tokens.get(name) ?? '' }
-        : real(element)
+        : realGetComputedStyle(element)
     );
   });
 
+  // Restored by name: `vi.unstubAllGlobals()` would take the file-wide network
+  // and storage stubs with it.
   afterEach(() => {
     meta.remove();
-    vi.unstubAllGlobals();
+    vi.stubGlobal('getComputedStyle', realGetComputedStyle);
   });
 
   it("follows the open board's accent and restores the app default on the way out", async () => {

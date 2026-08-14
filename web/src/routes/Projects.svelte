@@ -142,7 +142,10 @@
 <svelte:window
   onclick={() => (openMenuId = null)}
   onkeydown={(event) => {
-    if (event.key === 'Escape') closeMenu({ restoreFocus: true });
+    // Guarded on a menu actually being open: this handler sees every Escape on
+    // the screen, and `openTrigger` outlives the menu it opened, so an unguarded
+    // close would drag focus onto that kebab from wherever the user was.
+    if (event.key === 'Escape' && openMenuId !== null) closeMenu({ restoreFocus: true });
   }}
 />
 

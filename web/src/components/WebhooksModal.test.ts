@@ -68,6 +68,40 @@ describe('WebhooksModal', () => {
     expect(screen.getByRole('button', { name: 'Delete https://b.example/h' })).toBeInTheDocument();
   });
 
+  // The argument comes from the row's own state, so an inverted comparison here
+  // PATCHes an active endpoint back to active: a no-op the button reports as a
+  // disable, leaving the endpoint delivering.
+  it('disables an active endpoint and enables it again from the same button', async () => {
+    renderWith([webhook()]);
+    await waitFor(() => expect(screen.getByText('https://example.com/hook')).toBeInTheDocument());
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, webhook({ disabled_at: '2026-02-02T00:00:00.000Z' }))
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Disable https://example.com/hook' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Enable https://example.com/hook' })
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByText('Disabled')).toBeInTheDocument();
+    expect(requestAt(1).method).toBe('PATCH');
+    const disableBody = (await requestAt(1).clone().json()) as { disabled_at: string | null };
+    expect(disableBody.disabled_at).not.toBeNull();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, webhook()));
+    await fireEvent.click(screen.getByRole('button', { name: 'Enable https://example.com/hook' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Disable https://example.com/hook' })
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(await requestAt(2).clone().json()).toEqual({ disabled_at: null });
+  });
+
   it('renders an error row with a retry when the list cannot be loaded', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(404, { error: 'Project not found' }));
     render(WebhooksModal, { projectId: 'p-1', onclose: () => {} });

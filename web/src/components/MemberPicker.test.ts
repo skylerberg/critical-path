@@ -212,8 +212,15 @@ describe('MemberPicker', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // Adding someone clears the query, which re-expands the list and puts the
+  // highlight back on the first row — so a held Enter walks from the person who
+  // was chosen onto somebody else. Filtering to one row first is what makes the
+  // repeats land on a different person rather than on the dedupe in `add`.
   it('grants access once when Enter is held down', async () => {
     render(MemberPicker, { projectId: 'p-1' });
+    await fireEvent.input(field(), { target: { value: 'bob' } });
+    expect(screen.getByRole('button', { name: 'Add Bob Ross' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Ada Lovelace' })).toBeNull();
 
     await fireEvent.keyDown(field(), { key: 'Enter' });
     await fireEvent.keyDown(field(), { key: 'Enter', repeat: true });
@@ -221,7 +228,64 @@ describe('MemberPicker', () => {
 
     const puts = fetchMock.mock.calls.filter((call) => (call[0] as Request).method === 'PUT');
     expect(puts).toHaveLength(1);
-    expect(projects.projects[0]!.member_ids).toEqual([ada.id]);
+    expect(projects.projects[0]!.member_ids).toEqual([bob.id]);
+  });
+
+  // The invite row has no dedupe behind it: a second POST for the same address
+  // sends a second invitation email and adopts the invitation twice.
+  it('invites once when Enter is held down on the invite row', async () => {
+    let settle: (response: Response) => void = () => {};
+    fetchMock.mockImplementation(
+      async () =>
+        new Promise<Response>((resolve) => {
+          settle = resolve;
+        })
+    );
+    render(MemberPicker, { projectId: 'p-1' });
+    await fireEvent.input(field(), { target: { value: 'ghost@example.com' } });
+
+    await fireEvent.keyDown(field(), { key: 'Enter' });
+    await fireEvent.keyDown(field(), { key: 'Enter' });
+
+    const posts = fetchMock.mock.calls.filter((call) => (call[0] as Request).method === 'POST');
+    expect(posts).toHaveLength(1);
+
+    settle(
+      jsonResponse(200, {
+        status: 'invited',
+        role: 'editor',
+        user: null,
+        invitation: {
+          id: 'inv-1',
+          project_id: 'p-1',
+          email: 'ghost@example.com',
+          role: 'editor',
+          invited_by: me.id,
+          created_at: '2026-01-01T00:00:00.000Z',
+          expires_at: '2026-01-15T00:00:00.000Z',
+        },
+      })
+    );
+
+    expect(await screen.findByText('Invitation sent to ghost@example.com')).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.filter((call) => (call[0] as Request).method === 'POST')
+    ).toHaveLength(1);
+  });
+
+  it('puts focus back in the search field when the row holding it disappears', async () => {
+    render(MemberPicker, { projectId: 'p-1' });
+    const row = screen.getByRole('button', { name: 'Add Bob Ross' });
+    row.focus();
+    expect(row).toHaveFocus();
+
+    // What a landing search response does: the row under focus is replaced.
+    users.users = [ada, cleo, me];
+    await tick();
+
+    expect(screen.queryByRole('button', { name: 'Add Bob Ross' })).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(field()).toHaveFocus();
   });
 
   it('keeps an added person listed as done so the next row cannot shift under a click', async () => {

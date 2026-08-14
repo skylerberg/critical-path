@@ -1,6 +1,7 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invitations } from './invitations.svelte';
+import { clearOfflineCache, readProjectsSnapshot, saveProjectsSnapshot } from './offline-cache';
 import { isProjectOwner, projects, type Project } from './projects.svelte';
 import { session } from './session.svelte';
 import { toasts } from './toasts.svelte';
@@ -652,6 +653,9 @@ describe('projects store', () => {
     expect(toasts.toasts.map((t) => t.message)).toEqual(['nope']);
   });
 
+  // The ids run backwards against the timestamps deliberately: the shared `byRank`
+  // breaks an unkeyed tie on id alone, and this list is the only thing that says
+  // the projects order is the server's (position, then created_at, then id).
   it('sorts ranked projects first, then nulls by created_at then id', async () => {
     const second = project({
       id: 'p-second',
@@ -663,16 +667,38 @@ describe('projects store', () => {
       sort_key: 'V0000010001',
       created_at: '2026-01-09T00:00:00.000Z',
     });
-    const legacyA = project({ id: 'p-legacy-a', created_at: '2026-01-05T00:00:00.000Z' });
-    const legacyB = project({ id: 'p-legacy-b', created_at: '2026-01-05T00:00:00.000Z' });
-    await loadWith([legacyB, second, legacyA, first]);
+    const older = project({ id: 'p-z-older', created_at: '2026-01-04T00:00:00.000Z' });
+    const newer = project({ id: 'p-a-newer', created_at: '2026-01-05T00:00:00.000Z' });
+    const twinA = project({ id: 'p-legacy-a', created_at: '2026-01-06T00:00:00.000Z' });
+    const twinB = project({ id: 'p-legacy-b', created_at: '2026-01-06T00:00:00.000Z' });
+    await loadWith([twinB, newer, second, twinA, older, first]);
 
     expect(projects.active.map((p) => p.id)).toEqual([
       'p-first',
       'p-second',
+      'p-z-older',
+      'p-a-newer',
       'p-legacy-a',
       'p-legacy-b',
     ]);
+  });
+
+  // Two rows can share a key: a position write that was refused leaves the
+  // optimistic key in place, and a rolling deploy can hand out the same one twice.
+  it('breaks a shared key by creation rather than by id', async () => {
+    const older = project({
+      id: 'p-z',
+      sort_key: 'V0000010001',
+      created_at: '2026-01-02T00:00:00.000Z',
+    });
+    const newer = project({
+      id: 'p-a',
+      sort_key: 'V0000010001',
+      created_at: '2026-01-03T00:00:00.000Z',
+    });
+    await loadWith([newer, older]);
+
+    expect(projects.active.map((p) => p.id)).toEqual(['p-z', 'p-a']);
   });
 
   it('sets a rank optimistically and PUTs it', async () => {
@@ -963,6 +989,29 @@ describe('project roles', () => {
     expect(projects.projects[0]!.members).toEqual([{ user_id: 'u-2', role: 'viewer' }]);
   });
 
+  // A pod that predates roles answers without the field, and an undefined role
+  // reads as a viewer everywhere downstream — so the person just invited would
+  // find the board read-only until the next load.
+  it('reads a role-less invite response as an editor', async () => {
+    const added = { id: 'u-2', name: 'Pat', avatar_url: null };
+    await loadWith([project({ created_by: 'u-me' })]);
+    const answer: Record<string, unknown> = {
+      status: 'member',
+      role: 'editor',
+      user: added,
+      invitation: null,
+    };
+    delete answer.role;
+    fetchMock.mockImplementation(async () => jsonResponse(200, answer));
+
+    await projects.addMemberByEmail('p-1', 'pat@example.com');
+
+    expect(projects.projects[0]!.members).toEqual([{ user_id: 'u-2', role: 'editor' }]);
+
+    session.user = { ...me, id: 'u-2' };
+    expect(projects.canEdit('p-1')).toBe(true);
+  });
+
   it('defaults a fresh project and an unknown realtime project to no members', async () => {
     session.user = me;
     fetchMock.mockImplementation(async (input) =>
@@ -1043,6 +1092,34 @@ describe('what changed since you last looked', () => {
     expect(projects.projects[0]!.last_seen_at).not.toBe(SEEN);
   });
 
+  // The dot is clamped to boards with a marker, so losing the stamp to the stale
+  // answer does not just re-light this board's dot — it silences it until the
+  // next load, for the one case the in-flight guard above exists to cover.
+  it('keeps the marker the in-flight list read does not carry, so the next change still dots', async () => {
+    const fresh = project({ last_seen_at: null });
+    await loadWith([fresh]);
+
+    let releaseList!: () => void;
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Promise<Response>((resolve) => {
+          releaseList = () => resolve(jsonResponse(200, { projects: [fresh] }));
+        })
+    );
+    fetchMock.mockImplementationOnce(async () => jsonResponse(204));
+
+    const listing = projects.load();
+    await projects.markSeen('p-1');
+    releaseList();
+    await listing;
+
+    expect(projects.projects[0]!.last_seen_at).not.toBeNull();
+
+    projects.markChanged('p-1');
+
+    expect(dotted()).toEqual(['p-1']);
+  });
+
   it('lights the dot only for a live board the caller has opened before', async () => {
     await loadWith([
       project({ id: 'p-opened', last_seen_at: SEEN }),
@@ -1055,5 +1132,86 @@ describe('what changed since you last looked', () => {
     }
 
     expect(dotted()).toEqual(['p-opened']);
+  });
+});
+
+describe('a projects read that cannot reach the server', () => {
+  const me = {
+    id: 'u-me',
+    email: 'me@example.com',
+    name: 'Me',
+    avatar_url: null,
+    email_verified: false,
+  };
+
+  beforeEach(async () => {
+    session.user = me;
+    await clearOfflineCache(me.id);
+  });
+
+  afterEach(async () => {
+    await clearOfflineCache(me.id);
+    session.user = null;
+  });
+
+  it('keeps what it read for the next launch', async () => {
+    await loadWith([project(), project({ id: 'p-2', name: 'Beta' })]);
+
+    await vi.waitFor(async () =>
+      expect((await readProjectsSnapshot(me.id))?.map((p) => p.id)).toEqual(['p-1', 'p-2'])
+    );
+  });
+
+  // An empty sidebar around a board that loaded from its own snapshot reads as a
+  // broken app rather than a degraded one.
+  it('fills the sidebar from the last visit rather than reporting an error', async () => {
+    await saveProjectsSnapshot(me.id, [project({ name: 'From the cache' })]);
+    fetchMock.mockImplementation(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    await projects.load();
+
+    expect(projects.projects.map((p) => p.name)).toEqual(['From the cache']);
+    expect(projects.loaded).toBe(true);
+    expect(projects.loadError).toBeNull();
+  });
+
+  // A server that answered and refused is a real error; a stale sidebar over it
+  // would be the dishonest kind of graceful.
+  it('still reports a refusal as the error it is', async () => {
+    await saveProjectsSnapshot(me.id, [project({ name: 'From the cache' })]);
+    fetchMock.mockImplementation(async () => jsonResponse(403, { error: 'Session expired' }));
+
+    await projects.load();
+
+    expect(projects.loadError).toBe('Session expired');
+    expect(projects.loaded).toBe(false);
+    expect(projects.projects).toEqual([]);
+  });
+
+  it('has nothing to fall back on for a device that has never loaded the list', async () => {
+    fetchMock.mockImplementation(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    await projects.load();
+
+    expect(projects.loadError).toBe('Failed to load projects');
+    expect(projects.loaded).toBe(false);
+  });
+
+  it('reports the failure rather than reading another account’s cache when signed out', async () => {
+    await saveProjectsSnapshot(me.id, [project({ name: 'From the cache' })]);
+    session.user = null;
+    fetchMock.mockImplementation(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    await projects.load();
+
+    expect(projects.projects).toEqual([]);
+    expect(projects.loadError).toBe('Failed to load projects');
+    expect(projects.loaded).toBe(false);
   });
 });

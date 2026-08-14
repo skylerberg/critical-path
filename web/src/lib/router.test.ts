@@ -373,6 +373,23 @@ describe('router', () => {
     }
   });
 
+  // The Back button reaches #apply through the popstate listener, which is the
+  // only thing that runs the guard on a pop: without it Back walks a signed-out
+  // visitor onto the screen they were just bounced off.
+  it('runs the auth guard on a popped history entry', () => {
+    router.navigate('/login');
+    router.beforeNavigate = (to) => (to.name === 'project' ? '/login' : undefined);
+    try {
+      window.history.pushState(null, '', projectHref(PROJECT_ID, 'Colorimetry'));
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      expect(router.current).toEqual({ name: 'login' });
+      expect(window.location.pathname).toBe('/login');
+      expect(router.path).toBe('/login');
+    } finally {
+      router.beforeNavigate = undefined;
+    }
+  });
+
   it('redirect replaces instead of pushing', () => {
     router.navigate('/signup');
     const lengthBefore = window.history.length;
@@ -452,10 +469,13 @@ describe('link action', () => {
     vi.restoreAllMocks();
   });
 
-  function setup(href: string): HTMLAnchorElement {
+  function setup(href: string, attributes: Record<string, string> = {}): HTMLAnchorElement {
     const container = document.createElement('div');
     const anchor = document.createElement('a');
     anchor.setAttribute('href', href);
+    for (const [name, value] of Object.entries(attributes)) {
+      anchor.setAttribute(name, value);
+    }
     anchor.textContent = 'go';
     container.appendChild(anchor);
     document.body.appendChild(container);
@@ -506,5 +526,50 @@ describe('link action', () => {
     expect(pushState).not.toHaveBeenCalled();
     expect(replaceState).not.toHaveBeenCalled();
     expect(router.path).not.toBe('/account');
+  });
+
+  // use:link goes on whole containers — both navs, the card menu, the projects
+  // list — so every anchor inside one reaches this handler, including the ones
+  // that were never in-app navigations: the card menu's "Open in new tab", an
+  // export download, and any link off this origin.
+  const passthrough: [string, string, Record<string, string>][] = [
+    ['a new-tab link', '/account', { target: '_blank' }],
+    ['a download link', '/account', { download: '' }],
+    ['an anchor with no href', '', {}],
+    ['a cross-origin link', 'https://example.com/account', {}],
+  ];
+
+  it.each(passthrough)('leaves %s to the browser', (_name, href, attributes) => {
+    const anchor = setup(href, attributes);
+    const pathBefore = router.path;
+    const pushState = vi.spyOn(window.history, 'pushState');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    expect(dispatchClick(anchor, { button: 0 })).toBe(false);
+    expect(pushState).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(router.path).toBe(pathBefore);
+  });
+
+  // A click something nearer the anchor has already handled — a menu closing over
+  // it, a drag ending on it — is not a navigation the router gets a second go at.
+  it('leaves a click an inner handler already took', () => {
+    const anchor = setup('/account');
+    anchor.addEventListener('click', (event) => event.preventDefault());
+    const pathBefore = router.path;
+    const pushState = vi.spyOn(window.history, 'pushState');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    expect(dispatchClick(anchor, { button: 0 })).toBe(true);
+    expect(pushState).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(router.path).toBe(pathBefore);
+  });
+
+  // The control for the target case above: the attribute is read, not ignored.
+  it('navigates in-app for an explicit target of _self', () => {
+    const anchor = setup('/account', { target: '_self' });
+    const pushState = vi.spyOn(window.history, 'pushState');
+    expect(dispatchClick(anchor, { button: 0 })).toBe(true);
+    expect(pushState).toHaveBeenCalledTimes(1);
+    expect(router.path).toBe('/account');
   });
 });

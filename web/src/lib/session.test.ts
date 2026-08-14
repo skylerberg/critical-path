@@ -1,6 +1,13 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
+import type { BoardColumn, BoardLabel, BoardProject, BoardTask } from './board-types';
+import {
+  clearOfflineCache,
+  readBoardSnapshot,
+  saveBoardSnapshot,
+  type BoardSnapshot,
+} from './offline-cache';
 import { consumeIntendedPath, rememberIntendedPath, session } from './session.svelte';
 import { matchRoute, router } from './router.svelte';
 import { projectHref, publicBoardHref } from './short-links';
@@ -15,8 +22,18 @@ const user = {
 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = testUuid('p1');
+const OTHER_USER_ID = testUuid('grace');
 const BOARD_PATH = projectHref(PROJECT_ID, 'Game');
 const PUBLIC_BOARD_PATH = publicBoardHref(PROJECT_ID);
+
+function snapshot(title: string): BoardSnapshot {
+  return {
+    project: { id: PROJECT_ID, name: 'Game' } as BoardProject,
+    columns: [{ id: testUuid('c1'), name: 'Todo', sort_key: 'V0', is_done: false } as BoardColumn],
+    tasks: [{ id: testUuid('t1'), title, column_id: testUuid('c1'), sort_key: 'V0' } as BoardTask],
+    labels: [] as BoardLabel[],
+  };
+}
 
 async function loginAs(email = user.email): Promise<void> {
   fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'tok-live', user }));
@@ -268,6 +285,41 @@ describe('session.logout', () => {
     }
   });
 
+  // The IndexedDB half of the same eviction: the board this device cached and
+  // anything still queued belong to the account that is leaving, and a shared
+  // machine hands both to whoever signs in next.
+  it('takes the departing account’s cached board with it, and only theirs', async () => {
+    await clearOfflineCache(user.id);
+    await clearOfflineCache(OTHER_USER_ID);
+    await saveBoardSnapshot(user.id, PROJECT_ID, snapshot('Ada’s board'));
+    await saveBoardSnapshot(OTHER_USER_ID, PROJECT_ID, snapshot('Grace’s board'));
+    await loginAs();
+    fetchMock.mockResolvedValue(jsonResponse(204));
+
+    await session.logout();
+
+    await vi.waitFor(async () => {
+      expect(await readBoardSnapshot(user.id, PROJECT_ID)).toBeNull();
+    });
+    expect((await readBoardSnapshot(OTHER_USER_ID, PROJECT_ID))?.payload.tasks[0]?.title).toBe(
+      'Grace’s board'
+    );
+  });
+
+  it('takes it with it when the server rejects the token instead', async () => {
+    await clearOfflineCache(user.id);
+    await loginAs();
+    await saveBoardSnapshot(user.id, PROJECT_ID, snapshot('Ada’s board'));
+    fetchMock.mockResolvedValue(jsonResponse(401, { error: 'Unauthorized' }));
+
+    await api.GET('/api/users');
+
+    expect(session.status).toBe('anon');
+    await vi.waitFor(async () => {
+      expect(await readBoardSnapshot(user.id, PROJECT_ID)).toBeNull();
+    });
+  });
+
   it('survives a browser with no CacheStorage at all', async () => {
     await loginAs();
     fetchMock.mockResolvedValue(jsonResponse(204));
@@ -410,6 +462,38 @@ describe('a session that cannot be checked', () => {
     await session.init();
 
     expect(session.status).toBe('anon');
+  });
+
+  // The remembered account is the one value trusted before the server can be
+  // reached, and everything keyed to the account hangs off its id. Casting the
+  // stored JSON instead of checking it carries a signed-out session, or one with
+  // no id at all, straight into the app.
+  it.each([
+    ['a truncated entry', '{"id":"a3bb189e-8bf9-3888-9912-ace4e6543002"'],
+    ['a bare JSON string', '"ada"'],
+    ['an entry with no id', JSON.stringify({ name: 'Ada' })],
+    ['an entry with no address', JSON.stringify({ id: user.id, name: 'Ada' })],
+  ])('reads %s as no remembered account at all', async (_label, stored) => {
+    localStorage.setItem('cp.token', 'tok-stored');
+    localStorage.setItem('cp.user', stored);
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await session.init();
+
+    expect(session.status).toBe('anon');
+    expect(session.user).toBeNull();
+  });
+
+  // The control for the four above: the same path, with an entry that is whole.
+  it('carries on as the remembered account when the stored entry is whole', async () => {
+    localStorage.setItem('cp.token', 'tok-stored');
+    localStorage.setItem('cp.user', JSON.stringify(user));
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await session.init();
+
+    expect(session.status).toBe('offline');
+    expect(session.user).toEqual(user);
   });
 
   it('promotes to a checked session once a read gets through', async () => {

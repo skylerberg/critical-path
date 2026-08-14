@@ -1,5 +1,5 @@
 import { fetchMock, jsonResponse } from '../api/testUtils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import ProjectMembersModal from './ProjectMembersModal.svelte';
 import { invitations, type Invitation } from '../lib/invitations.svelte';
@@ -88,6 +88,15 @@ beforeEach(() => {
   router.beforeNavigate = undefined;
   router.navigate('/', { replace: true });
   mockApi(() => jsonResponse(200, { users: [me, ada] }));
+});
+
+// Put back by name rather than with `vi.unstubAllGlobals()`, which would also
+// drop the stubs testUtils installs for the whole file.
+const realNavigator = navigator;
+
+afterEach(() => {
+  vi.stubGlobal('navigator', realNavigator);
+  expect(globalThis.fetch).toBe(fetchMock);
 });
 
 describe('ProjectMembersModal', () => {
@@ -359,7 +368,6 @@ describe('ProjectMembersModal public link', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
 
     expect(writeText).toHaveBeenCalledWith(`${location.origin}${publicBoardHref(PROJECT_ID)}`);
-    vi.unstubAllGlobals();
   });
 
   it('stops sharing without a second confirm', async () => {
@@ -427,6 +435,28 @@ describe('ProjectMembersModal roles', () => {
       { user_id: ada.id, role: 'viewer' },
       { user_id: bob.id, role: 'viewer' },
     ]);
+  });
+
+  // A viewer can see the board, so they can pass on the link it is already
+  // published under — but publishing and unpublishing stay with the editors.
+  it('lets a viewer copy the link of a board that is already public, and nothing more', () => {
+    projects.projects = [
+      project({
+        created_by: ada.id,
+        is_public: true,
+        member_ids: [me.id],
+        members: [{ user_id: me.id, role: 'viewer' }],
+      }),
+    ];
+
+    render(ProjectMembersModal, { projectId: PROJECT_ID, onclose: () => {} });
+
+    expect(screen.getByLabelText('Public link')).toHaveValue(
+      `${location.origin}${publicBoardHref(PROJECT_ID)}`
+    );
+    expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop sharing' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Publish read-only link' })).toBeNull();
   });
 
   it('gives a viewer no management controls but keeps the leave button', () => {

@@ -56,7 +56,7 @@ const MINE_ID = testUuid('p-mine');
 
 // The share modal loads the pending list for an editor, so tests that open it
 // still need a well-formed answer for that one request.
-function mockApi(handler: (request: Request, url: URL) => Response): void {
+function mockApi(handler: (request: Request, url: URL) => Response | Promise<Response>): void {
   fetchMock.mockImplementation(async (input) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -476,6 +476,166 @@ describe('Projects', () => {
     expect(new URL(put.url).pathname).toBe(`/api/projects/${SHARED_ID}/members`);
     expect(await put.clone().json()).toEqual({ user_ids: ['u-3'] });
     expect(screen.queryByRole('link', { name: 'Team Game' })).toBeNull();
+  });
+});
+
+describe('Projects card menu actions', () => {
+  const secondProject = project({
+    id: MINE_ID,
+    name: 'Beta',
+    created_by: me.id,
+    created_at: '2026-01-02T00:00:00.000Z',
+  });
+
+  function patchRequests(): Request[] {
+    return fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => request.method === 'PATCH');
+  }
+
+  it('deletes the project the confirmation names and dismisses the dialog', async () => {
+    mockApi((request) =>
+      request.method === 'DELETE'
+        ? jsonResponse(204)
+        : jsonResponse(200, { projects: [activeProject, secondProject] })
+    );
+    render(Projects);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for Alpha' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete project' }));
+
+    const deletes = fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => request.method === 'DELETE');
+    expect(deletes).toHaveLength(1);
+    expect(new URL(deletes[0]!.url).pathname).toBe(`/api/projects/${ACTIVE_ID}`);
+    expect(screen.queryByRole('link', { name: 'Alpha' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Beta' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Delete project' })).toBeNull();
+  });
+
+  it('refuses a blank rename and sends a trimmed one', async () => {
+    mockApi((request) =>
+      request.method === 'PATCH'
+        ? jsonResponse(200, { ...activeProject, name: 'Renamed' })
+        : jsonResponse(200, { projects: [activeProject] })
+    );
+    render(Projects);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for Alpha' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    await fireEvent.input(screen.getByLabelText('Name'), { target: { value: '   ' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(screen.getByText('Name is required')).toBeInTheDocument();
+    expect(patchRequests()).toHaveLength(0);
+
+    await fireEvent.input(screen.getByLabelText('Name'), { target: { value: '  Renamed  ' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(patchRequests()).toHaveLength(1));
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe(`/api/projects/${ACTIVE_ID}`);
+    expect(await patchRequests()[0]!.clone().json()).toEqual({ name: 'Renamed' });
+    expect(screen.queryByRole('heading', { name: 'Rename project' })).toBeNull();
+    expect(await screen.findByRole('link', { name: 'Renamed' })).toBeInTheDocument();
+  });
+
+  it('archives an active board and unarchives an archived one', async () => {
+    const mineArchived = project({
+      id: testUuid('p-mine-archived'),
+      name: 'Old prototype',
+      created_by: me.id,
+      archived_at: '2026-02-01T00:00:00.000Z',
+      created_at: '2026-01-03T00:00:00.000Z',
+    });
+    mockApi(async (request) => {
+      if (request.method !== 'PATCH') {
+        return jsonResponse(200, { projects: [activeProject, mineArchived] });
+      }
+      const body = (await request.clone().json()) as { archived_at: string | null };
+      const source = new URL(request.url).pathname.endsWith(ACTIVE_ID)
+        ? activeProject
+        : mineArchived;
+      return jsonResponse(200, { ...source, archived_at: body.archived_at });
+    });
+    render(Projects);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for Alpha' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Archive' }));
+
+    await waitFor(() => expect(patchRequests()).toHaveLength(1));
+    expect(new URL(patchRequests()[0]!.url).pathname).toBe(`/api/projects/${ACTIVE_ID}`);
+    const archiving = (await patchRequests()[0]!.clone().json()) as { archived_at: unknown };
+    expect(typeof archiving.archived_at).toBe('string');
+    expect(await screen.findByRole('button', { name: 'Archived (2)' })).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Archived (2)' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Old prototype' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Unarchive' }));
+
+    await waitFor(() => expect(patchRequests()).toHaveLength(2));
+    expect(new URL(patchRequests()[1]!.url).pathname).toBe(`/api/projects/${mineArchived.id}`);
+    expect(await patchRequests()[1]!.clone().json()).toEqual({ archived_at: null });
+  });
+
+  // Focus has to land back on the kebab that opened the menu — the list renders
+  // one per card, and the first on screen is not it.
+  it('walks the menu with the arrow keys and hands focus back to the kebab that opened it', async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { projects: [activeProject, secondProject] })
+    );
+    render(Projects);
+
+    const trigger = await screen.findByRole('button', { name: 'Options for Beta' });
+    await fireEvent.click(trigger);
+
+    const menu = screen.getByRole('menu', { name: 'Options for Beta' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Rename' }));
+
+    await fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Board color' }));
+
+    await fireEvent.keyDown(menu, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  // Escape is how a card selection, a quick menu and a keyboard drag are all
+  // cancelled, and the window handler here sees every one of them.
+  it('leaves focus where it is when Escape arrives with no menu open', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(200, { projects: [activeProject] }));
+    render(Projects);
+
+    const trigger = await screen.findByRole('button', { name: 'Options for Alpha' });
+    await fireEvent.click(trigger);
+    await fireEvent.click(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    const cardLink = screen.getByRole('link', { name: 'Alpha' });
+    cardLink.focus();
+    await fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(document.activeElement).toBe(cardLink);
+  });
+});
+
+describe('Projects when the list cannot be read', () => {
+  it('reports the failure and reloads on Retry', async () => {
+    let answer = jsonResponse(503, { error: 'Service unavailable' });
+    fetchMock.mockImplementation(async () => answer.clone());
+    render(Projects);
+
+    expect(await screen.findByText('Service unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Alpha' })).toBeNull();
+
+    answer = jsonResponse(200, { projects: [activeProject] });
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByRole('link', { name: 'Alpha' })).toBeInTheDocument();
+    expect(screen.queryByText('Service unavailable')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   });
 });
 

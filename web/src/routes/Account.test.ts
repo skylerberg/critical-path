@@ -413,6 +413,89 @@ describe('Account', () => {
     expect(screen.getByRole('button', { name: 'Upload image' })).toBeInTheDocument();
   });
 
+  // The local refusal and the server's 413 read almost alike on screen, so the
+  // request count is what says which one answered.
+  it('refuses an oversized image without asking the server', async () => {
+    mockRoutes(500);
+    render(Account);
+
+    const file = new File(['png-bytes'], 'huge.png', { type: 'image/png' });
+    Object.defineProperty(file, 'size', { value: 11 * 1024 * 1024 });
+    await fireEvent.change(screen.getByLabelText('Profile image file'), {
+      target: { files: [file] },
+    });
+
+    expect(await screen.findByText('That image is too large (max 10 MB).')).toBeInTheDocument();
+    expect(pathsRequested().sort()).toEqual([
+      '/api/auth/me/notification-settings',
+      '/api/auth/sessions',
+      '/api/auth/tokens',
+    ]);
+  });
+
+  it('names the formats it takes when the file is not one of them', async () => {
+    mockRoutes(422, { error: 'Unsupported media type' });
+    render(Account);
+
+    const file = new File(['not-an-image'], 'notes.txt', { type: 'text/plain' });
+    await fireEvent.change(screen.getByLabelText('Profile image file'), {
+      target: { files: [file] },
+    });
+
+    expect(
+      await screen.findByText('That file is not a supported image (PNG, JPEG, GIF, or WebP)')
+    ).toBeInTheDocument();
+    expect(session.user?.avatar_url).toBeNull();
+  });
+
+  // Each of these would otherwise be sent: a blank name or address PATCHed over
+  // the real one, and an empty current password answered 401, which the screen
+  // renders as 'Incorrect current password' against a field nobody filled in.
+  it('refuses a blank name locally', async () => {
+    mockRoutes(200, { ...user, name: '' });
+    render(Account);
+
+    await fireEvent.input(screen.getByLabelText('Name'), { target: { value: '   ' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
+
+    expect(await screen.findByText('Name is required')).toBeInTheDocument();
+    expect(pathsRequested()).not.toContain('/api/auth/me');
+    expect(session.user?.name).toBe('Ada');
+  });
+
+  it('refuses a blank email locally', async () => {
+    mockRoutes(200, { ...user, email: '' });
+    render(Account);
+
+    await fireEvent.input(screen.getByLabelText('Email'), { target: { value: '   ' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save email' }));
+
+    expect(await screen.findByText('Email is required')).toBeInTheDocument();
+    expect(pathsRequested()).not.toContain('/api/auth/me');
+    expect(session.user?.email).toBe('ada@example.com');
+  });
+
+  it('asks for the current password before sending a change', async () => {
+    mockRoutes(401, { error: 'Incorrect password' });
+    render(Account);
+
+    await fireEvent.input(screen.getByLabelText('New password'), {
+      target: { value: 'newpass12' },
+    });
+    await fireEvent.input(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'newpass12' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+
+    expect(await screen.findByText('Enter your current password')).toBeInTheDocument();
+    expect(screen.queryByText('Incorrect current password')).toBeNull();
+    expect(pathsRequested().sort()).toEqual([
+      '/api/auth/me/notification-settings',
+      '/api/auth/sessions',
+      '/api/auth/tokens',
+    ]);
+  });
+
   it('shows the feedback entry point', () => {
     mockRoutes(500);
     render(Account);
@@ -688,6 +771,57 @@ describe('Account', () => {
     expect(deleteDialog()).not.toBeNull();
     expect(session.status).toBe('authed');
     expect(cacheDelete).not.toHaveBeenCalled();
+  });
+
+  // Dismissing is the one exit no test ever took, and the dialog is destructive:
+  // a reopen showing the last attempt's refusal, its board list and its password
+  // reads as a fresh warning about the account as it is now.
+  it('clears the last attempt when the dialog is dismissed and opened again', async () => {
+    mockRoutes(409, {
+      error: 'You still own projects that other people are members of.',
+      blocking_projects: [{ id: BLOCKING_PROJECT_ID, name: 'Shared Ledger' }],
+    });
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw12345678' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+    expect(
+      await screen.findByText('You still own projects that other people are members of.')
+    ).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(deleteDialog()).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+
+    const reopened = screen.getByRole('dialog', { name: 'Delete account' });
+    expect(within(reopened).queryByRole('alert')).toBeNull();
+    expect(within(reopened).queryByText('Shared Ledger')).toBeNull();
+    expect(screen.getByLabelText<HTMLInputElement>('Password').value).toBe('');
+    expect(screen.getByRole('button', { name: 'Delete my account' })).toBeDisabled();
+  });
+
+  // Without this arm the spinner stops and the dialog says nothing, which reads
+  // as a deletion that quietly did nothing.
+  it('reports a server error the dialog has no special case for', async () => {
+    mockRoutes(500, { error: 'Internal Server Error' });
+    render(Account);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw12345678' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+
+    const failure = await within(screen.getByRole('dialog', { name: 'Delete account' })).findByRole(
+      'alert'
+    );
+    expect(failure).toHaveTextContent('Internal Server Error');
+    expect(deleteDialog()).not.toBeNull();
+    expect(session.status).toBe('authed');
+    expect(window.location.pathname).toBe('/account');
+    expect(cacheDelete).not.toHaveBeenCalled();
+    expect(vi.mocked(realtime.connect)).toHaveBeenCalledOnce();
   });
 
   it('disables the delete button and names the boards that still have members', () => {

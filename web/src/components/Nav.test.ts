@@ -1,6 +1,6 @@
 import { fetchMock, jsonResponse, requestAt } from '../api/testUtils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import {
   SHADOW_PLACEHOLDER_ITEM_ID,
   SOURCES,
@@ -600,6 +600,30 @@ describe('Nav unseen changes dot', () => {
 
     expect(sidebarRowNames()).toEqual(['A', 'B']);
     expect(screen.queryAllByText('Unseen changes')).toEqual([]);
+  });
+});
+
+// The only way out of the app from inside it, and one that is drawn twice: the
+// sidebar on a wide screen, the bottom bar on a phone. Driven through the button
+// rather than by calling the store, which is the half that has been missing —
+// the store's own test passes with either handler dropped.
+describe('Nav sign-out', () => {
+  const bars: [string, number][] = [
+    ['the sidebar', 0],
+    ['the bottom bar', 1],
+  ];
+
+  it.each(bars)('signs out from %s', async (_name, index) => {
+    fetchMock.mockResolvedValue(jsonResponse(204));
+    render(Nav);
+    const bar = screen.getAllByRole('navigation', { name: 'Primary' })[index]!;
+
+    await fireEvent.click(within(bar).getByRole('button', { name: 'Log out' }));
+
+    await waitFor(() => expect(session.status).toBe('anon'));
+    expect(session.user).toBeNull();
+    expect(new URL(requestAt(0).url).pathname).toBe('/api/auth/logout');
+    expect(window.location.pathname).toBe('/login');
   });
 });
 
