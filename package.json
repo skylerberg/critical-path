@@ -26,6 +26,8 @@
     "test": "node --env-file=.env.test node_modules/vitest/vitest.mjs run",
     "test:watch": "node --env-file=.env.test node_modules/vitest/vitest.mjs",
     "test:coverage": "node --env-file=.env.test node_modules/vitest/vitest.mjs run --coverage",
+    "test:related": "node --env-file=.env.test node_modules/vitest/vitest.mjs related --run",
+    "test:changed": "node --env-file=.env.test scripts/test-changed.mjs",
     "prepare": "node scripts/setup-hooks.mjs",
     "bench": "node --env-file=.env.test --import tsx bench/run.ts",
     "bench:heavy": "node --env-file=.env.test --import tsx bench/run.ts --scale=heavy"

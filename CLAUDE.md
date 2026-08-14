@@ -312,7 +312,24 @@ against directly:
   CI runs it on every push, sharded. Reach for the full suite once, before
   opening the PR, and when a change is broad enough that you cannot name the
   files it affects (a shared helper, middleware, a schema everything imports).
-- `npm test` — full suite (loads `.env.test`, migrates + truncates).
+- `npm run test:changed` answers "which files is that" for you: it diffs against
+  `origin/main` (pass another base as an argument), including uncommitted and
+  untracked files, and runs every test that reaches one through the real module
+  graph — so it finds the e2e file that only touches a service through three
+  barrels, which a hand-picked list misses. `npm run test:related -- <paths>`
+  is the same thing for paths you name yourself. Neither replaces the suite: a
+  file nothing imports yet resolves to no tests at all, and a test that breaks
+  through shared state rather than an import is invisible to both.
+- `npm test` — full suite (loads `.env.test`, migrates + truncates). It needs
+  the machine mostly to itself: several e2e tests drive dozens of sequential
+  requests inside one `it` against a 30s `testTimeout`, and a browser or a
+  benchmark running alongside fails them at exactly 30004ms, which reads like a
+  hang and is not one. Re-run a failure alone before believing it.
+- Reporters are chosen in `vitest.config.ts` by whether stdout is a terminal:
+  the default live tree interactively, and the verbose per-test stream when
+  output goes to a file or a CI log, so a long run is followable and a stall is
+  visible. Never read a run through `| tail` — a pipe shows nothing until the
+  command exits, whatever the reporter.
 - `tests/setup/resetProcessState.ts` clears the process-global state no test
   owns — the rate limiter's windows and the job runner's in-flight count —
   before every file and every test. The realtime socket registry, the bus
