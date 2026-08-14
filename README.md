@@ -1456,6 +1456,11 @@ a socket is closed with code 4401 when **its own** credential is revoked or
 expires, so revoking one personal access token leaves the browser's sockets and
 every other token's sockets connected.
 
+Every close code above the standard RFC 6455 ones is declared in
+`src/services/realtime/closeCodes.ts` and published in `realtime-events.json` as
+`RealtimeCloseCode`, so a client generates the set it has to route on instead of
+hard-coding it.
+
 Three ceilings bound what one caller can hold open, because a socket is reachable
 before any request is made and costs a `credentialIsLive` query every heartbeat:
 a handshake past **200 live sockets from one source address** is answered `429`

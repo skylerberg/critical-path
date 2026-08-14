@@ -70,6 +70,8 @@ export interface components {
       | components['schemas']['TaskRelationsSetWebhookEvent']
       | components['schemas']['TaskRestoredWebhookEvent']
       | components['schemas']['TaskUpdatedWebhookEvent'];
+    /** @description Close codes a /ws socket can be closed with, beyond the standard RFC 6455 ones. 4401 (unauthorized): The credential behind the socket is missing, invalid, or revoked; reconnecting is pointless until a fresh one is in hand. 4429 (too_many_connections): The account holds too many live sockets and this was the oldest, so the credential is still good; reconnecting at once only evicts another of the account's sockets. */
+    RealtimeCloseCode: 4401 | 4429;
     AccountUpdatedEvent: {
       /** @constant */
       type: 'account_updated';
