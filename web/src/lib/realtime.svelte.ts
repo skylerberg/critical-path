@@ -7,7 +7,7 @@ import { projects } from './projects.svelte';
 import { realtimeCoverage } from './realtime-coverage.svelte';
 import { taskSeries } from './taskSeries.svelte';
 import { users } from './users.svelte';
-import type { RealtimeEvent, RealtimeEventType } from './realtime-types';
+import type { RealtimeCloseCode, RealtimeEvent, RealtimeEventType } from './realtime-types';
 import { outbox } from './outbox.svelte';
 import { isSignedIn, session } from './session.svelte';
 
@@ -17,8 +17,29 @@ const WS_OPEN = 1;
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
 const OFFLINE_NOTICE_DELAY_MS = 3000;
-// The server closes with 4401 when a token is rejected or its session revoked.
-const AUTH_CLOSE_CODE = 4401;
+
+// What each of the API's own close codes asks this client to do, as against the
+// ordinary backed-off retry every other code gets.
+type CloseAction = 'revalidate' | 'yield';
+
+// The record is the contract: a code added to the API's table widens the
+// generated union and this stops compiling, and one removed leaves an excess
+// key. Either way the change surfaces here rather than as a socket nobody routed.
+const CLOSE_ACTIONS: Record<RealtimeCloseCode, CloseAction> = {
+  4401: 'revalidate',
+  4429: 'yield',
+};
+
+// `CloseEvent['code']` is a plain number, so the one site that reads it narrows
+// through this predicate. Casting instead would answer for codes the record
+// never listed and give up the exhaustiveness that is the point of it.
+function isCloseCode(code: number): code is RealtimeCloseCode {
+  return code in CLOSE_ACTIONS;
+}
+
+function closeAction(code: number): CloseAction | null {
+  return isCloseCode(code) ? CLOSE_ACTIONS[code] : null;
+}
 
 const BOARD_EVENTS = new Set<RealtimeEventType>([
   'task_created',
@@ -68,8 +89,13 @@ class RealtimeClient {
   // 'offline' then 'connecting' for the whole of a perfectly normal handshake.
   status = $state<RealtimeStatus>('offline');
   interrupted = $state(false);
+  // The server closed this socket because the account holds too many, so live
+  // updates are not coming back on their own schedule. Read by SyncStatus, which
+  // is the only place that can say so.
+  evicted = $state(false);
 
   #socket: WebSocket | null = null;
+  #visibilityWatched = false;
   #authed = false;
   #subscribedProjectId: string | null = null;
   #backoff = INITIAL_BACKOFF_MS;
@@ -118,6 +144,8 @@ class RealtimeClient {
     clearTimeout(this.#reconnectTimer);
     this.#reconnectTimer = undefined;
     this.#clearOfflineNotice();
+    this.#unwatchVisibility();
+    this.evicted = false;
     this.#backoff = INITIAL_BACKOFF_MS;
     this.#authed = false;
     this.#subscribedProjectId = null;
@@ -211,6 +239,7 @@ class RealtimeClient {
   #onAuthOk(): void {
     this.#authed = true;
     this.status = 'online';
+    this.evicted = false;
     this.#clearOfflineNotice();
     this.#backoff = INITIAL_BACKOFF_MS;
     this.#subscribedProjectId = null;
@@ -271,11 +300,24 @@ class RealtimeClient {
     realtimeCoverage.end();
     this.status = 'offline';
     this.#armOfflineNotice();
-    if (event.code === AUTH_CLOSE_CODE) {
-      void this.#revalidateSession();
-      return;
+    const action = closeAction(event.code);
+    // Any close that is not the ceiling is news that the ceiling is not what is
+    // stopping us any more. Left set, the flag holds this tab at the long delay
+    // for the rest of the session and keeps the indicator naming a reason that
+    // has passed.
+    if (action !== 'yield') {
+      this.evicted = false;
     }
-    this.#scheduleReconnect();
+    switch (action) {
+      case 'revalidate':
+        void this.#revalidateSession();
+        return;
+      case 'yield':
+        this.#yieldSlot();
+        return;
+      default:
+        this.#scheduleReconnect();
+    }
   }
 
   // A 4401 can be a real revocation or a transient auth-protocol close, so let an
@@ -315,6 +357,67 @@ class RealtimeClient {
   }
 
   /**
+   * 4429 says this socket was the oldest of more than the account is allowed, so
+   * the credential is good and nothing is broken. Reconnecting on the ordinary
+   * backoff would only evict another of the account's sockets, whose tab would
+   * do the same — a rotating eviction loop in which every tab also re-heals its
+   * reads on each re-auth. So give the slot up instead.
+   *
+   * A hidden tab waits to be looked at and sets no timer at all: it is the one
+   * with the least claim on a scarce slot, and it reconnects the moment someone
+   * returns to it. A visible one waits the longest delay this client has.
+   */
+  #yieldSlot(): void {
+    this.evicted = true;
+    if (this.#stopped) {
+      return;
+    }
+    clearTimeout(this.#reconnectTimer);
+    this.#reconnectTimer = undefined;
+    if (document.visibilityState === 'hidden') {
+      this.#watchVisibility();
+      return;
+    }
+    // Assigned on the close path, because the connection this one just lost
+    // reset the backoff on its way up and #scheduleReconnect would start over.
+    this.#backoff = MAX_BACKOFF_MS;
+    this.#scheduleReconnect();
+  }
+
+  #watchVisibility(): void {
+    if (this.#visibilityWatched) {
+      return;
+    }
+    this.#visibilityWatched = true;
+    document.addEventListener('visibilitychange', this.#onVisible);
+  }
+
+  #unwatchVisibility(): void {
+    if (!this.#visibilityWatched) {
+      return;
+    }
+    this.#visibilityWatched = false;
+    document.removeEventListener('visibilitychange', this.#onVisible);
+  }
+
+  // A field rather than a method so removing the listener passes the reference
+  // that was added.
+  #onVisible = (): void => {
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
+    if (this.#stopped || this.#socket !== null) {
+      return;
+    }
+    // Dropped only once this is actually going to open: `evicted` blocks every
+    // other path back, so unwatching before a bail that leaves no socket would
+    // strand the tab with no way to reconnect at all.
+    this.#unwatchVisibility();
+    this.#backoff = INITIAL_BACKOFF_MS;
+    this.#open();
+  };
+
+  /**
    * The backoff is sized for an outage that is still going. Something reaching
    * the server is the news that it has ended, and waiting out the rest of a
    * delay that can be half a minute keeps the indicator saying "Offline" long
@@ -326,6 +429,13 @@ class RealtimeClient {
    * socket on top of a handshake already in progress.
    */
   #reconnectNow(): void {
+    // An evicted tab is not waiting out an outage — the server is answering and
+    // has asked it to stand down — so news that the network works is not news to
+    // it. Without this the connectivity effect pulls it straight back into the
+    // fight and the yield above never happens.
+    if (this.evicted) {
+      return;
+    }
     if (this.#stopped || this.#socket !== null) {
       return;
     }

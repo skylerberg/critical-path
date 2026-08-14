@@ -15,6 +15,8 @@ export type SyncState =
   | 'stale'
   /** HTTP works; only the live-updates socket is down. Weakest of the states. */
   | 'reconnecting'
+  /** The socket was closed for the account's connection ceiling, not an outage. */
+  | 'evicted'
   /** Everything that could be sent has been, and some of it did not land. */
   | 'needs-attention';
 
@@ -23,6 +25,7 @@ export interface SyncInputs {
   pendingCount: number;
   draining: boolean;
   socketInterrupted: boolean;
+  socketEvicted: boolean;
   unresolvedIssues: number;
   staleRead: boolean;
 }
@@ -58,6 +61,11 @@ export function syncState(inputs: SyncInputs): SyncState {
   if (inputs.staleRead) {
     return 'stale';
   }
+  // Above `reconnecting` because it is the same symptom with a cause the user
+  // can act on: nothing is retrying its way out of this one.
+  if (inputs.socketEvicted) {
+    return 'evicted';
+  }
   return inputs.socketInterrupted ? 'reconnecting' : 'clean';
 }
 
@@ -91,6 +99,8 @@ export function syncMessage(state: SyncState, pendingCount: number, issues: numb
       return 'Could not refresh — showing an older version';
     case 'reconnecting':
       return 'Live updates paused — reconnecting';
+    case 'evicted':
+      return 'Live updates paused — this account has too many open connections';
     case 'needs-attention':
       return `${String(issues)} ${issues === 1 ? 'change needs' : 'changes need'} your attention`;
     case 'clean':

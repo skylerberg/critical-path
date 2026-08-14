@@ -87,7 +87,10 @@ export const guards = [
     name: 'reachability returning reconnects the socket at once',
     testName: 'reconnects at once when something else reaches the server',
     file: 'src/lib/realtime.svelte.ts',
-    find: `    if (this.#stopped || this.#socket !== null) {
+    find: `    if (this.evicted) {
+      return;
+    }
+    if (this.#stopped || this.#socket !== null) {
       return;
     }
     clearTimeout(this.#reconnectTimer);
@@ -96,6 +99,14 @@ export const guards = [
     this.#open();`,
     replace: '    return;',
     tests: ['src/lib/realtime.test.ts'],
+  },
+  {
+    name: 'an evicted socket yields its slot instead of taking another',
+    testName: 'does not take another of the account’s slots straight back',
+    file: 'src/lib/realtime.svelte.ts',
+    find: '        this.#yieldSlot();',
+    replace: '        this.#scheduleReconnect();',
+    tests: ['src/lib/realtime-eviction.svelte.test.ts'],
   },
   {
     name: 'an aborted request is not an outage',
@@ -120,5 +131,16 @@ export const guards = [
     find: '    if (!navigator.onLine) {\n      this.#become(false);\n    }',
     replace: '    this.reachable = navigator.onLine;',
     tests: ['src/lib/connectivity.svelte.test.ts'],
+  },
+  {
+    // The store flag and the pure state function are each tested alone, so this
+    // one property is the whole of the wire between them: a literal here
+    // typechecks and leaves every other test green.
+    name: 'the eviction notice is wired to the socket that was evicted',
+    testName: 'says why live updates stopped when the account is out of slots',
+    file: 'src/components/SyncStatus.svelte',
+    find: '          socketEvicted: realtime.evicted,',
+    replace: '          socketEvicted: false,',
+    tests: ['src/components/SyncStatus.test.ts'],
   },
 ];

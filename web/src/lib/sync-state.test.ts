@@ -13,6 +13,7 @@ function inputs(overrides: Partial<SyncInputs> = {}): SyncInputs {
     pendingCount: 0,
     draining: false,
     socketInterrupted: false,
+    socketEvicted: false,
     unresolvedIssues: 0,
     staleRead: false,
     ...overrides,
@@ -33,6 +34,8 @@ function reaching(state: SyncState): SyncInputs {
       return inputs({ staleRead: true });
     case 'reconnecting':
       return inputs({ socketInterrupted: true });
+    case 'evicted':
+      return inputs({ socketEvicted: true });
     case 'needs-attention':
       return inputs({ unresolvedIssues: 1 });
     default:
@@ -94,6 +97,12 @@ describe('syncState', () => {
   it('falls back to the socket only when nothing else is true', () => {
     expect(syncState(inputs({ socketInterrupted: true }))).toBe('reconnecting');
   });
+
+  // An evicted socket is interrupted too, and "reconnecting" is the one thing it
+  // is not doing.
+  it('names the ceiling rather than a reconnect that is not happening', () => {
+    expect(syncState(inputs({ socketInterrupted: true, socketEvicted: true }))).toBe('evicted');
+  });
 });
 
 describe('syncMessage', () => {
@@ -106,6 +115,7 @@ describe('syncMessage', () => {
       syncMessage('offline-pending', 2, 0),
       syncMessage('offline', 0, 0),
       syncMessage('reconnecting', 0, 0),
+      syncMessage('evicted', 0, 0),
       syncMessage('stale', 0, 0),
       syncMessage('needs-attention', 0, 3),
     ];
@@ -125,6 +135,7 @@ describe('syncMessage', () => {
       'pending',
       'stale',
       'reconnecting',
+      'evicted',
       'needs-attention',
     ];
     for (const state of whileReachable) {
@@ -135,6 +146,14 @@ describe('syncMessage', () => {
 
   it('says what a dropped socket actually costs', () => {
     expect(syncMessage('reconnecting', 0, 0)).toBe('Live updates paused — reconnecting');
+  });
+
+  // Not "too many tabs": the ceiling is per account, so another device or a
+  // personal access token can be what took the slot.
+  it('blames the account for the ceiling, not this tab', () => {
+    expect(syncMessage('evicted', 0, 0)).toBe(
+      'Live updates paused — this account has too many open connections'
+    );
   });
 
   it('says where unsent work actually is', () => {
