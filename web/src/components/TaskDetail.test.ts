@@ -660,9 +660,12 @@ describe('TaskDetail', () => {
       })
     );
 
-    expect(spy).toHaveBeenCalledWith(T1, 'c2', {
-      sort_key: expect.any(String),
-    });
+    expect(spy).toHaveBeenCalledWith(
+      T1,
+      'c2',
+      { sort_key: expect.any(String) },
+      { kind: 'append' }
+    );
   });
 
   it('does not move the task when the current column is picked again', async () => {

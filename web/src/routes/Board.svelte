@@ -641,10 +641,14 @@
       if (origin === items.findIndex((column) => column.id === event.detail.info.id)) {
         return;
       }
+      const drop = placementAfterDrop(items, event.detail.info.id);
+      if (drop === null) {
+        return;
+      }
       if (event.detail.info.source === SOURCES.POINTER) {
         centeringTarget = event.detail.info.id;
       }
-      void board.moveColumn(event.detail.info.id, placementAfterDrop(items, event.detail.info.id));
+      void board.moveColumn(event.detail.info.id, drop.placement);
     }
   }
 
@@ -685,14 +689,14 @@
       ) {
         return;
       }
+      const drop = placementAfterDrop(items, event.detail.info.id);
+      if (drop === null) {
+        return;
+      }
       if (event.detail.info.source === SOURCES.POINTER) {
         centeringTarget = columnId;
       }
-      void board.moveTask(
-        event.detail.info.id,
-        columnId,
-        placementAfterDrop(items, event.detail.info.id)
-      );
+      void board.moveTask(event.detail.info.id, columnId, drop.placement, drop.intent);
     }
   }
 

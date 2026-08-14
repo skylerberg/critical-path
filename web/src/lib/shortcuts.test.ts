@@ -314,9 +314,12 @@ describe('board shortcuts', () => {
     const moveTask = vi.spyOn(board, 'moveTask').mockResolvedValue(undefined);
     selection.set(TASK_1);
     press('d');
-    expect(moveTask).toHaveBeenCalledWith(TASK_1, 'done', {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith(
+      TASK_1,
+      'done',
+      { sort_key: expect.any(String) },
+      { kind: 'append' }
+    );
   });
 
   it('duplicates the selected task with Shift+D and preventDefaults', () => {
@@ -347,9 +350,12 @@ describe('board shortcuts', () => {
 
     press('d', { repeat: true });
 
-    expect(moveTask).toHaveBeenCalledWith(TASK_1, 'done', {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith(
+      TASK_1,
+      'done',
+      { sort_key: expect.any(String) },
+      { kind: 'append' }
+    );
   });
 
   it('follows the shift modifier rather than the case of the key', () => {
@@ -362,9 +368,12 @@ describe('board shortcuts', () => {
     expect(moveTask).not.toHaveBeenCalled();
 
     press('D', { shiftKey: false });
-    expect(moveTask).toHaveBeenCalledWith(TASK_1, 'done', {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith(
+      TASK_1,
+      'done',
+      { sort_key: expect.any(String) },
+      { kind: 'append' }
+    );
     expect(duplicateTask).toHaveBeenCalledTimes(1);
   });
 

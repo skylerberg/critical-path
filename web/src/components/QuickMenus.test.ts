@@ -269,9 +269,12 @@ describe('quick menus on a project route', () => {
     await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
     await fireEvent.click(within(menu).getByRole('button', { name: /^Bottom/ }));
 
-    expect(moveTask).toHaveBeenCalledWith(T1, `${OPEN_PROJECT}-done`, {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith(
+      T1,
+      `${OPEN_PROJECT}-done`,
+      { sort_key: expect.any(String) },
+      { kind: 'between', afterId: testUuid('t3'), beforeId: null }
+    );
     expect(shortcuts.moveMenu).toBeNull();
     // The store, not a region: Announcer takes its text as a prop now, so the
     // wiring that puts it on screen belongs to the shell and is asserted there.
@@ -369,9 +372,12 @@ describe('quick menus for a card outside the open board', () => {
     const menu = heading.closest('dialog')!;
     await fireEvent.click(within(menu).getByRole('button', { name: /^Done/ }));
 
-    expect(moveTask).toHaveBeenCalledWith(AWAY_TASK, `${AWAY_PROJECT}-done`, {
-      sort_key: expect.any(String),
-    });
+    expect(moveTask).toHaveBeenCalledWith(
+      AWAY_TASK,
+      `${AWAY_PROJECT}-done`,
+      { sort_key: expect.any(String) },
+      { kind: 'append' }
+    );
   });
 
   it('lists the target project members rather than the open board members', async () => {

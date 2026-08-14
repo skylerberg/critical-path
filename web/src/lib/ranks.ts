@@ -90,14 +90,50 @@ export function placeAtIndex(sorted: readonly Keyed[], index: number): Placement
 }
 
 /**
- * Where a drop landed, expressed as the cards it landed between rather than the
+ * Where a move landed, expressed as the cards it landed between rather than the
  * key that would put it there. A key is only meaningful against the list it was
  * computed from, so a move that has to wait — queued offline, replayed minutes
  * later — keeps its meaning in these terms and in no others.
+ *
+ * Two `between` arms that look like one, deliberately: a single arm with both
+ * fields nullable would admit `{ afterId: null, beforeId: null }` again, and
+ * that value is the whole defect. It spelled three different things at once —
+ * "the end of the column", "the caller said nothing" and "the dropped card was
+ * not there" — so a queued drag replayed as an append and `placeBetweenNeighbors`
+ * called it exact. Split this way, a `between` intent must name at least one
+ * card, the end of the list is `append` and says so, and "no information" has no
+ * spelling at all. `ranks.test.ts` holds that shut with a `@ts-expect-error`
+ * which itself becomes an error if the arms are ever merged.
  */
-export interface Neighbors {
+export type Neighbors =
+  | { kind: 'between'; afterId: string; beforeId: string | null }
+  | { kind: 'between'; afterId: string | null; beforeId: string }
+  | { kind: 'append' };
+
+/**
+ * The two adapters at the persistence boundary. A queued op stores the flat
+ * `{ afterId, beforeId }` pair `MoveIntent` has always stored, so nothing on
+ * disk changes and an op queued by an older build still replays.
+ */
+export function neighborIds(intent: Neighbors): {
   afterId: string | null;
   beforeId: string | null;
+} {
+  return intent.kind === 'append'
+    ? { afterId: null, beforeId: null }
+    : { afterId: intent.afterId, beforeId: intent.beforeId };
+}
+
+export function neighborsFromIds(afterId: string | null, beforeId: string | null): Neighbors {
+  // Two identical-looking returns because the arms are two: each narrowing gives
+  // the checker one non-null field to match on.
+  if (afterId !== null) {
+    return { kind: 'between', afterId, beforeId };
+  }
+  if (beforeId !== null) {
+    return { kind: 'between', afterId, beforeId };
+  }
+  return { kind: 'append' };
 }
 
 // `items` is the display order *including* the moved card at its new index.
@@ -107,14 +143,20 @@ export interface Neighbors {
 // for an unkeyed `previous` that treated every keyed sibling as ranking after
 // it — the wrong way round, since an unkeyed row sorts last — so the branch was
 // not merely unreachable, it was unreachable and wrong.
-export function neighborsAfterDrop(items: readonly Keyed[], movedId: string): Neighbors {
+//
+// Null when the moved card is not in `items` at all: that is a drop that landed
+// nowhere, and answering it with a pair of nulls would be indistinguishable from
+// a deliberate append to the end of the column.
+export function neighborsAfterDrop(items: readonly Keyed[], movedId: string): Neighbors | null {
   const index = items.findIndex((item) => item.id === movedId);
   const others = items.filter((item) => item.id !== movedId);
   if (index === -1) {
-    return { afterId: null, beforeId: null };
+    return null;
   }
   if (index === 0) {
-    return { afterId: null, beforeId: extreme(others, false)?.id ?? null };
+    // An empty column is the one drop at the top with nothing below it, and
+    // "the end of a list of nothing" is what an append means.
+    return neighborsFromIds(null, extreme(others, false)?.id ?? null);
   }
   // Anchors on the visual neighbor above the drop, then takes the lowest-ranked
   // sibling above it, so the placement stays right when the display is a
@@ -129,17 +171,19 @@ export function neighborsAfterDrop(items: readonly Keyed[], movedId: string): Ne
       next = item;
     }
   }
-  return { afterId: previous.id, beforeId: next?.id ?? null };
+  return { kind: 'between', afterId: previous.id, beforeId: next?.id ?? null };
 }
 
 // The pairing for `placeAtIndex`: the same slot, named by the cards on either
 // side of it. `sorted` must be in rank order and must not contain the item
-// being placed, exactly as `placeAtIndex` requires.
+// being placed, exactly as `placeAtIndex` requires. A slot with no card on
+// either side — an empty list, or an index past the end — is an append, which is
+// what that slot means.
 export function neighborsAtIndex(sorted: readonly Ranked[], index: number): Neighbors {
-  return {
-    afterId: index <= 0 ? null : (sorted[index - 1]?.id ?? null),
-    beforeId: index >= sorted.length ? null : (sorted[index]?.id ?? null),
-  };
+  return neighborsFromIds(
+    index <= 0 ? null : (sorted[index - 1]?.id ?? null),
+    index >= sorted.length ? null : (sorted[index]?.id ?? null)
+  );
 }
 
 /**
@@ -150,8 +194,9 @@ export function neighborsAtIndex(sorted: readonly Ranked[], index: number): Neig
  */
 export function placeBetweenNeighbors(
   siblings: readonly Keyed[],
-  { afterId, beforeId }: Neighbors
+  intent: Neighbors
 ): { placement: Placement; exact: boolean } {
+  const { afterId, beforeId } = neighborIds(intent);
   const after = siblings.find((item) => item.id === afterId) ?? null;
   const before = siblings.find((item) => item.id === beforeId) ?? null;
   if (after !== null && before !== null) {
@@ -167,9 +212,9 @@ export function placeBetweenNeighbors(
   }
   return {
     placement: append(siblings),
-    // Asking for no anchors at all means the end of the list, which is exactly
-    // where this lands — only a lost anchor is inexact.
-    exact: afterId === null && beforeId === null,
+    // An append asks for the end of the list, which is exactly where this lands
+    // — only a lost anchor is inexact.
+    exact: intent.kind === 'append',
   };
 }
 

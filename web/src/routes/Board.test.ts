@@ -9,6 +9,7 @@ import { SWIPE_COMMIT_PX, SWIPE_SETTLE_MS } from '../lib/board-swipe';
 import { cardMenu } from '../lib/card-menu.svelte';
 import { draftKey, drafts } from '../lib/drafts.svelte';
 import { motion } from '../lib/motion.svelte';
+import { outbox } from '../lib/outbox.svelte';
 import { selection } from '../lib/selection.svelte';
 import { session } from '../lib/session.svelte';
 import { shortcuts } from '../lib/shortcuts.svelte';
@@ -870,6 +871,31 @@ describe('Board drag placeholder', () => {
     await vi.waitFor(() => expect(patchRequests()).toHaveLength(1));
 
     expect(new URL(patchRequests()[0]!.url).pathname).toBe(`/api/tasks/${T1}`);
+  });
+});
+
+// The card's key is computed against the board on screen and is meaningless
+// against any other, so a move that has to wait travels as the cards it landed
+// between. The drop used to hand `moveTask` three arguments and let its default
+// stand in, which spelled every queued drag "append to the end of the column" —
+// and, being indistinguishable from a deliberate append, replayed with nothing
+// to say the card had missed.
+describe('Board drop intent', () => {
+  it('queues the cards the dropped card landed between', async () => {
+    const submit = vi.spyOn(outbox, 'submit');
+    render(Board, { props: { projectId: PROJECT_ID } });
+    await screen.findByText('plain one');
+    const [first, second, third, fourth] = board.tasksInColumn('c1');
+
+    pickUp(T1);
+    drop(T1, [second!, first!, third!, fourth!]);
+
+    await vi.waitFor(() => expect(submit).toHaveBeenCalled());
+    // Picked by semantics, not by position: the spy is armed before render, so a
+    // submit added at mount would take call 0 and this would go on passing while
+    // measuring a different op.
+    const moved = submit.mock.calls.find(([op]) => op.semantics === 'move');
+    expect(moved?.[0].move).toEqual({ columnId: 'c1', afterId: T2, beforeId: T3 });
   });
 });
 
