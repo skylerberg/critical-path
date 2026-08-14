@@ -133,7 +133,8 @@ run.
 What is worth doing by hand is whatever your change actually touches: the test
 files near it, and the one check that covers the thing you changed if there is
 one — `check:layout:real` after a board layout change, `check:task-detail` after
-touching the card overlay, `check:a11y` after changing markup or a colour token,
+touching the card overlay, `check:column-menu` after touching the column kebab or
+`sortColumn`, `check:a11y` after changing markup or a colour token,
 `check:comments` after moving a rule between a comment and this file. Those are
 seconds each.
 
@@ -173,8 +174,8 @@ free port at or above 5180 and mounts the real `Board.svelte` through
 killed run leaves nothing behind.
 
 Every check that boots vite takes its own port variable and its own default —
-`LAYOUT_PROBE_PORT` 5180, `TASK_DETAIL_PROBE_PORT` 5190, `A11Y_PROBE_PORT` 5200 —
-so moving one cannot move another. They shared a single variable once, which made
+`LAYOUT_PROBE_PORT` 5180, `TASK_DETAIL_PROBE_PORT` 5190, `A11Y_PROBE_PORT` 5200,
+`COLUMN_MENU_PROBE_PORT` 5210 — so moving one cannot move another. They shared a single variable once, which made
 the documented override a way to land two checks on the same port rather than a
 way to separate them; each header names only its own.
 
@@ -189,6 +190,38 @@ steal the caret into the title field, and that dismissing it with an unsaved
 title produces exactly **one** write. It runs under Chromium for the reason the
 engine table below gives — it is the only engine on which a dismissal takes both
 flush paths at once, so it is the only one that can see the double write.
+
+`check:column-menu` reuses the board probe entry rather than adding one of its
+own — `scripts/board-probe.html` already mounts a real board with real columns —
+and drives the column kebab the way a pointer does: it opens the menu, expands
+"Sort by", picks an option, and then reads the **card order off the DOM** and the
+ids off the request the board sent. That last part is the point. `ColumnHeader.test.ts`
+already opens the same submenu and asserts `sortColumn` was called with the right
+option, which proves a handler fired and says nothing about whether the column
+re-orders or whether the menu is still on screen to click — a reported "the Sort
+by menu just closes" lives entirely in that gap. Two of its arms are controls: a
+different menu item is shown to close the menu (otherwise "still open" is also
+what a press that never landed looks like), and the column is shown not to be in
+sorted order already (otherwise a sort that does nothing passes).
+
+The probe answers `POST /api/columns/{id}/reorder` for real, in
+`scripts/board-probe-net.ts`, because the default echo hands `sortColumn` a
+response with no `moved_tasks` in it. That crash lands **after** the optimistic
+reorder, so the screen and the request both look right and only the arm watching
+for an unhandled rejection can tell — which is the shape to expect from any
+probe of a mutation that reads its own response.
+
+That answer **repeats the caller's own order**, which costs the DOM reads their
+independence and is worth understanding before writing a probe of any other
+mutation shaped like this one. Re-stamping from the reply lands the column in the
+same order an optimistic update would, so an order read after the answer is
+implied by the request the check already asserts, and a store that sent the
+reorder and moved nothing passes. The probe therefore holds that response for a
+beat, and the check reads the order once inside the window and once after — the
+first read is the one that can fail. It is also the read that can quietly stop
+meaning anything, since a slower press would drift past the window into the
+second read's territory, so `board-probe-net.ts` counts reorders it has
+**answered** and the arm requires that count to still be zero.
 
 `check:comments` is not a browser check and needs nothing installed. It reads the
 prose — comments, plus this file, the README and the skills under `.pi/` — and
@@ -216,13 +249,14 @@ resort, so a title-only avatar passes every rule while a bare `<span>` carrying
 one is named nothing at all; and anything behind a hover or a keypress, since it
 audits the resting page.
 
-**All six also take `--selftest`, and a change to what they assert should run
+**All seven also take `--selftest`, and a change to what they assert should run
 it:**
 
 ```sh
 node scripts/check-board-layout.mjs --selftest
 node scripts/check-board-layout-real.mjs --selftest
 node scripts/check-task-detail.mjs --selftest
+node scripts/check-column-menu.mjs --selftest
 node scripts/check-comments.mjs --selftest
 node scripts/check-a11y.mjs --selftest
 node scripts/check-test-guards.mjs --selftest
@@ -231,19 +265,24 @@ node scripts/check-test-guards.mjs --selftest
 Each re-runs its cases against something deliberately put back on the bug —
 legacy markup in the fixture, the pre-fix `dndzone` option in the real board, the
 write queue disabled in the card overlay, a planted duplicate and a planted dead
-reference, the pre-fix dark accent and a column back on `<section>`, guards whose
-edit changes nothing, one aimed at a module its tests never load and one handed a
-deadline no real run could meet — and fails if any of them still *passes*. The a11y selftest also names the rule it expects,
+reference, the pre-fix dark accent and a column back on `<section>`, the "Sort by"
+row rewritten to dismiss the menu, a sort option rewritten to sort nothing and a
+`sortColumn` stripped of its optimistic order,
+guards whose edit changes nothing, one aimed at a module its tests never load and
+one handed a deadline no real run could meet — and fails if any of them still
+*passes*. The a11y selftest also names the rule it expects,
 because with a dirty baseline any violation would otherwise read as the planted
-one being caught. All six share a failure mode a unit test mostly does not:
+one being caught; the column-menu selftest goes further and names the arms each
+planted bug must leave **green**, which is what stops "something went red" from
+passing for "the right thing went red". All seven share a failure mode a unit test mostly does not:
 measuring nothing and reporting green, because the gesture never armed, the
 selector matched nothing, the option it turns on was renamed out from under it,
 or the pattern it greps for stopped matching the codebase. CI runs the checks
-without the flag; the flag is how you earn the right to believe them. The two
+without the flag; the flag is how you earn the right to believe them. The ones
 that rewrite a source file to plant their bug
-— the real board check and the card-overlay one — also assert they rewrote
-exactly one call site, since rewriting none is that same failure wearing the
-selftest's face. `check:test-guards` carries that assertion in its own shape: one
+— the real board check, the card-overlay one and the column-menu one — also
+assert they rewrote exactly one call site, since rewriting none is that same
+failure wearing the selftest's face. `check:test-guards` carries that assertion in its own shape: one
 of its controls is an unmodified guard that must still come back caught, because
 a transform that has stopped rewriting anything satisfies every control expecting
 a non-catch.
@@ -350,8 +389,9 @@ straight back as `--only=<that line>`. Patterns are substrings, comma-separated
 or repeated. `scripts/lib/case-filter.mjs` is shared by both, and is meant to be
 what any other check with a case matrix adopts — `check:a11y` has one
 (screens × schemes) and its own ad-hoc `only` predicate, and would be the next
-one to move over. `check:comments` scans the whole codebase and
-`check:task-detail` is a single linear page, so neither has cases to select.
+one to move over. `check:comments` scans the whole codebase, and
+`check:task-detail` and `check:column-menu` are scripted linear page loads, so
+none of them has cases to select.
 
 Because a filter narrows what a gate covers, all three ways of getting one wrong
 are loud: a pattern matching nothing exits 2 listing the names rather than

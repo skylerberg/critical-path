@@ -273,6 +273,62 @@ describe('ColumnHeader rename', () => {
     expect(screen.getByTitle('Rename column').classList).toContain('focus-ring');
   });
 
+  it('renames on Enter, trims what was typed, and puts the header back', async () => {
+    const rename = vi.spyOn(board, 'renameColumn');
+    const { unmount } = renderHeader(TODO);
+    const input = await startRename();
+    await fireEvent.input(input, { target: { value: '  In progress  ' } });
+
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(rename).toHaveBeenCalledWith('c1', 'In progress');
+    expect(screen.queryByLabelText('Column name')).toBeNull();
+    expect(screen.getByTitle('Rename column')).toBeInTheDocument();
+
+    // The teardown flush must not send the same rename a second time.
+    unmount();
+    expect(rename).toHaveBeenCalledTimes(1);
+  });
+
+  it('renames on blur', async () => {
+    const rename = vi.spyOn(board, 'renameColumn');
+    renderHeader(TODO);
+    const input = await startRename();
+    await fireEvent.input(input, { target: { value: 'In progress' } });
+
+    await fireEvent.blur(input);
+
+    expect(rename).toHaveBeenCalledWith('c1', 'In progress');
+    expect(screen.queryByLabelText('Column name')).toBeNull();
+  });
+
+  // A column named '' is unclickable and unnameable afterwards, so a blanked draft
+  // is discarded rather than sent.
+  it('discards a name blanked to whitespace and keeps the old one', async () => {
+    const rename = vi.spyOn(board, 'renameColumn');
+    const { unmount } = renderHeader(TODO);
+    const input = await startRename();
+    await fireEvent.input(input, { target: { value: '   ' } });
+
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByTitle('Rename column')).toHaveTextContent('Todo');
+
+    unmount();
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing when the name comes back unchanged', async () => {
+    const rename = vi.spyOn(board, 'renameColumn');
+    const { unmount } = renderHeader(TODO);
+    const input = await startRename();
+    await fireEvent.input(input, { target: { value: 'Todo' } });
+
+    await fireEvent.blur(input);
+    unmount();
+
+    expect(rename).not.toHaveBeenCalled();
+  });
+
   it('commits a rename left open when the header unmounts', async () => {
     const rename = vi.spyOn(board, 'renameColumn');
     const { unmount } = renderHeader(TODO);

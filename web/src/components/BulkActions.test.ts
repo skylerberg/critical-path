@@ -6,7 +6,7 @@ import { board } from '../lib/board.svelte';
 import { selection } from '../lib/selection.svelte';
 import { session } from '../lib/session.svelte';
 import { users } from '../lib/users.svelte';
-import { bulkTask, seedBulkBoard } from './bulkTestSetup';
+import { ME, bulkTask, seedBulkBoard } from './bulkTestSetup';
 
 beforeEach(() => {
   users.reset();
@@ -41,6 +41,23 @@ describe('BulkActions', () => {
     expect(onclose).not.toHaveBeenCalled();
 
     board.tasks = [];
+
+    await vi.waitFor(() => expect(onclose).toHaveBeenCalled());
+  });
+
+  // The SelectionBar that opened this is already gone by then, and every action
+  // the menu offers would 403.
+  it('closes itself when the set outlives the edit rights that made it', async () => {
+    const onclose = vi.fn();
+    render(BulkActions, { kind: 'move', onclose });
+    expect(onclose).not.toHaveBeenCalled();
+
+    board.project = {
+      ...board.project!,
+      created_by: 'u-someone-else',
+      member_ids: [ME],
+      members: [{ user_id: ME, role: 'viewer' }],
+    };
 
     await vi.waitFor(() => expect(onclose).toHaveBeenCalled());
   });

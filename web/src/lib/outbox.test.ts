@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { connectivity } from './connectivity.svelte';
 import { conflictDrafts } from './conflictDrafts.svelte';
 import { outbox, type SubmitInput } from './outbox.svelte';
-import { resetConnectionForTests } from './offline-db';
+import { resetConnectionForTests, writeOp } from './offline-db';
 import { session } from './session.svelte';
 import { testSortKey, testUuid } from './test-ids';
 
@@ -84,6 +84,10 @@ function otherTaskEdit(label: string): SubmitInput {
   });
 }
 
+function sentPaths(): string[] {
+  return fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+}
+
 async function login(): Promise<void> {
   fetchMock.mockResolvedValueOnce(jsonResponse(200, { token: 'tok', user }));
   await session.login(user.email, 'password123');
@@ -120,6 +124,9 @@ describe('submitting', () => {
     expect(result.status).toBe('queued');
     expect(outbox.count).toBe(1);
     expect(outbox.isPending(TASK_ID)).toBe(true);
+    // The marker belongs to the card the work was queued against, so a queue
+    // with anything in it must not light up every other card on the board.
+    expect(outbox.isPending(OTHER_ID)).toBe(false);
   });
 
   it('reports a refused request as a failure instead of queuing it', async () => {
@@ -147,20 +154,25 @@ describe('submitting', () => {
 });
 
 describe('draining', () => {
+  // Two ops that send *distinguishable* requests, or the calls carry no evidence
+  // of which was replayed first and a LIFO drain reads exactly the same.
   it('replays in the order the work was done', async () => {
     unreachable();
-    await outbox.submit(edit({ label: 'one', entityId: TASK_ID }));
-    await outbox.submit(edit({ label: 'two', entityId: OTHER_ID }));
+    await outbox.submit(edit({ label: 'one' }));
+    await outbox.submit(otherTaskEdit('two'));
 
     fetchMock.mockReset();
     alwaysRespond(200);
     await outbox.drain();
 
     expect(outbox.count).toBe(0);
+    expect(sentPaths()).toEqual([`/api/tasks/${TASK_ID}`, `/api/tasks/${OTHER_ID}`]);
     const bodies = await Promise.all(
-      fetchMock.mock.calls.map((call) => (call[0] as Request).clone().text())
+      fetchMock.mock.calls.map(
+        async (call) => (await (call[0] as Request).clone().json()) as { title: string }
+      )
     );
-    expect(bodies).toHaveLength(2);
+    expect(bodies.map((body) => body.title)).toEqual(['new', 'other']);
   });
 
   // Every other trigger is an event that might never happen: `online` only
@@ -319,6 +331,10 @@ describe('when a replayed change cannot be applied', () => {
     });
     await outbox.drain();
 
+    // Three sends before it is given up on: the report alone is what a queue
+    // with no retry at all produces, so counting the attempts is the only thing
+    // that tells the two apart.
+    expect(sentPaths().filter((path) => path.endsWith(TASK_ID))).toHaveLength(3);
     expect(outbox.issues).toHaveLength(1);
     expect(outbox.issues[0]).toMatchObject({ reason: 'server' });
     // The change behind it still went out.
@@ -365,23 +381,26 @@ describe('replaying a move made offline', () => {
     });
   }
 
+  function moveOf(taskId: string, afterId: string, beforeId: string, label: string): SubmitInput {
+    return edit({
+      entityId: taskId,
+      semantics: 'move',
+      label,
+      move: { columnId: COLUMN_ID, afterId, beforeId },
+      request: {
+        method: 'PATCH',
+        path: '/api/tasks/{id}',
+        pathParams: { id: taskId },
+        // Computed against the board as it looked offline, and meaningless by
+        // the time this is replayed.
+        body: { column_id: COLUMN_ID, sort_key: OFFLINE_KEY },
+      },
+    });
+  }
+
   async function queueMove(): Promise<void> {
     unreachable();
-    await outbox.submit(
-      edit({
-        semantics: 'move',
-        label: 'Moved a card',
-        move: { columnId: COLUMN_ID, afterId: AFTER_ID, beforeId: BEFORE_ID },
-        request: {
-          method: 'PATCH',
-          path: '/api/tasks/{id}',
-          pathParams: { id: TASK_ID },
-          // Computed against the board as it looked offline, and meaningless by
-          // the time this is replayed.
-          body: { column_id: COLUMN_ID, sort_key: OFFLINE_KEY },
-        },
-      })
-    );
+    await outbox.submit(moveOf(TASK_ID, AFTER_ID, BEFORE_ID, 'Moved a card'));
     fetchMock.mockReset();
   }
 
@@ -556,6 +575,32 @@ describe('replaying a move made offline', () => {
     );
   });
 
+  // Two cards dropped into the same column while offline, the second aimed at the
+  // first. The board is read once for the pair, so unless the first landing is
+  // applied to that read the second is ranked against a card that is still sitting
+  // where it was dragged from — which puts it on the wrong side of it.
+  it('rekeys a move against where the move before it just landed', async () => {
+    unreachable();
+    await outbox.submit(moveOf(TASK_ID, AFTER_ID, BEFORE_ID, 'Moved the first card'));
+    await outbox.submit(moveOf(OTHER_ID, TASK_ID, BEFORE_ID, 'Moved the second under it'));
+    fetchMock.mockReset();
+
+    serveBoard([
+      { id: AFTER_ID, sort_key: ANCHOR },
+      { id: BEFORE_ID, sort_key: NEXT_TO_ANCHOR },
+      // Where the first card sat before it was dragged: past both anchors, which
+      // is where a board that never saw the move would still rank it.
+      { id: TASK_ID, sort_key: UNRELATED },
+    ]);
+    await outbox.drain();
+
+    expect(requestsOfMethod('GET')).toHaveLength(1);
+    const keys = await replayedSortKeys();
+    expect(keys[0]! > ANCHOR && keys[0]! < NEXT_TO_ANCHOR).toBe(true);
+    expect(keys[1]! > keys[0]! && keys[1]! < NEXT_TO_ANCHOR).toBe(true);
+    expect(outbox.issues).toHaveLength(0);
+  });
+
   // One queue holds every project's work. Rekeying a move against another
   // project's board places the card among neighbors it has never had.
   it('rekeys each move against its own project', async () => {
@@ -626,6 +671,82 @@ describe('replaying a move made offline', () => {
     // Between its own board's anchors, not appended past a board it never used.
     expect(keys[1]! > OTHER_ANCHOR && keys[1]! < OTHER_NEXT).toBe(true);
     expect(outbox.issues).toHaveLength(0);
+  });
+});
+
+// A queue is a promise that the work is still coming, and past these limits it is
+// a promise the app cannot keep. What it must not do is quietly stop keeping it.
+describe('the bounds the queue enforces', () => {
+  const MAX_QUEUED_OPS = 500;
+
+  it('drops the oldest change once it is full, and reports the one it dropped', async () => {
+    unreachable();
+    for (let index = 0; index <= MAX_QUEUED_OPS; index += 1) {
+      await outbox.submit(edit({ label: `change ${String(index)}` }));
+    }
+
+    expect(outbox.count).toBe(MAX_QUEUED_OPS);
+    expect(outbox.pending[0]?.label).toBe('change 1');
+    expect(outbox.pending.at(-1)?.label).toBe(`change ${String(MAX_QUEUED_OPS)}`);
+    expect(outbox.issues).toHaveLength(1);
+    expect(outbox.issues[0]).toMatchObject({
+      reason: 'expired',
+      severity: 'failed',
+      label: 'change 0',
+    });
+  });
+
+  // A row stored by some other build, or one that got mangled on the way back
+  // out. Whatever it is, a timestamp that cannot be read is not evidence that the
+  // work behind it is stale.
+  it('keeps stored work whose queued-at cannot be read at all', async () => {
+    await writeOp({
+      id: testUuid('stored'),
+      seq: 1,
+      userId: user.id,
+      projectId: PROJECT_ID,
+      entityId: TASK_ID,
+      semantics: 'plain',
+      label: 'read back from another build',
+      request: {
+        method: 'PATCH',
+        path: '/api/tasks/{id}',
+        pathParams: { id: TASK_ID },
+        body: { title: 'new' },
+      },
+      queuedAt: 'not a date',
+      attempts: 0,
+    });
+    unreachable();
+
+    await outbox.hydrate();
+
+    expect(outbox.pending.map((op) => op.label)).toEqual(['read back from another build']);
+    expect(outbox.issues).toHaveLength(0);
+  });
+
+  // Kept as an issue rather than deleted: the panel still has to be able to show
+  // what the change was, or the queue has lost work while claiming it did not.
+  it('expires work that has waited longer than it keeps, and says what it was', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      unreachable();
+      await outbox.submit(edit({ label: 'queued eight days ago' }));
+
+      vi.setSystemTime(new Date('2026-01-09T00:00:00.000Z'));
+      await outbox.submit(otherTaskEdit('typed just now'));
+
+      expect(outbox.pending.map((op) => op.label)).toEqual(['typed just now']);
+      expect(outbox.issues).toHaveLength(1);
+      expect(outbox.issues[0]).toMatchObject({
+        reason: 'expired',
+        label: 'queued eight days ago',
+      });
+      expect(outbox.issues[0]?.request.body).toEqual({ title: 'new' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

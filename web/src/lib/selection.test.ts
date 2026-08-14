@@ -1,6 +1,7 @@
 import '../api/testUtils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_SELECTION, nextSelection, selection } from './selection.svelte';
+import { announcer } from './announcer.svelte';
 import { board } from './board.svelte';
 import type { BoardTask } from './board-types';
 import { session } from './session.svelte';
@@ -104,6 +105,11 @@ describe('selection store', () => {
     ];
     board.tasks = [task('t1', 'c1', 1000), task('t2', 'c1', 2000), task('t3', 'c2', 1000)];
     makeEditable();
+    announcer.clear();
+  });
+
+  afterEach(() => {
+    announcer.clear();
   });
 
   describe('cursor', () => {
@@ -192,6 +198,19 @@ describe('selection store', () => {
 
       expect(selection.selectedIds).toEqual(['t1', 't3']);
     });
+
+    // Board order is rank order per column, not the order the rows arrived in:
+    // a card created mid-session sits at the end of `board.tasks`, and
+    // `bulkMoveTasks` appends in the order it is sent.
+    it('reports rank order even when the board rows are not in it', () => {
+      board.tasks = [task('t2', 'c1', 2000), task('t1', 'c1', 1000)];
+
+      selection.toggle('t2');
+      selection.toggle('t1');
+
+      expect(selection.selectedIds).toEqual(['t1', 't2']);
+      expect(selection.targetsFor('t2')).toEqual(['t1', 't2']);
+    });
   });
 
   describe('extendTo', () => {
@@ -208,6 +227,28 @@ describe('selection store', () => {
 
       expect(selection.selectedIds).toEqual(['t2', 't3', 't4']);
       expect(selection.cursorTaskId).toBe('t4');
+    });
+
+    // The anchor is the click that started the run, not the last target, so
+    // aiming nearer shrinks the run and aiming past it reverses.
+    it('keeps the anchor fixed across a second shift-click', () => {
+      board.tasks = [
+        task('t1', 'c1', 1000),
+        task('t2', 'c1', 2000),
+        task('t3', 'c1', 3000),
+        task('t4', 'c1', 4000),
+      ];
+      selection.toggle('t2');
+
+      selection.extendTo('t4');
+      expect(selection.selectedIds).toEqual(['t2', 't3', 't4']);
+
+      selection.extendTo('t3');
+      expect(selection.selectedIds).toEqual(['t2', 't3']);
+
+      selection.extendTo('t1');
+      expect(selection.selectedIds).toEqual(['t1', 't2']);
+      expect(selection.cursorTaskId).toBe('t1');
     });
 
     it('walks display order under an active filter, not position order', () => {
@@ -330,6 +371,17 @@ describe('selection store', () => {
       expect(selection.targetsFor('t2')).toEqual(['t2']);
     });
 
+    it('drops a card that leaves with its column', () => {
+      selection.toggle('t1');
+      selection.toggle('t3');
+
+      board.columns = board.columns.filter((column) => column.id !== 'c2');
+
+      expect(selection.selectedIds).toEqual(['t1']);
+      expect(selection.has('t3')).toBe(false);
+      expect(selection.targetsFor('t3')).toEqual(['t3']);
+    });
+
     it('keeps a card that only moves column', () => {
       selection.toggle('t1');
 
@@ -384,10 +436,14 @@ describe('selection store', () => {
   });
 
   describe('cap', () => {
-    it('truncates to the first hundred in board order and says so', () => {
+    function seedOverflowingColumn(): void {
       board.tasks = Array.from({ length: MAX_SELECTION + 5 }, (_, i) =>
         task(`b${String(i)}`, 'c1', (i + 1) * 1000)
       );
+    }
+
+    it('truncates the far end of a downward run and says so', () => {
+      seedOverflowingColumn();
       selection.set('b0');
 
       for (let i = 0; i < MAX_SELECTION + 4; i++) {
@@ -401,6 +457,74 @@ describe('selection store', () => {
       expect(toasts.toasts.map((t) => t.message)).toEqual([
         `You can select at most ${String(MAX_SELECTION)} cards at a time`,
       ]);
+    });
+
+    // Upward the anchor is the *last* id in board order, so truncating from the
+    // front drops it: the set would then slide one card per press, away from the
+    // card the run started on, with no second toast to say anything happened.
+    it('keeps the anchor when a run overflows upward', () => {
+      seedOverflowingColumn();
+      const anchor = `b${String(MAX_SELECTION + 4)}`;
+      selection.set(anchor);
+
+      for (let i = 0; i < MAX_SELECTION + 4; i++) {
+        selection.extend('up');
+      }
+
+      expect(selection.count).toBe(MAX_SELECTION);
+      expect(selection.has(anchor)).toBe(true);
+      expect(selection.selectedIds.at(-1)).toBe(anchor);
+      expect(selection.selectedIds[0]).toBe('b5');
+    });
+
+    it('keeps the card whose click overflowed, not the far end of the set', () => {
+      seedOverflowingColumn();
+      selection.set('b0');
+      for (let i = 0; i < MAX_SELECTION - 1; i++) {
+        selection.extend('down');
+      }
+      expect(selection.count).toBe(MAX_SELECTION);
+
+      selection.toggle(`b${String(MAX_SELECTION + 4)}`);
+
+      expect(selection.count).toBe(MAX_SELECTION);
+      expect(selection.has(`b${String(MAX_SELECTION + 4)}`)).toBe(true);
+      expect(selection.has('b0')).toBe(false);
+    });
+  });
+
+  // The only feedback a screen-reader user gets that the set changed at all: the
+  // cards themselves report `aria-selected` far from where the caret is.
+  describe('announcements', () => {
+    async function spoken(text: string): Promise<void> {
+      await vi.waitFor(() => {
+        expect(announcer.message).toBe(text);
+      });
+    }
+
+    it('speaks the size a click leaves behind, singular and plural', async () => {
+      selection.toggle('t1');
+      await spoken('1 card selected');
+
+      selection.toggle('t3');
+      await spoken('2 cards selected');
+
+      selection.toggle('t3');
+      await spoken('1 card selected');
+    });
+
+    it('speaks it for a shift-click run and for Shift+Arrow alike', async () => {
+      selection.toggle('t1');
+      await spoken('1 card selected');
+
+      selection.extendTo('t2');
+      await spoken('2 cards selected');
+
+      selection.clear();
+      announcer.clear();
+      selection.set('t1');
+      selection.extend('down');
+      await spoken('2 cards selected');
     });
   });
 

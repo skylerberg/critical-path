@@ -102,6 +102,19 @@ describe('ColumnArchiveTasksDialog', () => {
     expect(onclose).toHaveBeenCalled();
   });
 
+  it('archives nothing when the dialog is cancelled', async () => {
+    board.tasks = [task('d1', 'c2')];
+    const archiveTasks = vi.spyOn(board, 'archiveTasksInColumn');
+    const onclose = vi.fn();
+
+    render(ColumnArchiveTasksDialog, { column: DONE, open: true, onclose });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(archiveTasks).not.toHaveBeenCalled();
+    expect(onclose).toHaveBeenCalled();
+  });
+
   it('counts every card in the column, not just the ones a filter shows', () => {
     board.tasks = [task('d1', 'c2'), task('d2', 'c2')];
     board.filterQuery = 'd1';

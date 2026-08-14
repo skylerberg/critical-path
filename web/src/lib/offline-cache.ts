@@ -50,9 +50,15 @@ async function read<T>(
   return { payload: record.payload as T, savedAt: record.savedAt };
 }
 
+// Every field the board store dereferences without checking, `project` included:
+// its first act on a cached board is to compare `payload.project.id` against the
+// project being opened, so a record that satisfies this but has no project is a
+// crash rather than a cache miss.
 const isBoard = (payload: unknown): boolean =>
   typeof payload === 'object' &&
   payload !== null &&
+  typeof (payload as BoardSnapshot).project === 'object' &&
+  (payload as BoardSnapshot).project !== null &&
   Array.isArray((payload as BoardSnapshot).tasks) &&
   Array.isArray((payload as BoardSnapshot).columns);
 

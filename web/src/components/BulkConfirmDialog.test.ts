@@ -55,6 +55,19 @@ describe('BulkConfirmDialog', () => {
     expect(screen.queryByText(/lose a dependency/)).toBeNull();
   });
 
+  // "Elsewhere on the board" is the whole claim: a card archived alongside its
+  // blocker is not left behind missing one.
+  it('says nothing when the only dependent card is itself being archived', () => {
+    seedBulkBoard(
+      [bulkTask('t1'), bulkTask('t2', 'c1', 2000, { blocker_ids: ['t1'] }), bulkTask('t3', 'c2')],
+      ['t1', 't2']
+    );
+
+    render(BulkConfirmDialog, { onclose: () => {} });
+
+    expect(screen.queryByText(/lose a dependency/)).toBeNull();
+  });
+
   it('archives the selection once on confirm and clears it', async () => {
     const bulkArchiveTasks = vi.spyOn(board, 'bulkArchiveTasks');
     const onclose = vi.fn();

@@ -42,17 +42,36 @@ describe('mutationFailed', () => {
     expect(target.load).not.toHaveBeenCalled();
   });
 
+  // The re-read is held open by the test rather than by a microtask: a load that
+  // finishes on its own settles before the assertion can run either way, which is
+  // the same reading a caller that never awaited it would give.
   it('resolves only once the re-read has, so a caller can rethrow after it', async () => {
-    let settled = false;
+    let finishLoad = (): void => {};
     const target = {
       currentProjectId: 'p-1',
-      load: vi.fn(async () => {
-        await Promise.resolve();
-        settled = true;
-      }),
+      load: vi.fn(
+        async () =>
+          new Promise<void>((resolve) => {
+            finishLoad = resolve;
+          })
+      ),
     };
 
-    await mutationFailed(target, new ApiError(500, 'Boom'), 'Failed to archive');
+    let settled = false;
+    const failing = mutationFailed(target, new ApiError(500, 'Boom'), 'Failed to archive').then(
+      () => {
+        settled = true;
+      }
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(target.load).toHaveBeenCalledWith('p-1');
+    expect(settled).toBe(false);
+
+    finishLoad();
+    await failing;
 
     expect(settled).toBe(true);
   });

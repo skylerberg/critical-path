@@ -22,7 +22,7 @@ export interface SnapshotRecord {
   payload: unknown;
 }
 
-interface OfflineSchema extends DBSchema {
+export interface OfflineSchema extends DBSchema {
   snapshots: {
     key: string;
     value: SnapshotRecord;
@@ -42,17 +42,32 @@ interface OfflineSchema extends DBSchema {
 // environment costs one rejected promise rather than one per call.
 let dbPromise: Promise<IDBPDatabase<OfflineSchema> | null> | null = null;
 
+/**
+ * Runs on creation and again on every future DB_VERSION bump, against a database
+ * that already has these stores — where creating one a second time is a
+ * ConstraintError that aborts the whole upgrade. `withDb` would then swallow that
+ * into a device which silently remembers nothing, for every user who already had
+ * the previous version. So each store is created only for the version that
+ * introduced it.
+ *
+ * Exported for the test that opens the database at a bumped version, which is the
+ * only way to reach the guard while DB_VERSION is 1.
+ */
+export function upgradeStores(db: IDBPDatabase<OfflineSchema>, oldVersion: number): void {
+  if (oldVersion < 1) {
+    const snapshots = db.createObjectStore('snapshots', { keyPath: 'key' });
+    snapshots.createIndex('by-user', 'userId');
+    const outbox = db.createObjectStore('outbox', { keyPath: 'id' });
+    outbox.createIndex('by-user', 'userId');
+  }
+}
+
 function connect(): Promise<IDBPDatabase<OfflineSchema> | null> {
   if (typeof indexedDB === 'undefined') {
     return Promise.resolve(null);
   }
   dbPromise ??= openDB<OfflineSchema>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      const snapshots = db.createObjectStore('snapshots', { keyPath: 'key' });
-      snapshots.createIndex('by-user', 'userId');
-      const outbox = db.createObjectStore('outbox', { keyPath: 'id' });
-      outbox.createIndex('by-user', 'userId');
-    },
+    upgrade: upgradeStores,
     // A tab holding the old version open would block the upgrade forever.
     // Closing ours lets the newer one through; this tab reopens on next use.
     blocked() {

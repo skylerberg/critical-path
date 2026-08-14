@@ -6,7 +6,7 @@ import Search from './Search.svelte';
 import { cardCursor } from '../lib/card-cursor.svelte';
 import { router } from '../lib/router.svelte';
 import { search } from '../lib/search.svelte';
-import { searchPath, type SearchResult } from '../lib/search-query';
+import { SEARCH_MAX_QUERY_LENGTH, searchPath, type SearchResult } from '../lib/search-query';
 import { projectHref, taskHref } from '../lib/short-links';
 import { shortcuts } from '../lib/shortcuts.svelte';
 import { testUuid } from '../lib/test-ids';
@@ -164,6 +164,31 @@ describe('Search page', () => {
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
     expect(router.path).toBe('/search');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a pending commit when the page is left mid-typing', async () => {
+    respondWith([]);
+    const view = renderAt('');
+
+    await fireEvent.input(box(), { target: { value: 'export' } });
+    view.unmount();
+    await vi.advanceTimersByTimeAsync(DEBOUNCE_MS);
+
+    expect(router.path).toBe('/search');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // maxlength caps typing, not a pasted or shared link, and the store parks at
+  // idle for one — so without this line the page reads as though nothing was typed.
+  it('says so when the query in the URL is too long to search', async () => {
+    respondWith([]);
+    renderAt('x'.repeat(SEARCH_MAX_QUERY_LENGTH + 1));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      `searches take at most ${SEARCH_MAX_QUERY_LENGTH} characters`
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('refocuses the box when the search shortcut fires on this page', async () => {

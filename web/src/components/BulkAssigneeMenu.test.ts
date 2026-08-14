@@ -97,6 +97,33 @@ describe('BulkAssigneeMenu', () => {
       expect(bulkSetAssignee).toHaveBeenCalledWith(['t1', 't2'], BOB, true);
     });
 
+    // Their row is gone, and the person who slid into it is not a safe guess
+    // when Enter assigns across every selected card.
+    it('leaves Enter inert when the highlighted person leaves the project', async () => {
+      const bulkSetAssignee = vi.spyOn(board, 'bulkSetAssignee');
+      render(BulkAssigneeMenu, { onclose: () => {} });
+
+      await fireEvent.keyDown(filter(), { key: 'ArrowDown' });
+      users.setForProject(
+        'p1',
+        users.forProject('p1').filter((user) => user.id !== BOB)
+      );
+      await fireEvent.keyDown(filter(), { key: 'Enter' });
+
+      expect(bulkSetAssignee).not.toHaveBeenCalled();
+    });
+
+    it('takes the arrow keys only while rows match the filter', async () => {
+      render(BulkAssigneeMenu, { onclose: () => {} });
+
+      expect(await fireEvent.keyDown(filter(), { key: 'ArrowDown' })).toBe(false);
+      expect(await fireEvent.keyDown(filter(), { key: 'ArrowUp' })).toBe(false);
+
+      await fireEvent.input(filter(), { target: { value: 'nobody by that name' } });
+
+      expect(await fireEvent.keyDown(filter(), { key: 'ArrowDown' })).toBe(true);
+    });
+
     it('scrolls the newly highlighted row into view', async () => {
       const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
       render(BulkAssigneeMenu, { onclose: () => {} });

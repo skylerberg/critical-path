@@ -382,6 +382,25 @@ describe('CardMenu', () => {
       expect(router.path).toBe(BOARD_PATH);
     });
 
+    // Cmd+L is the address bar, Ctrl+A is select-all, Alt+D is the browser's own.
+    // Taking them for a row would both swallow the chord and fire an action the
+    // user never asked for.
+    it('leaves a chord carrying a modifier to the browser', async () => {
+      open();
+
+      for (const modifier of ['metaKey', 'ctrlKey', 'altKey'] as const) {
+        const event = await fireEvent.keyDown(screen.getByRole('menu'), {
+          key: 'l',
+          [modifier]: true,
+          cancelable: true,
+        });
+
+        expect(event).toBe(true);
+        expect(shortcuts.labelMenu).toBeNull();
+        expect(cardMenu.taskId).toBe(TASK_ID);
+      }
+    });
+
     // Closing without swallowing the key is what keeps focus out of a trap.
     it('closes on Tab and lets the key through', async () => {
       open();
@@ -404,6 +423,27 @@ describe('CardMenu', () => {
 
     await fireEvent.pointerDown(document.body);
     expect(cardMenu.taskId).toBeNull();
+  });
+
+  // The menu is fixed to viewport coordinates, so a scroll of the board slides the
+  // card away and leaves the menu pointing at whatever took its place.
+  it('closes when the board is scrolled out from under it', async () => {
+    open();
+
+    await fireEvent.wheel(document.body, { deltaY: 120 });
+
+    expect(cardMenu.taskId).toBeNull();
+  });
+
+  // …but the menu is `overflow-y-auto` and taller than a phone, so scrolling its
+  // own rows must not be read as scrolling the board.
+  it('stays open while its own rows are scrolled', async () => {
+    open();
+
+    await fireEvent.wheel(screen.getByRole('menuitem', { name: 'Archive' }), { deltaY: 120 });
+
+    expect(cardMenu.taskId).toBe(TASK_ID);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 
   it('closes itself when the card it belongs to goes away', async () => {

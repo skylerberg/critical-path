@@ -6,10 +6,23 @@ import { session } from './session.svelte';
 
 const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:fake-url');
 const revokeObjectURL = vi.fn();
-let clicks: HTMLAnchorElement[] = [];
+// `connected` is read at click time: a click on an anchor that was never appended
+// is ignored by some engines, and the after-the-fact `a[download]` null check
+// cannot tell that apart from a clean removal.
+let clicks: { anchor: HTMLAnchorElement; connected: boolean }[] = [];
 
+function savedBlob(): Blob {
+  const blob = createObjectURL.mock.calls[0]?.[0];
+  if (blob === undefined) throw new Error('nothing was saved');
+  return blob;
+}
+
+const ZIP_SIGNATURE = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+
+// The bytes go in raw: jsdom's Blob is not the one Node's Response recognises,
+// so wrapping them in one makes the body the string "[object Blob]".
 function zipResponse(headers: Record<string, string> = {}): Response {
-  return new Response(new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04])]), {
+  return new Response(ZIP_SIGNATURE, {
     status: 200,
     headers: { 'Content-Type': 'application/zip', ...headers },
   });
@@ -28,7 +41,7 @@ beforeEach(() => {
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
     this: HTMLAnchorElement
   ) {
-    clicks.push(this);
+    clicks.push({ anchor: this, connected: this.isConnected });
   });
   session.adopt('test-token', {
     id: 'u1',
@@ -57,10 +70,11 @@ describe('downloadProjectExport', () => {
     expect(request.headers.get('Authorization')).toBe('Bearer test-token');
 
     expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob);
+    expect(new Uint8Array(await savedBlob().arrayBuffer())).toEqual(ZIP_SIGNATURE);
     expect(clicks).toHaveLength(1);
-    expect(clicks[0].download).toBe('game-2026-07-26.zip');
-    expect(clicks[0].href).toBe('blob:fake-url');
+    expect(clicks[0].anchor.download).toBe('game-2026-07-26.zip');
+    expect(clicks[0].anchor.href).toBe('blob:fake-url');
+    expect(clicks[0].connected).toBe(true);
     expect(document.querySelector('a[download]')).toBeNull();
 
     expect(revokeObjectURL).not.toHaveBeenCalled();
@@ -73,7 +87,7 @@ describe('downloadProjectExport', () => {
 
     await downloadProjectExport('p1');
 
-    expect(clicks[0].download).toBe('critical-path-export.zip');
+    expect(clicks[0].anchor.download).toBe('critical-path-export.zip');
   });
 
   it('saves the manifest alone when the project is too large to package', async () => {
@@ -86,7 +100,11 @@ describe('downloadProjectExport', () => {
 
     expect(requestAt(1).url).toMatch(/\/api\/projects\/p1\/export\?format=json$/);
     expect(clicks).toHaveLength(1);
-    expect(clicks[0].download).toBe('critical-path-export.json');
+    expect(clicks[0].anchor.download).toBe('critical-path-export.json');
+    expect(JSON.parse(await savedBlob().text())).toEqual({
+      format: 'critical-path-project-export',
+      version: 1,
+    });
   });
 
   it('rejects when the manifest fallback also fails', async () => {
@@ -145,9 +163,13 @@ describe('downloadAccountExport', () => {
     expect(request.headers.get('Authorization')).toBe('Bearer test-token');
 
     expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob);
+    expect(JSON.parse(await savedBlob().text())).toEqual({
+      format: 'critical-path-account-export',
+      version: 1,
+    });
     expect(clicks).toHaveLength(1);
-    expect(clicks[0].download).toBe('critical-path-account-2026-08-02.json');
+    expect(clicks[0].anchor.download).toBe('critical-path-account-2026-08-02.json');
+    expect(clicks[0].connected).toBe(true);
     expect(document.querySelector('a[download]')).toBeNull();
     await settleRevoke();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url');
@@ -158,7 +180,7 @@ describe('downloadAccountExport', () => {
 
     await downloadAccountExport();
 
-    expect(clicks[0].download).toBe('critical-path-account.json');
+    expect(clicks[0].anchor.download).toBe('critical-path-account.json');
   });
 
   // Asking for a blob governs the success body only — a JSON error body is still
