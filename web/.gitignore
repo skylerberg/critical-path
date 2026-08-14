@@ -7,3 +7,9 @@ coverage
 # ignored here and by eslint, or every scratch file is a commit risk and a red
 # lint gate.
 scripts/tmp-*
+# The same escape hatch for a throwaway *config*, which cannot use the prefix
+# above: a flat eslint config resolves its `files:` patterns relative to its own
+# directory, so one under scripts/ matches nothing in src/, and it needs
+# node_modules beside it to resolve plugins. That pins it to the repo root,
+# where no other ignore reaches it.
+*.tmp.config.js
