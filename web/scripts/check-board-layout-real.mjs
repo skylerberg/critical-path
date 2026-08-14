@@ -349,13 +349,34 @@ const SCROLL_PROBE = `(async () => {
   // ...and the same thing over the length of the board, at a cadence a thumb
   // actually produces. Every target in order, none of them twice.
   await restAt(0);
+  // Recorded as the board moves, not sampled once per gesture. A fixed delay
+  // races the slide it is timing: under load one slide outruns the 230ms and that
+  // step reports the index it started from, so a board that visited every column
+  // reads as having stuck and then skipped (…,7,7,9,…). The cadence below is
+  // the thing under test and stays exactly as it was — only the observation
+  // changed. Scroll events carry the record because rAF alone is starved by the
+  // same load, which drops an index outright rather than merely late.
   const walk = [snapIndex()];
+  const record = () => {
+    const index = snapIndex();
+    if (index !== walk.at(-1)) walk.push(index);
+  };
+  let recording = true;
+  board.addEventListener('scroll', record, { passive: true });
+  const frame = () => {
+    if (!recording) return;
+    record();
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
   for (let i = 0; i < targets.length + 1; i++) {
     await gesture(-120);
     await pause(230);
-    walk.push(snapIndex());
   }
   await pause(900);
+  recording = false;
+  board.removeEventListener('scroll', record);
+  record();
   const walked = { visited: walk, end: snapIndex(), off: offSnap() };
 
   // The end of the board, where the reported bouncing was: the last snap target
@@ -560,7 +581,7 @@ function checkScroll(s, mobile) {
     if (s.chained.off > 2) f.push(`chained swipes left the board off-snap (${s.chained.off}px)`);
     // Every target in order, none twice, ending on the last. A dropped swipe shows
     // up here as a repeat; one that carries two columns as a gap.
-    const wanted = s.walked.visited.map((_, i) => Math.min(i, s.snapTargets - 1));
+    const wanted = Array.from({ length: s.snapTargets }, (_, i) => i);
     if (s.walked.visited.join() !== wanted.join())
       f.push(`walking the board visited ${s.walked.visited.join(',')}, wanted ${wanted.join(',')}`);
     if (s.walked.off > 2) f.push(`the walk left the board off-snap (${s.walked.off}px)`);
@@ -620,9 +641,7 @@ async function runScrollCases(probeUrl, { mustPass, include = () => true }) {
     const failures = checkScroll(s, mobile);
     const passed = failures.length === 0;
     if (passed === mustPass) {
-      console.log(
-        `  ✓ ${name} (${mustPass ? JSON.stringify(s) : `should fail -> ${failures[0]}`})`
-      );
+      console.log(`  ✓ ${name}${mustPass ? '' : ` (should fail -> ${failures[0]})`}`);
       continue;
     }
     bad++;
