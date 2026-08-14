@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import {
+  consumeBudgets,
   consumeRateLimit,
   enforceAuthRateLimit,
   enforceResetRateLimit,
@@ -54,6 +55,66 @@ describe('consumeRateLimit', () => {
     expect(await consumeRateLimit('key', now, 2, 1000)).toBe(true);
     expect(await consumeRateLimit('key', now, 2, 1000)).toBe(false);
     expect(await consumeRateLimit('key', now + 1001, 2, 1000)).toBe(true);
+  });
+});
+
+// The per-process fallback has to agree with the Lua script on both counts, or a
+// Redis outage quietly changes the policy rather than only where it is stored.
+describe('consumeBudgets without a shared counter', () => {
+  beforeEach(() => {
+    resetRateLimiter();
+  });
+
+  it('expires each budget on its own window', async () => {
+    const now = 1_000_000;
+    const budgets = [
+      { key: 'short', max: 1, windowMs: 1000 },
+      { key: 'long', max: 5, windowMs: 60_000 },
+    ];
+
+    expect(await consumeBudgets(budgets, now)).toBeNull();
+    expect(await consumeBudgets(budgets, now)).toMatchObject({ key: 'short' });
+
+    // Past the short window only: the short budget is fresh, and the long one is
+    // still holding the single attempt it was charged.
+    expect(await consumeBudgets(budgets, now + 1001)).toBeNull();
+    expect(await consumeBudgets(budgets, now + 1001)).toMatchObject({ key: 'short' });
+    expect(await consumeBudgets([budgets[1]], now + 1001)).toBeNull();
+  });
+
+  it('spends nothing at all when one budget in the set is full', async () => {
+    const now = 1_000_000;
+    const full = { key: 'full', max: 1, windowMs: 60_000 };
+    const spare = { key: 'spare', max: 10, windowMs: 60_000 };
+
+    expect(await consumeBudgets([full, spare], now)).toBeNull();
+    for (let i = 0; i < 20; i++) {
+      expect(await consumeBudgets([full, spare], now)).toMatchObject({ key: 'full' });
+    }
+
+    // Nine left, not none: only the one allowed attempt was ever charged to it.
+    for (let i = 0; i < 9; i++) {
+      expect(await consumeBudgets([spare], now)).toBeNull();
+    }
+    expect(await consumeBudgets([spare], now)).toMatchObject({ key: 'spare' });
+  });
+
+  it('names the first full budget rather than the last', async () => {
+    const now = 1_000_000;
+    const first = { key: 'first', max: 1, windowMs: 60_000 };
+    const second = { key: 'second', max: 1, windowMs: 60_000 };
+
+    expect(await consumeBudgets([first, second], now)).toBeNull();
+    expect(await consumeBudgets([first, second], now)).toMatchObject({ key: 'first' });
+  });
+
+  // A budget of zero admits nothing. It reads as an edge case, but it is the
+  // one input where the two implementations can disagree without any caller
+  // noticing, so it is the one worth pinning on both.
+  it('refuses a budget of zero without a stored counter to read', async () => {
+    expect(
+      await consumeBudgets([{ key: 'never', max: 0, windowMs: 60_000 }], 1_000_000)
+    ).toMatchObject({ key: 'never' });
   });
 });
 

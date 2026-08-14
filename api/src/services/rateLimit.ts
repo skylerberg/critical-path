@@ -27,9 +27,14 @@ function sweep(now: number): void {
   }
 }
 
+// A budget carries its own window, so budgets that reset on different schedules
+// can still be spent as one. Without that, the caller with the most to gain from
+// atomicity — the auth limiter, whose three windows are a minute, a quarter of
+// an hour and an hour — was the one caller that had to spend them one at a time.
 export interface Budget {
   key: string;
   max: number;
+  windowMs: number;
 }
 
 // Answers 0, or the 1-based position of the first full budget, having spent
@@ -39,11 +44,14 @@ export interface Budget {
 // spent would strand exactly the full ones. Sent in full rather than by hash: a
 // NOSCRIPT reply after a Redis restart would silently drop every budget back to
 // the per-process window.
+//
+// ARGV is the maxima followed by the windows, so ARGV[i] and ARGV[n + i] are the
+// two halves of budget i.
 const CONSUME_SCRIPT = `
 local n = #KEYS
 local refused = 0
 for i = 1, n do
-  redis.call('PEXPIRE', KEYS[i], ARGV[n + 1], 'NX')
+  redis.call('PEXPIRE', KEYS[i], ARGV[n + i], 'NX')
   if refused == 0 and tonumber(redis.call('GET', KEYS[i]) or '0') >= tonumber(ARGV[i]) then
     refused = i
   end
@@ -53,7 +61,7 @@ if refused > 0 then
 end
 for i = 1, n do
   redis.call('INCR', KEYS[i])
-  redis.call('PEXPIRE', KEYS[i], ARGV[n + 1], 'NX')
+  redis.call('PEXPIRE', KEYS[i], ARGV[n + i], 'NX')
 end
 return 0
 `;
@@ -98,18 +106,23 @@ async function runShared(
   }
 }
 
-function consumeBudgetsLocal(budgets: Budget[], now: number, windowMs: number): number {
+function consumeBudgetsLocal(budgets: Budget[], now: number): number {
   sweep(now);
   for (const [index, budget] of budgets.entries()) {
     const window = windows.get(budget.key);
-    if (window !== undefined && window.resetAt > now && window.count >= budget.max) {
+    // A key that is absent or past its window counts as zero, which is what the
+    // script's `GET ... or '0'` does. Reading it as "not full" instead let a
+    // budget of zero admit its first attempt here and refuse it on Redis — the
+    // fallback answering a different policy than the thing it stands in for.
+    const spent = window !== undefined && window.resetAt > now ? window.count : 0;
+    if (spent >= budget.max) {
       return index + 1;
     }
   }
   for (const budget of budgets) {
     const window = windows.get(budget.key);
     if (window === undefined || window.resetAt <= now) {
-      windows.set(budget.key, { count: 1, resetAt: now + windowMs });
+      windows.set(budget.key, { count: 1, resetAt: now + budget.windowMs });
     } else {
       window.count++;
     }
@@ -117,15 +130,18 @@ function consumeBudgetsLocal(budgets: Budget[], now: number, windowMs: number): 
   return 0;
 }
 
-// All or nothing, so a message one budget refuses never spends another's slot.
-export async function consumeBudgets(
-  budgets: Budget[],
-  now: number,
-  windowMs: number
-): Promise<Budget | null> {
-  const args = [...budgets.map((budget) => String(budget.max)), String(windowMs)];
+// All or nothing, so an attempt one budget refuses never spends another's slot.
+// That is the whole reason to spend a set together: budgets consumed one call at
+// a time each charge for an attempt the next one is about to refuse, which for
+// the auth limiter meant a request that never reached a password hash still
+// drawing down the ceiling every caller at its address shares.
+export async function consumeBudgets(budgets: Budget[], now: number): Promise<Budget | null> {
+  const args = [
+    ...budgets.map((budget) => String(budget.max)),
+    ...budgets.map((budget) => String(budget.windowMs)),
+  ];
   const shared = await runShared(CONSUME_SCRIPT, budgets, args);
-  const refused = shared ?? consumeBudgetsLocal(budgets, now, windowMs);
+  const refused = shared ?? consumeBudgetsLocal(budgets, now);
   return refused === 0 ? null : budgets[refused - 1];
 }
 
@@ -147,7 +163,7 @@ export async function consumeRateLimit(
   maxAttempts = MAX_ATTEMPTS,
   windowMs = WINDOW_MS
 ): Promise<boolean> {
-  return (await consumeBudgets([{ key, max: maxAttempts }], now, windowMs)) === null;
+  return (await consumeBudgets([{ key, max: maxAttempts, windowMs }], now)) === null;
 }
 
 async function peekRateLimitShared(key: string, maxAttempts: number): Promise<boolean | null> {
@@ -334,49 +350,48 @@ export async function enforceInvitationResendRateLimit(invitationId: string): Pr
 const AUTH_IP_WINDOW_MS = 60 * 60_000;
 export const AUTH_IP_MAX_ATTEMPTS = 300;
 
-// Each budget is checked only once the ones before it have allowed the attempt,
-// which is what keeps a refused attempt from spending them. It matters most for
-// the last one: an attempt refused here never reaches a password hash, so
-// counting it would let one client in a retry loop spend a ceiling every other
-// caller at its address shares. `consumeBudgets` is the atomic form of this and
-// cannot be used — it applies one window to every budget it is given, and these
-// three run for a minute, a quarter of an hour and an hour.
+// Spent as one set, so an attempt any of the three refuses spends none of them.
+// That matters because a refusal here is answered before the handler reaches a
+// password hash: charging the hourly budget for attempts that cost the server
+// nothing would let one client in a retry loop — a saved password gone stale, a
+// script with no backoff — exhaust a ceiling every other caller at its address
+// shares.
 export async function enforceAuthRateLimit(c: Context, email: string): Promise<void> {
-  const now = Date.now();
   const address = clientIp(c);
   const normalizedEmail = email.toLowerCase();
-  const refuse = (): never => {
-    throw new AppError(429, 'Too many attempts, please try again later');
-  };
 
-  if (!(await consumeRateLimit(`ip:${address}:${normalizedEmail}`, now))) {
-    refuse();
-  }
-  // Address-keyed but IP-independent: bounds total guesses against one account
-  // even when attempts arrive from many distinct source IPs.
-  if (
-    !(await consumeRateLimit(`email:${normalizedEmail}`, now, EMAIL_MAX_ATTEMPTS, EMAIL_WINDOW_MS))
-  ) {
-    refuse();
-  }
-  // Keyed on the source alone, and the only thing bounding what one of them can
-  // spend in total: both budgets above are keyed on the email the caller
-  // supplies, so one that varies it every request gets a fresh counter in each
-  // and neither ever refuses. Every attempt that gets this far costs an argon2
-  // verify — an email with no account included, since login verifies a dummy
-  // hash to keep its timing flat — so without this an unauthenticated caller
-  // sets the pace of the most expensive operation in the product.
-  //
-  // What that costs is CPU and queue depth, not memory: the hash holds 64 MiB
-  // while it runs, but concurrency is capped by the thread pool it runs on, so
-  // peak memory is the same whether attempts arrive four at a time or sixty. It
-  // is the pool that everything else — every fs read, every zlib pass — then
-  // queues behind. Sized well above an office signing in for the day and well
-  // below what keeps that pool busy.
-  if (
-    !(await consumeRateLimit(`auth-ip:${address}`, now, AUTH_IP_MAX_ATTEMPTS, AUTH_IP_WINDOW_MS))
-  ) {
-    refuse();
+  const refusedBy = await consumeBudgets(
+    [
+      { key: `ip:${address}:${normalizedEmail}`, max: MAX_ATTEMPTS, windowMs: WINDOW_MS },
+      // Email-keyed but address-independent: bounds total guesses against one
+      // account even when attempts arrive from many distinct source IPs.
+      {
+        key: `email:${normalizedEmail}`,
+        max: EMAIL_MAX_ATTEMPTS,
+        windowMs: EMAIL_WINDOW_MS,
+      },
+      // Keyed on the source alone, and the only thing bounding what one of them
+      // can spend in total: both budgets above are keyed on the email the caller
+      // supplies, so one that varies it every request gets a fresh counter in
+      // each and neither ever refuses. Every attempt that gets past all three
+      // costs an argon2 verify — an email with no account included, since login
+      // verifies a dummy hash to keep its timing flat — so without this an
+      // unauthenticated caller sets the pace of the most expensive operation in
+      // the product.
+      //
+      // What that costs is CPU and queue depth, not memory: the hash holds
+      // 64 MiB while it runs, but concurrency is capped by the thread pool it
+      // runs on, so peak memory is the same whether attempts arrive four at a
+      // time or sixty. It is that pool everything else — every fs read, every
+      // zlib pass — then queues behind. Sized well above an office signing in
+      // for the day and well below what keeps the pool busy.
+      { key: `auth-ip:${address}`, max: AUTH_IP_MAX_ATTEMPTS, windowMs: AUTH_IP_WINDOW_MS },
+    ],
+    Date.now()
+  );
+
+  if (refusedBy !== null) {
+    throw new AppError(429, 'Too many attempts, please try again later');
   }
 }
 
