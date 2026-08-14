@@ -190,6 +190,37 @@ export const guards = [
     tests: ['src/components/QuickMoveMenu.test.ts'],
   },
   {
+    name: 'a description flushed on a switch goes to the card it was typed on',
+    testName:
+      'sends an unsaved description to the card it was typed on, not the one that replaced it',
+    file: 'src/components/TaskDetail.svelte',
+    find: '      if (conflictDrafts.get(open.id) !== null || open.removing) return true;',
+    replace:
+      '      if (conflictDrafts.get(open.id) !== null || open.removing || open.id !== taskId)\n        return true;',
+    tests: ['src/components/TaskDetail.test.ts'],
+  },
+  {
+    name: 'a rejection is filed for the card it was aimed at, not the one on screen',
+    testName: 'files a title rejected after the switch under the card that was typed on',
+    file: 'src/components/TaskDetail.svelte',
+    find: '    conflictDrafts.set(open.id, { mine, base: baseOf(open) });',
+    replace:
+      '    if (open.id !== taskId) return;\n    conflictDrafts.set(open.id, { mine, base: baseOf(open) });',
+    tests: ['src/components/TaskDetail.test.ts'],
+  },
+  {
+    name: 'a card returned to mid-conflict shows the text that was rejected',
+    testName: 'shows the rejected title again when the card is returned to mid-conflict',
+    file: 'src/components/TaskDetail.svelte',
+    find: `      if (card.captured || loaded === undefined) return;
+      card.captured = true;
+      const open = sessions.for(taskId);`,
+    replace: `      if (loaded === undefined) return;
+      const open = sessions.for(taskId);
+      if (open.baseUpdatedAt !== null) return;`,
+    tests: ['src/components/TaskDetail.test.ts'],
+  },
+  {
     name: 'the reachability seed lowers but never raises',
     testName: 'does not let the interface overwrite an answer already given',
     file: 'src/lib/connectivity.svelte.ts',

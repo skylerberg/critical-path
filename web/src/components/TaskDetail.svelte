@@ -2,6 +2,7 @@
   import { tick, untrack } from 'svelte';
   import { board, type TaskUpdateOutcome } from '../lib/board.svelte';
   import type { BoardTask } from '../lib/board-types';
+  import { baseOf, CardWriteSessions, type CardWriteSession } from '../lib/card-write-session';
   import { conflictDrafts, type TaskVersion } from '../lib/conflictDrafts.svelte';
   import { formatFullDate, isCalendarDate } from '../lib/dates';
   import { currentProjectMentionCandidates } from '../lib/mentions';
@@ -66,29 +67,23 @@
   let checklistRef = $state<ReturnType<typeof TaskChecklist>>();
   let attachmentsRef = $state<ReturnType<typeof TaskAttachments>>();
 
-  // Everything the overlay holds about the card currently in it. Svelte never
-  // remounts this component between cards — only the taskId prop changes — so the
-  // switch has to rebuild all of it by hand. freshCard() is the only constructor,
-  // which is what stops a field being added without also being reset: the leak it
-  // would otherwise cause is silent, and one of these is a save precondition.
+  // What the overlay SHOWS about the card currently in it, and nothing a write
+  // needs. Svelte never remounts this component between cards — only the taskId
+  // prop changes — so the switch has to rebuild all of it by hand. freshCard() is
+  // the only constructor, which is what stops a field being added without also
+  // being reset: the leak it would otherwise cause is silent.
   interface CardState {
     // Sent, not dropped, when the card goes away: on a phone the back gesture is the
     // dismissal, and removing a focused input is not a blur, so nothing else would
-    // save it. The card it belongs to is pinned by handing this whole object to
-    // commitTitle — that, rather than discarding it, is what stops an abandoned edit
-    // landing on another card, or over a rename the user never saw.
+    // save it. Which card it belongs to is pinned by the session handed alongside it
+    // to commitTitle — that, rather than discarding it, is what stops an abandoned
+    // edit landing on another card, or over a rename the user never saw.
     titleDraft: string | null;
-    removing: boolean;
     duplicating: boolean;
-    closed: boolean;
-    // The version the editor was populated from and the pair it carries, advanced
-    // only by this overlay's own successful writes: adopting a teammate's incoming
-    // version would let the next save silently overwrite it, and task.* is
-    // overwritten optimistically the moment a save starts, so it cannot tell an
-    // unchanged field from an unsaved one.
-    baseUpdatedAt: string | null;
-    baseTitle: string | null;
-    baseDescription: TiptapDoc | null;
+    // Whether this open has taken a baseline yet. Gating on the session's own
+    // baseUpdatedAt instead would skip re-seeding the title on a card reopened
+    // mid-conflict, because the session it left behind already holds one.
+    captured: boolean;
     descriptionSaveState: SaveState;
     // A checklist or an attachment list with nothing in it has nothing to show, so
     // the quick bar asks for one and the section stays until the card is closed.
@@ -103,12 +98,8 @@
   function freshCard(): CardState {
     return {
       titleDraft: null,
-      removing: false,
       duplicating: false,
-      closed: false,
-      baseUpdatedAt: null,
-      baseTitle: null,
-      baseDescription: null,
+      captured: false,
       descriptionSaveState: 'idle',
       checklistRevealed: false,
       attachmentsRevealed: false,
@@ -119,6 +110,17 @@
   }
 
   let card = $state<CardState>(freshCard());
+
+  // Every guarded write takes one of these as its first argument, looked up at a
+  // synchronous call site and never bound to the mounted card, so a flush that
+  // drains after a switch still writes the card it was aimed at. Component-owned:
+  // a conflict draft is what outlives the overlay, not a baseline.
+  const sessions = new CardWriteSessions();
+
+  // Plain rather than $state because the unmount teardown is where it is set, and
+  // a write to reactive state there does not survive. It is the overlay's fact
+  // anyway, not any one card's, so a switch must not reset it.
+  let closed = false;
 
   const showChecklist = $derived(card.checklistRevealed || (task?.checklist_item_count ?? 0) > 0);
   const showAttachments = $derived(card.attachmentsRevealed || (task?.attachment_count ?? 0) > 0);
@@ -196,7 +198,7 @@
         // runs, so the skeleton only ever shows on a cold open.
         crossProjectDeps.refresh(id);
       }
-      return () => commitTitle(opened, id);
+      return () => commitTitle(sessions.for(id), opened.titleDraft);
     });
   });
 
@@ -230,27 +232,35 @@
   // first would only be undone by the reset. A card reopened while a conflict is
   // still unresolved takes its baseline and its text from the draft instead, so the
   // overlay comes back holding what the user typed rather than what beat it.
+  //
+  // A session that already has a baseline keeps it. Coming back to a card this
+  // overlay has already written means the version it was shown is still the one it
+  // promised to write against; re-reading the row would adopt whatever a teammate
+  // stored in between, and the next save would overwrite a version nobody here saw.
   $effect(() => {
     const loaded = task;
     untrack(() => {
-      if (card.baseUpdatedAt === null && loaded !== undefined) {
-        const pending = conflictDrafts.get(taskId);
-        card.baseUpdatedAt = loaded.updated_at;
-        card.baseTitle = pending?.base.title ?? loaded.title;
-        card.baseDescription = pending?.base.description ?? loaded.description;
-        if (pending !== null) {
-          card.titleDraft = pending.mine.title;
-        }
+      if (card.captured || loaded === undefined) return;
+      card.captured = true;
+      const open = sessions.for(taskId);
+      const pending = conflictDrafts.get(taskId);
+      if (open.baseUpdatedAt === null) {
+        open.baseUpdatedAt = loaded.updated_at;
+        open.baseTitle = pending?.base.title ?? loaded.title;
+        open.baseDescription = pending?.base.description ?? loaded.description;
+      }
+      if (pending !== null) {
+        card.titleDraft = pending.mine.title;
       }
     });
   });
 
   // Cleared on unmount so a reopened overlay never flashes another card's history
-  // and no background mutation keeps refetching for a closed dialog. card.closed is
+  // and no background mutation keeps refetching for a closed dialog. `closed` is
   // set here too because most dismissals never reach close(): Back, a sidebar link
   // and the auth redirect all just unmount the dialog.
   $effect(() => () => {
-    card.closed = true;
+    closed = true;
     taskActivity.reset();
   });
 
@@ -292,40 +302,28 @@
   // title is sent here rather than left to the blur the ✕ tap fires, so the two
   // fields of one card behave alike: the description already flushes on teardown.
   function close(): void {
-    commitTitle(card, taskId);
-    card.closed = true;
+    commitTitle(sessions.for(taskId), card.titleDraft);
+    closed = true;
     router.redirect(closePath);
   }
 
   // Both fields are captured, not just the one whose save was rejected: updated_at
   // is a single token for the pair, so a teammate's description edit is what stops
   // a rename, and the resolver has to be able to see both sides of both fields.
-  // The editor is asked for its live document rather than the one the failed save
-  // carried, which the debounce leaves a keystroke or two behind.
-  // The baseline the editor was populated from, handed to every guarded save so a
-  // patch that has to wait for the network still knows what it was written
-  // against. Without it a queued edit that comes back 409 could report the
-  // conflict but not offer the choice, which is the half of the promise that
-  // matters.
-  function currentBase(): TaskVersion {
-    return { title: card.baseTitle ?? '', description: card.baseDescription };
-  }
-
-  function enterConflict(): void {
-    const trimmed = card.titleDraft?.trim() ?? '';
-    conflictDrafts.set(taskId, {
-      mine: {
-        // Empty reverts to the stored title, the same rule commitTitle applies:
-        // an empty title is not an edit the server would take.
-        title: trimmed === '' ? (card.baseTitle ?? '') : trimmed,
-        description: editorRef?.getContent() ?? null,
-      },
-      base: { title: card.baseTitle ?? '', description: card.baseDescription },
-    });
+  // `mine` is built by the caller, before it awaits: a rejection can land after
+  // this card's editor has been destroyed, and a destroyed one answers null, which
+  // would file a draft promising to keep text it no longer holds.
+  //
+  // Filed under the session's card and not the mounted one. A rejection for a card
+  // the user has left is still a rejection, and the draft is the only thing keeping
+  // its text — the banner is waiting when they come back to it.
+  function enterConflict(open: CardWriteSession, mine: TaskVersion): void {
+    conflictDrafts.set(open.id, { mine, base: baseOf(open) });
     // The banner names whoever stored the version that won, and the refresh the
     // failed patch queued is rate-limited; this one is not, so the name is there
-    // by the time the user reads the sentence rather than a second later.
-    void taskActivity.load(taskId);
+    // by the time the user reads the sentence rather than a second later. Only
+    // worth a request while that banner is the thing on screen.
+    if (open.id === taskId) void taskActivity.load(open.id);
   }
 
   // Clears the draft only once the server has the new title: a conflict refetches the
@@ -335,50 +333,49 @@
   //
   // Which card is being written is fixed at the call, not in the queue: `card` is
   // replaced and `taskId` can move before the queue drains, so a write that named
-  // them then would land on whichever card is mounted by that point. Passing the
-  // CardState object rather than copying its fields is deliberate — identity is
-  // pinned, while the baseline stays the live one for that card, which a save queued
-  // ahead of this one is still allowed to advance.
+  // either then would land on whichever card is mounted by that point. The session
+  // carries both the identity and the baseline, and the baseline stays the live one
+  // for that card, which a save queued ahead of this one is still allowed to advance.
   //
   // Both parameters are required rather than defaulted to the mounted card, so that
   // `onblur={commitTitle}` cannot typecheck: an all-optional signature reads as an
   // event handler, and the FocusEvent would arrive silently as the card to write.
-  function commitTitle(state: CardState, id: string): void {
-    const typed = state.titleDraft;
+  function commitTitle(open: CardWriteSession, typed: string | null): void {
     if (typed === null) return;
+    const mounted = open.id === taskId;
     // Live over mirrored: a mobile keyboard finishing a word by composition can
     // leave the oninput mirror a word behind. Only for the mounted card — the field
     // is not re-created between cards, so on a switch it already holds the new
     // title, and reading it would write that onto the card being left.
-    const live = id === taskId && titleInput?.isConnected === true ? titleInput.value : typed;
+    const live = mounted && titleInput?.isConnected === true ? titleInput.value : typed;
     const trimmed = live.trim();
     if (trimmed === '') {
-      state.titleDraft = null;
+      if (mounted) card.titleDraft = null;
       return;
     }
+    const mine: TaskVersion = {
+      title: trimmed,
+      description: mounted ? (editorRef?.getContent() ?? null) : open.baseDescription,
+    };
     void queueWrite(async () => {
-      // Re-checked here, against the captured card rather than whichever one is
-      // mounted now: the queue can hold this past a conflict, an archive, a delete
-      // or a switch. An archived or deleted card would 404 the write, or resurrect
+      // Re-checked here, against the session rather than whichever card is mounted
+      // now: the queue can hold this past a conflict, an archive, a delete or a
+      // switch. An archived or deleted card would 404 the write, or resurrect
       // itself on the next refetch — the same reason saveDescription bails.
-      if (conflictDrafts.get(id) !== null || state.removing) return;
-      if (!board.tasks.some((t) => t.id === id)) return;
+      if (conflictDrafts.get(open.id) !== null || open.removing) return;
+      if (!board.tasks.some((t) => t.id === open.id)) return;
       // The baseline is read here and not captured above: a save already queued
       // ahead of this one advances it, and this write has to carry the version that
-      // one produced. Reading it off the captured object is what keeps that true for
-      // the card being left as well as the one on screen.
-      if (trimmed !== state.baseTitle) {
+      // one produced.
+      if (trimmed !== open.baseTitle) {
         const outcome = await board.updateTask(
-          id,
+          open.id,
           { title: trimmed },
-          state.baseUpdatedAt ?? undefined,
-          {
-            title: state.baseTitle ?? '',
-            description: state.baseDescription,
-          }
+          open.baseUpdatedAt ?? undefined,
+          baseOf(open)
         );
         if (outcome.status === 'conflict') {
-          if (id === taskId) enterConflict();
+          enterConflict(open, mine);
           return;
         }
         if (outcome.status === 'error') return;
@@ -386,34 +383,44 @@
         // waiting patch carries names that same version. Advancing it here would
         // promise a save the server has not seen.
         if (outcome.status === 'ok') {
-          state.baseUpdatedAt = outcome.updated_at;
-          state.baseTitle = trimmed;
+          open.baseUpdatedAt = outcome.updated_at;
+          open.baseTitle = trimmed;
         }
       }
-      if (state.titleDraft === typed) {
-        state.titleDraft = null;
+      // The only read of the mounted card in here, and only to retire a draft the
+      // user can still see. A switch has already replaced it, so there is nothing
+      // to retire.
+      if (open.id === taskId && card.titleDraft === typed) {
+        card.titleDraft = null;
       }
     });
   }
 
-  function saveDescription(doc: TiptapDoc | null): Promise<boolean> {
+  // Which card this writes is the session's, not the mounted one. The bail this
+  // replaces re-read `taskId` inside the queue, after the await had let a switch
+  // move it, and dropped the text outright; the first parameter is what fixes that,
+  // and the guard entry naming this function is what holds it shut.
+  function saveDescription(open: CardWriteSession, doc: TiptapDoc | null): Promise<boolean> {
     // The editor flushes pending saves on teardown; skip that doomed PATCH once the
     // card is on its way off the board so it cannot 404 (or resurrect it on refetch).
-    if (card.removing) return Promise.resolve(true);
-    const id = taskId;
+    if (open.removing) return Promise.resolve(true);
+    // Captured before the queue: after the await the field belongs to another card,
+    // and the user's title for THIS one is only knowable now.
+    const typedTitle = open.id === taskId ? (card.titleDraft?.trim() ?? '') : '';
     return queueWrite(async () => {
       // Re-checked here because the queue can hold this past a delete, a conflict or
-      // an in-place task change.
-      if (conflicted || card.removing || id !== taskId) return true;
+      // an archive.
+      if (conflictDrafts.get(open.id) !== null || open.removing) return true;
+      if (!board.tasks.some((t) => t.id === open.id)) return true;
       const outcome = await board.updateTask(
-        id,
+        open.id,
         { description: doc },
-        card.baseUpdatedAt ?? undefined,
-        currentBase()
+        open.baseUpdatedAt ?? undefined,
+        baseOf(open)
       );
       if (outcome.status === 'ok') {
-        card.baseUpdatedAt = outcome.updated_at;
-        card.baseDescription = doc;
+        open.baseUpdatedAt = outcome.updated_at;
+        open.baseDescription = doc;
         return true;
       }
       // Held for the network. Settled as far as the editor is concerned — the
@@ -423,23 +430,45 @@
         return true;
       }
       // Reporting a conflict as a failed save would make the editor retry it on the
-      // next keystroke, against a baseline that can only fail again.
+      // next keystroke, against a baseline that can only fail again. The document
+      // the rejected patch carried is the user's version here — unlike the title
+      // path there is no live editor to ask, and after a switch none at all.
       if (outcome.status === 'conflict') {
-        enterConflict();
+        enterConflict(open, {
+          // Empty reverts to the stored title, the same rule commitTitle applies:
+          // an empty title is not an edit the server would take.
+          title: typedTitle === '' ? (open.baseTitle ?? '') : typedTitle,
+          description: doc,
+        });
         return true;
       }
       return false;
     });
   }
 
+  // Created inside the {#key taskId} block, so the closure the editor holds names
+  // the card it was built for even while it is being destroyed for the next one.
+  //
+  // Belt and braces, not the fix: measured on an in-place switch, the editor's
+  // teardown flush still runs while `taskId` names the OUTGOING card, so looking
+  // the session up at the call site would pick the right one today. Inlining it
+  // fails nothing in either tier — the loss happened later, inside the queued body.
+  // Kept because it costs nothing and stops the write depending on that ordering.
+  function descriptionSaver(id: string): (doc: TiptapDoc | null) => Promise<boolean> {
+    const open = sessions.for(id);
+    return (doc) => saveDescription(open, doc);
+  }
+
   // The resolved version becomes the new baseline, so the next ordinary save
-  // carries a precondition the server will accept.
-  function adopt(id: string, resolved: TaskVersion, updatedAt: string): void {
-    conflictDrafts.clear(id);
-    if (id !== taskId) return;
-    card.baseUpdatedAt = updatedAt;
-    card.baseTitle = resolved.title;
-    card.baseDescription = resolved.description;
+  // carries a precondition the server will accept. Advanced whether or not the card
+  // is still on screen: the resolver's write moved the server, and the session is
+  // what the next visit to this card will write against.
+  function adopt(open: CardWriteSession, resolved: TaskVersion, updatedAt: string): void {
+    conflictDrafts.clear(open.id);
+    open.baseUpdatedAt = updatedAt;
+    open.baseTitle = resolved.title;
+    open.baseDescription = resolved.description;
+    if (open.id !== taskId) return;
     card.titleDraft = null;
     editorRef?.replaceContent(resolved.description);
   }
@@ -453,9 +482,9 @@
     resolved: TaskVersion,
     expectedUpdatedAt: string
   ): Promise<TaskUpdateOutcome['status']> {
-    const id = taskId;
+    const open = sessions.for(taskId);
     return queueWrite(async () => {
-      const stored = board.tasks.find((t) => t.id === id);
+      const stored = board.tasks.find((t) => t.id === open.id);
       if (stored === undefined) return 'error';
       // Keeping the stored version wholesale has nothing to write, and skipping
       // the PATCH also skips an updated_at bump that would conflict every other
@@ -465,16 +494,16 @@
         resolved.title === stored.title &&
         sameDoc(resolved.description, stored.description)
       ) {
-        adopt(id, resolved, stored.updated_at);
+        adopt(open, resolved, stored.updated_at);
         return 'ok';
       }
       const outcome = await board.updateTask(
-        id,
+        open.id,
         { title: resolved.title, description: resolved.description },
         expectedUpdatedAt
       );
       if (outcome.status === 'ok') {
-        adopt(id, resolved, outcome.updated_at);
+        adopt(open, resolved, outcome.updated_at);
       }
       return outcome.status;
     });
@@ -496,9 +525,9 @@
     const source = taskId;
     try {
       const id = await queueWrite(() => board.duplicateTask(source));
-      // card.closed alone would miss every dismissal that does not run close() —
+      // `closed` alone would miss every dismissal that does not run close() —
       // Back, the auth redirect — and taskId can also change under a mounted overlay.
-      if (id !== null && !card.closed && source === taskId) {
+      if (id !== null && !closed && source === taskId) {
         router.navigate(taskPath(id));
       }
     } finally {
@@ -509,7 +538,7 @@
   // No confirm step: archiving is reversible, and it is the only way off the
   // board — deleting a card is reached from the archive, behind its own confirm.
   async function handleArchive(): Promise<void> {
-    card.removing = true;
+    sessions.for(taskId).removing = true;
     await board.archiveTask(taskId);
     close();
   }
@@ -553,7 +582,7 @@
             aria-label="Task title"
             autocapitalize="sentences"
             oninput={(event) => (card.titleDraft = event.currentTarget.value)}
-            onblur={() => commitTitle(card, taskId)}
+            onblur={() => commitTitle(sessions.for(taskId), card.titleDraft)}
             onkeydown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();
@@ -634,7 +663,7 @@
                 bind:this={editorRef}
                 bind:saveState={card.descriptionSaveState}
                 content={draft === null ? task.description : draft.mine.description}
-                onSave={saveDescription}
+                onSave={descriptionSaver(taskId)}
                 {uploadImage}
                 {mentionUsers}
               />
