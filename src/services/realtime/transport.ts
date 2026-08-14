@@ -12,6 +12,7 @@ import { clientIpFrom } from '../clientIp';
 import { recordPersonalAccessTokenUse } from '../personalAccessTokens';
 import { SESSIONS_REVOKED, subscribeBus } from './bus';
 import type { BusEntry } from './bus';
+import { CLOSE_TOO_MANY, CLOSE_UNAUTHORIZED } from './closeCodes';
 import { deliver } from './delivery';
 import {
   getSocketState,
@@ -28,8 +29,6 @@ const AUTH_TIMEOUT_MS = 10_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_MISSED_PONGS = 2;
 const MAX_MESSAGE_BYTES = 16 * 1024;
-const CLOSE_UNAUTHORIZED = 4401;
-const CLOSE_TOO_MANY = 4429;
 const OPEN = 1;
 
 // Two ceilings, because they bound different things. Per credential holder: a
