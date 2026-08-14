@@ -14,6 +14,7 @@
   import { board, placementAfterDrop } from '../lib/board.svelte';
   import type { BoardColumn, BoardLabel, BoardTask } from '../lib/board-types';
   import { cardMenu, TOUCH_DRAG_DELAY_MS } from '../lib/card-menu.svelte';
+  import { DROP_TARGET_STYLE } from '../lib/dnd';
   import { draftKey, drafts } from '../lib/drafts.svelte';
   import { edgeScrollSpeed, fitsHorizontally } from '../lib/board-scroll';
   import {
@@ -47,7 +48,6 @@
   let { projectId, readonly = false }: Props = $props();
 
   const FLIP_MS = 150;
-  const dropTargetStyle = { outline: '2px solid var(--cp-accent)', outlineOffset: '-2px' };
   const cardClass = 'rounded-md focus-visible:outline-2 focus-visible:outline-accent';
 
   // Svelte's animate: directive measures EVERY item in the list with two
@@ -754,7 +754,7 @@
         type: 'column',
         flipDurationMs: flipMs,
         dropAnimationDisabled: motion.reduced,
-        dropTargetStyle,
+        dropTargetStyle: DROP_TARGET_STYLE,
         delayTouchStart: true,
         dragDisabled: readonly,
         dropFromOthersDisabled: readonly,
@@ -789,7 +789,7 @@
               type: 'task',
               flipDurationMs: animatedColumns.has(column.id) ? flipMs : 0,
               dropAnimationDisabled: motion.reduced,
-              dropTargetStyle,
+              dropTargetStyle: DROP_TARGET_STYLE,
               delayTouchStart: TOUCH_DRAG_DELAY_MS,
               // The finger picks the column, not the center of the card under it.
               // A card is nearly as wide as its column, so grabbing one anywhere
