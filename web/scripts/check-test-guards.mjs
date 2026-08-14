@@ -24,9 +24,10 @@
  * `vite.config.ts` applies as the module is transformed — so a run cannot leave a
  * bug behind, cannot corrupt what another process is reading, and is affordable
  * in CI. Children run `GUARD_CONCURRENCY` at a time, each with its own
- * dep-optimizer cache and its own marker file under a single temp directory.
+ * dep-optimizer cache and its own marker file under a single temp directory,
+ * and each under a `GUARD_TIMEOUT_MS` deadline.
  *
- * Five verdicts, of which one is a pass:
+ * Six verdicts, of which one is a pass:
  *
  *   CAUGHT         the mutation reached the module and the tests failed.
  *   STILL-PASSED   it reached the module and the tests passed — the guard is dead.
@@ -38,6 +39,10 @@
  *                  infrastructure, and it is kept apart from NEVER-APPLIED
  *                  because reporting it as one sends the reader to a stale anchor
  *                  that is fine.
+ *   TIMED-OUT      the child was still running at the deadline and was killed.
+ *                  Not a pass, and deliberately not CAUGHT: a mutation that makes
+ *                  a test loop forever fails the run, but so does a wedged child,
+ *                  and from here the two are the same observation.
  *
  * `--verify-only` is the sub-second half: it checks that every `find` still
  * matches its file exactly once and stops there, which is the answer to "did my
@@ -58,6 +63,14 @@ const filter = args.find((arg) => !arg.startsWith('--')) ?? '';
 // Four is where wall time stops improving: past it the children mostly compete
 // with each other's own internal parallelism, doubling total CPU for seconds.
 const concurrency = Number.parseInt(process.env.GUARD_CONCURRENCY ?? '', 10) || 4;
+// A guard asserts its run FAILS, and one way to fail is to never finish: the
+// bug behind `an accepted op is retired from the claim as well as from the
+// queue` is an unbounded resend, so with its `testName` widened by a line the
+// child runs until the box is out of memory instead of until the assertion.
+// The slowest honest guard here is ~20s, so this is margin, not a budget.
+const timeoutMs = Number.parseInt(process.env.GUARD_TIMEOUT_MS ?? '', 10) || 120_000;
+// How long a killed child gets to die politely before the group is shot.
+const graceMs = 5_000;
 
 /** @param {string} name */
 function guardNamed(name) {
@@ -82,7 +95,7 @@ function deadGuard(name, label) {
 
 /**
  * The controls that earn the right to believe a green run: one real guard this
- * runner must still report as caught, and three it must NOT, each with the
+ * runner must still report as caught, and four it must NOT, each with the
  * verdict it has to reach instead.
  *
  * The first is what a pipeline that has stopped mutating at all fails — a
@@ -124,6 +137,20 @@ const controls = selftest
           testName: 'never calls a state offline that only happens while the server answers',
         },
       },
+      {
+        // A deadline no honest run can meet — the quickest guard here spends
+        // seconds on npx and a cold dep-optimizer cache before its first
+        // assertion. It stands in for the run that never ends: at least one
+        // guard names a bug whose un-narrowed form is an unbounded resend
+        // rather than a failed expectation, and a runner that cannot kill that
+        // child reports nothing at all, for as long as CI lets it.
+        expect: 'TIMED-OUT',
+        deadline: 1_500,
+        guard: {
+          ...guardNamed('only the states that mean it say "Offline"'),
+          name: 'control: a child that outlives its deadline',
+        },
+      },
     ]
   : [];
 
@@ -156,6 +183,25 @@ function sourceOf(file) {
 const children = new Set();
 
 /**
+ * `npx` forwards nothing to the vitest it spawned, and vitest's own workers are
+ * another generation below that, so the only thing that reliably ends a run is
+ * the process group `detached` gave the child.
+ *
+ * @param {import('node:child_process').ChildProcess} child
+ * @param {NodeJS.Signals} signal
+ */
+function killTree(child, signal) {
+  if (child.pid === undefined) {
+    return;
+  }
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    child.kill(signal);
+  }
+}
+
+/**
  * Runs one guard's tests with its edit in the environment.
  *
  * `testName` narrows to the cases that actually guard this bug. Without it a
@@ -163,14 +209,14 @@ const children = new Set();
  * to fail *somewhere* to count, so an unrelated broken test in the same file
  * would report the guard as working.
  *
- * `detached` puts each child in its own process group so a cancelled run can
- * take the whole tree down by group: `npx` forwards nothing to the vitest it
- * spawned, and vitest's own workers are another generation below that.
+ * `detached` puts each child in its own process group so a cancelled run — or
+ * one past its deadline — can be taken down whole by `killTree`.
  *
  * @param {{file: string, find: string, replace: string, tests: string[], testName?: string}} guard
  * @param {string} jobDir
+ * @param {number} deadlineMs
  */
-function runGuard(guard, jobDir) {
+function runGuard(guard, jobDir, deadlineMs) {
   mkdirSync(jobDir, { recursive: true });
   const marker = join(jobDir, 'applied');
   const child = spawn(
@@ -204,10 +250,28 @@ function runGuard(guard, jobDir) {
   child.stdout.on('data', (chunk) => (output += chunk));
   child.stderr.on('data', (chunk) => (output += chunk));
   return new Promise((settle) => {
+    let timedOut = false;
+    /** @type {NodeJS.Timeout | undefined} */
+    let grace;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      killTree(child, 'SIGTERM');
+      // Settled from here rather than only from `close`, so a child that ignores
+      // the signal cannot hold the pool open past the deadline it was given.
+      grace = setTimeout(() => {
+        killTree(child, 'SIGKILL');
+        settle({ applied: existsSync(marker), ran: false, passed: false, timedOut, output });
+      }, graceMs);
+    }, deadlineMs);
     // Without this, a spawn that fails outright throws out of the pool instead of
     // reaching the verdict added for a child that died before measuring anything.
     child.on('error', (error) => (output += String(error)));
     child.on('close', (status) => {
+      // Both timers hold a pid that the OS is free to hand to something else the
+      // moment this fires, so clearing them is what keeps a late kill from
+      // landing on an unrelated process group.
+      clearTimeout(deadline);
+      clearTimeout(grace);
       children.delete(child);
       // Whether anything actually ran is read from the summary rather than from
       // the exit code, because the exit code cannot tell "no tests" from "tests
@@ -223,14 +287,21 @@ function runGuard(guard, jobDir) {
         applied: existsSync(marker),
         ran: /\d+ (passed|failed)/.test(summary),
         passed: status === 0,
+        timedOut,
         output,
       });
     });
   });
 }
 
-/** @param {{applied: boolean, ran: boolean, passed: boolean}} run */
-function verdictOf({ applied, ran, passed }) {
+/** @param {{applied: boolean, ran: boolean, passed: boolean, timedOut: boolean}} run */
+function verdictOf({ applied, ran, passed, timedOut }) {
+  // Before anything read out of the output: a killed child can have printed a
+  // partial summary, and a failing exit code it was handed by SIGTERM would
+  // otherwise read as the guard biting.
+  if (timedOut) {
+    return 'TIMED-OUT';
+  }
   if (!applied) {
     return ran ? 'NEVER-APPLIED' : 'RUN-FAILED';
   }
@@ -276,6 +347,13 @@ function explain(guard, verdict, output) {
       return (
         `the tests ran, but ${guard.file} was never transformed — nothing in ` +
         `${guard.tests.join(' ')} imports it, so the bug was never in play`
+      );
+    case 'TIMED-OUT':
+      return (
+        `${guard.tests.join(' ')} was still running after ${Math.round(timeoutMs / 1000)}s with ` +
+        `the bug put back in ${guard.file}, so it was killed. Either the bug makes those tests ` +
+        `run forever — narrow \`testName\` until one assertion fails instead — or the child ` +
+        `wedged:\n${tail(output)}`
       );
     default:
       return `vitest never printed a summary, so this run measured nothing:\n${tail(output)}`;
@@ -338,30 +416,28 @@ if (runnable.length > 0) {
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => {
       for (const child of children) {
-        if (child.pid !== undefined) {
-          try {
-            process.kill(-child.pid, 'SIGTERM');
-          } catch {
-            child.kill();
-          }
-        }
+        killTree(child, 'SIGTERM');
       }
       rmSync(dir, { recursive: true, force: true });
       process.exit(130);
     });
   }
   try {
-    const results = await pool(runnable, concurrency, async ({ guard, expect }, index) => {
-      const run = await runGuard(guard, join(dir, `job-${index}`));
-      const verdict = verdictOf(run);
-      const mark = verdict === expect ? '✓' : '✗';
-      console.log(
-        verdict === expect && !selftest
-          ? `  ${mark} ${guard.name}`
-          : `  ${mark} ${guard.name} — ${verdict}`
-      );
-      return { guard, expect, verdict, output: run.output };
-    });
+    const results = await pool(
+      runnable,
+      concurrency,
+      async ({ guard, expect, deadline }, index) => {
+        const run = await runGuard(guard, join(dir, `job-${index}`), deadline ?? timeoutMs);
+        const verdict = verdictOf(run);
+        const mark = verdict === expect ? '✓' : '✗';
+        console.log(
+          verdict === expect && !selftest
+            ? `  ${mark} ${guard.name}`
+            : `  ${mark} ${guard.name} — ${verdict}`
+        );
+        return { guard, expect, verdict, output: run.output };
+      }
+    );
 
     for (const { guard, expect, verdict, output } of results) {
       if (verdict === expect) {

@@ -76,7 +76,13 @@ export type SubmitResult<T> =
   | { status: 'failed'; error: ApiError };
 
 class OutboxStore {
+  // Work no drain has claimed. Only ops in here may be merged into, expired or
+  // renumbered — a request that is already on the wire cannot be rewritten, and
+  // keeping it out of this list is what makes that true rather than remembered.
   #ops = $state<QueuedOp[]>([]);
+  // The one op a drain is sending, held out of `#ops` for exactly as long as it
+  // is on the wire.
+  #inflight = $state<QueuedOp | null>(null);
   #issues = $state<OutboxIssue[]>([]);
   draining = $state(false);
 
@@ -121,8 +127,15 @@ class OutboxStore {
     };
   }
 
+  // Everything the user has typed that the server has not confirmed, oldest
+  // first, the claimed op included: being on the wire is not being saved. Every
+  // reader outside this class means this and not `#ops`.
+  #unsent = $derived<readonly QueuedOp[]>(
+    this.#inflight === null ? this.#ops : [this.#inflight, ...this.#ops]
+  );
+
   get pending(): readonly QueuedOp[] {
-    return this.#ops;
+    return this.#unsent;
   }
 
   get issues(): readonly OutboxIssue[] {
@@ -130,12 +143,12 @@ class OutboxStore {
   }
 
   get count(): number {
-    return this.#ops.length;
+    return this.#unsent.length;
   }
 
   #pendingByEntity = $derived.by(() => {
     const counts = new SvelteMap<string, number>();
-    for (const op of this.#ops) {
+    for (const op of this.#unsent) {
       counts.set(op.entityId, (counts.get(op.entityId) ?? 0) + 1);
     }
     return counts;
@@ -148,7 +161,7 @@ class OutboxStore {
   }
 
   get oldestQueuedAt(): string | null {
-    return this.#ops[0]?.queuedAt ?? null;
+    return this.#unsent[0]?.queuedAt ?? null;
   }
 
   /**
@@ -158,7 +171,7 @@ class OutboxStore {
    */
   async submit<T>(input: SubmitInput): Promise<SubmitResult<T>> {
     const op = this.#build(input);
-    if (!connectivity.reachable || this.#ops.length > 0 || this.draining) {
+    if (!connectivity.reachable || this.#unsent.length > 0 || this.draining) {
       this.#enqueue(op);
       return { status: 'queued' };
     }
@@ -311,7 +324,11 @@ class OutboxStore {
     // Continue the sequence rather than restarting it, so ops queued this load
     // still sort after the ones read back from the last one.
     this.#seq = Math.max(this.#seq, ...stored.map((op) => op.seq));
-    this.#ops = stored;
+    // The claimed op was written durably at submit and is still stored, so
+    // assigning the read wholesale would queue a second copy of the request a
+    // drain is at that moment sending.
+    const claimed = this.#inflight?.id;
+    this.#ops = claimed === undefined ? stored : stored.filter((op) => op.id !== claimed);
     this.#enforceBounds();
     // Work read back from a previous load is owed a send as much as work queued
     // in this one.
@@ -342,64 +359,71 @@ class OutboxStore {
       // for it.
       const boards = new Map<string, BoardTasks>();
       while (this.#ops.length > 0) {
-        const op = this.#ops[0]!;
-        const board =
-          op.semantics === 'move' && op.move !== undefined
-            ? await this.#boardFor(boards, op.projectId)
-            : null;
-        if (generation !== this.#generation) {
-          return;
-        }
-        const rekeyed = board === null ? null : this.#rekey(op, board);
-        const request = rekeyed?.request ?? op.request;
-        const outcome = await sendRequest(request);
-        if (generation !== this.#generation) {
-          return;
-        }
-        if (outcome.kind === 'unreachable') {
-          // Nothing was decided. Everything stays queued, in order, for next time.
-          break;
-        }
-        if (outcome.kind === 'ok' || isAlreadyApplied(op, outcome)) {
-          applied += 1;
-          if (board !== null && op.move !== undefined) {
-            applyMoveLocally(board, op.entityId, op.move.columnId, request);
-          }
-          // Reported only once the move has landed. `adjusted` claims the change
-          // was applied somewhere other than where it was aimed, which a placement
-          // computed before the request cannot know — raising it from #rekey filed
-          // the same notice once per attempt, and a retry against fresh neighbors
-          // may not be approximate at all.
-          if (rekeyed?.exact === false) {
-            this.#raise(op, {
-              reason: 'approximate-placement',
-              severity: 'adjusted',
-              detail:
-                'The cards it was dropped between are gone, so it went to the end of the column.',
-            });
-          }
-          this.#forget([op]);
-          continue;
-        }
-        const verdict = await this.#handleHttpFailure(op, outcome.error, request);
-        if (generation !== this.#generation) {
-          return;
-        }
-        if (verdict === 'halt') {
-          break;
-        }
-        if (verdict === 'retry-fresh') {
-          // The cached board is what produced the key the server just refused, and
-          // #rekey is a pure function of it: retrying against the same read would
-          // send the identical request and spend the one attempt this op gets.
-          await this.#refreshBoard(boards, op.projectId);
+        const op = this.#claim();
+        try {
+          const board =
+            op.semantics === 'move' && op.move !== undefined
+              ? await this.#boardFor(boards, op.projectId)
+              : null;
           if (generation !== this.#generation) {
             return;
           }
-          continue;
-        }
-        if (verdict === 'retry') {
-          continue;
+          const rekeyed = board === null ? null : this.#rekey(op, board);
+          const request = rekeyed?.request ?? op.request;
+          const outcome = await sendRequest(request);
+          if (generation !== this.#generation) {
+            return;
+          }
+          if (outcome.kind === 'unreachable') {
+            // Nothing was decided. Everything stays queued, in order, for next time.
+            break;
+          }
+          if (outcome.kind === 'ok' || isAlreadyApplied(op, outcome)) {
+            applied += 1;
+            if (board !== null && op.move !== undefined) {
+              applyMoveLocally(board, op.entityId, op.move.columnId, request);
+            }
+            // Reported only once the move has landed. `adjusted` claims the change
+            // was applied somewhere other than where it was aimed, which a placement
+            // computed before the request cannot know — raising it from #rekey filed
+            // the same notice once per attempt, and a retry against fresh neighbors
+            // may not be approximate at all.
+            if (rekeyed?.exact === false) {
+              this.#raise(op, {
+                reason: 'approximate-placement',
+                severity: 'adjusted',
+                detail:
+                  'The cards it was dropped between are gone, so it went to the end of the column.',
+              });
+            }
+            if (outcome.kind === 'ok') {
+              this.#advancePreconditions(op, outcome.data);
+            }
+            this.#forget([op]);
+            continue;
+          }
+          const verdict = await this.#handleHttpFailure(op, outcome.error, request);
+          if (generation !== this.#generation) {
+            return;
+          }
+          if (verdict === 'halt') {
+            break;
+          }
+          if (verdict === 'retry-fresh') {
+            // The cached board is what produced the key the server just refused, and
+            // #rekey is a pure function of it: retrying against the same read would
+            // send the identical request and spend the one attempt this op gets.
+            await this.#refreshBoard(boards, op.projectId);
+            if (generation !== this.#generation) {
+              return;
+            }
+            continue;
+          }
+          if (verdict === 'retry') {
+            continue;
+          }
+        } finally {
+          this.#release(op);
         }
       }
     } finally {
@@ -457,7 +481,7 @@ class OutboxStore {
       return 'retry-fresh';
     }
     if (error.status === 404 || error.status === 403) {
-      const doomed = this.#ops.filter((queued) => queued.entityId === op.entityId);
+      const doomed = this.#unsent.filter((queued) => queued.entityId === op.entityId);
       this.#raise(op, {
         reason: error.status === 404 ? 'gone' : 'forbidden',
         severity: 'failed',
@@ -540,8 +564,87 @@ class OutboxStore {
 
   #bumpAttempts(op: QueuedOp): void {
     const updated = { ...op, attempts: op.attempts + 1 };
-    this.#ops = this.#ops.map((queued) => (queued.id === op.id ? updated : queued));
+    if (this.#inflight?.id === op.id) {
+      this.#inflight = updated;
+    } else {
+      this.#ops = this.#ops.map((queued) => (queued.id === op.id ? updated : queued));
+    }
     void writeOp(updated);
+  }
+
+  /**
+   * Takes the head of the queue out of `#ops` for one send.
+   *
+   * While it is out, the paths that rewrite queued work — a merge, an expiry, an
+   * attempt counter — search a list it is not in, so none of them can reach a
+   * request that has already been serialized and dispatched.
+   */
+  #claim(): QueuedOp {
+    const op = this.#ops[0]!;
+    this.#ops = this.#ops.slice(1);
+    this.#inflight = op;
+    return op;
+  }
+
+  /**
+   * Puts unfinished work back at the head. Paired with `#claim` by a `finally`,
+   * so every way out of a send — a break, a retry, an abandoned run returning —
+   * goes through it rather than each remembering to.
+   *
+   * Only the op it claimed: a run that unwinds late may find a sign-out and a
+   * fresh drain have put someone else's op on the wire, and pushing that one
+   * back among the mergeable work is the very thing the claim exists to stop.
+   * `#generation` cannot answer this — it says whether the queue is still the
+   * same one, not whether the op still is.
+   */
+  #release(claimed: QueuedOp): void {
+    if (this.#inflight === null || this.#inflight.id !== claimed.id) {
+      return;
+    }
+    this.#ops = [this.#inflight, ...this.#ops];
+    this.#inflight = null;
+  }
+
+  /**
+   * A guarded edit that lands bumps the row's `updated_at`, which retires the
+   * precondition every later edit to that row is still carrying. Left alone, the
+   * next one is refused against a version this same user wrote seconds ago — the
+   * conflict with nobody that coalescing avoids while both are still queued, and
+   * that nothing avoids once the first is on the wire.
+   *
+   * Narrow on purpose. `entityId` is a task id for comment, attachment and
+   * checklist submits too, and their responses carry a different row's
+   * `updated_at`; advancing on any successful op would write that value into a
+   * task's precondition. Both ends are therefore checked for `contentEdit`, and
+   * the field is read defensively because this same branch serves a replay the
+   * server answers with no body at all.
+   */
+  #advancePreconditions(op: QueuedOp, data: unknown): void {
+    if (op.semantics !== 'contentEdit') {
+      return;
+    }
+    const updatedAt = asRecord(data).updated_at;
+    if (typeof updatedAt !== 'string') {
+      return;
+    }
+    this.#ops = this.#ops.map((queued) => {
+      const body = asRecord(queued.request.body);
+      if (
+        queued.entityId !== op.entityId ||
+        queued.semantics !== 'contentEdit' ||
+        !('expected_updated_at' in body)
+      ) {
+        return queued;
+      }
+      const advanced = {
+        ...queued,
+        request: { ...queued.request, body: { ...body, expected_updated_at: updatedAt } },
+      };
+      // The durable copy has to agree, or a reload replays the stale
+      // precondition this just retired.
+      void writeOp(advanced);
+      return advanced;
+    });
   }
 
   #raise(op: QueuedOp, issue: RaisedIssue): void {
@@ -560,9 +663,18 @@ class OutboxStore {
     ];
   }
 
+  /**
+   * Retires work, wherever it is sitting. The claim has to be cleared here and
+   * not only in `#release`: an op the server has answered is finished, and a
+   * release that put it back would hand the loop the same request to send again,
+   * for as long as the server keeps accepting it.
+   */
   #forget(ops: readonly QueuedOp[]): void {
     const ids = new Set(ops.map((op) => op.id));
     this.#ops = this.#ops.filter((op) => !ids.has(op.id));
+    if (this.#inflight !== null && ids.has(this.#inflight.id)) {
+      this.#inflight = null;
+    }
     void deleteOps([...ids]);
   }
 
@@ -590,6 +702,9 @@ class OutboxStore {
     this.#cancelWake();
     this.#wakeAttempts = 0;
     this.#ops = [];
+    // The op on the wire belongs to the account that is leaving as much as the
+    // queued ones do, and it is the one a reader would otherwise still see.
+    this.#inflight = null;
     this.#issues = [];
     this.#seq = 0;
     this.#hydrated = false;

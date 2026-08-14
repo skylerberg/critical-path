@@ -198,8 +198,8 @@ Each re-runs its cases against something deliberately put back on the bug —
 legacy markup in the fixture, the pre-fix `dndzone` option in the real board, the
 write queue disabled in the card overlay, a planted duplicate and a planted dead
 reference, the pre-fix dark accent and a column back on `<section>`, guards whose
-edit changes nothing and one aimed at a module its tests never load — and fails
-if any of them still *passes*. The a11y selftest also names the rule it expects,
+edit changes nothing, one aimed at a module its tests never load and one handed a
+deadline no real run could meet — and fails if any of them still *passes*. The a11y selftest also names the rule it expects,
 because with a dirty baseline any violation would otherwise read as the planted
 one being caught. All six share a failure mode a unit test mostly does not:
 measuring nothing and reporting green, because the gesture never armed, the
@@ -244,6 +244,14 @@ something the runner observed rather than assumed, which is what separates a
 guard aimed at a module the named tests never load (`NEVER-APPLIED`) from one
 that has stopped biting (`STILL-PASSED`), and both from a child that died before
 it measured anything (`RUN-FAILED`).
+
+Every child also runs under a deadline (`GUARD_TIMEOUT_MS`, 120s), past which its
+process group is killed and the guard reported `TIMED-OUT`. Not all of these bugs
+fail an expectation: the outbox claim guards name resends that never stop, so a
+`testName` widened to a second passing case turns that guard's run from a
+five-second failure into one with no upper bound at all. Narrowing `testName`
+until exactly one case fails is what keeps such a guard cheap; the deadline is
+only what stops CI hanging when it is not.
 
 **The two board-layout checks take `--only=` and `--list`,** which is how to
 iterate without paying for the whole gate — the scroll phase alone is around 27s
